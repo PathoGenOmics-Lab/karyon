@@ -3,6 +3,7 @@
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
+use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
 
 /// How a coverage track is drawn.
@@ -237,6 +238,19 @@ impl Track for CoverageTrack {
         self.label.as_deref()
     }
 
+    fn y_axis_width(&self, theme: &Theme) -> f64 {
+        if !self.show_max {
+            return 0.0;
+        }
+        // Room for the widest label this track could print, which is the
+        // ceiling rather than the zero underneath it.
+        let widest = self
+            .max
+            .map(format_value)
+            .unwrap_or_else(|| "999.9k".to_string());
+        text_width(&widest, theme.font_size - 1.0) + 8.0
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let color = self
@@ -328,29 +342,49 @@ impl Track for CoverageTrack {
         }
 
         if self.show_max {
-            let suffix = if self.log_scale { " (log)" } else { "" };
-            let text = format!("{}{}", format_value(ceiling), suffix);
-            let size = ctx.theme.font_size - 1.0;
-            // A full band of signal reaches the top left corner, where the
-            // label lives. Back it with the page colour so the number stays
-            // readable instead of sitting on top of the fill.
-            ctx.svg.rect_opacity(
-                band.x + 1.0,
-                band.y,
-                text_width(&text, size) + 5.0,
-                size + 4.0,
-                &ctx.theme.background,
-                0.72,
-            );
-            ctx.svg.text(
-                band.x + 3.0,
-                band.y + size + 1.0,
-                &text,
-                &ctx.theme.muted,
-                size,
-                Anchor::Start,
-            );
+            self.draw_axis(ctx, ceiling, top);
         }
+    }
+}
+
+impl CoverageTrack {
+    /// Draws the value axis in the strip the figure reserved for it.
+    ///
+    /// Two ticks, zero and the ceiling, plus a hairline across the plot at the
+    /// top of the scale. Two is enough: a coverage track is read for its shape
+    /// and its order of magnitude, and a ladder of six gridlines would be more
+    /// ink than the profile it is measuring.
+    fn draw_axis(&self, ctx: &mut DrawContext<'_>, ceiling: f64, top: f64) {
+        let band = ctx.band;
+        let size = ctx.theme.font_size - 1.0;
+        let baseline = band.bottom();
+        // Where the ceiling lands once the headroom is accounted for.
+        let ceiling_y = baseline - (self.transform(ceiling) / top) * band.h;
+
+        ctx.svg.line(
+            band.x,
+            ceiling_y,
+            band.right(),
+            ceiling_y,
+            &ctx.theme.rule,
+            1.0,
+        );
+
+        if ctx.axis.w <= 0.0 {
+            return;
+        }
+        let right = ctx.axis.right() - 4.0;
+        let suffix = if self.log_scale { " log" } else { "" };
+        ctx.svg.text(
+            right,
+            ceiling_y + size * 0.35,
+            &format!("{}{}", format_value(ceiling), suffix),
+            &ctx.theme.muted,
+            size,
+            Anchor::End,
+        );
+        ctx.svg
+            .text(right, baseline, "0", &ctx.theme.muted, size, Anchor::End);
     }
 }
 
@@ -456,6 +490,29 @@ mod tests {
         let track = CoverageTrack::new(0, vec![0.0]).log_scale(true);
         assert!((track.transform(9.0) - 1.0).abs() < 1e-12);
         assert_eq!(track.transform(0.0), 0.0);
+    }
+
+    #[test]
+    fn the_axis_labels_both_ends_of_the_scale() {
+        use crate::figure::Figure;
+        let depth: Vec<f64> = (0..500).map(|i| (i % 87) as f64).collect();
+        let svg = Figure::new(Region::parse("chr1:1-500").unwrap())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, depth).label("depth"))
+            .to_svg();
+        assert!(svg.contains(">86</text>"), "the ceiling should be labelled");
+        assert!(svg.contains(">0</text>"), "and so should the floor");
+    }
+
+    #[test]
+    fn a_pinned_maximum_is_what_the_axis_says() {
+        use crate::figure::Figure;
+        let svg = Figure::new(Region::parse("chr1:1-500").unwrap())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 500]).max(250.0).label("d"))
+            .to_svg();
+        assert!(svg.contains(">250</text>"));
+        assert!(!svg.contains(">10</text>"));
     }
 
     #[test]

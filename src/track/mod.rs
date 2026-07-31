@@ -68,6 +68,13 @@ pub struct DrawContext<'a> {
     pub theme: &'a Theme,
     /// The band this track may paint in. Output is clipped to it.
     pub band: Rect,
+    /// The strip immediately left of the band, as wide as this track asked for
+    /// in [`Track::y_axis_width`].
+    ///
+    /// Somewhere to put a value axis. It is zero width unless the track asked,
+    /// and the clip covers it along with the band, so a track that wants no
+    /// axis cannot accidentally draw outside itself.
+    pub axis: Rect,
     /// The region on display.
     pub region: &'a Region,
 }
@@ -112,6 +119,19 @@ pub trait Track {
     /// The figure reserves the gutter only when at least one track wants it.
     fn label(&self) -> Option<&str> {
         None
+    }
+
+    /// How much room this track wants for a value axis, in pixels.
+    ///
+    /// A track that returns more than zero gets [`DrawContext::axis`], a strip
+    /// between the labels and the plotting area, and may draw its own ticks
+    /// there. The figure reserves the widest request across every track, so the
+    /// plotting areas still line up.
+    ///
+    /// Only quantitative tracks want this. A pileup or a sequence has no value
+    /// to put a number on, and the default of zero says so.
+    fn y_axis_width(&self, _theme: &Theme) -> f64 {
+        0.0
     }
 
     /// Draws the track inside `ctx.band`.

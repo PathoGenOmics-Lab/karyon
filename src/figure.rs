@@ -204,9 +204,18 @@ impl Figure {
                 h: *height,
             };
 
+            let axis = Rect {
+                x: band.x - layout.axis_width,
+                y,
+                w: layout.axis_width,
+                h: *height,
+            };
+
             if let Some(label) = track.label() {
+                // Labels sit to the left of the value axes, so a track with an
+                // axis and one without still line their names up.
                 svg.text(
-                    layout.plot_x - 8.0,
+                    axis.x - 8.0,
                     band.mid_y() + self.theme.label_font_size * 0.35,
                     label,
                     &self.theme.muted,
@@ -215,12 +224,13 @@ impl Figure {
                 );
             }
 
-            svg.begin_clip(band.x, band.y, band.w, band.h);
+            svg.begin_clip(axis.x, band.y, axis.w + band.w, band.h);
             let mut ctx = DrawContext {
                 svg: &mut svg,
                 scale: &layout.scale,
                 theme: &self.theme,
                 band,
+                axis,
                 region: &self.region,
             };
             track.draw(&mut ctx);
@@ -260,7 +270,14 @@ impl Figure {
         } else {
             0.0
         };
-        let plot_x = self.margin.left + gutter;
+        // The widest axis any track asks for, reserved for all of them, so that
+        // every plotting area still starts at the same x.
+        let axis_width = self
+            .tracks
+            .iter()
+            .map(|t| t.y_axis_width(&self.theme).max(0.0))
+            .fold(0.0f64, f64::max);
+        let plot_x = self.margin.left + gutter + axis_width;
         let plot_width = (self.width - plot_x - self.margin.right).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
@@ -275,6 +292,7 @@ impl Figure {
         Layout {
             scale,
             plot_x,
+            axis_width,
             plot_width,
             header_height,
             header_baseline,
@@ -287,6 +305,7 @@ impl Figure {
 struct Layout {
     scale: Scale,
     plot_x: f64,
+    axis_width: f64,
     plot_width: f64,
     header_height: f64,
     header_baseline: f64,
@@ -329,6 +348,37 @@ mod tests {
         assert_eq!(bare.layout().plot_x, 12.0);
         assert_eq!(labelled.layout().plot_x, 12.0 + 84.0);
         assert!(labelled.layout().plot_width < bare.layout().plot_width);
+    }
+
+    #[test]
+    fn a_value_axis_is_only_reserved_when_a_track_asks_for_one() {
+        let bare = Figure::new(region()).push(AxisTrack::new());
+        let quantitative = Figure::new(region()).push(CoverageTrack::new(0, vec![1.0; 1000]));
+        assert_eq!(bare.layout().axis_width, 0.0);
+        assert!(quantitative.layout().axis_width > 0.0);
+        assert!(quantitative.layout().plot_x > bare.layout().plot_x);
+    }
+
+    #[test]
+    fn one_track_asking_for_an_axis_moves_every_plotting_area() {
+        // The whole point of reserving the widest request for all of them: two
+        // tracks in one figure must still share an x axis.
+        let figure = Figure::new(region())
+            .push(CoverageTrack::new(0, vec![1.0; 1000]).label("depth"))
+            .push(AxisTrack::new());
+        let layout = figure.layout();
+        assert!(layout.axis_width > 0.0);
+        // Both bands start at plot_x, because there is only one plot_x.
+        assert_eq!(layout.plot_x, 12.0 + figure.label_width + layout.axis_width);
+    }
+
+    #[test]
+    fn turning_the_axis_off_gives_the_room_back() {
+        let with = Figure::new(region()).push(CoverageTrack::new(0, vec![1.0; 1000]));
+        let without =
+            Figure::new(region()).push(CoverageTrack::new(0, vec![1.0; 1000]).show_max(false));
+        assert!(without.layout().plot_width > with.layout().plot_width);
+        assert_eq!(without.layout().axis_width, 0.0);
     }
 
     #[test]

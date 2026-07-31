@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-31
+
+Quantitative tracks get a real value axis. Until now a coverage track showed
+only its maximum, crammed into the top left corner on a translucent patch, and a
+reader could not get a number off the plot at any other height.
+
+### Added
+
+- `Track::y_axis_width`, which a track implements to ask for a strip between
+  the labels and the plotting area, and `DrawContext::axis`, the rectangle it
+  gets. The figure reserves the widest request across every track, so the
+  plotting areas still line up and the shared x axis survives. A track that
+  wants no axis returns zero, gets a zero-width strip, and cannot draw outside
+  itself: the clip covers the band and the strip together.
+- A value axis on `CoverageTrack`: the ceiling and zero, labelled outside the
+  plot, with a hairline across it at the top of the scale. Two ticks rather
+  than a ladder, because a coverage profile is read for its shape and its order
+  of magnitude and six gridlines would be more ink than the thing they measure.
+- The same for `LogoTrack`, whose top and bottom values move out of the band.
+
+### Changed
+
+- Track labels sit to the left of the value axes, so a track with an axis and
+  one without still line their names up.
+
 ## [0.7.0] - 2026-07-31
 
 ### Added
@@ -235,6 +260,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.8.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.0
 [0.7.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.7.0
 [0.6.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.6.0
 [0.5.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.5.0

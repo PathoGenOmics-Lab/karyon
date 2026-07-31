@@ -10,6 +10,7 @@ use crate::dash::{Dash, DashFit};
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
+use crate::theme::Theme;
 use crate::track::{DrawContext, Rect, Track};
 
 /// What quantity a symbol's height stands for.
@@ -746,6 +747,16 @@ impl Track for LogoTrack {
         self.label.as_deref()
     }
 
+    fn y_axis_width(&self, theme: &Theme) -> f64 {
+        if !self.show_scale {
+            return 0.0;
+        }
+        // The widest thing the axis can print is a negative value with a unit
+        // on it, so measure that rather than guessing.
+        let sample = format!("-99.9{}", self.score.unit());
+        text_width(&sample, theme.font_size - 1.0) + 8.0
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let stacks = self.stacks();
@@ -856,25 +867,22 @@ impl LogoTrack {
             .glyph(cell.x, cell.bottom(), cell.w, font_size, symbol, color);
     }
 
-    /// An axis value, backed by the page colour so it stays readable on top of
-    /// whatever the logo drew there.
+    /// An axis value, in the strip the figure reserved to the left of the plot.
+    ///
+    /// It used to sit inside the band on a translucent patch, which is what you
+    /// do when there is nowhere else to put it. There is somewhere else now.
     fn chip(&self, ctx: &mut DrawContext<'_>, baseline: f64, text: &str) {
+        if ctx.axis.w <= 0.0 {
+            return;
+        }
         let size = ctx.theme.font_size - 1.0;
-        ctx.svg.rect_opacity(
-            ctx.band.x + 1.0,
-            baseline - size,
-            text_width(text, size) + 5.0,
-            size + 3.0,
-            &ctx.theme.background,
-            0.72,
-        );
         ctx.svg.text(
-            ctx.band.x + 3.0,
+            ctx.axis.right() - 4.0,
             baseline,
             text,
             &ctx.theme.muted,
             size,
-            Anchor::Start,
+            Anchor::End,
         );
     }
 
