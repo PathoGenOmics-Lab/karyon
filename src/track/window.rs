@@ -464,16 +464,37 @@ impl Track for WindowTrack {
                 // A line cannot show both ends of a column that swings either
                 // way, so it shows the mean of the column and the baseline
                 // underneath it says which side that fell on.
-                let points: Vec<(f64, f64)> = columns
+                let points: Vec<(f64, f64, bool)> = columns
                     .iter()
                     .enumerate()
                     .filter_map(|(index, column)| {
-                        column
-                            .mean()
-                            .map(|mean| (band.x + index as f64 + 0.5, y_of(mean)))
+                        column.mean().map(|mean| {
+                            (
+                                band.x + index as f64 + 0.5,
+                                y_of(mean),
+                                mean >= self.baseline,
+                            )
+                        })
                     })
                     .collect();
-                ctx.svg.polyline(&points, &above, 1.6);
+                // Broken into runs either side of the baseline, so the line
+                // wears the same two colours the blocks do. One colour for the
+                // whole trace would say every window was above the line.
+                let mut run: Vec<(f64, f64)> = Vec::new();
+                let mut side = points.first().map(|point| point.2).unwrap_or(true);
+                for (x, y, up) in &points {
+                    if *up != side && run.len() > 1 {
+                        ctx.svg
+                            .polyline(&run, if side { &above } else { &below }, 1.6);
+                        run = vec![*run.last().expect("the run is not empty")];
+                    }
+                    side = *up;
+                    run.push((*x, *y));
+                }
+                if run.len() > 1 {
+                    ctx.svg
+                        .polyline(&run, if side { &above } else { &below }, 1.6);
+                }
             }
         }
     }

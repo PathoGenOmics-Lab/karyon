@@ -220,9 +220,9 @@ impl Track for ManhattanTrack {
         let baseline = band.bottom();
         ctx.svg.line(
             band.x,
-            baseline,
+            baseline - 0.5,
             band.right(),
-            baseline,
+            baseline - 0.5,
             &ctx.theme.rule,
             1.0,
         );
@@ -276,8 +276,14 @@ impl Track for ManhattanTrack {
                 size,
                 Anchor::End,
             );
-            ctx.svg
-                .text(right, baseline, "0", &ctx.theme.muted, size, Anchor::End);
+            ctx.svg.text(
+                right,
+                baseline - size * 0.22,
+                "0",
+                &ctx.theme.muted,
+                size,
+                Anchor::End,
+            );
         }
     }
 }

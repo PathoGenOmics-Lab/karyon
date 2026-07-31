@@ -475,11 +475,18 @@ impl Track for IdeogramTrack {
                 &color,
                 0.22,
             );
+            // Inset by half its own stroke where the clip would otherwise
+            // bite: the top and bottom edges sit on the band and would render
+            // at half the weight of the sides. The width is left alone, since
+            // the marker is already at its floor and shrinking it would put it
+            // under the minimum it has for being visible at all.
+            let left = x0.max(band_area.x + 0.6);
+            let right = x1.min(band_area.right() - 0.6).max(left + 0.5);
             ctx.svg.rect_outline(
-                x0,
-                top - MARKER_PAD,
-                x1 - x0,
-                body_height + MARKER_PAD * 2.0,
+                left,
+                top - MARKER_PAD + 0.6,
+                right - left,
+                (body_height + MARKER_PAD * 2.0 - 1.2).max(0.5),
                 &color,
                 1.2,
             );

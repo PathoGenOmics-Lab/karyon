@@ -259,11 +259,15 @@ impl Track for CoverageTrack {
             .unwrap_or_else(|| ctx.theme.accent.clone());
 
         let baseline = band.bottom();
+        // Half a stroke inside the band. A one pixel rule centred on the clip
+        // edge keeps only half its ink and renders at half the weight of the
+        // ceiling rule drawn with identical parameters, which AxisTrack
+        // already worked around with the same half pixel.
         ctx.svg.line(
             band.x,
-            baseline,
+            baseline - 0.5,
             band.right(),
-            baseline,
+            baseline - 0.5,
             &ctx.theme.rule,
             1.0,
         );
@@ -377,7 +381,7 @@ impl CoverageTrack {
         let suffix = if self.log_scale { " log" } else { "" };
         ctx.svg.text(
             right,
-            ceiling_y + size * 0.35,
+            (ceiling_y + size * 0.35).max(band.y + size * 0.78),
             &format!("{}{}", format_value(ceiling), suffix),
             &ctx.theme.muted,
             size,

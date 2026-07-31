@@ -12,8 +12,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use karyon::{
-    AxisTrack, Feature, Figure, Homology, Locus, LocusTrack, MethylSite, MethylationTrack, Move,
-    Region, SquiggleTrack, Strand,
+    AxisTrack, Feature, Figure, Homology, Legend, LegendTrack, Locus, LocusTrack, MethylSite,
+    MethylationTrack, Move, Region, SquiggleTrack, Strand, Theme,
 };
 
 fn main() -> std::io::Result<()> {
@@ -69,8 +69,10 @@ fn squiggle(out: &Path) -> std::io::Result<()> {
 fn cluster(out: &Path) -> std::io::Result<()> {
     // One colour per gene family, so a rearrangement is visible without
     // following a single ribbon.
+    // Past the two strand colours, so a family is never painted in the colour
+    // that means "reverse strand" elsewhere in the crate.
     let family = [
-        "#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#7b3294",
+        "#009e73", "#cc79a7", "#e69f00", "#7b3294", "#56b4e9", "#8c6d31",
     ];
     let gene = |start: u64, len: u64, name: &str, group: usize, forward: bool| {
         Feature::new(start, start + len)
@@ -117,23 +119,30 @@ fn cluster(out: &Path) -> std::io::Result<()> {
     ];
 
     let links = vec![
-        Homology::new(0, 0, 0, 0.99),
-        Homology::new(0, 1, 1, 0.98),
-        Homology::new(0, 3, 2, 0.97),
-        Homology::new(0, 4, 3, 0.99),
-        Homology::new(1, 0, 0, 0.99),
-        Homology::new(1, 2, 1, 0.94),
-        Homology::new(1, 3, 2, 0.98),
+        // A real spread, because orthologues have one: esxB is near identical
+        // across the complex and eccA1 has drifted.
+        Homology::new(0, 0, 0, 0.998),
+        Homology::new(0, 1, 1, 0.94),
+        Homology::new(0, 3, 2, 0.82),
+        Homology::new(0, 4, 3, 0.97),
+        Homology::new(1, 0, 0, 0.995),
+        Homology::new(1, 2, 1, 0.76),
+        Homology::new(1, 3, 2, 0.91),
     ];
 
     let track = LocusTrack::new(loci).links(links).label("ESX-1");
     let missing = track.unmatched(2).len();
+
+    let legend = Legend::new()
+        .ramp("identity", "#e8e9ea", "#8b8d8f", "70%", "100%")
+        .key("in no other locus", Theme::light().foreground);
 
     let figure = Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
         .title("One locus, three genomes, and what each one is missing")
         .width(880.0)
         .show_region_label(false)
         .push(track)
+        .push(LegendTrack::new(legend))
         .push(AxisTrack::new());
 
     figure.save_svg(out.join("example-cluster.svg"))?;

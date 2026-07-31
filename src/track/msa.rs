@@ -21,7 +21,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
-use crate::theme::{mix, Theme};
+use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::{DrawContext, Track};
 
 /// One aligned sequence.
@@ -441,7 +441,7 @@ impl Track for MsaTrack {
             }
 
             if draw_letters {
-                self.paint_letters(ctx, row, first, last, top);
+                self.paint_letters(ctx, row, &comparison, first, last, top);
             }
 
             if self.show_names && ctx.axis.w > 0.0 {
@@ -493,6 +493,7 @@ impl MsaTrack {
         &self,
         ctx: &mut DrawContext<'_>,
         row: &MsaSequence,
+        comparison: &[u8],
         first: usize,
         last: usize,
         top: f64,
@@ -507,13 +508,26 @@ impl MsaTrack {
             }
             let x = ctx.scale.x(column as u64);
             let width = ctx.scale.x(column as u64 + 1) - x;
-            ctx.svg.glyph(
-                x,
+            // The ink is chosen against the cell the letter sits on. Fixed to
+            // the foreground it fell to two to one on the darker class
+            // colours, which is under every contrast floor there is.
+            let ink = self
+                .cell_color(Some(residue), comparison.get(column).copied(), ctx.theme)
+                .map_or_else(
+                    || ctx.theme.foreground.clone(),
+                    |cell| contrast_ink(&cell).to_string(),
+                );
+            // Drawn rather than stretched to the column. A logo letter has to
+            // fill an exact box because its height is the datum; here it is
+            // just a letter, and forcing an I to the width of a W turns it
+            // into a block.
+            ctx.svg.text(
+                x + width / 2.0,
                 top + self.row_height - (self.row_height - size) / 2.0,
-                width,
-                size / ctx.theme.cap_height_ratio.max(0.1),
                 &(residue as char).to_ascii_uppercase().to_string(),
-                &ctx.theme.foreground,
+                &ink,
+                size / ctx.theme.cap_height_ratio.max(0.1),
+                Anchor::Middle,
             );
         }
     }
@@ -776,7 +790,13 @@ mod tests {
             .show_region_label(false)
             .push(MsaTrack::new(alignment()).show_names(false))
             .to_svg();
-        assert!(wide.contains("textLength"));
-        assert!(!narrow.contains("textLength"));
+        // Letters are drawn rather than stretched to their column, so what
+        // says a letter is there is the letter itself.
+        assert!(wide.contains(">A</text>"), "no residues at ten columns");
+        assert!(!narrow.contains(">A</text>"), "letters at four thousand");
+        assert!(
+            !wide.contains("textLength"),
+            "an alignment letter keeps its own shape"
+        );
     }
 }

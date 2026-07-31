@@ -277,10 +277,14 @@ impl Track for MethylationTrack {
             let right = ctx.axis.right() - 4.0;
             // The numbers alone would leave the reader guessing which lane is
             // which strand, and the figure has nothing else that says so.
+            // Written where a full fraction actually lands, not at the band
+            // edges: the markers stop a radius short of those, so labelling
+            // the edges overstates the lane by a tenth.
+            let full = (half - self.radius - 1.0).max(1.0);
             for (y, text) in [
-                (band.y + size, "fwd 100%"),
+                (middle - full + size * 0.35, "fwd 100%"),
                 (middle + size * 0.35, "0"),
-                (band.bottom() - size * 0.22, "rev 100%"),
+                (middle + full + size * 0.35, "rev 100%"),
             ] {
                 ctx.svg
                     .text(right, y, text, &ctx.theme.muted, size, Anchor::End);

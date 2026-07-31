@@ -216,9 +216,9 @@ impl Track for VariantTrack {
         let baseline = band.bottom();
         ctx.svg.line(
             band.x,
-            baseline,
+            baseline - 0.5,
             band.right(),
-            baseline,
+            baseline - 0.5,
             &ctx.theme.rule,
             1.0,
         );

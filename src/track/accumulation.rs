@@ -441,7 +441,7 @@ impl Track for AccumulationTrack {
             // and does not say where it does start is a misleading axis.
             ctx.svg.text(
                 right,
-                baseline,
+                baseline - size * 0.22,
                 &group_thousands(bottom),
                 &ctx.theme.muted,
                 size,

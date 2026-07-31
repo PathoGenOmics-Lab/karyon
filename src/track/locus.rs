@@ -22,7 +22,7 @@
 //! it has nothing to do with, and a figure of those is a figure of crossings.
 
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{num, text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::feature::strand_color;
 use crate::track::{DrawContext, Feature, Strand, Track};
@@ -123,6 +123,7 @@ pub struct LocusTrack {
     reverse_color: Option<String>,
     min_gene_width: f64,
     identity_range: (f64, f64),
+    mark_unmatched: bool,
 }
 
 impl LocusTrack {
@@ -140,6 +141,7 @@ impl LocusTrack {
             reverse_color: None,
             min_gene_width: 2.0,
             identity_range: (0.7, 1.0),
+            mark_unmatched: true,
         }
     }
 
@@ -199,6 +201,16 @@ impl LocusTrack {
         self
     }
 
+    /// Outlines the genes no homology reaches.
+    ///
+    /// On by default, because it is the question the figure exists to answer.
+    /// The missing ribbon says it too, but only to a reader who thought to
+    /// look for an absence, and an absence is the hardest thing to notice.
+    pub fn mark_unmatched(mut self, mark: bool) -> Self {
+        self.mark_unmatched = mark;
+        self
+    }
+
     /// Sets the identities that map to the palest and darkest ribbon.
     ///
     /// Real homologies do not run from nought to one. A set of orthologues sits
@@ -215,9 +227,12 @@ impl LocusTrack {
     fn shade(&self, identity: f64) -> f64 {
         let (low, high) = self.identity_range;
         let fraction = ((identity - low) / (high - low)).clamp(0.0, 1.0);
-        // Kept pale on purpose. A ribbon is context for the genes, and at half
-        // the ink of the page it stops being context and becomes the subject.
-        0.08 + 0.24 * fraction
+        // Pale enough to stay context for the genes, but spread widely enough
+        // that two identities a few per cent apart are two different greys. A
+        // ramp of a tenth of the ink range puts adjacent ribbons two values of
+        // 255 apart, which nobody can see, and then the figure claims to be
+        // shaded by identity while showing one flat grey.
+        0.10 + 0.42 * fraction
     }
 
     /// The loci.
@@ -310,19 +325,53 @@ impl Track for LocusTrack {
                 &ctx.theme.foreground,
                 self.shade(link.identity),
             );
-            let points = [
-                (ctx.scale.x(upper.start), top),
-                (ctx.scale.x(upper.end), top),
-                (ctx.scale.x(lower.end), bottom),
-                (ctx.scale.x(lower.start), bottom),
-            ];
-            ctx.svg.polygon(&points, &shade);
+            // Curved sides rather than straight ones. A quadrilateral between
+            // two rows reads as a block of colour; a ribbon that leaves each
+            // gene vertically and arrives vertically reads as a connection,
+            // and tells the eye which end goes with which without being
+            // traced corner to corner.
+            let (ax0, ax1) = (ctx.scale.x(upper.start), ctx.scale.x(upper.end));
+            let (bx0, bx1) = (ctx.scale.x(lower.start), ctx.scale.x(lower.end));
+            let waist = (top + bottom) / 2.0;
+            let d = format!(
+                "M{} {}L{} {}C{} {} {} {} {} {}L{} {}C{} {} {} {} {} {}Z",
+                num(ax0),
+                num(top),
+                num(ax1),
+                num(top),
+                num(ax1),
+                num(waist),
+                num(bx1),
+                num(waist),
+                num(bx1),
+                num(bottom),
+                num(bx0),
+                num(bottom),
+                num(bx0),
+                num(waist),
+                num(ax0),
+                num(waist),
+                num(ax0),
+                num(top),
+            );
+            ctx.svg.path(&d, &shade, 1.0);
         }
 
         for (row, locus) in self.loci.iter().enumerate() {
             let top = band.y + self.row_top(row);
-            for gene in &locus.genes {
-                self.draw_gene(ctx, gene, top);
+            let orphans = if self.mark_unmatched {
+                self.unmatched(row)
+            } else {
+                Vec::new()
+            };
+            for (index, gene) in locus.genes.iter().enumerate() {
+                self.draw_gene(
+                    ctx,
+                    gene,
+                    top,
+                    orphans.contains(&index),
+                    ctx.theme.foreground.clone(),
+                );
             }
             if self.show_names && ctx.axis.w > 0.0 {
                 let size = (ctx.theme.font_size - 1.0).min(self.gene_height);
@@ -341,7 +390,14 @@ impl Track for LocusTrack {
 
 impl LocusTrack {
     /// One gene, as an arrow pointing the way it is transcribed.
-    fn draw_gene(&self, ctx: &mut DrawContext<'_>, gene: &Feature, top: f64) {
+    fn draw_gene(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        gene: &Feature,
+        top: f64,
+        unmatched: bool,
+        ink: String,
+    ) {
         let x0 = ctx.scale.x(gene.start);
         let x1 = ctx.scale.x(gene.end).max(x0 + self.min_gene_width);
         let height = self.gene_height;
@@ -380,6 +436,14 @@ impl LocusTrack {
             ],
         };
         ctx.svg.polygon(&points, &color);
+        if unmatched {
+            // Nothing in the neighbouring rows matched this one, which is the
+            // finding. Outlined rather than recoloured, so it keeps whatever
+            // family colour it came in with.
+            let mut outline: Vec<(f64, f64)> = points.clone();
+            outline.push(points[0]);
+            ctx.svg.polyline(&outline, &ink, 1.6);
+        }
 
         if self.show_gene_names {
             if let Some(name) = &gene.name {
@@ -514,10 +578,11 @@ mod tests {
             .show_region_label(false)
             .push(LocusTrack::new(loci()).links(links()))
             .to_svg();
-        // Two ribbons then five genes, in that order.
-        assert_eq!(svg.matches("<polygon").count(), 7);
-        let first_gene = svg.find(Theme::light().color(0)).unwrap();
-        let first_ribbon = svg.find("<polygon").unwrap();
+        // Five genes as polygons, and the two ribbons as curved paths.
+        assert_eq!(svg.matches("<polygon").count(), 5);
+        assert_eq!(svg.matches("<path").count(), 2);
+        let first_gene = svg.find("<polygon").unwrap();
+        let first_ribbon = svg.find("<path").unwrap();
         assert!(first_ribbon < first_gene, "a gene half under a ribbon");
     }
 
@@ -533,13 +598,16 @@ mod tests {
         // Everything below the floor is the palest shade, not a negative one.
         assert_eq!(track.shade(0.0), track.shade(0.7));
         // A ribbon stays context: never more than a third of the page's ink.
-        assert!(track.shade(1.0) < 0.34);
+        assert!(track.shade(1.0) < 0.55, "still context, not the subject");
 
         // Spread over the whole range instead, and a seventy per cent match is
         // already most of the way to solid, leaving nothing for the rest.
         let wide = LocusTrack::new(loci()).identity_range(0.0, 1.0);
         assert!(wide.shade(0.7) > track.shade(0.7));
-        assert!(wide.shade(1.0) - wide.shade(0.7) < 0.1);
+        assert!(
+            wide.shade(1.0) - wide.shade(0.7) < (track.shade(1.0) - track.shade(0.7)) / 2.0,
+            "the useful range gets less than half the ramp"
+        );
         // A range the wrong way round falls back rather than dividing by zero.
         let broken = LocusTrack::new(loci()).identity_range(0.9, 0.1);
         assert!(broken.shade(0.5).is_finite());
@@ -556,6 +624,23 @@ mod tests {
             .push(LocusTrack::new(loci()).links(vec![Homology::new(0, 0, 0, 0.0)]))
             .to_svg();
         assert_ne!(dark, pale);
+    }
+
+    #[test]
+    fn a_gene_nothing_matched_is_outlined() {
+        // The missing ribbon says it too, but only to a reader who thought to
+        // look for an absence.
+        let marked = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        let plain = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()).mark_unmatched(false))
+            .to_svg();
+        // espC in the top row is matched by nothing, and is the only one.
+        assert_eq!(marked.matches("<polyline").count(), 1);
+        assert_eq!(plain.matches("<polyline").count(), 0);
     }
 
     #[test]

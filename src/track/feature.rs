@@ -259,10 +259,12 @@ impl Track for FeatureTrack {
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let (rows, _) = self.layout(ctx.scale, ctx.theme);
-        let default_color = self
-            .color
-            .clone()
-            .unwrap_or_else(|| ctx.theme.accent.clone());
+        // Without an override, a feature takes the colour its strand takes
+        // everywhere else on the sheet. Drawing every gene in one accent left a
+        // reverse gene wearing the colour that means forward in the pileup two
+        // panels down, which is a quieter kind of wrong than a mislabelled axis
+        // and just as misleading.
+        let override_color = self.color.clone();
         let font = ctx.theme.font_size;
 
         for (i, feature) in self.features.iter().enumerate() {
@@ -275,10 +277,11 @@ impl Track for FeatureTrack {
             let middle = (top + bottom) / 2.0;
             let left = ctx.scale.x(feature.start);
             let right = ctx.scale.x(feature.end).max(left + 1.5);
-            let color = feature
-                .color
-                .clone()
-                .unwrap_or_else(|| default_color.clone());
+            let color = feature.color.clone().unwrap_or_else(|| {
+                override_color
+                    .clone()
+                    .unwrap_or_else(|| strand_color(feature.strand, ctx.theme).to_string())
+            });
 
             // The arrowhead eats a third of a short feature but never more
             // than 8 pixels of a long one, so a gene stays a bar with a point

@@ -21,11 +21,12 @@ use karyon::tree::Tree;
 use karyon::{
     AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
     CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureRing,
-    FeatureTrack, Figure, Homology, IdeogramTrack, Locus, LocusTrack, LogoColumn, LogoScore,
-    LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack,
-    Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring,
-    Region, Rings, SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand, SyntenyTrack,
-    TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
+    FeatureTrack, Figure, Homology, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack,
+    LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack,
+    MethylSite, MethylationTrack, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels,
+    PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack,
+    SquiggleTrack, Stain, Strand, SyntenyTrack, Theme, TreeTrack, Variant, VariantTrack, Window,
+    WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -45,7 +46,7 @@ fn main() -> std::io::Result<()> {
         .push_captioned(
             &locus(),
             "A",
-            "Ideogram, coverage, sequence, genes, variants, ruler",
+            "Ideogram, coverage, reference, genes, variants, ruler",
         )
         .push_captioned(
             &pileup(),
@@ -70,7 +71,7 @@ fn main() -> std::io::Result<()> {
         .push_captioned(
             &alignment(),
             "F",
-            "Multiple sequence alignment, differences only",
+            "Multiple sequence alignment, coloured by residue class",
         )
         .push_captioned(
             &variable_sites(),
@@ -156,7 +157,7 @@ fn locus() -> Figure {
         .push(SequenceTrack::new(start, bases).label("reference"))
         .push(
             FeatureTrack::new(vec![
-                Feature::new(761_050, 762_100)
+                Feature::new(759_807, 763_325)
                     .name("rpoB")
                     .strand(Strand::Forward),
                 Feature::new(762_250, 762_800)
@@ -336,7 +337,7 @@ fn alignment() -> Figure {
     let rows = vec![
         MsaSequence::new("KatG_H37Rv", b"MPEQHPPITETTTGAASNGCPV".to_vec()),
         MsaSequence::new("KatG_CDC1551", b"MPEQHPPITETTTGAASNGCPV".to_vec()),
-        MsaSequence::new("KatG_S315T", b"MPEQHPPITETTTGATSNGCPV".to_vec()),
+        MsaSequence::new("KatG_lineage2", b"MPEQHPPITETTTGATSNGCPV".to_vec()),
         MsaSequence::new("KatG_Beijing", b"MPEQHPPVTETTTGAASNGCPV".to_vec()),
         MsaSequence::new("KatG_Erdman", b"MPEQ-PPITETTTGAASNGCPV".to_vec()),
     ];
@@ -446,10 +447,9 @@ fn selection() -> Figure {
         .width(WIDTH)
         .show_region_label(false)
         .push(
-            WindowTrack::ratios(windows)
-                .label("pN/pS")
-                .height(58.0)
-                .colors("#d55e00", "#0072b2"),
+            // No colour override: above the line and below it mean the same
+            // thing here as in the GC skew track under it.
+            WindowTrack::ratios(windows).label("pN/pS").height(58.0),
         )
         .push(
             WindowTrack::gc_skew(start, &bases, 1_000)
@@ -642,8 +642,11 @@ fn squiggle() -> Figure {
 
 /// N: the same locus in three genomes.
 fn cluster() -> Figure {
+    // Families come from the palette past the two strand colours, so that a
+    // gene family is never painted in the colour that means "reverse strand"
+    // three panels up.
     let family = [
-        "#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#7b3294",
+        "#009e73", "#cc79a7", "#e69f00", "#7b3294", "#56b4e9", "#8c6d31",
     ];
     let gene = |start: u64, len: u64, name: &str, group: usize, forward: bool| {
         Feature::new(start, start + len)
@@ -687,22 +690,29 @@ fn cluster() -> Figure {
         ),
     ];
 
+    let legend = Legend::new()
+        .ramp("identity", "#e8e9ea", "#8b8d8f", "70%", "100%")
+        .key("in no other locus", Theme::light().foreground);
+
     Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(
             LocusTrack::new(loci)
                 .links(vec![
-                    Homology::new(0, 0, 0, 0.99),
-                    Homology::new(0, 1, 1, 0.98),
-                    Homology::new(0, 3, 2, 0.97),
-                    Homology::new(0, 4, 3, 0.99),
-                    Homology::new(1, 0, 0, 0.99),
-                    Homology::new(1, 2, 1, 0.94),
-                    Homology::new(1, 3, 2, 0.98),
+                    // A real spread, because orthologues have one: esxB is
+                    // near identical across the complex and eccA1 has drifted.
+                    Homology::new(0, 0, 0, 0.998),
+                    Homology::new(0, 1, 1, 0.94),
+                    Homology::new(0, 3, 2, 0.82),
+                    Homology::new(0, 4, 3, 0.97),
+                    Homology::new(1, 0, 0, 0.995),
+                    Homology::new(1, 2, 1, 0.76),
+                    Homology::new(1, 3, 2, 0.91),
                 ])
                 .label("ESX-1"),
         )
+        .push(LegendTrack::new(legend))
         .push(AxisTrack::new())
 }
 
