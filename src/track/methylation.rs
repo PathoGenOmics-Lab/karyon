@@ -22,6 +22,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::feature::strand_color;
 use crate::track::{DrawContext, Strand, Track};
 
 /// One methylation call at one position on one strand.
@@ -214,7 +215,7 @@ impl Track for MethylationTrack {
         if !self.show_scale || self.sites.is_empty() {
             return 0.0;
         }
-        text_width("100%", theme.font_size - 1.0) + 8.0
+        text_width("fwd 100%", theme.font_size - 1.0) + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -230,11 +231,11 @@ impl Track for MethylationTrack {
         let forward = self
             .forward_color
             .clone()
-            .unwrap_or_else(|| ctx.theme.color(0).to_string());
+            .unwrap_or_else(|| strand_color(Strand::Forward, ctx.theme).to_string());
         let reverse = self
             .reverse_color
             .clone()
-            .unwrap_or_else(|| ctx.theme.color(1).to_string());
+            .unwrap_or_else(|| strand_color(Strand::Reverse, ctx.theme).to_string());
         let stem = mix(ctx.theme.surface(), &ctx.theme.rule, 0.7);
 
         for site in self.confident() {
@@ -274,10 +275,12 @@ impl Track for MethylationTrack {
         if self.show_scale && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
             let right = ctx.axis.right() - 4.0;
+            // The numbers alone would leave the reader guessing which lane is
+            // which strand, and the figure has nothing else that says so.
             for (y, text) in [
-                (band.y + size, "100%"),
+                (band.y + size, "fwd 100%"),
                 (middle + size * 0.35, "0"),
-                (band.bottom() - size * 0.22, "100%"),
+                (band.bottom() - size * 0.22, "rev 100%"),
             ] {
                 ctx.svg
                     .text(right, y, text, &ctx.theme.muted, size, Anchor::End);
@@ -433,8 +436,10 @@ mod tests {
             .show_region_label(false)
             .push(MethylationTrack::new(sites()))
             .to_svg();
-        // A hundred per cent either way from a zero in the middle.
-        assert_eq!(svg.matches(">100%</text>").count(), 2);
+        // A hundred per cent either way from a zero in the middle, and each
+        // end says which strand it belongs to.
+        assert!(svg.contains(">fwd 100%</text>"));
+        assert!(svg.contains(">rev 100%</text>"));
         assert!(svg.contains(">0</text>"));
     }
 

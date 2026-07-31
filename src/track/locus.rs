@@ -24,6 +24,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
+use crate::track::feature::strand_color;
 use crate::track::{DrawContext, Feature, Strand, Track};
 
 /// One locus, from one genome.
@@ -121,6 +122,7 @@ pub struct LocusTrack {
     color: Option<String>,
     reverse_color: Option<String>,
     min_gene_width: f64,
+    identity_range: (f64, f64),
 }
 
 impl LocusTrack {
@@ -137,6 +139,7 @@ impl LocusTrack {
             color: None,
             reverse_color: None,
             min_gene_width: 2.0,
+            identity_range: (0.7, 1.0),
         }
     }
 
@@ -194,6 +197,27 @@ impl LocusTrack {
     pub fn min_gene_width(mut self, pixels: f64) -> Self {
         self.min_gene_width = pixels.max(0.5);
         self
+    }
+
+    /// Sets the identities that map to the palest and darkest ribbon.
+    ///
+    /// Real homologies do not run from nought to one. A set of orthologues sits
+    /// between about seventy and a hundred per cent identical, so a ramp spread
+    /// over the whole range would draw all of them the same shade and say
+    /// nothing. Narrow it to the range the data actually occupies.
+    pub fn identity_range(mut self, low: f64, high: f64) -> Self {
+        let (low, high) = (low.clamp(0.0, 1.0), high.clamp(0.0, 1.0));
+        self.identity_range = if high > low { (low, high) } else { (0.0, 1.0) };
+        self
+    }
+
+    /// How dark the ribbon for a given identity is drawn.
+    fn shade(&self, identity: f64) -> f64 {
+        let (low, high) = self.identity_range;
+        let fraction = ((identity - low) / (high - low)).clamp(0.0, 1.0);
+        // Kept pale on purpose. A ribbon is context for the genes, and at half
+        // the ink of the page it stops being context and becomes the subject.
+        0.08 + 0.24 * fraction
     }
 
     /// The loci.
@@ -284,7 +308,7 @@ impl Track for LocusTrack {
             let shade = mix(
                 ctx.theme.surface(),
                 &ctx.theme.foreground,
-                0.12 + 0.38 * link.identity,
+                self.shade(link.identity),
             );
             let points = [
                 (ctx.scale.x(upper.start), top),
@@ -325,11 +349,11 @@ impl LocusTrack {
             if gene.strand == Strand::Reverse {
                 self.reverse_color
                     .clone()
-                    .unwrap_or_else(|| ctx.theme.color(2).to_string())
+                    .unwrap_or_else(|| strand_color(Strand::Reverse, ctx.theme).to_string())
             } else {
                 self.color
                     .clone()
-                    .unwrap_or_else(|| ctx.theme.color(0).to_string())
+                    .unwrap_or_else(|| strand_color(Strand::Forward, ctx.theme).to_string())
             }
         });
 
@@ -495,6 +519,30 @@ mod tests {
         let first_gene = svg.find(Theme::light().color(0)).unwrap();
         let first_ribbon = svg.find("<polygon").unwrap();
         assert!(first_ribbon < first_gene, "a gene half under a ribbon");
+    }
+
+    #[test]
+    fn the_identity_ramp_covers_the_range_the_data_uses() {
+        // Orthologues sit between about seventy and a hundred per cent, so a
+        // ramp over the whole of nought to one draws them all the same shade.
+        let track = LocusTrack::new(loci());
+        assert!(
+            track.shade(1.0) - track.shade(0.7) > 0.2,
+            "the default range"
+        );
+        // Everything below the floor is the palest shade, not a negative one.
+        assert_eq!(track.shade(0.0), track.shade(0.7));
+        // A ribbon stays context: never more than a third of the page's ink.
+        assert!(track.shade(1.0) < 0.34);
+
+        // Spread over the whole range instead, and a seventy per cent match is
+        // already most of the way to solid, leaving nothing for the rest.
+        let wide = LocusTrack::new(loci()).identity_range(0.0, 1.0);
+        assert!(wide.shade(0.7) > track.shade(0.7));
+        assert!(wide.shade(1.0) - wide.shade(0.7) < 0.1);
+        // A range the wrong way round falls back rather than dividing by zero.
+        let broken = LocusTrack::new(loci()).identity_range(0.9, 0.1);
+        assert!(broken.shade(0.5).is_finite());
     }
 
     #[test]

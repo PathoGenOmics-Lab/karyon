@@ -6,6 +6,22 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, Theme};
 use crate::track::{DrawContext, Track};
 
+/// The colour a strand is drawn in, wherever a track colours by strand.
+///
+/// One convention for the whole crate, because it has to be. A figure holding
+/// a read pileup with a methylation track under it, both coloured by strand,
+/// would otherwise have blue meaning forward in one band and reverse in the
+/// next, and nothing on the page would say so. An unknown strand is drawn as
+/// forward, since a track that has to pick one may as well pick the common one.
+///
+/// A track that wants its own pair still has one: this is only the default.
+pub fn strand_color(strand: Strand, theme: &Theme) -> &str {
+    match strand {
+        Strand::Reverse => theme.color(1),
+        _ => theme.color(0),
+    }
+}
+
 /// Which strand a feature sits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strand {

@@ -11,7 +11,7 @@ use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
-use crate::track::feature::Strand;
+use crate::track::feature::{strand_color, Strand};
 use crate::track::{DrawContext, Rect, Track};
 
 /// One CIGAR operation.
@@ -475,11 +475,11 @@ impl PileupTrack {
                 Strand::Reverse => self
                     .reverse_color
                     .clone()
-                    .unwrap_or_else(|| theme.color(0).to_string()),
+                    .unwrap_or_else(|| strand_color(Strand::Reverse, theme).to_string()),
                 _ => self
                     .forward_color
                     .clone()
-                    .unwrap_or_else(|| theme.color(1).to_string()),
+                    .unwrap_or_else(|| strand_color(Strand::Forward, theme).to_string()),
             },
         }
     }

@@ -30,7 +30,7 @@ pub use accumulation::{AccumulationCurve, AccumulationTrack};
 pub use axis::AxisTrack;
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
 pub use distance::DistanceTrack;
-pub use feature::{Feature, FeatureTrack, Strand};
+pub use feature::{strand_color, Feature, FeatureTrack, Strand};
 pub use ideogram::{Band, IdeogramTrack, Stain};
 pub use locus::{Homology, Locus, LocusTrack};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};

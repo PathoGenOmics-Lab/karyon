@@ -33,6 +33,7 @@ use std::path::Path;
 
 use crate::svg::{num, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
+use crate::track::feature::strand_color;
 use crate::track::window::Window;
 use crate::track::{Feature, Strand};
 
@@ -673,11 +674,11 @@ impl Ring for FeatureRing {
         let forward = self
             .color
             .clone()
-            .unwrap_or_else(|| ctx.theme.color(0).to_string());
+            .unwrap_or_else(|| strand_color(Strand::Forward, ctx.theme).to_string());
         let reverse = self
             .reverse_color
             .clone()
-            .unwrap_or_else(|| ctx.theme.color(2).to_string());
+            .unwrap_or_else(|| strand_color(Strand::Reverse, ctx.theme).to_string());
         let middle = ctx.middle();
         let floor =
             (self.min_degrees.to_radians() / (2.0 * PI) * ctx.polar.length() as f64).round() as u64;
@@ -1153,7 +1154,7 @@ mod tests {
         // arc commands; merged they use the same ones.
         assert_ne!(split, merged);
         assert!(split.contains(Theme::light().color(0)));
-        assert!(split.contains(Theme::light().color(2)));
+        assert!(split.contains(Theme::light().color(1)));
     }
 
     #[test]

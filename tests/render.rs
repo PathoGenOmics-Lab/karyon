@@ -318,3 +318,57 @@ fn an_empty_data_set_still_produces_a_figure() {
     assert!(svg.ends_with("</svg>"));
     assert!(svg.contains("chr1:1-1000"));
 }
+
+#[test]
+fn every_track_agrees_on_which_colour_a_strand_is() {
+    use karyon::{
+        strand_color, CigarOp, MethylSite, MethylationTrack, PileupTrack, Read, ReadColoring,
+        Strand, Theme,
+    };
+
+    // A figure with a pileup over a methylation track, both coloured by
+    // strand. Before this was one convention, blue meant forward in one band
+    // and reverse in the one under it, and nothing on the page said so.
+    let region = Region::parse("chr1:1001-1200").unwrap();
+    let theme = Theme::light();
+    let forward = strand_color(Strand::Forward, &theme);
+    let reverse = strand_color(Strand::Reverse, &theme);
+    assert_ne!(forward, reverse);
+
+    let only_forward = Figure::new(region.clone())
+        .push(
+            PileupTrack::new(vec![
+                Read::new(1_020, vec![CigarOp::Match(60)]).strand(Strand::Forward)
+            ])
+            .coloring(ReadColoring::Strand),
+        )
+        .push(MethylationTrack::new(vec![MethylSite::new(
+            1_050,
+            Strand::Forward,
+            0.9,
+            40,
+        )]))
+        .to_svg();
+    assert!(only_forward.contains(forward));
+    assert!(
+        !only_forward.contains(reverse),
+        "a forward-only figure used the reverse colour somewhere"
+    );
+
+    let only_reverse = Figure::new(region)
+        .push(
+            PileupTrack::new(vec![
+                Read::new(1_020, vec![CigarOp::Match(60)]).strand(Strand::Reverse)
+            ])
+            .coloring(ReadColoring::Strand),
+        )
+        .push(MethylationTrack::new(vec![MethylSite::new(
+            1_050,
+            Strand::Reverse,
+            0.9,
+            40,
+        )]))
+        .to_svg();
+    assert!(only_reverse.contains(reverse));
+    assert!(!only_reverse.contains(forward));
+}
