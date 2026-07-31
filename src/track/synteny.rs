@@ -11,7 +11,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
-use crate::theme::Theme;
+use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
 /// One alignment between a stretch of the query and a stretch of the target.
@@ -536,18 +536,32 @@ impl Track for SyntenyTrack {
                 num(query_bottom)
             );
             ctx.svg.path(&d, &color, self.ribbon_opacity);
+            // An edge on the ribbon, so a pale one crossing a pale one is two
+            // ribbons rather than a wash.
+            ctx.svg.path_stroked(&d, &mix(&color, "#000000", 0.22), 0.7);
 
             // The blocks themselves, solid on their bars, so a thin ribbon
-            // still shows exactly what it connects.
-            ctx.svg
-                .rect(qx0, query_top, qx1 - qx0, self.bar_height, &color);
+            // still shows exactly what it connects. Each is edged: two blocks
+            // of one colour that abut or overlap on a bar are otherwise one
+            // indistinguishable run, and the count of blocks is a finding.
+            let edge = mix(&color, "#000000", 0.35);
             let (left, width) = if tx1 >= tx0 {
                 (tx0, tx1 - tx0)
             } else {
                 (tx1, tx0 - tx1)
             };
-            ctx.svg
-                .rect(left, target_top, width, self.bar_height, &color);
+            for (x, top, w) in [(qx0, query_top, qx1 - qx0), (left, target_top, width)] {
+                ctx.svg
+                    .rect_rounded(x, top, w, self.bar_height, ctx.theme.corner_radius, &color);
+                ctx.svg.rect_outline(
+                    x + 0.4,
+                    top + 0.4,
+                    (w - 0.8).max(0.2),
+                    (self.bar_height - 0.8).max(0.2),
+                    &edge,
+                    0.8,
+                );
+            }
         }
 
         if ctx.axis.w > 0.0 {
@@ -786,7 +800,27 @@ mod tests {
             .show_region_label(false)
             .push(SyntenyTrack::new(blocks()).target_length(10_000))
             .to_svg();
-        assert_eq!(svg.matches("<path").count(), 3);
+        // One ribbon per block, each filled and then edged.
+        assert_eq!(svg.matches("<path").count(), 6);
+        assert_eq!(svg.matches(r#"fill="none" stroke="#).count(), 3 + 6);
+    }
+
+    #[test]
+    fn a_block_on_a_bar_is_edged_so_two_of_them_stay_two() {
+        // Two blocks of one colour that abut or overlap on a bar are otherwise
+        // one indistinguishable run, and how many blocks there are is a
+        // finding rather than a detail.
+        let touching = vec![
+            AlignmentBlock::new(0, 4_000, 0, 4_000),
+            AlignmentBlock::new(4_000, 8_000, 3_800, 7_800),
+        ];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(SyntenyTrack::new(touching).target_length(10_000))
+            .to_svg();
+        // Four block rectangles each with an edge of its own, plus an edge
+        // on each of the two ribbons.
+        assert_eq!(svg.matches(r#"fill="none" stroke="#).count(), 4 + 2);
     }
 
     #[test]

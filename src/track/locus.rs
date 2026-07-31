@@ -133,8 +133,8 @@ impl LocusTrack {
             loci: loci.into(),
             links: Vec::new(),
             label: None,
-            gene_height: 16.0,
-            link_height: 26.0,
+            gene_height: 20.0,
+            link_height: 24.0,
             show_names: true,
             show_gene_names: true,
             color: None,
@@ -223,16 +223,29 @@ impl LocusTrack {
         self
     }
 
+    /// The two ends of the ribbon shading, palest first.
+    ///
+    /// For handing to a [`Legend`](crate::Legend), so the key and the ribbons
+    /// cannot drift apart: a legend that names its own colours is a legend
+    /// that goes stale the first time the ramp is touched.
+    pub fn ramp_ends(&self, theme: &Theme) -> (String, String) {
+        let (low, high) = self.identity_range;
+        (
+            mix(theme.surface(), &theme.foreground, self.shade(low)),
+            mix(theme.surface(), &theme.foreground, self.shade(high)),
+        )
+    }
+
     /// How dark the ribbon for a given identity is drawn.
     fn shade(&self, identity: f64) -> f64 {
         let (low, high) = self.identity_range;
         let fraction = ((identity - low) / (high - low)).clamp(0.0, 1.0);
-        // Pale enough to stay context for the genes, but spread widely enough
-        // that two identities a few per cent apart are two different greys. A
-        // ramp of a tenth of the ink range puts adjacent ribbons two values of
-        // 255 apart, which nobody can see, and then the figure claims to be
-        // shaded by identity while showing one flat grey.
-        0.10 + 0.42 * fraction
+        // Spread widely enough that two identities a few per cent apart are
+        // two different greys, and capped low enough that the darkest is still
+        // background. A perfect match is already the widest ribbon on the
+        // page; making it the heaviest as well buries the gaps, and the gaps
+        // are what the figure is about.
+        0.08 + 0.24 * fraction
     }
 
     /// The loci.
@@ -355,10 +368,26 @@ impl Track for LocusTrack {
                 num(top),
             );
             ctx.svg.path(&d, &shade, 1.0);
+            ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.16), 0.7);
         }
 
         for (row, locus) in self.loci.iter().enumerate() {
             let top = band.y + self.row_top(row);
+            // The sequence the genes sit on, drawn from the first to the last
+            // of them. Without it a row is a line of floating arrows and the
+            // space between two genes is nothing at all; with it that space is
+            // intergenic sequence, which is what it actually is.
+            if let Some((from, to)) = locus.span() {
+                let middle = top + self.gene_height / 2.0;
+                ctx.svg.line(
+                    ctx.scale.x(from),
+                    middle,
+                    ctx.scale.x(to),
+                    middle,
+                    &mix(ctx.theme.surface(), &ctx.theme.rule, 0.9),
+                    1.4,
+                );
+            }
             let orphans = if self.mark_unmatched {
                 self.unmatched(row)
             } else {
@@ -413,10 +442,10 @@ impl LocusTrack {
             }
         });
 
-        // The head takes a third of the gene, or less when the gene is short:
-        // a head longer than its body reads as an arrowhead on its own and
-        // says nothing about which way the gene points.
-        let head = (x1 - x0).min(height * 0.7).max(0.0);
+        // The head is as long as the gene is tall, or the whole gene when the
+        // gene is shorter than that: a head longer than its body reads as an
+        // arrowhead on its own and says nothing about which way it points.
+        let head = (x1 - x0).min(height * 0.85).max(0.0);
         let body = (x1 - x0 - head).max(0.0);
         let mid = top + height / 2.0;
         let points: Vec<(f64, f64)> = match gene.strand {
@@ -436,6 +465,13 @@ impl LocusTrack {
             ],
         };
         ctx.svg.polygon(&points, &color);
+        // An edge in a darker shade of the gene's own colour. It costs a
+        // little ink and buys the shape: two abutting genes of one family stop
+        // being one long blob, and an arrowhead against a ribbon of similar
+        // weight stays an arrowhead.
+        let mut edge: Vec<(f64, f64)> = points.clone();
+        edge.push(points[0]);
+        ctx.svg.polyline(&edge, &mix(&color, "#000000", 0.3), 0.9);
         if unmatched {
             // Nothing in the neighbouring rows matched this one, which is the
             // finding. Outlined rather than recoloured, so it keeps whatever
@@ -447,13 +483,25 @@ impl LocusTrack {
 
         if self.show_gene_names {
             if let Some(name) = &gene.name {
-                let size = (height * 0.62).min(ctx.theme.font_size);
-                if text_width(name, size) < body.max(1.0) - 2.0 {
+                let size = (height * 0.58).min(ctx.theme.font_size);
+                if text_width(name, size) < body.max(1.0) - 4.0 {
                     ctx.svg.text(
                         (x0 + x1) / 2.0,
                         mid + size * 0.35,
                         name,
                         contrast_ink(&color),
+                        size,
+                        Anchor::Middle,
+                    );
+                } else if self.link_height >= size + 4.0 {
+                    // Under the gene rather than nowhere. A short gene is
+                    // exactly the one whose name a reader needs, and dropping
+                    // it leaves the figure quietly incomplete.
+                    ctx.svg.text(
+                        (x0 + x1) / 2.0,
+                        top + height + size,
+                        name,
+                        &ctx.theme.muted,
                         size,
                         Anchor::Middle,
                     );
@@ -531,13 +579,13 @@ mod tests {
     #[test]
     fn height_follows_the_row_count_and_the_room_between_them() {
         let track = LocusTrack::new(loci());
-        assert_eq!(track.height(&scale()), 2.0 * 16.0 + 26.0);
+        assert_eq!(track.height(&scale()), 2.0 * 20.0 + 24.0);
         assert_eq!(
             LocusTrack::new(loci()).link_height(0.0).height(&scale()),
-            32.0
+            40.0
         );
         // An empty track still has a row of height rather than none.
-        assert_eq!(LocusTrack::new(Vec::new()).height(&scale()), 16.0);
+        assert_eq!(LocusTrack::new(Vec::new()).height(&scale()), 20.0);
     }
 
     #[test]
@@ -578,9 +626,10 @@ mod tests {
             .show_region_label(false)
             .push(LocusTrack::new(loci()).links(links()))
             .to_svg();
-        // Five genes as polygons, and the two ribbons as curved paths.
+        // Five genes as polygons, and the two ribbons as curved paths, each
+        // filled and then edged.
         assert_eq!(svg.matches("<polygon").count(), 5);
-        assert_eq!(svg.matches("<path").count(), 2);
+        assert_eq!(svg.matches("<path").count(), 4);
         let first_gene = svg.find("<polygon").unwrap();
         let first_ribbon = svg.find("<path").unwrap();
         assert!(first_ribbon < first_gene, "a gene half under a ribbon");
@@ -614,6 +663,25 @@ mod tests {
     }
 
     #[test]
+    fn the_legend_can_take_the_ramp_from_the_track() {
+        // A legend that names its own colours goes stale the first time the
+        // ramp is touched.
+        let theme = Theme::light();
+        let track = LocusTrack::new(loci());
+        let (pale, dark) = track.ramp_ends(&theme);
+        assert_ne!(pale, dark);
+
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(vec![Homology::new(0, 0, 0, 1.0)]))
+            .to_svg();
+        assert!(
+            svg.contains(&dark),
+            "the ramp's dark end is not on the page"
+        );
+    }
+
+    #[test]
     fn a_closer_match_is_a_darker_ribbon() {
         let dark = Figure::new(region())
             .show_region_label(false)
@@ -638,9 +706,13 @@ mod tests {
             .show_region_label(false)
             .push(LocusTrack::new(loci()).links(links()).mark_unmatched(false))
             .to_svg();
-        // espC in the top row is matched by nothing, and is the only one.
-        assert_eq!(marked.matches("<polyline").count(), 1);
-        assert_eq!(plain.matches("<polyline").count(), 0);
+        // Five genes, each with an edge of its own, and espC in the top row
+        // carries a second outline because nothing below it matched.
+        assert_eq!(marked.matches("<polyline").count(), 6);
+        assert_eq!(plain.matches("<polyline").count(), 5);
+        let ink = Theme::light().foreground;
+        assert!(marked.contains(&format!("stroke=\"{ink}\"")));
+        assert!(!plain.contains(&format!("stroke=\"{ink}\"")));
     }
 
     #[test]
@@ -693,7 +765,9 @@ mod tests {
     }
 
     #[test]
-    fn a_gene_name_wider_than_its_gene_is_left_out() {
+    fn a_gene_name_wider_than_its_gene_goes_underneath_it() {
+        // A short gene is exactly the one whose name a reader needs, so it is
+        // moved rather than dropped.
         let cramped = Figure::new(Region::new("x", 0, 400_000).unwrap())
             .show_region_label(false)
             .push(LocusTrack::new(vec![Locus::new(
@@ -701,7 +775,22 @@ mod tests {
                 vec![Feature::new(0, 900).name("a_very_long_gene_name")],
             )]))
             .to_svg();
-        assert!(!cramped.contains("a_very_long_gene_name</text>"));
+        assert!(cramped.contains(">a_very_long_gene_name</text>"));
+        // In the muted ink under the gene, not the contrast ink inside it.
+        assert!(cramped.contains(&format!("fill=\"{}\"", Theme::light().muted)));
+
+        // With no room between the rows there is nowhere to put it.
+        let flat = Figure::new(Region::new("x", 0, 400_000).unwrap())
+            .show_region_label(false)
+            .push(
+                LocusTrack::new(vec![Locus::new(
+                    "a",
+                    vec![Feature::new(0, 900).name("a_very_long_gene_name")],
+                )])
+                .link_height(0.0),
+            )
+            .to_svg();
+        assert!(!flat.contains(">a_very_long_gene_name</text>"));
     }
 
     #[test]

@@ -690,28 +690,33 @@ fn cluster() -> Figure {
         ),
     ];
 
+    // The ramp comes off the track rather than being named again here, so the
+    // key cannot drift away from the ribbons it explains.
+    let track = LocusTrack::new(loci)
+        .links(vec![
+            // A real spread, because orthologues have one: esxB is
+            // near identical across the complex and eccA1 has drifted.
+            Homology::new(0, 0, 0, 0.998),
+            Homology::new(0, 1, 1, 0.94),
+            Homology::new(0, 3, 2, 0.82),
+            Homology::new(0, 4, 3, 0.97),
+            Homology::new(1, 0, 0, 0.995),
+            Homology::new(1, 2, 1, 0.76),
+            Homology::new(1, 3, 2, 0.91),
+        ])
+        .label("ESX-1");
+
+    // The ramp comes off the track rather than being named again here, so the
+    // key cannot drift away from the ribbons it explains.
+    let (pale, dark) = track.ramp_ends(&Theme::light());
     let legend = Legend::new()
-        .ramp("identity", "#e8e9ea", "#8b8d8f", "70%", "100%")
-        .key("in no other locus", Theme::light().foreground);
+        .ramp("identity", pale, dark, "70%", "100%")
+        .outline("in no other locus", Theme::light().foreground);
 
     Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
         .width(WIDTH)
         .show_region_label(false)
-        .push(
-            LocusTrack::new(loci)
-                .links(vec![
-                    // A real spread, because orthologues have one: esxB is
-                    // near identical across the complex and eccA1 has drifted.
-                    Homology::new(0, 0, 0, 0.998),
-                    Homology::new(0, 1, 1, 0.94),
-                    Homology::new(0, 3, 2, 0.82),
-                    Homology::new(0, 4, 3, 0.97),
-                    Homology::new(1, 0, 0, 0.995),
-                    Homology::new(1, 2, 1, 0.76),
-                    Homology::new(1, 3, 2, 0.91),
-                ])
-                .label("ESX-1"),
-        )
+        .push(track)
         .push(LegendTrack::new(legend))
         .push(AxisTrack::new())
 }

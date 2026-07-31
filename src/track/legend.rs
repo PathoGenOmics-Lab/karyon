@@ -32,6 +32,9 @@ pub enum Marker {
     Dot,
     /// A short stroke, for anything drawn as a line.
     Line,
+    /// An empty square with an edge, for anything marked by being outlined
+    /// rather than by being filled.
+    Outline,
 }
 
 /// One thing a legend explains.
@@ -111,6 +114,15 @@ impl Legend {
     /// Adds a key drawn as a stroke, for a series plotted as a line.
     pub fn line(self, label: impl Into<String>, color: impl Into<String>) -> Self {
         self.marked(label, color, Marker::Line)
+    }
+
+    /// Adds a key drawn as an empty square with an edge.
+    ///
+    /// For anything the figure marks by outlining rather than by filling. A
+    /// solid swatch for an outlined mark is a legend that does not match what
+    /// it explains.
+    pub fn outline(self, label: impl Into<String>, color: impl Into<String>) -> Self {
+        self.marked(label, color, Marker::Outline)
     }
 
     /// Adds a key with the marker named.
@@ -266,6 +278,14 @@ impl Legend {
                                 color,
                                 (self.swatch / 4.0).max(1.5),
                             ),
+                            Marker::Outline => svg.rect_outline(
+                                at + 0.75,
+                                middle - self.swatch / 2.0 + 0.75,
+                                self.swatch - 1.5,
+                                self.swatch - 1.5,
+                                color,
+                                1.5,
+                            ),
                         }
                         svg.text(
                             at + self.swatch + 5.0,
@@ -410,6 +430,19 @@ mod tests {
     fn one_key_too_wide_for_the_band_still_gets_its_own_row() {
         let long = Legend::new().key("a".repeat(400), "#0072b2");
         assert_eq!(long.rows(100.0, 10.0).len(), 1);
+    }
+
+    #[test]
+    fn an_outlined_key_is_drawn_as_an_outline() {
+        // A solid swatch for a mark the figure draws as an outline is a legend
+        // that does not match what it explains.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(
+                Legend::new().outline("unmatched", "#111111"),
+            ))
+            .to_svg();
+        assert!(svg.contains("fill=\"none\" stroke=\"#111111\""), "{svg}");
     }
 
     #[test]

@@ -133,9 +133,12 @@ fn cluster(out: &Path) -> std::io::Result<()> {
     let track = LocusTrack::new(loci).links(links).label("ESX-1");
     let missing = track.unmatched(2).len();
 
+    // The ramp comes off the track rather than being named again here, so the
+    // key cannot drift away from the ribbons it explains.
+    let (pale, dark) = track.ramp_ends(&Theme::light());
     let legend = Legend::new()
-        .ramp("identity", "#e8e9ea", "#8b8d8f", "70%", "100%")
-        .key("in no other locus", Theme::light().foreground);
+        .ramp("identity", pale, dark, "70%", "100%")
+        .outline("in no other locus", Theme::light().foreground);
 
     let figure = Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
         .title("One locus, three genomes, and what each one is missing")
