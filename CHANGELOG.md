@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-07-31
+
+### Added
+
+- `MsaTrack` and `MsaSequence`, a multiple sequence alignment drawn row by row.
+  The coordinates are alignment columns rather than genomic positions, which
+  are two different things, so the figure's region is the column space and the
+  ruler counts columns. Ungapping a row back to reference coordinates is a real
+  operation with real decisions in it and is not done silently.
+- `MsaDisplay`, defaulting to `Differences`. In a real alignment most cells
+  agree and the agreement is the noise, so rows are drawn as a quiet bar and
+  only what disagrees with the comparison row is painted. `MsaTrack::compare_to`
+  names a reference row; without one the consensus is used.
+- `MsaTrack::consensus`, whose ties break by which row came first so that the
+  same alignment always gives the same answer.
+- `MsaColoring` and `ResidueClass`, six physicochemical classes for proteins,
+  six being how many hues the validated palette has. Cysteine goes with the
+  hydrophobics, histidine with the positives, tyrosine with the polars, and
+  glycine and proline keep their own.
+- `MsaTrack::max_rows`, with the sequences that do not fit counted and reported
+  on the figure rather than dropped quietly.
+- Two more example figures, one nucleotide alignment under a conservation logo
+  built from the same sequences, and one protein alignment by residue class.
+
+### Notes
+
+- Neighbouring cells of the same colour are merged into one rectangle. Twelve
+  rows of a hundred and twenty columns come out as a hundred and twelve
+  rectangles rather than one thousand four hundred and forty, which is the
+  difference between a figure and a file no viewer will open.
+
 ## [0.10.0] - 2026-07-31
 
 The last of the comparison plots on the roadmap: one set of alignment blocks,
@@ -330,6 +361,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.11.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.11.0
 [0.10.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.10.0
 [0.9.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.9.0
 [0.8.1]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.1

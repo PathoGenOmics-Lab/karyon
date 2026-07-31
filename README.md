@@ -69,6 +69,7 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
 | `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
 | `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |
@@ -81,6 +82,47 @@ cargo run --example locus -- assets
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Alignments
+
+<img src="assets/example-msa.svg" alt="A conservation logo above a multiple sequence alignment, with only the disagreements painted" width="100%">
+
+**The coordinates are alignment columns, not genomic positions.** They are two
+different things, so the region spans the width of the alignment and the ruler
+counts columns. Ungapping a row back to reference coordinates is a real
+operation with real decisions in it, and this crate does not do it behind your
+back.
+
+A wall of coloured residues is pretty and says very little, because in a real
+alignment most cells agree and the agreement is the noise. So the default is
+`MsaDisplay::Differences`: rows are a quiet bar and only what disagrees with the
+comparison row gets painted. Compare against a named row when one of them is the
+reference, or leave it and the consensus is used.
+
+```rust
+use karyon::{LogoTrack, MsaSequence, MsaTrack};
+
+let rows = vec![MsaSequence::new("H37Rv", b"ACGTACGT".to_vec())];
+
+MsaTrack::new(rows).compare_to(0);
+
+// Conservation belongs above the alignment, not inside it, and takes the same
+// sequences.
+LogoTrack::from_sequences(0, &alignment_as_strings).alphabet_size(4).stabilize();
+```
+
+Protein alignments colour by physicochemical class, six of them, which is how
+many hues the validated palette has: cysteine sits with the hydrophobics,
+histidine with the positives, tyrosine with the polars, and glycine and proline
+keep their own, since those two are usually what a reader is hunting for.
+
+<img src="assets/example-msa-protein.svg" alt="A short protein alignment with residues coloured by class" width="80%">
+
+Neighbouring cells of the same colour are merged into one rectangle. Most of an
+alignment agrees with itself, so in the figure above twelve rows of a hundred
+and twenty columns come out as a hundred and twelve rectangles rather than one
+thousand four hundred and forty. That is the difference between a figure and a
+file no viewer will open.
 
 ## Comparing two sequences
 
