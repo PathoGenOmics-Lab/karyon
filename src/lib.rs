@@ -53,9 +53,20 @@
 //! two ends of a rearrangement. A [`Rings`] plot and a [`Figure`] can share one
 //! [`Panels`] sheet, which is all the [`Drawing`] trait is for.
 //!
+//! # Whole genomes
+//!
+//! A figure is one region on one sequence, which is right for a locus and
+//! wrong for an assembly. [`Genome`] lays several sequences end to end and
+//! hands back the one region that covers them, so every track here works
+//! across all of them at once: the genome-wide association figure is a
+//! [`ManhattanTrack`] over a `Genome` with its
+//! [`boundaries`](Genome::boundaries) handed to
+//! [`bands`](ManhattanTrack::bands), and [`GenomeTrack`] draws the sequences
+//! underneath so a reader can see where one ends and the next begins.
+//!
 //! # Extending
 //!
-//! The twenty-one track types shipped here are implementations of one small trait,
+//! The twenty-four track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -82,6 +93,7 @@
 pub mod dash;
 pub mod error;
 pub mod figure;
+pub mod genome;
 pub mod panels;
 pub mod region;
 pub mod rings;
@@ -93,6 +105,7 @@ pub mod tree;
 
 pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
+pub use crate::genome::{Chromosome, Genome};
 pub use crate::panels::Panels;
 pub use crate::region::Region;
 pub use crate::rings::{
@@ -104,11 +117,11 @@ pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, AccumulationCurve, AccumulationTrack, Aggregate, AlignmentBlock, Association,
     AxisTrack, Band, CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack, DistanceTrack,
-    DotplotTrack, DrawContext, Feature, FeatureTrack, GeneShape, Homology, IdeogramTrack, Legend,
-    LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack,
-    ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Move,
-    MsaColoring, MsaDisplay, MsaSequence, MsaTrack, PileupLayout, PileupTrack, Read, ReadColoring,
-    Rect, Segment, SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder, Stain, Strand,
-    SyntenyTrack, Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack, Window,
-    WindowStyle, WindowTrack,
+    DotplotTrack, DrawContext, Feature, FeatureTrack, Frequency, FrequencyTrack, GeneShape,
+    GenomeTrack, Homology, IdeogramTrack, Legend, LegendItem, LegendTrack, Locus, LocusTrack,
+    LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack, Marker, MatrixRow, MatrixTrack,
+    MethylSite, MethylationTrack, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack,
+    PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, SnpSite, SnpTrack,
+    SquiggleTrack, StackOrder, Stain, Strand, SyntenyTrack, Track, TreeShape, TreeTrack, Variant,
+    VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };

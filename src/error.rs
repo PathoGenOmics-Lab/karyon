@@ -8,6 +8,11 @@ use std::fmt;
 /// inputs have already been validated.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
+    /// Two sequences of a genome share a name.
+    DuplicateSequence {
+        /// The name that appeared twice.
+        name: String,
+    },
     /// A region whose end is not strictly greater than its start.
     ///
     /// Regions are half-open, so a one-base region is `start..start + 1`.
@@ -34,6 +39,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::DuplicateSequence { name } => {
+                write!(f, "the genome has more than one sequence called {name}")
+            }
             Error::EmptyRegion { start, end } => write!(
                 f,
                 "empty region: end ({end}) must be greater than start ({start})"

@@ -1479,8 +1479,8 @@ mod tests {
     fn stabilization_tells_a_thin_alignment_from_a_deep_one() {
         // The same perfectly conserved column, seen four times and four
         // thousand times. Without shrinkage both are two bits of certainty.
-        let thin: Vec<String> = std::iter::repeat_n("ACGT".to_string(), 4).collect();
-        let deep: Vec<String> = std::iter::repeat_n("ACGT".to_string(), 4000).collect();
+        let thin: Vec<String> = std::iter::repeat("ACGT".to_string()).take(4).collect();
+        let deep: Vec<String> = std::iter::repeat("ACGT".to_string()).take(4000).collect();
 
         let raw = |seqs: &[String]| {
             LogoTrack::from_sequences(0, seqs).alphabet_size(4).stacks()[0].up_total()

@@ -6,7 +6,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
-use crate::theme::Theme;
+use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
 /// One tested position and what the test said about it.
@@ -74,6 +74,7 @@ pub struct ManhattanTrack {
     significant_color: Option<String>,
     unit: String,
     show_scale: bool,
+    bands: Vec<u64>,
 }
 
 impl ManhattanTrack {
@@ -90,6 +91,7 @@ impl ManhattanTrack {
             significant_color: None,
             unit: String::new(),
             show_scale: true,
+            bands: Vec::new(),
         }
     }
 
@@ -103,6 +105,27 @@ impl ManhattanTrack {
     pub fn height(mut self, height: f64) -> Self {
         self.height = height.max(8.0);
         self
+    }
+
+    /// Alternates the point colour at each of these positions.
+    ///
+    /// For a figure whose axis is several sequences laid end to end: hand it
+    /// [`Genome::boundaries`](crate::Genome::boundaries) and the chromosomes
+    /// come out in alternating shades, which is the only thing telling a
+    /// reader of a genome-wide plot where one ends and the next begins. A
+    /// point past the last boundary keeps the last shade.
+    pub fn bands(mut self, boundaries: impl Into<Vec<u64>>) -> Self {
+        self.bands = boundaries.into();
+        self.bands.sort_unstable();
+        self
+    }
+
+    /// Which band a position falls in, counting from zero.
+    pub fn band_of(&self, position: u64) -> usize {
+        self.bands
+            .iter()
+            .rposition(|start| *start <= position)
+            .unwrap_or(0)
     }
 
     /// Sets the radius of a point.
@@ -252,7 +275,14 @@ impl Track for ManhattanTrack {
                 continue;
             }
             let above = self.threshold.is_some_and(|t| point.value >= t);
-            let color = if above { &significant } else { &plain };
+            // Every other sequence a shade lighter, which is what separates one
+            // chromosome from the next when the axis is all of them.
+            let banded = if self.bands.len() > 1 && self.band_of(point.pos) % 2 == 1 {
+                mix(&plain, ctx.theme.surface(), 0.42)
+            } else {
+                plain.clone()
+            };
+            let color = if above { &significant } else { &banded };
             let x = ctx.scale.x_center(point.pos);
             let y = y_of(point.value);
             if above {
@@ -334,6 +364,54 @@ mod tests {
         let track = ManhattanTrack::new(Vec::new()).genome_wide_threshold();
         let threshold = track.threshold.unwrap();
         assert!((threshold - 7.30103).abs() < 1e-5, "got {threshold}");
+    }
+
+    #[test]
+    fn banding_alternates_at_each_boundary() {
+        let track = ManhattanTrack::new(Vec::new()).bands(vec![0u64, 1_000, 1_600]);
+        assert_eq!(track.band_of(0), 0);
+        assert_eq!(track.band_of(999), 0);
+        assert_eq!(track.band_of(1_000), 1);
+        assert_eq!(track.band_of(1_599), 1);
+        assert_eq!(track.band_of(9_000), 2, "past the last boundary");
+        // Boundaries arrive in whatever order they are given.
+        assert_eq!(
+            ManhattanTrack::new(Vec::new())
+                .bands(vec![1_600u64, 0, 1_000])
+                .band_of(1_200),
+            1
+        );
+    }
+
+    #[test]
+    fn banded_sequences_come_out_in_two_shades() {
+        let points = vec![Association::new(10, 3.0), Association::new(1_200, 3.0)];
+        let plain = Figure::new(Region::new("genome", 0, 2_000).unwrap())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points.clone()))
+            .to_svg();
+        let banded = Figure::new(Region::new("genome", 0, 2_000).unwrap())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points).bands(vec![0u64, 1_000]))
+            .to_svg();
+        assert_ne!(plain, banded, "nothing alternated");
+        let base = Theme::light().muted;
+        assert!(banded.contains(&mix(&base, Theme::light().surface(), 0.42)));
+    }
+
+    #[test]
+    fn one_boundary_is_not_a_banding() {
+        // A single sequence has nothing to alternate with.
+        let points = vec![Association::new(10, 3.0)];
+        let one = Figure::new(Region::new("genome", 0, 2_000).unwrap())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points.clone()).bands(vec![0u64]))
+            .to_svg();
+        let none = Figure::new(Region::new("genome", 0, 2_000).unwrap())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points))
+            .to_svg();
+        assert_eq!(one, none);
     }
 
     #[test]

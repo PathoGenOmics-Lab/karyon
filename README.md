@@ -15,7 +15,7 @@ __Paula Ruiz-Rodriguez<sup>1</sup>__
 <br>
 <sub> 1. I<sup>2</sup>SysBio, University of Valencia-CSIC, FISABIO Joint Research Unit Infection and Public Health, Valencia, Spain </sub>
 
-<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of fifteen panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a SNP distance matrix ordered by descent, pangenome accumulation curves, a circular chromosome, raw nanopore signal, one locus compared across three genomes, and per-strand methylation" width="100%">
+<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of seventeen panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a SNP distance matrix ordered by descent, pangenome accumulation curves, a circular chromosome, raw nanopore signal, one locus compared across three genomes, per-strand methylation, an association scan across a whole draft assembly, and the gene frequency spectrum of a pangenome" width="100%">
 
 General plotting libraries know about points and lines. They do not know that a
 position is a base, that a gene has a strand, that a pixel at genome scale

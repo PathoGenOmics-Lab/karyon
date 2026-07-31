@@ -22,12 +22,12 @@ use karyon::tree::Tree;
 use karyon::{
     AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
     CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureRing,
-    FeatureTrack, Figure, Homology, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack,
-    LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack,
-    MethylSite, MethylationTrack, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels,
-    PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack,
-    SquiggleTrack, Stain, Strand, SyntenyTrack, Theme, TreeTrack, Variant, VariantTrack, Window,
-    WindowStyle, WindowTrack,
+    FeatureTrack, Figure, Frequency, FrequencyTrack, Genome, GenomeTrack, Homology, IdeogramTrack,
+    Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack,
+    MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Move, MsaColoring,
+    MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring, Region, Rings,
+    SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand, SyntenyTrack, Theme,
+    TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -114,6 +114,16 @@ fn main() -> std::io::Result<()> {
             &methylation(),
             "O",
             "Methylation per site, one lane per strand, faded by read depth",
+        )
+        .push_captioned(
+            &genome_wide(),
+            "P",
+            "A whole draft assembly on one axis, every contig of it",
+        )
+        .push_captioned(
+            &spectrum(),
+            "Q",
+            "What the pangenome is made of: core, shell and cloud",
         );
 
     sheet.save_svg(out.join("gallery.svg"))?;
@@ -749,6 +759,98 @@ fn methylation() -> Figure {
         .show_region_label(false)
         .push(MethylationTrack::new(sites).label("6mA").height(66.0))
         .push(AxisTrack::new())
+}
+
+/// P: a scan across every contig at once.
+fn genome_wide() -> Figure {
+    let mut rng = Lcg::new(11_235);
+    let genome = Genome::new(
+        (0..12)
+            .map(|index| {
+                let length = 900_000 / (index + 1) + 40_000;
+                (format!("contig_{:02}", index + 1), length)
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    let mut hits: Vec<(String, u64, f64)> = Vec::new();
+    for contig in genome.sequences() {
+        let mut at = 200u64;
+        while at < contig.length {
+            let peak = contig.name == "contig_04" && at.abs_diff(120_000) < 9_000;
+            let noise = (rng.next() % 1000) as f64 / 1000.0;
+            let value = if peak {
+                5.0 + 4.5 * noise
+            } else {
+                0.2 + 2.6 * noise
+            };
+            hits.push((contig.name.clone(), at, value));
+            at += 900 + rng.next() % 2_600;
+        }
+    }
+    let (mapped, _) = genome.map(hits);
+
+    Figure::new(genome.region())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            ManhattanTrack::new(
+                mapped
+                    .iter()
+                    .map(|(at, value)| Association::new(*at, *value))
+                    .collect::<Vec<_>>(),
+            )
+            .bands(genome.boundaries())
+            .genome_wide_threshold()
+            .unit(" -log10 p")
+            .label("association")
+            .height(92.0),
+        )
+        .push(GenomeTrack::new(genome).label("contigs"))
+        .push(AxisTrack::new())
+}
+
+/// Q: core, shell and cloud.
+fn spectrum() -> Figure {
+    let mut rng = Lcg::new(90_210);
+    let count = 60usize;
+    let genomes: Vec<Vec<bool>> = (0..count)
+        .map(|genome| {
+            let mut carried = Vec::new();
+            carried.extend(std::iter::repeat(true).take(3_100));
+            for family in 0..900 {
+                let share = 20 + (family * 60 / 900);
+                carried.push((rng.next() % 100) < share as u64);
+            }
+            for family in 0..1_500 {
+                carried.push(family % count == genome || family % (count * 3) == genome);
+            }
+            carried
+        })
+        .collect();
+
+    let track = FrequencyTrack::from_presence(&genomes).label("gene families");
+    let theme = Theme::light();
+    let legend = Legend::new()
+        .area(
+            format!("core, {}", track.total(Frequency::Core)),
+            track.color(Frequency::Core, &theme),
+        )
+        .area(
+            format!("shell, {}", track.total(Frequency::Shell)),
+            track.color(Frequency::Shell, &theme),
+        )
+        .area(
+            format!("cloud, {}", track.total(Frequency::Cloud)),
+            track.color(Frequency::Cloud, &theme),
+        );
+
+    Figure::new(Region::new("genomes", 0, count as u64).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(track.height(150.0))
+        .push(LegendTrack::new(legend))
+        .push(AxisTrack::new().center_on_bases(true).label("genomes"))
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a
