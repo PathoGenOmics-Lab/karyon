@@ -14,6 +14,7 @@ pub mod manhattan;
 pub mod matrix;
 pub mod pileup;
 pub mod sequence;
+pub mod synteny;
 pub mod variant;
 
 pub use axis::AxisTrack;
@@ -25,6 +26,7 @@ pub use manhattan::{Association, ManhattanTrack};
 pub use matrix::{CellScale, MatrixRow, MatrixTrack};
 pub use pileup::{CigarOp, PileupLayout, PileupTrack, Read, ReadColoring, Segment};
 pub use sequence::SequenceTrack;
+pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
 
 use crate::region::Region;

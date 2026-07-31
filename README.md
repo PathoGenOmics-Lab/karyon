@@ -69,6 +69,8 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
+| `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
 | `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |
 | `MatrixTrack` | Samples against sites | A genotype or presence matrix, one row per sample, names in the axis strip |
 | `IdeogramTrack` | The whole chromosome | Cytogenetic bands, a pinched centromere, and a marker showing where the window is. The one track that does not share the x axis |
@@ -79,6 +81,35 @@ cargo run --example locus -- assets
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Comparing two sequences
+
+<img src="assets/example-synteny.svg" alt="A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block" width="100%">
+
+One set of `AlignmentBlock`s, drawn two ways, because the two answer different
+halves of the question. A dotplot gives the second sequence the vertical axis,
+so a rearrangement has a shape: forward blocks climb, reversed ones descend, and
+a translocation sits off the main diagonal. Ribbons give it a second bar, which
+is compact and follows one block at a time, and an inversion becomes a twist.
+
+```rust
+use karyon::{AlignmentBlock, DotplotTrack, SyntenyTrack};
+
+// Both spans ascend and the strand is a flag, which is how PAF records it.
+let blocks = vec![
+    AlignmentBlock::new(1_520_000, 2_100_000, 1_520_000, 2_100_000)
+        .reversed(true)
+        .identity(0.97),
+];
+
+DotplotTrack::new(blocks.clone()).target_length(4_380_000);
+SyntenyTrack::new(blocks).target_length(4_380_000).names("H37Rv", "CDC1551");
+```
+
+The figure's region is always the query; the target keeps its own scale, either
+the whole sequence or a `target_range`. Ribbons are translucent so that two
+crossing ones read as two, and each block is also drawn solid on both bars, so a
+thin ribbon still shows exactly what it connects.
 
 ## Association, and who carries it
 

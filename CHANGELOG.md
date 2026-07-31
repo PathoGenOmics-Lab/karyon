@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-31
+
+The last of the comparison plots on the roadmap: one set of alignment blocks,
+drawn two ways.
+
+### Added
+
+- `AlignmentBlock`, one alignment between a stretch of the query and a stretch
+  of the target. Both spans ascend and the strand is a flag, which is how PAF
+  records it and saves a conversion on the way in.
+- `DotplotTrack`, which gives the target the vertical axis. Forward blocks
+  climb, reversed ones descend, and a translocation sits off the main diagonal,
+  so a rearrangement has a shape rather than a description.
+- `SyntenyTrack`, which gives the target a second bar and joins the two with
+  ribbons. An inversion becomes a twist. Ribbons are translucent so two
+  crossing ones read as two, and every block is also drawn solid on both bars,
+  so a thin ribbon still shows exactly what it connects.
+- Both take the whole target sequence with `target_length` or a window of it
+  with `target_range`, and infer the span from the blocks when given neither.
+- Two more example figures: two chromosomes disagreeing in three places, and
+  the inversion close up.
+
 ## [0.9.0] - 2026-07-31
 
 Two more kinds of plot, chosen because they answer consecutive questions.
@@ -308,6 +330,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.10.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.10.0
 [0.9.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.9.0
 [0.8.1]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.1
 [0.8.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.0

@@ -48,5 +48,6 @@ jobs:
           cargo run --example pileup -- assets
           cargo run --example ideogram -- assets
           cargo run --example association -- assets
+          cargo run --example synteny -- assets
       - name: Fail if the committed figures are stale
         run: git diff --exit-code -- assets
