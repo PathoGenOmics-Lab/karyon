@@ -23,8 +23,12 @@
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
-use crate::theme::{contrast_ink, mix, Theme};
+use crate::theme::{contrast_ink, mix, wash, Theme};
 use crate::track::feature::strand_color;
+
+/// How much of a gene's height the shaft of an arrow takes, the rest being the
+/// overhang of its head.
+const SHAFT: f64 = 0.62;
 use crate::track::{DrawContext, Feature, Strand, Track};
 
 /// One locus, from one genome.
@@ -63,6 +67,24 @@ impl Locus {
         let end = self.genes.iter().map(|gene| gene.end).max()?;
         Some((start, end))
     }
+}
+
+/// The outline a gene is drawn with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GeneShape {
+    /// A shaft with a head that overhangs it, the way an arrow is drawn.
+    ///
+    /// The default. The head is a shape in its own right rather than a taper
+    /// on the end of a bar, so which way a gene points is legible at a glance
+    /// and stays legible when the gene is long.
+    #[default]
+    Arrow,
+    /// A block with one end brought to a point.
+    ///
+    /// Squarer, and worth having when the genes are short: a head that
+    /// overhangs needs a shaft to overhang, and a gene a few pixels wide has
+    /// none.
+    Pointed,
 }
 
 /// A gene in one row matching a gene in the row below it.
@@ -124,6 +146,9 @@ pub struct LocusTrack {
     min_gene_width: f64,
     identity_range: (f64, f64),
     mark_unmatched: bool,
+    soft_fills: bool,
+    link_inset: f64,
+    shape: GeneShape,
 }
 
 impl LocusTrack {
@@ -134,7 +159,7 @@ impl LocusTrack {
             links: Vec::new(),
             label: None,
             gene_height: 22.0,
-            link_height: 28.0,
+            link_height: 34.0,
             show_names: true,
             show_gene_names: true,
             color: None,
@@ -142,6 +167,9 @@ impl LocusTrack {
             min_gene_width: 2.0,
             identity_range: (0.7, 1.0),
             mark_unmatched: true,
+            soft_fills: true,
+            link_inset: 4.0,
+            shape: GeneShape::Arrow,
         }
     }
 
@@ -198,6 +226,35 @@ impl LocusTrack {
     /// Sets how narrow a gene may be drawn, in pixels.
     pub fn min_gene_width(mut self, pixels: f64) -> Self {
         self.min_gene_width = pixels.max(0.5);
+        self
+    }
+
+    /// Chooses the outline a gene is drawn with.
+    pub fn shape(mut self, shape: GeneShape) -> Self {
+        self.shape = shape;
+        self
+    }
+
+    /// Whether a gene is a wash of its colour edged in the colour itself.
+    ///
+    /// On by default. A gene arrow is a large filled shape, and a large shape
+    /// at full saturation shouts: eight of them and the figure is a colour
+    /// chart. Putting the hue in the edge and a wash of it in the body keeps
+    /// the identity and gives the page back. It also lets the name inside be
+    /// dark ink, which reads better than white on a saturated block.
+    ///
+    /// Turn it off to have the colour used exactly as given.
+    pub fn soft_fills(mut self, soft: bool) -> Self {
+        self.soft_fills = soft;
+        self
+    }
+
+    /// Sets the gap between a gene and the ribbon leaving it, in pixels.
+    ///
+    /// Ribbons that touch the arrows read as one shape with them. A few pixels
+    /// of page is what makes a ribbon a connection between two things.
+    pub fn link_inset(mut self, inset: f64) -> Self {
+        self.link_inset = inset.max(0.0);
         self
     }
 
@@ -325,8 +382,8 @@ impl Track for LocusTrack {
             ) else {
                 continue;
             };
-            let top = band.y + self.row_top(link.row) + self.gene_height;
-            let bottom = band.y + self.row_top(link.row + 1);
+            let top = band.y + self.row_top(link.row) + self.gene_height + self.link_inset;
+            let bottom = band.y + self.row_top(link.row + 1) - self.link_inset;
             if bottom <= top {
                 continue;
             }
@@ -386,8 +443,8 @@ impl Track for LocusTrack {
                     middle,
                     ctx.scale.x(to),
                     middle,
-                    &mix(ctx.theme.surface(), &ctx.theme.rule, 0.9),
-                    1.4,
+                    &ctx.theme.rule,
+                    1.0,
                 );
             }
             let orphans = if self.mark_unmatched {
@@ -452,30 +509,61 @@ impl LocusTrack {
         let head = ((x1 - x0) * 0.32).min(height * 1.15).min(x1 - x0).max(0.0);
         let body = (x1 - x0 - head).max(0.0);
         let mid = top + height / 2.0;
-        let points: Vec<(f64, f64)> = match gene.strand {
-            Strand::Reverse => vec![
+        let bottom = top + height;
+        // Half the shaft, which the head overhangs on both sides. A gene too
+        // short to have a shaft is drawn as the head alone.
+        let shaft = height * SHAFT / 2.0;
+        // A head that overhangs needs a shaft long enough to be seen as one.
+        // Below that the arrow is all head, and a two pixel gene with a one
+        // pixel shaft is a smudge with a notch in it.
+        let barbed = self.shape == GeneShape::Arrow && body >= height * 0.4;
+        let points: Vec<(f64, f64)> = match (barbed, gene.strand) {
+            (true, Strand::Reverse) => vec![
+                (x1, mid - shaft),
+                (x0 + head, mid - shaft),
+                (x0 + head, top),
+                (x0, mid),
+                (x0 + head, bottom),
+                (x0 + head, mid + shaft),
+                (x1, mid + shaft),
+            ],
+            (true, _) => vec![
+                (x0, mid - shaft),
+                (x0 + body, mid - shaft),
+                (x0 + body, top),
+                (x1, mid),
+                (x0 + body, bottom),
+                (x0 + body, mid + shaft),
+                (x0, mid + shaft),
+            ],
+            (false, Strand::Reverse) => vec![
                 (x1, top),
                 (x0 + head, top),
                 (x0, mid),
-                (x0 + head, top + height),
-                (x1, top + height),
+                (x0 + head, bottom),
+                (x1, bottom),
             ],
-            _ => vec![
+            (false, _) => vec![
                 (x0, top),
                 (x0 + body, top),
                 (x1, mid),
-                (x0 + body, top + height),
-                (x0, top + height),
+                (x0 + body, bottom),
+                (x0, bottom),
             ],
         };
-        ctx.svg.polygon(&points, &color);
-        // An edge in a darker shade of the gene's own colour. It costs a
+        // The hue goes in the edge and a wash of it in the body. It costs a
         // little ink and buys the shape: two abutting genes of one family stop
-        // being one long blob, and an arrowhead against a ribbon of similar
-        // weight stays an arrowhead.
+        // being one long blob, an arrowhead against a ribbon of similar weight
+        // stays an arrowhead, and a large area stops shouting.
+        let (fill, edge_color) = if self.soft_fills {
+            (wash(&color, ctx.theme), color.clone())
+        } else {
+            (color.clone(), mix(&color, "#000000", 0.3))
+        };
+        ctx.svg.polygon(&points, &fill);
         let mut edge: Vec<(f64, f64)> = points.clone();
         edge.push(points[0]);
-        ctx.svg.polyline(&edge, &mix(&color, "#000000", 0.3), 0.9);
+        ctx.svg.polyline(&edge, &edge_color, 1.1);
         if unmatched {
             // Nothing in the neighbouring rows matched this one, which is the
             // finding. Outlined rather than recoloured, so it keeps whatever
@@ -487,13 +575,14 @@ impl LocusTrack {
 
         if self.show_gene_names {
             if let Some(name) = &gene.name {
-                let size = (height * 0.58).min(ctx.theme.font_size);
+                let room = if barbed { height * SHAFT } else { height };
+                let size = (room * 0.72).min(ctx.theme.font_size);
                 if text_width(name, size) < body.max(1.0) - 4.0 {
                     ctx.svg.text(
                         (x0 + x1) / 2.0,
                         mid + size * 0.35,
                         name,
-                        contrast_ink(&color),
+                        contrast_ink(&fill),
                         size,
                         Anchor::Middle,
                     );
@@ -590,7 +679,7 @@ mod tests {
     #[test]
     fn height_follows_the_row_count_and_the_room_between_them() {
         let track = LocusTrack::new(loci());
-        assert_eq!(track.height(&scale()), 2.0 * 22.0 + 28.0);
+        assert_eq!(track.height(&scale()), 2.0 * 22.0 + 34.0);
         assert_eq!(
             LocusTrack::new(loci()).link_height(0.0).height(&scale()),
             44.0
@@ -724,6 +813,46 @@ mod tests {
         let ink = Theme::light().foreground;
         assert!(marked.contains(&format!("stroke=\"{ink}\"")));
         assert!(!plain.contains(&format!("stroke=\"{ink}\"")));
+    }
+
+    #[test]
+    fn an_arrow_has_a_head_that_overhangs_its_shaft() {
+        let paint = |shape: GeneShape| {
+            Figure::new(region())
+                .show_region_label(false)
+                .push(
+                    LocusTrack::new(vec![Locus::new(
+                        "a",
+                        vec![Feature::new(0, 2_400).strand(Strand::Forward)],
+                    )])
+                    .shape(shape),
+                )
+                .to_svg()
+        };
+        let corners = |svg: &str| {
+            let at = svg.find("<polygon points=\"").unwrap() + 17;
+            svg[at..].split('"').next().unwrap().split(' ').count()
+        };
+        // Seven corners for a shaft with a head on it, five for a block
+        // brought to a point.
+        assert_eq!(corners(&paint(GeneShape::Arrow)), 7);
+        assert_eq!(corners(&paint(GeneShape::Pointed)), 5);
+    }
+
+    #[test]
+    fn a_gene_too_short_for_a_shaft_is_drawn_as_the_head_alone() {
+        // A head that overhangs needs a shaft to overhang, and a gene a few
+        // pixels wide has none.
+        let svg = Figure::new(Region::new("x", 0, 400_000).unwrap())
+            .show_region_label(false)
+            .push(LocusTrack::new(vec![Locus::new(
+                "a",
+                vec![Feature::new(0, 200).strand(Strand::Forward)],
+            )]))
+            .to_svg();
+        let at = svg.find("<polygon points=\"").unwrap() + 17;
+        let corners = svg[at..].split('"').next().unwrap().split(' ').count();
+        assert_eq!(corners, 5, "no room for a shaft");
     }
 
     #[test]

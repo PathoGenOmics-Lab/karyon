@@ -20,7 +20,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor, SvgWriter};
-use crate::theme::{mix, Theme};
+use crate::theme::{mix, wash, Theme};
 use crate::track::{DrawContext, Track};
 
 /// How one key is drawn.
@@ -35,6 +35,10 @@ pub enum Marker {
     /// An empty square with an edge, for anything marked by being outlined
     /// rather than by being filled.
     Outline,
+    /// A square washed in the colour and edged in it, which is how the crate
+    /// draws a large filled shape. A solid swatch beside a washed arrow is a
+    /// key that does not look like the thing it explains.
+    Area,
 }
 
 /// One thing a legend explains.
@@ -114,6 +118,16 @@ impl Legend {
     /// Adds a key drawn as a stroke, for a series plotted as a line.
     pub fn line(self, label: impl Into<String>, color: impl Into<String>) -> Self {
         self.marked(label, color, Marker::Line)
+    }
+
+    /// Adds a key drawn the way a large filled shape is drawn: washed in the
+    /// colour and edged in it.
+    ///
+    /// For gene arrows, matrix cells, ribbons: anything the figure fills. A
+    /// solid swatch beside a washed shape is a key that does not look like the
+    /// thing it explains.
+    pub fn area(self, label: impl Into<String>, color: impl Into<String>) -> Self {
+        self.marked(label, color, Marker::Area)
     }
 
     /// Adds a key drawn as an empty square with an edge.
@@ -278,6 +292,24 @@ impl Legend {
                                 color,
                                 (self.swatch / 4.0).max(1.5),
                             ),
+                            Marker::Area => {
+                                svg.rect_rounded(
+                                    at,
+                                    middle - self.swatch / 2.0,
+                                    self.swatch,
+                                    self.swatch,
+                                    theme.corner_radius,
+                                    &wash(color, theme),
+                                );
+                                svg.rect_outline(
+                                    at + 0.55,
+                                    middle - self.swatch / 2.0 + 0.55,
+                                    self.swatch - 1.1,
+                                    self.swatch - 1.1,
+                                    color,
+                                    1.1,
+                                );
+                            }
                             Marker::Outline => svg.rect_outline(
                                 at + 0.75,
                                 middle - self.swatch / 2.0 + 0.75,
@@ -430,6 +462,19 @@ mod tests {
     fn one_key_too_wide_for_the_band_still_gets_its_own_row() {
         let long = Legend::new().key("a".repeat(400), "#0072b2");
         assert_eq!(long.rows(100.0, 10.0).len(), 1);
+    }
+
+    #[test]
+    fn an_area_key_is_washed_and_edged_like_the_shape_it_explains() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(
+                Legend::new().area("gene family", "#0072b2"),
+            ))
+            .to_svg();
+        let theme = Theme::light();
+        assert!(svg.contains(&wash("#0072b2", &theme)), "no wash");
+        assert!(svg.contains("stroke=\"#0072b2\""), "no edge");
     }
 
     #[test]

@@ -267,6 +267,20 @@ fn parse_hex(color: &str) -> Option<(u8, u8, u8)> {
     ))
 }
 
+/// A pale wash of a colour against the page.
+///
+/// What a large filled shape wears. A gene arrow or a matrix cell at full
+/// saturation shouts, and eight of them make a colour chart rather than a
+/// figure; the hue belongs in the edge and a wash of it in the body. Small
+/// marks are the other way round and want the colour undiluted, which is why
+/// this is a function rather than a rule.
+pub fn wash(color: &str, theme: &Theme) -> String {
+    mix(color, theme.surface(), WASH)
+}
+
+/// How far a wash is pulled towards the page.
+const WASH: f64 = 0.62;
+
 /// Black or white, whichever stays readable on top of `color`.
 ///
 /// Feature labels are drawn inside coloured boxes whose colour the caller

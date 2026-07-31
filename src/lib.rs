@@ -100,15 +100,15 @@ pub use crate::rings::{
 };
 pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
-pub use crate::theme::{BaseColors, Theme};
+pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, AccumulationCurve, AccumulationTrack, Aggregate, AlignmentBlock, Association,
     AxisTrack, Band, CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack, DistanceTrack,
-    DotplotTrack, DrawContext, Feature, FeatureTrack, Homology, IdeogramTrack, Legend, LegendItem,
-    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack,
-    Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Move, MsaColoring, MsaDisplay,
-    MsaSequence, MsaTrack, PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment,
-    SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder, Stain, Strand, SyntenyTrack,
-    Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle,
-    WindowTrack,
+    DotplotTrack, DrawContext, Feature, FeatureTrack, GeneShape, Homology, IdeogramTrack, Legend,
+    LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack,
+    ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Move,
+    MsaColoring, MsaDisplay, MsaSequence, MsaTrack, PileupLayout, PileupTrack, Read, ReadColoring,
+    Rect, Segment, SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder, Stain, Strand,
+    SyntenyTrack, Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack, Window,
+    WindowStyle, WindowTrack,
 };

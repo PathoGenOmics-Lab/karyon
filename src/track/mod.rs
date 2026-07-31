@@ -34,7 +34,7 @@ pub use distance::DistanceTrack;
 pub use feature::{strand_color, Feature, FeatureTrack, Strand};
 pub use ideogram::{Band, IdeogramTrack, Stain};
 pub use legend::{Legend, LegendItem, LegendTrack, Marker};
-pub use locus::{Homology, Locus, LocusTrack};
+pub use locus::{GeneShape, Homology, Locus, LocusTrack};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
 pub use manhattan::{Association, ManhattanTrack};
 pub use matrix::{CellScale, MatrixRow, MatrixTrack};

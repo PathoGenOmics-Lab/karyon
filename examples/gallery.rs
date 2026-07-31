@@ -648,7 +648,7 @@ fn cluster() -> Figure {
     // another. Eight colours would make the reader learn a key before reading
     // anything.
     let theme = Theme::light();
-    let kept = mix(theme.surface(), &theme.rule, 0.85);
+    let kept = mix(&theme.muted, theme.surface(), 0.35);
     let lost = theme.color(0).to_string();
     let gained = theme.color(1).to_string();
 
@@ -709,8 +709,8 @@ fn cluster() -> Figure {
 
     let (pale, dark) = track.ramp_ends(&theme);
     let legend = Legend::new()
-        .key("deleted in BCG", &lost)
-        .key("insertion sequence", &gained)
+        .area("deleted in BCG", &lost)
+        .area("insertion sequence", &gained)
         .ramp("identity", pale, dark, "70%", "100%")
         .outline("in no neighbouring locus", theme.foreground.clone());
 
