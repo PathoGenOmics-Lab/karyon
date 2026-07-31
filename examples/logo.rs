@@ -11,7 +11,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{AxisTrack, Figure, LogoColumn, LogoScaling, LogoTrack, Region, StackOrder};
+use karyon::{AxisTrack, Figure, LogoColumn, LogoScore, LogoTrack, Region, StackOrder};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -37,27 +37,27 @@ fn main() -> std::io::Result<()> {
 
     let region = Region::new("motif", 0, motif.len() as u64).unwrap();
     let comparison = Figure::new(region.clone())
-        .title("One motif, three scalings")
+        .title("One motif, three scores")
         .show_region_label(false)
         .label_width(110.0)
         .push(
             LogoTrack::new(0, motif.clone())
                 .alphabet_size(4)
-                .scaling(LogoScaling::Probability)
+                .score(LogoScore::Probability)
                 .label("probability")
                 .height(60.0),
         )
         .push(
             LogoTrack::new(0, motif.clone())
                 .alphabet_size(4)
-                .scaling(LogoScaling::InformationContent)
+                .score(LogoScore::InformationContent)
                 .label("bits")
                 .height(70.0),
         )
         .push(
             LogoTrack::new(0, motif)
                 .alphabet_size(4)
-                .scaling(LogoScaling::EnrichmentDepletion)
+                .edlogo()
                 .label("enrich / deplete")
                 .height(130.0),
         )
@@ -81,7 +81,7 @@ fn main() -> std::io::Result<()> {
         .push(
             LogoTrack::new(0, residues)
                 .alphabet_size(20)
-                .scaling(LogoScaling::InformationContent)
+                .score(LogoScore::InformationContent)
                 .order(StackOrder::LargestOutside)
                 .label("residues")
                 .height(110.0),
@@ -89,9 +89,48 @@ fn main() -> std::io::Result<()> {
         .push(AxisTrack::new().center_on_bases(true));
     protein.save_svg(out.join("example-logo-protein.svg"))?;
 
+    // The scores are not interchangeable, and the difference is loudest where
+    // a symbol is absent. Column 1 has no T and nothing else going on; column 2
+    // carries a real gradient. Log odds is dominated by the first, the
+    // divergence by the second, and the truth is that both are worth seeing.
+    let contrast = vec![
+        LogoColumn::acgt(34.0, 33.0, 33.0, 0.0),
+        LogoColumn::acgt(50.0, 25.0, 15.0, 10.0),
+        LogoColumn::acgt(25.0, 25.0, 25.0, 25.0),
+        LogoColumn::acgt(70.0, 12.0, 12.0, 6.0),
+    ];
+    let contrast_region = Region::new("motif", 0, contrast.len() as u64).unwrap();
+    let scores = Figure::new(contrast_region)
+        .title("Five ways to score against a background")
+        .show_region_label(false)
+        .label_width(120.0)
+        .width(760.0)
+        .push(logo_panel(&contrast, LogoScore::LogOdds, "log odds"))
+        .push(logo_panel(
+            &contrast,
+            LogoScore::KullbackLeibler,
+            "KL divergence",
+        ))
+        .push(logo_panel(&contrast, LogoScore::Difference, "difference"))
+        .push(logo_panel(&contrast, LogoScore::Ratio, "ratio"))
+        .push(logo_panel(&contrast, LogoScore::OddsRatio, "odds ratio"))
+        .push(AxisTrack::new().center_on_bases(true));
+    scores.save_svg(out.join("example-logo-scores.svg"))?;
+
     let (w1, h1) = comparison.dimensions();
     let (w2, h2) = protein.dimensions();
+    let (w3, h3) = scores.dimensions();
     println!("example-logo.svg         {w1:.0} x {h1:.0}");
     println!("example-logo-protein.svg {w2:.0} x {h2:.0}");
+    println!("example-logo-scores.svg  {w3:.0} x {h3:.0}");
     Ok(())
+}
+
+/// One panel of the scoring comparison, all else held equal.
+fn logo_panel(columns: &[LogoColumn], score: LogoScore, label: &str) -> LogoTrack {
+    LogoTrack::new(0, columns.to_vec())
+        .alphabet_size(4)
+        .score(score)
+        .label(label)
+        .height(80.0)
 }

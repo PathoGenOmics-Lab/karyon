@@ -69,7 +69,7 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `LogoTrack` | Sequence logos | Probability, information content, or enrichment and depletion around a baseline. Arbitrary alphabets |
+| `LogoTrack` | Sequence logos | Seven scores, five of them against a background so symbols can hang below the baseline. Arbitrary alphabets |
 | `AxisTrack` | The coordinate ruler | Round tick positions, one unit for the whole ruler, bp, kb or Mb as the zoom demands |
 
 Each is an implementation of one trait with no privileged access to the figure.
@@ -82,10 +82,10 @@ A classic logo can only say "this symbol is common here". It measures
 conservation, so a column that is nearly uniform comes out flat, and the
 biology hiding in that column stays hidden.
 
-`LogoTrack` draws the classic logo and the alternative. In
-`EnrichmentDepletion` scaling, each symbol scores `log2(p / q)` against a
-background and the column is recentred on its own median, so enriched symbols
-stack above the line and depleted ones hang below it. This is the plot
+`LogoTrack` draws the classic logo and the alternative. `LogoTrack::edlogo()`
+scores each symbol as `log2(p / q)` against a background and recentres the
+column on its own median, so enriched symbols stack above the line and depleted
+ones hang below it. This is the plot
 [Logolas](https://github.com/kkdey/Logolas) calls an EDLogo.
 
 <img src="assets/example-logo.svg" alt="The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it" width="100%">
@@ -94,11 +94,11 @@ Look at position 4. It is near uniform, so the bits panel says there is nothing
 there, and it has no T at all, which only the third panel can tell you.
 
 ```rust
-use karyon::{Figure, LogoScaling, LogoTrack, Region};
+use karyon::{Figure, LogoTrack, Region};
 
 let logo = LogoTrack::from_sequences(0, &alignment)
     .alphabet_size(4)                              // count the bases that never appear
-    .scaling(LogoScaling::EnrichmentDepletion)
+    .edlogo()
     .background([("A", 0.35), ("C", 0.15), ("G", 0.15), ("T", 0.35)])
     .label("motif");
 
@@ -112,11 +112,45 @@ to one character each:
 
 <img src="assets/example-logo-protein.svg" alt="A sequence logo whose symbols are three letter amino acid codes" width="70%">
 
-Two things are worth knowing before you read one of these. Absent symbols
-dominate the scale, because absence really is a strong signal, and how far they
-fall is set by `LogoTrack::smoothing`. That smoothing is a fraction of the
-column mass rather than a pseudocount, so the same motif plots identically
-whether you pass counts out of 500 or a probability matrix.
+### Scores
+
+A logo has to decide what a letter's height means. `LogoScore` offers seven
+answers, and the five that compare against a background are the ones that can
+put a symbol below the line. They follow the scoring schemes of Logolas.
+
+| Score | Height | Answers |
+|:------|:-------|:--------|
+| `Probability` | `p` | what is here |
+| `InformationContent` | `p (log2 K - H)` | how conserved is this position |
+| `LogOdds` | `log2(p / q)` | how many doublings from the background |
+| `KullbackLeibler` | `p log2(p / q)` | how much this symbol contributes to the divergence |
+| `Difference` | `p - q` | how many percentage points of surplus |
+| `Ratio` | `p / q` | how many times the background |
+| `OddsRatio` | `log2(p/(1-p)) - log2(q/(1-q))` | how the odds shift |
+
+They are not interchangeable, and the gap between them is widest exactly where
+a symbol is absent:
+
+<img src="assets/example-logo-scores.svg" alt="The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient" width="100%">
+
+Position 1 has no T and nothing else going on; position 4 carries a real
+gradient. Log odds is dominated by the first, because an absent symbol has an
+enormous log odds. Weighting by probability turns that into the
+`KullbackLeibler` panel, where the same missing T drops to -0.15 bits and the
+real signal becomes the tallest thing on the plot. Neither is wrong. They
+answer different questions, and the second is the one to reach for when a
+handful of absent symbols would otherwise flatten the figure.
+
+Where the baseline sits is a separate choice. `Centering::Quantile(0.5)` is the
+median and the default, matching Logolas; `Centering::None` leaves the baseline
+at "exactly the background".
+
+Two more things are worth knowing. `LogoTrack::smoothing` sets how far an
+absent symbol can fall, and it is a fraction of the column mass rather than a
+pseudocount, so the same motif plots identically whether you pass counts out of
+500 or a probability matrix. And the two absolute scores get a fixed axis:
+information content always runs from zero to `log2(K)`, the way WebLogo draws
+DNA from zero to two bits, so two figures of two motifs stay comparable.
 
 ## Coordinates
 
@@ -172,7 +206,7 @@ Not implemented yet, in the order they are likely to arrive:
 - Ideogram and karyogram, for whole-chromosome context
 - Dotplot and synteny ribbons between two sequences
 - Manhattan plot, with its own y axis and significance line
-- More logo scorings: KL divergence and the unscaled log odds Logolas offers
+- Empirical Bayes stabilisation of logo scores, the other half of the Logolas paper
 - PNG output, likely behind a feature flag so the default stays dependency-free
 
 ## Installation

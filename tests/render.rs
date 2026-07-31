@@ -8,9 +8,8 @@
 use std::fs;
 
 use karyon::{
-    AxisTrack, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, LogoColumn,
-    LogoScaling, LogoTrack, Region, SequenceTrack, Strand, Theme, Variant, VariantStyle,
-    VariantTrack,
+    AxisTrack, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, LogoColumn, LogoScore,
+    LogoTrack, Region, SequenceTrack, Strand, Theme, Variant, VariantStyle, VariantTrack,
 };
 
 fn demo_figure() -> Figure {
@@ -205,13 +204,13 @@ fn a_logo_figure_is_well_formed_and_deterministic() {
             .push(
                 LogoTrack::from_sequences(0, &alignment)
                     .alphabet_size(4)
-                    .scaling(LogoScaling::InformationContent)
+                    .score(LogoScore::InformationContent)
                     .label("bits"),
             )
             .push(
                 LogoTrack::from_sequences(0, &alignment)
                     .alphabet_size(4)
-                    .scaling(LogoScaling::EnrichmentDepletion)
+                    .edlogo()
                     .label("enrich"),
             )
             .push(AxisTrack::new().center_on_bases(true))
@@ -236,9 +235,7 @@ fn only_the_enrichment_logo_can_show_an_absent_base() {
     // Near uniform over three bases, with the fourth never observed.
     let column = vec![LogoColumn::acgt(34.0, 33.0, 33.0, 0.0)];
     let classic = LogoTrack::new(0, column.clone()).alphabet_size(4);
-    let edlogo = LogoTrack::new(0, column)
-        .alphabet_size(4)
-        .scaling(LogoScaling::EnrichmentDepletion);
+    let edlogo = LogoTrack::new(0, column).alphabet_size(4).edlogo();
 
     assert!(classic.stacks()[0].down_total() == 0.0);
     assert!(classic.stacks()[0].up_total() < 0.45, "should look empty");

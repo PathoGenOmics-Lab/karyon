@@ -4,6 +4,50 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-31
+
+Sequence logos gain the rest of the scoring schemes `Logolas` offers, and the
+score is separated from where the baseline sits.
+
+### Added
+
+- Four more scores on top of the existing three: `LogoScore::KullbackLeibler`
+  (`p log2(p/q)`, the symbol's contribution to the divergence),
+  `LogoScore::Difference` (`p - q`), `LogoScore::Ratio` (`p / q`) and
+  `LogoScore::OddsRatio`. Together with `Probability`, `InformationContent` and
+  `LogOdds` these cover the `Logolas` set.
+- `Centering`, which decides where the baseline of a background-relative logo
+  sits, as a quantile of the column rather than a fixed median. `Quantile(0.5)`
+  is the default and matches the `quant` argument of `Logolas`;
+  `Centering::None` leaves the baseline at "exactly the background".
+- `LogoTrack::edlogo`, shorthand for log odds centred on the median.
+- `LogoTrack::max_extent`, pinning how far the tallest stack reaches so that
+  two panels of a figure can be compared honestly.
+- `LogoScore::uses_background` and `LogoScore::unit`.
+- A third example figure, `assets/example-logo-scores.svg`, showing the same
+  four columns under all five background-relative scores.
+
+### Changed
+
+- `LogoScaling` is now `LogoScore`, and `LogoTrack::scaling` is
+  `LogoTrack::score`. The old `EnrichmentDepletion` variant was the pairing of
+  one score with one centring, which is now spelled `LogoTrack::edlogo()` or
+  `.score(LogoScore::LogOdds).centering(Centering::median())`.
+- Smoothing now applies to every score measured against a background rather
+  than to the one that used to exist.
+
+### Fixed
+
+- An information content logo labelled its axis `2 bits` while drawing it to
+  the tallest column on screen, so the annotation and the picture disagreed.
+  The two absolute scores now get the fixed axis their convention asks for:
+  probabilities to one, information content to `log2(K)`, the way WebLogo draws
+  DNA from zero to two bits. Two figures of two motifs are comparable again.
+- A fitted axis now measures only the columns inside the region on display,
+  instead of letting an off-screen column set the scale.
+- The scale annotation reports the value at the bottom of a two sided logo as
+  well as the one at the top.
+
 ## [0.2.0] - 2026-07-31
 
 ### Added
@@ -70,5 +114,6 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.1.0

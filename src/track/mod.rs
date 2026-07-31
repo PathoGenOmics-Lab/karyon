@@ -15,7 +15,7 @@ pub mod variant;
 pub use axis::AxisTrack;
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
 pub use feature::{Feature, FeatureTrack, Strand};
-pub use logo::{LogoColumn, LogoScaling, LogoStack, LogoTrack, StackOrder};
+pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
 pub use sequence::SequenceTrack;
 pub use variant::{Variant, VariantStyle, VariantTrack};
 

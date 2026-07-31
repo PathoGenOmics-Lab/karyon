@@ -52,12 +52,15 @@
 //!
 //! # Sequence logos
 //!
-//! [`LogoTrack`] draws the classic information content logo and, through
-//! [`LogoScaling::EnrichmentDepletion`], the enrichment and depletion variant
-//! that stacks symbols on both sides of a baseline. Only the second one can
-//! show a symbol that is absent rather than merely uncommon, which is the
-//! whole argument for it. Symbols are arbitrary strings, so amino acid codes
-//! and k-mers plot as readily as bases.
+//! [`LogoTrack`] draws the classic information content logo and six other
+//! [`LogoScore`]s, five of which measure a symbol against a background and can
+//! therefore hang it below the baseline. [`LogoTrack::edlogo`] is the one to
+//! reach for first: log odds recentred on the column median, the plot that
+//! shows a symbol which is absent rather than merely uncommon.
+//!
+//! Where the baseline sits is a separate choice, [`Centering`], and symbols
+//! are arbitrary strings, so amino acid codes and k-mers plot as readily as
+//! bases.
 
 #![forbid(unsafe_code)]
 
@@ -76,7 +79,7 @@ pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{BaseColors, Theme};
 pub use crate::track::{
-    Aggregate, AxisTrack, CoverageStyle, CoverageTrack, DrawContext, Feature, FeatureTrack,
-    LogoColumn, LogoScaling, LogoStack, LogoTrack, Rect, SequenceTrack, StackOrder, Strand, Track,
-    Variant, VariantStyle, VariantTrack,
+    Aggregate, AxisTrack, Centering, CoverageStyle, CoverageTrack, DrawContext, Feature,
+    FeatureTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, Rect, SequenceTrack, StackOrder,
+    Strand, Track, Variant, VariantStyle, VariantTrack,
 };
