@@ -21,10 +21,11 @@ use karyon::tree::Tree;
 use karyon::{
     AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
     CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureRing,
-    FeatureTrack, Figure, IdeogramTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack,
-    MarkerRing, MatrixRow, MatrixTrack, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels,
-    PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack, Stain,
-    Strand, SyntenyTrack, TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
+    FeatureTrack, Figure, Homology, IdeogramTrack, Locus, LocusTrack, LogoColumn, LogoScore,
+    LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack,
+    Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring,
+    Region, Rings, SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand, SyntenyTrack,
+    TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -94,6 +95,21 @@ fn main() -> std::io::Result<()> {
             &circular(),
             "L",
             "A circular chromosome: annotation, composition, and chords across the middle",
+        )
+        .push_captioned(
+            &squiggle(),
+            "M",
+            "Raw nanopore current, with the bases a basecaller made of it",
+        )
+        .push_captioned(
+            &cluster(),
+            "N",
+            "One locus in three genomes, homologies shaded by identity",
+        )
+        .push_captioned(
+            &methylation(),
+            "O",
+            "Methylation per site, one lane per strand, faded by read depth",
         );
 
     sheet.save_svg(out.join("gallery.svg"))?;
@@ -590,6 +606,131 @@ fn circular() -> Rings {
                 .colors("#0072b2", "#d55e00"),
         )
         .link_colored((1_100_000, 1_180_000), (3_240_000, 3_320_000), None, 0.3)
+}
+
+/// M: current, before it was a sequence.
+fn squiggle() -> Figure {
+    let mut rng = Lcg::new(4_000);
+    let mut signal: Vec<f64> = Vec::new();
+    let mut moves: Vec<Move> = Vec::new();
+    for base in b"GATCAGGCTAGCTTGAAACGT" {
+        moves.push(Move::new(signal.len(), *base));
+        let level = match base {
+            b'A' => 86.0,
+            b'C' => 98.0,
+            b'G' => 110.0,
+            _ => 122.0,
+        };
+        for _ in 0..(8 + rng.next() % 14) {
+            signal.push(level + (rng.next() % 100) as f64 / 25.0 - 2.0);
+        }
+    }
+    let samples = signal.len() as u64;
+    Figure::new(Region::new("read", 0, samples).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            SquiggleTrack::new(0, signal)
+                .moves(moves)
+                .label("current")
+                .height(76.0),
+        )
+        .push(AxisTrack::new().label("sample"))
+}
+
+/// N: the same locus in three genomes.
+fn cluster() -> Figure {
+    let family = [
+        "#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#7b3294",
+    ];
+    let gene = |start: u64, len: u64, name: &str, group: usize, forward: bool| {
+        Feature::new(start, start + len)
+            .name(name)
+            .color(family[group])
+            .strand(if forward {
+                Strand::Forward
+            } else {
+                Strand::Reverse
+            })
+    };
+
+    let loci = vec![
+        Locus::new(
+            "H37Rv",
+            vec![
+                gene(200, 1_500, "esxB", 0, true),
+                gene(1_800, 1_400, "esxA", 1, true),
+                gene(3_300, 2_600, "espI", 2, true),
+                gene(6_100, 1_900, "eccA1", 3, false),
+                gene(8_200, 3_100, "eccB1", 4, true),
+            ],
+        ),
+        Locus::new(
+            "CDC1551",
+            vec![
+                gene(200, 1_500, "esxB", 0, true),
+                gene(1_800, 1_400, "esxA", 1, true),
+                gene(3_400, 1_900, "eccA1", 3, false),
+                gene(5_500, 3_100, "eccB1", 4, true),
+            ],
+        ),
+        Locus::new(
+            "BCG",
+            vec![
+                gene(200, 1_500, "esxB", 0, true),
+                gene(1_900, 1_900, "eccA1", 3, true),
+                gene(4_000, 3_100, "eccB1", 4, true),
+                gene(7_300, 1_200, "IS6110", 5, false),
+            ],
+        ),
+    ];
+
+    Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            LocusTrack::new(loci)
+                .links(vec![
+                    Homology::new(0, 0, 0, 0.99),
+                    Homology::new(0, 1, 1, 0.98),
+                    Homology::new(0, 3, 2, 0.97),
+                    Homology::new(0, 4, 3, 0.99),
+                    Homology::new(1, 0, 0, 0.99),
+                    Homology::new(1, 2, 1, 0.94),
+                    Homology::new(1, 3, 2, 0.98),
+                ])
+                .label("ESX-1"),
+        )
+        .push(AxisTrack::new())
+}
+
+/// O: modification, not mutation.
+fn methylation() -> Figure {
+    let start = 1_460_000u64;
+    let span = 3_000u64;
+    let mut rng = Lcg::new(6_000);
+
+    let mut sites = Vec::new();
+    let mut pos = start + 40;
+    while pos < start + span {
+        let hemi = (start + 1_100..start + 1_700).contains(&pos);
+        let coverage = (8 + rng.next() % 55) as u32;
+        let forward = 0.88 + (rng.next() % 12) as f64 / 100.0;
+        let reverse = if hemi {
+            (rng.next() % 12) as f64 / 100.0
+        } else {
+            0.86 + (rng.next() % 14) as f64 / 100.0
+        };
+        sites.push(MethylSite::new(pos, Strand::Forward, forward, coverage));
+        sites.push(MethylSite::new(pos, Strand::Reverse, reverse, coverage - 1));
+        pos += 40 + rng.next() % 130;
+    }
+
+    Figure::new(Region::new("NC_000962.3", start, start + span).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(MethylationTrack::new(sites).label("6mA").height(66.0))
+        .push(AxisTrack::new())
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a

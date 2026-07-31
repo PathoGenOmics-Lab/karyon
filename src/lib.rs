@@ -55,7 +55,7 @@
 //!
 //! # Extending
 //!
-//! The eighteen track types shipped here are implementations of one small trait,
+//! The twenty-one track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -104,9 +104,10 @@ pub use crate::theme::{BaseColors, Theme};
 pub use crate::track::{
     AccumulationCurve, AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisTrack, Band,
     CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack, DistanceTrack, DotplotTrack,
-    DrawContext, Feature, FeatureTrack, IdeogramTrack, LogoColumn, LogoScore, LogoStack, LogoTrack,
-    ManhattanTrack, MatrixRow, MatrixTrack, MsaColoring, MsaDisplay, MsaSequence, MsaTrack,
-    PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, SnpSite, SnpTrack,
-    StackOrder, Stain, Strand, SyntenyTrack, Track, TreeShape, TreeTrack, Variant, VariantStyle,
-    VariantTrack, Window, WindowStyle, WindowTrack,
+    DrawContext, Feature, FeatureTrack, Homology, IdeogramTrack, Locus, LocusTrack, LogoColumn,
+    LogoScore, LogoStack, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite,
+    MethylationTrack, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, PileupLayout,
+    PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, SnpSite, SnpTrack,
+    SquiggleTrack, StackOrder, Stain, Strand, SyntenyTrack, Track, TreeShape, TreeTrack, Variant,
+    VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };
