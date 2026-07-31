@@ -133,8 +133,8 @@ impl LocusTrack {
             loci: loci.into(),
             links: Vec::new(),
             label: None,
-            gene_height: 20.0,
-            link_height: 24.0,
+            gene_height: 22.0,
+            link_height: 28.0,
             show_names: true,
             show_gene_names: true,
             color: None,
@@ -245,7 +245,7 @@ impl LocusTrack {
         // background. A perfect match is already the widest ribbon on the
         // page; making it the heaviest as well buries the gaps, and the gaps
         // are what the figure is about.
-        0.08 + 0.24 * fraction
+        0.05 + 0.17 * fraction
     }
 
     /// The loci.
@@ -368,7 +368,9 @@ impl Track for LocusTrack {
                 num(top),
             );
             ctx.svg.path(&d, &shade, 1.0);
-            ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.16), 0.7);
+            // A hairline edge, and no more. At these tints a dark outline
+            // fights the genes, and the genes are the subject.
+            ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.10), 0.5);
         }
 
         for (row, locus) in self.loci.iter().enumerate() {
@@ -393,14 +395,14 @@ impl Track for LocusTrack {
             } else {
                 Vec::new()
             };
+            // A name written under a gene has to clear the one before it.
+            // Two adjacent short genes would otherwise print their names on
+            // top of each other, which is worse than printing neither.
+            let mut label_right = f64::NEG_INFINITY;
             for (index, gene) in locus.genes.iter().enumerate() {
-                self.draw_gene(
-                    ctx,
-                    gene,
-                    top,
-                    orphans.contains(&index),
-                    ctx.theme.foreground.clone(),
-                );
+                let ink = ctx.theme.foreground.clone();
+                let unmatched = orphans.contains(&index);
+                label_right = self.draw_gene(ctx, gene, top, unmatched, ink, label_right);
             }
             if self.show_names && ctx.axis.w > 0.0 {
                 let size = (ctx.theme.font_size - 1.0).min(self.gene_height);
@@ -426,7 +428,8 @@ impl LocusTrack {
         top: f64,
         unmatched: bool,
         ink: String,
-    ) {
+        label_right: f64,
+    ) -> f64 {
         let x0 = ctx.scale.x(gene.start);
         let x1 = ctx.scale.x(gene.end).max(x0 + self.min_gene_width);
         let height = self.gene_height;
@@ -442,10 +445,11 @@ impl LocusTrack {
             }
         });
 
-        // The head is as long as the gene is tall, or the whole gene when the
-        // gene is shorter than that: a head longer than its body reads as an
-        // arrowhead on its own and says nothing about which way it points.
-        let head = (x1 - x0).min(height * 0.85).max(0.0);
+        // A head is a third of the gene, capped at a little over its height.
+        // Fixed to the height alone it is a nick on the end of a long gene,
+        // which reads as a bar rather than as an arrow; unbounded it swallows
+        // a short gene and says nothing about which way that one points.
+        let head = ((x1 - x0) * 0.32).min(height * 1.15).min(x1 - x0).max(0.0);
         let body = (x1 - x0 - head).max(0.0);
         let mid = top + height / 2.0;
         let points: Vec<(f64, f64)> = match gene.strand {
@@ -496,18 +500,25 @@ impl LocusTrack {
                 } else if self.link_height >= size + 4.0 {
                     // Under the gene rather than nowhere. A short gene is
                     // exactly the one whose name a reader needs, and dropping
-                    // it leaves the figure quietly incomplete.
-                    ctx.svg.text(
-                        (x0 + x1) / 2.0,
-                        top + height + size,
-                        name,
-                        &ctx.theme.muted,
-                        size,
-                        Anchor::Middle,
-                    );
+                    // it leaves the figure quietly incomplete. It still has to
+                    // clear the last one written down there.
+                    let width = text_width(name, size);
+                    let left = (x0 + x1) / 2.0 - width / 2.0;
+                    if left > label_right + 3.0 {
+                        ctx.svg.text(
+                            (x0 + x1) / 2.0,
+                            top + height + size,
+                            name,
+                            &ctx.theme.muted,
+                            size,
+                            Anchor::Middle,
+                        );
+                        return left + width;
+                    }
                 }
             }
         }
+        label_right
     }
 }
 
@@ -579,13 +590,13 @@ mod tests {
     #[test]
     fn height_follows_the_row_count_and_the_room_between_them() {
         let track = LocusTrack::new(loci());
-        assert_eq!(track.height(&scale()), 2.0 * 20.0 + 24.0);
+        assert_eq!(track.height(&scale()), 2.0 * 22.0 + 28.0);
         assert_eq!(
             LocusTrack::new(loci()).link_height(0.0).height(&scale()),
-            40.0
+            44.0
         );
         // An empty track still has a row of height rather than none.
-        assert_eq!(LocusTrack::new(Vec::new()).height(&scale()), 20.0);
+        assert_eq!(LocusTrack::new(Vec::new()).height(&scale()), 22.0);
     }
 
     #[test]
@@ -641,13 +652,13 @@ mod tests {
         // ramp over the whole of nought to one draws them all the same shade.
         let track = LocusTrack::new(loci());
         assert!(
-            track.shade(1.0) - track.shade(0.7) > 0.2,
+            track.shade(1.0) - track.shade(0.7) > 0.15,
             "the default range"
         );
         // Everything below the floor is the palest shade, not a negative one.
         assert_eq!(track.shade(0.0), track.shade(0.7));
         // A ribbon stays context: never more than a third of the page's ink.
-        assert!(track.shade(1.0) < 0.55, "still context, not the subject");
+        assert!(track.shade(1.0) < 0.25, "still context, not the subject");
 
         // Spread over the whole range instead, and a seventy per cent match is
         // already most of the way to solid, leaving nothing for the rest.

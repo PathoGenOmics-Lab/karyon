@@ -11,6 +11,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use karyon::theme::mix;
 use karyon::{
     AxisTrack, Feature, Figure, Homology, Legend, LegendTrack, Locus, LocusTrack, MethylSite,
     MethylationTrack, Move, Region, SquiggleTrack, Strand, Theme,
@@ -67,17 +68,19 @@ fn squiggle(out: &Path) -> std::io::Result<()> {
 
 /// The same locus in three genomes, and what each one is missing.
 fn cluster(out: &Path) -> std::io::Result<()> {
-    // One colour per gene family, so a rearrangement is visible without
-    // following a single ribbon.
-    // Past the two strand colours, so a family is never painted in the colour
-    // that means "reverse strand" elsewhere in the crate.
-    let family = [
-        "#009e73", "#cc79a7", "#e69f00", "#7b3294", "#56b4e9", "#8c6d31",
-    ];
-    let gene = |start: u64, len: u64, name: &str, group: usize, forward: bool| {
-        Feature::new(start, start + len)
+    // Colour is spent only on what differs. The conserved backbone of the
+    // locus is one quiet slate, the block RD1 removed is one hue and the
+    // element that replaced it is another: three colours where eight would
+    // have made the reader learn a key before reading anything.
+    let theme = Theme::light();
+    let kept = mix(theme.surface(), &theme.rule, 0.85);
+    let lost = theme.color(0).to_string();
+    let gained = theme.color(1).to_string();
+
+    let gene = |start: u64, len: u64, name: &str, color: &str, forward: bool| {
+        Feature::new(start, start.saturating_add(len))
             .name(name)
-            .color(family[group])
+            .color(color)
             .strand(if forward {
                 Strand::Forward
             } else {
@@ -85,63 +88,79 @@ fn cluster(out: &Path) -> std::io::Result<()> {
             })
     };
 
+    // Rv3868 onwards. RD1 takes out Rv3872 to Rv3875, which is PE35, PPE68,
+    // esxB and esxA: one contiguous block, which is why the figure shows one
+    // contiguous hole rather than four scattered ones. The three genomes
+    // number the locus differently, as three assemblies of one region do.
+    let core = |shift: i64| {
+        let at = |base: i64| (base + shift).max(0) as u64;
+        vec![
+            gene(at(300), 1_800, "eccA1", &kept, true),
+            gene(at(2_400), 1_500, "eccB1", &kept, true),
+            gene(at(4_100), 3_500, "eccCa1", &kept, true),
+        ]
+    };
+    let rd1 = |shift: i64| {
+        let at = |base: i64| (base + shift).max(0) as u64;
+        vec![
+            gene(at(7_800), 300, "PE35", &lost, true),
+            gene(at(8_300), 1_100, "PPE68", &lost, true),
+            gene(at(9_600), 300, "esxB", &lost, true),
+            gene(at(10_100), 300, "esxA", &lost, true),
+        ]
+    };
+
+    let mut h37rv = core(0);
+    h37rv.extend(rd1(0));
+    let mut bovis = core(-350);
+    bovis.extend(rd1(-350));
+
+    let mut bcg = core(150);
+    // The scar RD1 left, with an insertion sequence sitting in it.
+    bcg.push(gene(8_050, 1_350, "IS6110", &gained, false));
+
     let loci = vec![
-        Locus::new(
-            "H37Rv",
-            vec![
-                gene(200, 1_500, "esxB", 0, true),
-                gene(1_800, 1_400, "esxA", 1, true),
-                gene(3_300, 2_600, "espI", 2, true),
-                gene(6_100, 1_900, "eccA1", 3, false),
-                gene(8_200, 3_100, "eccB1", 4, true),
-            ],
-        ),
-        Locus::new(
-            "CDC1551",
-            vec![
-                gene(200, 1_500, "esxB", 0, true),
-                gene(1_800, 1_400, "esxA", 1, true),
-                // espI is gone from this one.
-                gene(3_400, 1_900, "eccA1", 3, false),
-                gene(5_500, 3_100, "eccB1", 4, true),
-            ],
-        ),
-        Locus::new(
-            "BCG",
-            vec![
-                gene(200, 1_500, "esxB", 0, true),
-                // esxA and espI both gone: the RD1 deletion.
-                gene(1_900, 1_900, "eccA1", 3, true),
-                gene(4_000, 3_100, "eccB1", 4, true),
-                gene(7_300, 1_200, "IS6110", 5, false),
-            ],
-        ),
+        Locus::new("H37Rv", h37rv),
+        Locus::new("M. bovis", bovis),
+        Locus::new("BCG", bcg),
     ];
 
     let links = vec![
-        // A real spread, because orthologues have one: esxB is near identical
-        // across the complex and eccA1 has drifted.
-        Homology::new(0, 0, 0, 0.998),
-        Homology::new(0, 1, 1, 0.94),
-        Homology::new(0, 3, 2, 0.82),
-        Homology::new(0, 4, 3, 0.97),
-        Homology::new(1, 0, 0, 0.995),
-        Homology::new(1, 2, 1, 0.76),
-        Homology::new(1, 3, 2, 0.91),
+        Homology::new(0, 0, 0, 0.999),
+        Homology::new(0, 1, 1, 0.997),
+        Homology::new(0, 2, 2, 0.996),
+        Homology::new(0, 3, 3, 0.95),
+        // PPE68 is the one that has drifted between the two.
+        Homology::new(0, 4, 4, 0.76),
+        Homology::new(0, 5, 5, 0.999),
+        Homology::new(0, 6, 6, 0.998),
+        Homology::new(1, 0, 0, 0.998),
+        Homology::new(1, 1, 1, 0.999),
+        Homology::new(1, 2, 2, 0.997),
     ];
 
     let track = LocusTrack::new(loci).links(links).label("ESX-1");
-    let missing = track.unmatched(2).len();
+    // Genes of the middle row that nothing in BCG matches: the deletion.
+    let removed = (0..track.loci()[1].genes.len())
+        .filter(|index| {
+            !track
+                .homologies()
+                .iter()
+                .any(|link| link.row == 1 && link.from == *index)
+        })
+        .count();
 
     // The ramp comes off the track rather than being named again here, so the
     // key cannot drift away from the ribbons it explains.
-    let (pale, dark) = track.ramp_ends(&Theme::light());
+    let (pale, dark) = track.ramp_ends(&theme);
     let legend = Legend::new()
+        .key("deleted in BCG", &lost)
+        .key("insertion sequence", &gained)
         .ramp("identity", pale, dark, "70%", "100%")
-        .outline("in no other locus", Theme::light().foreground);
+        .outline("in no neighbouring locus", theme.foreground.clone());
 
-    let figure = Figure::new(Region::new("ESX-1", 0, 11_600).unwrap())
-        .title("One locus, three genomes, and what each one is missing")
+    let figure = Figure::new(Region::new("ESX-1", 0, 12_000).unwrap())
+        .title("ESX-1, and the deletion that made BCG a vaccine")
         .width(880.0)
         .show_region_label(false)
         .push(track)
@@ -150,7 +169,7 @@ fn cluster(out: &Path) -> std::io::Result<()> {
 
     figure.save_svg(out.join("example-cluster.svg"))?;
     let (width, height) = figure.dimensions();
-    println!("example-cluster.svg {width:.0} x {height:.0}, {missing} unmatched in BCG");
+    println!("example-cluster.svg {width:.0} x {height:.0}, RD1 removed {removed} genes");
     Ok(())
 }
 
