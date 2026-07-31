@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-31
+
+Empirical Bayes stabilisation, the other half of the Logolas paper. A logo can
+now tell four sequences from four thousand.
+
+### Added
+
+- `karyon::dash`, an implementation of Dirichlet adaptive shrinkage. Each
+  column of counts is modelled as multinomial with a prior that is a mixture of
+  Dirichlet distributions, all centred on a background and differing in
+  concentration. The mixture weights are fitted by EM across every column at
+  once, so a well sampled column overrules the prior while a thin one is pulled
+  towards the background. From Dey, Xie and Stephens, BMC Bioinformatics 19:473
+  (2018).
+- `LogoTrack::stabilize` and `LogoTrack::stabilize_with` to apply it, and
+  `LogoTrack::sample_size` for the case where the input is a probability matrix
+  and carries no record of how many sequences it came from.
+- `LogoTrack::dash_fit`, returning the fitted mixture weights and, through
+  `DashFit::shrinkage`, how far each column actually moved. A figure that
+  quietly moved the numbers should be able to say by how much.
+- `karyon::dash::ln_gamma`, since the standard library has none and this crate
+  has no dependencies.
+- A fourth example figure, `assets/example-logo-stability.svg`, showing one set
+  of proportions at three sample sizes drawn raw and shrunk.
+
+### Changed
+
+- `LogoTrack::smoothing` is not applied to a stabilised track. The shrunk
+  composition is already strictly positive, so the smoothing would be a second
+  repair on top of a first.
+
 ## [0.3.0] - 2026-07-31
 
 Sequence logos gain the rest of the scoring schemes `Logolas` offers, and the
@@ -114,6 +145,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.4.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.4.0
 [0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.1.0

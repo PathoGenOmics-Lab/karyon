@@ -61,9 +61,16 @@
 //! Where the baseline sits is a separate choice, [`Centering`], and symbols
 //! are arbitrary strings, so amino acid codes and k-mers plot as readily as
 //! bases.
+//!
+//! How much of a logo to believe is [`LogoTrack::stabilize`], which shrinks
+//! each column towards the background by the amount its sample size can
+//! support. Without it, four aligned sequences that happen to agree produce the
+//! same confident column as four thousand. The machinery is in [`dash`] and
+//! works on any compositional data.
 
 #![forbid(unsafe_code)]
 
+pub mod dash;
 pub mod error;
 pub mod figure;
 pub mod region;

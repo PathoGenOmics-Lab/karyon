@@ -117,9 +117,56 @@ fn main() -> std::io::Result<()> {
         .push(AxisTrack::new().center_on_bases(true));
     scores.save_svg(out.join("example-logo-scores.svg"))?;
 
+    // How much of a logo should you believe? The proportions below are the
+    // same at every sample size, so the raw panels are identical whether they
+    // rest on five sequences or five hundred. Shrinkage is what puts the
+    // difference back on the page.
+    let shape = [
+        [5.0, 0.0, 0.0, 0.0],
+        [3.0, 1.0, 1.0, 0.0],
+        [2.0, 1.0, 1.0, 1.0],
+        [4.0, 1.0, 0.0, 0.0],
+        [2.0, 2.0, 1.0, 0.0],
+        [3.0, 0.0, 2.0, 0.0],
+    ];
+    let at_depth = |sequences: f64| -> Vec<LogoColumn> {
+        let scale = sequences / 5.0;
+        shape
+            .iter()
+            .map(|c| LogoColumn::acgt(c[0] * scale, c[1] * scale, c[2] * scale, c[3] * scale))
+            .collect()
+    };
+
+    let depth_region = Region::new("motif", 0, shape.len() as u64).unwrap();
+    let mut stability = Figure::new(depth_region)
+        .title("The same proportions, five sequences to five hundred")
+        .show_region_label(false)
+        .label_width(150.0)
+        .width(700.0);
+    for sequences in [5.0, 50.0, 500.0] {
+        stability = stability
+            .push(depth_panel(&at_depth(sequences), sequences, false))
+            .push(depth_panel(&at_depth(sequences), sequences, true));
+    }
+    let stability = stability.push(AxisTrack::new().center_on_bases(true));
+    stability.save_svg(out.join("example-logo-stability.svg"))?;
+
+    let fit = LogoTrack::new(0, at_depth(5.0))
+        .alphabet_size(4)
+        .stabilize()
+        .dash_fit()
+        .unwrap();
+    println!(
+        "at n = 5, weight on the null component is {:.2} and column 1 moved {:.0}%",
+        fit.weights[0],
+        fit.shrinkage(0) * 100.0
+    );
+
     let (w1, h1) = comparison.dimensions();
     let (w2, h2) = protein.dimensions();
     let (w3, h3) = scores.dimensions();
+    let (w4, h4) = stability.dimensions();
+    println!("example-logo-stability.svg {w4:.0} x {h4:.0}");
     println!("example-logo.svg         {w1:.0} x {h1:.0}");
     println!("example-logo-protein.svg {w2:.0} x {h2:.0}");
     println!("example-logo-scores.svg  {w3:.0} x {h3:.0}");
@@ -133,4 +180,23 @@ fn logo_panel(columns: &[LogoColumn], score: LogoScore, label: &str) -> LogoTrac
         .score(score)
         .label(label)
         .height(80.0)
+}
+
+/// One panel of the sample size comparison, in bits so the axis is fixed at
+/// two and the panels can be read against each other.
+fn depth_panel(columns: &[LogoColumn], sequences: f64, stabilized: bool) -> LogoTrack {
+    let track = LogoTrack::new(0, columns.to_vec())
+        .alphabet_size(4)
+        .score(LogoScore::InformationContent)
+        .label(if stabilized {
+            format!("n = {sequences:.0}, shrunk")
+        } else {
+            format!("n = {sequences:.0}, raw")
+        })
+        .height(55.0);
+    if stabilized {
+        track.stabilize()
+    } else {
+        track
+    }
 }

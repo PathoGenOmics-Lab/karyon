@@ -145,6 +145,45 @@ Where the baseline sits is a separate choice. `Centering::Quantile(0.5)` is the
 median and the default, matching Logolas; `Centering::None` leaves the baseline
 at "exactly the background".
 
+### How much of it should you believe
+
+A logo drawn from four sequences and a logo drawn from four thousand look
+identical. Four sequences that happen to agree at a position produce a
+perfectly conserved column, two full bits, with no hint that the evidence is
+thin. That is not a plotting problem, it is an estimation problem.
+
+`LogoTrack::stabilize()` shrinks each column towards the background before
+anything is drawn, by the Dirichlet adaptive shrinkage of the Logolas paper.
+Each column of counts is modelled as multinomial with a prior that is a mixture
+of Dirichlet distributions, all centred on the background and differing only in
+how tightly. The mixture weights are fitted across every column at once, which
+is what makes it empirical Bayes rather than a guess: a well sampled position
+overrules the prior and barely moves, a thin one is pulled most of the way home.
+
+<img src="assets/example-logo-stability.svg" alt="The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred" width="100%">
+
+The proportions are identical in all six panels. The raw ones cannot tell five
+sequences from five hundred, and the shrunk ones can.
+
+```rust
+let logo = LogoTrack::from_sequences(0, &alignment)
+    .alphabet_size(4)
+    .stabilize();
+
+// The shrinkage is reportable, not a black box.
+let fit = logo.dash_fit().unwrap();
+println!("weight on the null component: {:.2}", fit.weights[0]);
+println!("column 1 moved {:.0}% of the way to the background", fit.shrinkage(0) * 100.0);
+```
+
+Two things follow from turning it on. It needs **counts**, so a track built from
+a probability matrix must also be told its `sample_size`, since a matrix of
+probabilities carries no record of the alignment it came from. And `smoothing`
+stops being applied, because the shrunk composition already has no zeros in it.
+
+The fitter is available on its own as `karyon::dash::Dash` for any compositional
+data, logo or not.
+
 Two more things are worth knowing. `LogoTrack::smoothing` sets how far an
 absent symbol can fall, and it is a fraction of the column mass rather than a
 pseudocount, so the same motif plots identically whether you pass counts out of
@@ -206,7 +245,6 @@ Not implemented yet, in the order they are likely to arrive:
 - Ideogram and karyogram, for whole-chromosome context
 - Dotplot and synteny ribbons between two sequences
 - Manhattan plot, with its own y axis and significance line
-- Empirical Bayes stabilisation of logo scores, the other half of the Logolas paper
 - PNG output, likely behind a feature flag so the default stays dependency-free
 
 ## Installation

@@ -6,6 +6,7 @@
 //! differs from a background. Where the baseline sits is the separate question
 //! [`Centering`] answers.
 
+use crate::dash::{Dash, DashFit};
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
@@ -272,6 +273,8 @@ pub struct LogoTrack {
     min_letter_width: f64,
     show_scale: bool,
     max_extent: Option<f64>,
+    stabilization: Option<Dash>,
+    sample_size: Option<f64>,
 }
 
 impl LogoTrack {
@@ -292,6 +295,8 @@ impl LogoTrack {
             min_letter_width: 4.0,
             show_scale: true,
             max_extent: None,
+            stabilization: None,
+            sample_size: None,
         }
     }
 
@@ -371,6 +376,91 @@ impl LogoTrack {
     pub fn edlogo(self) -> Self {
         self.score(LogoScore::LogOdds)
             .centering(Centering::median())
+    }
+
+    /// Shrinks the columns towards the background before scoring them, by
+    /// [`Dash`], with the default settings.
+    ///
+    /// A logo drawn from four sequences and a logo drawn from four thousand
+    /// look identical without this, and one of them is mostly noise. The
+    /// shrinkage asks how much of each column the sample size can support,
+    /// fitting that question across every column at once, so a well sampled
+    /// position barely moves while a thin one is pulled towards the background.
+    ///
+    /// Two things follow from turning it on. It needs **counts**, so a track
+    /// built from a probability matrix must also be told its
+    /// [`sample_size`](LogoTrack::sample_size) or the shrinkage will read it as
+    /// a single observation and flatten it. And [`smoothing`](LogoTrack::smoothing)
+    /// stops being applied, because the shrunk composition already has no
+    /// zeros in it and adding a second repair on top would double count.
+    ///
+    /// ```
+    /// use karyon::LogoTrack;
+    ///
+    /// // Four sequences that happen to agree look perfectly conserved.
+    /// let thin = ["ACGT", "ACGT", "ACGT", "ACGT"];
+    /// let raw = LogoTrack::from_sequences(0, &thin).alphabet_size(4);
+    /// let stabilized = LogoTrack::from_sequences(0, &thin)
+    ///     .alphabet_size(4)
+    ///     .stabilize();
+    ///
+    /// assert!((raw.stacks()[0].up_total() - 2.0).abs() < 1e-9);
+    /// assert!(stabilized.stacks()[0].up_total() < 1.0);
+    /// ```
+    pub fn stabilize(self) -> Self {
+        self.stabilize_with(Dash::new())
+    }
+
+    /// Shrinks the columns with a [`Dash`] you configured yourself.
+    pub fn stabilize_with(mut self, dash: Dash) -> Self {
+        self.stabilization = Some(dash);
+        self
+    }
+
+    /// Tells the shrinkage how many observations each column stands on.
+    ///
+    /// Only needed when the weights are not counts. A position weight matrix of
+    /// probabilities carries no record of the alignment it came from, and
+    /// shrinkage is entirely a question about sample size, so it has to be
+    /// supplied from outside. Each column is rescaled to this total before
+    /// being shrunk; the scores themselves are unaffected, since they only ever
+    /// saw proportions.
+    pub fn sample_size(mut self, observations: f64) -> Self {
+        self.sample_size = Some(observations.max(0.0));
+        self
+    }
+
+    /// The shrinkage that was applied, or `None` when it is switched off.
+    ///
+    /// Worth reporting next to the figure: it carries the fitted mixture
+    /// weights and, through [`DashFit::shrinkage`], how far each column
+    /// actually moved.
+    pub fn dash_fit(&self) -> Option<DashFit> {
+        let dash = self.stabilization.as_ref()?;
+        let symbols = self.symbols();
+        if symbols.is_empty() {
+            return None;
+        }
+        let background = self.background_probabilities(&symbols, self.effective_alphabet_size());
+        let counts: Vec<Vec<f64>> = self
+            .columns
+            .iter()
+            .map(|column| {
+                let raw: Vec<f64> = symbols.iter().map(|s| column.weight(s)).collect();
+                match self.sample_size {
+                    Some(size) => {
+                        let total: f64 = raw.iter().sum();
+                        if total > 0.0 {
+                            raw.iter().map(|w| w / total * size).collect()
+                        } else {
+                            raw
+                        }
+                    }
+                    None => raw,
+                }
+            })
+            .collect();
+        Some(dash.fit(&counts, &background))
     }
 
     /// Pins how far the tallest stack reaches, in score units.
@@ -510,6 +600,9 @@ impl LogoTrack {
         let symbols = self.symbols();
         let alphabet = self.effective_alphabet_size();
         let background = self.background_probabilities(&symbols, alphabet);
+        // Shrinkage is fitted across every column at once, so it happens here
+        // rather than inside the per column closure below.
+        let stabilized = self.dash_fit();
 
         self.columns
             .iter()
@@ -517,13 +610,18 @@ impl LogoTrack {
             .map(|(index, column)| {
                 let pos = self.start + index as u64;
                 // Only a background-relative score needs the column repaired
-                // against zeros, so the two absolute scores stay exact.
-                let smoothing = if self.score.uses_background() {
+                // against zeros, so the two absolute scores stay exact. A
+                // shrunk column needs no repair at all: its posterior is
+                // already strictly positive.
+                let smoothing = if self.score.uses_background() && stabilized.is_none() {
                     self.smoothing
                 } else {
                     0.0
                 };
-                let p = probabilities(column, &symbols, smoothing, alphabet);
+                let p = match &stabilized {
+                    Some(fit) => fit.posterior[index].clone(),
+                    None => probabilities(column, &symbols, smoothing, alphabet),
+                };
                 let raw = score_column(self.score, &p, &background, alphabet);
                 let heights = if self.score.uses_background() {
                     centre(&raw, self.centering)
@@ -1367,6 +1465,111 @@ mod tests {
             .score(LogoScore::LogOdds)
             .centering(Centering::median());
         assert_eq!(shorthand.stacks(), spelled_out.stacks());
+    }
+
+    #[test]
+    fn stabilization_tells_a_thin_alignment_from_a_deep_one() {
+        // The same perfectly conserved column, seen four times and four
+        // thousand times. Without shrinkage both are two bits of certainty.
+        let thin: Vec<String> = std::iter::repeat_n("ACGT".to_string(), 4).collect();
+        let deep: Vec<String> = std::iter::repeat_n("ACGT".to_string(), 4000).collect();
+
+        let raw = |seqs: &[String]| {
+            LogoTrack::from_sequences(0, seqs).alphabet_size(4).stacks()[0].up_total()
+        };
+        let shrunk = |seqs: &[String]| {
+            LogoTrack::from_sequences(0, seqs)
+                .alphabet_size(4)
+                .stabilize()
+                .stacks()[0]
+                .up_total()
+        };
+
+        assert!(
+            (raw(&thin) - raw(&deep)).abs() < 1e-9,
+            "raw cannot tell them apart"
+        );
+        assert!(shrunk(&deep) > 1.9, "deep evidence should survive");
+        assert!(shrunk(&thin) < 1.0, "thin evidence should not");
+    }
+
+    #[test]
+    fn stabilization_leaves_a_well_sampled_column_alone() {
+        let columns = vec![LogoColumn::acgt(700.0, 150.0, 100.0, 50.0)];
+        let raw = dna(columns.clone()).edlogo();
+        let shrunk = dna(columns).edlogo().stabilize();
+        let difference = (raw.stacks()[0].up_total() - shrunk.stacks()[0].up_total()).abs();
+        assert!(difference < 0.15, "moved by {difference}");
+    }
+
+    #[test]
+    fn a_probability_matrix_needs_its_sample_size_to_be_shrunk_properly() {
+        // The same shape as probabilities, told it came from 5 sequences and
+        // from 5000. Only the sample size can distinguish them.
+        let columns = vec![LogoColumn::acgt(0.7, 0.15, 0.1, 0.05)];
+        let few = dna(columns.clone()).stabilize().sample_size(5.0);
+        let many = dna(columns).stabilize().sample_size(5000.0);
+        assert!(
+            few.stacks()[0].up_total() < many.stacks()[0].up_total(),
+            "five observations should carry less than five thousand"
+        );
+        assert!(few.dash_fit().unwrap().shrinkage(0) > many.dash_fit().unwrap().shrinkage(0));
+    }
+
+    #[test]
+    fn the_fit_is_reported_rather_than_hidden() {
+        let track = dna(vec![LogoColumn::acgt(7.0, 1.0, 1.0, 1.0)]).stabilize();
+        let fit = track
+            .dash_fit()
+            .expect("stabilised track should report a fit");
+        assert_eq!(fit.weights.len(), fit.concentrations.len());
+        assert!((fit.weights.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+        assert_eq!(fit.posterior.len(), 1);
+        assert!(fit.shrinkage(0) > 0.0);
+
+        let off = dna(vec![LogoColumn::acgt(7.0, 1.0, 1.0, 1.0)]);
+        assert!(off.dash_fit().is_none());
+    }
+
+    #[test]
+    fn a_shrunk_column_needs_no_smoothing() {
+        // Smoothing exists to keep an absent symbol finite. The posterior is
+        // already strictly positive, so changing the smoothing must not change
+        // a stabilised figure at all.
+        let columns = vec![LogoColumn::acgt(50.0, 25.0, 25.0, 0.0)];
+        let a = dna(columns.clone()).edlogo().stabilize().smoothing(1e-9);
+        let b = dna(columns).edlogo().stabilize().smoothing(0.5);
+        assert_eq!(a.stacks(), b.stacks());
+    }
+
+    #[test]
+    fn stabilization_keeps_an_absent_symbol_finite() {
+        let track = dna(vec![LogoColumn::acgt(30.0, 30.0, 30.0, 0.0)])
+            .edlogo()
+            .stabilize();
+        let stack = &track.stacks()[0];
+        for (_, height) in stack.up.iter().chain(&stack.down) {
+            assert!(height.is_finite() && *height < 100.0, "{height}");
+        }
+        assert!(stack.down.iter().any(|(s, _)| s == "T"));
+    }
+
+    #[test]
+    fn stabilization_is_deterministic() {
+        let columns = vec![
+            LogoColumn::acgt(7.0, 1.0, 1.0, 1.0),
+            LogoColumn::acgt(2.0, 2.0, 3.0, 3.0),
+        ];
+        let once = dna(columns.clone()).edlogo().stabilize().stacks();
+        let twice = dna(columns).edlogo().stabilize().stacks();
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn stabilization_survives_an_empty_track() {
+        let track = LogoTrack::new(0, Vec::new()).stabilize();
+        assert!(track.dash_fit().is_none());
+        assert!(track.stacks().is_empty());
     }
 
     #[test]
