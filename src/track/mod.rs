@@ -15,6 +15,7 @@ pub mod matrix;
 pub mod msa;
 pub mod pileup;
 pub mod sequence;
+pub mod snp;
 pub mod synteny;
 pub mod variant;
 
@@ -28,6 +29,7 @@ pub use matrix::{CellScale, MatrixRow, MatrixTrack};
 pub use msa::{MsaColoring, MsaDisplay, MsaSequence, MsaTrack, ResidueClass};
 pub use pileup::{CigarOp, PileupLayout, PileupTrack, Read, ReadColoring, Segment};
 pub use sequence::SequenceTrack;
+pub use snp::{SnpSite, SnpTrack};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
 

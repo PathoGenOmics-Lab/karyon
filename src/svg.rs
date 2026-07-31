@@ -302,6 +302,36 @@ impl SvgWriter {
         );
     }
 
+    /// A text label turned about its own anchor point.
+    ///
+    /// `degrees` runs clockwise, so -90 stands a label on end reading upwards,
+    /// which is how a column gets a caption wider than the column.
+    pub fn text_rotated(
+        &mut self,
+        x: f64,
+        y: f64,
+        degrees: f64,
+        content: &str,
+        fill: &str,
+        size: f64,
+        anchor: Anchor,
+    ) {
+        if content.is_empty() || !finite(&[x, y, degrees]) {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<text x="0" y="0" transform="translate({} {}) rotate({})" fill="{}" font-size="{}" text-anchor="{}">{}</text>"#,
+            num(x),
+            num(y),
+            num(degrees),
+            fill,
+            num(size),
+            anchor.as_str(),
+            escape(content)
+        );
+    }
+
     /// Opens a group clipped to a rectangle. Pair it with [`SvgWriter::end_group`].
     pub fn begin_clip(&mut self, x: f64, y: f64, w: f64, h: f64) {
         let id = format!("karyon-clip-{}", self.next_id);

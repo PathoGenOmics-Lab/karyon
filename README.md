@@ -69,6 +69,7 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
 | `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
@@ -82,6 +83,37 @@ cargo run --example locus -- assets
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Only what differs
+
+<img src="assets/example-snps.svg" alt="A panel of thirty-four variable sites across twelve isolates, each column labelled with its position" width="100%">
+
+An alignment of closely related genomes is almost entirely agreement. In the
+figure above, thirty kilobases carry thirty-four differences: a plot of all
+thirty thousand columns would spend 99.9% of its pixels on the part that says
+nothing.
+
+`SnpTrack` throws the invariant columns away and spaces what is left evenly.
+The idea is the one [snipit](https://github.com/aineniamh/snipit) is built
+around; the implementation and the drawing here are this crate's own.
+
+```rust
+use karyon::{Region, SnpTrack};
+
+let panel = SnpTrack::from_alignment(0, &alignment).offset(1_472_000);
+let region = Region::new("sites", 0, panel.sites().len() as u64)?;
+```
+
+**The trade is that the x axis stops being linear in the genome.** Two adjacent
+columns may be nine bases apart or nine kilobases apart, and the spacing says
+nothing about which. That is why every column carries its own position turned on
+end underneath, and why an `AxisTrack` does not belong under this panel: a ruler
+there would be a lie.
+
+The rest is reading aid. A cell that matches the reference is a quiet bar rather
+than a letter, because the matches are the noise; the reference row runs along
+the top; alternating columns are tinted so the eye can cross a wide panel; and
+each row carries its own count of differences on the right.
 
 ## Alignments
 

@@ -46,7 +46,7 @@
 //!
 //! # Extending
 //!
-//! The thirteen track types shipped here are implementations of one small trait,
+//! The fourteen track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -90,6 +90,6 @@ pub use crate::track::{
     CoverageStyle, CoverageTrack, DotplotTrack, DrawContext, Feature, FeatureTrack, IdeogramTrack,
     LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack,
     MsaColoring, MsaDisplay, MsaSequence, MsaTrack, PileupLayout, PileupTrack, Read, ReadColoring,
-    Rect, Segment, SequenceTrack, StackOrder, Stain, Strand, SyntenyTrack, Track, Variant,
-    VariantStyle, VariantTrack,
+    Rect, Segment, SequenceTrack, SnpSite, SnpTrack, StackOrder, Stain, Strand, SyntenyTrack,
+    Track, Variant, VariantStyle, VariantTrack,
 };

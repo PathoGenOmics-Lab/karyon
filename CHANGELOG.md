@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-07-31
+
+### Added
+
+- `SnpTrack` and `SnpSite`, a panel of the columns that vary and nothing else.
+  An alignment of closely related genomes is almost entirely agreement: thirty
+  kilobases carrying thirty-four differences would spend 99.9% of a plot on the
+  part that says nothing. `SnpTrack::from_alignment` finds the variable columns
+  against a reference row and drops the rest.
+
+  The idea is the one [snipit](https://github.com/aineniamh/snipit) is built
+  around. The implementation and the drawing are this crate's own.
+
+- `SvgWriter::text_rotated`, since a five digit position has to stand on end to
+  fit under a column narrower than it is.
+
+### Notes
+
+- The x axis of a `SnpTrack` is not linear in the genome. Two adjacent columns
+  may be nine bases apart or nine kilobases apart, and the spacing says nothing
+  about which. Every column therefore carries its own position, and an
+  `AxisTrack` does not belong underneath one: a ruler there would be a lie.
+- A cell matching the reference is drawn as a quiet bar rather than a letter,
+  on the same reasoning as the alignment track: the matches are the noise.
+
 ## [0.11.0] - 2026-07-31
 
 ### Added
@@ -361,6 +386,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.12.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.12.0
 [0.11.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.11.0
 [0.10.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.10.0
 [0.9.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.9.0
