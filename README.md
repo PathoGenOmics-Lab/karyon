@@ -69,6 +69,8 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |
+| `MatrixTrack` | Samples against sites | A genotype or presence matrix, one row per sample, names in the axis strip |
 | `IdeogramTrack` | The whole chromosome | Cytogenetic bands, a pinched centromere, and a marker showing where the window is. The one track that does not share the x axis |
 | `PileupTrack` | Aligned reads | Real CIGARs, packed into rows, mismatches painted against the reference, strand arrows, gaps and insertions |
 | `LogoTrack` | Sequence logos | Seven scores, five of them against a background so symbols can hang below the baseline. Arbitrary alphabets |
@@ -77,6 +79,34 @@ cargo run --example locus -- assets
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Association, and who carries it
+
+A Manhattan panel says where the signal is. The question it always provokes is
+who carries it, and that is a matrix: one row per isolate, one column per site.
+Both share the figure's x axis, so the haplotype block sits under its own tower.
+
+<img src="assets/example-association.svg" alt="A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype" width="100%">
+
+```rust
+use karyon::{Association, CellScale, ManhattanTrack, MatrixRow, MatrixTrack};
+
+ManhattanTrack::new(vec![Association::from_p_value(761_155, 8.1e-9)])
+    .genome_wide_threshold()          // -log10(5e-8), and see the caveat below
+    .unit(" -log10 p");
+
+MatrixTrack::new(sites, vec![MatrixRow::new("ERR3100", genotypes)]);
+```
+
+`genome_wide_threshold` is a Bonferroni correction for a million independent
+tests. It is the convention in human GWAS and frequently the wrong number
+everywhere else: a bacterial genome has fewer independent sites and a great deal
+more linkage. Set your own with `threshold` if you know it.
+
+In a matrix, three things have to look different: a sample that does not carry
+the allele, a sample that was never typed, and empty page. So the sequential
+ramp starts a step off the surface rather than on it, and missing data has its
+own grey. `f64::NAN` is missing; zero is a genotype.
 
 ## Where am I
 
@@ -345,7 +375,6 @@ out is what makes the dependency count zero.
 Not implemented yet, in the order they are likely to arrive:
 
 - Dotplot and synteny ribbons between two sequences
-- Manhattan plot, with its own y axis and significance line
 - PNG output, likely behind a feature flag so the default stays dependency-free
 
 ## Installation

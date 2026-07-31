@@ -46,7 +46,7 @@
 //!
 //! # Extending
 //!
-//! The eight track types shipped here are implementations of one small trait,
+//! The ten track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -86,8 +86,9 @@ pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{BaseColors, Theme};
 pub use crate::track::{
-    Aggregate, AxisTrack, Band, Centering, CigarOp, CoverageStyle, CoverageTrack, DrawContext,
-    Feature, FeatureTrack, IdeogramTrack, LogoColumn, LogoScore, LogoStack, LogoTrack,
-    PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, StackOrder, Stain,
-    Strand, Track, Variant, VariantStyle, VariantTrack,
+    Aggregate, Association, AxisTrack, Band, CellScale, Centering, CigarOp, CoverageStyle,
+    CoverageTrack, DrawContext, Feature, FeatureTrack, IdeogramTrack, LogoColumn, LogoScore,
+    LogoStack, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, PileupLayout, PileupTrack, Read,
+    ReadColoring, Rect, Segment, SequenceTrack, StackOrder, Stain, Strand, Track, Variant,
+    VariantStyle, VariantTrack,
 };

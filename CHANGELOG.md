@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-31
+
+Two more kinds of plot, chosen because they answer consecutive questions.
+
+### Added
+
+- `ManhattanTrack` and `Association`, association statistics along the sequence
+  with a threshold line and hits coloured and ringed above it.
+  `Association::from_p_value` converts a p-value to `-log10(p)` and floors a
+  zero at the smallest positive double rather than letting it become infinity.
+  `genome_wide_threshold` is the conventional `-log10(5e-8)`, documented as a
+  Bonferroni correction for a million independent tests and therefore the wrong
+  number for most organisms.
+- `MatrixTrack`, `MatrixRow` and `CellScale`, a sample by site matrix: a
+  genotype matrix out of a VCF, or a pangenome presence matrix once its genes
+  have coordinates. Row names go in the axis strip, so they size themselves.
+  `CellScale::Sequential` for quantities and presence, `CellScale::Categorical`
+  for genotypes, where the numbers name things rather than measure them.
+- `assets/example-association.svg`, a Manhattan tower with the gene under it
+  and the isolates carrying the haplotype under that, all on one x axis.
+
+### Notes
+
+- A sequential matrix ramp starts a step off the page rather than on it. Three
+  things have to look different in a genotype matrix: a sample that does not
+  carry the allele, a sample that was never typed, and empty page. A pure
+  surface at the bottom of the ramp collapses the first two into the third.
+- `MatrixTrack` gives every cell a minimum width, since variant sites are
+  points and would otherwise be sub-pixel slivers. A cell's width therefore
+  says nothing about how much sequence it covers.
+
 ## [0.8.1] - 2026-07-31
 
 ### Added
@@ -277,6 +308,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.9.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.9.0
 [0.8.1]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.1
 [0.8.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.0
 [0.7.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.7.0

@@ -47,5 +47,6 @@ jobs:
           cargo run --example logo -- assets
           cargo run --example pileup -- assets
           cargo run --example ideogram -- assets
+          cargo run --example association -- assets
       - name: Fail if the committed figures are stale
         run: git diff --exit-code -- assets
