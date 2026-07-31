@@ -805,8 +805,8 @@ mod tests {
             .push(SyntenyTrack::new(Vec::new()).target_length(1_000))
             .to_svg();
         assert!(!svg.contains("<path"));
-        // The page background plus the two bars.
-        assert_eq!(svg.matches("<rect").count(), 3);
+        // The page background, the two bars, and the clip path's own rect.
+        assert_eq!(svg.matches("<rect").count(), 4);
     }
 
     #[test]

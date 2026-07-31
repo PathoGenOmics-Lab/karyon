@@ -478,7 +478,7 @@ mod tests {
         for _ in 0..10_000 {
             newick.push('(');
         }
-        newick.push_str("A");
+        newick.push('A');
         for index in 0..10_000 {
             newick.push_str(&format!(",L{index})"));
         }

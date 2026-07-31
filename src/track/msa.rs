@@ -305,9 +305,12 @@ impl MsaTrack {
                         None => tally.push((residue, 1)),
                     }
                 }
+                // Not max_by_key: that returns the last maximum, and the
+                // promise above is the first, which is what keeps the same
+                // alignment giving the same consensus every time.
                 tally
                     .into_iter()
-                    .max_by_key(|(_, count)| *count)
+                    .reduce(|best, next| if next.1 > best.1 { next } else { best })
                     .map_or(b'-', |(residue, _)| residue)
             })
             .collect()
@@ -537,10 +540,10 @@ mod tests {
 
     #[test]
     fn gap_characters_are_all_the_usual_ones() {
-        for gap in [b'-', b'.', b'~', b' '] {
+        for gap in *b"-.~ " {
             assert!(is_gap(gap), "{} should be a gap", gap as char);
         }
-        for residue in [b'A', b'C', b'X', b'N'] {
+        for residue in *b"ACXN" {
             assert!(!is_gap(residue));
         }
     }
@@ -711,8 +714,8 @@ mod tests {
             .show_region_label(false)
             .push(MsaTrack::new(rows).show_names(false))
             .to_svg();
-        // Three rows plus the page background.
-        assert_eq!(svg.matches("<rect").count(), 4);
+        // Three rows, the page background, and the rect inside the clip path.
+        assert_eq!(svg.matches("<rect").count(), 5);
     }
 
     #[test]
@@ -730,7 +733,8 @@ mod tests {
             .push(MsaTrack::new(rows).show_names(false).show_letters(false))
             .to_svg();
         // Row one is a single run; row two is three, split by the mismatch.
-        assert_eq!(svg.matches("<rect").count(), 5);
+        // Plus the page background and the clip path's own rect.
+        assert_eq!(svg.matches("<rect").count(), 6);
     }
 
     #[test]

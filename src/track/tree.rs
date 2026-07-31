@@ -26,6 +26,46 @@ pub enum TreeShape {
     Cladogram,
 }
 
+/// The order `names` should be in for its rows to line up with `tree`.
+///
+/// Returns a permutation: index `i` of the result is the row that belongs on
+/// line `i`. Matching is by name, and a row the tree never names keeps its
+/// place at the end rather than being dropped, because a row silently missing
+/// from a figure is worse than a row out of order. A duplicate name is matched
+/// once, so two rows called the same thing both survive.
+pub fn leaf_order(tree: &Tree, names: &[String]) -> Vec<usize> {
+    let mut taken = vec![false; names.len()];
+    let mut order: Vec<usize> = Vec::with_capacity(names.len());
+
+    for leaf in tree.leaf_names() {
+        if let Some(index) = names
+            .iter()
+            .enumerate()
+            .position(|(index, name)| *name == leaf && !taken[index])
+        {
+            taken[index] = true;
+            order.push(index);
+        }
+    }
+    for (index, used) in taken.iter().enumerate() {
+        if !used {
+            order.push(index);
+        }
+    }
+    order
+}
+
+/// How the branches of a tree are drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TreeStyle<'a> {
+    /// Phylogram or cladogram.
+    pub shape: TreeShape,
+    /// Branch colour.
+    pub color: &'a str,
+    /// Branch width in pixels.
+    pub width: f64,
+}
+
 /// Draws a tree into a rectangle, rows evenly spaced down it.
 ///
 /// Shared by the standalone [`TreeTrack`] and by the row tracks that draw a
@@ -36,10 +76,9 @@ pub fn draw_tree(
     area: Rect,
     row_pitch: f64,
     first_row_centre: f64,
-    shape: TreeShape,
-    color: &str,
-    width: f64,
+    style: TreeStyle<'_>,
 ) {
+    let (shape, color, width) = (style.shape, style.color, style.width);
     let cladogram = shape == TreeShape::Cladogram;
     let layout = tree.layout(cladogram);
     let span = tree.max_depth(cladogram);
@@ -207,9 +246,11 @@ impl Track for TreeTrack {
             area,
             self.row_height,
             band.y + self.row_height / 2.0,
-            self.shape,
-            &color,
-            self.line_width,
+            TreeStyle {
+                shape: self.shape,
+                color: &color,
+                width: self.line_width,
+            },
         );
 
         if self.show_tips {
@@ -258,8 +299,9 @@ mod tests {
             .show_region_label(false)
             .push(TreeTrack::new(tree()).show_tips(false))
             .to_svg();
-        // Six branches, since the root has none, and two risers.
-        assert_eq!(svg.matches("<line").count(), 8);
+        // Six branches, since the root has none, and three risers: one for
+        // each pair of tips and one joining those two pairs at the root.
+        assert_eq!(svg.matches("<line").count(), 9);
     }
 
     #[test]

@@ -308,14 +308,14 @@ impl SvgWriter {
     /// which is how a column gets a caption wider than the column.
     pub fn text_rotated(
         &mut self,
-        x: f64,
-        y: f64,
+        at: (f64, f64),
         degrees: f64,
         content: &str,
         fill: &str,
         size: f64,
         anchor: Anchor,
     ) {
+        let (x, y) = at;
         if content.is_empty() || !finite(&[x, y, degrees]) {
             return;
         }

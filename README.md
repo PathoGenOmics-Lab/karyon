@@ -15,6 +15,8 @@ __Paula Ruiz-Rodriguez<sup>1</sup>__
 <br>
 <sub> 1. I<sup>2</sup>SysBio, University of Valencia-CSIC, FISABIO Joint Research Unit Infection and Public Health, Valencia, Spain </sub>
 
+<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites with a phylogeny, and a tree" width="100%">
+
 General plotting libraries know about points and lines. They do not know that a
 position is a base, that a gene has a strand, that a pixel at genome scale
 covers two thousand bases, or that a figure is worthless if its tracks do not

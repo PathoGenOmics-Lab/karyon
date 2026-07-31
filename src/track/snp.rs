@@ -25,7 +25,7 @@ use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::msa::{is_gap, MsaSequence};
-use crate::track::tree::{draw_tree, TreeShape};
+use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -287,28 +287,7 @@ impl SnpTrack {
     /// keeps its place at the bottom rather than disappearing, because a row
     /// silently dropped from a figure is worse than a row out of order.
     pub fn tree(mut self, tree: Tree) -> Self {
-        let order = tree.leaf_names();
-        let mut taken = vec![false; self.names.len()];
-        let mut sorted: Vec<usize> = Vec::with_capacity(self.names.len());
-
-        for leaf in &order {
-            if let Some(index) = self
-                .names
-                .iter()
-                .enumerate()
-                .position(|(index, name)| name == leaf && !taken[index])
-            {
-                taken[index] = true;
-                sorted.push(index);
-            }
-        }
-        // Anything the tree never named, in the order it arrived.
-        for index in 0..self.names.len() {
-            if !taken[index] {
-                sorted.push(index);
-            }
-        }
-
+        let sorted = leaf_order(&tree, &self.names);
         self.names = sorted
             .iter()
             .map(|index| self.names[*index].clone())
@@ -466,9 +445,11 @@ impl Track for SnpTrack {
                 area,
                 self.row_height + self.row_gap,
                 area.y + self.row_height / 2.0,
-                self.tree_shape,
-                &ctx.theme.foreground,
-                1.1,
+                TreeStyle {
+                    shape: self.tree_shape,
+                    color: &ctx.theme.foreground,
+                    width: 1.1,
+                },
             );
         }
 
@@ -476,7 +457,18 @@ impl Track for SnpTrack {
         if self.show_reference {
             for (index, site) in self.sites.iter().enumerate() {
                 let x = ctx.scale.x(index as u64);
-                self.paint_cell(ctx, x, top, cell_width, site.reference, letters, true);
+                self.paint_cell(
+                    ctx,
+                    Rect {
+                        x,
+                        y: top,
+                        w: cell_width,
+                        h: self.row_height,
+                    },
+                    site.reference,
+                    letters,
+                    true,
+                );
             }
             self.paint_name(ctx, top, name_size, &self.reference_name.clone(), true);
             top += self.row_height + self.row_gap;
@@ -501,7 +493,18 @@ impl Track for SnpTrack {
                 let Some(allele) = site.allele(row) else {
                     continue;
                 };
-                self.paint_cell(ctx, x, top, cell_width, allele, letters, false);
+                self.paint_cell(
+                    ctx,
+                    Rect {
+                        x,
+                        y: top,
+                        w: cell_width,
+                        h: self.row_height,
+                    },
+                    allele,
+                    letters,
+                    false,
+                );
             }
 
             if let Some(name) = self.names.get(row) {
@@ -527,8 +530,10 @@ impl Track for SnpTrack {
                 // Standing the label on end is what lets a five digit position
                 // sit under a column narrower than it is.
                 ctx.svg.text_rotated(
-                    ctx.scale.x(index as u64) + cell_width / 2.0 + size * 0.35,
-                    top + 2.0,
+                    (
+                        ctx.scale.x(index as u64) + cell_width / 2.0 + size * 0.35,
+                        top + 2.0,
+                    ),
                     -90.0,
                     &site.position.to_string(),
                     &ctx.theme.muted,
@@ -556,13 +561,12 @@ impl SnpTrack {
     fn paint_cell(
         &self,
         ctx: &mut DrawContext<'_>,
-        x: f64,
-        top: f64,
-        width: f64,
+        cell: Rect,
         residue: u8,
         letters: bool,
         reference: bool,
     ) {
+        let (x, top, width) = (cell.x, cell.y, cell.w);
         let color = if is_gap(residue) {
             mix(&ctx.theme.background, &ctx.theme.foreground, 0.35)
         } else if reference {

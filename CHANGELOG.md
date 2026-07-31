@@ -4,6 +4,43 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-07-31
+
+### Added
+
+- `Panels`, several figures in one document, which is what a multi-panel paper
+  figure is and what an overview of a whole library needs. Each figure is
+  embedded as a nested `<svg>` inside a translated group, so nothing is
+  reparsed and nothing is rewritten: a panel on a sheet is the same picture as
+  the panel on its own, and there is a test that asserts exactly that.
+- `assets/gallery.svg` and `examples/gallery.rs`, one panel per kind of plot.
+  **When a new track type is added it gets a panel here**, because an overview
+  that quietly stops covering everything is worse than no overview: it looks
+  complete.
+- `MatrixTrack::tree`, the same phylogeny ordering `SnpTrack` already had. For
+  a pangenome it is the difference between a figure and a shrug: sorted by
+  sample name an accessory region is a speckle, sorted by descent it is a
+  rectangle, and a rectangle is a claim about the biology.
+- `assets/example-pangenome.svg`, a presence and absence matrix ordered by its
+  tree.
+- `track::tree::leaf_order`, the row permutation both tracks now share, so they
+  cannot drift apart on how an unnamed row is handled.
+
+### Fixed
+
+- `MsaTrack::consensus` broke ties by the **last** residue seen rather than the
+  first, contradicting its own documentation. It used `max_by_key`, which
+  returns the last maximum. Two residues tied in a column therefore picked the
+  wrong one, though the result was at least stable between runs.
+- Six clippy lints that had been failing CI: three functions over the argument
+  limit, two byte-string literals and a single-character `push_str`.
+
+### Changed
+
+- The CI workflow runs on `workflow_dispatch` only. Pushing no longer spends
+  Actions minutes; run it from the Actions tab or with
+  `gh workflow run ci.yml --repo PathoGenOmics-Lab/karyon --ref main`.
+
 ## [0.13.0] - 2026-07-31
 
 Phylogenies, and the reason to have them here rather than in a tree viewer.
@@ -417,6 +454,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.14.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.14.0
 [0.13.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.13.0
 [0.12.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.12.0
 [0.11.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.11.0

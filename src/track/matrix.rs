@@ -8,7 +8,9 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
-use crate::track::{DrawContext, Track};
+use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::{DrawContext, Rect, Track};
+use crate::tree::Tree;
 
 /// How far off the page the bottom of a sequential ramp sits.
 ///
@@ -101,6 +103,9 @@ pub struct MatrixTrack {
     missing_color: Option<String>,
     min_cell_width: f64,
     show_row_names: bool,
+    tree: Option<Tree>,
+    tree_width: f64,
+    tree_shape: TreeShape,
 }
 
 impl MatrixTrack {
@@ -120,6 +125,9 @@ impl MatrixTrack {
             missing_color: None,
             min_cell_width: 3.0,
             show_row_names: true,
+            tree: None,
+            tree_width: 90.0,
+            tree_shape: TreeShape::Phylogram,
         }
     }
 
@@ -172,6 +180,44 @@ impl MatrixTrack {
     pub fn show_row_names(mut self, show: bool) -> Self {
         self.show_row_names = show;
         self
+    }
+
+    /// Draws a phylogeny beside the matrix and sorts the rows to match it.
+    ///
+    /// For a pangenome this is the difference between a figure and a shrug.
+    /// Sorted by sample name, an accessory region present in one clade and
+    /// absent from another is a speckle; sorted by descent it is a rectangle,
+    /// and a rectangle is a claim about the biology.
+    ///
+    /// Rows match leaves by name. A sample the tree does not name keeps its
+    /// place at the bottom rather than vanishing, since a row silently dropped
+    /// from a figure is worse than a row out of order.
+    pub fn tree(mut self, tree: Tree) -> Self {
+        let names: Vec<String> = self.rows.iter().map(|row| row.name.clone()).collect();
+        let order = leaf_order(&tree, &names);
+        self.rows = order
+            .iter()
+            .map(|index| self.rows[*index].clone())
+            .collect();
+        self.tree = Some(tree);
+        self
+    }
+
+    /// Sets how much of the strip the tree gets, in pixels.
+    pub fn tree_width(mut self, width: f64) -> Self {
+        self.tree_width = width.max(0.0);
+        self
+    }
+
+    /// Chooses a phylogram or a cladogram for the tree beside the matrix.
+    pub fn tree_shape(mut self, shape: TreeShape) -> Self {
+        self.tree_shape = shape;
+        self
+    }
+
+    /// The tree beside the matrix, if there is one.
+    pub fn attached_tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
     }
 
     /// The site positions.
@@ -230,8 +276,13 @@ impl Track for MatrixTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
+        let tree = if self.tree.is_some() {
+            self.tree_width
+        } else {
+            0.0
+        };
         if !self.show_row_names || self.rows.is_empty() {
-            return 0.0;
+            return tree;
         }
         let size = (theme.font_size - 2.0).min(self.row_height);
         let widest = self
@@ -239,7 +290,7 @@ impl Track for MatrixTrack {
             .iter()
             .map(|row| text_width(&row.name, size))
             .fold(0.0f64, f64::max);
-        widest + 8.0
+        widest + 8.0 + tree
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -253,6 +304,29 @@ impl Track for MatrixTrack {
             .clone()
             .unwrap_or_else(|| mix(&ctx.theme.background, &ctx.theme.rule, 0.45));
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
+
+        // The tree takes the left of the strip and the names the right of it,
+        // so a leaf, its name and its row of cells all sit on one line.
+        if let Some(tree) = &self.tree {
+            let area = Rect {
+                x: ctx.axis.x + 2.0,
+                y: band.y,
+                w: (self.tree_width - 6.0).max(1.0),
+                h: band.h,
+            };
+            draw_tree(
+                ctx.svg,
+                tree,
+                area,
+                self.row_height + self.row_gap,
+                band.y + self.row_height / 2.0,
+                TreeStyle {
+                    shape: self.tree_shape,
+                    color: &ctx.theme.foreground,
+                    width: 1.1,
+                },
+            );
+        }
 
         for (index, row) in self.rows.iter().enumerate() {
             let top = band.y + index as f64 * (self.row_height + self.row_gap);
@@ -409,8 +483,8 @@ mod tests {
             .show_region_label(false)
             .push(track)
             .to_svg();
-        // One cell, plus the page background.
-        assert_eq!(svg.matches("<rect").count(), 2);
+        // One cell, the page background, and the clip path's own rect.
+        assert_eq!(svg.matches("<rect").count(), 3);
     }
 
     #[test]
@@ -447,7 +521,8 @@ mod tests {
             .push(track)
             .to_svg();
         assert!(!svg.contains("NaN"));
-        // Three cells are drawn: one with data and two missing.
-        assert_eq!(svg.matches("<rect").count(), 4);
+        // Three cells are drawn, one with data and two missing, plus the page
+        // background and the clip path's own rect.
+        assert_eq!(svg.matches("<rect").count(), 5);
     }
 }

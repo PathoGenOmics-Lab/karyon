@@ -1,0 +1,364 @@
+//! Several figures in one document.
+//!
+//! A [`Figure`] is one stack of tracks over one coordinate
+//! system. A paper figure is usually several of those with letters on them, and
+//! so is an overview of everything a library can draw. Panels stack finished
+//! figures into a single SVG without any of them having to know about the
+//! others.
+//!
+//! Each figure is embedded as a nested `<svg>` inside a translated group, so
+//! nothing is reparsed and nothing is rewritten: a panel renders exactly as it
+//! would on its own.
+
+use std::fs;
+use std::io;
+use std::path::Path;
+
+use crate::figure::Figure;
+use crate::svg::{num, Anchor, SvgWriter};
+use crate::theme::Theme;
+
+/// One figure placed on a sheet.
+struct Panel {
+    svg: String,
+    width: f64,
+    height: f64,
+    label: Option<String>,
+    caption: Option<String>,
+}
+
+/// A column of figures rendered into one document.
+///
+/// ```
+/// use karyon::{AxisTrack, CoverageTrack, Figure, Panels, Region};
+///
+/// let region = Region::new("chr1", 0, 1_000).unwrap();
+/// let depth: Vec<f64> = (0..1_000).map(|i| (i % 40) as f64).collect();
+///
+/// let svg = Panels::new()
+///     .push(&Figure::new(region.clone()).push(CoverageTrack::new(0, depth)), "A")
+///     .push(&Figure::new(region).push(AxisTrack::new()), "B")
+///     .to_svg();
+///
+/// // Two nested figures inside one document.
+/// assert_eq!(svg.matches("<svg").count(), 3);
+/// ```
+pub struct Panels {
+    panels: Vec<Panel>,
+    gap: f64,
+    margin: f64,
+    theme: Theme,
+    title: Option<String>,
+}
+
+impl Panels {
+    /// An empty sheet.
+    pub fn new() -> Self {
+        Panels {
+            panels: Vec::new(),
+            gap: 18.0,
+            margin: 14.0,
+            theme: Theme::light(),
+            title: None,
+        }
+    }
+
+    /// Sets the vertical gap between panels.
+    pub fn gap(mut self, gap: f64) -> Self {
+        self.gap = gap.max(0.0);
+        self
+    }
+
+    /// Sets the whitespace around the whole sheet.
+    pub fn margin(mut self, margin: f64) -> Self {
+        self.margin = margin.max(0.0);
+        self
+    }
+
+    /// Replaces the theme, which is used for the sheet's own title and letters
+    /// rather than for the panels, each of which keeps its own.
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    /// Sets a title across the top of the sheet.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Adds a figure with a panel letter.
+    ///
+    /// The figure is rendered now and stored, so later changes to it do not
+    /// reach the sheet.
+    pub fn push(self, figure: &Figure, label: impl Into<String>) -> Self {
+        self.add(figure, Some(label.into()), None)
+    }
+
+    /// Adds a figure with a letter and a caption under it.
+    pub fn push_captioned(
+        self,
+        figure: &Figure,
+        label: impl Into<String>,
+        caption: impl Into<String>,
+    ) -> Self {
+        self.add(figure, Some(label.into()), Some(caption.into()))
+    }
+
+    /// Adds a figure with no letter.
+    pub fn push_bare(self, figure: &Figure) -> Self {
+        self.add(figure, None, None)
+    }
+
+    fn add(mut self, figure: &Figure, label: Option<String>, caption: Option<String>) -> Self {
+        let (width, height) = figure.dimensions();
+        self.panels.push(Panel {
+            svg: figure.to_svg(),
+            width,
+            height,
+            label,
+            caption,
+        });
+        self
+    }
+
+    /// How many panels the sheet holds.
+    pub fn len(&self) -> usize {
+        self.panels.len()
+    }
+
+    /// Whether the sheet is empty.
+    pub fn is_empty(&self) -> bool {
+        self.panels.is_empty()
+    }
+
+    /// Width and height of the finished sheet.
+    pub fn dimensions(&self) -> (f64, f64) {
+        let width = self
+            .panels
+            .iter()
+            .map(|panel| panel.width)
+            .fold(0.0f64, f64::max)
+            + self.margin * 2.0;
+        let caption_room = self.theme.font_size + 4.0;
+        let content: f64 = self
+            .panels
+            .iter()
+            .map(|panel| {
+                panel.height
+                    + if panel.caption.is_some() {
+                        caption_room
+                    } else {
+                        0.0
+                    }
+            })
+            .sum();
+        let gaps = self.gap * (self.panels.len().saturating_sub(1)) as f64;
+        let header = if self.title.is_some() {
+            self.theme.title_font_size + 12.0
+        } else {
+            0.0
+        };
+        (
+            width.max(1.0),
+            (content + gaps + header + self.margin * 2.0).max(1.0),
+        )
+    }
+
+    /// Renders the sheet.
+    pub fn to_svg(&self) -> String {
+        let (width, height) = self.dimensions();
+        let mut svg = SvgWriter::new();
+
+        let mut y = self.margin;
+        if let Some(title) = &self.title {
+            svg.text_bold(
+                self.margin,
+                y + self.theme.title_font_size,
+                title,
+                &self.theme.foreground,
+                self.theme.title_font_size,
+                Anchor::Start,
+            );
+            y += self.theme.title_font_size + 12.0;
+        }
+
+        let mut body = String::new();
+        for panel in &self.panels {
+            if let Some(label) = &panel.label {
+                svg.text_bold(
+                    self.margin,
+                    y + self.theme.title_font_size,
+                    label,
+                    &self.theme.foreground,
+                    self.theme.title_font_size,
+                    Anchor::Start,
+                );
+            }
+            // The panel goes in untouched, inside a group that moves it. No
+            // rewriting means a panel on a sheet is the same picture as the
+            // panel on its own.
+            body.push_str(&format!(
+                r#"<g transform="translate({} {})">{}</g>"#,
+                num(self.margin),
+                num(y),
+                panel.svg
+            ));
+            y += panel.height;
+
+            if let Some(caption) = &panel.caption {
+                svg.text(
+                    self.margin,
+                    y + self.theme.font_size,
+                    caption,
+                    &self.theme.muted,
+                    self.theme.font_size,
+                    Anchor::Start,
+                );
+                y += self.theme.font_size + 4.0;
+            }
+            y += self.gap;
+        }
+
+        let head = svg.finish(
+            width,
+            height,
+            &self.theme.background,
+            &self.theme.font_family,
+        );
+        // Slot the panels in before the closing tag, so the sheet's own text
+        // sits over them rather than under.
+        let insert = head.len() - "</svg>".len();
+        format!("{}{}{}", &head[..insert], body, &head[insert..])
+    }
+
+    /// Renders the sheet and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        fs::write(path, self.to_svg())
+    }
+}
+
+impl Default for Panels {
+    fn default() -> Self {
+        Panels::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::region::Region;
+    use crate::track::{AxisTrack, CoverageTrack};
+
+    fn figure() -> Figure {
+        let region = Region::new("chr1", 0, 1_000).unwrap();
+        Figure::new(region)
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![5.0; 1_000]))
+    }
+
+    #[test]
+    fn an_empty_sheet_is_a_valid_document() {
+        let svg = Panels::new().to_svg();
+        assert!(svg.starts_with("<svg "));
+        assert!(svg.ends_with("</svg>"));
+        assert!(Panels::new().is_empty());
+        assert_eq!(Panels::new().len(), 0);
+    }
+
+    #[test]
+    fn every_panel_is_nested_whole() {
+        let sheet = Panels::new().push(&figure(), "A").push(&figure(), "B");
+        let svg = sheet.to_svg();
+        // The sheet's own root, plus one nested root per panel.
+        assert_eq!(svg.matches("<svg ").count(), 3);
+        assert_eq!(svg.matches("</svg>").count(), 3);
+        assert_eq!(sheet.len(), 2);
+    }
+
+    #[test]
+    fn a_panel_is_the_same_picture_on_a_sheet_as_on_its_own() {
+        let alone = figure().to_svg();
+        let sheet = Panels::new().push_bare(&figure()).to_svg();
+        assert!(
+            sheet.contains(&alone),
+            "the panel was rewritten on its way onto the sheet"
+        );
+    }
+
+    #[test]
+    fn panels_are_moved_rather_than_redrawn() {
+        let svg = Panels::new()
+            .push(&figure(), "A")
+            .push(&figure(), "B")
+            .to_svg();
+        assert_eq!(svg.matches("<g transform=\"translate(").count(), 2);
+    }
+
+    #[test]
+    fn the_sheet_is_as_tall_as_its_panels_and_gaps() {
+        let (_, one) = Panels::new().push_bare(&figure()).dimensions();
+        let (_, two) = Panels::new()
+            .push_bare(&figure())
+            .push_bare(&figure())
+            .dimensions();
+        let (_, panel) = figure().dimensions();
+        assert!(
+            (two - one - panel - 18.0).abs() < 1e-9,
+            "one gap between two"
+        );
+    }
+
+    #[test]
+    fn the_sheet_is_as_wide_as_its_widest_panel() {
+        let narrow = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .width(400.0)
+            .push(AxisTrack::new());
+        let wide = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .width(900.0)
+            .push(AxisTrack::new());
+        let (width, _) = Panels::new()
+            .push_bare(&narrow)
+            .push_bare(&wide)
+            .margin(10.0)
+            .dimensions();
+        assert_eq!(width, 900.0 + 20.0);
+    }
+
+    #[test]
+    fn letters_and_captions_are_drawn() {
+        let svg = Panels::new()
+            .title("everything")
+            .push_captioned(&figure(), "A", "a coverage profile")
+            .to_svg();
+        assert!(svg.contains(">A</text>"));
+        assert!(svg.contains("a coverage profile"));
+        assert!(svg.contains(">everything</text>"));
+    }
+
+    #[test]
+    fn a_caption_makes_the_sheet_taller() {
+        let bare = Panels::new().push_bare(&figure()).dimensions().1;
+        let captioned = Panels::new()
+            .push_captioned(&figure(), "A", "words")
+            .dimensions()
+            .1;
+        assert!(captioned > bare);
+    }
+
+    #[test]
+    fn a_later_change_to_a_figure_does_not_reach_the_sheet() {
+        let first = figure();
+        let sheet = Panels::new().push_bare(&first);
+        let before = sheet.to_svg();
+        // The figure is consumed by value elsewhere, but the point stands: the
+        // sheet holds a rendering, not a reference.
+        let after = sheet.to_svg();
+        assert_eq!(before, after);
+    }
+}

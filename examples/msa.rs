@@ -102,8 +102,8 @@ fn nucleotide_alignment() -> Vec<MsaSequence> {
             if isolate % 3 == 1 {
                 row[31] = b'T';
                 row[32] = b'G';
-                for column in 70..76 {
-                    row[column] = b'-';
+                for cell in row.iter_mut().take(76).skip(70) {
+                    *cell = b'-';
                 }
             }
             // Everyone picks up a little private variation.

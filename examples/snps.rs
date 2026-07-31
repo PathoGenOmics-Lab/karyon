@@ -94,8 +94,8 @@ fn synthetic_alignment() -> Vec<MsaSequence> {
         // One isolate carries a small deletion.
         if isolate == 7 {
             let start = (rng.next() as usize) % (LOCUS - 3);
-            for column in start..start + 3 {
-                row[column] = b'-';
+            for cell in row.iter_mut().skip(start).take(3) {
+                *cell = b'-';
             }
         }
         rows.push(MsaSequence::new(

@@ -73,6 +73,7 @@
 pub mod dash;
 pub mod error;
 pub mod figure;
+pub mod panels;
 pub mod region;
 pub mod scale;
 pub mod svg;
@@ -82,6 +83,7 @@ pub mod tree;
 
 pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
+pub use crate::panels::Panels;
 pub use crate::region::Region;
 pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
