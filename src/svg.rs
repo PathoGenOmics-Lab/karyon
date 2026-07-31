@@ -472,13 +472,50 @@ pub fn escape(text: &str) -> String {
     out
 }
 
-/// Rough advance width of a string, used to decide whether a label fits.
+/// Advance width of a string, used to reserve room and to decide whether a
+/// label fits where it is going.
 ///
-/// Deliberately an estimate: measuring properly would mean parsing font
-/// metrics, and every renderer would still disagree slightly.
+/// The widths are Helvetica's own, which is the first font in
+/// [`Theme::font_family`](crate::Theme::font_family) and metrically the same as
+/// Arial, so for the default theme this is exact rather than approximate. That
+/// matters more than it sounds: one flat width per character under-reserves for
+/// a run of capitals by about a fifth, which is precisely what a column of
+/// sample accessions is, and a label that overruns the space reserved for it
+/// gets clipped.
+///
+/// A character outside printable ASCII falls back to a wide default, so an
+/// accented name reserves a little too much rather than too little. Another
+/// font stack will disagree in the third significant figure.
 pub fn text_width(text: &str, font_size: f64) -> f64 {
-    text.chars().count() as f64 * font_size * 0.55
+    let per_mille: f64 = text
+        .chars()
+        .map(|c| {
+            let index = c as u32;
+            if (32..127).contains(&index) {
+                HELVETICA_WIDTHS[index as usize - 32] as f64
+            } else {
+                600.0
+            }
+        })
+        .sum();
+    per_mille / 1000.0 * font_size
 }
+
+/// Helvetica advance widths for printable ASCII, in thousandths of an em,
+/// starting at the space character.
+const HELVETICA_WIDTHS: [u16; 95] = [
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278,
+    278, // ' ' to '/'
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584,
+    556, // '0' to '?'
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722,
+    778, // '@' to 'O'
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469,
+    556, // 'P' to '_'
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556,
+    556, // '`' to 'o'
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, // 'p' to '~'
+];
 
 fn finite(values: &[f64]) -> bool {
     values.iter().all(|v| v.is_finite())
@@ -591,6 +628,22 @@ mod tests {
         assert_eq!(out.matches("<g ").count(), 2);
         assert_eq!(out.matches("</g>").count(), 2);
         assert!(out.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn text_width_matches_what_a_renderer_actually_draws() {
+        // Measured with getComputedTextLength in a browser, at font-size 9.
+        assert!((text_width("ERR5001", 9.0) - 39.015).abs() < 0.01);
+        assert!((text_width("SNP distance", 9.0) - 54.522).abs() < 0.01);
+        // Capitals are far wider than lowercase, which is the whole reason for
+        // the table: one flat factor clips a column of accessions.
+        assert!(text_width("MMMM", 10.0) > text_width("iiii", 10.0) * 3.0);
+    }
+
+    #[test]
+    fn an_unknown_character_reserves_too_much_rather_than_too_little() {
+        assert!(text_width("ñ", 10.0) > text_width("n", 10.0));
+        assert_eq!(text_width("", 10.0), 0.0);
     }
 
     #[test]

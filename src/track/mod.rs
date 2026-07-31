@@ -5,8 +5,10 @@
 //! [`Figure`](crate::Figure) stacks the bands and hands each track the
 //! rectangle it may paint in, already clipped.
 
+pub mod accumulation;
 pub mod axis;
 pub mod coverage;
+pub mod distance;
 pub mod feature;
 pub mod ideogram;
 pub mod logo;
@@ -19,9 +21,12 @@ pub mod snp;
 pub mod synteny;
 pub mod tree;
 pub mod variant;
+pub mod window;
 
+pub use accumulation::{AccumulationCurve, AccumulationTrack};
 pub use axis::AxisTrack;
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
+pub use distance::DistanceTrack;
 pub use feature::{Feature, FeatureTrack, Strand};
 pub use ideogram::{Band, IdeogramTrack, Stain};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
@@ -34,6 +39,7 @@ pub use snp::{SnpSite, SnpTrack};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use tree::{TreeShape, TreeTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
+pub use window::{Window, WindowStyle, WindowTrack};
 
 use crate::region::Region;
 use crate::scale::Scale;

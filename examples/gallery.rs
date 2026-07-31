@@ -19,11 +19,12 @@ use std::path::PathBuf;
 
 use karyon::tree::Tree;
 use karyon::{
-    Aggregate, AlignmentBlock, Association, AxisTrack, Band, CellScale, CigarOp, CoverageTrack,
-    DotplotTrack, Feature, FeatureTrack, Figure, IdeogramTrack, LogoColumn, LogoScore, LogoTrack,
-    ManhattanTrack, MatrixRow, MatrixTrack, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels,
-    PileupTrack, Read, ReadColoring, Region, SequenceTrack, SnpTrack, Stain, Strand, SyntenyTrack,
-    TreeTrack, Variant, VariantTrack,
+    AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisTrack, Band, CellScale, CigarOp,
+    CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureTrack, Figure, IdeogramTrack,
+    LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MsaColoring,
+    MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring, Region,
+    SequenceTrack, SnpTrack, Stain, Strand, SyntenyTrack, TreeTrack, Variant, VariantTrack, Window,
+    WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -73,7 +74,22 @@ fn main() -> std::io::Result<()> {
             "G",
             "Variable sites with the phylogeny that orders them",
         )
-        .push_captioned(&phylogeny(), "H", "A tree on its own");
+        .push_captioned(&phylogeny(), "H", "A tree on its own")
+        .push_captioned(
+            &selection(),
+            "I",
+            "Windowed statistics read against a baseline they can fall below",
+        )
+        .push_captioned(
+            &distances(),
+            "J",
+            "Pairwise SNP distances, ordered by descent, close pairs outlined",
+        )
+        .push_captioned(
+            &accumulation(),
+            "K",
+            "Whether the pangenome closes, over two hundred genome orderings",
+        );
 
     sheet.save_svg(out.join("gallery.svg"))?;
     let (width, height) = sheet.dimensions();
@@ -366,6 +382,145 @@ fn phylogeny() -> Figure {
         .width(WIDTH)
         .show_region_label(false)
         .push(TreeTrack::new(tree).label("phylogeny").row_height(17.0))
+}
+
+/// I: statistics that only mean anything relative to a line.
+fn selection() -> Figure {
+    let start = 2_150_000u64;
+    let span = 40_000u64;
+    let step = 500u64;
+    let mut rng = Lcg::new(90_210);
+
+    let windows: Vec<Window> = (0..(span / step))
+        .map(|index| {
+            let at = start + index * step;
+            let diversifying = (28..36).contains(&index);
+            let noise = (rng.next() % 1000) as f64 / 1000.0;
+            let ratio = if diversifying {
+                1.4 + 1.6 * noise
+            } else {
+                0.08 + 0.42 * noise
+            };
+            Window::new(at, at + step, ratio)
+        })
+        .collect();
+
+    let bases: Vec<u8> = (0..span)
+        .map(|index| {
+            let leading = index < span / 3;
+            match rng.next() % 100 {
+                0..=32 if leading => b'G',
+                0..=32 => b'C',
+                33..=64 if leading => b'C',
+                33..=64 => b'G',
+                65..=82 => b'A',
+                _ => b'T',
+            }
+        })
+        .collect();
+
+    Figure::new(Region::new("NC_000962.3", start, start + span).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            WindowTrack::ratios(windows)
+                .label("pN/pS")
+                .height(58.0)
+                .colors("#d55e00", "#0072b2"),
+        )
+        .push(
+            WindowTrack::gc_skew(start, &bases, 1_000)
+                .style(WindowStyle::Line)
+                .label("GC skew")
+                .height(48.0),
+        )
+        .push(AxisTrack::new())
+}
+
+/// J: who is close to whom.
+fn distances() -> Figure {
+    let names: Vec<String> = (1..=14)
+        .map(|index| format!("ERR{:04}", 5_000 + index))
+        .collect();
+    let cluster = |index: usize| match index {
+        0..=4 => Some(0),
+        5..=10 => Some(1),
+        _ => None,
+    };
+
+    let mut rng = Lcg::new(31_415);
+    let size = names.len();
+    let mut distances = vec![0.0f64; size * size];
+    for from in 0..size {
+        for to in (from + 1)..size {
+            let together = cluster(from).is_some() && cluster(from) == cluster(to);
+            let value = if together {
+                (rng.next() % 11) as f64
+            } else {
+                380.0 + (rng.next() % 240) as f64
+            };
+            distances[from * size + to] = value;
+            distances[to * size + from] = value;
+        }
+    }
+
+    // A tree that puts each cluster together and leaves the three singletons
+    // out on their own branches.
+    let tree = Tree::parse_newick(
+        "((((ERR5001:0.0002,ERR5003:0.0002):0.0009,(ERR5002:0.0003,ERR5005:0.0001):0.0008)\
+           :0.0020,ERR5004:0.0026):0.0140,\
+          ((ERR5012:0.0180,(ERR5013:0.0165,ERR5014:0.0170):0.0040):0.0060,\
+           (((ERR5006:0.0002,ERR5008:0.0003):0.0011,(ERR5007:0.0004,ERR5010:0.0002):0.0009)\
+             :0.0014,(ERR5009:0.0003,ERR5011:0.0004):0.0016):0.0130):0.0040);",
+    )
+    .expect("the tree in this example is well formed");
+
+    Figure::new(Region::new("samples", 0, size as u64).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            DistanceTrack::new(names, distances)
+                .tree(tree)
+                .cluster_threshold(12.0)
+                .cell_size(40.0)
+                .show_values(false)
+                .label("SNP distance"),
+        )
+}
+
+/// K: does the pangenome close.
+fn accumulation() -> Figure {
+    let count = 40usize;
+    let core = 3_100usize;
+    let accessory = 1_400usize;
+    let unique = 40usize;
+    let mut rng = Lcg::new(8_675_309);
+
+    let genomes: Vec<Vec<bool>> = (0..count)
+        .map(|genome| {
+            (0..(core + accessory + unique))
+                .map(|family| {
+                    if family < core {
+                        true
+                    } else if family < core + accessory {
+                        rng.next() % 100 < 35
+                    } else {
+                        family - (core + accessory) == genome
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    Figure::new(Region::new("genomes", 0, count as u64).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            AccumulationTrack::from_presence(&genomes, 200, 4_242)
+                .label("gene families")
+                .height(140.0),
+        )
+        .push(AxisTrack::new().center_on_bases(true).label("genomes"))
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a
