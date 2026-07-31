@@ -61,6 +61,16 @@ impl Scale {
         self.width / self.span
     }
 
+    /// The region on display, 0-based half-open.
+    ///
+    /// A track is handed the scale before it is handed a region, and some of
+    /// them have to know what is on screen in order to say how tall they are:
+    /// a pileup packs only the reads in view, so its height follows the view.
+    pub fn bounds(&self) -> (u64, u64) {
+        let start = self.start.max(0.0) as u64;
+        (start, start + self.span.max(0.0) as u64)
+    }
+
     /// Left edge of the plotting area.
     pub fn x0(&self) -> f64 {
         self.x0
@@ -102,6 +112,13 @@ mod tests {
             let round_trip = s.pos_at_x(s.x_at(pos));
             assert!((round_trip - pos).abs() < 1e-9, "{pos}");
         }
+    }
+
+    #[test]
+    fn the_region_can_be_read_back_off_the_scale() {
+        assert_eq!(scale().bounds(), (100, 200));
+        let whole = Region::new("NC_000962.3", 0, 4_411_532).unwrap();
+        assert_eq!(Scale::new(&whole, 0.0, 900.0).bounds(), (0, 4_411_532));
     }
 
     #[test]

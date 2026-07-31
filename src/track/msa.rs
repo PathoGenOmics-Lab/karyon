@@ -349,7 +349,7 @@ impl MsaTrack {
             return Some(
                 self.gap_color
                     .clone()
-                    .unwrap_or_else(|| mix(&theme.background, &theme.rule, 0.5)),
+                    .unwrap_or_else(|| mix(theme.surface(), &theme.rule, 0.5)),
             );
         }
 
@@ -359,7 +359,7 @@ impl MsaTrack {
             return Some(
                 self.match_color
                     .clone()
-                    .unwrap_or_else(|| mix(&theme.background, &theme.rule, 0.28)),
+                    .unwrap_or_else(|| mix(theme.surface(), &theme.rule, 0.28)),
             );
         }
 

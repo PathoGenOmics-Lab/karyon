@@ -7,15 +7,17 @@
 //! others.
 //!
 //! Each figure is embedded as a nested `<svg>` inside a translated group, so
-//! nothing is reparsed and nothing is rewritten: a panel renders exactly as it
-//! would on its own.
+//! nothing is reparsed and nothing is moved around afterwards. The one thing a
+//! panel does not keep to itself is its ids: an id in SVG belongs to the whole
+//! document, so every figure is rendered with a prefix of its own and its clips
+//! go on meaning what they meant.
 
 use std::fs;
 use std::io;
 use std::path::Path;
 
 use crate::figure::Figure;
-use crate::svg::{num, Anchor, SvgWriter};
+use crate::svg::{escape, num, Anchor, SvgWriter};
 use crate::theme::Theme;
 
 /// One figure placed on a sheet.
@@ -113,14 +115,32 @@ impl Panels {
 
     fn add(mut self, figure: &Figure, label: Option<String>, caption: Option<String>) -> Self {
         let (width, height) = figure.dimensions();
+        // Each panel gets an id space of its own. Without this the second
+        // panel's `url(#karyon-clip-0)` would resolve to the first panel's
+        // clipping rectangle, and its tracks would be cropped to a band
+        // belonging to a different figure.
+        let prefix = format!("p{}-", self.panels.len());
         self.panels.push(Panel {
-            svg: figure.to_svg(),
+            svg: figure.to_svg_with_id_prefix(&prefix),
             width,
             height,
             label,
             caption,
         });
         self
+    }
+
+    /// Width of the strip on the left holding the panel letters.
+    ///
+    /// A letter drawn on top of a panel is a letter drawn on top of data, and
+    /// on top of an opaque page colour it is a letter that is not there at all,
+    /// so it gets a column of its own.
+    fn letter_gutter(&self) -> f64 {
+        if self.panels.iter().any(|panel| panel.label.is_some()) {
+            self.theme.title_font_size + 6.0
+        } else {
+            0.0
+        }
     }
 
     /// How many panels the sheet holds.
@@ -140,6 +160,7 @@ impl Panels {
             .iter()
             .map(|panel| panel.width)
             .fold(0.0f64, f64::max)
+            + self.letter_gutter()
             + self.margin * 2.0;
         let caption_room = self.theme.font_size + 4.0;
         let content: f64 = self
@@ -169,6 +190,8 @@ impl Panels {
     /// Renders the sheet.
     pub fn to_svg(&self) -> String {
         let (width, height) = self.dimensions();
+        let gutter = self.letter_gutter();
+        let left = self.margin + gutter;
         let mut svg = SvgWriter::new();
 
         let mut y = self.margin;
@@ -186,6 +209,16 @@ impl Panels {
 
         let mut body = String::new();
         for panel in &self.panels {
+            // The panel goes in untouched, inside a group that moves it, and it
+            // goes in first: a figure paints its own page colour, so anything
+            // written before it would end up underneath and invisible.
+            body.push_str(&format!(
+                r#"<g transform="translate({} {})">{}</g>"#,
+                num(left),
+                num(y),
+                panel.svg
+            ));
+
             if let Some(label) = &panel.label {
                 svg.text_bold(
                     self.margin,
@@ -196,20 +229,11 @@ impl Panels {
                     Anchor::Start,
                 );
             }
-            // The panel goes in untouched, inside a group that moves it. No
-            // rewriting means a panel on a sheet is the same picture as the
-            // panel on its own.
-            body.push_str(&format!(
-                r#"<g transform="translate({} {})">{}</g>"#,
-                num(self.margin),
-                num(y),
-                panel.svg
-            ));
             y += panel.height;
 
             if let Some(caption) = &panel.caption {
                 svg.text(
-                    self.margin,
+                    left,
                     y + self.theme.font_size,
                     caption,
                     &self.theme.muted,
@@ -221,16 +245,34 @@ impl Panels {
             y += self.gap;
         }
 
-        let head = svg.finish(
-            width,
-            height,
-            &self.theme.background,
-            &self.theme.font_family,
-        );
-        // Slot the panels in before the closing tag, so the sheet's own text
-        // sits over them rather than under.
-        let insert = head.len() - "</svg>".len();
-        format!("{}{}{}", &head[..insert], body, &head[insert..])
+        // Assembled by hand rather than through `finish`, because the sheet's
+        // own lettering has to sit over the panels and the panels are not the
+        // writer's to hold.
+        let (defs, overlay) = svg.into_parts();
+        let mut out = String::with_capacity(body.len() + overlay.len() + 512);
+        out.push_str(&format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}" font-family="{}">"#,
+            num(width),
+            num(height),
+            num(width),
+            num(height),
+            escape(&self.theme.font_family)
+        ));
+        if !defs.is_empty() {
+            out.push_str(&format!("<defs>{defs}</defs>"));
+        }
+        if self.theme.background != "none" {
+            out.push_str(&format!(
+                r#"<rect x="0" y="0" width="{}" height="{}" fill="{}"/>"#,
+                num(width),
+                num(height),
+                self.theme.background
+            ));
+        }
+        out.push_str(&body);
+        out.push_str(&overlay);
+        out.push_str("</svg>");
+        out
     }
 
     /// Renders the sheet and writes it to `path`.
@@ -283,11 +325,55 @@ mod tests {
 
     #[test]
     fn a_panel_is_the_same_picture_on_a_sheet_as_on_its_own() {
-        let alone = figure().to_svg();
+        // Its ids are namespaced, and that is the only difference.
+        let alone = figure().to_svg_with_id_prefix("p0-");
         let sheet = Panels::new().push_bare(&figure()).to_svg();
         assert!(
             sheet.contains(&alone),
             "the panel was rewritten on its way onto the sheet"
+        );
+    }
+
+    #[test]
+    fn two_panels_never_claim_the_same_id() {
+        // An id in SVG is document-wide, so a duplicate does not merely look
+        // untidy: `url(#id)` resolves to the first match, and the second
+        // panel's tracks would be clipped to a band from the first one.
+        let svg = Panels::new()
+            .push(&figure(), "A")
+            .push(&figure(), "B")
+            .to_svg();
+        let ids: Vec<&str> = svg
+            .match_indices(r#" id=""#)
+            .map(|(index, prefix)| {
+                let rest = &svg[index + prefix.len()..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect();
+        assert!(!ids.is_empty(), "the figures do clip, so there are ids");
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    }
+
+    #[test]
+    fn a_letter_is_drawn_over_the_sheet_rather_than_under_a_panel() {
+        let svg = Panels::new().push(&figure(), "A").to_svg();
+        let panel = svg.find("<g transform=\"translate(").unwrap();
+        let letter = svg.find(">A</text>").unwrap();
+        // A figure paints its own opaque page colour. A letter written before
+        // the panel is a letter nobody ever sees.
+        assert!(letter > panel, "the letter went in underneath the panel");
+    }
+
+    #[test]
+    fn letters_get_a_column_of_their_own() {
+        let bare = Panels::new().push_bare(&figure()).dimensions().0;
+        let lettered = Panels::new().push(&figure(), "A").dimensions().0;
+        assert!(
+            lettered > bare,
+            "a letter on top of the panel is a letter on top of data"
         );
     }
 

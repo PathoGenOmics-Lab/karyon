@@ -171,8 +171,20 @@ impl Figure {
 
     /// Renders the figure to a standalone SVG document.
     pub fn to_svg(&self) -> String {
+        self.to_svg_with_id_prefix("")
+    }
+
+    /// Renders the figure with every id it generates carrying `prefix`.
+    ///
+    /// Only needed when the result is going to be nested inside another SVG
+    /// alongside a second figure. Ids are document-wide in SVG, so two figures
+    /// in one document would otherwise both claim `karyon-clip-0` and the
+    /// second one's clips would resolve to the first one's rectangles, cropping
+    /// its tracks to the wrong bands. [`Panels`](crate::Panels) does this for
+    /// you; do it yourself if you assemble a sheet by hand.
+    pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let layout = self.layout();
-        let mut svg = SvgWriter::new();
+        let mut svg = SvgWriter::with_id_prefix(prefix);
 
         if let Some(title) = &self.title {
             svg.text_bold(

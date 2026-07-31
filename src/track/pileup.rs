@@ -509,15 +509,15 @@ pub struct PileupLayout {
 }
 
 impl Track for PileupTrack {
-    fn height(&self, _scale: &Scale) -> f64 {
-        // Height cannot depend on the region, which the trait does not offer
-        // here, so the cap is what fixes it. Without a cap the track sizes
-        // itself to the deepest possible stack instead.
-        let rows = match self.max_rows {
-            Some(cap) => cap,
-            None => self.reads.len().max(1),
+    fn height(&self, scale: &Scale) -> f64 {
+        // Only the reads on screen are packed, so only they decide the height.
+        // Sizing to the cap instead would leave a pileup of forty rows' worth
+        // of empty band under the two reads the window actually contains.
+        let (start, end) = scale.bounds();
+        let rows = match Region::new("", start, end) {
+            Ok(region) => self.layout(scale, &region).rows,
+            Err(_) => 1,
         };
-        let rows = rows.min(self.reads.len().max(1));
         rows as f64 * self.read_height + rows.saturating_sub(1) as f64 * self.row_gap
     }
 
@@ -1152,5 +1152,28 @@ mod tests {
         assert_eq!(capped.height(&s), 10.0 * 9.0 + 9.0 * 2.0);
         // A track with one read does not reserve ten rows of empty space.
         assert_eq!(shallow.height(&s), 9.0);
+    }
+
+    #[test]
+    fn height_follows_the_reads_on_screen_not_the_ones_in_the_file() {
+        // Five hundred reads spread over a hundred kilobases, and a window
+        // holding two of them. Sizing to the cap would leave the pileup with
+        // forty rows of band and two reads in it.
+        let reads: Vec<Read> = (0..500).map(|i| Read::aligned(i * 200, 150)).collect();
+        let track = PileupTrack::new(reads);
+        let window = Region::new("chr1", 0, 400).unwrap();
+        let s = Scale::new(&window, 0.0, 800.0);
+        assert_eq!(track.layout(&s, &window).rows, 1);
+        assert_eq!(track.height(&s), 9.0, "one row on screen, one row of band");
+
+        // Zoom out until they stack, and the band grows to hold them.
+        let wide = Region::new("chr1", 0, 100_000).unwrap();
+        let s = Scale::new(&wide, 0.0, 800.0);
+        let rows = track.layout(&s, &wide).rows;
+        assert!(rows > 1);
+        assert_eq!(
+            track.height(&s),
+            rows as f64 * 9.0 + (rows - 1) as f64 * 2.0
+        );
     }
 }

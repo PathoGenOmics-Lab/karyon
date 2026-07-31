@@ -93,6 +93,27 @@ impl Theme {
         }
         &self.palette[index % self.palette.len()]
     }
+
+    /// A real colour standing in for the page, to blend a tint against.
+    ///
+    /// [`Theme::background`] is allowed to be `"none"`, which is a transparent
+    /// page rather than a colour, and [`mix`] blending against something that
+    /// is not a colour gives back something that is not a colour: the mark
+    /// comes out `fill="none"` and disappears. A quiet cell in a matrix, the
+    /// bar under a base that agrees with the reference and the zebra tint on a
+    /// panel of variable sites are all tints towards the page, so they ask for
+    /// this instead.
+    ///
+    /// A transparent page is whatever it ends up composited onto, which cannot
+    /// be known from here. The theme's own ink is the one clue it carries, so
+    /// dark ink implies a light page and light ink a dark one.
+    pub fn surface(&self) -> &str {
+        if parse_hex(&self.background).is_some() {
+            &self.background
+        } else {
+            contrast_ink(&self.foreground)
+        }
+    }
 }
 
 impl Default for Theme {
@@ -274,6 +295,22 @@ pub fn contrast_ink(color: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_transparent_page_still_offers_a_colour_to_blend_against() {
+        // Otherwise every tint towards the page comes back as `none`, and the
+        // marks that carry "present but quiet" vanish from the figure.
+        let mut light = Theme::light();
+        assert_eq!(light.surface(), "#ffffff");
+        light.background = "none".into();
+        assert_eq!(light.surface(), "#ffffff", "dark ink means a light page");
+        assert_ne!(mix(light.surface(), &light.rule, 0.2), "none");
+
+        let mut dark = Theme::dark();
+        assert_eq!(dark.surface(), Theme::dark().background);
+        dark.background = "none".into();
+        assert_eq!(dark.surface(), "#1b1f23", "light ink means a dark page");
+    }
 
     #[test]
     fn ink_flips_with_the_brightness_of_the_box() {

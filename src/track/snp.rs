@@ -412,12 +412,12 @@ impl Track for SnpTrack {
         let matched = self
             .match_color
             .clone()
-            .unwrap_or_else(|| mix(&ctx.theme.background, &ctx.theme.rule, 0.22));
+            .unwrap_or_else(|| mix(ctx.theme.surface(), &ctx.theme.rule, 0.22));
 
         // A tint on every other column, so the eye can cross a wide panel of
         // sparse cells without losing its place.
         if self.zebra {
-            let tint = mix(&ctx.theme.background, &ctx.theme.rule, 0.13);
+            let tint = mix(ctx.theme.surface(), &ctx.theme.rule, 0.13);
             let strip = self.drawn_rows() as f64 * (self.row_height + self.row_gap);
             for index in (0..self.sites.len()).step_by(2) {
                 ctx.svg
@@ -568,9 +568,9 @@ impl SnpTrack {
     ) {
         let (x, top, width) = (cell.x, cell.y, cell.w);
         let color = if is_gap(residue) {
-            mix(&ctx.theme.background, &ctx.theme.foreground, 0.35)
+            mix(ctx.theme.surface(), &ctx.theme.foreground, 0.35)
         } else if reference {
-            mix(&ctx.theme.background, &ctx.theme.rule, 0.55)
+            mix(ctx.theme.surface(), &ctx.theme.rule, 0.55)
         } else {
             ctx.theme.bases.of(residue).to_string()
         };

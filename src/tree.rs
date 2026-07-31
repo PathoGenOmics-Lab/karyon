@@ -67,6 +67,11 @@ impl Tree {
     /// reading an internal label as a support value when it parses as a number
     /// and keeping it as a name when it does not. Trailing semicolon optional.
     ///
+    /// Square bracket comments are skipped wherever they appear, which is what
+    /// lets a file straight out of RAxML or BEAST be read: those write a `[&R]`
+    /// rootedness marker before the tree and `[&support=...]` annotations
+    /// inside it. Nothing in a comment is kept, including NHX annotations.
+    ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidNewick`] for unbalanced parentheses, a stray
@@ -147,6 +152,16 @@ impl Tree {
                             })?;
                     nodes[target].branch_length = Some(length);
                 }
+                '[' => {
+                    // A comment. Newick does not nest them, so the first
+                    // closing bracket ends it; an unclosed one runs to the end
+                    // rather than swallowing the tree as a name.
+                    for next in chars.by_ref() {
+                        if next == ']' {
+                            break;
+                        }
+                    }
+                }
                 c if c.is_whitespace() => {}
                 _ => {
                     // A name: either a leaf being introduced, or the label of
@@ -165,7 +180,7 @@ impl Tree {
                             }
                             name.push(*next);
                             chars.next();
-                        } else if matches!(*next, '(' | ')' | ',' | ':' | ';') {
+                        } else if matches!(*next, '(' | ')' | ',' | ':' | ';' | '[') {
                             break;
                         } else {
                             name.push(*next);
@@ -388,6 +403,22 @@ mod tests {
             .map(|index| tree.nodes()[*index].branch_length)
             .collect();
         assert_eq!(lengths, vec![Some(1.5e-4), Some(2e-3)]);
+    }
+
+    #[test]
+    fn comments_are_skipped_wherever_a_real_file_puts_them() {
+        // RAxML and BEAST write a rootedness marker before the tree and
+        // annotations inside it. Read as names, the first one alone makes the
+        // whole file fail with "more than one root".
+        let plain = Tree::parse_newick("((A:0.1,B:0.2)0.98:0.3,C:0.4);").unwrap();
+        let annotated =
+            Tree::parse_newick("[&R] ((A[&rate=1.2]:0.1,B:0.2)0.98:0.3[&height=0.4],C:0.4);")
+                .unwrap();
+        assert_eq!(annotated.leaf_names(), plain.leaf_names());
+        assert_eq!(annotated.max_depth(false), plain.max_depth(false));
+
+        // An unclosed comment runs out rather than eating the tree.
+        assert_eq!(Tree::parse_newick("(A,B)[oops;").unwrap().leaf_count(), 2);
     }
 
     #[test]

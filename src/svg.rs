@@ -43,6 +43,7 @@ struct Ink<'a> {
 pub struct SvgWriter {
     body: String,
     defs: String,
+    id_prefix: String,
     next_id: usize,
     open_groups: usize,
 }
@@ -51,6 +52,29 @@ impl SvgWriter {
     /// An empty document.
     pub fn new() -> Self {
         SvgWriter::default()
+    }
+
+    /// An empty document whose generated ids all begin with `prefix`.
+    ///
+    /// An id in SVG belongs to the whole document rather than to the element
+    /// carrying it, and `url(#id)` resolves to the first match anywhere in it.
+    /// Two documents nested into one sheet would therefore both claim
+    /// `karyon-clip-0`, and the second one's clips would silently resolve to
+    /// the first one's rectangle, cropping it to the wrong band.
+    /// [`Panels`](crate::Panels) hands every figure its own prefix; a document
+    /// standing on its own needs none.
+    pub fn with_id_prefix(prefix: impl Into<String>) -> Self {
+        SvgWriter {
+            id_prefix: prefix.into(),
+            ..SvgWriter::default()
+        }
+    }
+
+    /// The next unused id, carrying whatever prefix this document was given.
+    fn next_clip_id(&mut self) -> String {
+        let id = format!("{}karyon-clip-{}", self.id_prefix, self.next_id);
+        self.next_id += 1;
+        id
     }
 
     /// A filled rectangle.
@@ -210,8 +234,7 @@ impl SvgWriter {
     /// Opens a group clipped to an arbitrary path, for shapes a rectangle
     /// cannot describe. Pair it with [`SvgWriter::end_group`].
     pub fn begin_clip_path(&mut self, d: &str) {
-        let id = format!("karyon-clip-{}", self.next_id);
-        self.next_id += 1;
+        let id = self.next_clip_id();
         let _ = write!(
             self.defs,
             r#"<clipPath id="{id}"><path d="{d}"/></clipPath>"#
@@ -334,8 +357,7 @@ impl SvgWriter {
 
     /// Opens a group clipped to a rectangle. Pair it with [`SvgWriter::end_group`].
     pub fn begin_clip(&mut self, x: f64, y: f64, w: f64, h: f64) {
-        let id = format!("karyon-clip-{}", self.next_id);
-        self.next_id += 1;
+        let id = self.next_clip_id();
         let _ = write!(
             self.defs,
             r#"<clipPath id="{}"><rect x="{}" y="{}" width="{}" height="{}"/></clipPath>"#,
@@ -394,6 +416,18 @@ impl SvgWriter {
         out.push_str(&self.body);
         out.push_str("</svg>");
         out
+    }
+
+    /// The definitions and the elements written so far, without the wrapper.
+    ///
+    /// [`Panels`](crate::Panels) has to interleave text of its own with
+    /// figures it did not draw, so it takes the pieces and assembles the
+    /// document itself rather than splicing into a finished one.
+    pub(crate) fn into_parts(mut self) -> (String, String) {
+        while self.open_groups > 0 {
+            self.end_group();
+        }
+        (self.defs, self.body)
     }
 
     fn push_opacity(&mut self, attr: &str, opacity: f64) {
@@ -557,6 +591,25 @@ mod tests {
         assert_eq!(out.matches("<g ").count(), 2);
         assert_eq!(out.matches("</g>").count(), 2);
         assert!(out.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn an_id_prefix_keeps_two_documents_from_claiming_the_same_id() {
+        let one = {
+            let mut svg = SvgWriter::with_id_prefix("p0-");
+            svg.begin_clip(0.0, 0.0, 10.0, 10.0);
+            svg.finish(10.0, 10.0, "none", "sans-serif")
+        };
+        let two = {
+            let mut svg = SvgWriter::with_id_prefix("p1-");
+            svg.begin_clip(0.0, 0.0, 10.0, 10.0);
+            svg.finish(10.0, 10.0, "none", "sans-serif")
+        };
+        assert!(one.contains(r#"id="p0-karyon-clip-0""#), "{one}");
+        assert!(two.contains(r#"id="p1-karyon-clip-0""#), "{two}");
+        // Nested into one document these would otherwise collide, and the
+        // second one's clip would resolve to the first one's rectangle.
+        assert!(!two.contains("p0-"));
     }
 
     #[test]

@@ -259,7 +259,7 @@ impl MatrixTrack {
                 // not have it" and "this sample was not typed" are different
                 // statements that must not look the same.
                 let t = ZERO_TINT + (1.0 - ZERO_TINT) * fraction;
-                mix(&theme.background, &hue, t)
+                mix(theme.surface(), &hue, t)
             }
         }
     }
@@ -302,7 +302,7 @@ impl Track for MatrixTrack {
         let missing = self
             .missing_color
             .clone()
-            .unwrap_or_else(|| mix(&ctx.theme.background, &ctx.theme.rule, 0.45));
+            .unwrap_or_else(|| mix(ctx.theme.surface(), &ctx.theme.rule, 0.45));
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
 
         // The tree takes the left of the strip and the names the right of it,

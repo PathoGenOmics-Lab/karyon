@@ -271,7 +271,7 @@ impl IdeogramTrack {
         }
         // The grey ladder is mixed from the theme's own ink and page, so a dark
         // figure gets a dark ladder rather than a light one left inverted.
-        mix(&theme.background, &theme.foreground, band.stain.shade())
+        mix(theme.surface(), &theme.foreground, band.stain.shade())
     }
 }
 
