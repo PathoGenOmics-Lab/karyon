@@ -1,0 +1,148 @@
+//! Renders the two figures used in the README.
+//!
+//! Run it with the output directory as an optional argument:
+//!
+//! ```text
+//! cargo run --example locus -- assets
+//! ```
+//!
+//! The data is synthetic but shaped like the real thing: a coverage dropout, a
+//! couple of gene models on opposite strands, and variants split by
+//! consequence. Everything is generated from a fixed seed, so re-running the
+//! example produces byte-identical files and a diff only appears when the
+//! rendering actually changed.
+
+use std::env;
+use std::path::PathBuf;
+
+use karyon::{
+    Aggregate, AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Region, SequenceTrack,
+    Strand, Variant, VariantTrack,
+};
+
+/// Start of the window, 0-based. H37Rv coordinates around rpoB.
+const WINDOW_START: u64 = 760_999;
+/// Length of the overview window in bases.
+const WINDOW_LEN: usize = 2_000;
+
+fn main() -> std::io::Result<()> {
+    let out = env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let bases = synthetic_sequence(WINDOW_LEN);
+    let depth = synthetic_depth(WINDOW_LEN);
+
+    let genes = vec![
+        Feature::new(761_050, 762_100)
+            .name("rpoB")
+            .strand(Strand::Forward),
+        Feature::new(762_250, 762_640)
+            .name("Rv0668c")
+            .strand(Strand::Reverse),
+        Feature::new(761_380, 761_520)
+            .name("RRDR")
+            .strand(Strand::Forward)
+            .color("#d55e00"),
+    ];
+
+    let variants = vec![
+        Variant::new(761_109).value(0.98).category("missense"),
+        Variant::new(761_155).value(0.21).category("synonymous"),
+        Variant::new(761_410).value(1.00).category("missense"),
+        Variant::new(761_452).value(0.64).category("missense"),
+        Variant::new(762_050).value(0.35).category("frameshift"),
+        Variant::new(762_480).value(0.12).category("synonymous"),
+    ];
+
+    let overview = Figure::new(Region::new("NC_000962.3", WINDOW_START, 762_999).unwrap())
+        .title("rpoB locus, resistance determining region")
+        .push(
+            // Min, not the default Max: at two and a half bases per pixel a
+            // dropout is the thing worth not smoothing away.
+            CoverageTrack::new(WINDOW_START, depth.clone())
+                .label("depth")
+                .aggregate(Aggregate::Min)
+                .height(70.0),
+        )
+        .push(SequenceTrack::new(WINDOW_START, bases.clone()).label("reference"))
+        .push(FeatureTrack::new(genes).label("annotation"))
+        .push(VariantTrack::new(variants).label("variants"))
+        .push(AxisTrack::new());
+    overview.save_svg(out.join("example.svg"))?;
+
+    // The same tracks, zoomed until individual bases are legible. Nothing about
+    // the tracks changes; only the region does.
+    let zoom_start = 761_400;
+    let zoom_len = 60usize;
+    let offset = (zoom_start - WINDOW_START) as usize;
+    let zoom_region = Region::new("NC_000962.3", zoom_start, zoom_start + zoom_len as u64).unwrap();
+    let zoom = Figure::new(zoom_region)
+        .title("The same locus at base resolution")
+        .push(
+            CoverageTrack::new(zoom_start, depth[offset..offset + zoom_len].to_vec())
+                .label("depth")
+                .height(45.0),
+        )
+        .push(
+            SequenceTrack::new(zoom_start, bases[offset..offset + zoom_len].to_vec())
+                .label("reference"),
+        )
+        .push(
+            VariantTrack::new(vec![
+                Variant::new(761_410).value(1.00).category("missense"),
+                Variant::new(761_452).value(0.64).category("missense"),
+            ])
+            .label("variants")
+            .height(40.0),
+        )
+        .push(AxisTrack::new());
+    zoom.save_svg(out.join("example-zoom.svg"))?;
+
+    let (w1, h1) = overview.dimensions();
+    let (w2, h2) = zoom.dimensions();
+    println!("example.svg      {w1:.0} x {h1:.0}");
+    println!("example-zoom.svg {w2:.0} x {h2:.0}");
+    Ok(())
+}
+
+/// A reproducible ACGT string. Real sequence would come from a FASTA reader.
+fn synthetic_sequence(len: usize) -> Vec<u8> {
+    let mut rng = Lcg::new(20_260_731);
+    (0..len)
+        .map(|_| b"ACGT"[(rng.next() % 4) as usize])
+        .collect()
+}
+
+/// A depth profile with a dropout, the shape a deletion or a GC-poor stretch
+/// leaves behind.
+fn synthetic_depth(len: usize) -> Vec<f64> {
+    let mut rng = Lcg::new(7);
+    (0..len)
+        .map(|i| {
+            let wave = 58.0 + 9.0 * ((i as f64) / 130.0).sin();
+            let noise = (rng.next() % 11) as f64 - 5.0;
+            let dropout = if (900..1_030).contains(&i) { 0.06 } else { 1.0 };
+            ((wave + noise) * dropout).max(0.0)
+        })
+        .collect()
+}
+
+/// A linear congruential generator, so the example needs no dependency to be
+/// reproducible.
+struct Lcg(u64);
+
+impl Lcg {
+    fn new(seed: u64) -> Self {
+        Lcg(seed)
+    }
+
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0 >> 33
+    }
+}
