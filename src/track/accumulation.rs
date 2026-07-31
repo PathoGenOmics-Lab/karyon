@@ -359,8 +359,18 @@ impl Track for AccumulationTrack {
             return;
         }
         let (bottom, top) = self.range();
-        let y_of =
-            |value: f64| baseline - ((value - bottom) / (top - bottom)).clamp(0.0, 1.0) * band.h;
+        // Leave room for the legend, or the pangenome curve runs straight
+        // through it: the axis is fitted to the curves, so the top one comes
+        // within a few per cent of the band's ceiling by construction.
+        let legend_room = if self.show_legend {
+            ctx.theme.font_size + 4.0
+        } else {
+            0.0
+        };
+        let plot_height = (band.h - legend_room).max(4.0);
+        let y_of = |value: f64| {
+            baseline - ((value - bottom) / (top - bottom)).clamp(0.0, 1.0) * plot_height
+        };
         // A count of k genomes belongs in the kth column, which is index k - 1.
         let x_of = |genomes: usize| ctx.scale.x_center(genomes as u64 - 1);
         let (low, high) = self.band;
@@ -421,7 +431,7 @@ impl Track for AccumulationTrack {
             let right = ctx.axis.right() - 4.0;
             ctx.svg.text(
                 right,
-                band.y + size,
+                y_of(top) + size * 0.35,
                 &group_thousands(top),
                 &ctx.theme.muted,
                 size,
@@ -697,6 +707,40 @@ mod tests {
         let (bottom, top) = AccumulationTrack::from_presence(&genomes(), 20, 1).range();
         assert!(svg.contains(&format!(">{}</text>", group_thousands(bottom))));
         assert!(svg.contains(&format!(">{}</text>", group_thousands(top))));
+    }
+
+    #[test]
+    fn the_legend_gets_room_rather_than_sitting_on_the_curves() {
+        // The axis is fitted to the curves, so the top one reaches within a few
+        // per cent of the band's ceiling. A legend written there is a legend
+        // with a line through it.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(AccumulationTrack::from_presence(&genomes(), 20, 1).height(120.0))
+            .to_svg();
+
+        let legend_baseline = {
+            let at = svg.find(">pangenome</text>").unwrap();
+            let head = &svg[..at];
+            let y = head.rfind("y=\"").unwrap() + 3;
+            head[y..].split('"').next().unwrap().parse::<f64>().unwrap()
+        };
+        // The curves themselves, which the legend swatches are not.
+        let highest_point = svg
+            .match_indices("<polyline points=\"")
+            .flat_map(|(at, key)| {
+                let rest = &svg[at + key.len()..];
+                let list = &rest[..rest.find('"').unwrap()];
+                list.split(' ')
+                    .filter_map(|pair| pair.split_once(','))
+                    .filter_map(|(_, y)| y.parse::<f64>().ok())
+                    .collect::<Vec<f64>>()
+            })
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            highest_point > legend_baseline,
+            "a curve reaches {highest_point}, above the legend baseline {legend_baseline}"
+        );
     }
 
     #[test]

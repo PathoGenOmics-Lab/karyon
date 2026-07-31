@@ -356,6 +356,22 @@ impl SnpTrack {
         widest + 6.0
     }
 
+    /// Width of the strip on the right holding the per-sample counts.
+    ///
+    /// The counts need room of their own. Drawn at the right edge of the
+    /// plotting area instead, they land on top of the last site's cells, and a
+    /// muted number over a saturated base colour is a number nobody reads.
+    fn counts_strip(&self, theme: &Theme) -> f64 {
+        if !self.show_counts || self.sites.is_empty() || self.names.is_empty() {
+            return 0.0;
+        }
+        let widest = (0..self.visible_rows().0)
+            .map(|row| self.differences(row))
+            .max()
+            .unwrap_or(0);
+        text_width(&widest.to_string(), theme.font_size - 2.0) + 8.0
+    }
+
     /// How many rows of cells, reference included.
     fn drawn_rows(&self) -> usize {
         let (rows, _) = self.visible_rows();
@@ -407,7 +423,12 @@ impl Track for SnpTrack {
         }
         let (rows, hidden) = self.visible_rows();
         let name_size = (ctx.theme.font_size - 1.0).min(self.row_height);
-        let cell_width = ctx.scale.x(1) - ctx.scale.x(0);
+        // The panel lays itself out rather than going through the shared scale.
+        // Its x axis is the site index, which means nothing to any neighbour,
+        // and the counts on the right need a strip the scale knows nothing of.
+        let strip = self.counts_strip(ctx.theme);
+        let cell_width = (band.w - strip).max(1.0) / self.sites.len() as f64;
+        let x_of = |index: usize| band.x + index as f64 * cell_width;
         let letters = cell_width >= self.letter_threshold;
         let matched = self
             .match_color
@@ -418,10 +439,9 @@ impl Track for SnpTrack {
         // sparse cells without losing its place.
         if self.zebra {
             let tint = mix(ctx.theme.surface(), &ctx.theme.rule, 0.13);
-            let strip = self.drawn_rows() as f64 * (self.row_height + self.row_gap);
+            let height = self.drawn_rows() as f64 * (self.row_height + self.row_gap);
             for index in (0..self.sites.len()).step_by(2) {
-                ctx.svg
-                    .rect(ctx.scale.x(index as u64), band.y, cell_width, strip, &tint);
+                ctx.svg.rect(x_of(index), band.y, cell_width, height, &tint);
             }
         }
 
@@ -456,7 +476,7 @@ impl Track for SnpTrack {
         let mut top = band.y;
         if self.show_reference {
             for (index, site) in self.sites.iter().enumerate() {
-                let x = ctx.scale.x(index as u64);
+                let x = x_of(index);
                 self.paint_cell(
                     ctx,
                     Rect {
@@ -476,7 +496,7 @@ impl Track for SnpTrack {
 
         for row in 0..rows {
             for (index, site) in self.sites.iter().enumerate() {
-                let x = ctx.scale.x(index as u64);
+                let x = x_of(index);
                 if !site.differs(row) {
                     // An agreement is a quiet bar. The whole point of the panel
                     // is that the disagreements are the only thing worth ink.
@@ -530,10 +550,7 @@ impl Track for SnpTrack {
                 // Standing the label on end is what lets a five digit position
                 // sit under a column narrower than it is.
                 ctx.svg.text_rotated(
-                    (
-                        ctx.scale.x(index as u64) + cell_width / 2.0 + size * 0.35,
-                        top + 2.0,
-                    ),
+                    (x_of(index) + cell_width / 2.0 + size * 0.35, top + 2.0),
                     -90.0,
                     &site.position.to_string(),
                     &ctx.theme.muted,
@@ -744,6 +761,44 @@ mod tests {
         assert!(svg.contains(">100</text>"));
         assert!(svg.contains(">9100</text>"));
         assert!(svg.contains("rotate(-90)"));
+    }
+
+    #[test]
+    fn the_counts_get_a_strip_rather_than_landing_on_the_last_column() {
+        // Drawn at the right edge of the plotting area, every count sat on top
+        // of the last site's cells, and the one over a saturated base colour
+        // was unreadable.
+        let panel = SnpTrack::from_alignment(0, &alignment());
+        let theme = Theme::light();
+        assert!(panel.counts_strip(&theme) > 0.0);
+        assert_eq!(
+            panel.clone().show_counts(false).counts_strip(&theme),
+            0.0,
+            "no counts, no strip"
+        );
+
+        let svg = Figure::new(Region::new("sites", 0, 3).unwrap())
+            .show_region_label(false)
+            .push(SnpTrack::from_alignment(0, &alignment()).show_positions(false))
+            .to_svg();
+
+        // The rightmost cell now stops short of the rightmost count.
+        let rights: Vec<f64> = svg
+            .match_indices("<rect x=\"")
+            .filter_map(|(at, key)| {
+                let rest = &svg[at + key.len()..];
+                let x: f64 = rest[..rest.find('"')?].parse().ok()?;
+                let after = &rest[rest.find("width=\"")? + 7..];
+                let w: f64 = after[..after.find('"')?].parse().ok()?;
+                (w < 400.0).then_some(x + w)
+            })
+            .collect();
+        let cell_edge = rights.iter().copied().fold(0.0f64, f64::max);
+        let count_at = 900.0 - 16.0 - 3.0;
+        assert!(
+            cell_edge < count_at,
+            "cells reach {cell_edge} and the counts start at {count_at}"
+        );
     }
 
     #[test]

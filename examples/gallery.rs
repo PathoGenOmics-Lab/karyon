@@ -39,6 +39,8 @@ fn main() -> std::io::Result<()> {
 
     let sheet = Panels::new()
         .title("karyon: every representation")
+        // Fifteen panels in one column is a scroll rather than a figure.
+        .columns(3)
         .gap(20.0)
         .push_captioned(
             &locus(),

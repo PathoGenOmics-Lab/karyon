@@ -50,9 +50,21 @@ struct Panel {
 pub struct Panels {
     panels: Vec<Panel>,
     gap: f64,
+    column_gap: f64,
+    columns: usize,
     margin: f64,
     theme: Theme,
     title: Option<String>,
+}
+
+/// Where the panels ended up and how big a sheet it took.
+struct Layout {
+    /// Left edge of the column and top of the panel, one pair per panel.
+    places: Vec<(f64, f64)>,
+    /// Room reserved at the left of every column for its letters.
+    gutter: f64,
+    width: f64,
+    height: f64,
 }
 
 impl Panels {
@@ -61,6 +73,8 @@ impl Panels {
         Panels {
             panels: Vec::new(),
             gap: 18.0,
+            column_gap: 26.0,
+            columns: 1,
             margin: 14.0,
             theme: Theme::light(),
             title: None,
@@ -70,6 +84,26 @@ impl Panels {
     /// Sets the vertical gap between panels.
     pub fn gap(mut self, gap: f64) -> Self {
         self.gap = gap.max(0.0);
+        self
+    }
+
+    /// Lays the panels out in `columns` columns instead of one.
+    ///
+    /// A gallery of fifteen panels in one column is four thousand pixels tall,
+    /// which is a scroll rather than a figure. Three columns is the same
+    /// content at a glance.
+    ///
+    /// Panels fill each column before starting the next, so the letters still
+    /// read in order, and the breaks are chosen to leave the columns roughly
+    /// level rather than giving each an equal count of unequal panels.
+    pub fn columns(mut self, columns: usize) -> Self {
+        self.columns = columns.max(1);
+        self
+    }
+
+    /// Sets the horizontal gap between columns.
+    pub fn column_gap(mut self, gap: f64) -> Self {
+        self.column_gap = gap.max(0.0);
         self
     }
 
@@ -160,96 +194,143 @@ impl Panels {
         self.panels.is_empty()
     }
 
-    /// Width and height of the finished sheet.
-    pub fn dimensions(&self) -> (f64, f64) {
-        let width = self
+    /// How much room one panel takes vertically, caption included.
+    fn panel_height(&self, panel: &Panel) -> f64 {
+        panel.height
+            + if panel.caption.is_some() {
+                self.theme.font_size + 4.0
+            } else {
+                0.0
+            }
+    }
+
+    /// Where every panel goes, and how big the sheet has to be to hold them.
+    ///
+    /// Panels fill each column top to bottom before starting the next, so the
+    /// letters still read in order: a reader following A, B, C down a column
+    /// and back up to the top of the next is doing what a two-column paper
+    /// makes them do anyway. Columns are broken so that they come out roughly
+    /// level rather than at a fixed count each, since the panels are not all
+    /// the same height and a fixed count leaves one column half empty.
+    fn layout(&self) -> Layout {
+        let gutter = self.letter_gutter();
+        let column_width = self
             .panels
             .iter()
             .map(|panel| panel.width)
             .fold(0.0f64, f64::max)
-            + self.letter_gutter()
-            + self.margin * 2.0;
-        let caption_room = self.theme.font_size + 4.0;
-        let content: f64 = self
-            .panels
-            .iter()
-            .map(|panel| {
-                panel.height
-                    + if panel.caption.is_some() {
-                        caption_room
-                    } else {
-                        0.0
-                    }
-            })
-            .sum();
-        let gaps = self.gap * (self.panels.len().saturating_sub(1)) as f64;
+            + gutter;
         let header = if self.title.is_some() {
             self.theme.title_font_size + 12.0
         } else {
             0.0
         };
-        (
-            width.max(1.0),
-            (content + gaps + header + self.margin * 2.0).max(1.0),
-        )
+        let top = self.margin + header;
+
+        let heights: Vec<f64> = self
+            .panels
+            .iter()
+            .map(|panel| self.panel_height(panel))
+            .collect();
+        let columns = self.columns.max(1).min(self.panels.len().max(1));
+        let total: f64 =
+            heights.iter().sum::<f64>() + self.gap * heights.len().saturating_sub(1) as f64;
+        let target = total / columns as f64;
+
+        let mut places = Vec::with_capacity(self.panels.len());
+        let mut column = 0usize;
+        let mut y = top;
+        let mut filled = 0.0f64;
+        let mut tallest = 0.0f64;
+        for (index, height) in heights.iter().enumerate() {
+            // Break when this column has had its share, but never so late that
+            // the columns still to come would be left with nothing in them.
+            let left_to_place = heights.len() - index;
+            let columns_left = columns - column;
+            if column + 1 < columns
+                && filled > 0.0
+                && (filled + height / 2.0 > target || left_to_place < columns_left)
+            {
+                column += 1;
+                y = top;
+                filled = 0.0;
+            }
+            places.push((
+                self.margin + column as f64 * (column_width + self.column_gap),
+                y,
+            ));
+            y += height + self.gap;
+            filled += height + self.gap;
+            tallest = tallest.max(filled - self.gap);
+        }
+
+        let width = self.margin * 2.0
+            + columns as f64 * column_width
+            + columns.saturating_sub(1) as f64 * self.column_gap;
+        Layout {
+            places,
+            gutter,
+            width: width.max(1.0),
+            height: (top + tallest + self.margin).max(1.0),
+        }
+    }
+
+    /// Width and height of the finished sheet.
+    pub fn dimensions(&self) -> (f64, f64) {
+        let layout = self.layout();
+        (layout.width, layout.height)
     }
 
     /// Renders the sheet.
     pub fn to_svg(&self) -> String {
-        let (width, height) = self.dimensions();
-        let gutter = self.letter_gutter();
-        let left = self.margin + gutter;
+        let layout = self.layout();
+        let (width, height) = (layout.width, layout.height);
         let mut svg = SvgWriter::new();
 
-        let mut y = self.margin;
         if let Some(title) = &self.title {
             svg.text_bold(
                 self.margin,
-                y + self.theme.title_font_size,
+                self.margin + self.theme.title_font_size,
                 title,
                 &self.theme.foreground,
                 self.theme.title_font_size,
                 Anchor::Start,
             );
-            y += self.theme.title_font_size + 12.0;
         }
 
         let mut body = String::new();
-        for panel in &self.panels {
+        for (panel, (column_x, top)) in self.panels.iter().zip(&layout.places) {
+            let left = column_x + layout.gutter;
             // The panel goes in untouched, inside a group that moves it, and it
             // goes in first: a figure paints its own page colour, so anything
             // written before it would end up underneath and invisible.
             body.push_str(&format!(
                 r#"<g transform="translate({} {})">{}</g>"#,
                 num(left),
-                num(y),
+                num(*top),
                 panel.svg
             ));
 
             if let Some(label) = &panel.label {
                 svg.text_bold(
-                    self.margin,
-                    y + self.theme.title_font_size,
+                    *column_x,
+                    top + self.theme.title_font_size,
                     label,
                     &self.theme.foreground,
                     self.theme.title_font_size,
                     Anchor::Start,
                 );
             }
-            y += panel.height;
-
             if let Some(caption) = &panel.caption {
                 svg.text(
                     left,
-                    y + self.theme.font_size,
+                    top + panel.height + self.theme.font_size,
                     caption,
                     &self.theme.muted,
                     self.theme.font_size,
                     Anchor::Start,
                 );
-                y += self.theme.font_size + 4.0;
             }
-            y += self.gap;
         }
 
         // Assembled by hand rather than through `finish`, because the sheet's
@@ -405,6 +486,57 @@ mod tests {
         assert!(
             (two - one - panel - 18.0).abs() < 1e-9,
             "one gap between two"
+        );
+    }
+
+    #[test]
+    fn columns_share_the_panels_out_and_keep_them_in_order() {
+        let sheet = |columns: usize| {
+            let mut sheet = Panels::new().columns(columns);
+            for label in ["A", "B", "C", "D", "E", "F"] {
+                sheet = sheet.push(&figure(), label);
+            }
+            sheet
+        };
+
+        let (one_wide, one_tall) = sheet(1).dimensions();
+        let (three_wide, three_tall) = sheet(3).dimensions();
+        assert!(three_wide > one_wide * 2.5, "three columns of panels");
+        assert!(three_tall < one_tall / 2.0, "and a third of the height");
+
+        // Six equal panels over three columns is two each, and the letters
+        // still run A, B down the first column before C starts the second.
+        let svg = sheet(3).to_svg();
+        let places: Vec<(f64, f64)> = svg
+            .match_indices("<g transform=\"translate(")
+            .map(|(at, key)| {
+                let rest = &svg[at + key.len()..];
+                let head = &rest[..rest.find(')').unwrap()];
+                let (x, y) = head.split_once(' ').unwrap();
+                (x.parse().unwrap(), y.parse().unwrap())
+            })
+            .collect();
+        assert_eq!(places.len(), 6);
+        let columns: Vec<f64> = {
+            let mut xs: Vec<f64> = places.iter().map(|p| p.0).collect();
+            xs.dedup();
+            xs
+        };
+        assert_eq!(columns.len(), 3, "three distinct column positions");
+        assert_eq!(places[0].0, places[1].0, "A and B share a column");
+        assert!(places[1].1 > places[0].1, "and B is under A");
+        assert!(places[2].0 > places[0].0, "C starts the next one");
+        assert_eq!(places[2].1, places[0].1, "back at the top");
+    }
+
+    #[test]
+    fn a_column_count_larger_than_the_panel_count_is_harmless() {
+        let sheet = Panels::new().columns(20).push(&figure(), "A");
+        let (width, _) = sheet.dimensions();
+        let (plain, _) = Panels::new().push(&figure(), "A").dimensions();
+        assert_eq!(
+            width, plain,
+            "one panel is one column however many are asked for"
         );
     }
 

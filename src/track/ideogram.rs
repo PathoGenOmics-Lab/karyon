@@ -17,6 +17,13 @@ use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
+/// How far the region marker stands proud of the chromosome, in pixels.
+///
+/// The chromosome is inset by this much inside the band so the overhang has
+/// somewhere to go: a track that draws outside its band is a track whose
+/// figure clips the difference away.
+const MARKER_PAD: f64 = 2.0;
+
 /// How a cytogenetic band was stained, which is what decides its shade.
 ///
 /// The names are the ones in the UCSC `cytoBand` table, so a row of that file
@@ -335,13 +342,19 @@ impl Track for IdeogramTrack {
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band_area = ctx.band;
-        // Room under the chromosome for band names, when they are wanted.
-        let body_height = if self.show_band_names {
-            (self.height - ctx.theme.font_size - 2.0).max(6.0)
+        // Room under the chromosome for band names, when they are wanted, and
+        // room above and below it for the marker to stand proud of it. Without
+        // the second, the marker is drawn outside the band and the figure's
+        // clip takes the overhang off again, so the pointer reads as flush and
+        // the two pixels of intent never reach the page.
+        let pad = if self.show_marker { MARKER_PAD } else { 0.0 };
+        let names_room = if self.show_band_names {
+            ctx.theme.font_size + 2.0
         } else {
-            self.height
+            0.0
         };
-        let top = band_area.y;
+        let body_height = (self.height - names_room - pad * 2.0).max(6.0);
+        let top = band_area.y + pad;
         let bottom = top + body_height;
         let left = band_area.x;
         let width = band_area.w;
@@ -454,17 +467,22 @@ impl Track for IdeogramTrack {
             // the marker has a minimum width. It is a pointer, not a
             // measurement, and one too thin to see would be neither.
             let x1 = at(end).max(x0 + 3.0);
-            let pad = 2.0;
             ctx.svg.rect_opacity(
                 x0,
-                top - pad,
+                top - MARKER_PAD,
                 x1 - x0,
-                body_height + pad * 2.0,
+                body_height + MARKER_PAD * 2.0,
                 &color,
                 0.22,
             );
-            ctx.svg
-                .rect_outline(x0, top - pad, x1 - x0, body_height + pad * 2.0, &color, 1.2);
+            ctx.svg.rect_outline(
+                x0,
+                top - MARKER_PAD,
+                x1 - x0,
+                body_height + MARKER_PAD * 2.0,
+                &color,
+                1.2,
+            );
         }
     }
 }
@@ -660,6 +678,47 @@ mod tests {
             .push(IdeogramTrack::new(5_000_000, banded()).highlight(100_000, 900_000))
             .to_svg();
         assert_ne!(here, there);
+    }
+
+    #[test]
+    fn nothing_the_ideogram_draws_leaves_its_own_band() {
+        // The marker stands proud of the chromosome on purpose. Drawn outside
+        // the band, the figure's clip takes the overhang straight back off and
+        // the pointer reads as flush, so the chromosome is inset instead.
+        let region = Region::new("chr1", 3_000_000, 3_010_000).unwrap();
+        let svg = Figure::new(region)
+            .show_region_label(false)
+            .push(IdeogramTrack::new(5_000_000, banded()).height(18.0))
+            .to_svg();
+
+        let clip: Vec<f64> = svg
+            .split("<clipPath")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .filter_map(|piece| piece.parse::<f64>().ok())
+            .collect();
+        let (top, height) = (clip[1], clip[3]);
+
+        for chunk in svg.split("<rect ").skip(1) {
+            let head = &chunk[..chunk.find("/>").unwrap()];
+            let value = |key: &str| -> Option<f64> {
+                let at = head.find(key)? + key.len();
+                head[at..].split('"').next()?.parse().ok()
+            };
+            let (Some(y), Some(h)) = (value("y=\""), value("height=\"")) else {
+                continue;
+            };
+            if h > height + 1.0 {
+                continue; // the page background, which is not in the band
+            }
+            assert!(y >= top - 0.01, "a rect starts {} above the band", top - y);
+            assert!(
+                y + h <= top + height + 0.01,
+                "a rect ends {} below the band",
+                y + h - top - height
+            );
+        }
     }
 
     #[test]
