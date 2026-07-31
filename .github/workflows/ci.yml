@@ -45,5 +45,6 @@ jobs:
         run: |
           cargo run --example locus -- assets
           cargo run --example logo -- assets
+          cargo run --example pileup -- assets
       - name: Fail if the committed figures are stale
         run: git diff --exit-code -- assets

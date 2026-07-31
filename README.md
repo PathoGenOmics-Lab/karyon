@@ -69,12 +69,55 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `PileupTrack` | Aligned reads | Real CIGARs, packed into rows, mismatches painted against the reference, strand arrows, gaps and insertions |
 | `LogoTrack` | Sequence logos | Seven scores, five of them against a background so symbols can hang below the baseline. Arbitrary alphabets |
 | `AxisTrack` | The coordinate ruler | Round tick positions, one unit for the whole ruler, bp, kb or Mb as the zoom demands |
 
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Read pileups
+
+This is the track you open when a variant call looks wrong.
+
+<img src="assets/example-pileup.svg" alt="A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call" width="100%">
+
+A read is not an interval, so `PileupTrack` takes a real CIGAR and walks it.
+Only some operations advance along the reference, which is what puts a
+mismatched base at the right position when there is an insertion upstream of it:
+
+```rust
+use karyon::{CigarOp, PileupTrack, Read, ReadColoring, Strand};
+
+let read = Read::new(4_120, vec![
+        CigarOp::SoftClip(5),
+        CigarOp::Match(60),
+        CigarOp::Deletion(6),
+        CigarOp::Match(45),
+    ])
+    .sequence(bases)          // SAM SEQ, soft clipped bases included
+    .strand(Strand::Forward)
+    .mapping_quality(60);
+
+PileupTrack::new(reads)
+    .reference(4_000, reference)   // without this, no mismatch can be found
+    .coloring(ReadColoring::Strand)
+    .fade_by_quality(true)
+    .max_rows(Some(30));
+```
+
+Everything a SAM record carries has somewhere to go: `M`, `=` and `X` all
+become `Match` and the track compares the sequences itself rather than trusting
+the operation; `I`, `D`, `N`, `S` and `H` each consume what the specification
+says they consume. A deletion draws as a line across the gap, an insertion as
+its own mark, a skip as a thin intron line.
+
+Two defaults worth knowing. A pileup at thousandfold depth is a thousand rows
+tall and useful to nobody, so it stops at forty rows and prints how many reads
+that hid rather than dropping them quietly. And mismatches are only hunted once
+a base is worth at least a fifth of a pixel, because below that finding one
+would mean walking every base of every read to draw something invisible.
 
 ## Sequence logos
 
@@ -241,7 +284,6 @@ out is what makes the dependency count zero.
 
 Not implemented yet, in the order they are likely to arrive:
 
-- Read pileup track, with mismatches coloured against the reference
 - Ideogram and karyogram, for whole-chromosome context
 - Dotplot and synteny ribbons between two sequences
 - Manhattan plot, with its own y axis and significance line

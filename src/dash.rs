@@ -460,11 +460,7 @@ mod tests {
             1e-12
         ));
         // Gamma(1/4), the smallest alpha a uniform four letter background makes.
-        assert!(close(
-            ln_gamma(0.25),
-            3.625_609_908_221_908f64.ln(),
-            1e-10
-        ));
+        assert!(close(ln_gamma(0.25), 3.625_609_908_221_908f64.ln(), 1e-10));
         assert!(ln_gamma(0.0).is_infinite());
         assert!(ln_gamma(-1.0).is_infinite());
     }

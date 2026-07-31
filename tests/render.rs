@@ -8,8 +8,9 @@
 use std::fs;
 
 use karyon::{
-    AxisTrack, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, LogoColumn, LogoScore,
-    LogoTrack, Region, SequenceTrack, Strand, Theme, Variant, VariantStyle, VariantTrack,
+    AxisTrack, CigarOp, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, LogoColumn,
+    LogoScore, LogoTrack, PileupTrack, Read, ReadColoring, Region, SequenceTrack, Strand, Theme,
+    Variant, VariantStyle, VariantTrack,
 };
 
 fn demo_figure() -> Figure {
@@ -241,6 +242,67 @@ fn only_the_enrichment_logo_can_show_an_absent_base() {
     assert!(classic.stacks()[0].up_total() < 0.45, "should look empty");
     assert!(edlogo.stacks()[0].down_total() > 3.0, "should be loud");
     assert_eq!(edlogo.stacks()[0].down[0].0, "T");
+}
+
+#[test]
+fn a_pileup_figure_agrees_with_the_tracks_around_it() {
+    // Ten reads over a 200 bp window, five of them carrying a T where the
+    // reference has an A. The pileup, the depth profile and the variant call
+    // are three views of one dataset and have to line up.
+    let reference = vec![b'A'; 200];
+    let variant_at = 100u64;
+    let reads: Vec<Read> = (0..10)
+        .map(|i| {
+            let start = 40 + i * 6;
+            let mut sequence = vec![b'A'; 80];
+            if i % 2 == 0 {
+                sequence[(variant_at - start) as usize] = b'T';
+            }
+            Read::new(start, vec![CigarOp::Match(80)])
+                .sequence(sequence)
+                .strand(if i % 2 == 0 {
+                    Strand::Forward
+                } else {
+                    Strand::Reverse
+                })
+        })
+        .collect();
+
+    let carriers = reads
+        .iter()
+        .filter(|r| r.base_at(variant_at) == Some(b'T'))
+        .count();
+    assert_eq!(carriers, 5, "the fixture itself is wrong");
+
+    let svg = Figure::new(Region::new("chr1", 0, 200).unwrap())
+        .push(
+            PileupTrack::new(reads)
+                .reference(0, reference)
+                .coloring(ReadColoring::Strand)
+                .label("reads"),
+        )
+        .push(AxisTrack::new())
+        .to_svg();
+
+    assert!(svg.starts_with("<svg "));
+    assert!(svg.ends_with("</svg>"));
+    assert!(!svg.contains("NaN"));
+    // Five carriers, one painted base each.
+    assert_eq!(svg.matches("#e31a1c").count(), 5);
+}
+
+#[test]
+fn a_pileup_never_draws_past_its_own_band() {
+    // Far more reads than rows. Nothing may spill into the neighbouring track.
+    let reads: Vec<Read> = (0..200).map(|i| Read::aligned(i, 150)).collect();
+    let svg = Figure::new(Region::new("chr1", 0, 400).unwrap())
+        .push(PileupTrack::new(reads).max_rows(Some(6)).label("reads"))
+        .push(AxisTrack::new())
+        .to_svg();
+
+    assert!(svg.contains("reads not shown"));
+    // One clip path per track is what keeps the promise.
+    assert_eq!(svg.matches("<clipPath").count(), 2);
 }
 
 #[test]

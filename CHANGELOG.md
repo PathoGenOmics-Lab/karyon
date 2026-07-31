@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-31
+
+### Added
+
+- `PileupTrack`, aligned reads stacked into rows the way a genome browser
+  stacks them, with mismatches painted against the reference.
+- `CigarOp` and `Read`, which model an alignment rather than an interval. Every
+  SAM operation has somewhere to go and consumes what the specification says it
+  consumes, so converting a BAM record is one arm per letter. `M`, `=` and `X`
+  all become `Match`: the track compares the sequences itself rather than
+  trusting the operation.
+- `Read::segments`, which walks the CIGAR and places every piece on the
+  reference, and `Read::base_at`, which finds the read base at a reference
+  position through whatever insertions and deletions lie in between.
+- `PileupTrack::max_rows`, defaulting to forty, with the reads that do not fit
+  counted and reported on the figure instead of dropped quietly.
+  `PileupTrack::layout` returns that count.
+- `ReadColoring::Strand` for strand bias at a glance, and
+  `PileupTrack::fade_by_quality`, because a read with mapping quality zero
+  could have come from anywhere and should not be drawn as solidly as one that
+  could not.
+- A fifth example figure, `assets/example-pileup.svg`, whose depth profile is
+  computed from the same reads the pileup draws.
+
 ## [0.4.0] - 2026-07-31
 
 Empirical Bayes stabilisation, the other half of the Logolas paper. A logo can
@@ -145,6 +169,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.5.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.5.0
 [0.4.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.4.0
 [0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.2.0
