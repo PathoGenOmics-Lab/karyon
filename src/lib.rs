@@ -46,9 +46,18 @@
 //!
 //! # Extending
 //!
-//! The five track types shipped here are implementations of one small trait,
+//! The six track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
+//!
+//! # Sequence logos
+//!
+//! [`LogoTrack`] draws the classic information content logo and, through
+//! [`LogoScaling::EnrichmentDepletion`], the enrichment and depletion variant
+//! that stacks symbols on both sides of a baseline. Only the second one can
+//! show a symbol that is absent rather than merely uncommon, which is the
+//! whole argument for it. Symbols are arbitrary strings, so amino acid codes
+//! and k-mers plot as readily as bases.
 
 #![forbid(unsafe_code)]
 
@@ -67,6 +76,7 @@ pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{BaseColors, Theme};
 pub use crate::track::{
-    Aggregate, AxisTrack, CoverageStyle, CoverageTrack, DrawContext, Feature, FeatureTrack, Rect,
-    SequenceTrack, Strand, Track, Variant, VariantStyle, VariantTrack,
+    Aggregate, AxisTrack, CoverageStyle, CoverageTrack, DrawContext, Feature, FeatureTrack,
+    LogoColumn, LogoScaling, LogoStack, LogoTrack, Rect, SequenceTrack, StackOrder, Strand, Track,
+    Variant, VariantStyle, VariantTrack,
 };

@@ -42,6 +42,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Render the README figures
-        run: cargo run --example locus -- assets
+        run: |
+          cargo run --example locus -- assets
+          cargo run --example logo -- assets
       - name: Fail if the committed figures are stale
         run: git diff --exit-code -- assets

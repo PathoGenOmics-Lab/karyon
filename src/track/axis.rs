@@ -25,6 +25,7 @@ pub struct AxisTrack {
     tick_length: f64,
     target_spacing: f64,
     label: Option<String>,
+    center_on_bases: bool,
 }
 
 impl AxisTrack {
@@ -35,7 +36,19 @@ impl AxisTrack {
             tick_length: 5.0,
             target_spacing: 110.0,
             label: None,
+            center_on_bases: false,
         }
+    }
+
+    /// Puts each tick in the middle of its base rather than on its left edge.
+    ///
+    /// A ruler marks boundaries, which is right when a base is a fraction of a
+    /// pixel wide. Once a base is a column you can see, as in a sequence logo
+    /// or a short motif, the number belongs under the column it counts rather
+    /// than on the line between two of them.
+    pub fn center_on_bases(mut self, center: bool) -> Self {
+        self.center_on_bases = center;
+        self
     }
 
     /// Sets the band height in pixels.
@@ -91,7 +104,11 @@ impl Track for AxisTrack {
         for pos in ticks.positions {
             // Ticks are computed in 1-based space so their labels are round
             // numbers; the scale works in 0-based space.
-            let x = ctx.scale.x(pos - 1);
+            let x = if self.center_on_bases {
+                ctx.scale.x_center(pos - 1)
+            } else {
+                ctx.scale.x(pos - 1)
+            };
             ctx.svg.line(
                 x,
                 rule_y,
@@ -336,6 +353,34 @@ mod tests {
         assert_eq!(decimals_for(100, 1_000_000, 3), None);
         assert_eq!(decimals_for(5, 1_000, 2), None);
         assert_eq!(decimals_for(1, 1, 0), Some(0));
+    }
+
+    #[test]
+    fn centring_shifts_every_tick_by_half_a_base() {
+        use crate::figure::Figure;
+        use crate::region::Region;
+
+        let region = Region::new("motif", 0, 10).unwrap();
+        let edges = Figure::new(region.clone())
+            .show_region_label(false)
+            .push(AxisTrack::new())
+            .to_svg();
+        let centres = Figure::new(region)
+            .show_region_label(false)
+            .push(AxisTrack::new().center_on_bases(true))
+            .to_svg();
+
+        let first_tick = |svg: &str| -> f64 {
+            let start = svg.find("<line x1=\"").unwrap() + "<line x1=\"".len();
+            let rest = &svg[start..];
+            // Skip the baseline, which spans the plot, and take the next line.
+            let next = rest.find("<line x1=\"").unwrap() + "<line x1=\"".len();
+            let rest = &rest[next..];
+            rest[..rest.find('"').unwrap()].parse().unwrap()
+        };
+
+        let half_base = (900.0 - 12.0 - 16.0) / 10.0 / 2.0;
+        assert!((first_tick(&centres) - first_tick(&edges) - half_base).abs() < 1e-6);
     }
 
     #[test]

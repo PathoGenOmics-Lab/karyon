@@ -28,6 +28,13 @@ pub struct Theme {
     pub label_font_size: f64,
     /// Size of the figure title, in pixels.
     pub title_font_size: f64,
+    /// Height of a capital letter as a fraction of the font size.
+    ///
+    /// A sequence logo stretches each letter to an exact box, which means
+    /// working back from the box height to a font size. The default suits the
+    /// Helvetica and Arial metrics of [`Theme::font_family`]; change both
+    /// together or logo letters will sit slightly proud of their boxes.
+    pub cap_height_ratio: f64,
 }
 
 impl Theme {
@@ -45,6 +52,7 @@ impl Theme {
             font_size: 11.0,
             label_font_size: 11.0,
             title_font_size: 14.0,
+            cap_height_ratio: 0.72,
         }
     }
 
@@ -62,6 +70,7 @@ impl Theme {
             font_size: 11.0,
             label_font_size: 11.0,
             title_font_size: 14.0,
+            cap_height_ratio: 0.72,
         }
     }
 

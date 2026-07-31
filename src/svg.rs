@@ -183,6 +183,41 @@ impl SvgWriter {
         let _ = write!(self.body, ">{}</text>", escape(content));
     }
 
+    /// A single glyph stretched to fill an exact box.
+    ///
+    /// This is what a sequence logo is made of, and it is the one place where
+    /// text has to obey a geometry rather than a font size. `width` is enforced
+    /// with `textLength`, so the renderer does the horizontal fitting and the
+    /// result does not depend on this crate guessing font metrics. Height comes
+    /// from the caller choosing `font_size` against the cap height ratio of the
+    /// theme, and `baseline` is the bottom of the box.
+    ///
+    /// Symbols with descenders (`g`, `y`, `p`) hang below the baseline by
+    /// design; a logo of uppercase letters sits exactly in its box.
+    pub fn glyph(
+        &mut self,
+        x: f64,
+        baseline: f64,
+        width: f64,
+        font_size: f64,
+        content: &str,
+        fill: &str,
+    ) {
+        if content.is_empty() || width <= 0.0 || font_size <= 0.0 || !finite(&[x, baseline]) {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<text x="{}" y="{}" font-size="{}" fill="{}" textLength="{}" lengthAdjust="spacingAndGlyphs" font-weight="bold">{}</text>"#,
+            num(x),
+            num(baseline),
+            num(font_size),
+            fill,
+            num(width),
+            escape(content)
+        );
+    }
+
     /// Opens a group clipped to a rectangle. Pair it with [`SvgWriter::end_group`].
     pub fn begin_clip(&mut self, x: f64, y: f64, w: f64, h: f64) {
         let id = format!("karyon-clip-{}", self.next_id);

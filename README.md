@@ -69,11 +69,54 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `LogoTrack` | Sequence logos | Probability, information content, or enrichment and depletion around a baseline. Arbitrary alphabets |
 | `AxisTrack` | The coordinate ruler | Round tick positions, one unit for the whole ruler, bp, kb or Mb as the zoom demands |
 
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Sequence logos
+
+A classic logo can only say "this symbol is common here". It measures
+conservation, so a column that is nearly uniform comes out flat, and the
+biology hiding in that column stays hidden.
+
+`LogoTrack` draws the classic logo and the alternative. In
+`EnrichmentDepletion` scaling, each symbol scores `log2(p / q)` against a
+background and the column is recentred on its own median, so enriched symbols
+stack above the line and depleted ones hang below it. This is the plot
+[Logolas](https://github.com/kkdey/Logolas) calls an EDLogo.
+
+<img src="assets/example-logo.svg" alt="The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it" width="100%">
+
+Look at position 4. It is near uniform, so the bits panel says there is nothing
+there, and it has no T at all, which only the third panel can tell you.
+
+```rust
+use karyon::{Figure, LogoScaling, LogoTrack, Region};
+
+let logo = LogoTrack::from_sequences(0, &alignment)
+    .alphabet_size(4)                              // count the bases that never appear
+    .scaling(LogoScaling::EnrichmentDepletion)
+    .background([("A", 0.35), ("C", 0.15), ("G", 0.15), ("T", 0.35)])
+    .label("motif");
+
+Figure::new(Region::new("motif", 0, 8)?)
+    .push(logo)
+    .save_svg("motif.svg")?;
+```
+
+Symbols are arbitrary strings, so an alphabet is not limited to four letters or
+to one character each:
+
+<img src="assets/example-logo-protein.svg" alt="A sequence logo whose symbols are three letter amino acid codes" width="70%">
+
+Two things are worth knowing before you read one of these. Absent symbols
+dominate the scale, because absence really is a strong signal, and how far they
+fall is set by `LogoTrack::smoothing`. That smoothing is a fraction of the
+column mass rather than a pseudocount, so the same motif plots identically
+whether you pass counts out of 500 or a probability matrix.
 
 ## Coordinates
 
@@ -129,7 +172,7 @@ Not implemented yet, in the order they are likely to arrive:
 - Ideogram and karyogram, for whole-chromosome context
 - Dotplot and synteny ribbons between two sequences
 - Manhattan plot, with its own y axis and significance line
-- Sequence logo from a position weight matrix
+- More logo scorings: KL divergence and the unscaled log odds Logolas offers
 - PNG output, likely behind a feature flag so the default stays dependency-free
 
 ## Installation

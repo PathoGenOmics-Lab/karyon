@@ -8,8 +8,9 @@
 use std::fs;
 
 use karyon::{
-    AxisTrack, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, Region, SequenceTrack,
-    Strand, Theme, Variant, VariantStyle, VariantTrack,
+    AxisTrack, CoverageStyle, CoverageTrack, Feature, FeatureTrack, Figure, LogoColumn,
+    LogoScaling, LogoTrack, Region, SequenceTrack, Strand, Theme, Variant, VariantStyle,
+    VariantTrack,
 };
 
 fn demo_figure() -> Figure {
@@ -191,6 +192,58 @@ fn save_svg_writes_exactly_what_to_svg_returns() {
     let written = fs::read_to_string(&path).unwrap();
     fs::remove_file(&path).unwrap();
     assert_eq!(written, figure.to_svg());
+}
+
+#[test]
+fn a_logo_figure_is_well_formed_and_deterministic() {
+    let alignment = [
+        "ACGTACGT", "ACGTACGA", "ACGAACGT", "ACGTTCGT", "ACGTACGT", "ACCTACGA",
+    ];
+    let figure = || {
+        Figure::new(Region::new("motif", 0, 8).unwrap())
+            .title("motif")
+            .push(
+                LogoTrack::from_sequences(0, &alignment)
+                    .alphabet_size(4)
+                    .scaling(LogoScaling::InformationContent)
+                    .label("bits"),
+            )
+            .push(
+                LogoTrack::from_sequences(0, &alignment)
+                    .alphabet_size(4)
+                    .scaling(LogoScaling::EnrichmentDepletion)
+                    .label("enrich"),
+            )
+            .push(AxisTrack::new().center_on_bases(true))
+            .to_svg()
+    };
+
+    let svg = figure();
+    assert!(svg.starts_with("<svg "));
+    assert!(svg.ends_with("</svg>"));
+    assert!(!svg.contains("NaN"));
+    // Glyphs are stretched to their boxes rather than set at a font size.
+    assert!(svg.contains(r#"lengthAdjust="spacingAndGlyphs""#));
+    for tag in ["svg", "g", "text", "clipPath"] {
+        let (open, close) = tag_balance(&svg, tag);
+        assert_eq!(open, close, "unbalanced <{tag}>");
+    }
+    assert_eq!(svg, figure());
+}
+
+#[test]
+fn only_the_enrichment_logo_can_show_an_absent_base() {
+    // Near uniform over three bases, with the fourth never observed.
+    let column = vec![LogoColumn::acgt(34.0, 33.0, 33.0, 0.0)];
+    let classic = LogoTrack::new(0, column.clone()).alphabet_size(4);
+    let edlogo = LogoTrack::new(0, column)
+        .alphabet_size(4)
+        .scaling(LogoScaling::EnrichmentDepletion);
+
+    assert!(classic.stacks()[0].down_total() == 0.0);
+    assert!(classic.stacks()[0].up_total() < 0.45, "should look empty");
+    assert!(edlogo.stacks()[0].down_total() > 3.0, "should be loud");
+    assert_eq!(edlogo.stacks()[0].down[0].0, "T");
 }
 
 #[test]
