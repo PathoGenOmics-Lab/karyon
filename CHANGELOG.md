@@ -37,4 +37,4 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
-[0.1.0]: https://github.com/Paururo/karyon/releases/tag/v0.1.0
+[0.1.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.1.0

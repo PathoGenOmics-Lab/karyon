@@ -3,10 +3,11 @@
   <p><strong>Genomic track plots for Rust. Composable tracks over a shared coordinate axis, rendered to standalone SVG.</strong></p>
 
   <p>
-    <a href="https://github.com/Paururo/karyon/actions/workflows/ci.yml"><img src="https://github.com/Paururo/karyon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml"><img src="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3"></a>
     <img src="https://img.shields.io/badge/Rust-1.74%2B-orange.svg" alt="Rust 1.74+">
     <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero dependencies">
+    <a href="https://github.com/PathoGenOmics-Lab"><img src="https://img.shields.io/badge/PathoGenOmics-lab-red?" alt="PathoGenOmics Lab"></a>
   </p>
 </div>
 
@@ -36,7 +37,7 @@ Not on crates.io yet, so point Cargo at the repository:
 
 ```toml
 [dependencies]
-karyon = { git = "https://github.com/Paururo/karyon" }
+karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
 ```rust
@@ -134,7 +135,7 @@ Not implemented yet, in the order they are likely to arrive:
 ## Installation
 
 ```bash
-git clone https://github.com/Paururo/karyon
+git clone https://github.com/PathoGenOmics-Lab/karyon
 cd karyon
 cargo test
 ```
