@@ -289,9 +289,14 @@ impl Track for FeatureTrack {
                     ],
                     &color,
                 ),
-                _ => ctx
-                    .svg
-                    .rect(left, top, right - left, self.row_height, &color),
+                _ => ctx.svg.rect_rounded(
+                    left,
+                    top,
+                    right - left,
+                    self.row_height,
+                    ctx.theme.corner_radius,
+                    &color,
+                ),
             }
 
             if !self.show_names {

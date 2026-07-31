@@ -91,7 +91,7 @@ impl VariantTrack {
             label: None,
             height: 55.0,
             style: VariantStyle::Lollipop,
-            radius: 3.0,
+            radius: 4.0,
             max: None,
             show_legend: true,
             color: None,
@@ -235,8 +235,11 @@ impl Track for VariantTrack {
                         _ => 1.0,
                     };
                     let top = baseline - fraction * stem_room;
-                    ctx.svg.line(x, baseline, x, top, &color, 1.0);
-                    ctx.svg.circle(x, top, self.radius, &color);
+                    ctx.svg.line(x, baseline, x, top, &color, 1.4);
+                    // The ring is what keeps two variants a base apart reading
+                    // as two variants instead of one blob.
+                    ctx.svg
+                        .circle_ringed(x, top, self.radius, &color, &ctx.theme.background, 1.5);
                 }
             }
         }

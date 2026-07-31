@@ -76,6 +76,46 @@ impl SvgWriter {
         self.body.push_str("/>");
     }
 
+    /// A filled rectangle with rounded corners.
+    ///
+    /// The radius is clamped to half the smaller side, so a short bar becomes a
+    /// lozenge rather than losing its geometry to an oversized corner.
+    pub fn rect_rounded(&mut self, x: f64, y: f64, w: f64, h: f64, radius: f64, fill: &str) {
+        if w <= 0.0 || h <= 0.0 || !finite(&[x, y, w, h, radius]) {
+            return;
+        }
+        let radius = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+        if radius <= 0.05 {
+            return self.rect(x, y, w, h, fill);
+        }
+        let _ = write!(
+            self.body,
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}"/>"#,
+            num(x),
+            num(y),
+            num(w),
+            num(h),
+            num(radius),
+            fill
+        );
+    }
+
+    /// A filled circle with a ring in the surface colour around it.
+    ///
+    /// The ring is what keeps overlapping markers legible: two dots on top of
+    /// each other read as two dots rather than one blob, and a dot sitting on
+    /// its own stem stays a dot. It is spacing, not decoration, which is why it
+    /// wears the page colour rather than a darker shade of the mark.
+    pub fn circle_ringed(&mut self, cx: f64, cy: f64, r: f64, fill: &str, ring: &str, width: f64) {
+        if r <= 0.0 || !finite(&[cx, cy, r]) {
+            return;
+        }
+        if width > 0.0 && ring != "none" {
+            self.circle(cx, cy, r + width, ring);
+        }
+        self.circle(cx, cy, r, fill);
+    }
+
     /// A straight line.
     pub fn line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, stroke: &str, width: f64) {
         if !finite(&[x1, y1, x2, y2]) {
@@ -380,6 +420,43 @@ mod tests {
         let out = svg.finish(10.0, 10.0, "#fff", "sans-serif");
         assert!(out.contains("gene&lt;A&amp;B&gt;"));
         assert!(!out.contains("gene<A"));
+    }
+
+    #[test]
+    fn a_corner_radius_cannot_outgrow_its_rectangle() {
+        let mut svg = SvgWriter::new();
+        svg.rect_rounded(0.0, 0.0, 10.0, 4.0, 20.0, "#000");
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        // Half the shorter side, not the twenty that was asked for.
+        assert!(out.contains(r#"rx="2""#), "{out}");
+    }
+
+    #[test]
+    fn a_zero_radius_falls_back_to_a_plain_rectangle() {
+        let mut svg = SvgWriter::new();
+        svg.rect_rounded(0.0, 0.0, 10.0, 4.0, 0.0, "#000");
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        assert!(out.contains("<rect"));
+        assert!(!out.contains("rx="));
+    }
+
+    #[test]
+    fn a_ringed_marker_draws_the_ring_underneath() {
+        let mut svg = SvgWriter::new();
+        svg.circle_ringed(10.0, 10.0, 4.0, "#111111", "#ffffff", 2.0);
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        let ring = out.find("#ffffff").unwrap();
+        let fill = out.find("#111111").unwrap();
+        assert!(ring < fill, "the ring has to be painted first");
+        assert!(out.contains(r#"r="6""#), "ring radius is r + width");
+    }
+
+    #[test]
+    fn a_ring_can_be_turned_off() {
+        let mut svg = SvgWriter::new();
+        svg.circle_ringed(10.0, 10.0, 4.0, "#111111", "none", 2.0);
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        assert_eq!(out.matches("<circle").count(), 1);
     }
 
     #[test]

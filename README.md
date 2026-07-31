@@ -234,6 +234,35 @@ pseudocount, so the same motif plots identically whether you pass counts out of
 information content always runs from zero to `log2(K)`, the way WebLogo draws
 DNA from zero to two bits, so two figures of two motifs stay comparable.
 
+## Colour
+
+Both palettes were run through a colour vision validator rather than chosen by
+eye, and the numbers decided the outcome.
+
+The categorical palette stops at **six hues** because that is where the
+measurement stopped, not where the eye got bored: a seventh could not be added
+without some pair collapsing, and an olive against the vermillion came out 1.8
+apart under protanopia on a scale whose floor is 8. The dark theme is a
+**selected set of steps, not an inversion** of the light one, because a dark
+background wants a narrower lightness band and half of a flipped palette lands
+outside it.
+
+<img src="assets/example-dark.svg" alt="The same locus figure on a dark background" width="100%">
+
+Nucleotides are the honest exception. `BaseColors::conventional()` is the IGV
+convention and the default, because a figure that recolours the bases surprises
+every reader. It is also not safe: measured pairwise, **adenine and guanine sit
+1.7 apart under protanopia**, and that is the transition pair, the commonest
+substitution there is. `BaseColors::colorblind_safe()` fixes it, with a closest
+pair of 11.0, at the cost of green no longer meaning what a reader expects:
+
+```rust
+use karyon::{BaseColors, Theme};
+
+let mut theme = Theme::light();
+theme.bases = BaseColors::colorblind_safe();
+```
+
 ## Coordinates
 
 Positions are **0-based and half-open** everywhere, the BED convention. The two

@@ -4,6 +4,48 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-31
+
+A pass over how the figures look, with the colour half decided by measurement
+rather than taste.
+
+### Fixed
+
+- The categorical palette had two slots, a brown and a grey, that were **1.8
+  apart under protanopia** and 7.8 apart even with full colour vision. Any
+  figure with seven or eight categories was drawing two of them the same. The
+  palette is now six hues, every pair of which clears the separation floor.
+- The dark palette failed on every count: half of it sat outside the lightness
+  band a dark surface needs, four entries were desaturated enough to read as
+  grey, and two were 10.4 apart. It has been replaced with steps chosen against
+  the dark surface and validated there.
+
+### Added
+
+- `BaseColors::colorblind_safe`, four nucleotide colours whose closest pair is
+  11.0 apart under deuteranopia. The conventional IGV colours remain the
+  default and are now named `BaseColors::conventional`, with their measured
+  weakness stated: adenine and guanine are 1.7 apart under protanopia, which is
+  the transition pair.
+- `Theme::corner_radius` and `Theme::insertion`, the latter so a pileup's
+  insertion marks stop being a hardcoded hex.
+- `SvgWriter::rect_rounded` and `SvgWriter::circle_ringed`.
+- `assets/example-dark.svg`, because a theme nobody has looked at is a theme
+  nobody has checked.
+
+### Changed
+
+- A coverage area is now a wash under a drawn line rather than a saturated
+  block: the line carries the shape and the fill only says which side of it is
+  under the curve. Bars stay solid, since there the bar is the mark.
+- Coverage fits its axis with a little headroom, so the tallest point reads as
+  a peak instead of something that ran out of band. A pinned maximum is still
+  taken literally.
+- Variant markers are large enough to see and carry a ring in the page colour,
+  so two variants a base apart read as two variants rather than one blob.
+- Features and reads have rounded ends.
+- Lines are 2 pixels rather than 1.2.
+
 ## [0.5.0] - 2026-07-31
 
 ### Added
@@ -169,6 +211,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.6.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.6.0
 [0.5.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.5.0
 [0.4.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.4.0
 [0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0

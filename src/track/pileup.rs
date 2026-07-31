@@ -580,8 +580,8 @@ impl Track for PileupTrack {
                     }
                     Segment::Insertion { at, .. } => {
                         let x = ctx.scale.x(at);
-                        ctx.svg
-                            .rect(x - 0.75, top, 1.5, self.read_height, "#8e44ad");
+                        let color = ctx.theme.insertion.clone();
+                        ctx.svg.rect(x - 0.75, top, 1.5, self.read_height, &color);
                     }
                 }
             }
@@ -643,8 +643,19 @@ impl PileupTrack {
             };
 
         if !pointed {
-            ctx.svg
-                .rect_opacity(left, top, width.max(0.6), self.read_height, color, opacity);
+            if opacity < 1.0 || width < 3.0 {
+                ctx.svg
+                    .rect_opacity(left, top, width.max(0.6), self.read_height, color, opacity);
+            } else {
+                ctx.svg.rect_rounded(
+                    left,
+                    top,
+                    width,
+                    self.read_height,
+                    ctx.theme.corner_radius,
+                    color,
+                );
+            }
             return;
         }
 

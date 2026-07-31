@@ -58,7 +58,7 @@ pub struct CoverageTrack {
     aggregate: Aggregate,
     max: Option<f64>,
     log_scale: bool,
-    fill_opacity: f64,
+    fill_opacity: Option<f64>,
     show_max: bool,
 }
 
@@ -78,7 +78,7 @@ impl CoverageTrack {
             aggregate: Aggregate::Max,
             max: None,
             log_scale: false,
-            fill_opacity: 0.85,
+            fill_opacity: None,
             show_max: true,
         }
     }
@@ -145,9 +145,13 @@ impl CoverageTrack {
         self
     }
 
-    /// Sets the fill opacity of the area style, between 0 and 1.
+    /// Sets the fill opacity, between 0 and 1.
+    ///
+    /// Left alone, each style picks what suits it: an area is a wash under a
+    /// drawn line, so it fills at a fifth and lets whatever is behind it show
+    /// through, while bars are the mark itself and stay solid.
     pub fn fill_opacity(mut self, opacity: f64) -> Self {
-        self.fill_opacity = opacity.clamp(0.0, 1.0);
+        self.fill_opacity = Some(opacity.clamp(0.0, 1.0));
         self
     }
 
@@ -257,7 +261,11 @@ impl Track for CoverageTrack {
         let Some(ceiling) = ceiling else {
             return;
         };
-        let top = self.transform(ceiling);
+        // A little headroom, so the tallest point is a peak rather than
+        // something that ran out of band. A pinned maximum is taken literally,
+        // because that is the whole reason for pinning one.
+        let headroom = if self.max.is_some() { 1.0 } else { 1.06 };
+        let top = self.transform(ceiling) * headroom;
         if top <= 0.0 {
             return;
         }
@@ -275,8 +283,14 @@ impl Track for CoverageTrack {
             let y = baseline - scaled * band.h;
             match self.style {
                 CoverageStyle::Bars => {
-                    ctx.svg
-                        .rect_opacity(x, y, 1.0, baseline - y, &color, self.fill_opacity);
+                    ctx.svg.rect_opacity(
+                        x,
+                        y,
+                        1.0,
+                        baseline - y,
+                        &color,
+                        self.fill_opacity.unwrap_or(1.0),
+                    );
                 }
                 _ => points.push((x, y)),
             }
@@ -284,7 +298,7 @@ impl Track for CoverageTrack {
 
         match self.style {
             CoverageStyle::Bars => {}
-            CoverageStyle::Line => ctx.svg.polyline(&points, &color, 1.2),
+            CoverageStyle::Line => ctx.svg.polyline(&points, &color, 2.0),
             CoverageStyle::Area => {
                 if points.len() >= 2 {
                     let mut d = String::with_capacity(points.len() * 14);
@@ -304,7 +318,11 @@ impl Track for CoverageTrack {
                     d.push(' ');
                     d.push_str(&num(baseline));
                     d.push('Z');
-                    ctx.svg.path(&d, &color, self.fill_opacity);
+                    // A wash under a drawn line, rather than a saturated block.
+                    // The line is what carries the shape; the fill only says
+                    // which side of it is under the curve.
+                    ctx.svg.path(&d, &color, self.fill_opacity.unwrap_or(0.18));
+                    ctx.svg.polyline(&points, &color, 2.0);
                 }
             }
         }

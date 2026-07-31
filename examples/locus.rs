@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use karyon::{
     Aggregate, AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Region, SequenceTrack,
-    Strand, Variant, VariantTrack,
+    Strand, Theme, Variant, VariantTrack,
 };
 
 /// Start of the window, 0-based. H37Rv coordinates around rpoB.
@@ -100,10 +100,46 @@ fn main() -> std::io::Result<()> {
         .push(AxisTrack::new());
     zoom.save_svg(out.join("example-zoom.svg"))?;
 
+    // The dark theme is a selected set of colours rather than an inversion of
+    // the light one, so it is worth rendering and looking at.
+    let dark = Figure::new(Region::new("NC_000962.3", WINDOW_START, 762_999).unwrap())
+        .title("The same locus, dark theme")
+        .theme(Theme::dark())
+        .push(
+            CoverageTrack::new(WINDOW_START, depth)
+                .label("depth")
+                .aggregate(Aggregate::Min)
+                .height(70.0),
+        )
+        .push(SequenceTrack::new(WINDOW_START, bases).label("reference"))
+        .push(
+            FeatureTrack::new(vec![
+                Feature::new(761_050, 762_100)
+                    .name("rpoB")
+                    .strand(Strand::Forward),
+                Feature::new(762_250, 762_640)
+                    .name("Rv0668c")
+                    .strand(Strand::Reverse),
+            ])
+            .label("annotation"),
+        )
+        .push(
+            VariantTrack::new(vec![
+                Variant::new(761_109).value(0.98).category("missense"),
+                Variant::new(761_452).value(0.64).category("missense"),
+                Variant::new(762_050).value(0.35).category("frameshift"),
+            ])
+            .label("variants"),
+        )
+        .push(AxisTrack::new());
+    dark.save_svg(out.join("example-dark.svg"))?;
+
     let (w1, h1) = overview.dimensions();
     let (w2, h2) = zoom.dimensions();
+    let (w3, h3) = dark.dimensions();
     println!("example.svg      {w1:.0} x {h1:.0}");
     println!("example-zoom.svg {w2:.0} x {h2:.0}");
+    println!("example-dark.svg {w3:.0} x {h3:.0}");
     Ok(())
 }
 
