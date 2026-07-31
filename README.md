@@ -69,6 +69,7 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `IdeogramTrack` | The whole chromosome | Cytogenetic bands, a pinched centromere, and a marker showing where the window is. The one track that does not share the x axis |
 | `PileupTrack` | Aligned reads | Real CIGARs, packed into rows, mismatches painted against the reference, strand arrows, gaps and insertions |
 | `LogoTrack` | Sequence logos | Seven scores, five of them against a background so symbols can hang below the baseline. Arbitrary alphabets |
 | `AxisTrack` | The coordinate ruler | Round tick positions, one unit for the whole ruler, bp, kb or Mb as the zoom demands |
@@ -76,6 +77,36 @@ cargo run --example locus -- assets
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
 [`Track`](src/track/mod.rs).
+
+## Where am I
+
+<img src="assets/example-ideogram.svg" alt="A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing" width="100%">
+
+`IdeogramTrack` is the one track that **deliberately ignores the shared axis**.
+Every other track maps its data through the same `Scale`, which is what keeps
+their x axes aligned. An ideogram exists to answer "where am I", and a track
+that only showed the region on display could not answer it: it would be a
+picture of the window, drawn inside the window. So it draws the whole
+chromosome across the plotting area and marks the region on it.
+
+```rust
+use karyon::{Band, IdeogramTrack, Stain};
+
+// A row of the UCSC cytoBand table converts without a lookup table of your own.
+let bands = vec![Band::new(0, 2_300_000, Stain::from_name("gneg")).name("p13")];
+
+IdeogramTrack::new(chromosome_length, bands).show_band_names(true);
+```
+
+The grey ladder is mixed from the theme's own ink and page, so a dark figure
+gets a dark ladder rather than a light one somebody forgot to invert. A tiny
+window gets a marker with a minimum width, because a pointer too thin to see is
+neither a pointer nor a measurement.
+
+A bacterial chromosome has no cytogenetics to speak of, so `IdeogramTrack::bare`
+gives an outline. It still answers the only question it was ever asked:
+
+<img src="assets/example-ideogram-bacterial.svg" alt="The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it" width="80%">
 
 ## Read pileups
 
@@ -313,7 +344,6 @@ out is what makes the dependency count zero.
 
 Not implemented yet, in the order they are likely to arrive:
 
-- Ideogram and karyogram, for whole-chromosome context
 - Dotplot and synteny ribbons between two sequences
 - Manhattan plot, with its own y axis and significance line
 - PNG output, likely behind a feature flag so the default stays dependency-free

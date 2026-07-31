@@ -212,6 +212,40 @@ impl Default for BaseColors {
     }
 }
 
+/// Blends two `#rrggbb` colours, `t` running from all of `a` to all of `b`.
+///
+/// What it is for: a greyscale that belongs to its theme. Cytogenetic bands are
+/// specified as shades from white to black, and hardcoding those shades makes a
+/// dark figure look like a light one someone forgot to invert. Mixing the
+/// theme's own background and foreground gives the same ladder in whichever
+/// direction the page runs.
+pub fn mix(a: &str, b: &str, t: f64) -> String {
+    let (Some(from), Some(to)) = (parse_hex(a), parse_hex(b)) else {
+        return a.to_string();
+    };
+    let t = t.clamp(0.0, 1.0);
+    let channel = |from: u8, to: u8| (from as f64 + (to as f64 - from as f64) * t).round() as u8;
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(from.0, to.0),
+        channel(from.1, to.1),
+        channel(from.2, to.2)
+    )
+}
+
+/// Reads a `#rrggbb` string, and nothing else.
+fn parse_hex(color: &str) -> Option<(u8, u8, u8)> {
+    let hex = color.strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    Some((
+        u8::from_str_radix(&hex[0..2], 16).ok()?,
+        u8::from_str_radix(&hex[2..4], 16).ok()?,
+        u8::from_str_radix(&hex[4..6], 16).ok()?,
+    ))
+}
+
 /// Black or white, whichever stays readable on top of `color`.
 ///
 /// Feature labels are drawn inside coloured boxes whose colour the caller

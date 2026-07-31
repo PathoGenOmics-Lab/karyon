@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-31
+
+### Added
+
+- `IdeogramTrack`, a chromosome drawn end to end with a marker showing which
+  part of it the rest of the figure is showing. It is the one track that does
+  not map its data through the shared `Scale`, because a track that only showed
+  the region on display could not say where that region is.
+- `Band` and `Stain`, with `Stain::from_name` reading the `gieStain` column of
+  the UCSC `cytoBand` table so a row of that file converts without a lookup
+  table of your own. An unrecognised stain becomes the palest shade rather than
+  an invented dark one.
+- `IdeogramTrack::bare` for a chromosome with no banding, which is what a
+  bacterial genome wants, and `IdeogramTrack::highlight` for marking a span
+  other than the one on display.
+- `theme::mix`, which blends two colours. The cytogenetic grey ladder is mixed
+  from the theme's own ink and page, so a dark figure gets a dark ladder rather
+  than a light one left uninverted.
+- `SvgWriter::rect_outline`, `SvgWriter::path_stroked` and
+  `SvgWriter::begin_clip_path`, the last so bands can be painted inside an
+  arm's silhouette and keep its rounded end.
+- Two more example figures: a banded chromosome above its detail tracks, and
+  the H37Rv chromosome as a bare outline with rpoB marked on it.
+
 ## [0.6.0] - 2026-07-31
 
 A pass over how the figures look, with the colour half decided by measurement
@@ -211,6 +235,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.7.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.7.0
 [0.6.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.6.0
 [0.5.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.5.0
 [0.4.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.4.0

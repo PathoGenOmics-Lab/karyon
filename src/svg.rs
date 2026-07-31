@@ -176,6 +176,50 @@ impl SvgWriter {
         );
     }
 
+    /// An outlined rectangle with no fill.
+    pub fn rect_outline(&mut self, x: f64, y: f64, w: f64, h: f64, stroke: &str, width: f64) {
+        if w <= 0.0 || h <= 0.0 || !finite(&[x, y, w, h]) {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="none" stroke="{}" stroke-width="{}"/>"#,
+            num(x),
+            num(y),
+            num(w),
+            num(h),
+            stroke,
+            num(width)
+        );
+    }
+
+    /// An outlined path with no fill, for a shape that contains other shapes.
+    pub fn path_stroked(&mut self, d: &str, stroke: &str, width: f64) {
+        if d.is_empty() {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<path d="{}" fill="none" stroke="{}" stroke-width="{}"/>"#,
+            d,
+            stroke,
+            num(width)
+        );
+    }
+
+    /// Opens a group clipped to an arbitrary path, for shapes a rectangle
+    /// cannot describe. Pair it with [`SvgWriter::end_group`].
+    pub fn begin_clip_path(&mut self, d: &str) {
+        let id = format!("karyon-clip-{}", self.next_id);
+        self.next_id += 1;
+        let _ = write!(
+            self.defs,
+            r#"<clipPath id="{id}"><path d="{d}"/></clipPath>"#
+        );
+        let _ = write!(self.body, r#"<g clip-path="url(#{id})">"#);
+        self.open_groups += 1;
+    }
+
     /// A filled path from a ready-made `d` attribute.
     pub fn path(&mut self, d: &str, fill: &str, opacity: f64) {
         if d.is_empty() {

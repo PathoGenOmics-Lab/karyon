@@ -8,6 +8,7 @@
 pub mod axis;
 pub mod coverage;
 pub mod feature;
+pub mod ideogram;
 pub mod logo;
 pub mod pileup;
 pub mod sequence;
@@ -16,6 +17,7 @@ pub mod variant;
 pub use axis::AxisTrack;
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
 pub use feature::{Feature, FeatureTrack, Strand};
+pub use ideogram::{Band, IdeogramTrack, Stain};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
 pub use pileup::{CigarOp, PileupLayout, PileupTrack, Read, ReadColoring, Segment};
 pub use sequence::SequenceTrack;
