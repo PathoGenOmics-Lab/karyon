@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-07-31
+
+Phylogenies, and the reason to have them here rather than in a tree viewer.
+
+### Added
+
+- `karyon::tree`, with `Tree::parse_newick` reading nested clades, branch
+  lengths, quoted names, scientific notation and internal labels, taking an
+  internal label as a support value when it parses as a number and as a name
+  when it does not. Nodes live in one flat list and refer to each other by
+  index, so a ten thousand deep ladder lays out without touching the stack.
+- `Tree::layout`, placing every node at a depth and a row, as a phylogram from
+  the branch lengths or as a cladogram counting branches instead.
+- `TreeTrack`, a phylogeny as a track of its own, with `TreeShape` choosing
+  between the two.
+- `SnpTrack::tree`, which is the pairing the tree is here for. It draws the
+  phylogeny in the strip beside the panel and **sorts the rows by descent**, so
+  a clade's shared substitutions line up into a block instead of scattering
+  down the panel in sample-name order. Rows match leaves by name, and a sample
+  the tree does not mention keeps its place at the bottom rather than
+  vanishing: a row silently dropped from a figure is worse than a row out of
+  order.
+- `Error::InvalidNewick`, so a malformed tree is rejected with a reason rather
+  than guessed at.
+
+### Notes
+
+- Branches are drawn rectangular rather than as diagonals. A diagonal would
+  imply the tree says something about the space between two rows, and it does
+  not.
+
 ## [0.12.0] - 2026-07-31
 
 ### Added
@@ -386,6 +417,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.13.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.13.0
 [0.12.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.12.0
 [0.11.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.11.0
 [0.10.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.10.0

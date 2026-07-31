@@ -69,6 +69,7 @@ cargo run --example locus -- assets
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
+| `TreeTrack` | A phylogeny | Newick in, phylogram or cladogram out. Its leaf order is what sorts the row tracks |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
@@ -92,6 +93,22 @@ An alignment of closely related genomes is almost entirely agreement. In the
 figure above, thirty kilobases carry thirty-four differences: a plot of all
 thirty thousand columns would spend 99.9% of its pixels on the part that says
 nothing.
+
+The tree on the left is not decoration. **Its leaf order is the row order**, so
+a clade's shared substitutions line up into a block instead of being scattered
+down the panel in whatever order the samples happened to be listed. That block
+is usually the finding:
+
+```rust
+use karyon::{SnpTrack, tree::Tree};
+
+let tree = Tree::parse_newick("((ERR01:0.01,ERR02:0.012)0.98:0.04,ERR03:0.06);")?;
+let panel = SnpTrack::from_alignment(0, &alignment).tree(tree);
+```
+
+Rows are matched to leaves by name. A sample the tree does not mention keeps its
+place at the bottom rather than vanishing, because a row silently dropped from a
+figure is worse than a row out of order.
 
 `SnpTrack` throws the invariant columns away and spaces what is left evenly.
 The idea is the one [snipit](https://github.com/aineniamh/snipit) is built

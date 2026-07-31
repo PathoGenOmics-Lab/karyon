@@ -13,6 +13,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use karyon::tree::Tree;
 use karyon::{Figure, MsaSequence, Region, SnpTrack};
 
 /// Length of the stretch the isolates were compared over.
@@ -27,8 +28,22 @@ fn main() -> std::io::Result<()> {
         .unwrap_or_else(|| PathBuf::from("."));
 
     let alignment = synthetic_alignment();
+
+    // A phylogeny of the same isolates. Passing it to the panel sorts the rows
+    // by descent, which is what turns a clade's shared substitutions from
+    // scattered noise into a block.
+    let tree = Tree::parse_newick(
+        "(((ERR400113:0.0002,ERR400152:0.0002)0.99:0.0011,\
+          (ERR400191:0.0003,ERR400230:0.0002)0.97:0.0009)0.88:0.0021,\
+          ((ERR400100:0.0015,ERR400126:0.0014):0.0006,\
+           (ERR400139:0.0012,ERR400165:0.0013):0.0007):0.0018,\
+          (ERR400178:0.0016,(ERR400204:0.0011,ERR400217:0.0012):0.0005):0.0014);",
+    )
+    .expect("the tree in this example is well formed");
+
     let panel = SnpTrack::from_alignment(0, &alignment)
         .offset(START)
+        .tree(tree)
         .label("isolates")
         .row_height(16.0);
 

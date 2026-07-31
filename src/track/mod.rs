@@ -17,6 +17,7 @@ pub mod pileup;
 pub mod sequence;
 pub mod snp;
 pub mod synteny;
+pub mod tree;
 pub mod variant;
 
 pub use axis::AxisTrack;
@@ -31,6 +32,7 @@ pub use pileup::{CigarOp, PileupLayout, PileupTrack, Read, ReadColoring, Segment
 pub use sequence::SequenceTrack;
 pub use snp::{SnpSite, SnpTrack};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
+pub use tree::{TreeShape, TreeTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
 
 use crate::region::Region;

@@ -46,7 +46,7 @@
 //!
 //! # Extending
 //!
-//! The fourteen track types shipped here are implementations of one small trait,
+//! The fifteen track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -78,6 +78,7 @@ pub mod scale;
 pub mod svg;
 pub mod theme;
 pub mod track;
+pub mod tree;
 
 pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
@@ -91,5 +92,5 @@ pub use crate::track::{
     LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack,
     MsaColoring, MsaDisplay, MsaSequence, MsaTrack, PileupLayout, PileupTrack, Read, ReadColoring,
     Rect, Segment, SequenceTrack, SnpSite, SnpTrack, StackOrder, Stain, Strand, SyntenyTrack,
-    Track, Variant, VariantStyle, VariantTrack,
+    Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack,
 };

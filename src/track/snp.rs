@@ -25,7 +25,9 @@ use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::msa::{is_gap, MsaSequence};
-use crate::track::{DrawContext, Track};
+use crate::track::tree::{draw_tree, TreeShape};
+use crate::track::{DrawContext, Rect, Track};
+use crate::tree::Tree;
 
 /// One position where the sequences disagree.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +111,9 @@ pub struct SnpTrack {
     letter_threshold: f64,
     max_rows: Option<usize>,
     match_color: Option<String>,
+    tree: Option<Tree>,
+    tree_width: f64,
+    tree_shape: TreeShape,
 }
 
 impl SnpTrack {
@@ -129,6 +134,9 @@ impl SnpTrack {
             letter_threshold: 7.0,
             max_rows: Some(40),
             match_color: None,
+            tree: None,
+            tree_width: 90.0,
+            tree_shape: TreeShape::Phylogram,
         }
     }
 
@@ -267,6 +275,71 @@ impl SnpTrack {
         self
     }
 
+    /// Draws a phylogeny beside the panel and sorts the rows to match it.
+    ///
+    /// This is the pairing the tree exists for. Sorted by name, a clade's
+    /// shared substitutions are scattered down the panel and look like noise;
+    /// sorted by descent they line up into a block, and the block is the
+    /// finding. The tree goes in the strip the figure already reserves for row
+    /// names, so it costs no new machinery.
+    ///
+    /// Rows are matched to leaves by name. A sample the tree does not mention
+    /// keeps its place at the bottom rather than disappearing, because a row
+    /// silently dropped from a figure is worse than a row out of order.
+    pub fn tree(mut self, tree: Tree) -> Self {
+        let order = tree.leaf_names();
+        let mut taken = vec![false; self.names.len()];
+        let mut sorted: Vec<usize> = Vec::with_capacity(self.names.len());
+
+        for leaf in &order {
+            if let Some(index) = self
+                .names
+                .iter()
+                .enumerate()
+                .position(|(index, name)| name == leaf && !taken[index])
+            {
+                taken[index] = true;
+                sorted.push(index);
+            }
+        }
+        // Anything the tree never named, in the order it arrived.
+        for index in 0..self.names.len() {
+            if !taken[index] {
+                sorted.push(index);
+            }
+        }
+
+        self.names = sorted
+            .iter()
+            .map(|index| self.names[*index].clone())
+            .collect();
+        for site in &mut self.sites {
+            site.alleles = sorted
+                .iter()
+                .map(|index| site.alleles.get(*index).copied().unwrap_or(b'-'))
+                .collect();
+        }
+        self.tree = Some(tree);
+        self
+    }
+
+    /// Sets how much of the strip the tree gets, in pixels.
+    pub fn tree_width(mut self, width: f64) -> Self {
+        self.tree_width = width.max(0.0);
+        self
+    }
+
+    /// Chooses a phylogram or a cladogram for the tree beside the panel.
+    pub fn tree_shape(mut self, shape: TreeShape) -> Self {
+        self.tree_shape = shape;
+        self
+    }
+
+    /// The tree beside the panel, if there is one.
+    pub fn attached_tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
+    }
+
     /// The variable sites, in position order.
     pub fn sites(&self) -> &[SnpSite] {
         &self.sites
@@ -324,8 +397,13 @@ impl Track for SnpTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
+        let tree = if self.tree.is_some() {
+            self.tree_width
+        } else {
+            0.0
+        };
         if !self.show_names {
-            return 0.0;
+            return tree;
         }
         let size = (theme.font_size - 1.0).min(self.row_height);
         let (rows, _) = self.visible_rows();
@@ -337,9 +415,9 @@ impl Track for SnpTrack {
             .map(|name| text_width(name, size))
             .fold(0.0f64, f64::max);
         if widest <= 0.0 {
-            0.0
+            tree
         } else {
-            widest + 8.0
+            widest + 8.0 + tree
         }
     }
 
@@ -366,6 +444,32 @@ impl Track for SnpTrack {
                 ctx.svg
                     .rect(ctx.scale.x(index as u64), band.y, cell_width, strip, &tint);
             }
+        }
+
+        // The tree takes the left of the strip and the names the right of it,
+        // so a leaf, its name and its row of cells are all on one line.
+        if let Some(tree) = &self.tree {
+            let reference_offset = if self.show_reference {
+                self.row_height + self.row_gap
+            } else {
+                0.0
+            };
+            let area = Rect {
+                x: ctx.axis.x + 2.0,
+                y: band.y + reference_offset,
+                w: (self.tree_width - 6.0).max(1.0),
+                h: band.h - reference_offset,
+            };
+            draw_tree(
+                ctx.svg,
+                tree,
+                area,
+                self.row_height + self.row_gap,
+                area.y + self.row_height / 2.0,
+                self.tree_shape,
+                &ctx.theme.foreground,
+                1.1,
+            );
         }
 
         let mut top = band.y;

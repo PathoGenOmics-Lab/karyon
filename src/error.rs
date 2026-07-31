@@ -24,6 +24,11 @@ pub enum Error {
         /// Why it failed.
         reason: &'static str,
     },
+    /// A Newick string that does not describe a tree.
+    InvalidNewick {
+        /// Why it failed.
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for Error {
@@ -36,6 +41,7 @@ impl fmt::Display for Error {
             Error::InvalidLocus { input, reason } => {
                 write!(f, "invalid locus {input:?}: {reason}")
             }
+            Error::InvalidNewick { reason } => write!(f, "invalid Newick tree: {reason}"),
         }
     }
 }
