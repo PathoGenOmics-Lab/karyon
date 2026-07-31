@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-31
+
+### Added
+
+- A value axis on `VariantTrack`, so an allele frequency can be read off the
+  plot rather than guessed from the height of a stem. `VariantTrack::show_scale`
+  turns it off.
+
+  It appears only when it would mean something. `VariantStyle::Tick` draws every
+  mark at full height by design, so it gets no axis; and a track whose variants
+  carry no values has no ceiling to label, only a convention that a valueless
+  stem is drawn full height. Putting a "1" on that would be inventing a
+  measurement. A pinned `max` counts as a ceiling even with no values.
+
+  Frequencies keep their decimals, since a scale that rounded 0.64 to 1 would be
+  worse than no scale, while large values still shorten to `1.5k` and `2M`.
+
 ## [0.8.0] - 2026-07-31
 
 Quantitative tracks get a real value axis. Until now a coverage track showed
@@ -260,6 +277,7 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+[0.8.1]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.1
 [0.8.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.8.0
 [0.7.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.7.0
 [0.6.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.6.0

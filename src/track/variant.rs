@@ -2,6 +2,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
+use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
 
 /// How a variant track is drawn.
@@ -80,6 +81,7 @@ pub struct VariantTrack {
     radius: f64,
     max: Option<f64>,
     show_legend: bool,
+    show_scale: bool,
     color: Option<String>,
 }
 
@@ -94,6 +96,7 @@ impl VariantTrack {
             radius: 4.0,
             max: None,
             show_legend: true,
+            show_scale: true,
             color: None,
         }
     }
@@ -135,6 +138,24 @@ impl VariantTrack {
     pub fn show_legend(mut self, show: bool) -> Self {
         self.show_legend = show;
         self
+    }
+
+    /// Draws or hides the value axis.
+    pub fn show_scale(mut self, show: bool) -> Self {
+        self.show_scale = show;
+        self
+    }
+
+    /// Whether there is a scale worth drawing.
+    ///
+    /// Three things have to be true. The stems have to mean something, which
+    /// rules out [`VariantStyle::Tick`], where every mark is full height by
+    /// design. Some variant has to carry a value, or the ceiling of one is an
+    /// invention rather than a measurement. And the caller has to want it.
+    fn has_scale(&self) -> bool {
+        self.show_scale
+            && self.style == VariantStyle::Lollipop
+            && (self.max.is_some() || self.value_ceiling().is_some())
     }
 
     /// Sets the colour used for variants without a category.
@@ -182,6 +203,14 @@ impl Track for VariantTrack {
         self.label.as_deref()
     }
 
+    fn y_axis_width(&self, theme: &Theme) -> f64 {
+        if !self.has_scale() {
+            return 0.0;
+        }
+        let ceiling = self.max.or_else(|| self.value_ceiling()).unwrap_or(1.0);
+        text_width(&format_value(ceiling), theme.font_size - 1.0) + 8.0
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let baseline = band.bottom();
@@ -208,6 +237,34 @@ impl Track for VariantTrack {
             0.0
         };
         let stem_room = (band.h - legend_room - self.radius).max(2.0);
+
+        if self.has_scale() {
+            // The height a variant at the ceiling reaches, which is where the
+            // top of the scale is and nowhere else.
+            let ceiling_y = baseline - stem_room;
+            ctx.svg.line(
+                band.x,
+                ceiling_y,
+                band.right(),
+                ceiling_y,
+                &ctx.theme.rule,
+                1.0,
+            );
+            if ctx.axis.w > 0.0 {
+                let size = ctx.theme.font_size - 1.0;
+                let right = ctx.axis.right() - 4.0;
+                ctx.svg.text(
+                    right,
+                    ceiling_y + size * 0.35,
+                    &format_value(ceiling),
+                    &ctx.theme.muted,
+                    size,
+                    Anchor::End,
+                );
+                ctx.svg
+                    .text(right, baseline, "0", &ctx.theme.muted, size, Anchor::End);
+            }
+        }
 
         for variant in &self.variants {
             if !ctx.region.contains(variant.pos) {
@@ -273,6 +330,38 @@ impl Track for VariantTrack {
     }
 }
 
+/// Label for a point on the value axis.
+///
+/// Variant values are usually allele frequencies, which live between zero and
+/// one and need decimals to say anything, but the track takes any quantity at
+/// all, so large numbers still have to come out short.
+fn format_value(value: f64) -> String {
+    if !value.is_finite() {
+        return "0".to_string();
+    }
+    if value >= 1_000_000.0 {
+        return format!("{}M", trim(value / 1e6, 1));
+    }
+    if value >= 1_000.0 {
+        return format!("{}k", trim(value / 1e3, 1));
+    }
+    if value >= 1.0 {
+        return trim(value, 1);
+    }
+    trim(value, 2)
+}
+
+/// Rounds to `decimals` places and drops the point when nothing is left of it.
+fn trim(value: f64, decimals: usize) -> String {
+    let factor = 10f64.powi(decimals as i32);
+    let rounded = (value * factor).round() / factor;
+    if rounded == rounded.trunc() {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +405,76 @@ mod tests {
     fn a_track_with_no_values_has_no_ceiling() {
         let track = VariantTrack::new(vec![Variant::new(1), Variant::new(2)]);
         assert_eq!(track.value_ceiling(), None);
+    }
+
+    #[test]
+    fn a_scale_needs_values_to_measure() {
+        let theme = Theme::light();
+        let with_values = VariantTrack::new(vec![Variant::new(1).value(0.8)]);
+        let without = VariantTrack::new(vec![Variant::new(1), Variant::new(2)]);
+        assert!(with_values.y_axis_width(&theme) > 0.0);
+        assert_eq!(
+            without.y_axis_width(&theme),
+            0.0,
+            "full height stems have no scale to put a number on"
+        );
+    }
+
+    #[test]
+    fn ticks_have_no_scale_because_they_ignore_the_value() {
+        let theme = Theme::light();
+        let variants = vec![Variant::new(1).value(0.8)];
+        let ticks = VariantTrack::new(variants.clone()).style(VariantStyle::Tick);
+        let lollipops = VariantTrack::new(variants);
+        assert_eq!(ticks.y_axis_width(&theme), 0.0);
+        assert!(lollipops.y_axis_width(&theme) > 0.0);
+    }
+
+    #[test]
+    fn the_scale_can_be_turned_off() {
+        let theme = Theme::light();
+        let track = VariantTrack::new(vec![Variant::new(1).value(0.8)]).show_scale(false);
+        assert_eq!(track.y_axis_width(&theme), 0.0);
+    }
+
+    #[test]
+    fn a_pinned_maximum_gives_a_scale_even_with_no_values() {
+        let theme = Theme::light();
+        let track = VariantTrack::new(vec![Variant::new(1)]).max(1.0);
+        assert!(track.y_axis_width(&theme) > 0.0);
+    }
+
+    #[test]
+    fn the_axis_labels_the_ceiling_and_the_floor() {
+        let region = Region::parse("chr1:1-3000").unwrap();
+        let svg = Figure::new(region)
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(1000).value(0.64),
+                    Variant::new(2000).value(0.21),
+                ])
+                .show_legend(false)
+                .label("af"),
+            )
+            .to_svg();
+        assert!(
+            svg.contains(">0.64</text>"),
+            "the tallest stem sets the top"
+        );
+        assert!(svg.contains(">0</text>"));
+    }
+
+    #[test]
+    fn allele_frequencies_keep_their_decimals_and_counts_do_not() {
+        assert_eq!(format_value(0.64), "0.64");
+        assert_eq!(format_value(0.5), "0.5");
+        assert_eq!(format_value(1.0), "1");
+        assert_eq!(format_value(0.999), "1");
+        assert_eq!(format_value(42.0), "42");
+        assert_eq!(format_value(1500.0), "1.5k");
+        assert_eq!(format_value(2_000_000.0), "2M");
+        assert_eq!(format_value(f64::NAN), "0");
     }
 
     #[test]
