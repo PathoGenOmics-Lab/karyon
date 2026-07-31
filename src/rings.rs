@@ -1,0 +1,1257 @@
+//! A circular genome, drawn as concentric rings.
+//!
+//! # Why this is not a figure
+//!
+//! Everything else in the crate stacks bands over one horizontal
+//! [`Scale`](crate::Scale), which maps a position to an x coordinate. A
+//! bacterial chromosome has no ends to put on the left and the right of a page:
+//! it is a circle, and drawing it as a line puts an edge where the biology has
+//! none, right through whatever happens to sit at coordinate zero. So a
+//! circular plot maps position to an angle instead, which is a different
+//! coordinate system and therefore a different container. [`Rings`] is to
+//! [`Ring`] what [`Figure`](crate::Figure) is to [`Track`](crate::Track), and
+//! the two can sit side by side on one [`Panels`](crate::Panels) sheet.
+//!
+//! # What goes on a ring
+//!
+//! The same things that go in a band: annotation ([`FeatureRing`]), a quantity
+//! in windows ([`SignalRing`]), points ([`MarkerRing`]) and a ruler
+//! ([`AxisRing`]). What a circle adds over a stack of bands is the middle,
+//! where [`Rings::link`] draws a chord between two places that belong together:
+//! the two ends of an inversion, a duplication and its source, a pair of
+//! sequences a rearrangement joined.
+//!
+//! # Where zero is
+//!
+//! At twelve o'clock, running clockwise, which is the convention every circular
+//! genome viewer uses.
+
+use std::f64::consts::PI;
+use std::fs;
+use std::io;
+use std::path::Path;
+
+use crate::svg::{num, Anchor, SvgWriter};
+use crate::theme::{mix, Theme};
+use crate::track::window::Window;
+use crate::track::{Feature, Strand};
+
+/// The mapping from a position on a circular sequence to a point on the page.
+///
+/// Position zero is at twelve o'clock and coordinates run clockwise.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Polar {
+    length: u64,
+    cx: f64,
+    cy: f64,
+    sweep: f64,
+    start: f64,
+}
+
+impl Polar {
+    /// A mapping of a sequence `length` bases long about `(cx, cy)`.
+    ///
+    /// `gap` is how many degrees are left blank at twelve o'clock. A little of
+    /// it makes the origin visible as a seam; none of it closes the circle.
+    pub fn new(length: u64, cx: f64, cy: f64, gap: f64) -> Self {
+        let gap = gap.clamp(0.0, 90.0).to_radians();
+        Polar {
+            length: length.max(1),
+            cx,
+            cy,
+            sweep: 2.0 * PI - gap,
+            start: gap / 2.0,
+        }
+    }
+
+    /// Angle of a position, in radians clockwise from twelve o'clock.
+    pub fn angle(&self, pos: u64) -> f64 {
+        self.angle_at(pos as f64)
+    }
+
+    /// Angle of a fractional position.
+    pub fn angle_at(&self, pos: f64) -> f64 {
+        self.start + (pos / self.length as f64).clamp(0.0, 1.0) * self.sweep
+    }
+
+    /// The point at an angle and a radius.
+    pub fn at(&self, angle: f64, radius: f64) -> (f64, f64) {
+        (
+            self.cx + radius * angle.sin(),
+            self.cy - radius * angle.cos(),
+        )
+    }
+
+    /// The point at a position and a radius.
+    pub fn point(&self, pos: u64, radius: f64) -> (f64, f64) {
+        self.at(self.angle(pos), radius)
+    }
+
+    /// Centre of the circle.
+    pub fn center(&self) -> (f64, f64) {
+        (self.cx, self.cy)
+    }
+
+    /// Length of the sequence.
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// How many bases one pixel covers at `radius`.
+    ///
+    /// The answer depends on the radius, which is the thing a circular plot
+    /// does that a linear one does not: the same feature is half as long on a
+    /// ring of half the radius.
+    pub fn bp_per_px(&self, radius: f64) -> f64 {
+        let circumference = radius.abs() * self.sweep;
+        if circumference <= 0.0 {
+            f64::INFINITY
+        } else {
+            self.length as f64 / circumference
+        }
+    }
+
+    /// A closed annular sector: the region between two radii over a span of
+    /// sequence. This is the shape a feature or a window is drawn as.
+    ///
+    /// A span whose end is before its start wraps through the origin, which on
+    /// a circular sequence is a real thing and not an error: a gene either side
+    /// of coordinate zero runs the short way, through the top of the circle,
+    /// and not the long way round the rest of the chromosome. It comes back as
+    /// one path of two subpaths, so it is still a single element.
+    pub fn sector(&self, from: u64, to: u64, inner: f64, outer: f64) -> String {
+        if to < from {
+            return format!(
+                "{}{}",
+                self.wedge(from, self.length, inner, outer),
+                self.wedge(0, to, inner, outer)
+            );
+        }
+        self.wedge(from, to, inner, outer)
+    }
+
+    /// One annular sector, start before end.
+    fn wedge(&self, from: u64, to: u64, inner: f64, outer: f64) -> String {
+        let (a0, a1) = self.span(from, to);
+        let (inner, outer) = (inner.min(outer).max(0.0), inner.max(outer));
+        let (x0, y0) = self.at(a0, outer);
+        let (x1, y1) = self.at(a1, outer);
+        let (x2, y2) = self.at(a1, inner);
+        let (x3, y3) = self.at(a0, inner);
+        let large = usize::from(a1 - a0 > PI);
+        format!(
+            "M{} {}{}L{} {}{}Z",
+            num(x0),
+            num(y0),
+            arc(outer, large, 1, x1, y1),
+            num(x2),
+            num(y2),
+            arc(inner, large, 0, x3, y3),
+        )
+    }
+
+    /// The outline of a whole circle at `radius`, as two half arcs.
+    ///
+    /// Two, because one arc cannot return to where it started: an SVG arc with
+    /// the same start and end point draws nothing at all.
+    pub fn circle(&self, radius: f64) -> String {
+        let (top_x, top_y) = self.at(0.0, radius);
+        let (bottom_x, bottom_y) = self.at(PI, radius);
+        format!(
+            "M{} {}{}{}",
+            num(top_x),
+            num(top_y),
+            arc(radius, 0, 1, bottom_x, bottom_y),
+            arc(radius, 0, 1, top_x, top_y),
+        )
+    }
+
+    /// A ribbon across the middle joining two spans of sequence.
+    ///
+    /// Both ends are arcs at `radius` and the two sides are curves pulled
+    /// towards the centre, which is what keeps a chord readable when a dozen of
+    /// them cross: a straight one would be a chord of noise.
+    pub fn ribbon(&self, from: (u64, u64), to: (u64, u64), radius: f64) -> String {
+        let (a0, a1) = self.span(from.0, from.1);
+        let (b0, b1) = self.span(to.0, to.1);
+        let (ax0, ay0) = self.at(a0, radius);
+        let (ax1, ay1) = self.at(a1, radius);
+        let (bx0, by0) = self.at(b0, radius);
+        let (bx1, by1) = self.at(b1, radius);
+        format!(
+            "M{} {}{}Q{} {} {} {}{}Q{} {} {} {}Z",
+            num(ax0),
+            num(ay0),
+            arc(radius, usize::from(a1 - a0 > PI), 1, ax1, ay1),
+            num(self.cx),
+            num(self.cy),
+            num(bx0),
+            num(by0),
+            arc(radius, usize::from(b1 - b0 > PI), 1, bx1, by1),
+            num(self.cx),
+            num(self.cy),
+            num(ax0),
+            num(ay0),
+        )
+    }
+
+    /// The angles of a span, always at least a hair wide so that a single base
+    /// is still a visible mark rather than a line of zero length.
+    fn span(&self, from: u64, to: u64) -> (f64, f64) {
+        let a0 = self.angle(from);
+        let a1 = self.angle(to.max(from)).max(a0 + 1e-4);
+        (a0, a1.min(self.start + self.sweep))
+    }
+}
+
+/// One SVG elliptical arc command.
+fn arc(radius: f64, large: usize, sweep: usize, x: f64, y: f64) -> String {
+    format!(
+        "A{} {} 0 {} {} {} {}",
+        num(radius),
+        num(radius),
+        large,
+        sweep,
+        num(x),
+        num(y)
+    )
+}
+
+/// Everything a ring needs in order to draw itself.
+pub struct RingContext<'a> {
+    /// Where to write the SVG elements.
+    pub svg: &'a mut SvgWriter,
+    /// The shared mapping from position to angle.
+    pub polar: &'a Polar,
+    /// Radius of the inside of this ring.
+    pub inner: f64,
+    /// Radius of the outside of this ring.
+    pub outer: f64,
+    /// Shared colours and fonts.
+    pub theme: &'a Theme,
+}
+
+impl RingContext<'_> {
+    /// Halfway between the two radii.
+    pub fn middle(&self) -> f64 {
+        (self.inner + self.outer) / 2.0
+    }
+
+    /// How thick the ring is.
+    pub fn thickness(&self) -> f64 {
+        self.outer - self.inner
+    }
+}
+
+/// One concentric ring of a circular plot.
+///
+/// The parallel of [`Track`](crate::Track): say how thick you want to be, then
+/// draw between the two radii you are given.
+pub trait Ring {
+    /// How much radius this ring wants, in pixels.
+    fn thickness(&self) -> f64;
+
+    /// Blank radius left inside this ring before the next one starts.
+    fn gap(&self) -> f64 {
+        5.0
+    }
+
+    /// Draws the ring between `ctx.inner` and `ctx.outer`.
+    fn draw(&self, ctx: &mut RingContext<'_>);
+}
+
+/// A chord across the middle of the plot.
+struct Chord {
+    from: (u64, u64),
+    to: (u64, u64),
+    color: Option<String>,
+    opacity: f64,
+}
+
+/// A circular sequence and the rings drawn around it.
+///
+/// ```
+/// use karyon::{AxisRing, Feature, FeatureRing, Rings};
+///
+/// let svg = Rings::new(4_411_532)
+///     .title("H37Rv")
+///     .push(AxisRing::new())
+///     .push(FeatureRing::new(vec![
+///         Feature::new(759_807, 763_325).name("rpoB"),
+///     ]))
+///     .link((10_000, 40_000), (2_000_000, 2_030_000))
+///     .to_svg();
+///
+/// assert!(svg.starts_with("<svg"));
+/// assert!(svg.contains("H37Rv"));
+/// ```
+pub struct Rings {
+    length: u64,
+    rings: Vec<Box<dyn Ring>>,
+    chords: Vec<Chord>,
+    diameter: f64,
+    margin: f64,
+    gap_degrees: f64,
+    theme: Theme,
+    title: Option<String>,
+    subtitle: Option<String>,
+}
+
+impl Rings {
+    /// A plot of a circular sequence `length` bases long.
+    pub fn new(length: u64) -> Self {
+        Rings {
+            length: length.max(1),
+            rings: Vec::new(),
+            chords: Vec::new(),
+            diameter: 640.0,
+            margin: 14.0,
+            gap_degrees: 2.0,
+            theme: Theme::light(),
+            title: None,
+            subtitle: None,
+        }
+    }
+
+    /// Sets the diameter of the outermost ring in pixels.
+    pub fn diameter(mut self, diameter: f64) -> Self {
+        self.diameter = diameter.max(80.0);
+        self
+    }
+
+    /// Sets the whitespace around the circle.
+    pub fn margin(mut self, margin: f64) -> Self {
+        self.margin = margin.max(0.0);
+        self
+    }
+
+    /// Sets how many degrees are left blank at twelve o'clock.
+    ///
+    /// A couple of degrees makes the origin visible as a seam, which matters:
+    /// a closed circle hides the fact that a coordinate system has to start
+    /// somewhere and that the choice was arbitrary. Zero closes it.
+    pub fn origin_gap(mut self, degrees: f64) -> Self {
+        self.gap_degrees = degrees.clamp(0.0, 90.0);
+        self
+    }
+
+    /// Replaces the theme.
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    /// Sets the name written in the middle of the circle.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Sets a second, quieter line under the title.
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    /// Adds a ring inside the ones already there.
+    pub fn push(mut self, ring: impl Ring + 'static) -> Self {
+        self.rings.push(Box::new(ring));
+        self
+    }
+
+    /// Adds a boxed ring, for building a plot at runtime.
+    pub fn push_boxed(mut self, ring: Box<dyn Ring>) -> Self {
+        self.rings.push(ring);
+        self
+    }
+
+    /// Joins two spans of sequence with a ribbon across the middle.
+    ///
+    /// Both spans are `(start, end)`, 0-based and half-open. This is the one
+    /// thing a circle can say that a stack of bands cannot: that two places far
+    /// apart in coordinates belong together.
+    pub fn link(self, from: (u64, u64), to: (u64, u64)) -> Self {
+        self.link_colored(from, to, None, 0.35)
+    }
+
+    /// A ribbon in a colour and opacity of its own.
+    pub fn link_colored(
+        mut self,
+        from: (u64, u64),
+        to: (u64, u64),
+        color: Option<String>,
+        opacity: f64,
+    ) -> Self {
+        self.chords.push(Chord {
+            from,
+            to,
+            color,
+            opacity: opacity.clamp(0.0, 1.0),
+        });
+        self
+    }
+
+    /// Length of the sequence.
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// How many rings the plot holds.
+    pub fn ring_count(&self) -> usize {
+        self.rings.len()
+    }
+
+    /// Width and height of the rendered image, which is square.
+    pub fn dimensions(&self) -> (f64, f64) {
+        let side = self.diameter + self.margin * 2.0;
+        (side, side)
+    }
+
+    /// Radius of the innermost edge of the last ring, where chords start.
+    pub fn inner_radius(&self) -> f64 {
+        let mut radius = self.diameter / 2.0;
+        for ring in &self.rings {
+            radius -= ring.thickness().max(0.0);
+            radius -= ring.gap().max(0.0);
+        }
+        radius.max(4.0)
+    }
+
+    /// Renders the plot to a standalone SVG document.
+    pub fn to_svg(&self) -> String {
+        self.to_svg_with_id_prefix("")
+    }
+
+    /// Renders the plot with every id it generates carrying `prefix`.
+    ///
+    /// Needed only when nesting it beside another drawing; see
+    /// [`Figure::to_svg_with_id_prefix`](crate::Figure::to_svg_with_id_prefix).
+    pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
+        let (width, height) = self.dimensions();
+        let centre = width / 2.0;
+        let polar = Polar::new(self.length, centre, centre, self.gap_degrees);
+        let mut svg = SvgWriter::with_id_prefix(prefix);
+
+        // Chords first, so that the rings sit over them rather than being
+        // washed out by a dozen translucent ribbons crossing the middle.
+        let inner = self.inner_radius();
+        for chord in &self.chords {
+            let color = chord
+                .color
+                .clone()
+                .unwrap_or_else(|| self.theme.accent.clone());
+            svg.path(
+                &polar.ribbon(chord.from, chord.to, inner),
+                &color,
+                chord.opacity,
+            );
+        }
+
+        let mut outer = self.diameter / 2.0;
+        for ring in &self.rings {
+            let thickness = ring.thickness().max(0.0);
+            let mut ctx = RingContext {
+                svg: &mut svg,
+                polar: &polar,
+                inner: (outer - thickness).max(0.0),
+                outer,
+                theme: &self.theme,
+            };
+            ring.draw(&mut ctx);
+            outer -= thickness + ring.gap().max(0.0);
+        }
+
+        if let Some(title) = &self.title {
+            let baseline = if self.subtitle.is_some() {
+                centre
+            } else {
+                centre + self.theme.title_font_size * 0.35
+            };
+            svg.text_bold(
+                centre,
+                baseline,
+                title,
+                &self.theme.foreground,
+                self.theme.title_font_size,
+                Anchor::Middle,
+            );
+        }
+        if let Some(subtitle) = &self.subtitle {
+            svg.text(
+                centre,
+                centre + self.theme.font_size + 4.0,
+                subtitle,
+                &self.theme.muted,
+                self.theme.font_size,
+                Anchor::Middle,
+            );
+        }
+
+        svg.finish(
+            width,
+            height,
+            &self.theme.background,
+            &self.theme.font_family,
+        )
+    }
+
+    /// Renders the plot and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        fs::write(path, self.to_svg())
+    }
+}
+
+/// A ruler of positions around the outside.
+#[derive(Debug, Clone)]
+pub struct AxisRing {
+    thickness: f64,
+    ticks: usize,
+    show_labels: bool,
+}
+
+impl AxisRing {
+    /// A ruler with ten ticks.
+    pub fn new() -> Self {
+        AxisRing {
+            thickness: 22.0,
+            ticks: 10,
+            show_labels: true,
+        }
+    }
+
+    /// Sets how much radius the ruler takes.
+    pub fn thickness(mut self, thickness: f64) -> Self {
+        self.thickness = thickness.max(4.0);
+        self
+    }
+
+    /// Sets roughly how many ticks to draw.
+    pub fn ticks(mut self, ticks: usize) -> Self {
+        self.ticks = ticks.max(2);
+        self
+    }
+
+    /// Draws or hides the coordinate labels.
+    pub fn show_labels(mut self, show: bool) -> Self {
+        self.show_labels = show;
+        self
+    }
+}
+
+impl Default for AxisRing {
+    fn default() -> Self {
+        AxisRing::new()
+    }
+}
+
+impl Ring for AxisRing {
+    fn thickness(&self) -> f64 {
+        self.thickness
+    }
+
+    fn draw(&self, ctx: &mut RingContext<'_>) {
+        let polar = ctx.polar;
+        let step = nice_step(polar.length() as f64 / self.ticks as f64);
+        let size = ctx.theme.font_size - 1.0;
+        // Labels go inside the tick marks rather than outside the circle, so
+        // the plot stays inside the square it said it would occupy.
+        let label_radius = ctx.outer - 7.0 - size * 0.7;
+
+        ctx.svg
+            .path_stroked(&polar.circle(ctx.outer), &ctx.theme.rule, 1.0);
+
+        let mut pos = 0u64;
+        while pos < polar.length() {
+            let angle = polar.angle(pos);
+            let (x0, y0) = polar.at(angle, ctx.outer);
+            let (x1, y1) = polar.at(angle, ctx.outer - 5.0);
+            ctx.svg.line(x0, y0, x1, y1, &ctx.theme.rule, 1.0);
+
+            if self.show_labels {
+                let (tx, ty) = polar.at(angle, label_radius);
+                ctx.svg.text(
+                    tx,
+                    ty + size * 0.35,
+                    &megabases(pos),
+                    &ctx.theme.muted,
+                    size,
+                    Anchor::Middle,
+                );
+            }
+            pos = match pos.checked_add(step) {
+                Some(next) => next,
+                None => break,
+            };
+        }
+    }
+}
+
+/// Annotation drawn as arcs, forward strand outside and reverse inside.
+#[derive(Debug, Clone)]
+pub struct FeatureRing {
+    features: Vec<Feature>,
+    thickness: f64,
+    color: Option<String>,
+    reverse_color: Option<String>,
+    split_strands: bool,
+    show_names: bool,
+    min_degrees: f64,
+}
+
+impl FeatureRing {
+    /// A ring of `features`.
+    pub fn new(features: impl Into<Vec<Feature>>) -> Self {
+        FeatureRing {
+            features: features.into(),
+            thickness: 16.0,
+            color: None,
+            reverse_color: None,
+            split_strands: true,
+            show_names: false,
+            min_degrees: 0.12,
+        }
+    }
+
+    /// Sets how much radius the ring takes.
+    pub fn thickness(mut self, thickness: f64) -> Self {
+        self.thickness = thickness.max(2.0);
+        self
+    }
+
+    /// Sets the colours of the forward and reverse halves.
+    pub fn colors(mut self, forward: impl Into<String>, reverse: impl Into<String>) -> Self {
+        self.color = Some(forward.into());
+        self.reverse_color = Some(reverse.into());
+        self
+    }
+
+    /// Whether the two strands get half the ring each.
+    ///
+    /// On by default, which is how a bacterial chromosome is normally drawn:
+    /// the leading and lagging strands carry different gene densities, and a
+    /// single lane hides that.
+    pub fn split_strands(mut self, split: bool) -> Self {
+        self.split_strands = split;
+        self
+    }
+
+    /// Draws or hides names beside the features.
+    ///
+    /// Only worth it for a handful of named loci. A whole annotation drawn with
+    /// names is a wheel of unreadable text.
+    pub fn show_names(mut self, show: bool) -> Self {
+        self.show_names = show;
+        self
+    }
+
+    /// Sets the smallest angle a feature is drawn at, in degrees.
+    ///
+    /// A gene of a thousand bases on a four megabase chromosome is a tenth of a
+    /// degree. Without a floor the whole annotation would be invisible, and
+    /// with one a feature's width says nothing about its length.
+    pub fn min_degrees(mut self, degrees: f64) -> Self {
+        self.min_degrees = degrees.max(0.0);
+        self
+    }
+
+    /// The features.
+    pub fn features(&self) -> &[Feature] {
+        &self.features
+    }
+}
+
+impl Ring for FeatureRing {
+    fn thickness(&self) -> f64 {
+        self.thickness
+    }
+
+    fn draw(&self, ctx: &mut RingContext<'_>) {
+        let forward = self
+            .color
+            .clone()
+            .unwrap_or_else(|| ctx.theme.color(0).to_string());
+        let reverse = self
+            .reverse_color
+            .clone()
+            .unwrap_or_else(|| ctx.theme.color(2).to_string());
+        let middle = ctx.middle();
+        let floor =
+            (self.min_degrees.to_radians() / (2.0 * PI) * ctx.polar.length() as f64).round() as u64;
+
+        for feature in &self.features {
+            let (lane_inner, lane_outer) = match (self.split_strands, feature.strand) {
+                (true, Strand::Reverse) => (ctx.inner, middle - 0.5),
+                (true, _) => (middle + 0.5, ctx.outer),
+                (false, _) => (ctx.inner, ctx.outer),
+            };
+            let color = if feature.strand == Strand::Reverse {
+                &reverse
+            } else {
+                &forward
+            };
+            let end = feature.end.max(feature.start + floor.max(1));
+            ctx.svg.path(
+                &ctx.polar.sector(feature.start, end, lane_inner, lane_outer),
+                color,
+                1.0,
+            );
+
+            if self.show_names {
+                if let Some(name) = &feature.name {
+                    let mid = feature.start + (feature.end - feature.start) / 2;
+                    let angle = ctx.polar.angle(mid);
+                    let (x, y) = ctx.polar.at(angle, ctx.inner - 4.0);
+                    // Anchored away from the centre, so a name on the left of
+                    // the circle runs left and one on the right runs right.
+                    let anchor = if angle.sin() < 0.0 {
+                        Anchor::End
+                    } else {
+                        Anchor::Start
+                    };
+                    ctx.svg.text(
+                        x,
+                        y,
+                        name,
+                        &ctx.theme.muted,
+                        ctx.theme.font_size - 1.0,
+                        anchor,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A quantity in windows, drawn as a ring either side of a baseline circle.
+#[derive(Debug, Clone)]
+pub struct SignalRing {
+    windows: Vec<Window>,
+    thickness: f64,
+    baseline: f64,
+    above_color: Option<String>,
+    below_color: Option<String>,
+    extent: Option<f64>,
+    show_baseline: bool,
+}
+
+impl SignalRing {
+    /// A ring over `windows`, with the baseline at zero.
+    pub fn new(windows: impl Into<Vec<Window>>) -> Self {
+        SignalRing {
+            windows: windows.into(),
+            thickness: 40.0,
+            baseline: 0.0,
+            above_color: None,
+            below_color: None,
+            extent: None,
+            show_baseline: true,
+        }
+    }
+
+    /// Sets how much radius the ring takes.
+    pub fn thickness(mut self, thickness: f64) -> Self {
+        self.thickness = thickness.max(4.0);
+        self
+    }
+
+    /// Moves the circle the quantity is read against.
+    pub fn baseline(mut self, baseline: f64) -> Self {
+        self.baseline = baseline;
+        self
+    }
+
+    /// Sets the colours for windows outside and inside the baseline.
+    pub fn colors(mut self, above: impl Into<String>, below: impl Into<String>) -> Self {
+        self.above_color = Some(above.into());
+        self.below_color = Some(below.into());
+        self
+    }
+
+    /// Pins how far the ring reaches either side of the baseline.
+    pub fn extent(mut self, extent: f64) -> Self {
+        self.extent = Some(extent.abs());
+        self
+    }
+
+    /// Draws or hides the baseline circle.
+    pub fn show_baseline(mut self, show: bool) -> Self {
+        self.show_baseline = show;
+        self
+    }
+
+    /// The windows.
+    pub fn windows(&self) -> &[Window] {
+        &self.windows
+    }
+
+    /// How far the ring reaches either side of the baseline.
+    pub fn reach(&self) -> f64 {
+        if let Some(extent) = self.extent {
+            return extent.max(f64::MIN_POSITIVE);
+        }
+        let reach = self
+            .windows
+            .iter()
+            .filter(|window| window.value.is_finite())
+            .map(|window| (window.value - self.baseline).abs())
+            .fold(0.0f64, f64::max);
+        if reach > 0.0 {
+            reach * 1.06
+        } else {
+            1.0
+        }
+    }
+}
+
+impl Ring for SignalRing {
+    fn thickness(&self) -> f64 {
+        self.thickness
+    }
+
+    fn draw(&self, ctx: &mut RingContext<'_>) {
+        let middle = ctx.middle();
+        let half = ctx.thickness() / 2.0;
+        let reach = self.reach();
+
+        if self.show_baseline {
+            ctx.svg.path_stroked(
+                &ctx.polar.circle(middle),
+                &mix(ctx.theme.surface(), &ctx.theme.rule, 0.8),
+                0.8,
+            );
+        }
+
+        let above = self
+            .above_color
+            .clone()
+            .unwrap_or_else(|| ctx.theme.color(0).to_string());
+        let below = self
+            .below_color
+            .clone()
+            .unwrap_or_else(|| ctx.theme.color(1).to_string());
+
+        for window in &self.windows {
+            if !window.value.is_finite() {
+                continue;
+            }
+            let offset = ((window.value - self.baseline) / reach).clamp(-1.0, 1.0) * half;
+            if offset.abs() < 1e-9 {
+                continue;
+            }
+            let (inner, outer, color) = if offset > 0.0 {
+                (middle, middle + offset, &above)
+            } else {
+                (middle + offset, middle, &below)
+            };
+            ctx.svg.path(
+                &ctx.polar.sector(window.start, window.end, inner, outer),
+                color,
+                1.0,
+            );
+        }
+    }
+}
+
+/// Points on the sequence, drawn as radial ticks.
+#[derive(Debug, Clone)]
+pub struct MarkerRing {
+    positions: Vec<(u64, usize)>,
+    thickness: f64,
+    width: f64,
+    colors: Vec<String>,
+}
+
+impl MarkerRing {
+    /// A ring of positions, all in one colour.
+    pub fn new(positions: impl IntoIterator<Item = u64>) -> Self {
+        MarkerRing {
+            positions: positions.into_iter().map(|pos| (pos, 0)).collect(),
+            thickness: 10.0,
+            width: 1.2,
+            colors: Vec::new(),
+        }
+    }
+
+    /// A ring of positions, each carrying an index into the palette.
+    ///
+    /// For anything with a class attached: a variant and its consequence, a
+    /// resistance mutation and its drug, an insertion sequence and its family.
+    pub fn categorised(positions: impl IntoIterator<Item = (u64, usize)>) -> Self {
+        MarkerRing {
+            positions: positions.into_iter().collect(),
+            thickness: 10.0,
+            width: 1.2,
+            colors: Vec::new(),
+        }
+    }
+
+    /// Sets how much radius the ring takes.
+    pub fn thickness(mut self, thickness: f64) -> Self {
+        self.thickness = thickness.max(2.0);
+        self
+    }
+
+    /// Sets how wide one tick is drawn, in pixels.
+    pub fn width(mut self, width: f64) -> Self {
+        self.width = width.max(0.3);
+        self
+    }
+
+    /// Overrides the palette the category indices point into.
+    pub fn colors(mut self, colors: impl Into<Vec<String>>) -> Self {
+        self.colors = colors.into();
+        self
+    }
+
+    /// The positions and their categories.
+    pub fn positions(&self) -> &[(u64, usize)] {
+        &self.positions
+    }
+}
+
+impl Ring for MarkerRing {
+    fn thickness(&self) -> f64 {
+        self.thickness
+    }
+
+    fn gap(&self) -> f64 {
+        3.0
+    }
+
+    fn draw(&self, ctx: &mut RingContext<'_>) {
+        for (pos, category) in &self.positions {
+            let color = if self.colors.is_empty() {
+                ctx.theme.color(*category).to_string()
+            } else {
+                self.colors[*category % self.colors.len()].clone()
+            };
+            let angle = ctx.polar.angle(*pos);
+            let (x0, y0) = ctx.polar.at(angle, ctx.inner);
+            let (x1, y1) = ctx.polar.at(angle, ctx.outer);
+            ctx.svg.line(x0, y0, x1, y1, &color, self.width);
+        }
+    }
+}
+
+/// A position as megabases, or bases when the sequence is short.
+fn megabases(pos: u64) -> String {
+    if pos == 0 {
+        return "0".to_string();
+    }
+    if pos >= 1_000_000 {
+        let mb = pos as f64 / 1e6;
+        return format!("{}{}", trim(mb), " Mb");
+    }
+    if pos >= 1_000 {
+        return format!("{}{}", trim(pos as f64 / 1e3), " kb");
+    }
+    format!("{pos}")
+}
+
+fn trim(value: f64) -> String {
+    let rounded = (value * 100.0).round() / 100.0;
+    if rounded == rounded.trunc() {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded}")
+    }
+}
+
+/// Rounds a raw tick interval to 1, 2 or 5 times a power of ten.
+fn nice_step(raw: f64) -> u64 {
+    if !raw.is_finite() || raw <= 1.0 {
+        return 1;
+    }
+    let magnitude = 10f64.powf(raw.log10().floor());
+    let normalised = raw / magnitude;
+    let multiplier = if normalised <= 1.5 {
+        1.0
+    } else if normalised <= 3.0 {
+        2.0
+    } else if normalised <= 7.0 {
+        5.0
+    } else {
+        10.0
+    };
+    ((multiplier * magnitude).round() as u64).max(1)
+}
+
+/// Something that renders to a standalone SVG and can go on a sheet.
+///
+/// Implemented by [`Figure`](crate::Figure) and by [`Rings`], which is what
+/// lets a linear stack and a circular plot sit on one
+/// [`Panels`](crate::Panels) sheet despite having nothing else in common.
+pub trait Drawing {
+    /// Width and height of the rendered image.
+    fn dimensions(&self) -> (f64, f64);
+
+    /// Renders it, with every generated id carrying `prefix`.
+    fn to_svg_with_id_prefix(&self, prefix: &str) -> String;
+}
+
+impl Drawing for Rings {
+    fn dimensions(&self) -> (f64, f64) {
+        Rings::dimensions(self)
+    }
+
+    fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
+        Rings::to_svg_with_id_prefix(self, prefix)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn polar() -> Polar {
+        Polar::new(1_000, 100.0, 100.0, 0.0)
+    }
+
+    #[test]
+    fn zero_is_at_twelve_oclock_and_coordinates_run_clockwise() {
+        let p = polar();
+        let (x, y) = p.point(0, 50.0);
+        assert!((x - 100.0).abs() < 1e-9, "straight up from the centre");
+        assert!((y - 50.0).abs() < 1e-9);
+
+        // A quarter of the way round is three o'clock, to the right.
+        let (x, y) = p.point(250, 50.0);
+        assert!((x - 150.0).abs() < 1e-6, "clockwise, not anticlockwise");
+        assert!((y - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_origin_gap_leaves_a_seam_at_the_top() {
+        let closed = Polar::new(1_000, 0.0, 0.0, 0.0);
+        let seamed = Polar::new(1_000, 0.0, 0.0, 20.0);
+        assert!((closed.angle(0) - 0.0).abs() < 1e-12);
+        assert!((seamed.angle(0) - 10f64.to_radians()).abs() < 1e-12);
+        // The last base stops short of where the first one starts.
+        let end = seamed.angle(1_000);
+        assert!(end < 2.0 * PI - 10f64.to_radians() + 1e-12);
+    }
+
+    #[test]
+    fn a_position_past_the_end_is_clamped_rather_than_wrapped() {
+        // Wrapping would put a feature that overruns the origin at the top of
+        // the circle, which is a different claim from the one the data made.
+        let p = polar();
+        assert_eq!(p.angle(5_000), p.angle(1_000));
+    }
+
+    #[test]
+    fn resolution_falls_with_the_radius() {
+        let p = polar();
+        let outer = p.bp_per_px(100.0);
+        let inner = p.bp_per_px(50.0);
+        assert!((inner / outer - 2.0).abs() < 1e-9, "half the circumference");
+    }
+
+    #[test]
+    fn a_sector_closes_and_a_circle_is_two_arcs() {
+        let p = polar();
+        let sector = p.sector(0, 100, 40.0, 60.0);
+        assert!(sector.starts_with('M'));
+        assert!(sector.ends_with('Z'));
+        assert_eq!(sector.matches('A').count(), 2, "one arc per radius");
+
+        let circle = p.circle(50.0);
+        // Two, because an arc cannot return to the point it started from.
+        assert_eq!(circle.matches('A').count(), 2);
+    }
+
+    #[test]
+    fn a_span_of_one_base_is_still_a_visible_mark() {
+        let p = Polar::new(4_411_532, 0.0, 0.0, 0.0);
+        let sector = p.sector(100, 101, 40.0, 60.0);
+        assert!(!sector.contains("NaN"));
+        // Not a shape of zero width, which would draw nothing.
+        assert!(p.span(100, 101).1 > p.span(100, 101).0);
+    }
+
+    #[test]
+    fn a_span_across_the_origin_takes_the_short_way_round() {
+        // On a circular sequence "from 900 to 100" is two hundred bases through
+        // the top of the circle, not the eight hundred the other way. Read as a
+        // backwards span it would come out as most of the chromosome.
+        let p = polar();
+        let wrapped = p.sector(900, 100, 40.0, 60.0);
+        assert_eq!(wrapped.matches('M').count(), 2, "a piece either side of 0");
+        assert_eq!(wrapped.matches('Z').count(), 2);
+        assert_eq!(
+            wrapped.matches("A60 60 0 1").count(),
+            0,
+            "neither piece is the long way round"
+        );
+        assert_eq!(p.sector(100, 300, 40.0, 60.0).matches('M').count(), 1);
+    }
+
+    #[test]
+    fn a_ribbon_joins_two_spans_through_the_middle() {
+        let p = polar();
+        let ribbon = p.ribbon((0, 50), (500, 550), 40.0);
+        assert_eq!(ribbon.matches('Q').count(), 2, "one curve per side");
+        assert_eq!(ribbon.matches('A').count(), 2, "one arc per end");
+        assert!(ribbon.ends_with('Z'));
+        assert!(ribbon.contains("100 100"), "pulled towards the centre");
+    }
+
+    #[test]
+    fn rings_stack_inwards_and_leave_room_in_the_middle() {
+        let plot = Rings::new(1_000)
+            .diameter(400.0)
+            .push(AxisRing::new().thickness(20.0))
+            .push(FeatureRing::new(Vec::new()).thickness(10.0));
+        // 200 outer, less 20 and its gap, less 10 and its gap.
+        assert_eq!(plot.inner_radius(), 200.0 - 20.0 - 5.0 - 10.0 - 5.0);
+        assert_eq!(plot.ring_count(), 2);
+        assert_eq!(plot.dimensions(), (400.0 + 28.0, 400.0 + 28.0));
+    }
+
+    #[test]
+    fn too_many_rings_still_leave_a_middle_to_draw_in() {
+        let mut plot = Rings::new(1_000).diameter(120.0);
+        for _ in 0..20 {
+            plot = plot.push(FeatureRing::new(Vec::new()).thickness(20.0));
+        }
+        assert!(plot.inner_radius() > 0.0);
+        assert!(!plot.to_svg().contains("NaN"));
+    }
+
+    #[test]
+    fn an_empty_plot_is_a_valid_document() {
+        let svg = Rings::new(4_411_532).to_svg();
+        assert!(svg.starts_with("<svg "));
+        assert!(svg.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn the_ruler_labels_the_origin_and_walks_round() {
+        let svg = Rings::new(4_411_532).push(AxisRing::new()).to_svg();
+        assert!(svg.contains(">0</text>"));
+        assert!(svg.contains("Mb</text>"), "{svg}");
+        assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn the_two_strands_take_half_the_ring_each() {
+        let features = vec![
+            Feature::new(0, 100_000).strand(Strand::Forward),
+            Feature::new(200_000, 300_000).strand(Strand::Reverse),
+        ];
+        let split = Rings::new(1_000_000)
+            .push(FeatureRing::new(features.clone()))
+            .to_svg();
+        let merged = Rings::new(1_000_000)
+            .push(FeatureRing::new(features).split_strands(false))
+            .to_svg();
+        // Split, the two lanes use different radii and therefore different
+        // arc commands; merged they use the same ones.
+        assert_ne!(split, merged);
+        assert!(split.contains(Theme::light().color(0)));
+        assert!(split.contains(Theme::light().color(2)));
+    }
+
+    #[test]
+    fn a_gene_too_small_to_see_is_widened_to_the_floor() {
+        // A thousand bases on a four megabase chromosome is a tenth of a
+        // degree, which is nothing at all without a floor.
+        let hair = Rings::new(4_411_532)
+            .push(FeatureRing::new(vec![Feature::new(10_000, 11_000)]).min_degrees(0.0))
+            .to_svg();
+        let visible = Rings::new(4_411_532)
+            .push(FeatureRing::new(vec![Feature::new(10_000, 11_000)]).min_degrees(1.0))
+            .to_svg();
+        assert!(visible.len() > hair.len());
+    }
+
+    #[test]
+    fn a_signal_ring_goes_outward_and_inward_from_its_baseline() {
+        let windows = vec![
+            Window::new(0, 100_000, 0.4),
+            Window::new(100_000, 200_000, -0.3),
+        ];
+        let ring = SignalRing::new(windows).colors("#111111", "#222222");
+        let svg = Rings::new(1_000_000).push(ring).to_svg();
+        assert!(svg.contains("#111111"), "nothing outside the baseline");
+        assert!(svg.contains("#222222"), "nothing inside it");
+    }
+
+    #[test]
+    fn a_flat_signal_does_not_divide_by_zero() {
+        let ring = SignalRing::new(vec![Window::new(0, 100, 0.0)]);
+        assert!(ring.reach() > 0.0);
+        assert!(!Rings::new(1_000).push(ring).to_svg().contains("NaN"));
+    }
+
+    #[test]
+    fn markers_carry_their_categories_into_the_palette() {
+        let theme = Theme::light();
+        let svg = Rings::new(1_000_000)
+            .push(MarkerRing::categorised(vec![(1_000, 0), (2_000, 1)]))
+            .to_svg();
+        assert!(svg.contains(theme.color(0)));
+        assert!(svg.contains(theme.color(1)));
+    }
+
+    #[test]
+    fn a_link_is_drawn_under_the_rings_rather_than_over_them() {
+        let svg = Rings::new(1_000_000)
+            .push(AxisRing::new())
+            .link((0, 10_000), (500_000, 510_000))
+            .to_svg();
+        let ribbon = svg.find("<path").unwrap();
+        let ruler = svg.find("stroke-width").unwrap();
+        assert!(ribbon < ruler, "a dozen ribbons would wash the rings out");
+    }
+
+    #[test]
+    fn the_title_sits_in_the_middle_of_the_circle() {
+        let svg = Rings::new(4_411_532)
+            .title("H37Rv")
+            .subtitle("4.41 Mb")
+            .to_svg();
+        assert!(svg.contains(">H37Rv</text>"));
+        assert!(svg.contains(">4.41 Mb</text>"));
+    }
+
+    #[test]
+    fn positions_are_written_in_the_unit_that_suits_them() {
+        assert_eq!(megabases(0), "0");
+        assert_eq!(megabases(500), "500");
+        assert_eq!(megabases(2_500), "2.5 kb");
+        assert_eq!(megabases(2_000_000), "2 Mb");
+        assert_eq!(megabases(4_411_532), "4.41 Mb");
+    }
+
+    #[test]
+    fn tick_steps_are_round_numbers() {
+        assert_eq!(nice_step(441_153.2), 500_000);
+        assert_eq!(nice_step(0.5), 1);
+        assert_eq!(nice_step(f64::NAN), 1);
+    }
+
+    #[test]
+    fn a_circle_and_a_stack_can_share_one_sheet() {
+        use crate::figure::Figure;
+        use crate::panels::Panels;
+        use crate::region::Region;
+        use crate::track::{AxisTrack, CoverageTrack};
+
+        // The whole reason for the Drawing trait: the two have nothing in
+        // common except that both render to an SVG of a known size.
+        let stack = Figure::new(Region::new("chr1", 0, 1_000).unwrap())
+            .push(CoverageTrack::new(0, vec![3.0; 1_000]))
+            .push(AxisTrack::new());
+        let circle = Rings::new(4_411_532).push(AxisRing::new()).title("H37Rv");
+
+        let sheet = Panels::new().push(&stack, "A").push(&circle, "B").to_svg();
+        assert_eq!(sheet.matches("<svg ").count(), 3);
+        assert!(sheet.contains(">H37Rv</text>"));
+        assert!(sheet.contains("p1-") || !circle.to_svg().contains("id="));
+    }
+}

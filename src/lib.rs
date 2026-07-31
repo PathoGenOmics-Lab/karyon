@@ -44,6 +44,15 @@
 //! assert!(svg.starts_with("<svg"));
 //! ```
 //!
+//! # Circular sequences
+//!
+//! A bacterial chromosome has no ends, and drawing one as a line puts an edge
+//! where the biology has none. [`Rings`] maps position to an angle instead, so
+//! it is a container of its own rather than a track: annotation, composition
+//! and variants go on concentric rings, and chords across the middle join the
+//! two ends of a rearrangement. A [`Rings`] plot and a [`Figure`] can share one
+//! [`Panels`] sheet, which is all the [`Drawing`] trait is for.
+//!
 //! # Extending
 //!
 //! The eighteen track types shipped here are implementations of one small trait,
@@ -75,6 +84,7 @@ pub mod error;
 pub mod figure;
 pub mod panels;
 pub mod region;
+pub mod rings;
 pub mod scale;
 pub mod svg;
 pub mod theme;
@@ -85,6 +95,9 @@ pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
 pub use crate::panels::Panels;
 pub use crate::region::Region;
+pub use crate::rings::{
+    AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,
+};
 pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{BaseColors, Theme};

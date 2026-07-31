@@ -314,6 +314,16 @@ impl Figure {
     }
 }
 
+impl crate::rings::Drawing for Figure {
+    fn dimensions(&self) -> (f64, f64) {
+        Figure::dimensions(self)
+    }
+
+    fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
+        Figure::to_svg_with_id_prefix(self, prefix)
+    }
+}
+
 struct Layout {
     scale: Scale,
     plot_x: f64,

@@ -19,12 +19,12 @@ use std::path::PathBuf;
 
 use karyon::tree::Tree;
 use karyon::{
-    AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisTrack, Band, CellScale, CigarOp,
-    CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureTrack, Figure, IdeogramTrack,
-    LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MsaColoring,
-    MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring, Region,
-    SequenceTrack, SnpTrack, Stain, Strand, SyntenyTrack, TreeTrack, Variant, VariantTrack, Window,
-    WindowStyle, WindowTrack,
+    AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
+    CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureRing,
+    FeatureTrack, Figure, IdeogramTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack,
+    MarkerRing, MatrixRow, MatrixTrack, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Panels,
+    PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack, Stain,
+    Strand, SyntenyTrack, TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -89,6 +89,11 @@ fn main() -> std::io::Result<()> {
             &accumulation(),
             "K",
             "Whether the pangenome closes, over two hundred genome orderings",
+        )
+        .push_captioned(
+            &circular(),
+            "L",
+            "A circular chromosome: annotation, composition, and chords across the middle",
         );
 
     sheet.save_svg(out.join("gallery.svg"))?;
@@ -521,6 +526,70 @@ fn accumulation() -> Figure {
                 .height(140.0),
         )
         .push(AxisTrack::new().center_on_bases(true).label("genomes"))
+}
+
+/// L: the chromosome as the circle it actually is.
+///
+/// Not a `Figure`: a circle maps position to an angle rather than to an x, so
+/// it is a different container. Both go on the sheet because both know how to
+/// render themselves to an SVG of a stated size, which is all `Panels` asks.
+fn circular() -> Rings {
+    let length = 4_411_532u64;
+    let step = 10_000u64;
+    let mut rng = Lcg::new(1_906);
+
+    let bases: Vec<u8> = (0..length)
+        .map(|index| {
+            let leading = index < length / 2;
+            match rng.next() % 100 {
+                0..=32 if leading => b'G',
+                0..=32 => b'C',
+                33..=64 if leading => b'C',
+                33..=64 => b'G',
+                65..=82 => b'A',
+                _ => b'T',
+            }
+        })
+        .collect();
+    let skew = WindowTrack::gc_skew(0, &bases, step).windows().to_vec();
+
+    let genes: Vec<Feature> = (0..700)
+        .map(|index| {
+            let start = index * (length / 700) + rng.next() % 900;
+            Feature::new(start, start + 800 + rng.next() % 1_600).strand(if rng.next() % 2 == 0 {
+                Strand::Forward
+            } else {
+                Strand::Reverse
+            })
+        })
+        .collect();
+
+    Rings::new(length)
+        .diameter(520.0)
+        .title("H37Rv")
+        .subtitle("4.41 Mb")
+        .push(AxisRing::new())
+        .push(FeatureRing::new(genes).thickness(18.0))
+        .push(
+            FeatureRing::new(vec![
+                Feature::new(759_807, 763_325).name("rpoB"),
+                Feature::new(2_153_889, 2_156_111).name("katG"),
+            ])
+            .thickness(2.0)
+            .show_names(true)
+            .split_strands(false),
+        )
+        .push(
+            MarkerRing::categorised(vec![(761_155, 0), (2_155_168, 1), (1_673_425, 2)])
+                .thickness(11.0)
+                .width(2.0),
+        )
+        .push(
+            SignalRing::new(skew)
+                .thickness(46.0)
+                .colors("#0072b2", "#d55e00"),
+        )
+        .link_colored((1_100_000, 1_180_000), (3_240_000, 3_320_000), None, 0.3)
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a

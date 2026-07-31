@@ -245,6 +245,14 @@ impl WindowTrack {
         &self.windows
     }
 
+    /// Where the baseline sits.
+    ///
+    /// Worth asking for after [`WindowTrack::gc_content`], which works it out
+    /// from the sequence rather than taking it from the caller.
+    pub fn baseline_value(&self) -> f64 {
+        self.baseline
+    }
+
     /// The values the axis spans, low first.
     ///
     /// Taken over every window handed in rather than only the visible ones, so

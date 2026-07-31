@@ -1,10 +1,12 @@
-//! Several figures in one document.
+//! Several drawings in one document.
 //!
-//! A [`Figure`] is one stack of tracks over one coordinate
-//! system. A paper figure is usually several of those with letters on them, and
-//! so is an overview of everything a library can draw. Panels stack finished
-//! figures into a single SVG without any of them having to know about the
-//! others.
+//! A [`Figure`](crate::Figure) is one stack of tracks over one coordinate
+//! system, and a [`Rings`](crate::Rings) plot is one circular sequence. A paper
+//! figure is usually several of those with letters on them, and so is an
+//! overview of everything a library can draw. Panels stack finished drawings
+//! into a single SVG without any of them having to know about the others, and
+//! it takes anything that implements [`Drawing`], so a linear
+//! stack and a circle go on the same sheet.
 //!
 //! Each figure is embedded as a nested `<svg>` inside a translated group, so
 //! nothing is reparsed and nothing is moved around afterwards. The one thing a
@@ -16,7 +18,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::figure::Figure;
+use crate::rings::Drawing;
 use crate::svg::{escape, num, Anchor, SvgWriter};
 use crate::theme::Theme;
 
@@ -94,14 +96,14 @@ impl Panels {
     ///
     /// The figure is rendered now and stored, so later changes to it do not
     /// reach the sheet.
-    pub fn push(self, figure: &Figure, label: impl Into<String>) -> Self {
+    pub fn push(self, figure: &impl Drawing, label: impl Into<String>) -> Self {
         self.add(figure, Some(label.into()), None)
     }
 
     /// Adds a figure with a letter and a caption under it.
     pub fn push_captioned(
         self,
-        figure: &Figure,
+        figure: &impl Drawing,
         label: impl Into<String>,
         caption: impl Into<String>,
     ) -> Self {
@@ -109,11 +111,16 @@ impl Panels {
     }
 
     /// Adds a figure with no letter.
-    pub fn push_bare(self, figure: &Figure) -> Self {
+    pub fn push_bare(self, figure: &impl Drawing) -> Self {
         self.add(figure, None, None)
     }
 
-    fn add(mut self, figure: &Figure, label: Option<String>, caption: Option<String>) -> Self {
+    fn add(
+        mut self,
+        figure: &impl Drawing,
+        label: Option<String>,
+        caption: Option<String>,
+    ) -> Self {
         let (width, height) = figure.dimensions();
         // Each panel gets an id space of its own. Without this the second
         // panel's `url(#karyon-clip-0)` would resolve to the first panel's
@@ -294,6 +301,7 @@ impl Default for Panels {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::figure::Figure;
     use crate::region::Region;
     use crate::track::{AxisTrack, CoverageTrack};
 
