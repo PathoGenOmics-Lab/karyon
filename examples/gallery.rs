@@ -20,6 +20,10 @@
 //! them are not in genomic coordinates at all: the alignment counts columns,
 //! the variable site panel counts sites, and the two tree panels measure
 //! evolutionary distance.
+//!
+//! One is in genomic coordinates twice over. The codon ruler counts residues
+//! along the same axis the bases are on, which is the only way to point at a
+//! figure and say S450L.
 
 use std::env;
 use std::path::PathBuf;
@@ -28,13 +32,15 @@ use karyon::theme::mix;
 use karyon::tree::Tree;
 use karyon::{
     Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band, BisulfiteTrack, CellScale,
-    CigarOp, CoverageTrack, DotplotTrack, Feature, FeatureRing, FeatureTrack, Figure, Genome,
-    GenomeTrack, Homology, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
-    LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite,
-    MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, OrfTrack,
-    Panels, PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack,
-    SquiggleTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack,
-    TanglegramTrack, Theme, TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
+    CigarOp, CladeBlock, CladeTrack, CodonTrack, CoverageTrack, DotplotTrack, Feature, FeatureRing,
+    FeatureTrack, Figure, Genome, GenomeTrack, Homology, IdeogramTrack, Legend, LegendTrack, Locus,
+    LocusTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow,
+    MatrixTrack, MethylSite, MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay,
+    MsaSequence, MsaTrack, OrfTrack, Panels, PileupTrack, Read, ReadColoring, Region, Rings,
+    SequenceTrack, SignalRing, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack,
+    Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack,
+    Terminator, Theme, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack,
+    Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -48,7 +54,7 @@ fn main() -> std::io::Result<()> {
 
     let sheet = Panels::new()
         .title("karyon: every representation")
-        // Fifteen panels in one column is a scroll rather than a figure.
+        // Twenty-two panels in one column is a scroll rather than a figure.
         .columns(3)
         .gap(20.0)
         .push_captioned(
@@ -136,6 +142,26 @@ fn main() -> std::io::Result<()> {
             &bisulfite(),
             "R",
             "Methylation one molecule at a time, not one fraction per site",
+        )
+        .push_captioned(
+            &codons(),
+            "S",
+            "A coding sequence in the coordinates the clinic names it in",
+        )
+        .push_captioned(
+            &split_reads(),
+            "T",
+            "One molecule, three alignments, and the order it visited them in",
+        )
+        .push_captioned(
+            &clades(),
+            "U",
+            "Genomic intervals painted onto the branch that gained or lost them",
+        )
+        .push_captioned(
+            &transcripts(),
+            "V",
+            "Transcription units: one arrow, one molecule, one hairpin",
         );
 
     sheet.save_svg(out.join("gallery.svg"))?;
@@ -883,6 +909,204 @@ fn bisulfite() -> Figure {
                 .label("CpG")
                 .row_height(12.0),
         )
+        .push(AxisTrack::new())
+}
+
+/// S: a gene read as protein.
+fn codons() -> Figure {
+    let mut rng = Lcg::new(4_493);
+    // rpoB, 759,807 to 763,325 in H37Rv, 1-based inclusive, forward strand.
+    let (cds_start, cds_end) = (759_806u64, 763_325u64);
+    let (from, to) = (761_120u64, 761_200u64);
+
+    let ruler = CodonTrack::new(cds_start, cds_end, Strand::Forward);
+    let mut bases: Vec<u8> = (0..(to - from + 6))
+        .map(|_| b"ACGT"[(rng.next() % 4) as usize])
+        .collect();
+    for codon in 1..=ruler.codons() {
+        let Some((start, end)) = ruler.span_of(codon) else {
+            continue;
+        };
+        if end <= from || start >= to + 6 {
+            continue;
+        }
+        let at = (start - from) as usize;
+        if at + 3 > bases.len() {
+            continue;
+        }
+        // A serine at 450 and a histidine at 445, and nothing that stops.
+        bases[at..at + 3].copy_from_slice(match codon {
+            450 => b"TCG",
+            445 => b"CAC",
+            _ => b"CTG",
+        });
+    }
+
+    let ruler = CodonTrack::new(cds_start, cds_end, Strand::Forward)
+        .sequence(from, bases)
+        .label("rpoB");
+    let s450 = ruler.span_of(450).expect("rpoB has a codon 450");
+    let h445 = ruler.span_of(445).expect("rpoB has a codon 445");
+
+    Figure::new(Region::new("NC_000962.3", from, to).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            VariantTrack::new(vec![
+                Variant::new(s450.0 + 1).category("S450L"),
+                Variant::new(h445.0 + 1).category("H445Y"),
+            ])
+            .label("variants")
+            .height(34.0),
+        )
+        .push(ruler)
+        .push(AxisTrack::new())
+}
+
+/// T: one molecule in several places.
+fn split_reads() -> Figure {
+    let mut rng = Lcg::new(8_101);
+    let span = 40_000u64;
+    let donor = (12_000u64, 13_355u64);
+    let landing = 29_400u64;
+
+    let reads: Vec<SplitRead> = (0..6)
+        .map(|index| {
+            let jitter = rng.next() % 600;
+            SplitRead::new(vec![
+                SplitSegment::new(landing - 1_400 - jitter, landing, Strand::Forward)
+                    .read_span(0, 1_400 + jitter),
+                SplitSegment::new(
+                    donor.0,
+                    donor.1,
+                    if index % 3 == 0 {
+                        Strand::Reverse
+                    } else {
+                        Strand::Forward
+                    },
+                )
+                .read_span(1_400 + jitter, 2_755 + jitter),
+                SplitSegment::new(landing, landing + 900 + jitter, Strand::Forward)
+                    .read_span(2_755 + jitter, 3_655 + 2 * jitter),
+            ])
+            .name(format!("read_{:02}", index + 1))
+        })
+        .collect();
+
+    // Depth agrees: the donor copy is still there, so it reads twice over.
+    let depth: Vec<f64> = (0..span)
+        .map(|at| {
+            let base = if at >= donor.0 && at < donor.1 {
+                96.0
+            } else {
+                48.0
+            };
+            base + (rng.next() % 60) as f64 / 10.0
+        })
+        .collect();
+
+    Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(SplitReadTrack::new(reads).label("reads").row_height(10.0))
+        .push(CoverageTrack::new(0, depth).label("depth").height(44.0))
+        .push(
+            FeatureTrack::new(vec![Feature::new(donor.0, donor.1)
+                .name("IS6110")
+                .strand(Strand::Forward)])
+            .label("donor"),
+        )
+        .push(AxisTrack::new())
+}
+
+/// U: intervals that belong to a branch.
+fn clades() -> Figure {
+    let tree = Tree::parse_newick(
+        "(((M_canettii:0.09,\
+            (((L1_ERR1:0.011,L1_ERR2:0.010):0.014,\
+              (L2_ERR3:0.009,L2_ERR4:0.011):0.013):0.008,\
+             ((L3_ERR5:0.010,L4_ERR6:0.012):0.011,\
+              (L4_ERR7:0.009,L4_ERR8:0.010):0.012):0.009):0.030):0.020,\
+           M_bovis:0.055):0.010,BCG_Pasteur:0.062);",
+    )
+    .expect("the tree in this panel is well formed");
+
+    let blocks = vec![
+        CladeBlock::new(
+            1_779_000,
+            1_788_000,
+            [
+                "L1_ERR1", "L1_ERR2", "L2_ERR3", "L2_ERR4", "L3_ERR5", "L4_ERR6", "L4_ERR7",
+                "L4_ERR8",
+            ],
+        )
+        .name("TbD1 deleted"),
+        CladeBlock::new(4_350_000, 4_359_600, ["BCG_Pasteur"]).name("RD1"),
+        CladeBlock::new(2_330_000, 2_342_000, ["M_bovis", "BCG_Pasteur"]).name("RD9"),
+        // Two lineages with a third between them that does not carry it: not a
+        // clade, so the block is cut rather than claiming one ancestral event.
+        CladeBlock::new(
+            3_100_000,
+            3_128_000,
+            ["L1_ERR1", "L1_ERR2", "L4_ERR7", "L4_ERR8"],
+        )
+        .name("recurrent"),
+    ];
+
+    Figure::new(Region::new("NC_000962.3", 0, 4_411_532).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            CladeTrack::new(tree, blocks)
+                .label("isolates")
+                .row_height(11.0)
+                .tree_width(110.0),
+        )
+        .push(AxisTrack::new())
+}
+
+/// V: one RNA at a time.
+fn transcripts() -> Figure {
+    let units = vec![
+        TranscriptionUnit::new(4_350_200, 4_352_400, Strand::Forward)
+            .cds_start(4_350_200)
+            .terminator(Terminator::Intrinsic)
+            .name("esxB-esxA"),
+        TranscriptionUnit::new(4_352_900, 4_355_600, Strand::Forward)
+            .cds_start(4_353_064)
+            .terminator(Terminator::Intrinsic)
+            .name("espI"),
+        TranscriptionUnit::new(4_358_900, 4_356_100, Strand::Reverse)
+            .cds_start(4_358_820)
+            .terminator(Terminator::RhoDependent)
+            .name("eccCa1"),
+    ];
+
+    let genes = FeatureTrack::new(vec![
+        Feature::new(4_350_200, 4_350_500)
+            .name("esxB")
+            .strand(Strand::Forward),
+        Feature::new(4_350_600, 4_350_900)
+            .name("esxA")
+            .strand(Strand::Forward),
+        Feature::new(4_353_064, 4_355_400)
+            .name("espI")
+            .strand(Strand::Forward),
+        Feature::new(4_356_100, 4_358_820)
+            .name("eccCa1")
+            .strand(Strand::Reverse),
+    ])
+    .label("genes");
+
+    Figure::new(Region::new("NC_000962.3", 4_349_900, 4_359_200).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            TranscriptionUnitTrack::new(units)
+                .label("transcripts")
+                .row_height(26.0),
+        )
+        .push(genes)
         .push(AxisTrack::new())
 }
 

@@ -6,6 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `CodonTrack`, a ruler in codons. Everything clinically interesting about a
+  bacterial genome is named in residues (rpoB S450L, katG S315T, gyrA D94G) and
+  the crate could only speak bases, so no figure could be pointed at with the
+  name its result has. It partitions a coding sequence into codons, numbers
+  them, and translates them where a letter fits. The partition is itself the
+  claim: two changes in one codon are competing alleles at one residue, not a
+  double mutant. On the reverse strand codon 1 sits at the highest coordinate,
+  which is the whole reason this is a track and not a division by three, since
+  katG and pncA both run backwards.
+- `SplitReadTrack`, `SplitRead` and `SplitSegment`, reads that align in pieces.
+  A `PileupTrack` read is one start, one CIGAR and one strand, so a molecule
+  that visits three places cannot be written down in it, and a `StructuralTrack`
+  arc starts from a finished call, so by the time there is an arc the evidence
+  has been summarised away. This is the evidence: one row per molecule, one bar
+  per alignment, connectors saying in what order and orientation it went. A
+  backward hop dips under the row and a forward one arches over, so a read
+  crossing an inversion is a different picture from one crossing a deletion. An
+  IS6110 transposition is three segments and not an arc.
+- `CladeTrack` and `CladeBlock`, genomic intervals painted onto a phylogeny. A
+  `MatrixTrack` cell is one base wide and cells never merge, so a matrix can
+  only say that six samples each carry something here, which is six
+  observations. A block whose height covers a clade says one. The track can lie
+  in exactly one way and refuses to: rows inside a block that do not carry it
+  are cut out, so a paraphyletic set can never pass for a clade.
+- `TranscriptionUnitTrack`, `TranscriptionUnit` and `Terminator`. Nothing in the
+  crate touched transcription. The span from the bent arrow to the hairpin is
+  one RNA molecule, so the genes under it are co-transcribed and a promoter
+  mutation upstream changes all of them at once. The 5' leader is drawn hollow,
+  which makes its length a distance to measure rather than a number in a
+  caption, and a leaderless transcript is a different picture rather than a
+  different label.
+- `examples/reading.rs` and four assets, plus gallery panels S to V. The sheet is
+  twenty-two panels.
+- The README track table now lists all twenty-nine track types. It had stopped at
+  `AxisTrack` and was fourteen tracks out of date.
+
 ### Removed
 
 - `AccumulationTrack`, `AccumulationCurve`, `DistanceTrack`, `FrequencyTrack`

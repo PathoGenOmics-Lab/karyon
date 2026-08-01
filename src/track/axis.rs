@@ -171,7 +171,7 @@ impl AxisTrack {
 /// The thresholds sit at 1.5, 3 and 7 rather than at 1, 2 and 5, so an interval
 /// of 2.06 becomes 2 and not 5. Rounding up at the boundary halves the number
 /// of ticks for a rounding error's worth of input.
-fn nice_step(span: f64, target_ticks: f64) -> u64 {
+pub(crate) fn nice_step(span: f64, target_ticks: f64) -> u64 {
     if !span.is_finite() || span <= 0.0 || target_ticks <= 0.0 {
         return 1;
     }

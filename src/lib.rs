@@ -64,9 +64,18 @@
 //! [`bands`](ManhattanTrack::bands), and [`GenomeTrack`] draws the sequences
 //! underneath so a reader can see where one ends and the next begins.
 //!
+//! # Protein coordinates
+//!
+//! Everything clinically interesting about a bacterial genome is named in
+//! residues, not bases: rpoB S450L, katG S315T, gyrA D94G. [`CodonTrack`] is the
+//! [`AxisTrack`] that can be pointed at with those names. It partitions a coding
+//! sequence into codons, numbers them, translates them where there is room for a
+//! letter, and counts from the far end on the reverse strand, which is where the
+//! arithmetic usually goes wrong.
+//!
 //! # Extending
 //!
-//! The twenty-five track types shipped here are implementations of one small trait,
+//! The twenty-nine track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -116,13 +125,14 @@ pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, Aggregate, AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack,
-    CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack, DotplotTrack, DrawContext,
-    Feature, FeatureTrack, GeneShape, GenomeTrack, Homology, IdeogramTrack, Legend, LegendItem,
-    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack,
-    Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, Move, MsaColoring,
-    MsaDisplay, MsaSequence, MsaTrack, Orf, OrfTrack, PileupLayout, PileupTrack, Read,
-    ReadColoring, Rect, Segment, SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder,
-    Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack,
-    Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle,
-    WindowTrack,
+    CellScale, Centering, CigarOp, CladeBlock, CladeTrack, CodonTrack, CoverageStyle,
+    CoverageTrack, DotplotTrack, DrawContext, Feature, FeatureTrack, GeneShape, GenomeTrack,
+    Homology, IdeogramTrack, Legend, LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn,
+    LogoScore, LogoStack, LogoTrack, ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite,
+    MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Orf,
+    OrfTrack, PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, SnpSite,
+    SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, StackOrder, Stain, Strand,
+    StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack, Terminator, Track,
+    TranscriptionUnit, TranscriptionUnitTrack, TreeShape, TreeTrack, Variant, VariantStyle,
+    VariantTrack, Window, WindowStyle, WindowTrack,
 };

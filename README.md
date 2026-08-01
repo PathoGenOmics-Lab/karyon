@@ -15,7 +15,7 @@ __Paula Ruiz-Rodriguez<sup>1</sup>__
 <br>
 <sub> 1. I<sup>2</sup>SysBio, University of Valencia-CSIC, FISABIO Joint Research Unit Infection and Public Health, Valencia, Spain </sub>
 
-<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of eighteen panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, per-strand methylation, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, and methylation one molecule at a time" width="100%">
+<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, per-strand methylation, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, methylation one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, genomic intervals painted onto a phylogeny, and transcription units from start site to terminator" width="100%">
 
 General plotting libraries know about points and lines. They do not know that a
 position is a base, that a gene has a strand, that a pixel at genome scale
@@ -82,6 +82,20 @@ cargo run --example locus -- assets
 | `PileupTrack` | Aligned reads | Real CIGARs, packed into rows, mismatches painted against the reference, strand arrows, gaps and insertions |
 | `LogoTrack` | Sequence logos | Seven scores, five of them against a background so symbols can hang below the baseline. Arbitrary alphabets |
 | `AxisTrack` | The coordinate ruler | Round tick positions, one unit for the whole ruler, bp, kb or Mb as the zoom demands |
+| `CodonTrack` | A coding sequence in codons | Numbered codons, translated where a letter fits, counted from the far end on the reverse strand. The ruler that lets a figure be pointed at as S450L |
+| `SplitReadTrack` | Reads that align in pieces | One row per molecule, one bar per alignment, connectors saying in what order and orientation it visited them. Backward hops dip below the row |
+| `CladeTrack` | Intervals that belong to a branch | A block whose width is a coordinate span and whose height is a clade. Rows inside it that do not carry it are cut out |
+| `TranscriptionUnitTrack` | Transcription units | Bent arrow at the start site, hollow 5' leader, hairpin or bar at the terminator. Leaderless transcripts are a different picture, not a different label |
+| `StructuralTrack` | Structural variants | Arcs between breakpoints, arch height by span, stroke weight by supporting reads |
+| `OrfTrack` | The six reading frames | Stops as marks, open stretches as bars, frame numbers in the axis strip |
+| `TanglegramTrack` | Two trees over one collection | Tips joined across the middle, crossings counted and coloured. The count is not a statistic and the docs say so |
+| `BisulfiteTrack` | Methylation per molecule | One row per read, filled and open circles per cytosine, nothing where a read did not reach. Confetti against stripes |
+| `MethylationTrack` | Methylation per site | One lane per strand, faded by read depth, hemimethylated sites available as a query |
+| `SquiggleTrack` | Raw nanopore current | Min to max envelope per pixel column, resolving into the trace when zoomed in, with the basecaller move table |
+| `LocusTrack` | One locus across several genomes | Gene arrows joined by identity ribbons, genes with no homolog outlined |
+| `WindowTrack` | Windowed signed statistics | pN/pS, GC skew, Tajima's D: coloured by which side of the baseline they fall |
+| `GenomeTrack` | Several sequences end to end | Alternating blocks with names, so a whole assembly can share one axis |
+| `LegendTrack` | A legend | Wraps onto extra rows rather than dropping a key |
 
 Each is an implementation of one trait with no privileged access to the figure.
 A track type that is not here is about thirty lines: see the example on
@@ -261,6 +275,34 @@ A bacterial chromosome has no cytogenetics to speak of, so `IdeogramTrack::bare`
 gives an outline. It still answers the only question it was ever asked:
 
 <img src="assets/example-ideogram-bacterial.svg" alt="The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it" width="80%">
+
+## Protein coordinates
+
+<img src="assets/example-codons.svg" alt="The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath" width="100%">
+
+Everything clinically interesting about a bacterial genome is named in residues:
+rpoB S450L, katG S315T, gyrA D94G, pncA anywhere at all. A figure drawn in bases
+cannot be pointed at with any of those names.
+
+`CodonTrack` is the `AxisTrack` that can. It partitions a coding sequence into
+codons, numbers them, and translates them where there is room for a letter, so
+the lollipop for S450L sits over a cell that says S and is labelled 450.
+
+The partition is the claim. Two changes at different bases of one codon are
+competing alleles at one residue, not a double mutant, and two changes in
+neighbouring codons are two substitutions however few bases apart they are.
+Neither statement can be made on a ruler of bases.
+
+On the reverse strand codon 1 sits at the **highest** coordinate and the
+numbering runs right to left, which is the whole reason this is a track and not
+a division by three. `katG` and `pncA` both run backwards along the chromosome,
+and they are the two genes a tuberculosis figure is most often about.
+
+```rust
+let ruler = CodonTrack::new(759_806, 763_325, Strand::Forward).sequence(from, bases);
+assert_eq!(ruler.codon_of(761_154), Some(450));
+assert_eq!(ruler.residue_of(450), Some(b'S'));
+```
 
 ## Read pileups
 
@@ -505,7 +547,8 @@ out is what makes the dependency count zero.
 
 Not implemented yet, in the order they are likely to arrive:
 
-- Dotplot and synteny ribbons between two sequences
+- A figure-level highlight and mask, one column running through every track, so a
+  masked region is visible as a mask rather than as an absence of variants
 - PNG output, likely behind a feature flag so the default stays dependency-free
 
 ## Installation
