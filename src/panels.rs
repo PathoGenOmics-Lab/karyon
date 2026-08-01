@@ -233,25 +233,16 @@ impl Panels {
             .map(|panel| self.panel_height(panel))
             .collect();
         let columns = self.columns.max(1).min(self.panels.len().max(1));
-        let total: f64 =
-            heights.iter().sum::<f64>() + self.gap * heights.len().saturating_sub(1) as f64;
-        let target = total / columns as f64;
+        let assignment = share_out(&heights, self.gap, columns);
 
         let mut places = Vec::with_capacity(self.panels.len());
-        let mut column = 0usize;
         let mut y = top;
         let mut filled = 0.0f64;
         let mut tallest = 0.0f64;
-        for (index, height) in heights.iter().enumerate() {
-            // Break when this column has had its share, but never so late that
-            // the columns still to come would be left with nothing in them.
-            let left_to_place = heights.len() - index;
-            let columns_left = columns - column;
-            if column + 1 < columns
-                && filled > 0.0
-                && (filled + height / 2.0 > target || left_to_place < columns_left)
-            {
-                column += 1;
+        let mut current = 0usize;
+        for (height, &column) in heights.iter().zip(&assignment) {
+            if column != current {
+                current = column;
                 y = top;
                 filled = 0.0;
             }
@@ -377,6 +368,73 @@ impl Default for Panels {
     fn default() -> Self {
         Panels::new()
     }
+}
+
+/// Which column each panel goes in, keeping them in order, making the tallest
+/// column as short as it can be, and then levelling what is left over.
+///
+/// Filling each column until it has passed its share is the obvious rule and
+/// the wrong one: one overshoot early leaves every later column short, and on
+/// a sheet of eighteen unequal panels it left the last column three hundred
+/// pixels of white space. Since the panels have to stay in order, the only
+/// choice is where to cut, and there are few enough cuts to weigh all of them.
+///
+/// The tallest column is what the sheet is as tall as, so it is settled first.
+/// It is rarely settled uniquely, though, and the runners up are what a reader
+/// sees as a ragged foot, so the sum of squares breaks the tie: of two sheets
+/// no taller than each other, it takes the one whose columns come out level.
+fn share_out(heights: &[f64], gap: f64, columns: usize) -> Vec<usize> {
+    let count = heights.len();
+    let columns = columns.min(count);
+    if columns <= 1 || count <= 1 {
+        return vec![0; count];
+    }
+
+    // Height of the run of panels `from..until`, gaps included.
+    let run = |from: usize, until: usize| -> f64 {
+        heights[from..until].iter().sum::<f64>() + gap * (until - from - 1) as f64
+    };
+
+    // best[c][i]: laying panels i.. out in c columns, the shortest tallest
+    // column and, under that, the most level rest. `cut[c][i]` is where the
+    // first of those columns ends.
+    let worse = (f64::INFINITY, f64::INFINITY);
+    let mut best = vec![vec![worse; count + 1]; columns + 1];
+    let mut cut = vec![vec![count; count + 1]; columns + 1];
+    for (from, slot) in best[1].iter_mut().enumerate().take(count) {
+        let only = run(from, count);
+        *slot = (only, only * only);
+    }
+    for spare in 2..=columns {
+        for from in 0..count {
+            // Leave at least one panel for each of the columns after this one.
+            for until in from + 1..=count.saturating_sub(spare - 1) {
+                let (rest_tallest, rest_square) = best[spare - 1][until];
+                if !rest_tallest.is_finite() {
+                    continue;
+                }
+                let here = run(from, until);
+                let score = (here.max(rest_tallest), here * here + rest_square);
+                if score.0 < best[spare][from].0 - 1e-9
+                    || (score.0 < best[spare][from].0 + 1e-9 && score.1 < best[spare][from].1)
+                {
+                    best[spare][from] = score;
+                    cut[spare][from] = until;
+                }
+            }
+        }
+    }
+
+    let mut assignment = vec![0usize; count];
+    let mut from = 0usize;
+    for (column, spare) in (1..=columns).rev().enumerate() {
+        let until = if spare == 1 { count } else { cut[spare][from] };
+        for slot in assignment.iter_mut().take(until).skip(from) {
+            *slot = column;
+        }
+        from = until;
+    }
+    assignment
 }
 
 #[cfg(test)]
@@ -527,6 +585,96 @@ mod tests {
         assert!(places[1].1 > places[0].1, "and B is under A");
         assert!(places[2].0 > places[0].0, "C starts the next one");
         assert_eq!(places[2].1, places[0].1, "back at the top");
+    }
+
+    /// The height of each column under `assignment`, gaps included.
+    fn column_heights(heights: &[f64], gap: f64, assignment: &[usize], columns: usize) -> Vec<f64> {
+        let mut totals = vec![0.0f64; columns];
+        for (height, &column) in heights.iter().zip(assignment) {
+            let filled = &mut totals[column];
+            *filled += if *filled > 0.0 { gap + height } else { *height };
+        }
+        totals
+    }
+
+    /// Every way of cutting `heights` into three ordered runs.
+    fn every_partition(heights: &[f64], gap: f64) -> Vec<(f64, f64)> {
+        let mut out = Vec::new();
+        for first in 1..heights.len() - 1 {
+            for second in first + 1..heights.len() {
+                let runs = [
+                    &heights[..first],
+                    &heights[first..second],
+                    &heights[second..],
+                ];
+                let totals: Vec<f64> = runs
+                    .iter()
+                    .map(|run| run.iter().sum::<f64>() + gap * (run.len() - 1) as f64)
+                    .collect();
+                let tallest = totals.iter().cloned().fold(0.0f64, f64::max);
+                let square: f64 = totals.iter().map(|total| total * total).sum();
+                out.push((tallest, square));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn no_cut_of_the_panels_leaves_a_shorter_tallest_column() {
+        // The sheet is as tall as its tallest column, so that is what the cut
+        // points are chosen for. Panels stay in order, so the only freedom is
+        // where to cut, and the answer here is checked against every cut there
+        // is rather than against a number written down by hand.
+        let heights = [120.0, 40.0, 200.0, 60.0, 60.0, 90.0, 30.0];
+        let gap = 18.0;
+        let assignment = share_out(&heights, gap, 3);
+
+        assert_eq!(assignment.len(), heights.len());
+        assert!(
+            assignment.windows(2).all(|pair| pair[1] >= pair[0]),
+            "panels stay in order, so a column is a run of them"
+        );
+        assert_eq!(
+            assignment.last().copied(),
+            Some(2),
+            "no column is left empty"
+        );
+
+        let tallest = column_heights(&heights, gap, &assignment, 3)
+            .into_iter()
+            .fold(0.0f64, f64::max);
+        let best = every_partition(&heights, gap)
+            .into_iter()
+            .map(|(tallest, _)| tallest)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            (tallest - best).abs() < 1e-9,
+            "tallest column is {tallest}, but {best} was available"
+        );
+    }
+
+    #[test]
+    fn columns_that_cannot_be_made_shorter_are_made_level() {
+        // One panel taller than any pair of the rest fixes the tallest column
+        // whatever else happens, so three cuts tie on height and the tie is
+        // what a reader sees as a ragged foot. Filling each column to its share
+        // takes 300 | 30 | 10 here; levelling takes 300 | 20 | 20.
+        let heights = [300.0, 10.0, 10.0, 10.0, 10.0];
+        let assignment = share_out(&heights, 0.0, 3);
+        assert_eq!(assignment, vec![0, 1, 1, 2, 2]);
+
+        let totals = column_heights(&heights, 0.0, &assignment, 3);
+        let square: f64 = totals.iter().map(|total| total * total).sum();
+        let tallest = totals.iter().cloned().fold(0.0f64, f64::max);
+        let best = every_partition(&heights, 0.0)
+            .into_iter()
+            .filter(|(other, _)| (other - tallest).abs() < 1e-9)
+            .map(|(_, square)| square)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            (square - best).abs() < 1e-9,
+            "of the cuts that tie on height, this is not the most level one"
+        );
     }
 
     #[test]

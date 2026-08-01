@@ -8,11 +8,18 @@
 //! An overview that quietly stops covering everything is worse than no
 //! overview, because it looks complete.
 //!
+//! And the test a new track has to pass to earn a panel: **does it live on the
+//! genomic coordinate axis?** That is the whole reason this crate exists rather
+//! than a general plotting library. A track whose `draw` never reads
+//! `ctx.scale` is a bar chart, a line chart or a heatmap that happens to have
+//! been handed genomic data, and three of those were removed from this sheet
+//! for exactly that reason.
+//!
 //! The panels do not share a coordinate system with each other, which is the
-//! honest reason they are separate figures rather than one tall stack. Three of
-//! them are not even in genomic coordinates: the alignment counts columns, the
-//! variable site panel counts sites, and the tree measures evolutionary
-//! distance.
+//! honest reason they are separate figures rather than one tall stack. Four of
+//! them are not in genomic coordinates at all: the alignment counts columns,
+//! the variable site panel counts sites, and the two tree panels measure
+//! evolutionary distance.
 
 use std::env;
 use std::path::PathBuf;
@@ -20,15 +27,14 @@ use std::path::PathBuf;
 use karyon::theme::mix;
 use karyon::tree::Tree;
 use karyon::{
-    AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
-    BisulfiteTrack, CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature,
-    FeatureRing, FeatureTrack, Figure, Frequency, FrequencyTrack, Genome, GenomeTrack, Homology,
-    IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoTrack,
-    ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
-    Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, OrfTrack, Panels, PileupTrack, Read,
-    ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand,
-    StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack, Theme, TreeTrack,
-    Variant, VariantTrack, Window, WindowStyle, WindowTrack,
+    Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band, BisulfiteTrack, CellScale,
+    CigarOp, CoverageTrack, DotplotTrack, Feature, FeatureRing, FeatureTrack, Figure, Genome,
+    GenomeTrack, Homology, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
+    LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite,
+    MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, OrfTrack,
+    Panels, PileupTrack, Read, ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack,
+    SquiggleTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack,
+    TanglegramTrack, Theme, TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -87,63 +93,48 @@ fn main() -> std::io::Result<()> {
             "Windowed statistics read against a baseline they can fall below",
         )
         .push_captioned(
-            &distances(),
-            "J",
-            "Pairwise SNP distances, ordered by descent, close pairs outlined",
-        )
-        .push_captioned(
-            &accumulation(),
-            "K",
-            "Whether the pangenome closes, over two hundred genome orderings",
-        )
-        .push_captioned(
             &circular(),
-            "L",
+            "J",
             "A circular chromosome: annotation, composition, and chords across the middle",
         )
         .push_captioned(
             &squiggle(),
-            "M",
+            "K",
             "Raw nanopore current, with the bases a basecaller made of it",
         )
         .push_captioned(
             &cluster(),
-            "N",
+            "L",
             "One locus in three genomes: the deletion that made BCG a vaccine",
         )
         .push_captioned(
             &methylation(),
-            "O",
+            "M",
             "Methylation per site, one lane per strand, faded by read depth",
         )
         .push_captioned(
             &genome_wide(),
-            "P",
+            "N",
             "A whole draft assembly on one axis, every contig of it",
         )
         .push_captioned(
-            &spectrum(),
-            "Q",
-            "What the pangenome is made of: core, shell and cloud",
-        )
-        .push_captioned(
             &structural(),
-            "R",
+            "O",
             "Structural variants as arcs between their breakpoints",
         )
         .push_captioned(
             &frames(),
-            "S",
+            "P",
             "Six reading frames: the stops, and what is open between them",
         )
         .push_captioned(
             &tanglegram(),
-            "T",
+            "Q",
             "Two trees face to face, and where they disagree",
         )
         .push_captioned(
             &bisulfite(),
-            "U",
+            "R",
             "Methylation one molecule at a time, not one fraction per site",
         );
 
@@ -492,93 +483,7 @@ fn selection() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// J: who is close to whom.
-fn distances() -> Figure {
-    let names: Vec<String> = (1..=14)
-        .map(|index| format!("ERR{:04}", 5_000 + index))
-        .collect();
-    let cluster = |index: usize| match index {
-        0..=4 => Some(0),
-        5..=10 => Some(1),
-        _ => None,
-    };
-
-    let mut rng = Lcg::new(31_415);
-    let size = names.len();
-    let mut distances = vec![0.0f64; size * size];
-    for from in 0..size {
-        for to in (from + 1)..size {
-            let together = cluster(from).is_some() && cluster(from) == cluster(to);
-            let value = if together {
-                (rng.next() % 11) as f64
-            } else {
-                380.0 + (rng.next() % 240) as f64
-            };
-            distances[from * size + to] = value;
-            distances[to * size + from] = value;
-        }
-    }
-
-    // A tree that puts each cluster together and leaves the three singletons
-    // out on their own branches.
-    let tree = Tree::parse_newick(
-        "((((ERR5001:0.0002,ERR5003:0.0002):0.0009,(ERR5002:0.0003,ERR5005:0.0001):0.0008)\
-           :0.0020,ERR5004:0.0026):0.0140,\
-          ((ERR5012:0.0180,(ERR5013:0.0165,ERR5014:0.0170):0.0040):0.0060,\
-           (((ERR5006:0.0002,ERR5008:0.0003):0.0011,(ERR5007:0.0004,ERR5010:0.0002):0.0009)\
-             :0.0014,(ERR5009:0.0003,ERR5011:0.0004):0.0016):0.0130):0.0040);",
-    )
-    .expect("the tree in this example is well formed");
-
-    Figure::new(Region::new("samples", 0, size as u64).unwrap())
-        .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            DistanceTrack::new(names, distances)
-                .tree(tree)
-                .cluster_threshold(12.0)
-                .cell_size(40.0)
-                .show_values(false)
-                .label("SNP distance"),
-        )
-}
-
-/// K: does the pangenome close.
-fn accumulation() -> Figure {
-    let count = 40usize;
-    let core = 3_100usize;
-    let accessory = 1_400usize;
-    let unique = 40usize;
-    let mut rng = Lcg::new(8_675_309);
-
-    let genomes: Vec<Vec<bool>> = (0..count)
-        .map(|genome| {
-            (0..(core + accessory + unique))
-                .map(|family| {
-                    if family < core {
-                        true
-                    } else if family < core + accessory {
-                        rng.next() % 100 < 35
-                    } else {
-                        family - (core + accessory) == genome
-                    }
-                })
-                .collect()
-        })
-        .collect();
-
-    Figure::new(Region::new("genomes", 0, count as u64).unwrap())
-        .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            AccumulationTrack::from_presence(&genomes, 200, 4_242)
-                .label("gene families")
-                .height(140.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true).label("genomes"))
-}
-
-/// L: the chromosome as the circle it actually is.
+/// J: the chromosome as the circle it actually is.
 ///
 /// Not a `Figure`: a circle maps position to an angle rather than to an x, so
 /// it is a different container. Both go on the sheet because both know how to
@@ -642,7 +547,7 @@ fn circular() -> Rings {
         .link_colored((1_100_000, 1_180_000), (3_240_000, 3_320_000), None, 0.3)
 }
 
-/// M: current, before it was a sequence.
+/// K: current, before it was a sequence.
 fn squiggle() -> Figure {
     let mut rng = Lcg::new(4_000);
     let mut signal: Vec<f64> = Vec::new();
@@ -672,7 +577,7 @@ fn squiggle() -> Figure {
         .push(AxisTrack::new().label("sample"))
 }
 
-/// N: the same locus in three genomes.
+/// L: the same locus in three genomes.
 fn cluster() -> Figure {
     // Colour is spent only on what differs: the conserved backbone is one
     // quiet slate, the block RD1 removed is one hue and what replaced it is
@@ -753,7 +658,7 @@ fn cluster() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// O: modification, not mutation.
+/// M: modification, not mutation.
 fn methylation() -> Figure {
     let start = 1_460_000u64;
     let span = 3_000u64;
@@ -782,7 +687,7 @@ fn methylation() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// P: a scan across every contig at once.
+/// N: a scan across every contig at once.
 fn genome_wide() -> Figure {
     let mut rng = Lcg::new(11_235);
     let genome = Genome::new(
@@ -831,50 +736,7 @@ fn genome_wide() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// Q: core, shell and cloud.
-fn spectrum() -> Figure {
-    let mut rng = Lcg::new(90_210);
-    let count = 60usize;
-    let genomes: Vec<Vec<bool>> = (0..count)
-        .map(|genome| {
-            let mut carried = Vec::new();
-            carried.extend(std::iter::repeat(true).take(3_100));
-            for family in 0..900 {
-                let share = 20 + (family * 60 / 900);
-                carried.push((rng.next() % 100) < share as u64);
-            }
-            for family in 0..1_500 {
-                carried.push(family % count == genome || family % (count * 3) == genome);
-            }
-            carried
-        })
-        .collect();
-
-    let track = FrequencyTrack::from_presence(&genomes).label("gene families");
-    let theme = Theme::light();
-    let legend = Legend::new()
-        .area(
-            format!("core, {}", track.total(Frequency::Core)),
-            track.color(Frequency::Core, &theme),
-        )
-        .area(
-            format!("shell, {}", track.total(Frequency::Shell)),
-            track.color(Frequency::Shell, &theme),
-        )
-        .area(
-            format!("cloud, {}", track.total(Frequency::Cloud)),
-            track.color(Frequency::Cloud, &theme),
-        );
-
-    Figure::new(Region::new("genomes", 0, count as u64).unwrap())
-        .width(WIDTH)
-        .show_region_label(false)
-        .push(track.height(150.0))
-        .push(LegendTrack::new(legend))
-        .push(AxisTrack::new().center_on_bases(true).label("genomes"))
-}
-
-/// R: arcs between breakpoints.
+/// O: arcs between breakpoints.
 fn structural() -> Figure {
     let span = 60_000u64;
     let mut rng = Lcg::new(7_919);
@@ -921,7 +783,7 @@ fn structural() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// S: the six frames.
+/// P: the six frames.
 fn frames() -> Figure {
     let mut rng = Lcg::new(2_718);
     let span = 3_600usize;
@@ -957,7 +819,7 @@ fn frames() -> Figure {
         .push(AxisTrack::new())
 }
 
-/// T: two trees that disagree.
+/// Q: two trees that disagree.
 fn tanglegram() -> Figure {
     let core = Tree::parse_newick(
         "(((ERR5001:0.004,ERR5002:0.004):0.010,(ERR5003:0.003,ERR5004:0.005):0.009):0.020,\
@@ -981,7 +843,7 @@ fn tanglegram() -> Figure {
         )
 }
 
-/// U: one row per molecule.
+/// R: one row per molecule.
 fn bisulfite() -> Figure {
     let mut rng = Lcg::new(1_729);
     let start = 1_460_000u64;

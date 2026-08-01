@@ -66,7 +66,7 @@
 //!
 //! # Extending
 //!
-//! The twenty-eight track types shipped here are implementations of one small trait,
+//! The twenty-five track types shipped here are implementations of one small trait,
 //! [`Track`], with no privileged access to the figure. A track type the crate
 //! does not have is around thirty lines: see the example on [`Track`].
 //!
@@ -115,14 +115,14 @@ pub use crate::scale::Scale;
 pub use crate::svg::{Anchor, SvgWriter};
 pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
-    strand_color, AccumulationCurve, AccumulationTrack, Aggregate, AlignmentBlock, Association,
-    AxisTrack, Band, BisulfiteTrack, CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack,
-    DistanceTrack, DotplotTrack, DrawContext, Feature, FeatureTrack, Frequency, FrequencyTrack,
-    GeneShape, GenomeTrack, Homology, IdeogramTrack, Legend, LegendItem, LegendTrack, Locus,
-    LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack, Marker, MatrixRow,
-    MatrixTrack, MethylSite, MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay,
-    MsaSequence, MsaTrack, Orf, OrfTrack, PileupLayout, PileupTrack, Read, ReadColoring, Rect,
-    Segment, SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder, Stain, Strand,
-    StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack, Track, TreeShape,
-    TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
+    strand_color, Aggregate, AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack,
+    CellScale, Centering, CigarOp, CoverageStyle, CoverageTrack, DotplotTrack, DrawContext,
+    Feature, FeatureTrack, GeneShape, GenomeTrack, Homology, IdeogramTrack, Legend, LegendItem,
+    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack,
+    Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, Move, MsaColoring,
+    MsaDisplay, MsaSequence, MsaTrack, Orf, OrfTrack, PileupLayout, PileupTrack, Read,
+    ReadColoring, Rect, Segment, SequenceTrack, SnpSite, SnpTrack, SquiggleTrack, StackOrder,
+    Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack,
+    Track, TreeShape, TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle,
+    WindowTrack,
 };

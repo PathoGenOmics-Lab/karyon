@@ -15,7 +15,7 @@ __Paula Ruiz-Rodriguez<sup>1</sup>__
 <br>
 <sub> 1. I<sup>2</sup>SysBio, University of Valencia-CSIC, FISABIO Joint Research Unit Infection and Public Health, Valencia, Spain </sub>
 
-<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-one panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a SNP distance matrix ordered by descent, pangenome accumulation curves, a circular chromosome, raw nanopore signal, one locus compared across three genomes, per-strand methylation, an association scan across a whole draft assembly, the gene frequency spectrum of a pangenome, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, and methylation one molecule at a time" width="100%">
+<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of eighteen panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, per-strand methylation, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, and methylation one molecule at a time" width="100%">
 
 General plotting libraries know about points and lines. They do not know that a
 position is a base, that a gene has a strand, that a pixel at genome scale
@@ -468,6 +468,13 @@ states the convention on every constructor rather than leaving it to be
 guessed.
 
 ## Design
+
+**Every track lives on the genomic axis.** That is the entry test, and it is
+what separates this crate from a general plotting library. If a track's `draw`
+never reads the shared scale, its x is a sample list or a count and the plot is
+a bar chart, a line chart or a heatmap that happened to be handed genomic data,
+which matplotlib already draws better. Three tracks were removed under this rule
+rather than kept for the sake of a longer feature list.
 
 **Zero runtime dependencies.** The crate compiles in under a second and adds
 nothing to your dependency tree. The SVG writer is a few hundred lines because

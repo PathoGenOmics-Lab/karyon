@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- `AccumulationTrack`, `AccumulationCurve`, `DistanceTrack`, `FrequencyTrack`
+  and `Frequency`, with their examples, assets and gallery panels. All three
+  tracks failed the only entry test this crate has: none of their `draw`
+  methods ever reads `ctx.scale`. Their x axis was a count of genomes, a count
+  of genomes and a list of sample names, so what they actually drew was a bar
+  chart, a line chart with a quantile ribbon and a clustered heatmap. A general
+  plotting library draws those better, and `src/track/distance.rs` had said so
+  in its own header since the day it landed: "Nothing genomic. Both axes of
+  this track are the sample list, so it does not use the figure's shared
+  coordinate system."
+- Breaking, as the names were public re-exports. The analyses they carried are
+  worth keeping somewhere, but a rarefaction over a presence matrix is a
+  statistic, not a plot type, and it does not need a `Track` to compute it.
+
+### Fixed
+
+- `Panels::columns` now cuts the panels where the tallest column comes out
+  shortest, and levels the rest, instead of filling each column until it has
+  passed its share. The old rule compounded: one column overshooting left every
+  column after it short, and taking three panels off the gallery sheet turned a
+  159 pixel difference between the columns into 317. The cuts are now chosen by
+  weighing all of them, which for a sheet of eighteen panels is nothing, and the
+  same sheet comes out 66 pixels shorter with a 111 pixel difference.
+
 ## [0.14.0] - 2026-07-31
 
 ### Added

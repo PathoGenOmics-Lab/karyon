@@ -5,13 +5,10 @@
 //! [`Figure`](crate::Figure) stacks the bands and hands each track the
 //! rectangle it may paint in, already clipped.
 
-pub mod accumulation;
 pub mod axis;
 pub mod bisulfite;
 pub mod coverage;
-pub mod distance;
 pub mod feature;
-pub mod frequency;
 pub mod genome;
 pub mod ideogram;
 pub mod legend;
@@ -33,13 +30,10 @@ pub mod tree;
 pub mod variant;
 pub mod window;
 
-pub use accumulation::{AccumulationCurve, AccumulationTrack};
 pub use axis::AxisTrack;
 pub use bisulfite::{BisulfiteTrack, Molecule};
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
-pub use distance::DistanceTrack;
 pub use feature::{strand_color, Feature, FeatureTrack, Strand};
-pub use frequency::{Frequency, FrequencyTrack};
 pub use genome::GenomeTrack;
 pub use ideogram::{Band, IdeogramTrack, Stain};
 pub use legend::{Legend, LegendItem, LegendTrack, Marker};

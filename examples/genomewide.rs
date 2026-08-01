@@ -1,21 +1,17 @@
-//! Renders the genome-wide figures used in the README.
+//! Renders the genome-wide figure used in the README.
 //!
 //! ```text
 //! cargo run --example genomewide -- assets
 //! ```
 //!
-//! Two things a figure over one region cannot show. A whole draft assembly,
-//! every contig of it on one axis, with the association scan and the depth
-//! profile laid over all of them at once. And the gene frequency spectrum, the
-//! U that says what a pangenome is made of rather than whether it closes.
+//! What a figure over one region cannot show: a whole draft assembly, every
+//! contig of it on one axis, with the association scan and the depth profile
+//! laid over all of them at once.
 
 use std::env;
 use std::path::{Path, PathBuf};
 
-use karyon::{
-    Association, AxisTrack, CoverageTrack, Figure, Frequency, FrequencyTrack, Genome, GenomeTrack,
-    Legend, LegendTrack, ManhattanTrack, Region,
-};
+use karyon::{Association, AxisTrack, CoverageTrack, Figure, Genome, GenomeTrack, ManhattanTrack};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -24,7 +20,6 @@ fn main() -> std::io::Result<()> {
         .unwrap_or_else(|| PathBuf::from("."));
 
     genome_wide(&out)?;
-    spectrum(&out)?;
     Ok(())
 }
 
@@ -114,71 +109,6 @@ fn genome_wide(out: &Path) -> std::io::Result<()> {
         "example-genomewide.svg {width:.0} x {height:.0}, {} contigs over {:.2} Mb, {dropped} unplaced",
         genome.len(),
         genome.total() as f64 / 1e6
-    );
-    Ok(())
-}
-
-/// What the pangenome is made of.
-fn spectrum(out: &Path) -> std::io::Result<()> {
-    let mut rng = Lcg::new(90_210);
-    let count = 60usize;
-    let core = 3_100usize;
-    let shell = 900usize;
-    let cloud = 1_500usize;
-
-    let genomes: Vec<Vec<bool>> = (0..count)
-        .map(|genome| {
-            let mut carried = Vec::with_capacity(core + shell + cloud);
-            carried.extend(std::iter::repeat(true).take(core));
-            // A shell family sits in a middling share of the collection, which
-            // is what fills the trough of the U.
-            for family in 0..shell {
-                let share = 20 + (family * 60 / shell);
-                carried.push((rng.next() % 100) < share as u64);
-            }
-            // A cloud family is in one or two, which is what builds the tower
-            // on the left.
-            for family in 0..cloud {
-                carried.push(family % count == genome || family % (count * 3) == genome);
-            }
-            carried
-        })
-        .collect();
-
-    let track = FrequencyTrack::from_presence(&genomes).label("gene families");
-    let (core_total, shell_total, cloud_total) = (
-        track.total(Frequency::Core),
-        track.total(Frequency::Shell),
-        track.total(Frequency::Cloud),
-    );
-
-    let legend = Legend::new()
-        .area(
-            format!("core, {core_total} families"),
-            track.color(Frequency::Core, &Default::default()),
-        )
-        .area(
-            format!("shell, {shell_total}"),
-            track.color(Frequency::Shell, &Default::default()),
-        )
-        .area(
-            format!("cloud, {cloud_total}"),
-            track.color(Frequency::Cloud, &Default::default()),
-        );
-
-    let figure = Figure::new(Region::new("genomes", 0, count as u64).unwrap())
-        .title("What the pangenome is made of")
-        .width(880.0)
-        .show_region_label(false)
-        .push(track.height(170.0))
-        .push(LegendTrack::new(legend))
-        .push(AxisTrack::new().center_on_bases(true).label("genomes"));
-
-    figure.save_svg(out.join("example-spectrum.svg"))?;
-    let (width, height) = figure.dimensions();
-    println!(
-        "example-spectrum.svg {width:.0} x {height:.0}, \
-         core {core_total}, shell {shell_total}, cloud {cloud_total}"
     );
     Ok(())
 }
