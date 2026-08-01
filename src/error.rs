@@ -55,3 +55,25 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+impl From<Error> for std::io::Error {
+    /// So that a locus string and the file it renders to can share one `?`.
+    ///
+    /// A program that draws figures spends its errors on writing files, so its
+    /// functions return [`std::io::Result`]. Without this, the one call that
+    /// parses a region is the only thing in such a function that cannot use
+    /// `?`, which is a poor reason to reach for `unwrap`.
+    ///
+    /// ```
+    /// use karyon::plot;
+    ///
+    /// fn draw() -> std::io::Result<String> {
+    ///     Ok(plot("chr1:1-1000")?.add_coverage(vec![30.0; 1000]).to_svg())
+    /// }
+    ///
+    /// assert!(draw().unwrap().starts_with("<svg"));
+    /// ```
+    fn from(error: Error) -> Self {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, error)
+    }
+}

@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use karyon::tree::Tree;
 use karyon::{
-    AxisTrack, BisulfiteTrack, CoverageTrack, Figure, Legend, LegendTrack, Molecule, OrfTrack,
-    Region, StructuralTrack, StructuralVariant, SvKind, TanglegramTrack, Theme,
+    plot, BisulfiteTrack, Legend, Molecule, OrfTrack, Plot, Region, StructuralTrack,
+    StructuralVariant, SvKind, TanglegramTrack, Theme,
 };
 
 fn main() -> std::io::Result<()> {
@@ -83,14 +83,16 @@ fn structural(out: &Path) -> std::io::Result<()> {
         )
         .line("insertion", track.color_of(SvKind::Insertion, &theme));
 
-    let figure = Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
+    let figure = Plot::over(Region::new("NC_000962.3", from, from + span).unwrap())
         .title("Structural variants, and whether the depth agrees")
         .width(880.0)
-        .show_region_label(false)
-        .push(track)
-        .push(CoverageTrack::new(from, depth).label("depth").height(56.0))
-        .push(LegendTrack::new(legend))
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track)
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.height(56.0))
+        .add_legend(legend)
+        .into_figure();
 
     figure.save_svg(out.join("example-structural.svg"))?;
     let (width, height) = figure.dimensions();
@@ -135,12 +137,12 @@ fn frames(out: &Path) -> std::io::Result<()> {
     let track = OrfTrack::new(0, seq).min_codons(60).label("frames");
     let orfs = track.orfs().len();
 
-    let figure = Figure::new(Region::new("plasmid", 0, span as u64).unwrap())
+    let figure = Plot::over(Region::new("plasmid", 0, span as u64).unwrap())
         .title("Six reading frames: the stops, and what is open between them")
         .width(880.0)
-        .show_region_label(false)
-        .push(track.lane_height(11.0))
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track.lane_height(11.0))
+        .into_figure();
 
     figure.save_svg(out.join("example-frames.svg"))?;
     let (width, height) = figure.dimensions();
@@ -173,11 +175,13 @@ fn tanglegram(out: &Path) -> std::io::Result<()> {
         .label("8 isolates");
     let crossings = track.crossings();
 
-    let figure = Figure::new(Region::new("taxa", 0, 8).unwrap())
+    let figure = plot("taxa:1-8")?
         .title("K. pneumoniae: core and accessory genome trees over one collection")
         .width(760.0)
-        .show_region_label(false)
-        .push(track);
+        .remove_region_label()
+        .remove_axis()
+        .add_track(track)
+        .into_figure();
 
     figure.save_svg(out.join("example-tanglegram.svg"))?;
     let (width, height) = figure.dimensions();
@@ -235,11 +239,11 @@ fn bisulfite(out: &Path) -> std::io::Result<()> {
     let track = BisulfiteTrack::new(sites, molecules).label("CpG");
     let discordance = track.discordance().unwrap_or(0.0);
 
-    let figure = Figure::new(Region::new("NC_000011.10", start, start + 500).unwrap())
+    let figure = Plot::over(Region::new("NC_000011.10", start, start + 500).unwrap())
         .title("The H19/IGF2 ICR one molecule at a time: two alleles, not one loose pattern")
         .width(880.0)
-        .push(track.row_height(13.0))
-        .push(AxisTrack::new());
+        .add_track(track.row_height(13.0))
+        .into_figure();
 
     figure.save_svg(out.join("example-bisulfite.svg"))?;
     let (width, height) = figure.dimensions();

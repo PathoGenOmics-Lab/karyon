@@ -18,9 +18,7 @@ use std::env;
 use std::path::PathBuf;
 
 use karyon::tree::Tree;
-use karyon::{
-    AxisTrack, CellScale, Feature, FeatureTrack, Figure, MatrixRow, MatrixTrack, Region, Strand,
-};
+use karyon::{CellScale, Feature, MatrixRow, Plot, Region, Strand};
 
 /// Start of the window, 0-based.
 const START: u64 = 2_100_000;
@@ -84,22 +82,22 @@ fn main() -> std::io::Result<()> {
         .collect();
 
     let region = Region::new("NC_016845.1", START, START + WINDOW).unwrap();
-    let figure = Figure::new(region)
+    let figure = Plot::over(region)
         .title("A Klebsiella accessory genome, sorted by the tree beside it")
         .width(940.0)
-        .push(
-            FeatureTrack::new(vec![
-                Feature::new(START + 13_000, START + 26_000)
-                    .name("island A")
-                    .strand(Strand::Forward),
-                Feature::new(START + 39_000, START + 50_000)
-                    .name("island B")
-                    .strand(Strand::Reverse),
-            ])
-            .label("islands"),
-        )
-        .push(
-            MatrixTrack::new(genes, rows)
+        .add_features(vec![
+            Feature::new(START + 13_000, START + 26_000)
+                .name("island A")
+                .strand(Strand::Forward),
+            Feature::new(START + 39_000, START + 50_000)
+                .name("island B")
+                .strand(Strand::Reverse),
+        ])
+        .label("islands")
+        .add_matrix(genes, rows)
+        .label("presence")
+        .adjust(|track| {
+            track
                 .tree(tree)
                 .scale(CellScale::Sequential {
                     max: Some(1.0),
@@ -107,9 +105,8 @@ fn main() -> std::io::Result<()> {
                 })
                 .row_height(15.0)
                 .min_cell_width(11.0)
-                .label("presence"),
-        )
-        .push(AxisTrack::new());
+        })
+        .into_figure();
 
     figure.save_svg(out.join("example-pangenome.svg"))?;
     let (width, height) = figure.dimensions();

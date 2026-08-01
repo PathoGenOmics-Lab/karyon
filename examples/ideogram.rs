@@ -12,10 +12,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    AxisTrack, Band, CoverageTrack, Feature, FeatureTrack, Figure, IdeogramTrack, Region, Stain,
-    Strand, Variant, VariantTrack,
-};
+use karyon::{Band, Feature, IdeogramTrack, Plot, Region, Stain, Strand, Variant};
 
 /// Length of the illustrative chromosome.
 const CHROMOSOME: u64 = 48_000_000;
@@ -51,60 +48,49 @@ fn main() -> std::io::Result<()> {
         .collect();
 
     let region = Region::new("chr7", WINDOW.0, WINDOW.1).unwrap();
-    let context = Figure::new(region)
+    let context = Plot::over(region)
         .title("Sixty kilobases of a chromosome, and where they are")
-        .push(
-            IdeogramTrack::new(CHROMOSOME, bands)
-                .label("chr7")
-                .show_band_names(true)
-                .height(36.0),
-        )
-        .push(
-            CoverageTrack::new(WINDOW.0, depth)
-                .label("depth")
-                .height(52.0),
-        )
-        .push(
-            FeatureTrack::new(vec![
-                Feature::new(31_210_000, 31_236_000)
-                    .name("GENEA")
-                    .strand(Strand::Forward),
-                Feature::new(31_241_000, 31_255_000)
-                    .name("GENEB")
-                    .strand(Strand::Reverse),
-            ])
-            .label("genes"),
-        )
-        .push(
-            VariantTrack::new(vec![
-                Variant::new(31_218_400).value(0.91).category("missense"),
-                Variant::new(31_247_900).value(0.44).category("splice"),
-            ])
-            .label("variants")
-            .height(42.0),
-        )
-        .push(AxisTrack::new());
+        .add_ideogram(CHROMOSOME, bands)
+        .label("chr7")
+        .adjust(|track| track.show_band_names(true).height(36.0))
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.height(52.0))
+        .add_features(vec![
+            Feature::new(31_210_000, 31_236_000)
+                .name("GENEA")
+                .strand(Strand::Forward),
+            Feature::new(31_241_000, 31_255_000)
+                .name("GENEB")
+                .strand(Strand::Reverse),
+        ])
+        .label("genes")
+        .add_variants(vec![
+            Variant::new(31_218_400).value(0.91).category("missense"),
+            Variant::new(31_247_900).value(0.44).category("splice"),
+        ])
+        .label("variants")
+        .adjust(|track| track.height(42.0))
+        .into_figure();
     context.save_svg(out.join("example-ideogram.svg"))?;
 
     // A bacterial chromosome has no cytogenetics to speak of, so the ideogram
     // is a bare outline. It still answers the only question it was ever asked.
     let h37rv_length = 4_411_532;
     let rpo_b = Region::new("NC_000962.3", 759_806, 763_325).unwrap();
-    let bacterial = Figure::new(rpo_b)
+    let bacterial = Plot::over(rpo_b)
         .title("Mycobacterium tuberculosis H37Rv, rpoB")
         .width(760.0)
-        .push(
+        .add_track(
             IdeogramTrack::bare(h37rv_length)
                 .label("H37Rv")
                 .height(20.0),
         )
-        .push(
-            FeatureTrack::new(vec![Feature::new(759_806, 763_325)
-                .name("rpoB")
-                .strand(Strand::Forward)])
-            .label("gene"),
-        )
-        .push(AxisTrack::new());
+        .add_features(vec![Feature::new(759_806, 763_325)
+            .name("rpoB")
+            .strand(Strand::Forward)])
+        .label("gene")
+        .into_figure();
     bacterial.save_svg(out.join("example-ideogram-bacterial.svg"))?;
 
     let (w1, h1) = context.dimensions();

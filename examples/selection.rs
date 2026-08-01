@@ -14,7 +14,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{AxisTrack, Figure, Region, Window, WindowStyle, WindowTrack};
+use karyon::{Plot, Region, Window, WindowStyle, WindowTrack};
 
 /// Start of the window, 0-based.
 const START: u64 = 2_150_000;
@@ -63,23 +63,22 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
 
-    let region = Region::new("NC_000962.3", START, START + SPAN).unwrap();
-    let figure = Figure::new(region)
+    let figure = Plot::over(Region::new("NC_000962.3", START, START + SPAN).unwrap())
         .title("Selection and strand composition, read against their baselines")
         .width(880.0)
-        .push(
+        .add_track(
             WindowTrack::ratios(windows)
                 .label("pN/pS")
                 .height(70.0)
                 .colors("#d55e00", "#0072b2"),
         )
-        .push(
+        .add_track(
             WindowTrack::gc_skew(START, &bases, 1_000)
                 .style(WindowStyle::Line)
                 .label("GC skew")
                 .height(56.0),
         )
-        .push(AxisTrack::new());
+        .into_figure();
 
     figure.save_svg(out.join("example-selection.svg"))?;
     let (width, height) = figure.dimensions();

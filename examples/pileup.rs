@@ -13,10 +13,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    AxisTrack, CigarOp, CoverageTrack, Figure, PileupTrack, Read, ReadColoring, Region,
-    SequenceTrack, Strand, Variant, VariantTrack,
-};
+use karyon::{plot, CigarOp, Read, ReadColoring, Strand, Variant};
 
 /// Window start, 0-based.
 const START: u64 = 4_000;
@@ -61,28 +58,29 @@ fn main() -> std::io::Result<()> {
         .count();
     let fraction = carriers as f64 / covering.max(1) as f64;
 
-    let region = Region::new("NC_000962.3", START, START + WINDOW as u64).unwrap();
-    let figure = Figure::new(region)
+    let figure = plot("NC_000962.3:4001-4420")?
         .title("A variant worth looking at twice")
         .width(920.0)
-        .push(CoverageTrack::new(START, depth).label("depth").height(50.0))
-        .push(
-            VariantTrack::new(vec![Variant::new(VARIANT)
-                .value(fraction)
-                .category("candidate SNV")])
-            .label("call")
-            .height(34.0),
-        )
-        .push(SequenceTrack::new(START, reference.clone()).label("reference"))
-        .push(
-            PileupTrack::new(reads)
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.height(50.0))
+        .add_variants(vec![Variant::new(VARIANT)
+            .value(fraction)
+            .category("candidate SNV")])
+        .label("call")
+        .adjust(|track| track.height(34.0))
+        .add_sequence(reference.clone())
+        .label("reference")
+        .add_pileup(reads)
+        .adjust(|track| {
+            track
                 .reference(START, reference)
                 .coloring(ReadColoring::Strand)
                 .fade_by_quality(true)
                 .max_rows(Some(22))
-                .label("reads"),
-        )
-        .push(AxisTrack::new());
+        })
+        .label("reads")
+        .into_figure();
 
     figure.save_svg(out.join("example-pileup.svg"))?;
     let (width, height) = figure.dimensions();

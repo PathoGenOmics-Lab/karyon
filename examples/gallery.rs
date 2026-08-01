@@ -31,16 +31,13 @@ use std::path::PathBuf;
 use karyon::theme::mix;
 use karyon::tree::Tree;
 use karyon::{
-    Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band, BisulfiteTrack, CellScale,
-    CigarOp, CladeBlock, CladeTrack, CodonTrack, CoverageTrack, DotplotTrack, Feature, FeatureRing,
-    FeatureTrack, Figure, Genome, GenomeTrack, Homology, IdeogramTrack, Legend, LegendTrack, Locus,
-    LocusTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack, MarkerRing, MatrixRow,
-    MatrixTrack, MethylSite, MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay,
-    MsaSequence, MsaTrack, OrfTrack, Panels, PileupTrack, Read, ReadColoring, Region, Rings,
-    SequenceTrack, SignalRing, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack,
-    Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack,
-    Terminator, Theme, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack,
-    Window, WindowStyle, WindowTrack,
+    plot, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band, CellScale, CigarOp,
+    CladeBlock, CodonTrack, CoverageTrack, Feature, FeatureRing, Figure, Genome, Homology, Legend,
+    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, MarkerRing, MatrixRow, MethylSite,
+    Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, Panels, Plot, Read, ReadColoring, Region,
+    Rings, SignalRing, SnpTrack, SplitRead, SplitSegment, Stain, Strand, StructuralTrack,
+    StructuralVariant, SvKind, Terminator, Theme, TranscriptionUnit, Variant, VariantTrack, Window,
+    WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -182,53 +179,45 @@ fn locus() -> Figure {
         .collect();
     let bases: Vec<u8> = b"ACGT".iter().cycle().take(span).copied().collect();
 
-    Figure::new(Region::new("NC_000962.3", start, start + span as u64).unwrap())
+    Plot::over(Region::new("NC_000962.3", start, start + span as u64).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            IdeogramTrack::new(
-                4_411_532,
-                vec![
-                    Band::new(0, 1_800_000, Stain::Gneg),
-                    Band::new(1_800_000, 2_600_000, Stain::Gpos50),
-                    Band::new(2_600_000, 4_411_532, Stain::Gneg),
-                ],
-            )
-            .label("H37Rv")
-            .height(18.0),
+        .remove_region_label()
+        .add_ideogram(
+            4_411_532,
+            vec![
+                Band::new(0, 1_800_000, Stain::Gneg),
+                Band::new(1_800_000, 2_600_000, Stain::Gpos50),
+                Band::new(2_600_000, 4_411_532, Stain::Gneg),
+            ],
         )
-        .push(
-            CoverageTrack::new(start, depth)
-                .aggregate(Aggregate::Min)
-                .label("depth")
-                .height(46.0),
-        )
-        .push(SequenceTrack::new(start, bases).label("reference"))
-        .push(
-            FeatureTrack::new(vec![
-                // rpoB is Rv0667, 1-based 759,807 to 763,325, forward. There is
-                // no second gene in this window; rpoC starts 371 bases past it.
-                Feature::new(759_806, 763_325)
-                    .name("rpoB")
-                    .strand(Strand::Forward),
-                // Codons 426 to 452, the 81 base rifampicin hotspot.
-                Feature::new(761_081, 761_162)
-                    .name("RRDR")
-                    .strand(Strand::Forward)
-                    .color("#d55e00"),
-            ])
-            .label("genes"),
-        )
-        .push(
-            VariantTrack::new(vec![
-                Variant::new(761_108).value(0.98).category("missense"), // D435V
-                Variant::new(761_154).value(1.00).category("missense"), // S450L
-                Variant::new(761_155).value(0.44).category("synonymous"),
-            ])
-            .label("variants")
-            .height(40.0),
-        )
-        .push(AxisTrack::new())
+        .label("H37Rv")
+        .adjust(|track| track.height(18.0))
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.aggregate(Aggregate::Min).height(46.0))
+        .add_sequence(bases)
+        .label("reference")
+        .add_features(vec![
+            // rpoB is Rv0667, 1-based 759,807 to 763,325, forward. There is
+            // no second gene in this window; rpoC starts 371 bases past it.
+            Feature::new(759_806, 763_325)
+                .name("rpoB")
+                .strand(Strand::Forward),
+            // Codons 426 to 452, the 81 base rifampicin hotspot.
+            Feature::new(761_081, 761_162)
+                .name("RRDR")
+                .strand(Strand::Forward)
+                .color("#d55e00"),
+        ])
+        .label("genes")
+        .add_variants(vec![
+            Variant::new(761_108).value(0.98).category("missense"), // D435V
+            Variant::new(761_154).value(1.00).category("missense"), // S450L
+            Variant::new(761_155).value(0.44).category("synonymous"),
+        ])
+        .label("variants")
+        .adjust(|track| track.height(40.0))
+        .into_figure()
 }
 
 /// B: reads.
@@ -255,17 +244,18 @@ fn pileup() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000962.3", start, start + span as u64).unwrap())
+    Plot::over(Region::new("NC_000962.3", start, start + span as u64).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            PileupTrack::new(reads)
+        .remove_region_label()
+        .add_pileup(reads)
+        .adjust(|track| {
+            track
                 .reference(start, reference)
                 .coloring(ReadColoring::Strand)
                 .max_rows(Some(12))
-                .label("reads"),
-        )
-        .push(AxisTrack::new())
+        })
+        .label("reads")
+        .into_figure()
 }
 
 /// C: logos.
@@ -280,24 +270,23 @@ fn logos() -> Figure {
         LogoColumn::acgt(40.0, 30.0, 20.0, 10.0),
         LogoColumn::acgt(32.0, 4.0, 32.0, 32.0),
     ];
-    Figure::new(Region::new("motif", 0, motif.len() as u64).unwrap())
+    Plot::over(Region::new("motif", 0, motif.len() as u64).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            LogoTrack::new(0, motif.clone())
+        .remove_region_label()
+        .add_logo(motif.clone())
+        .label("bits")
+        .adjust(|track| {
+            track
                 .alphabet_size(4)
                 .score(LogoScore::InformationContent)
-                .label("bits")
-                .height(58.0),
-        )
-        .push(
-            LogoTrack::new(0, motif)
-                .alphabet_size(4)
-                .edlogo()
-                .label("enrich / deplete")
-                .height(96.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true))
+                .height(58.0)
+        })
+        .add_logo(motif)
+        .label("enrich / deplete")
+        .adjust(|track| track.alphabet_size(4).edlogo().height(96.0))
+        .add_axis()
+        .adjust(|track| track.center_on_bases(true))
+        .into_figure()
 }
 
 /// D: association and genotypes.
@@ -338,26 +327,23 @@ fn association() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000962.3", start, start + span).unwrap())
+    Plot::over(Region::new("NC_000962.3", start, start + span).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            ManhattanTrack::new(points)
-                .genome_wide_threshold()
-                .unit(" -log10 p")
-                .label("association")
-                .height(74.0),
-        )
-        .push(
-            MatrixTrack::new(sites, rows)
+        .remove_region_label()
+        .add_manhattan(points)
+        .label("association")
+        .adjust(|track| track.genome_wide_threshold().unit(" -log10 p").height(74.0))
+        .add_matrix(sites, rows)
+        .label("genotypes")
+        .adjust(|track| {
+            track
                 .scale(CellScale::Sequential {
                     max: Some(1.0),
                     hue: None,
                 })
                 .min_cell_width(9.0)
-                .label("genotypes"),
-        )
-        .push(AxisTrack::new())
+        })
+        .into_figure()
 }
 
 /// E: two sequences.
@@ -368,22 +354,21 @@ fn comparison() -> Figure {
         AlignmentBlock::new(2_150_000, 2_600_000, 3_400_000, 3_850_000),
         AlignmentBlock::new(2_900_000, 4_400_000, 2_150_000, 3_650_000),
     ];
-    Figure::new(Region::new("H37Rv", 0, 4_400_000).unwrap())
+    plot("H37Rv:1-4,400,000")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            DotplotTrack::new(blocks.clone())
-                .target_length(4_380_000)
-                .label("CDC1551")
-                .height(150.0),
-        )
-        .push(
-            SyntenyTrack::new(blocks)
+        .remove_region_label()
+        .add_dotplot(blocks.clone())
+        .label("CDC1551")
+        .adjust(|track| track.target_length(4_380_000).height(150.0))
+        .add_synteny(blocks)
+        .adjust(|track| {
+            track
                 .target_length(4_380_000)
                 .names("H37Rv", "CDC1551")
-                .height(92.0),
-        )
-        .push(AxisTrack::new())
+                .height(92.0)
+        })
+        .into_figure()
 }
 
 /// F: an alignment.
@@ -395,18 +380,22 @@ fn alignment() -> Figure {
         MsaSequence::new("KatG_Beijing", b"MPEQHPPVTETTTGAASNGCPV".to_vec()),
         MsaSequence::new("KatG_Erdman", b"MPEQ-PPITETTTGAASNGCPV".to_vec()),
     ];
-    Figure::new(Region::new("alignment", 0, 22).unwrap())
+    plot("alignment:1-22")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            MsaTrack::new(rows)
+        .remove_region_label()
+        .add_msa(rows)
+        .label("KatG")
+        .adjust(|track| {
+            track
                 .display(MsaDisplay::Bases)
                 .coloring(MsaColoring::Residue)
                 .compare_to(0)
-                .label("KatG")
-                .row_height(14.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true))
+                .row_height(14.0)
+        })
+        .add_axis()
+        .adjust(|track| track.center_on_bases(true))
+        .into_figure()
 }
 
 /// G: variable sites, ordered by a tree.
@@ -456,10 +445,15 @@ fn phylogeny() -> Figure {
     )
     .expect("the tree in this example is well formed");
 
-    Figure::new(Region::new("tree", 0, 1).unwrap())
+    plot("tree:1-1")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(TreeTrack::new(tree).label("phylogeny").row_height(17.0))
+        .remove_region_label()
+        .remove_axis()
+        .add_tree(tree)
+        .label("phylogeny")
+        .adjust(|track| track.row_height(17.0))
+        .into_figure()
 }
 
 /// I: statistics that only mean anything relative to a line.
@@ -596,16 +590,15 @@ fn squiggle() -> Figure {
         }
     }
     let samples = signal.len() as u64;
-    Figure::new(Region::new("read", 0, samples).unwrap())
+    Plot::over(Region::new("read", 0, samples).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            SquiggleTrack::new(0, signal)
-                .moves(moves)
-                .label("current")
-                .height(76.0),
-        )
-        .push(AxisTrack::new().label("sample"))
+        .remove_region_label()
+        .add_squiggle(signal)
+        .adjust(|track| track.moves(moves).height(76.0))
+        .label("current")
+        .add_axis()
+        .label("sample")
+        .into_figure()
 }
 
 /// L: the same locus in three genomes.
@@ -734,20 +727,16 @@ fn methylation() -> Figure {
         ));
     }
 
-    Figure::new(Region::new("NC_000913.3", start, start + span).unwrap())
+    Plot::over(Region::new("NC_000913.3", start, start + span).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            MethylationTrack::new(sites)
-                .label("6mA at GATC")
-                .height(62.0),
-        )
-        .push(
-            FeatureTrack::new(vec![Feature::new(oric.0, oric.1).name("oriC")])
-                .label("origin")
-                .row_height(13.0),
-        )
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_methylation(sites)
+        .label("6mA at GATC")
+        .adjust(|track| track.height(62.0))
+        .add_features(vec![Feature::new(oric.0, oric.1).name("oriC")])
+        .label("origin")
+        .adjust(|track| track.row_height(13.0))
+        .into_figure()
 }
 
 /// N: a scan across every contig at once.
@@ -779,24 +768,26 @@ fn genome_wide() -> Figure {
     }
     let (mapped, _) = genome.map(hits);
 
-    Figure::new(genome.region())
+    Plot::over(genome.region())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            ManhattanTrack::new(
-                mapped
-                    .iter()
-                    .map(|(at, value)| Association::new(*at, *value))
-                    .collect::<Vec<_>>(),
-            )
-            .bands(genome.boundaries())
-            .genome_wide_threshold()
-            .unit(" -log10 p")
-            .label("association")
-            .height(92.0),
+        .remove_region_label()
+        .add_manhattan(
+            mapped
+                .iter()
+                .map(|(at, value)| Association::new(*at, *value))
+                .collect::<Vec<_>>(),
         )
-        .push(GenomeTrack::new(genome).label("contigs"))
-        .push(AxisTrack::new())
+        .adjust(|track| {
+            track
+                .bands(genome.boundaries())
+                .genome_wide_threshold()
+                .unit(" -log10 p")
+                .height(92.0)
+        })
+        .label("association")
+        .add_genome(genome)
+        .label("contigs")
+        .into_figure()
 }
 
 /// O: arcs between breakpoints.
@@ -880,11 +871,13 @@ fn frames() -> Figure {
     }
     seq[at..at + 3].copy_from_slice(b"TAA");
 
-    Figure::new(Region::new("plasmid", 0, span as u64).unwrap())
+    Plot::over(Region::new("plasmid", 0, span as u64).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(OrfTrack::new(0, seq).min_codons(60).label("frames"))
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_orfs(seq)
+        .adjust(|track| track.min_codons(60))
+        .label("frames")
+        .into_figure()
 }
 
 /// Q: two trees that disagree.
@@ -900,15 +893,19 @@ fn tanglegram() -> Figure {
     )
     .expect("the tree in this example is well formed");
 
-    Figure::new(Region::new("taxa", 0, 8).unwrap())
+    plot("taxa:1-8")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            TanglegramTrack::new(core, accessory)
+        .remove_region_label()
+        .remove_axis()
+        .add_tanglegram(core, accessory)
+        .adjust(|track| {
+            track
                 .names("core genome", "accessory genome")
                 .row_height(18.0)
-                .label("8 isolates"),
-        )
+        })
+        .label("8 isolates")
+        .into_figure()
 }
 
 /// R: one row per molecule.
@@ -949,15 +946,13 @@ fn bisulfite() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000011.10", start, start + 500).unwrap())
+    Plot::over(Region::new("NC_000011.10", start, start + 500).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            BisulfiteTrack::new(sites, molecules)
-                .label("CpG")
-                .row_height(12.0),
-        )
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_bisulfite(sites, molecules)
+        .label("CpG")
+        .adjust(|track| track.row_height(12.0))
+        .into_figure()
 }
 
 /// S: a gene read as protein.
@@ -1052,18 +1047,20 @@ fn split_reads() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
+    Plot::over(Region::new("NC_000962.3", from, from + span).unwrap())
         .width(WIDTH)
-        .show_region_label(false)
-        .push(SplitReadTrack::new(reads).label("reads").row_height(10.0))
-        .push(CoverageTrack::new(from, depth).label("depth").height(44.0))
-        .push(
-            FeatureTrack::new(vec![Feature::new(donor.0, donor.1)
-                .name("IS6110")
-                .strand(Strand::Forward)])
-            .label("donor"),
-        )
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_split_reads(reads)
+        .label("reads")
+        .adjust(|track| track.row_height(10.0))
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.height(44.0))
+        .add_features(vec![Feature::new(donor.0, donor.1)
+            .name("IS6110")
+            .strand(Strand::Forward)])
+        .label("donor")
+        .into_figure()
 }
 
 /// U: intervals that belong to a branch.
@@ -1097,16 +1094,14 @@ fn clades() -> Figure {
         CladeBlock::new(22_280, 22_289, ["B_1_351_Beta"]).name("S LAL242-244"),
     ];
 
-    Figure::new(Region::new("NC_045512.2", 0, 29_903).unwrap())
+    plot("NC_045512.2:1-29,903")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            CladeTrack::new(tree, blocks)
-                .label("lineages")
-                .row_height(12.0)
-                .tree_width(140.0),
-        )
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_clades(tree, blocks)
+        .label("lineages")
+        .adjust(|track| track.row_height(12.0).tree_width(140.0))
+        .into_figure()
 }
 
 /// V: one RNA at a time.
@@ -1128,38 +1123,35 @@ fn transcripts() -> Figure {
             .name("espK"),
     ];
 
-    let genes = FeatureTrack::new(vec![
-        Feature::new(4_351_073, 4_352_181)
-            .name("PPE68")
-            .strand(Strand::Forward),
-        Feature::new(4_352_272, 4_352_576)
-            .name("esxB")
-            .strand(Strand::Forward),
-        Feature::new(4_352_607, 4_352_896)
-            .name("esxA")
-            .strand(Strand::Forward),
-        Feature::new(4_353_008, 4_355_010)
-            .name("espI")
-            .strand(Strand::Forward),
-        Feature::new(4_355_005, 4_356_542)
-            .name("eccD1")
-            .strand(Strand::Forward),
-        Feature::new(4_357_591, 4_359_782)
-            .name("espK")
-            .strand(Strand::Reverse),
-    ])
-    .label("genes");
-
-    Figure::new(Region::new("NC_000962.3", 4_350_800, 4_360_100).unwrap())
+    plot("NC_000962.3:4,350,801-4,360,100")
+        .unwrap()
         .width(WIDTH)
-        .show_region_label(false)
-        .push(
-            TranscriptionUnitTrack::new(units)
-                .label("transcripts")
-                .row_height(26.0),
-        )
-        .push(genes)
-        .push(AxisTrack::new())
+        .remove_region_label()
+        .add_transcription_units(units)
+        .label("transcripts")
+        .adjust(|track| track.row_height(26.0))
+        .add_features(vec![
+            Feature::new(4_351_073, 4_352_181)
+                .name("PPE68")
+                .strand(Strand::Forward),
+            Feature::new(4_352_272, 4_352_576)
+                .name("esxB")
+                .strand(Strand::Forward),
+            Feature::new(4_352_607, 4_352_896)
+                .name("esxA")
+                .strand(Strand::Forward),
+            Feature::new(4_353_008, 4_355_010)
+                .name("espI")
+                .strand(Strand::Forward),
+            Feature::new(4_355_005, 4_356_542)
+                .name("eccD1")
+                .strand(Strand::Forward),
+            Feature::new(4_357_591, 4_359_782)
+                .name("espK")
+                .strand(Strand::Reverse),
+        ])
+        .label("genes")
+        .into_figure()
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a

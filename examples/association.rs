@@ -11,10 +11,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    Association, AxisTrack, CellScale, Feature, FeatureTrack, Figure, ManhattanTrack, MatrixRow,
-    MatrixTrack, Region, Strand,
-};
+use karyon::{Association, CellScale, Feature, MatrixRow, Plot, Region, Strand};
 
 /// Window start, 0-based, around the rpoB locus of H37Rv.
 const START: u64 = 759_000;
@@ -77,32 +74,27 @@ fn main() -> std::io::Result<()> {
         .count();
 
     let region = Region::new("NC_000962.3", START, START + WINDOW).unwrap();
-    let figure = Figure::new(region)
+    let figure = Plot::over(region)
         .title("An association, and the isolates behind it")
         .width(940.0)
-        .push(
-            ManhattanTrack::new(points)
-                .genome_wide_threshold()
-                .unit(" -log10 p")
-                .label("association")
-                .height(96.0),
-        )
-        .push(
-            FeatureTrack::new(vec![Feature::new(759_806, 763_325)
-                .name("rpoB")
-                .strand(Strand::Forward)])
-            .label("gene"),
-        )
-        .push(
-            MatrixTrack::new(sites.clone(), rows)
+        .add_manhattan(points)
+        .label("association")
+        .adjust(|track| track.genome_wide_threshold().unit(" -log10 p").height(96.0))
+        .add_features(vec![Feature::new(759_806, 763_325)
+            .name("rpoB")
+            .strand(Strand::Forward)])
+        .label("gene")
+        .add_matrix(sites.clone(), rows)
+        .label("genotypes")
+        .adjust(|track| {
+            track
                 .scale(CellScale::Sequential {
                     max: Some(1.0),
                     hue: None,
                 })
-                .label("genotypes")
-                .min_cell_width(9.0),
-        )
-        .push(AxisTrack::new());
+                .min_cell_width(9.0)
+        })
+        .into_figure();
 
     figure.save_svg(out.join("example-association.svg"))?;
     let (width, height) = figure.dimensions();

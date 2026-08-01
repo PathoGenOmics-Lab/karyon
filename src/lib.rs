@@ -18,31 +18,39 @@
 //! # Example
 //!
 //! ```
-//! use karyon::{
-//!     AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Region,
-//!     SequenceTrack, Strand, Variant, VariantTrack,
-//! };
-//!
-//! let region = Region::parse("NC_000962.3:761000-761200").unwrap();
+//! use karyon::{plot, Feature, Strand, Variant};
 //!
 //! let depth: Vec<f64> = (0..201).map(|i| 55.0 - (i as f64 % 23.0)).collect();
 //! let bases: Vec<u8> = b"ACGT".iter().cycle().take(201).copied().collect();
 //!
-//! let svg = Figure::new(region)
+//! let svg = plot("NC_000962.3:761000-761200")
+//!     .unwrap()
 //!     .title("rpoB resistance determining region")
-//!     .push(CoverageTrack::new(760_999, depth).label("depth"))
-//!     .push(SequenceTrack::new(760_999, bases).label("reference"))
-//!     .push(FeatureTrack::new(vec![
+//!     .add_coverage(depth)
+//!     .label("depth")
+//!     .add_sequence(bases)
+//!     .label("reference")
+//!     .add_features(vec![
 //!         Feature::new(761_040, 761_160).name("RRDR").strand(Strand::Forward),
-//!     ]).label("genes"))
-//!     .push(VariantTrack::new(vec![
+//!     ])
+//!     .label("genes")
+//!     .add_variants(vec![
 //!         Variant::new(761_109).value(0.98).category("rpoB S450L"),
-//!     ]).label("variants"))
-//!     .push(AxisTrack::new())
+//!     ])
+//!     .label("variants")
 //!     .to_svg();
 //!
 //! assert!(svg.starts_with("<svg"));
 //! ```
+//!
+//! # Two layers
+//!
+//! [`plot()`] is the short way to write a figure down: one call per track, in
+//! the order they stack, with the region held once and the coordinate ruler
+//! filled in. [`Figure`] is what it builds, and the layer to reach for when a
+//! track is built by an alternative constructor, read back before it is drawn,
+//! or passed around. Neither can draw anything the other cannot. See the
+//! [`plot`](mod@crate::plot) module for where the short form stops.
 //!
 //! # Circular sequences
 //!
@@ -104,6 +112,7 @@ pub mod error;
 pub mod figure;
 pub mod genome;
 pub mod panels;
+pub mod plot;
 pub mod region;
 pub mod rings;
 pub mod scale;
@@ -116,6 +125,7 @@ pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
 pub use crate::genome::{Chromosome, Genome};
 pub use crate::panels::Panels;
+pub use crate::plot::{plot, Plot};
 pub use crate::region::Region;
 pub use crate::rings::{
     AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,

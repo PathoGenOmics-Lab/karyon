@@ -13,9 +13,8 @@ use std::path::{Path, PathBuf};
 
 use karyon::tree::Tree;
 use karyon::{
-    AxisTrack, CladeBlock, CladeTrack, CodonTrack, CoverageTrack, Feature, FeatureTrack, Figure,
-    Region, SplitRead, SplitReadTrack, SplitSegment, Strand, Terminator, TranscriptionUnit,
-    TranscriptionUnitTrack, Variant, VariantTrack,
+    plot, CladeBlock, CladeTrack, CodonTrack, Feature, Plot, Region, SplitRead, SplitReadTrack,
+    SplitSegment, Strand, Terminator, TranscriptionUnit, TranscriptionUnitTrack, Variant,
 };
 
 fn main() -> std::io::Result<()> {
@@ -73,20 +72,18 @@ fn codons(out: &Path) -> std::io::Result<()> {
         .label("rpoB");
     let s450 = ruler.span_of(450).expect("rpoB has a codon 450");
 
-    let figure = Figure::new(Region::new("NC_000962.3", view_from, view_to).unwrap())
+    let figure = Plot::over(Region::new("NC_000962.3", view_from, view_to).unwrap())
         .title("A coding sequence read as protein: rpoB codons 439 to 465")
         .width(880.0)
-        .show_region_label(false)
-        .push(
-            VariantTrack::new(vec![
-                Variant::new(s450.0 + 1).category("S450L"),
-                Variant::new(ruler.span_of(445).unwrap().0 + 1).category("H445Y"),
-            ])
-            .label("variants")
-            .height(34.0),
-        )
-        .push(ruler)
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_variants(vec![
+            Variant::new(s450.0 + 1).category("S450L"),
+            Variant::new(ruler.span_of(445).unwrap().0 + 1).category("H445Y"),
+        ])
+        .label("variants")
+        .adjust(|track| track.height(34.0))
+        .add_track(ruler)
+        .into_figure();
 
     figure.save_svg(out.join("example-codons.svg"))?;
     let (width, height) = figure.dimensions();
@@ -154,19 +151,19 @@ fn split_reads(out: &Path) -> std::io::Result<()> {
         })
         .collect();
 
-    let figure = Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
+    let figure = Plot::over(Region::new("NC_000962.3", from, from + span).unwrap())
         .title("An IS6110 copy in a new place: three segments of one molecule")
         .width(880.0)
-        .show_region_label(false)
-        .push(track)
-        .push(CoverageTrack::new(from, depth).label("depth").height(48.0))
-        .push(
-            FeatureTrack::new(vec![Feature::new(donor.0, donor.1)
-                .name("IS6110")
-                .strand(Strand::Forward)])
-            .label("donor"),
-        )
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track)
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.height(48.0))
+        .add_features(vec![Feature::new(donor.0, donor.1)
+            .name("IS6110")
+            .strand(Strand::Forward)])
+        .label("donor")
+        .into_figure();
 
     figure.save_svg(out.join("example-split.svg"))?;
     let (width, height) = figure.dimensions();
@@ -223,12 +220,12 @@ fn clades(out: &Path) -> std::io::Result<()> {
         .filter(|index| track.is_clade(*index))
         .count();
 
-    let figure = Figure::new(Region::new("NC_045512.2", 0, 29_903).unwrap())
+    let figure = plot("NC_045512.2:1-29,903")?
         .title("Lineage-defining deletions, painted onto the branch that lost them")
         .width(880.0)
-        .show_region_label(false)
-        .push(track)
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track)
+        .into_figure();
 
     figure.save_svg(out.join("example-clades.svg"))?;
     let (width, height) = figure.dimensions();
@@ -269,7 +266,7 @@ fn transcripts(out: &Path) -> std::io::Result<()> {
     let leaderless = track.leaderless();
 
     // 1-based inclusive in the comments, 0-based half-open in the call.
-    let genes = FeatureTrack::new(vec![
+    let genes = vec![
         Feature::new(4_348_825, 4_350_602) // Rv3871, eccCb1
             .name("eccCb1")
             .strand(Strand::Forward),
@@ -297,16 +294,16 @@ fn transcripts(out: &Path) -> std::io::Result<()> {
         Feature::new(4_357_591, 4_359_782) // Rv3879c, the reverse one
             .name("espK")
             .strand(Strand::Reverse),
-    ])
-    .label("genes");
+    ];
 
-    let figure = Figure::new(Region::new("NC_000962.3", 4_348_700, 4_360_100).unwrap())
+    let figure = plot("NC_000962.3:4,348,701-4,360,100")?
         .title("Transcription units: one arrow, one molecule, one hairpin")
         .width(880.0)
-        .show_region_label(false)
-        .push(track)
-        .push(genes)
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track)
+        .add_features(genes)
+        .label("genes")
+        .into_figure();
 
     figure.save_svg(out.join("example-transcripts.svg"))?;
     let (width, height) = figure.dimensions();

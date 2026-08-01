@@ -13,10 +13,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    AlignmentBlock, AxisTrack, DotplotTrack, Feature, FeatureTrack, Figure, Region, Strand,
-    SyntenyTrack,
-};
+use karyon::{AlignmentBlock, Feature, Plot, Region, Strand};
 
 /// Length of the query chromosome.
 const QUERY: u64 = 4_400_000;
@@ -42,42 +39,39 @@ fn main() -> std::io::Result<()> {
     ];
 
     let region = Region::new("H37Rv", 0, QUERY).unwrap();
-    let figure = Figure::new(region.clone())
+    let figure = Plot::over(region)
         .title("Two chromosomes, three disagreements")
         .width(900.0)
-        .push(
-            DotplotTrack::new(blocks.clone())
-                .target_length(TARGET)
-                .label("CDC1551")
-                .height(210.0),
-        )
-        .push(
-            SyntenyTrack::new(blocks.clone())
+        .add_dotplot(blocks.clone())
+        .label("CDC1551")
+        .adjust(|track| track.target_length(TARGET).height(210.0))
+        .add_synteny(blocks.clone())
+        .adjust(|track| {
+            track
                 .target_length(TARGET)
                 .names("H37Rv", "CDC1551")
-                .height(120.0),
-        )
-        .push(AxisTrack::new());
+                .height(120.0)
+        })
+        .into_figure();
     figure.save_svg(out.join("example-synteny.svg"))?;
 
     // Zoomed onto the inversion, where the ribbon crossing is the whole story.
     let inversion = Region::new("H37Rv", 1_400_000, 2_250_000).unwrap();
-    let detail = Figure::new(inversion)
+    let detail = Plot::over(inversion)
         .title("The inversion, close up")
         .width(760.0)
-        .push(
-            SyntenyTrack::new(blocks)
+        .add_synteny(blocks)
+        .adjust(|track| {
+            track
                 .target_range(1_400_000, 2_250_000)
                 .names("H37Rv", "CDC1551")
-                .height(130.0),
-        )
-        .push(
-            FeatureTrack::new(vec![Feature::new(1_520_000, 2_100_000)
-                .name("inverted segment")
-                .strand(Strand::Reverse)])
-            .label("segment"),
-        )
-        .push(AxisTrack::new());
+                .height(130.0)
+        })
+        .add_features(vec![Feature::new(1_520_000, 2_100_000)
+            .name("inverted segment")
+            .strand(Strand::Reverse)])
+        .label("segment")
+        .into_figure();
     detail.save_svg(out.join("example-synteny-inversion.svg"))?;
 
     let (w1, h1) = figure.dimensions();

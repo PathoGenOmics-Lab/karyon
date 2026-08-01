@@ -43,18 +43,47 @@ karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
 ```rust
-use karyon::{AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Region, Strand};
+use karyon::{plot, Feature, Strand};
 
-let region = Region::parse("NC_000962.3:761000-763000")?;
-
-Figure::new(region)
+plot("NC_000962.3:761,000-763,000")?
     .title("rpoB locus")
-    .push(CoverageTrack::new(760_999, depth).label("depth"))
-    .push(FeatureTrack::new(vec![
+    .add_coverage(depth)
+    .label("depth")
+    .add_features(vec![
         Feature::new(761_050, 762_100).name("rpoB").strand(Strand::Forward),
-    ]).label("genes"))
-    .push(AxisTrack::new())
-    .save_svg("rpoB.svg")?;
+    ])
+    .label("genes")
+    .save("rpoB.svg")?;
+```
+
+One call per track, in the order they stack. The locus string is the 1-based
+inclusive form samtools and IGV use, `add_coverage` takes its start from the
+region, and the coordinate ruler goes on the bottom without being asked for. A
+bad locus string is an error rather than a panic, and it converts into
+`io::Error`, so the region and the file it renders to share one `?`.
+
+The call after an `add_` still talks about the track it added, so `label` names
+it and `adjust` hands it over for anything else:
+
+```rust
+    .add_coverage(depth)
+    .label("depth")
+    .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
+```
+
+The closure gets the concrete track, so every builder method on it is in reach
+and a name that is not on that track fails to compile. Where the call sits is
+not checked, though: an `adjust` written one `add_` too late configures the next
+track instead.
+
+A stack built in a loop or behind a condition needs every arm to have one type,
+which is what `done` is for:
+
+```rust
+let mut figure = plot("chr2:1-4,000")?;
+for (name, depth) in samples {
+    figure = figure.add_coverage(depth).label(name).done();
+}
 ```
 
 Run the figures above yourself:
@@ -62,6 +91,30 @@ Run the figures above yourself:
 ```bash
 cargo run --example locus -- assets
 ```
+
+### The layer underneath
+
+`plot` builds a [`Figure`], and `Figure` is still the thing to reach for when a
+track comes from an alternative constructor such as `WindowTrack::gc_skew` or
+`SnpTrack::from_alignment`, or is read back before it is drawn: `panel.sites()`
+and `ruler.span_of(450)` both want the track as a variable. `Plot::add_track`
+takes a finished track without leaving the plot; `Figure` takes a whole stack of
+them.
+
+```rust
+use karyon::{AxisTrack, CoverageTrack, Figure, Region};
+
+Figure::new(Region::parse("NC_000962.3:761000-763000")?)
+    .push(CoverageTrack::new(760_999, depth).label("depth"))
+    .push(AxisTrack::new())
+    .save_svg("rpoB.svg")?;
+```
+
+`Plot::into_figure` hands one over, which is how a plot feeds `Panels`. Neither
+layer can do anything the other cannot; the difference is only how much has to
+be written down.
+
+[`Figure`]: https://docs.rs/karyon/latest/karyon/figure/struct.Figure.html
 
 ## Tracks
 

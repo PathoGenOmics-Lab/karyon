@@ -13,9 +13,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    AxisTrack, Figure, LogoScore, LogoTrack, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Region,
-};
+use karyon::{plot, LogoScore, LogoTrack, MsaColoring, MsaDisplay, MsaSequence};
 
 /// Width of the nucleotide alignment in columns.
 const COLUMNS: usize = 120;
@@ -32,15 +30,14 @@ fn main() -> std::io::Result<()> {
         .map(|row| String::from_utf8_lossy(&row.residues).into_owned())
         .collect();
 
-    let region = Region::new("alignment", 0, COLUMNS as u64).unwrap();
-    let figure = Figure::new(region)
+    let figure = plot(&format!("alignment:1-{COLUMNS}"))?
         .title("An alignment, and what disagrees in it")
         .width(940.0)
-        .show_region_label(false)
-        .push(
-            // The same sequences, scored for conservation. Shrinkage is on
-            // because twelve rows is not many, and a logo drawn from twelve
-            // sequences should say so.
+        .remove_region_label()
+        // The same sequences, scored for conservation. Shrinkage is on
+        // because twelve rows is not many, and a logo drawn from twelve
+        // sequences should say so.
+        .add_track(
             LogoTrack::from_sequences(0, &plain)
                 .alphabet_size(4)
                 .score(LogoScore::InformationContent)
@@ -48,14 +45,11 @@ fn main() -> std::io::Result<()> {
                 .label("conservation")
                 .height(52.0),
         )
-        .push(
-            MsaTrack::new(rows.clone())
-                .compare_to(0)
-                .label("isolates")
-                .row_height(13.0),
-        )
-        .push(AxisTrack::new());
-    figure.save_svg(out.join("example-msa.svg"))?;
+        .add_msa(rows.clone())
+        .label("isolates")
+        .adjust(|track| track.compare_to(0).row_height(13.0))
+        .save(out.join("example-msa.svg"))?
+        .into_figure();
 
     // A protein alignment, coloured by physicochemical class and zoomed far
     // enough in for the residues themselves.
@@ -66,20 +60,23 @@ fn main() -> std::io::Result<()> {
         MsaSequence::new("KatG_Beijing", b"MPEQHPPVTETTTGAASNGCPV".to_vec()),
         MsaSequence::new("KatG_Erdman", b"MPEQ-PPITETTTGAASNGCPV".to_vec()),
     ];
-    let residues = Figure::new(Region::new("alignment", 0, 22).unwrap())
+    let residues = plot("alignment:1-22")?
         .title("The same idea on a protein, coloured by residue class")
         .width(720.0)
-        .show_region_label(false)
-        .push(
-            MsaTrack::new(protein)
+        .remove_region_label()
+        .add_msa(protein)
+        .label("KatG")
+        .adjust(|track| {
+            track
                 .display(MsaDisplay::Bases)
                 .coloring(MsaColoring::Residue)
                 .compare_to(0)
-                .label("KatG")
-                .row_height(15.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true));
-    residues.save_svg(out.join("example-msa-protein.svg"))?;
+                .row_height(15.0)
+        })
+        .add_axis()
+        .adjust(|axis| axis.center_on_bases(true))
+        .save(out.join("example-msa-protein.svg"))?
+        .into_figure();
 
     let (w1, h1) = figure.dimensions();
     let (w2, h2) = residues.dimensions();

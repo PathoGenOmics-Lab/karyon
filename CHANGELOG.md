@@ -8,6 +8,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `plot` and `Plot`, a short way to write a figure down. `Figure` takes
+  tracks that already exist, which is right when a track is built elsewhere and
+  wrong for the ordinary case: a handful of tracks written out once, in place.
+  There the plumbing was most of the code. A `Region` to unwrap, a `use` line
+  naming every track type, a `push` around each one, an `AxisTrack` to remember,
+  and the window start repeated on every track that takes one even though the
+  figure already knew it. `plot("NC_000962.3:761,000-763,000")?` starts a stack
+  and one `add_` call per track fills it, in the order they stack.
+- `Plot` holds the track added last in its type parameter, so `Plot::label`
+  names it and `Plot::adjust` hands it to a closure that sees the concrete type.
+  Every builder method on the track is therefore in reach, and a name that does
+  not exist on it is a compile error rather than a call that goes nowhere. This
+  is the reason the type has a parameter at all.
+- Two things a plot fills in, both of which can be undone. An `AxisTrack` goes
+  on the bottom, since a figure without coordinates along it is rarely what
+  anyone meant; `Plot::add_axis` puts it elsewhere and `Plot::remove_axis`
+  leaves it out. Tracks carrying an array rather than coordinates start at the
+  left edge of the region, with an `_at` form for the ones that do not.
+- `Plot::done`, which puts the pending track away without adding another. A
+  stack built in a loop or behind a condition needs every arm to have one type,
+  and the type parameter that makes `adjust` work is what takes that away.
+- `Plot::add_track` and `Plot::add_boxed`, for a track that is already built:
+  one an alternative constructor made, one read back before it is drawn, or one
+  from outside the crate. This is not a fallback but the ordinary way to write
+  a heavily configured track, since the builder chain says it in one line and
+  `adjust` would wrap the same calls in a closure.
+- `From<Error> for std::io::Error`. A program that draws figures spends its
+  errors on writing files, so its functions return `io::Result`, and the one
+  call that parses a region was the only thing in such a function that could
+  not use `?`. That is a poor reason to reach for `unwrap`, and it was the
+  second line of all fourteen chains in the examples.
+- `Empty`, `Slot` and `Named`, the plumbing that gives `Plot` its type
+  parameter, under `karyon::plot` rather than at the crate root. `Empty` is
+  deliberately not a `Track`, so `label` and `adjust` before any track has been
+  added are compile errors rather than calls that go nowhere, and a figure
+  cannot be asked to draw the empty slot. `Slot` and `Named` are sealed.
 - `CodonTrack`, a ruler in codons. A variant in a coding sequence is named by
   residue (BRAF V600E, TP53 R175H, rpoB S450L) and the crate could only speak
   bases, so no figure could be pointed at with the name its result has. It

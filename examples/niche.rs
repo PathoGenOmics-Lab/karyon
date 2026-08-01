@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use karyon::theme::mix;
 use karyon::{
-    AxisTrack, Feature, FeatureTrack, Figure, Homology, Legend, LegendTrack, Locus, LocusTrack,
-    MethylSite, MethylationTrack, Move, Region, SquiggleTrack, Strand, Theme,
+    plot, Feature, Homology, Legend, Locus, LocusTrack, MethylSite, MethylationTrack, Move, Plot,
+    Region, Strand, Theme,
 };
 
 fn main() -> std::io::Result<()> {
@@ -53,12 +53,16 @@ fn squiggle(out: &Path) -> std::io::Result<()> {
     }
 
     let samples = signal.len() as u64;
-    let figure = Figure::new(Region::new("read", 0, samples).unwrap())
+    let figure = Plot::over(Region::new("read", 0, samples).unwrap())
         .title("One read, before it was a sequence")
         .width(880.0)
-        .show_region_label(false)
-        .push(SquiggleTrack::new(0, signal).moves(moves).label("current"))
-        .push(AxisTrack::new().label("sample"));
+        .remove_region_label()
+        .add_squiggle(signal)
+        .adjust(|track| track.moves(moves))
+        .label("current")
+        .add_axis()
+        .label("sample")
+        .into_figure();
 
     figure.save_svg(out.join("example-squiggle.svg"))?;
     let (width, height) = figure.dimensions();
@@ -161,13 +165,13 @@ fn cluster(out: &Path) -> std::io::Result<()> {
         .ramp("identity", pale, dark, "70%", "100%")
         .outline("in no neighbouring locus", theme.foreground.clone());
 
-    let figure = Figure::new(Region::new("ESX-1", 0, 13_000).unwrap())
+    let figure = plot("ESX-1:1-13000")?
         .title("ESX-1, and the deletion that made BCG a vaccine")
         .width(880.0)
-        .show_region_label(false)
-        .push(track)
-        .push(LegendTrack::new(legend))
-        .push(AxisTrack::new());
+        .remove_region_label()
+        .add_track(track)
+        .add_legend(legend)
+        .into_figure();
 
     figure.save_svg(out.join("example-cluster.svg"))?;
     let (width, height) = figure.dimensions();
@@ -241,16 +245,14 @@ fn methylation(out: &Path) -> std::io::Result<()> {
     let track = MethylationTrack::new(sites).label("6mA at GATC");
     let hemi = track.hemimethylated(0.5).len();
 
-    let figure = Figure::new(Region::new("NC_000913.3", start, start + span).unwrap())
+    let figure = Plot::over(Region::new("NC_000913.3", start, start + span).unwrap())
         .title("Dam methylation across oriC, one lane per strand")
         .width(880.0)
-        .push(track)
-        .push(
-            FeatureTrack::new(vec![Feature::new(oric.0, oric.1).name("oriC")])
-                .label("origin")
-                .row_height(14.0),
-        )
-        .push(AxisTrack::new());
+        .add_track(track)
+        .add_features(vec![Feature::new(oric.0, oric.1).name("oriC")])
+        .label("origin")
+        .adjust(|track| track.row_height(14.0))
+        .into_figure();
 
     figure.save_svg(out.join("example-methylation.svg"))?;
     let (width, height) = figure.dimensions();

@@ -11,7 +11,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use karyon::{Association, AxisTrack, CoverageTrack, Figure, Genome, GenomeTrack, ManhattanTrack};
+use karyon::{Association, Genome, Plot};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -87,21 +87,25 @@ fn genome_wide(out: &Path) -> std::io::Result<()> {
         .take(total as usize)
         .collect();
 
-    let figure = Figure::new(genome.region())
+    let figure = Plot::over(genome.region())
         .title("An association scan across a whole draft assembly")
         .width(940.0)
-        .show_region_label(false)
-        .push(
-            ManhattanTrack::new(points)
+        .remove_region_label()
+        .add_manhattan(points)
+        .label("association")
+        .adjust(|track| {
+            track
                 .bands(genome.boundaries())
                 .genome_wide_threshold()
                 .unit(" -log10 p")
-                .label("association")
-                .height(96.0),
-        )
-        .push(CoverageTrack::new(0, dense).label("depth").height(52.0))
-        .push(GenomeTrack::new(genome.clone()).label("contigs"))
-        .push(AxisTrack::new());
+                .height(96.0)
+        })
+        .add_coverage(dense)
+        .label("depth")
+        .adjust(|track| track.height(52.0))
+        .add_genome(genome.clone())
+        .label("contigs")
+        .into_figure();
 
     figure.save_svg(out.join("example-genomewide.svg"))?;
     let (width, height) = figure.dimensions();

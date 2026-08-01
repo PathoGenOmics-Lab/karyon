@@ -21,11 +21,10 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{
-    Aggregate, AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Region, SequenceTrack,
-    Strand, Theme, Variant, VariantTrack,
-};
+use karyon::{plot, Aggregate, Feature, Strand, Theme, Variant};
 
+/// The overview window, as a 1-based inclusive locus string.
+const WINDOW: &str = "NC_000962.3:761000-762999";
 /// Start of the window, 0-based. H37Rv coordinates around rpoB.
 const WINDOW_START: u64 = 760_999;
 /// Length of the overview window in bases.
@@ -67,21 +66,21 @@ fn main() -> std::io::Result<()> {
         Variant::new(761_051).value(0.12).category("synonymous"), // L426 wobble
     ];
 
-    let overview = Figure::new(Region::new("NC_000962.3", WINDOW_START, 762_999).unwrap())
+    let overview = plot(WINDOW)?
         .title("rpoB locus, resistance determining region")
-        .push(
-            // Min, not the default Max: at two and a half bases per pixel a
-            // dropout is the thing worth not smoothing away.
-            CoverageTrack::new(WINDOW_START, depth.clone())
-                .label("depth")
-                .aggregate(Aggregate::Min)
-                .height(70.0),
-        )
-        .push(SequenceTrack::new(WINDOW_START, bases.clone()).label("reference"))
-        .push(FeatureTrack::new(genes).label("annotation"))
-        .push(VariantTrack::new(variants).label("variants"))
-        .push(AxisTrack::new());
-    overview.save_svg(out.join("example.svg"))?;
+        .add_coverage(depth.clone())
+        .label("depth")
+        // Min, not the default Max: at two and a half bases per pixel a dropout
+        // is the thing worth not smoothing away.
+        .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
+        .add_sequence(bases.clone())
+        .label("reference")
+        .add_features(genes)
+        .label("annotation")
+        .add_variants(variants)
+        .label("variants")
+        .save(out.join("example.svg"))?
+        .into_figure();
 
     // The same tracks, zoomed until individual bases are legible. Nothing about
     // the tracks changes; only the region does.
@@ -89,64 +88,51 @@ fn main() -> std::io::Result<()> {
     let zoom_start = 761_120;
     let zoom_len = 60usize;
     let offset = (zoom_start - WINDOW_START) as usize;
-    let zoom_region = Region::new("NC_000962.3", zoom_start, zoom_start + zoom_len as u64).unwrap();
-    let zoom = Figure::new(zoom_region)
+    let zoom = plot("NC_000962.3:761121-761180")?
         .title("The same locus at base resolution")
-        .push(
-            CoverageTrack::new(zoom_start, depth[offset..offset + zoom_len].to_vec())
-                .label("depth")
-                .height(45.0),
-        )
-        .push(
-            SequenceTrack::new(zoom_start, bases[offset..offset + zoom_len].to_vec())
-                .label("reference"),
-        )
-        .push(
-            VariantTrack::new(vec![
-                Variant::new(761_138).value(0.55).category("missense"), // H445Y
-                Variant::new(761_154).value(1.00).category("missense"), // S450L
-                Variant::new(761_155).value(0.21).category("synonymous"),
-            ])
-            .label("variants")
-            .height(40.0),
-        )
-        .push(AxisTrack::new());
-    zoom.save_svg(out.join("example-zoom.svg"))?;
+        .add_coverage(depth[offset..offset + zoom_len].to_vec())
+        .label("depth")
+        .adjust(|track| track.height(45.0))
+        .add_sequence(bases[offset..offset + zoom_len].to_vec())
+        .label("reference")
+        .add_variants(vec![
+            Variant::new(761_138).value(0.55).category("missense"), // H445Y
+            Variant::new(761_154).value(1.00).category("missense"), // S450L
+            Variant::new(761_155).value(0.21).category("synonymous"),
+        ])
+        .label("variants")
+        .adjust(|track| track.height(40.0))
+        .save(out.join("example-zoom.svg"))?
+        .into_figure();
 
     // The dark theme is a selected set of colours rather than an inversion of
     // the light one, so it is worth rendering and looking at.
-    let dark = Figure::new(Region::new("NC_000962.3", WINDOW_START, 762_999).unwrap())
+    let dark = plot(WINDOW)?
         .title("The same locus, dark theme")
         .theme(Theme::dark())
-        .push(
-            CoverageTrack::new(WINDOW_START, depth)
-                .label("depth")
-                .aggregate(Aggregate::Min)
-                .height(70.0),
-        )
-        .push(SequenceTrack::new(WINDOW_START, bases).label("reference"))
-        .push(
-            FeatureTrack::new(vec![
-                Feature::new(759_806, 763_325)
-                    .name("rpoB")
-                    .strand(Strand::Forward),
-                Feature::new(761_081, 761_162)
-                    .name("RRDR")
-                    .strand(Strand::Forward)
-                    .color("#d55e00"),
-            ])
-            .label("annotation"),
-        )
-        .push(
-            VariantTrack::new(vec![
-                Variant::new(761_108).value(0.98).category("missense"),
-                Variant::new(761_154).value(1.00).category("missense"),
-                Variant::new(761_155).value(0.21).category("synonymous"),
-            ])
-            .label("variants"),
-        )
-        .push(AxisTrack::new());
-    dark.save_svg(out.join("example-dark.svg"))?;
+        .add_coverage(depth)
+        .label("depth")
+        .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
+        .add_sequence(bases)
+        .label("reference")
+        .add_features(vec![
+            Feature::new(759_806, 763_325)
+                .name("rpoB")
+                .strand(Strand::Forward),
+            Feature::new(761_081, 761_162)
+                .name("RRDR")
+                .strand(Strand::Forward)
+                .color("#d55e00"),
+        ])
+        .label("annotation")
+        .add_variants(vec![
+            Variant::new(761_108).value(0.98).category("missense"),
+            Variant::new(761_154).value(1.00).category("missense"),
+            Variant::new(761_155).value(0.21).category("synonymous"),
+        ])
+        .label("variants")
+        .save(out.join("example-dark.svg"))?
+        .into_figure();
 
     let (w1, h1) = overview.dimensions();
     let (w2, h2) = zoom.dimensions();

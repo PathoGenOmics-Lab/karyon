@@ -11,7 +11,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use karyon::{AxisTrack, Figure, LogoColumn, LogoScore, LogoTrack, Region, StackOrder};
+use karyon::{plot, LogoColumn, LogoScore, LogoTrack, StackOrder};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -35,34 +35,33 @@ fn main() -> std::io::Result<()> {
         LogoColumn::acgt(32.0, 4.0, 32.0, 32.0),  // C rare
     ];
 
-    let region = Region::new("motif", 0, motif.len() as u64).unwrap();
-    let comparison = Figure::new(region.clone())
+    let comparison = plot(&format!("motif:1-{}", motif.len()))?
         .title("One motif, three scores")
-        .show_region_label(false)
+        .remove_region_label()
         .label_width(110.0)
-        .push(
-            LogoTrack::new(0, motif.clone())
+        .add_logo(motif.clone())
+        .label("probability")
+        .adjust(|track| {
+            track
                 .alphabet_size(4)
                 .score(LogoScore::Probability)
-                .label("probability")
-                .height(60.0),
-        )
-        .push(
-            LogoTrack::new(0, motif.clone())
+                .height(60.0)
+        })
+        .add_logo(motif.clone())
+        .label("bits")
+        .adjust(|track| {
+            track
                 .alphabet_size(4)
                 .score(LogoScore::InformationContent)
-                .label("bits")
-                .height(70.0),
-        )
-        .push(
-            LogoTrack::new(0, motif)
-                .alphabet_size(4)
-                .edlogo()
-                .label("enrich / deplete")
-                .height(130.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true));
-    comparison.save_svg(out.join("example-logo.svg"))?;
+                .height(70.0)
+        })
+        .add_logo(motif)
+        .label("enrich / deplete")
+        .adjust(|track| track.alphabet_size(4).edlogo().height(130.0))
+        .add_axis()
+        .adjust(|axis| axis.center_on_bases(true))
+        .save(out.join("example-logo.svg"))?
+        .into_figure();
 
     // Symbols are arbitrary strings, so an alphabet does not have to be four
     // letters wide or one character long.
@@ -73,21 +72,23 @@ fn main() -> std::io::Result<()> {
         LogoColumn::new([("Cys", 96.0), ("Ser", 4.0)]),
         LogoColumn::new([("Leu", 30.0), ("Ile", 28.0), ("Val", 26.0), ("Met", 16.0)]),
     ];
-    let residue_region = Region::new("active site", 0, residues.len() as u64).unwrap();
-    let protein = Figure::new(residue_region)
+    let protein = plot(&format!("active site:1-{}", residues.len()))?
         .title("An arbitrary alphabet: three letter residue codes")
-        .show_region_label(false)
+        .remove_region_label()
         .width(640.0)
-        .push(
-            LogoTrack::new(0, residues)
+        .add_logo(residues)
+        .label("residues")
+        .adjust(|track| {
+            track
                 .alphabet_size(20)
                 .score(LogoScore::InformationContent)
                 .order(StackOrder::LargestOutside)
-                .label("residues")
-                .height(110.0),
-        )
-        .push(AxisTrack::new().center_on_bases(true));
-    protein.save_svg(out.join("example-logo-protein.svg"))?;
+                .height(110.0)
+        })
+        .add_axis()
+        .adjust(|axis| axis.center_on_bases(true))
+        .save(out.join("example-logo-protein.svg"))?
+        .into_figure();
 
     // The scores are not interchangeable, and the difference is loudest where
     // a symbol is absent. Column 1 has no T and nothing else going on; column 2
@@ -99,23 +100,24 @@ fn main() -> std::io::Result<()> {
         LogoColumn::acgt(25.0, 25.0, 25.0, 25.0),
         LogoColumn::acgt(70.0, 12.0, 12.0, 6.0),
     ];
-    let contrast_region = Region::new("motif", 0, contrast.len() as u64).unwrap();
-    let scores = Figure::new(contrast_region)
+    let scores = plot(&format!("motif:1-{}", contrast.len()))?
         .title("Five ways to score against a background")
-        .show_region_label(false)
+        .remove_region_label()
         .label_width(120.0)
         .width(760.0)
-        .push(logo_panel(&contrast, LogoScore::LogOdds, "log odds"))
-        .push(logo_panel(
+        .add_track(logo_panel(&contrast, LogoScore::LogOdds, "log odds"))
+        .add_track(logo_panel(
             &contrast,
             LogoScore::KullbackLeibler,
             "KL divergence",
         ))
-        .push(logo_panel(&contrast, LogoScore::Difference, "difference"))
-        .push(logo_panel(&contrast, LogoScore::Ratio, "ratio"))
-        .push(logo_panel(&contrast, LogoScore::OddsRatio, "odds ratio"))
-        .push(AxisTrack::new().center_on_bases(true));
-    scores.save_svg(out.join("example-logo-scores.svg"))?;
+        .add_track(logo_panel(&contrast, LogoScore::Difference, "difference"))
+        .add_track(logo_panel(&contrast, LogoScore::Ratio, "ratio"))
+        .add_track(logo_panel(&contrast, LogoScore::OddsRatio, "odds ratio"))
+        .add_axis()
+        .adjust(|axis| axis.center_on_bases(true))
+        .save(out.join("example-logo-scores.svg"))?
+        .into_figure();
 
     // How much of a logo should you believe? The proportions below are the
     // same at every sample size, so the raw panels are identical whether they
@@ -137,19 +139,21 @@ fn main() -> std::io::Result<()> {
             .collect()
     };
 
-    let depth_region = Region::new("motif", 0, shape.len() as u64).unwrap();
-    let mut stability = Figure::new(depth_region)
+    let mut stability = plot(&format!("motif:1-{}", shape.len()))?
         .title("The same proportions, five sequences to five hundred")
-        .show_region_label(false)
+        .remove_region_label()
         .label_width(150.0)
         .width(700.0);
     for sequences in [5.0, 50.0, 500.0] {
         stability = stability
-            .push(depth_panel(&at_depth(sequences), sequences, false))
-            .push(depth_panel(&at_depth(sequences), sequences, true));
+            .add_track(depth_panel(&at_depth(sequences), sequences, false))
+            .add_track(depth_panel(&at_depth(sequences), sequences, true));
     }
-    let stability = stability.push(AxisTrack::new().center_on_bases(true));
-    stability.save_svg(out.join("example-logo-stability.svg"))?;
+    let stability = stability
+        .add_axis()
+        .adjust(|axis| axis.center_on_bases(true))
+        .save(out.join("example-logo-stability.svg"))?
+        .into_figure();
 
     let fit = LogoTrack::new(0, at_depth(5.0))
         .alphabet_size(4)
