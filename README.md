@@ -117,6 +117,43 @@ be written down.
 
 [`Figure`]: https://docs.rs/karyon/latest/karyon/figure/struct.Figure.html
 
+## From the shell
+
+The same stack, without writing any Rust. Each track flag starts a track and
+the flags after it describe that one, so **the order of the flags is the order
+of the stack**. It is the same grammar with spaces instead of dots:
+
+```bash
+karyon NC_000962.3:761,000-763,000 \
+  --coverage depth.bedgraph --label depth --aggregate min \
+  --sequence H37Rv.fa \
+  --features genes.gff3     --label annotation \
+  --variants calls.vcf      --label variants \
+  --title 'rpoB locus' -o rpoB.svg
+```
+
+Any track file may be `-` for standard input, which is how the binary formats
+get in. They are not read here: `samtools` and `bcftools` already write exactly
+what these readers take, so the pipeline is the parser.
+
+```bash
+samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
+  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
+```
+
+Twelve of the twenty-nine tracks have a standard text format to read, and those
+are the ones the command has: `--coverage`, `--sequence`, `--features`,
+`--variants`, `--windows`, `--manhattan`, `--tree`, `--msa`, `--snps`,
+`--ideogram`, `--matrix` and `--pileup`, plus `--axis` for the ruler when it
+should not sit at the bottom. The rest have no file to read from, so they stay
+in the library. `karyon --help` is the whole grammar.
+
+**Coordinates are read as each format defines them**, which is the one thing
+here that would fail silently. BED, bedGraph and cytoBand are 0-based and
+half-open. GFF3, VCF, SAM and `samtools depth` are 1-based. Both come out at
+the same place in the figure, and every reader has a test that pins a known
+base through the conversion.
+
 ## Tracks
 
 | Track | What it draws | Notes |
@@ -601,11 +638,13 @@ gene labels to be bigger.
 colours follow first appearance rather than hash order. A figure that recolours
 itself when a sample is added is not one you can put in a paper.
 
-**No file parsing.** `karyon` takes vectors of numbers and structs, not paths to
-BAM files. Reading genomic formats is a solved problem that
+**No file parsing in the library.** `karyon` the crate takes vectors of numbers
+and structs, not paths. Reading genomic formats is a solved problem that
 [noodles](https://github.com/zaeleus/noodles) and
 [rust-bio](https://github.com/rust-bio/rust-bio) solve better, and keeping them
-out is what makes the dependency count zero.
+out is what makes the dependency count zero. `karyon` the command reads files,
+but only line based text ones, and it lives in its own binary target so
+`cargo add karyon` still brings in nothing.
 
 ## Roadmap
 
@@ -621,6 +660,12 @@ Not implemented yet, in the order they are likely to arrive:
 git clone https://github.com/PathoGenOmics-Lab/karyon
 cd karyon
 cargo test
+```
+
+The command line front end installs from the same repository:
+
+```bash
+cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
 Nothing is published to crates.io yet. `cargo add karyon` will work once 0.1.0

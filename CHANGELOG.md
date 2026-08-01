@@ -34,6 +34,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from outside the crate. This is not a fallback but the ordinary way to write
   a heavily configured track, since the builder chain says it in one line and
   `adjust` would wrap the same calls in a closure.
+- A command line front end, `karyon`, in its own binary target. The library
+  still reads no files and still has no dependencies: everything the command
+  reads is line based text, and the reading lives in `src/bin/karyon/`. The
+  grammar is the facade with spaces instead of dots, because `argv` is already
+  an ordered list whose later words describe the earlier ones: each `--<track>`
+  flag starts a track and the flags after it describe that one, so the order of
+  the flags is the order of the stack.
+- Twelve tracks have a standard text format to read and are the ones the
+  command has. BED, bedGraph, cytoBand, GFF3, VCF, SAM, FASTA, Newick and two
+  tables. BAM, CRAM and BCF are not read at all and are not meant to be: they
+  come in through a pipe, since `samtools depth`, `samtools view` and
+  `bcftools view` already write what these readers take.
+- Coordinates are read as each format defines them, which is the one thing in
+  the command that would fail silently. BED, bedGraph and cytoBand are 0-based
+  half-open; GFF3, VCF, SAM and `samtools depth` are 1-based. Every reader has
+  a test that pins a known base through the conversion, and the end coordinate
+  is pinned separately from the start.
+- `Tree`, `Clade` and `Placement` at the crate root. `TreeTrack`, `CladeTrack`
+  and `TanglegramTrack` were re-exported there and all three take a `Tree`,
+  which was not.
 - `From<Error> for std::io::Error`. A program that draws figures spends its
   errors on writing files, so its functions return `io::Result`, and the one
   call that parses a region was the only thing in such a function that could

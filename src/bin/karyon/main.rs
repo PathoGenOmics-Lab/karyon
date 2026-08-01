@@ -1,0 +1,165 @@
+//! `karyon`, the command line front end.
+//!
+//! The library takes vectors of numbers and structs and reads no files. This
+//! binary is where the reading lives, so that stays true: nothing in
+//! `src/lib.rs` opens a path, and `cargo add karyon` still brings in no
+//! dependencies, because every format read here is line based text.
+//!
+//! The grammar is in [`args`], the readers in [`read`], and the walk from one
+//! to a figure in [`stack`].
+
+mod args;
+mod read;
+mod stack;
+
+use std::fs;
+use std::io::{self, Write};
+use std::process::ExitCode;
+
+/// What `--help` prints.
+const HELP: &str = "\
+karyon, genomic track plots on one shared coordinate axis
+
+USAGE
+    karyon <REGION> [TRACK...] [OPTIONS]
+
+The region comes first, as a 1-based inclusive locus string. Each track flag
+starts a track and the flags after it describe that one, so the order of the
+flags is the order of the stack. A coordinate ruler is added at the bottom
+unless --axis puts one elsewhere or --no-axis leaves it out. Any track file
+may be - for standard input, and one track may take it.
+
+TRACKS
+    --coverage <FILE>    per-base signal: bedGraph, samtools depth, or values
+    --sequence <FILE>    the reference bases, FASTA
+    --features <FILE>    genes and other intervals, BED or GFF3
+    --variants <FILE>    point calls, VCF
+    --windows <FILE>     a statistic in windows, bedGraph
+    --manhattan <FILE>   association statistics, a table of position and value
+    --tree <FILE>        a phylogeny, Newick
+    --msa <FILE>         a multiple sequence alignment, aligned FASTA
+    --snps <FILE>        the variable sites of an alignment, aligned FASTA
+    --ideogram <FILE>    cytogenetic bands, a cytoBand table
+    --matrix <FILE>      a value per sample per site, a table
+    --pileup <FILE>      aligned reads, SAM text from samtools view
+    --axis               the coordinate ruler, put where this flag sits
+
+TRACK OPTIONS, each describing the track before it
+    --label <TEXT>       the name in the left gutter
+    --height <PX>        for the tracks that do not size themselves by rows
+    --aggregate <HOW>    max, mean or min, when a pixel covers many bases
+    --style <HOW>        area, line, bars, or steps for a window track
+    --log                a log scale
+    --color <HEX>        as in '#d55e00'
+    --format <NAME>      bedgraph, depth, values, bed or gff3, when the file
+                         cannot be told by looking at it
+
+FIGURE OPTIONS
+    --title <TEXT>
+    --width <PX>         900 by default
+    --theme <NAME>       light or dark
+    --no-axis            leave out the ruler
+    --no-region-label    leave out the locus printed at the top right
+    -o, --output <FILE>  standard output by default
+    -h, --help
+    -V, --version
+
+COORDINATES
+    BED, bedGraph and cytoBand are read 0-based and half-open. GFF3, VCF, SAM
+    and samtools depth are read 1-based and inclusive. Both come out at the
+    same place in the figure.
+
+BINARY FORMATS
+    BAM, CRAM and BCF are not read here. They come in through a pipe, since
+    samtools and bcftools already write what these readers take:
+
+    samtools depth -a -r NC_000962.3:761000-763000 aln.bam \\
+      | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
+
+EXAMPLE
+    karyon NC_000962.3:761,000-763,000 \\
+      --coverage depth.bedgraph --label depth --aggregate min \\
+      --sequence H37Rv.fa \\
+      --features genes.gff3 --label annotation \\
+      --variants calls.vcf --label variants \\
+      --title 'rpoB locus' -o rpoB.svg
+";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("karyon: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Everything `main` does, with the errors still values.
+fn run(args: &[String]) -> Result<(), String> {
+    let request = args::parse(args).map_err(|error| error.to_string())?;
+    let invocation = match request {
+        args::Request::Help => {
+            print!("{HELP}");
+            return Ok(());
+        }
+        args::Request::Version => {
+            println!("karyon {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        args::Request::Draw(invocation) => invocation,
+    };
+
+    let svg = stack::build(&invocation).map_err(|error| error.to_string())?;
+    match &invocation.output {
+        Some(path) => {
+            fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?
+        }
+        None => {
+            let stdout = io::stdout();
+            let mut out = stdout.lock();
+            out.write_all(svg.as_bytes())
+                .and_then(|()| out.flush())
+                .map_err(|error| format!("standard output: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_is_printed_rather_than_a_figure() {
+        assert!(run(&["--help".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn a_command_line_that_makes_no_sense_is_an_error_and_not_a_panic() {
+        let error = run(&["--nonsense".to_string()]).unwrap_err();
+        assert!(error.contains("unknown flag"), "{error}");
+    }
+
+    #[test]
+    fn the_help_text_names_every_track_flag() {
+        for kind in [
+            "--coverage",
+            "--sequence",
+            "--features",
+            "--variants",
+            "--windows",
+            "--manhattan",
+            "--tree",
+            "--msa",
+            "--snps",
+            "--ideogram",
+            "--matrix",
+            "--pileup",
+            "--axis",
+        ] {
+            assert!(HELP.contains(kind), "the help text does not mention {kind}");
+        }
+    }
+}

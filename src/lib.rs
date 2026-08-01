@@ -146,3 +146,4 @@ pub use crate::track::{
     TranscriptionUnit, TranscriptionUnitTrack, TreeShape, TreeTrack, Variant, VariantStyle,
     VariantTrack, Window, WindowStyle, WindowTrack,
 };
+pub use crate::tree::{Clade, Placement, Tree};
