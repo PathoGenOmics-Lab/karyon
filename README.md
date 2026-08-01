@@ -12,6 +12,7 @@
 </div>
 
 __Paula Ruiz-Rodriguez<sup>1</sup>__
+__and Mireia Coscolla<sup>1</sup>__
 <br>
 <sub> 1. I<sup>2</sup>SysBio, University of Valencia-CSIC, FISABIO Joint Research Unit Infection and Public Health, Valencia, Spain </sub>
 
@@ -628,3 +629,52 @@ is released there.
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+---
+<h2 id="contributors" align="center">
+
+✨ [Contributors](https://github.com/PathoGenOmics-Lab/karyon/graphs/contributors)
+</h2>
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<div align="center">
+karyon is developed with ❤️ by:
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/paururo">
+        <img src="https://avatars.githubusercontent.com/u/50167687?v=4&s=100" width="100px;" alt=""/>
+        <br />
+        <sub><b>Paula Ruiz-Rodriguez</b></sub>
+      </a>
+      <br />
+      <a href="" title="Code">💻</a>
+      <a href="" title="Research">🔬</a>
+      <a href="" title="Ideas">🤔</a>
+      <a href="" title="Data">🔣</a>
+      <a href="" title="Desing">🎨</a>
+      <a href="" title="Tool">🔧</a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/mireiacoscolla">
+        <img src="https://avatars.githubusercontent.com/u/29301737?v=4&s=100" width="100px;" alt=""/>
+        <br />
+        <sub><b>Mireia Coscolla</b></sub>
+      </a>
+      <br />
+      <a href="https://www.uv.es/instituto-biologia-integrativa-sistemas-i2sysbio/es/investigacion/proyectos/proyectos-actuales/mol-tb-host-1286169137294/ProjecteInves.html?id=1286289780236" title="Funding/Grant Finders">🔍</a>
+      <a href="" title="Ideas">🤔</a>
+      <a href="" title="Mentoring">🧑‍🏫</a>
+      <a href="" title="Research">🔬</a>
+      <a href="" title="User Testing">📓</a>
+    </td>
+  </tr>
+</table>
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification ([emoji key](https://allcontributors.org/docs/en/emoji-key)).
+</div>
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
