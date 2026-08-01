@@ -5,7 +5,8 @@
 //! ```
 //!
 //! As a residue, as a place one molecule visited, as a stretch a whole clade
-//! shares, and as part of one RNA.
+//! shares, and as part of one RNA. Four organisms, because none of the four
+//! forms is about any particular one.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-/// The rpoB resistance determining region, in the coordinates it is named in.
+/// A coding sequence in the coordinates its variants are named in.
 fn codons(out: &Path) -> std::io::Result<()> {
     let mut rng = Lcg::new(4_493);
     // rpoB runs 759,807 to 763,325 in H37Rv, 1-based inclusive, forward strand.
@@ -73,7 +74,7 @@ fn codons(out: &Path) -> std::io::Result<()> {
     let s450 = ruler.span_of(450).expect("rpoB has a codon 450");
 
     let figure = Figure::new(Region::new("NC_000962.3", view_from, view_to).unwrap())
-        .title("The rpoB RRDR, in the coordinates the clinic names it in")
+        .title("A coding sequence read as protein: rpoB codons 439 to 465")
         .width(880.0)
         .show_region_label(false)
         .push(
@@ -99,48 +100,35 @@ fn codons(out: &Path) -> std::io::Result<()> {
 /// An IS6110 transposition, which is a three-segment read and not an arc.
 fn split_reads(out: &Path) -> std::io::Result<()> {
     let mut rng = Lcg::new(8_101);
+    // IS6110-1 of M. tuberculosis H37Rv, 1-based 889,021 to 890,375, 1,355 bp,
+    // forward strand. The reference carries this copy; the sample carries it
+    // and one more.
+    let from = 880_000u64;
     let span = 40_000u64;
-    let donor = (12_000u64, 13_355u64);
-    let landing = 29_400u64;
+    let donor = (889_020u64, 890_375u64);
+    let landing = 906_000u64;
 
-    // Six molecules crossing the new junction, and two crossing the empty donor
-    // site, which is the pair of observations that makes it a transposition
-    // rather than a duplication.
-    let mut reads: Vec<SplitRead> = (0..6)
+    // Eight molecules crossing the new junction. Every one of them shows the
+    // element in the same orientation, because one insertion event puts it in
+    // one orientation: reads that disagreed about that would be two events or a
+    // mapping artefact, not evidence for this one. Here the new copy went in
+    // backwards relative to the reference copy, so the middle segment aligns to
+    // the donor on the reverse strand and both connectors run backwards.
+    let reads: Vec<SplitRead> = (0..8)
         .map(|index| {
-            let jitter = rng.next() % 600;
-            let flip = index % 3 == 0;
+            let left = 900 + rng.next() % 900;
+            let right = 800 + rng.next() % 1_000;
+            let element = donor.1 - donor.0;
             SplitRead::new(vec![
-                SplitSegment::new(landing - 1_400 - jitter, landing, Strand::Forward)
-                    .read_span(0, 1_400 + jitter),
-                SplitSegment::new(
-                    donor.0,
-                    donor.1,
-                    if flip {
-                        Strand::Reverse
-                    } else {
-                        Strand::Forward
-                    },
-                )
-                .read_span(1_400 + jitter, 2_755 + jitter),
-                SplitSegment::new(landing, landing + 900 + jitter, Strand::Forward)
-                    .read_span(2_755 + jitter, 3_655 + 2 * jitter),
+                SplitSegment::new(landing - left, landing, Strand::Forward).read_span(0, left),
+                SplitSegment::new(donor.0, donor.1, Strand::Reverse)
+                    .read_span(left, left + element),
+                SplitSegment::new(landing, landing + right, Strand::Forward)
+                    .read_span(left + element, left + element + right),
             ])
             .name(format!("read_{:02}", index + 1))
         })
         .collect();
-    for index in 0..2 {
-        let jitter = rng.next() % 400;
-        reads.push(
-            SplitRead::new(vec![
-                SplitSegment::new(donor.0 - 1_100 - jitter, donor.0, Strand::Forward)
-                    .read_span(0, 1_100 + jitter),
-                SplitSegment::new(donor.1, donor.1 + 1_000, Strand::Forward)
-                    .read_span(1_100 + jitter, 2_100 + jitter),
-            ])
-            .name(format!("read_{:02}", index + 7)),
-        );
-    }
 
     let track = SplitReadTrack::new(reads).label("reads").row_height(11.0);
     let backwards = track
@@ -149,8 +137,13 @@ fn split_reads(out: &Path) -> std::io::Result<()> {
         .filter(|read| read.goes_backwards())
         .count();
 
-    // Depth that agrees: the donor site keeps its copy, so nothing drops out.
-    let depth: Vec<f64> = (0..span)
+    // Depth that agrees, and this is the half of the evidence the arcs cannot
+    // carry: the sample has two copies of an element the reference has once, so
+    // reads from both pile onto the one reference copy and the donor reads at
+    // twice the background. A figure that also showed reads crossing an empty
+    // donor site would be claiming the element had left, which is the opposite
+    // of what this depth says.
+    let depth: Vec<f64> = (from..from + span)
         .map(|at| {
             let base = if at >= donor.0 && at < donor.1 {
                 96.0
@@ -161,12 +154,12 @@ fn split_reads(out: &Path) -> std::io::Result<()> {
         })
         .collect();
 
-    let figure = Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+    let figure = Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
         .title("An IS6110 copy in a new place: three segments of one molecule")
         .width(880.0)
         .show_region_label(false)
         .push(track)
-        .push(CoverageTrack::new(0, depth).label("depth").height(48.0))
+        .push(CoverageTrack::new(from, depth).label("depth").height(48.0))
         .push(
             FeatureTrack::new(vec![Feature::new(donor.0, donor.1)
                 .name("IS6110")
@@ -181,55 +174,57 @@ fn split_reads(out: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Regions of difference painted onto the lineage tree that carries them.
+/// Deletions painted onto the branch that lost them.
 fn clades(out: &Path) -> std::io::Result<()> {
+    // SARS-CoV-2 rather than a clonal bacterium, because the point of this
+    // panel is a block that was lost more than once, and a recurrent deletion
+    // has to come from a lineage that actually produced one.
+    // The variants of concern are separate descendants of B.1 with no
+    // well resolved order among them, so they are drawn as the polytomy they
+    // are rather than given an invented branching order.
     let tree = Tree::parse_newick(
-        "(((M_canettii:0.09,\
-            (((L1_ERR1:0.011,L1_ERR2:0.010):0.014,\
-              (L2_ERR3:0.009,L2_ERR4:0.011):0.013):0.008,\
-             ((L3_ERR5:0.010,L4_ERR6:0.012):0.011,\
-              (L4_ERR7:0.009,L4_ERR8:0.010):0.012):0.009):0.030):0.020,\
-           M_bovis:0.055):0.010,BCG_Pasteur:0.062);",
+        "(A_Wuhan:0.002,(B_1_1_7_Alpha:0.005,\
+          (B_1_351_Beta:0.004,P_1_Gamma:0.004):0.002,\
+          B_1_617_2_Delta:0.005,\
+          (BA_1_Omicron:0.008,BA_2_Omicron:0.008):0.003):0.003);",
     )
     .expect("the tree in this example is well formed");
 
+    // 1-based coordinates on NC_045512.2, all lineage-defining.
     let blocks = vec![
-        // TbD1 is missing from every modern lineage and present in the ancestral
-        // ones, which is why it is a block on an internal branch.
+        // The nsp6 SGF deletion: lost four times over, and Delta sits between
+        // the carriers without carrying it. That is why the block is drawn with
+        // Delta's row cut out rather than as one ancestral event.
         CladeBlock::new(
-            1_779_000,
-            1_788_000,
+            11_287,
+            11_296,
             [
-                "L1_ERR1", "L1_ERR2", "L2_ERR3", "L2_ERR4", "L3_ERR5", "L4_ERR6", "L4_ERR7",
-                "L4_ERR8",
+                "B_1_1_7_Alpha",
+                "B_1_351_Beta",
+                "P_1_Gamma",
+                "BA_1_Omicron",
+                "BA_2_Omicron",
             ],
         )
-        .name("TbD1 deleted"),
-        // RD1 is gone from BCG alone, which is what made it a vaccine.
-        CladeBlock::new(4_350_000, 4_359_600, ["BCG_Pasteur"]).name("RD1"),
-        // RD9 marks the M. bovis and BCG side.
-        CladeBlock::new(2_330_000, 2_342_000, ["M_bovis", "BCG_Pasteur"]).name("RD9"),
-        // A block two lineages carry and the one between them does not: not a
-        // clade, so the figure cuts the rows out rather than claiming one event.
-        CladeBlock::new(
-            3_100_000,
-            3_128_000,
-            ["L1_ERR1", "L1_ERR2", "L4_ERR7", "L4_ERR8"],
-        )
-        .name("recurrent"),
+        .name("nsp6 SGF del, recurrent"),
+        // HV69-70, the deletion behind S gene target failure on the TaqPath
+        // assay. Also recurrent: Alpha and BA.1 but not BA.2 between them.
+        CladeBlock::new(21_764, 21_770, ["B_1_1_7_Alpha", "BA_1_Omicron"]).name("S HV69-70, SGTF"),
+        // A clean single-branch block, the kind that is one event.
+        CladeBlock::new(22_280, 22_289, ["B_1_351_Beta"]).name("S LAL242-244"),
     ];
 
     let track = CladeTrack::new(tree, blocks)
-        .label("isolates")
-        .row_height(12.0)
-        .tree_width(120.0);
-    let cut = track.cut_rows(3);
+        .label("lineages")
+        .row_height(14.0)
+        .tree_width(150.0);
+    let cut = track.cut_rows(0);
     let clades = (0..track.blocks().len())
         .filter(|index| track.is_clade(*index))
         .count();
 
-    let figure = Figure::new(Region::new("NC_000962.3", 0, 4_411_532).unwrap())
-        .title("Regions of difference, painted onto the branch that lost them")
+    let figure = Figure::new(Region::new("NC_045512.2", 0, 29_903).unwrap())
+        .title("Lineage-defining deletions, painted onto the branch that lost them")
         .width(880.0)
         .show_region_label(false)
         .push(track)
@@ -238,30 +233,34 @@ fn clades(out: &Path) -> std::io::Result<()> {
     figure.save_svg(out.join("example-clades.svg"))?;
     let (width, height) = figure.dimensions();
     println!(
-        "example-clades.svg {width:.0} x {height:.0}, {clades} of 4 are clades, {cut} rows cut out"
+        "example-clades.svg {width:.0} x {height:.0}, {clades} of 3 are clades, {cut} rows cut out of the first"
     );
     Ok(())
 }
 
 /// One RNA molecule at a time, and where translation starts on it.
 fn transcripts(out: &Path) -> std::io::Result<()> {
-    // The ESX-1 locus. esxB and esxA are one transcript, and leaderless
-    // transcription is common enough in this organism to be the point of the
-    // figure rather than a footnote.
+    // The ESX-1 locus of M. tuberculosis H37Rv, at its real coordinates. Locus
+    // tags carry a trailing c only when the gene is on the complementary
+    // strand, so Rv3879c is the reverse strand gene here and everything from
+    // Rv3871 to Rv3878 runs forward.
     let units = vec![
-        TranscriptionUnit::new(4_350_200, 4_352_400, Strand::Forward)
-            .cds_start(4_350_200)
+        // esxB and esxA are one transcript, and it is leaderless: transcription
+        // starts on the start codon itself. That is common enough in this
+        // organism to be the point of the figure rather than a footnote.
+        TranscriptionUnit::new(4_352_272, 4_352_945, Strand::Forward)
+            .cds_start(4_352_272)
             .terminator(Terminator::Intrinsic)
             .name("esxB-esxA"),
-        TranscriptionUnit::new(4_352_900, 4_355_600, Strand::Forward)
-            .cds_start(4_353_064)
+        TranscriptionUnit::new(4_352_950, 4_355_120, Strand::Forward)
+            .cds_start(4_353_008)
             .terminator(Terminator::Intrinsic)
             .name("espI"),
-        TranscriptionUnit::new(4_358_900, 4_356_100, Strand::Reverse)
-            .cds_start(4_358_820)
+        // Rv3879c, read the other way, so its start site is the high coordinate.
+        TranscriptionUnit::new(4_359_850, 4_357_591, Strand::Reverse)
+            .cds_start(4_359_781)
             .terminator(Terminator::RhoDependent)
-            .name("eccCa1"),
-        TranscriptionUnit::new(4_355_800, 4_356_400, Strand::Forward).name("unresolved 3' end"),
+            .name("espK"),
     ];
 
     let track = TranscriptionUnitTrack::new(units)
@@ -269,23 +268,39 @@ fn transcripts(out: &Path) -> std::io::Result<()> {
         .row_height(28.0);
     let leaderless = track.leaderless();
 
+    // 1-based inclusive in the comments, 0-based half-open in the call.
     let genes = FeatureTrack::new(vec![
-        Feature::new(4_350_200, 4_350_500)
+        Feature::new(4_348_825, 4_350_602) // Rv3871, eccCb1
+            .name("eccCb1")
+            .strand(Strand::Forward),
+        Feature::new(4_350_743, 4_351_044) // Rv3872
+            .name("PE35")
+            .strand(Strand::Forward),
+        Feature::new(4_351_073, 4_352_181) // Rv3873
+            .name("PPE68")
+            .strand(Strand::Forward),
+        Feature::new(4_352_272, 4_352_576) // Rv3874
             .name("esxB")
             .strand(Strand::Forward),
-        Feature::new(4_350_600, 4_350_900)
+        Feature::new(4_352_607, 4_352_896) // Rv3875
             .name("esxA")
             .strand(Strand::Forward),
-        Feature::new(4_353_064, 4_355_400)
+        Feature::new(4_353_008, 4_355_010) // Rv3876
             .name("espI")
             .strand(Strand::Forward),
-        Feature::new(4_356_100, 4_358_820)
-            .name("eccCa1")
+        Feature::new(4_355_005, 4_356_542) // Rv3877
+            .name("eccD1")
+            .strand(Strand::Forward),
+        Feature::new(4_356_691, 4_357_535) // Rv3878
+            .name("espJ")
+            .strand(Strand::Forward),
+        Feature::new(4_357_591, 4_359_782) // Rv3879c, the reverse one
+            .name("espK")
             .strand(Strand::Reverse),
     ])
     .label("genes");
 
-    let figure = Figure::new(Region::new("NC_000962.3", 4_349_900, 4_359_200).unwrap())
+    let figure = Figure::new(Region::new("NC_000962.3", 4_348_700, 4_360_100).unwrap())
         .title("Transcription units: one arrow, one molecule, one hairpin")
         .width(880.0)
         .show_region_label(false)

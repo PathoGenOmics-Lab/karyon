@@ -51,6 +51,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The examples are no longer all one organism, and three of them were showing
+  an assay the organism does not have. The bisulfite panel drew a CpG island on
+  a genome whose methylome is 6mA and which has no 5mC at all; it is now the
+  human H19/IGF2 imprinting control region, which is where a per-molecule
+  bisulfite plot with two populations comes from. The per-strand methylation
+  panel claimed Dam and GATC in a genome with no `dam`; it is now *E. coli*
+  K-12 at oriC, with the eleven real GATC sites SeqA holds hemimethylated. The
+  pangenome matrix drew an accessory genome with gained and lost islands in a
+  species that has neither, and is now *Klebsiella pneumoniae*. The clade panel
+  needed a block that was lost more than once, which a clonal organism does not
+  supply, so it is SARS-CoV-2 lineage-defining deletions with the nsp6 SGF
+  deletion as the recurrent one.
+- Coordinates in the remaining figures now match the annotation they name.
+  `rpoB` was drawn 1,050 bases long instead of 3,519 with an invented
+  neighbouring gene beside it; the RRDR box sat on codons 525 to 572 rather
+  than 426 to 452, contradicting the frame `CodonTrack` pins in its own
+  doctest; `RD1` was drawn at 8 kb, on top of *gyrA* and *gyrB*, rather than at
+  4.35 Mb; `eccCa1` was drawn on the reverse strand when its locus tag has no
+  `c` suffix. The split-read panel asserted an empty donor site and twice the
+  depth over that same donor, which no single sample can show, and put the
+  element in two orientations for one insertion event.
 - Documentation throughout now states the general case rather than the bacterial
   or tuberculosis one. Twenty-three sentences across the API docs and the README
   said what the library is for in terms of one clade: circular plotting existed
@@ -78,6 +99,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `MethylationTrack::hemimethylated` only paired the two strands when both
+  calls sat on the same coordinate, which is never true of a palindrome: the
+  two 6mA of a `GATC` are one base apart, and so are the two 5mC of a `CpG`.
+  The API forced the caller to lie about one of the two positions, and the
+  *E. coli* oriC panel found it the moment its coordinates became real. It now
+  pairs the nearest partner within `MethylationTrack::pair_within`, one base by
+  default.
 - `Panels::columns` now cuts the panels where the tallest column comes out
   shortest, and levels the rest, instead of filling each column until it has
   passed its share. The old rule compounded: one column overshooting left every

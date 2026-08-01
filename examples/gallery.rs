@@ -146,7 +146,7 @@ fn main() -> std::io::Result<()> {
         .push_captioned(
             &codons(),
             "S",
-            "A coding sequence in the coordinates the clinic names it in",
+            "A coding sequence read as protein, and the variants named by residue",
         )
         .push_captioned(
             &split_reads(),
@@ -206,19 +206,24 @@ fn locus() -> Figure {
         .push(SequenceTrack::new(start, bases).label("reference"))
         .push(
             FeatureTrack::new(vec![
-                Feature::new(759_807, 763_325)
+                // rpoB is Rv0667, 1-based 759,807 to 763,325, forward. There is
+                // no second gene in this window; rpoC starts 371 bases past it.
+                Feature::new(759_806, 763_325)
                     .name("rpoB")
                     .strand(Strand::Forward),
-                Feature::new(762_250, 762_800)
-                    .name("Rv0668c")
-                    .strand(Strand::Reverse),
+                // Codons 426 to 452, the 81 base rifampicin hotspot.
+                Feature::new(761_081, 761_162)
+                    .name("RRDR")
+                    .strand(Strand::Forward)
+                    .color("#d55e00"),
             ])
             .label("genes"),
         )
         .push(
             VariantTrack::new(vec![
-                Variant::new(761_109).value(0.98).category("missense"),
-                Variant::new(761_452).value(0.44).category("synonymous"),
+                Variant::new(761_108).value(0.98).category("missense"), // D435V
+                Variant::new(761_154).value(1.00).category("missense"), // S450L
+                Variant::new(761_155).value(0.44).category("synonymous"),
             ])
             .label("variants")
             .height(40.0),
@@ -612,7 +617,6 @@ fn cluster() -> Figure {
     let theme = Theme::light();
     let kept = mix(&theme.muted, theme.surface(), 0.35);
     let lost = theme.color(0).to_string();
-    let gained = theme.color(1).to_string();
 
     let gene = |start: u64, len: u64, name: &str, color: &str, forward: bool| {
         Feature::new(start, start.saturating_add(len))
@@ -628,18 +632,19 @@ fn cluster() -> Figure {
     let core = |shift: i64| {
         let at = |base: i64| (base + shift).max(0) as u64;
         vec![
-            gene(at(300), 1_800, "eccA1", &kept, true),
-            gene(at(2_400), 1_500, "eccB1", &kept, true),
-            gene(at(4_100), 3_500, "eccCa1", &kept, true),
+            gene(at(300), 1_722, "eccA1", &kept, true),
+            gene(at(2_200), 1_455, "eccB1", &kept, true),
+            gene(at(3_800), 2_463, "eccCa1", &kept, true),
         ]
     };
     let rd1 = |shift: i64| {
         let at = |base: i64| (base + shift).max(0) as u64;
         vec![
-            gene(at(7_800), 300, "PE35", &lost, true),
-            gene(at(8_300), 1_100, "PPE68", &lost, true),
-            gene(at(9_600), 300, "esxB", &lost, true),
-            gene(at(10_100), 300, "esxA", &lost, true),
+            gene(at(6_400), 1_776, "eccCb1", &lost, true),
+            gene(at(8_300), 300, "PE35", &lost, true),
+            gene(at(8_700), 1_107, "PPE68", &lost, true),
+            gene(at(9_900), 303, "esxB", &lost, true),
+            gene(at(10_300), 288, "esxA", &lost, true),
         ]
     };
 
@@ -647,8 +652,8 @@ fn cluster() -> Figure {
     h37rv.extend(rd1(0));
     let mut bovis = core(-350);
     bovis.extend(rd1(-350));
-    let mut bcg = core(150);
-    bcg.push(gene(8_050, 1_350, "IS6110", &gained, false));
+    // BCG keeps the backbone and nothing else: RD1 left a clean junction.
+    let bcg = core(150);
 
     let track = LocusTrack::new(vec![
         Locus::new("H37Rv", h37rv),
@@ -659,10 +664,11 @@ fn cluster() -> Figure {
         Homology::new(0, 0, 0, 0.999),
         Homology::new(0, 1, 1, 0.997),
         Homology::new(0, 2, 2, 0.996),
-        Homology::new(0, 3, 3, 0.95),
-        Homology::new(0, 4, 4, 0.76),
-        Homology::new(0, 5, 5, 0.999),
-        Homology::new(0, 6, 6, 0.998),
+        Homology::new(0, 3, 3, 0.99),
+        Homology::new(0, 4, 4, 0.95),
+        Homology::new(0, 5, 5, 0.76),
+        Homology::new(0, 6, 6, 0.999),
+        Homology::new(0, 7, 7, 0.998),
         Homology::new(1, 0, 0, 0.998),
         Homology::new(1, 1, 1, 0.999),
         Homology::new(1, 2, 2, 0.997),
@@ -672,11 +678,10 @@ fn cluster() -> Figure {
     let (pale, dark) = track.ramp_ends(&theme);
     let legend = Legend::new()
         .area("deleted in BCG", &lost)
-        .area("insertion sequence", &gained)
         .ramp("identity", pale, dark, "70%", "100%")
         .outline("in no neighbouring locus", theme.foreground.clone());
 
-    Figure::new(Region::new("ESX-1", 0, 12_000).unwrap())
+    Figure::new(Region::new("ESX-1", 0, 13_000).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(track)
@@ -686,30 +691,62 @@ fn cluster() -> Figure {
 
 /// M: modification, not mutation.
 fn methylation() -> Figure {
-    let start = 1_460_000u64;
+    // Escherichia coli K-12 MG1655 at oriC. Dam writes 6mA at GATC on both
+    // strands; SeqA holds the origin hemimethylated for about a third of the
+    // cell cycle, which is why the two strands need their own lanes.
+    let start = 3_924_500u64;
     let span = 3_000u64;
+    let oric = (3_925_743u64, 3_925_975u64);
     let mut rng = Lcg::new(6_000);
 
-    let mut sites = Vec::new();
-    let mut pos = start + 40;
+    // The eleven GATC sites inside oriC, 0-based at the G.
+    let inside: [u64; 11] = [
+        3_925_743, 3_925_759, 3_925_774, 3_925_787, 3_925_813, 3_925_827, 3_925_845, 3_925_862,
+        3_925_869, 3_925_891, 3_925_959,
+    ];
+    let mut positions: Vec<u64> = inside.to_vec();
+    let mut pos = start + 60;
     while pos < start + span {
-        let hemi = (start + 1_100..start + 1_700).contains(&pos);
+        if pos < oric.0 || pos >= oric.1 {
+            positions.push(pos);
+        }
+        pos += 120 + rng.next() % 260;
+    }
+    positions.sort_unstable();
+
+    let mut sites = Vec::new();
+    for pos in positions {
+        let sequestered = pos >= oric.0 && pos < oric.1;
         let coverage = (8 + rng.next() % 55) as u32;
         let forward = 0.88 + (rng.next() % 12) as f64 / 100.0;
-        let reverse = if hemi {
+        let reverse = if sequestered {
             (rng.next() % 12) as f64 / 100.0
         } else {
             0.86 + (rng.next() % 14) as f64 / 100.0
         };
-        sites.push(MethylSite::new(pos, Strand::Forward, forward, coverage));
-        sites.push(MethylSite::new(pos, Strand::Reverse, reverse, coverage - 1));
-        pos += 40 + rng.next() % 130;
+        // GATC is a palindrome: the two adenines are one base apart.
+        sites.push(MethylSite::new(pos + 1, Strand::Forward, forward, coverage));
+        sites.push(MethylSite::new(
+            pos + 2,
+            Strand::Reverse,
+            reverse,
+            coverage - 1,
+        ));
     }
 
-    Figure::new(Region::new("NC_000962.3", start, start + span).unwrap())
+    Figure::new(Region::new("NC_000913.3", start, start + span).unwrap())
         .width(WIDTH)
         .show_region_label(false)
-        .push(MethylationTrack::new(sites).label("6mA").height(66.0))
+        .push(
+            MethylationTrack::new(sites)
+                .label("6mA at GATC")
+                .height(62.0),
+        )
+        .push(
+            FeatureTrack::new(vec![Feature::new(oric.0, oric.1).name("oriC")])
+                .label("origin")
+                .row_height(13.0),
+        )
         .push(AxisTrack::new())
 }
 
@@ -764,22 +801,27 @@ fn genome_wide() -> Figure {
 
 /// O: arcs between breakpoints.
 fn structural() -> Figure {
+    // The RD1 neighbourhood, so the named call is where the call actually is.
+    let from = 4_340_000u64;
     let span = 60_000u64;
     let mut rng = Lcg::new(7_919);
+
     let calls = vec![
-        StructuralVariant::new(8_000, 14_000, SvKind::Deletion)
+        StructuralVariant::new(4_350_000, 4_359_600, SvKind::Deletion)
             .support(34)
             .name("RD1"),
-        StructuralVariant::new(24_000, 31_000, SvKind::Duplication).support(21),
-        StructuralVariant::new(38_000, 44_000, SvKind::Inversion).support(9),
-        StructuralVariant::new(5_000, 52_000, SvKind::Translocation).support(6),
-        StructuralVariant::new(20_000, 20_000, SvKind::Insertion).support(17),
+        StructuralVariant::new(4_366_000, 4_373_000, SvKind::Duplication).support(21),
+        StructuralVariant::new(4_381_000, 4_387_000, SvKind::Inversion).support(9),
+        // One circular chromosome, so the far breakpoint is off this window.
+        StructuralVariant::new(4_345_000, 3_120_000, SvKind::Translocation).support(6),
+        StructuralVariant::new(4_362_000, 4_362_000, SvKind::Insertion).support(17),
     ];
-    let depth: Vec<f64> = (0..span)
+
+    let depth: Vec<f64> = (from..from + span)
         .map(|at| {
-            let base = if (8_000..14_000).contains(&at) {
+            let base = if (4_350_000..4_359_600).contains(&at) {
                 2.0
-            } else if (24_000..31_000).contains(&at) {
+            } else if (4_366_000..4_373_000).contains(&at) {
                 84.0
             } else {
                 42.0
@@ -788,7 +830,7 @@ fn structural() -> Figure {
         })
         .collect();
 
-    let track = StructuralTrack::new(calls).label("SV").height(88.0);
+    let track = StructuralTrack::new(calls).label("SV").height(86.0);
     let theme = Theme::light();
     let legend = Legend::new()
         .line("deletion", track.color_of(SvKind::Deletion, &theme))
@@ -800,11 +842,11 @@ fn structural() -> Figure {
         )
         .line("insertion", track.color_of(SvKind::Insertion, &theme));
 
-    Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+    Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(track)
-        .push(CoverageTrack::new(0, depth).label("depth").height(50.0))
+        .push(CoverageTrack::new(from, depth).label("depth").height(48.0))
         .push(LegendTrack::new(legend))
         .push(AxisTrack::new())
 }
@@ -872,25 +914,31 @@ fn tanglegram() -> Figure {
 /// R: one row per molecule.
 fn bisulfite() -> Figure {
     let mut rng = Lcg::new(1_729);
-    let start = 1_460_000u64;
+    // The H19/IGF2 imprinting control region on human chromosome 11, where a
+    // per-molecule bisulfite plot is the assay actually run: the paternal
+    // allele is methylated across the ICR and the maternal one is not.
+    let start = 2_002_400u64;
     let sites: Vec<u64> = (0..14)
         .map(|index| {
             if index < 9 {
                 start + 40 + index * 22
             } else {
-                start + 420 + (index - 9) * 70
+                start + 260 + (index - 9) * 40
             }
         })
         .collect();
+
     let molecules: Vec<Molecule> = (0..14)
         .map(|index| {
-            let methylated = index % 2 == 0;
-            let calls: Vec<Option<bool>> = (0..sites.len())
-                .map(|site| {
+            let paternal = index % 2 == 0;
+            let calls: Vec<Option<bool>> = sites
+                .iter()
+                .enumerate()
+                .map(|(site, _)| {
                     if site > 10 && rng.next() % 100 < 30 {
                         return None;
                     }
-                    Some(if methylated {
+                    Some(if paternal {
                         rng.next() % 100 > 8
                     } else {
                         rng.next() % 100 < 6
@@ -901,7 +949,7 @@ fn bisulfite() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000962.3", start, start + 800).unwrap())
+    Figure::new(Region::new("NC_000011.10", start, start + 500).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(
@@ -966,35 +1014,34 @@ fn codons() -> Figure {
 /// T: one molecule in several places.
 fn split_reads() -> Figure {
     let mut rng = Lcg::new(8_101);
+    // IS6110-1, 1-based 889,021 to 890,375. The reference has this copy; the
+    // sample has it and one more.
+    let from = 880_000u64;
     let span = 40_000u64;
-    let donor = (12_000u64, 13_355u64);
-    let landing = 29_400u64;
+    let donor = (889_020u64, 890_375u64);
+    let landing = 906_000u64;
 
+    // One insertion event puts the element in one orientation, so every read
+    // crossing the new junction shows the same one.
     let reads: Vec<SplitRead> = (0..6)
         .map(|index| {
-            let jitter = rng.next() % 600;
+            let left = 900 + rng.next() % 900;
+            let right = 800 + rng.next() % 1_000;
+            let element = donor.1 - donor.0;
             SplitRead::new(vec![
-                SplitSegment::new(landing - 1_400 - jitter, landing, Strand::Forward)
-                    .read_span(0, 1_400 + jitter),
-                SplitSegment::new(
-                    donor.0,
-                    donor.1,
-                    if index % 3 == 0 {
-                        Strand::Reverse
-                    } else {
-                        Strand::Forward
-                    },
-                )
-                .read_span(1_400 + jitter, 2_755 + jitter),
-                SplitSegment::new(landing, landing + 900 + jitter, Strand::Forward)
-                    .read_span(2_755 + jitter, 3_655 + 2 * jitter),
+                SplitSegment::new(landing - left, landing, Strand::Forward).read_span(0, left),
+                SplitSegment::new(donor.0, donor.1, Strand::Reverse)
+                    .read_span(left, left + element),
+                SplitSegment::new(landing, landing + right, Strand::Forward)
+                    .read_span(left + element, left + element + right),
             ])
             .name(format!("read_{:02}", index + 1))
         })
         .collect();
 
-    // Depth agrees: the donor copy is still there, so it reads twice over.
-    let depth: Vec<f64> = (0..span)
+    // Two copies in the sample against one in the reference, so the donor reads
+    // at twice the background.
+    let depth: Vec<f64> = (from..from + span)
         .map(|at| {
             let base = if at >= donor.0 && at < donor.1 {
                 96.0
@@ -1005,11 +1052,11 @@ fn split_reads() -> Figure {
         })
         .collect();
 
-    Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+    Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(SplitReadTrack::new(reads).label("reads").row_height(10.0))
-        .push(CoverageTrack::new(0, depth).label("depth").height(44.0))
+        .push(CoverageTrack::new(from, depth).label("depth").height(44.0))
         .push(
             FeatureTrack::new(vec![Feature::new(donor.0, donor.1)
                 .name("IS6110")
@@ -1021,84 +1068,89 @@ fn split_reads() -> Figure {
 
 /// U: intervals that belong to a branch.
 fn clades() -> Figure {
+    // The variants of concern are separate descendants of B.1 with no well
+    // resolved order among them, drawn as the polytomy they are.
     let tree = Tree::parse_newick(
-        "(((M_canettii:0.09,\
-            (((L1_ERR1:0.011,L1_ERR2:0.010):0.014,\
-              (L2_ERR3:0.009,L2_ERR4:0.011):0.013):0.008,\
-             ((L3_ERR5:0.010,L4_ERR6:0.012):0.011,\
-              (L4_ERR7:0.009,L4_ERR8:0.010):0.012):0.009):0.030):0.020,\
-           M_bovis:0.055):0.010,BCG_Pasteur:0.062);",
+        "(A_Wuhan:0.002,(B_1_1_7_Alpha:0.005,\
+          (B_1_351_Beta:0.004,P_1_Gamma:0.004):0.002,\
+          B_1_617_2_Delta:0.005,\
+          (BA_1_Omicron:0.008,BA_2_Omicron:0.008):0.003):0.003);",
     )
     .expect("the tree in this panel is well formed");
 
     let blocks = vec![
+        // Lost four times over, and Delta sits between the carriers without
+        // carrying it, so the block is drawn with Delta's row cut out.
         CladeBlock::new(
-            1_779_000,
-            1_788_000,
+            11_287,
+            11_296,
             [
-                "L1_ERR1", "L1_ERR2", "L2_ERR3", "L2_ERR4", "L3_ERR5", "L4_ERR6", "L4_ERR7",
-                "L4_ERR8",
+                "B_1_1_7_Alpha",
+                "B_1_351_Beta",
+                "P_1_Gamma",
+                "BA_1_Omicron",
+                "BA_2_Omicron",
             ],
         )
-        .name("TbD1 deleted"),
-        CladeBlock::new(4_350_000, 4_359_600, ["BCG_Pasteur"]).name("RD1"),
-        CladeBlock::new(2_330_000, 2_342_000, ["M_bovis", "BCG_Pasteur"]).name("RD9"),
-        // Two lineages with a third between them that does not carry it: not a
-        // clade, so the block is cut rather than claiming one ancestral event.
-        CladeBlock::new(
-            3_100_000,
-            3_128_000,
-            ["L1_ERR1", "L1_ERR2", "L4_ERR7", "L4_ERR8"],
-        )
-        .name("recurrent"),
+        .name("nsp6 SGF del, recurrent"),
+        CladeBlock::new(21_764, 21_770, ["B_1_1_7_Alpha", "BA_1_Omicron"]).name("S HV69-70"),
+        CladeBlock::new(22_280, 22_289, ["B_1_351_Beta"]).name("S LAL242-244"),
     ];
 
-    Figure::new(Region::new("NC_000962.3", 0, 4_411_532).unwrap())
+    Figure::new(Region::new("NC_045512.2", 0, 29_903).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(
             CladeTrack::new(tree, blocks)
-                .label("isolates")
-                .row_height(11.0)
-                .tree_width(110.0),
+                .label("lineages")
+                .row_height(12.0)
+                .tree_width(140.0),
         )
         .push(AxisTrack::new())
 }
 
 /// V: one RNA at a time.
 fn transcripts() -> Figure {
+    // ESX-1 at its real coordinates. Rv3879c is the reverse strand gene here;
+    // everything from Rv3871 to Rv3878 runs forward.
     let units = vec![
-        TranscriptionUnit::new(4_350_200, 4_352_400, Strand::Forward)
-            .cds_start(4_350_200)
+        TranscriptionUnit::new(4_352_272, 4_352_945, Strand::Forward)
+            .cds_start(4_352_272)
             .terminator(Terminator::Intrinsic)
             .name("esxB-esxA"),
-        TranscriptionUnit::new(4_352_900, 4_355_600, Strand::Forward)
-            .cds_start(4_353_064)
+        TranscriptionUnit::new(4_352_950, 4_355_120, Strand::Forward)
+            .cds_start(4_353_008)
             .terminator(Terminator::Intrinsic)
             .name("espI"),
-        TranscriptionUnit::new(4_358_900, 4_356_100, Strand::Reverse)
-            .cds_start(4_358_820)
+        TranscriptionUnit::new(4_359_850, 4_357_591, Strand::Reverse)
+            .cds_start(4_359_781)
             .terminator(Terminator::RhoDependent)
-            .name("eccCa1"),
+            .name("espK"),
     ];
 
     let genes = FeatureTrack::new(vec![
-        Feature::new(4_350_200, 4_350_500)
+        Feature::new(4_351_073, 4_352_181)
+            .name("PPE68")
+            .strand(Strand::Forward),
+        Feature::new(4_352_272, 4_352_576)
             .name("esxB")
             .strand(Strand::Forward),
-        Feature::new(4_350_600, 4_350_900)
+        Feature::new(4_352_607, 4_352_896)
             .name("esxA")
             .strand(Strand::Forward),
-        Feature::new(4_353_064, 4_355_400)
+        Feature::new(4_353_008, 4_355_010)
             .name("espI")
             .strand(Strand::Forward),
-        Feature::new(4_356_100, 4_358_820)
-            .name("eccCa1")
+        Feature::new(4_355_005, 4_356_542)
+            .name("eccD1")
+            .strand(Strand::Forward),
+        Feature::new(4_357_591, 4_359_782)
+            .name("espK")
             .strand(Strand::Reverse),
     ])
     .label("genes");
 
-    Figure::new(Region::new("NC_000962.3", 4_349_900, 4_359_200).unwrap())
+    Figure::new(Region::new("NC_000962.3", 4_350_800, 4_360_100).unwrap())
         .width(WIDTH)
         .show_region_label(false)
         .push(

@@ -8,6 +8,11 @@
 //! by the phylogeny beside them. Sorted by sample name the same data is a
 //! speckle; sorted by descent the accessory regions become rectangles, and a
 //! rectangle is a claim about the biology.
+//!
+//! The isolates are *Klebsiella pneumoniae*, which has an open pangenome and
+//! moves it around. The organism is load bearing rather than decorative: a
+//! clonal species with no horizontal transfer has almost no accessory genome,
+//! so this figure would have nothing in it.
 
 use std::env;
 use std::path::PathBuf;
@@ -78,9 +83,9 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
 
-    let region = Region::new("NC_000962.3", START, START + WINDOW).unwrap();
+    let region = Region::new("NC_016845.1", START, START + WINDOW).unwrap();
     let figure = Figure::new(region)
-        .title("An accessory genome, sorted by the tree beside it")
+        .title("A Klebsiella accessory genome, sorted by the tree beside it")
         .width(940.0)
         .push(
             FeatureTrack::new(vec![

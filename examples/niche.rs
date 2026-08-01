@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use karyon::theme::mix;
 use karyon::{
-    AxisTrack, Feature, Figure, Homology, Legend, LegendTrack, Locus, LocusTrack, MethylSite,
-    MethylationTrack, Move, Region, SquiggleTrack, Strand, Theme,
+    AxisTrack, Feature, FeatureTrack, Figure, Homology, Legend, LegendTrack, Locus, LocusTrack,
+    MethylSite, MethylationTrack, Move, Region, SquiggleTrack, Strand, Theme,
 };
 
 fn main() -> std::io::Result<()> {
@@ -69,13 +69,12 @@ fn squiggle(out: &Path) -> std::io::Result<()> {
 /// The same locus in three genomes, and what each one is missing.
 fn cluster(out: &Path) -> std::io::Result<()> {
     // Colour is spent only on what differs. The conserved backbone of the
-    // locus is one quiet slate, the block RD1 removed is one hue and the
-    // element that replaced it is another: three colours where eight would
-    // have made the reader learn a key before reading anything.
+    // locus is one quiet slate and the block RD1 removed is one hue: two
+    // colours where eight would have made the reader learn a key before
+    // reading anything.
     let theme = Theme::light();
     let kept = mix(&theme.muted, theme.surface(), 0.35);
     let lost = theme.color(0).to_string();
-    let gained = theme.color(1).to_string();
 
     let gene = |start: u64, len: u64, name: &str, color: &str, forward: bool| {
         Feature::new(start, start.saturating_add(len))
@@ -88,25 +87,27 @@ fn cluster(out: &Path) -> std::io::Result<()> {
             })
     };
 
-    // Rv3868 onwards. RD1 takes out Rv3872 to Rv3875, which is PE35, PPE68,
-    // esxB and esxA: one contiguous block, which is why the figure shows one
-    // contiguous hole rather than four scattered ones. The three genomes
+    // Rv3868 onwards, with the real gene lengths. RD1 removes Rv3871 through
+    // Rv3879c, so the block that goes is eccCb1, PE35, PPE68, esxB and esxA and
+    // what follows: one contiguous stretch, which is why the figure shows one
+    // contiguous hole rather than several scattered ones. The three genomes
     // number the locus differently, as three assemblies of one region do.
     let core = |shift: i64| {
         let at = |base: i64| (base + shift).max(0) as u64;
         vec![
-            gene(at(300), 1_800, "eccA1", &kept, true),
-            gene(at(2_400), 1_500, "eccB1", &kept, true),
-            gene(at(4_100), 3_500, "eccCa1", &kept, true),
+            gene(at(300), 1_722, "eccA1", &kept, true),
+            gene(at(2_200), 1_455, "eccB1", &kept, true),
+            gene(at(3_800), 2_463, "eccCa1", &kept, true),
         ]
     };
     let rd1 = |shift: i64| {
         let at = |base: i64| (base + shift).max(0) as u64;
         vec![
-            gene(at(7_800), 300, "PE35", &lost, true),
-            gene(at(8_300), 1_100, "PPE68", &lost, true),
-            gene(at(9_600), 300, "esxB", &lost, true),
-            gene(at(10_100), 300, "esxA", &lost, true),
+            gene(at(6_400), 1_776, "eccCb1", &lost, true),
+            gene(at(8_300), 300, "PE35", &lost, true),
+            gene(at(8_700), 1_107, "PPE68", &lost, true),
+            gene(at(9_900), 303, "esxB", &lost, true),
+            gene(at(10_300), 288, "esxA", &lost, true),
         ]
     };
 
@@ -115,9 +116,9 @@ fn cluster(out: &Path) -> std::io::Result<()> {
     let mut bovis = core(-350);
     bovis.extend(rd1(-350));
 
-    let mut bcg = core(150);
-    // The scar RD1 left, with an insertion sequence sitting in it.
-    bcg.push(gene(8_050, 1_350, "IS6110", &gained, false));
+    // BCG keeps the backbone and nothing else: RD1 left a clean junction, not
+    // a scar with something in it.
+    let bcg = core(150);
 
     let loci = vec![
         Locus::new("H37Rv", h37rv),
@@ -129,11 +130,13 @@ fn cluster(out: &Path) -> std::io::Result<()> {
         Homology::new(0, 0, 0, 0.999),
         Homology::new(0, 1, 1, 0.997),
         Homology::new(0, 2, 2, 0.996),
-        Homology::new(0, 3, 3, 0.95),
+        Homology::new(0, 3, 3, 0.99),
+        Homology::new(0, 4, 4, 0.95),
         // PPE68 is the one that has drifted between the two.
-        Homology::new(0, 4, 4, 0.76),
-        Homology::new(0, 5, 5, 0.999),
-        Homology::new(0, 6, 6, 0.998),
+        Homology::new(0, 5, 5, 0.76),
+        Homology::new(0, 6, 6, 0.999),
+        Homology::new(0, 7, 7, 0.998),
+        // BCG matches only the backbone, so only three ribbons leave this row.
         Homology::new(1, 0, 0, 0.998),
         Homology::new(1, 1, 1, 0.999),
         Homology::new(1, 2, 2, 0.997),
@@ -155,11 +158,10 @@ fn cluster(out: &Path) -> std::io::Result<()> {
     let (pale, dark) = track.ramp_ends(&theme);
     let legend = Legend::new()
         .area("deleted in BCG", &lost)
-        .area("insertion sequence", &gained)
         .ramp("identity", pale, dark, "70%", "100%")
         .outline("in no neighbouring locus", theme.foreground.clone());
 
-    let figure = Figure::new(Region::new("ESX-1", 0, 12_000).unwrap())
+    let figure = Figure::new(Region::new("ESX-1", 0, 13_000).unwrap())
         .title("ESX-1, and the deletion that made BCG a vaccine")
         .width(880.0)
         .show_region_label(false)
@@ -175,45 +177,79 @@ fn cluster(out: &Path) -> std::io::Result<()> {
 
 /// Methylation, one lane per strand.
 fn methylation(out: &Path) -> std::io::Result<()> {
-    let start = 1_460_000u64;
+    // Escherichia coli K-12 MG1655 at oriC. Dam writes 6mA at GATC on both
+    // strands, and a few seconds behind the fork the new strand has not been
+    // methylated yet, so every site is briefly hemimethylated. At oriC SeqA
+    // holds that state for about a third of the cell cycle, which is the
+    // sequestration that stops the origin firing twice, and it is the reason
+    // the two strands need their own lanes rather than an average.
+    //
+    // This is the assay's own organism. A genome with no dam has no GATC
+    // methylation to plot.
+    let start = 3_924_500u64;
     let span = 3_000u64;
+    // oriC itself, 1-based 3,925,744 to 3,925,975.
+    let oric = (3_925_743u64, 3_925_975u64);
     let mut rng = Lcg::new(6_000);
 
-    // GATC sites, mostly methylated on both strands, with a stretch that was
-    // caught between replication and maintenance and is modified on one only.
-    let mut sites = Vec::new();
-    let mut pos = start + 40;
+    // The eleven GATC sites inside oriC, 0-based at the G. Hard-coded rather
+    // than generated: eleven is the textbook count and their spacing is the
+    // point.
+    let inside: [u64; 11] = [
+        3_925_743, 3_925_759, 3_925_774, 3_925_787, 3_925_813, 3_925_827, 3_925_845, 3_925_862,
+        3_925_869, 3_925_891, 3_925_959,
+    ];
+
+    let mut positions: Vec<u64> = inside.to_vec();
+    // Genome-wide a GATC turns up about every 240 bases, so the flanks are
+    // sparser than the origin by design.
+    let mut pos = start + 60;
     while pos < start + span {
-        let hemi = (start + 1_100..start + 1_700).contains(&pos);
+        if pos < oric.0 || pos >= oric.1 {
+            positions.push(pos);
+        }
+        pos += 120 + rng.next() % 260;
+    }
+    positions.sort_unstable();
+
+    let mut sites = Vec::new();
+    for pos in positions {
+        let sequestered = pos >= oric.0 && pos < oric.1;
         let coverage = 8 + rng.next() % 55;
+        // GATC is a palindrome, so the two adenines are one base apart: the
+        // forward one at G+1 and the reverse one at G+2.
         let forward = 0.88 + (rng.next() % 12) as f64 / 100.0;
-        let reverse = if hemi {
+        let reverse = if sequestered {
             (rng.next() % 12) as f64 / 100.0
         } else {
             0.86 + (rng.next() % 14) as f64 / 100.0
         };
         sites.push(MethylSite::new(
-            pos,
+            pos + 1,
             Strand::Forward,
             forward,
             coverage as u32,
         ));
         sites.push(MethylSite::new(
-            pos,
+            pos + 2,
             Strand::Reverse,
             reverse,
             (coverage - 1) as u32,
         ));
-        pos += 40 + rng.next() % 130;
     }
 
-    let track = MethylationTrack::new(sites).label("6mA");
+    let track = MethylationTrack::new(sites).label("6mA at GATC");
     let hemi = track.hemimethylated(0.5).len();
 
-    let figure = Figure::new(Region::new("NC_000962.3", start, start + span).unwrap())
-        .title("6mA, one lane per strand, faded by how many reads called it")
+    let figure = Figure::new(Region::new("NC_000913.3", start, start + span).unwrap())
+        .title("Dam methylation across oriC, one lane per strand")
         .width(880.0)
         .push(track)
+        .push(
+            FeatureTrack::new(vec![Feature::new(oric.0, oric.1).name("oriC")])
+                .label("origin")
+                .row_height(14.0),
+        )
         .push(AxisTrack::new());
 
     figure.save_svg(out.join("example-methylation.svg"))?;

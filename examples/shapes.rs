@@ -6,7 +6,8 @@
 //!
 //! Structural variants as arcs between their breakpoints, the six reading
 //! frames with their stops, two trees face to face, and methylation one
-//! molecule at a time.
+//! molecule at a time. Four organisms, because the forms are not about any of
+//! them.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -32,27 +33,36 @@ fn main() -> std::io::Result<()> {
 
 /// Arcs between breakpoints, over the depth that should agree with them.
 fn structural(out: &Path) -> std::io::Result<()> {
+    // The RD1 neighbourhood of M. tuberculosis H37Rv, so the named call is where
+    // the call actually is. Drawing RD1 at 8 kb would put it on top of gyrA and
+    // gyrB, which is a different and much less survivable event.
+    let from = 4_340_000u64;
     let span = 60_000u64;
     let mut rng = Lcg::new(7_919);
 
     let calls = vec![
-        StructuralVariant::new(8_000, 14_000, SvKind::Deletion)
+        // RD1: the 9.5 kb block missing from every BCG, Rv3871 to Rv3879c,
+        // carrying esxB and esxA.
+        StructuralVariant::new(4_350_000, 4_359_600, SvKind::Deletion)
             .support(34)
             .name("RD1"),
-        StructuralVariant::new(24_000, 31_000, SvKind::Duplication).support(21),
-        StructuralVariant::new(38_000, 44_000, SvKind::Inversion).support(9),
-        StructuralVariant::new(5_000, 52_000, SvKind::Translocation).support(6),
-        StructuralVariant::new(20_000, 20_000, SvKind::Insertion).support(17),
+        StructuralVariant::new(4_366_000, 4_373_000, SvKind::Duplication).support(21),
+        StructuralVariant::new(4_381_000, 4_387_000, SvKind::Inversion).support(9),
+        // One circular chromosome and no plasmid, so the far breakpoint of a
+        // rearrangement is elsewhere on the same molecule and off this window.
+        // The arc leaving the frame is the honest picture of that.
+        StructuralVariant::new(4_345_000, 3_120_000, SvKind::Translocation).support(6),
+        StructuralVariant::new(4_362_000, 4_362_000, SvKind::Insertion).support(17),
     ];
 
     // Depth that agrees: a hole under the deletion, a step under the
     // duplication, and nothing under the inversion, which is how an inversion
     // looks and why the arc has to say what the depth cannot.
-    let depth: Vec<f64> = (0..span)
+    let depth: Vec<f64> = (from..from + span)
         .map(|at| {
-            let base = if (8_000..14_000).contains(&at) {
+            let base = if (4_350_000..4_359_600).contains(&at) {
                 2.0
-            } else if (24_000..31_000).contains(&at) {
+            } else if (4_366_000..4_373_000).contains(&at) {
                 84.0
             } else {
                 42.0
@@ -73,12 +83,12 @@ fn structural(out: &Path) -> std::io::Result<()> {
         )
         .line("insertion", track.color_of(SvKind::Insertion, &theme));
 
-    let figure = Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+    let figure = Figure::new(Region::new("NC_000962.3", from, from + span).unwrap())
         .title("Structural variants, and whether the depth agrees")
         .width(880.0)
         .show_region_label(false)
         .push(track)
-        .push(CoverageTrack::new(0, depth).label("depth").height(56.0))
+        .push(CoverageTrack::new(from, depth).label("depth").height(56.0))
         .push(LegendTrack::new(legend))
         .push(AxisTrack::new());
 
@@ -140,6 +150,10 @@ fn frames(out: &Path) -> std::io::Result<()> {
 
 /// Two trees, and where they disagree.
 fn tanglegram(out: &Path) -> std::io::Result<()> {
+    // Klebsiella pneumoniae, which has a large accessory genome and moves it
+    // around. The species matters here: in a clonal organism with a closed
+    // pangenome the two trees would agree by construction and the figure would
+    // have nothing to show.
     let core = Tree::parse_newick(
         "(((ERR5001:0.004,ERR5002:0.004):0.010,(ERR5003:0.003,ERR5004:0.005):0.009):0.020,\
           ((ERR5005:0.004,ERR5006:0.003):0.011,(ERR5007:0.005,ERR5008:0.004):0.008):0.018);",
@@ -160,7 +174,7 @@ fn tanglegram(out: &Path) -> std::io::Result<()> {
     let crossings = track.crossings();
 
     let figure = Figure::new(Region::new("taxa", 0, 8).unwrap())
-        .title("Two trees over one collection, and where they disagree")
+        .title("K. pneumoniae: core and accessory genome trees over one collection")
         .width(760.0)
         .show_region_label(false)
         .push(track);
@@ -174,25 +188,31 @@ fn tanglegram(out: &Path) -> std::io::Result<()> {
 /// One row per molecule, one column per cytosine.
 fn bisulfite(out: &Path) -> std::io::Result<()> {
     let mut rng = Lcg::new(1_729);
-    let start = 1_460_000u64;
+    // The H19/IGF2 imprinting control region on human chromosome 11. This is
+    // the assay's own ground: bisulfite conversion reads 5-methylcytosine, and
+    // the ICR is methylated on the paternal allele and unmethylated on the
+    // maternal one, so a single sample really does carry two populations of
+    // molecule rather than one loosely modified set.
+    let start = 2_002_400u64;
 
-    // A CpG island: sites clustered, then a gap, then a few more.
+    // CpGs across the ICR, clustered around the CTCF sites and sparser after.
     let sites: Vec<u64> = (0..14)
         .map(|index| {
             if index < 9 {
                 start + 40 + index * 22
             } else {
-                start + 420 + (index - 9) * 70
+                start + 260 + (index - 9) * 40
             }
         })
         .collect();
 
-    // Two populations rather than loose modification: half the molecules
-    // methylated throughout the island, half at nothing. The site fractions
-    // alone could not tell these apart from every molecule being half done.
+    // Two populations, and the reason for them is imprinting rather than
+    // chance: the paternal allele is methylated across the ICR and the maternal
+    // one is not. The site fractions alone would sit near a half everywhere and
+    // could not tell this apart from every molecule being half done.
     let molecules: Vec<Molecule> = (0..16)
         .map(|index| {
-            let methylated = index % 2 == 0;
+            let paternal = index % 2 == 0;
             let calls: Vec<Option<bool>> = sites
                 .iter()
                 .enumerate()
@@ -201,7 +221,7 @@ fn bisulfite(out: &Path) -> std::io::Result<()> {
                     if site > 10 && rng.next() % 100 < 30 {
                         return None;
                     }
-                    Some(if methylated {
+                    Some(if paternal {
                         rng.next() % 100 > 8
                     } else {
                         rng.next() % 100 < 6
@@ -215,8 +235,8 @@ fn bisulfite(out: &Path) -> std::io::Result<()> {
     let track = BisulfiteTrack::new(sites, molecules).label("CpG");
     let discordance = track.discordance().unwrap_or(0.0);
 
-    let figure = Figure::new(Region::new("NC_000962.3", start, start + 800).unwrap())
-        .title("Methylation one molecule at a time: two populations, not one loose pattern")
+    let figure = Figure::new(Region::new("NC_000011.10", start, start + 500).unwrap())
+        .title("The H19/IGF2 ICR one molecule at a time: two alleles, not one loose pattern")
         .width(880.0)
         .push(track.row_height(13.0))
         .push(AxisTrack::new());

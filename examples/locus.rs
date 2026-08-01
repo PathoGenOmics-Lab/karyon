@@ -6,9 +6,15 @@
 //! cargo run --example locus -- assets
 //! ```
 //!
-//! The data is synthetic but shaped like the real thing: a coverage dropout, a
-//! couple of gene models on opposite strands, and variants split by
-//! consequence. Everything is generated from a fixed seed, so re-running the
+//! The depth and the reference bases are synthetic but shaped like the real
+//! thing: a coverage dropout, and a GC content near the 65% this genome sits at.
+//! The annotation and the variant positions are not synthetic. `rpoB` spans the
+//! whole window and runs off both edges, the RRDR box is the real 81 base
+//! hotspot, and every variant sits on the codon it is named for, which is worth
+//! the trouble because a figure with an invented gene in it teaches the reader
+//! the wrong thing about the tool as well as about the locus.
+//!
+//! Everything generated is generated from a fixed seed, so re-running the
 //! example produces byte-identical files and a diff only appears when the
 //! rendering actually changed.
 
@@ -34,26 +40,31 @@ fn main() -> std::io::Result<()> {
     let bases = synthetic_sequence(WINDOW_LEN);
     let depth = synthetic_depth(WINDOW_LEN);
 
+    // rpoB is Rv0667, 1-based 759,807 to 763,325, forward, 3,519 bp. It is far
+    // wider than this window and draws with neither end in frame, which is what
+    // the annotation actually looks like here. There is no second gene: the next
+    // one along is rpoC, 371 bases past the right edge.
     let genes = vec![
-        Feature::new(761_050, 762_100)
+        Feature::new(759_806, 763_325)
             .name("rpoB")
             .strand(Strand::Forward),
-        Feature::new(762_250, 762_640)
-            .name("Rv0668c")
-            .strand(Strand::Reverse),
-        Feature::new(761_380, 761_520)
+        // The rifampicin resistance determining region: codons 426 to 452, the
+        // 81 base hotspot. CodonTrack pins the same frame, so this box and
+        // `CodonTrack::span_of(450)` agree to the base.
+        Feature::new(761_081, 761_162)
             .name("RRDR")
             .strand(Strand::Forward)
             .color("#d55e00"),
     ];
 
+    // Codon N of rpoB spans 0-based 759,806 + 3(N-1) to +3, so each of these
+    // lands on the base its name says it does.
     let variants = vec![
-        Variant::new(761_109).value(0.98).category("missense"),
-        Variant::new(761_155).value(0.21).category("synonymous"),
-        Variant::new(761_410).value(1.00).category("missense"),
-        Variant::new(761_452).value(0.64).category("missense"),
-        Variant::new(762_050).value(0.35).category("frameshift"),
-        Variant::new(762_480).value(0.12).category("synonymous"),
+        Variant::new(761_108).value(0.98).category("missense"), // D435V
+        Variant::new(761_138).value(0.55).category("missense"), // H445Y
+        Variant::new(761_154).value(1.00).category("missense"), // S450L
+        Variant::new(761_155).value(0.21).category("synonymous"), // S450 wobble
+        Variant::new(761_051).value(0.12).category("synonymous"), // L426 wobble
     ];
 
     let overview = Figure::new(Region::new("NC_000962.3", WINDOW_START, 762_999).unwrap())
@@ -74,7 +85,8 @@ fn main() -> std::io::Result<()> {
 
     // The same tracks, zoomed until individual bases are legible. Nothing about
     // the tracks changes; only the region does.
-    let zoom_start = 761_400;
+    // Onto the RRDR itself, 60 of its 81 bases, so the S450 codon is in frame.
+    let zoom_start = 761_120;
     let zoom_len = 60usize;
     let offset = (zoom_start - WINDOW_START) as usize;
     let zoom_region = Region::new("NC_000962.3", zoom_start, zoom_start + zoom_len as u64).unwrap();
@@ -91,8 +103,9 @@ fn main() -> std::io::Result<()> {
         )
         .push(
             VariantTrack::new(vec![
-                Variant::new(761_410).value(1.00).category("missense"),
-                Variant::new(761_452).value(0.64).category("missense"),
+                Variant::new(761_138).value(0.55).category("missense"), // H445Y
+                Variant::new(761_154).value(1.00).category("missense"), // S450L
+                Variant::new(761_155).value(0.21).category("synonymous"),
             ])
             .label("variants")
             .height(40.0),
@@ -114,20 +127,21 @@ fn main() -> std::io::Result<()> {
         .push(SequenceTrack::new(WINDOW_START, bases).label("reference"))
         .push(
             FeatureTrack::new(vec![
-                Feature::new(761_050, 762_100)
+                Feature::new(759_806, 763_325)
                     .name("rpoB")
                     .strand(Strand::Forward),
-                Feature::new(762_250, 762_640)
-                    .name("Rv0668c")
-                    .strand(Strand::Reverse),
+                Feature::new(761_081, 761_162)
+                    .name("RRDR")
+                    .strand(Strand::Forward)
+                    .color("#d55e00"),
             ])
             .label("annotation"),
         )
         .push(
             VariantTrack::new(vec![
-                Variant::new(761_109).value(0.98).category("missense"),
-                Variant::new(761_452).value(0.64).category("missense"),
-                Variant::new(762_050).value(0.35).category("frameshift"),
+                Variant::new(761_108).value(0.98).category("missense"),
+                Variant::new(761_154).value(1.00).category("missense"),
+                Variant::new(761_155).value(0.21).category("synonymous"),
             ])
             .label("variants"),
         )
@@ -143,11 +157,19 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-/// A reproducible ACGT string. Real sequence would come from a FASTA reader.
+/// A reproducible string at roughly the GC content of this genome, 65%.
+///
+/// Real sequence would come from a FASTA reader. An equiprobable ACGT draw would
+/// be 50% GC, which in a coloured sequence track is visibly the wrong organism.
 fn synthetic_sequence(len: usize) -> Vec<u8> {
     let mut rng = Lcg::new(20_260_731);
     (0..len)
-        .map(|_| b"ACGT"[(rng.next() % 4) as usize])
+        .map(|_| match rng.next() % 1_000 {
+            r if r < 328 => b'G',
+            r if r < 656 => b'C',
+            r if r < 828 => b'A',
+            _ => b'T',
+        })
         .collect()
 }
 

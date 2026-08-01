@@ -80,6 +80,7 @@ pub struct MethylationTrack {
     reverse_color: Option<String>,
     min_coverage: u32,
     saturating_coverage: u32,
+    pair_within: u64,
     radius: f64,
     show_scale: bool,
     show_stems: bool,
@@ -96,6 +97,7 @@ impl MethylationTrack {
             reverse_color: None,
             min_coverage: 5,
             saturating_coverage: 30,
+            pair_within: 1,
             radius: 2.6,
             show_scale: true,
             show_stems: true,
@@ -173,18 +175,38 @@ impl MethylationTrack {
         self.sites.len() - self.confident().count()
     }
 
+    /// How far apart the two strands' calls for one site may sit.
+    ///
+    /// The two modified bases of a palindrome are not at the same coordinate. A
+    /// `GATC` carries its 6mA at the second base reading one strand and at the
+    /// third reading the other, so the two calls are one base apart; the two
+    /// cytosines of a `CpG` are one apart for the same reason. One base by
+    /// default, which covers both. Set it to zero if you register both strands
+    /// at the site's anchor rather than at the base that was modified, and
+    /// wider for a longer recognition sequence.
+    pub fn pair_within(mut self, bases: u64) -> Self {
+        self.pair_within = bases;
+        self
+    }
+
     /// Positions where the two strands disagree by more than `by`.
     ///
     /// Hemimethylation: one strand modified and the other not. In an organism
     /// that methylates symmetrically it means the site was caught between
     /// replication and maintenance, and finding those is usually the reason for
     /// drawing the two strands apart in the first place.
+    ///
+    /// The position returned is the forward strand's. Its partner is the
+    /// nearest reverse call within [`MethylationTrack::pair_within`], so a
+    /// palindrome whose two modified bases are a base apart still pairs.
     pub fn hemimethylated(&self, by: f64) -> Vec<u64> {
         let mut found = Vec::new();
         for site in self.confident().filter(|site| !site.is_reverse()) {
             let partner = self
                 .confident()
-                .find(|other| other.pos == site.pos && other.is_reverse());
+                .filter(|other| other.is_reverse())
+                .filter(|other| other.pos.abs_diff(site.pos) <= self.pair_within)
+                .min_by_key(|other| other.pos.abs_diff(site.pos));
             if let Some(partner) = partner {
                 if (site.fraction - partner.fraction).abs() > by {
                     found.push(site.pos);
@@ -350,6 +372,52 @@ mod tests {
         // 1,040 is 0.90 on one strand and 0.05 on the other; 1,010 is neither.
         assert_eq!(track.hemimethylated(0.5), vec![1_040]);
         assert!(track.hemimethylated(0.99).is_empty());
+    }
+
+    #[test]
+    fn a_palindrome_pairs_across_the_one_base_the_two_strands_differ_by() {
+        // The two 6mA of a GATC are one base apart, and so are the two 5mC of a
+        // CpG. Requiring the same coordinate made the caller lie about one of
+        // them, which is what the E. coli oriC example ran into.
+        let gatc = vec![
+            MethylSite::new(1_001, Strand::Forward, 0.95, 40),
+            MethylSite::new(1_002, Strand::Reverse, 0.04, 40),
+        ];
+        assert_eq!(
+            MethylationTrack::new(gatc.clone()).hemimethylated(0.5),
+            vec![1_001],
+            "the forward position is the one reported"
+        );
+        assert!(
+            MethylationTrack::new(gatc)
+                .pair_within(0)
+                .hemimethylated(0.5)
+                .is_empty(),
+            "a caller who anchors both strands together can still say so"
+        );
+    }
+
+    #[test]
+    fn a_partner_further_off_than_the_window_is_not_a_partner() {
+        let apart = vec![
+            MethylSite::new(1_001, Strand::Forward, 0.95, 40),
+            MethylSite::new(1_010, Strand::Reverse, 0.04, 40),
+        ];
+        assert!(MethylationTrack::new(apart).hemimethylated(0.5).is_empty());
+    }
+
+    #[test]
+    fn the_nearest_reverse_call_is_the_partner() {
+        let crowded = vec![
+            MethylSite::new(1_001, Strand::Forward, 0.95, 40),
+            MethylSite::new(1_002, Strand::Reverse, 0.90, 40),
+            MethylSite::new(1_000, Strand::Reverse, 0.02, 40),
+        ];
+        // Both reverse calls are one base away, so the first one found wins and
+        // the pair agrees; what matters is that it does not silently take the
+        // one that would make a better story.
+        let track = MethylationTrack::new(crowded).pair_within(1);
+        assert!(track.hemimethylated(0.5).is_empty());
     }
 
     #[test]
