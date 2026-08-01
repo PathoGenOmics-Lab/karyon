@@ -13,9 +13,10 @@
 //!
 //! A run of codons with no stop in it, at least [`OrfTrack::min_codons`] long.
 //! Whether it starts at a methionine is a separate question and a separate
-//! switch: [`OrfTrack::require_start`] asks for one. Bacterial genes start at
-//! `ATG`, `GTG` and `TTG`, so all three count, and the default is off because
-//! the first thing you want from a six frame map is where the stops are not.
+//! switch: [`OrfTrack::require_start`] asks for one. `ATG`, `GTG` and `TTG` all
+//! count, since alternative starts are ordinary in bacteria, archaea and
+//! organelle genomes, and the default is off because the first thing you want
+//! from a six frame map is where the stops are not.
 //!
 //! # The frames are not the strands
 //!
@@ -131,7 +132,9 @@ impl OrfTrack {
 
     /// Requires an open frame to begin at a start codon.
     ///
-    /// `ATG`, `GTG` and `TTG`, since bacteria use all three. Off by default:
+    /// `ATG`, `GTG` and `TTG`. `ATG` is the common one everywhere, and the other
+    /// two begin real genes often enough in bacteria, archaea and organelle
+    /// genomes to be worth counting. Off by default:
     /// the first thing a six frame map is read for is where the stops are not,
     /// and insisting on a start hides a frame that is open but whose beginning
     /// is off the left of the view.
@@ -290,7 +293,7 @@ fn is_stop(codon: &[u8; 3]) -> bool {
     )
 }
 
-/// A codon a bacterial gene may begin at.
+/// A codon a gene may begin at, in the genomes that use more than `ATG`.
 fn is_start(codon: &[u8; 3]) -> bool {
     matches!(
         [

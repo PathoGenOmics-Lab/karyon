@@ -238,8 +238,10 @@ MatrixTrack::new(sites, vec![MatrixRow::new("ERR3100", genotypes)]);
 
 `genome_wide_threshold` is a Bonferroni correction for a million independent
 tests. It is the convention in human GWAS and frequently the wrong number
-everywhere else: a bacterial genome has fewer independent sites and a great deal
-more linkage. Set your own with `threshold` if you know it.
+everywhere else, because what it should be follows from how many independent
+tests were really run: a shorter genome, or stronger linkage between
+neighbouring sites, leaves far fewer than a million. Set your own with
+`threshold` if you know it.
 
 In a matrix, three things have to look different: a sample that does not carry
 the allele, a sample that was never typed, and empty page. So the sequential
@@ -271,8 +273,10 @@ gets a dark ladder rather than a light one somebody forgot to invert. A tiny
 window gets a marker with a minimum width, because a pointer too thin to see is
 neither a pointer nor a measurement.
 
-A bacterial chromosome has no cytogenetics to speak of, so `IdeogramTrack::bare`
-gives an outline. It still answers the only question it was ever asked:
+Most sequences have no cytogenetics to speak of: plasmids, organelle genomes,
+viruses, draft assemblies and bacterial chromosomes among them.
+`IdeogramTrack::bare` gives an outline instead. It still answers the only
+question the track was ever asked:
 
 <img src="assets/example-ideogram-bacterial.svg" alt="The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it" width="80%">
 
@@ -280,9 +284,9 @@ gives an outline. It still answers the only question it was ever asked:
 
 <img src="assets/example-codons.svg" alt="The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath" width="100%">
 
-Everything clinically interesting about a bacterial genome is named in residues:
-rpoB S450L, katG S315T, gyrA D94G, pncA anywhere at all. A figure drawn in bases
-cannot be pointed at with any of those names.
+A variant in a coding sequence is named by residue rather than by base: BRAF
+V600E, TP53 R175H, rpoB S450L. A figure drawn in bases cannot be pointed at with
+any of those names.
 
 `CodonTrack` is the `AxisTrack` that can. It partitions a coding sequence into
 codons, numbers them, and translates them where there is room for a letter, so
@@ -295,8 +299,14 @@ Neither statement can be made on a ruler of bases.
 
 On the reverse strand codon 1 sits at the **highest** coordinate and the
 numbering runs right to left, which is the whole reason this is a track and not
-a division by three. `katG` and `pncA` both run backwards along the chromosome,
-and they are the two genes a tuberculosis figure is most often about.
+a division by three. Roughly half the coding sequences in any annotation run
+backwards, and getting their numbering wrong is silent: the figure still draws,
+it just names the wrong residue.
+
+Translation is NCBI table 1, and table 11 gives the same residues, so bacteria,
+archaea and plastids need nothing. `genetic_code` takes any other table in the
+same form, which is what a mitochondrial or ciliate sequence needs to avoid
+being translated into a plausible protein that is wrong.
 
 ```rust
 let ruler = CodonTrack::new(759_806, 763_325, Strand::Forward).sequence(from, bases);

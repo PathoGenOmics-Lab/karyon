@@ -1,6 +1,6 @@
 //! A sample by site matrix laid along the sequence.
 //!
-//! This is the plot that answers "which isolates carry it": one row per sample,
+//! This is the plot that answers "which samples carry it": one row per sample,
 //! one column per site, and a cell saying what that sample had there. A
 //! genotype matrix out of a VCF is exactly this shape, and so is a pangenome
 //! presence and absence matrix once its genes have coordinates.

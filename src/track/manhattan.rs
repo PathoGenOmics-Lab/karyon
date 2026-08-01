@@ -154,8 +154,9 @@ impl ManhattanTrack {
     ///
     /// It is a Bonferroni correction for a million independent tests, which is
     /// the convention in human GWAS and frequently the wrong number everywhere
-    /// else. A bacterial genome has fewer independent sites and a great deal
-    /// more linkage; set your own if you know it.
+    /// else: what it should be follows from how many independent tests were
+    /// really run, and a shorter genome or stronger linkage leaves far fewer
+    /// than a million. Set your own if you know it.
     pub fn genome_wide_threshold(self) -> Self {
         self.threshold(-(5e-8f64).log10())
     }

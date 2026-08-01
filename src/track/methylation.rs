@@ -8,10 +8,11 @@
 //! [`VariantTrack`](crate::VariantTrack).
 //!
 //! The first is strand. Methylation is a property of one strand of a duplex,
-//! and the two strands of the same site are two measurements, not one. In
-//! bacteria the asymmetry is the finding: a fully methylated GATC has both
-//! strands done, a hemimethylated one has just been replicated, and a plot that
-//! averages the pair cannot tell you which. So each strand gets a lane.
+//! and the two strands of the same site are two measurements, not one. The
+//! asymmetry is often the finding: a fully methylated palindromic site has both
+//! strands done, a hemimethylated one has just been replicated and the second
+//! strand has not caught up, and a plot that averages the pair cannot tell you
+//! which. So each strand gets a lane.
 //!
 //! The second is coverage. A site called from four reads and a site called from
 //! four hundred are drawn the same size by anything that plots the fraction

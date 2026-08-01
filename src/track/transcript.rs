@@ -47,9 +47,9 @@ impl TranscriptionUnit {
     /// The first base of the first codon of the first gene it carries.
     ///
     /// Setting it draws the 5' leader hollow, so its length is readable off the
-    /// figure. A transcript whose `cds_start` equals its `tss` is leaderless,
-    /// and about a quarter of the transcripts in *M. tuberculosis* are, which is
-    /// the observation the figure exists to make.
+    /// figure. A transcript whose `cds_start` equals its `tss` is leaderless, and
+    /// how much of a collection is leaderless is the observation the figure exists
+    /// to make. The fraction varies by organism from a handful to most of them.
     pub fn cds_start(mut self, at: u64) -> Self {
         self.cds_start = Some(at);
         self

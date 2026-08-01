@@ -158,8 +158,8 @@ impl SplitRead {
 /// claim: it is what distinguishes a molecule that went A then B then C from one
 /// that went C then B then A across the same three places.
 ///
-/// An `IS6110` transposition is three segments and not an arc, which is the
-/// figure this exists for.
+/// A transposition is three segments and not an arc, which is the kind of figure
+/// this exists for.
 ///
 /// ```
 /// use karyon::{Figure, Region, SplitRead, SplitReadTrack, SplitSegment, Strand};

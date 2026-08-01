@@ -130,8 +130,9 @@ impl WindowTrack {
 
     /// GC skew, `(G - C) / (G + C)`, in windows of `window` bases.
     ///
-    /// The classic use is finding the origin and terminus of replication of a
-    /// bacterial chromosome, where the cumulative skew turns over. This is the
+    /// The classic use is finding the origin and terminus of replication, where
+    /// the cumulative skew turns over. That works on anything replicated in two
+    /// directions from one origin: a chromosome, a plasmid, an organelle genome. This is the
     /// per-window skew rather than the cumulative one; sum it yourself if the
     /// turning point is what you are after.
     pub fn gc_skew(start: u64, seq: &[u8], window: u64) -> Self {

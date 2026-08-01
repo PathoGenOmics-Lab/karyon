@@ -260,8 +260,8 @@ impl Track for FeatureTrack {
         let band = ctx.band;
         let (rows, _) = self.layout(ctx.scale, ctx.theme);
         // Without an override, a feature takes the colour its strand takes
-        // everywhere else on the sheet. Drawing every gene in one accent left a
-        // reverse gene wearing the colour that means forward in the pileup two
+        // everywhere else on the sheet. Drawing every feature in one accent left
+        // a reverse one wearing the colour that means forward in the pileup two
         // panels down, which is a quieter kind of wrong than a mislabelled axis
         // and just as misleading.
         let override_color = self.color.clone();
@@ -284,8 +284,8 @@ impl Track for FeatureTrack {
             });
 
             // The arrowhead eats a third of a short feature but never more
-            // than 8 pixels of a long one, so a gene stays a bar with a point
-            // rather than becoming a triangle.
+            // than 8 pixels of a long one, so an interval stays a bar with a
+            // point rather than becoming a triangle.
             let head = ((right - left) * 0.35).min(8.0);
             match feature.strand {
                 Strand::Forward if head > 1.0 => ctx.svg.polygon(

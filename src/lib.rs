@@ -46,8 +46,8 @@
 //!
 //! # Circular sequences
 //!
-//! A bacterial chromosome has no ends, and drawing one as a line puts an edge
-//! where the biology has none. [`Rings`] maps position to an angle instead, so
+//! A plasmid, an organelle genome and most bacterial chromosomes have no ends,
+//! and drawing one as a line puts an edge where the biology has none. [`Rings`] maps position to an angle instead, so
 //! it is a container of its own rather than a track: annotation, composition
 //! and variants go on concentric rings, and chords across the middle join the
 //! two ends of a rearrangement. A [`Rings`] plot and a [`Figure`] can share one
@@ -66,8 +66,8 @@
 //!
 //! # Protein coordinates
 //!
-//! Everything clinically interesting about a bacterial genome is named in
-//! residues, not bases: rpoB S450L, katG S315T, gyrA D94G. [`CodonTrack`] is the
+//! A variant in a coding sequence is named by residue rather than by base:
+//! BRAF V600E, TP53 R175H, rpoB S450L. [`CodonTrack`] is the
 //! [`AxisTrack`] that can be pointed at with those names. It partitions a coding
 //! sequence into codons, numbers them, translates them where there is room for a
 //! letter, and counts from the far end on the reverse strand, which is where the

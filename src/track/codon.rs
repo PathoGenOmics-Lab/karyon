@@ -6,19 +6,22 @@ use crate::theme::{mix, Theme};
 use crate::track::axis::nice_step;
 use crate::track::{strand_color, DrawContext, Strand, Track};
 
-/// The standard genetic code, indexed by `base * 16 + base * 4 + base` with
-/// T, C, A and G reading 0 to 3. Bacteria use table 11, which differs from this
-/// one only in which codons may start a protein, so the residues are the same.
+/// NCBI translation table 1, the standard code, indexed by
+/// `base * 16 + base * 4 + base` with T, C, A and G reading 0 to 3.
+///
+/// Table 11, which bacteria, archaea and plastids use, differs from it only in
+/// which codons may start a protein, so the residues are identical. The
+/// mitochondrial and ciliate tables do reassign residues, and
+/// [`CodonTrack::genetic_code`] takes one of those in the same form.
 const RESIDUES: &[u8; 64] = b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
 
 /// A ruler counting codons across a coding sequence.
 ///
-/// Everything clinically interesting about a bacterial genome is named in
-/// protein coordinates: rpoB S450L, katG S315T, gyrA D94G, pncA anywhere at
-/// all. A figure drawn in bases cannot be pointed at with any of those names.
-/// This is the sibling of [`AxisTrack`](crate::AxisTrack) that can: it partitions
-/// the sequence into codons, numbers them, and translates them when there is
-/// room for a letter.
+/// A variant in a coding sequence is named by residue: BRAF V600E, TP53 R175H,
+/// rpoB S450L. A figure drawn in bases cannot be pointed at with any of those
+/// names. This is the sibling of [`AxisTrack`](crate::AxisTrack) that can: it
+/// partitions the sequence into codons, numbers them, and translates them when
+/// there is room for a letter.
 ///
 /// The partition is itself the claim. Two changes at different bases of one
 /// codon are competing alleles at one residue rather than a double mutant, and
@@ -27,9 +30,9 @@ const RESIDUES: &[u8; 64] = b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVV
 ///
 /// On the reverse strand codon 1 sits at the **highest** coordinate and the
 /// numbering runs right to left, which is the whole reason this is a track and
-/// not a division by three. `katG` and `pncA` both run backwards along the
-/// chromosome, and they are the two genes a tuberculosis figure is most often
-/// about.
+/// not a division by three. Roughly half the coding sequences in any annotation
+/// run backwards, and getting their numbering wrong is silent: the figure still
+/// draws, it just names the wrong residue.
 ///
 /// ```
 /// use karyon::{CodonTrack, Figure, Region, Strand};
@@ -51,6 +54,7 @@ pub struct CodonTrack {
     end: u64,
     strand: Strand,
     seq: Option<(u64, Vec<u8>)>,
+    code: [u8; 64],
     cell_height: f64,
     label: Option<String>,
     color: Option<String>,
@@ -74,6 +78,7 @@ impl CodonTrack {
             end,
             strand,
             seq: None,
+            code: *RESIDUES,
             cell_height: 13.0,
             label: None,
             color: None,
@@ -94,6 +99,34 @@ impl CodonTrack {
     /// complement.
     pub fn sequence(mut self, start: u64, bases: impl Into<Vec<u8>>) -> Self {
         self.seq = Some((start, bases.into()));
+        self
+    }
+
+    /// Translates with a genetic code other than the standard one.
+    ///
+    /// The table is the sixty-four residues in NCBI order, `TTT` `TTC` `TTA`
+    /// `TTG` `TCT` and so on to `GGG`, which is the `AAs` line of an NCBI
+    /// translation table copied across unchanged.
+    ///
+    /// Table 1 is the default and table 11, which bacteria, archaea and plastids
+    /// use, gives the same residues, so this is only needed for the codes that
+    /// reassign one. Vertebrate mitochondria read `TGA` as tryptophan and `AGA`
+    /// and `AGG` as stops; several ciliates read `TAA` and `TAG` as glutamine.
+    /// Translating those with the standard code produces a plausible protein
+    /// that is wrong, which is worse than refusing, so the table is a knob
+    /// rather than an assumption.
+    ///
+    /// ```
+    /// use karyon::{CodonTrack, Strand};
+    ///
+    /// // Vertebrate mitochondrial, NCBI table 2.
+    /// let mito = CodonTrack::new(0, 3, Strand::Forward)
+    ///     .sequence(0, b"TGA".to_vec())
+    ///     .genetic_code(b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNKKSS**VVVVAAAADDEEGGGG");
+    /// assert_eq!(mito.residue_of(1), Some(b'W'));
+    /// ```
+    pub fn genetic_code(mut self, residues: &[u8; 64]) -> Self {
+        self.code = *residues;
         self
     }
 
@@ -198,7 +231,7 @@ impl CodonTrack {
             };
             index = index * 4 + code_of(base)? as usize;
         }
-        Some(RESIDUES[index])
+        Some(self.code[index])
     }
 
     /// Codons overlapping the region on screen, as an inclusive 1-based range.
@@ -478,6 +511,37 @@ mod tests {
         assert_eq!(track.residue_of(3), Some(b'*'));
         assert_eq!(track.residue_of(4), Some(b'F'));
         assert_eq!(RESIDUES.len(), 64);
+    }
+
+    #[test]
+    fn a_different_genetic_code_reassigns_residues() {
+        // Vertebrate mitochondrial, NCBI table 2: TGA is tryptophan rather than
+        // a stop, ATA is methionine, and AGA and AGG are stops.
+        const TABLE_2: &[u8; 64] =
+            b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNKKSS**VVVVAAAADDEEGGGG";
+        let seq = b"TGAATAAGA".to_vec();
+
+        let standard = CodonTrack::new(0, 9, Strand::Forward).sequence(0, seq.clone());
+        assert_eq!(standard.residue_of(1), Some(b'*'));
+        assert_eq!(standard.residue_of(2), Some(b'I'));
+        assert_eq!(standard.residue_of(3), Some(b'R'));
+
+        let mito = CodonTrack::new(0, 9, Strand::Forward)
+            .sequence(0, seq)
+            .genetic_code(TABLE_2);
+        assert_eq!(mito.residue_of(1), Some(b'W'));
+        assert_eq!(mito.residue_of(2), Some(b'M'));
+        assert_eq!(mito.residue_of(3), Some(b'*'));
+    }
+
+    #[test]
+    fn table_eleven_gives_the_same_residues_as_the_standard_code() {
+        // Bacteria and archaea use table 11, which differs only in which codons
+        // may start a protein, so it is not a separate table here.
+        assert_eq!(
+            RESIDUES,
+            b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"
+        );
     }
 
     #[test]

@@ -4,9 +4,10 @@
 //!
 //! Everything else in the crate stacks bands over one horizontal
 //! [`Scale`](crate::Scale), which maps a position to an x coordinate. A
-//! bacterial chromosome has no ends to put on the left and the right of a page:
-//! it is a circle, and drawing it as a line puts an edge where the biology has
-//! none, right through whatever happens to sit at coordinate zero. So a
+//! plasmid, an organelle genome, a viral genome and most bacterial chromosomes
+//! have no ends to put on the left and the right of a page: each is a circle, and
+//! drawing one as a line puts an edge where the biology has none, right through
+//! whatever happens to sit at coordinate zero. So a
 //! circular plot maps position to an angle instead, which is a different
 //! coordinate system and therefore a different container. [`Rings`] is to
 //! [`Ring`] what [`Figure`](crate::Figure) is to [`Track`](crate::Track), and
@@ -116,9 +117,9 @@ impl Polar {
     /// sequence. This is the shape a feature or a window is drawn as.
     ///
     /// A span whose end is before its start wraps through the origin, which on
-    /// a circular sequence is a real thing and not an error: a gene either side
-    /// of coordinate zero runs the short way, through the top of the circle,
-    /// and not the long way round the rest of the chromosome. It comes back as
+    /// a circular sequence is a real thing and not an error: a feature either
+    /// side of coordinate zero runs the short way, through the top of the circle,
+    /// and not the long way round the rest of the sequence. It comes back as
     /// one path of two subpaths, so it is still a single element.
     pub fn sector(&self, from: u64, to: u64, inner: f64, outer: f64) -> String {
         if to < from {
@@ -632,9 +633,9 @@ impl FeatureRing {
 
     /// Whether the two strands get half the ring each.
     ///
-    /// On by default, which is how a bacterial chromosome is normally drawn:
-    /// the leading and lagging strands carry different gene densities, and a
-    /// single lane hides that.
+    /// On by default, which is how a circular sequence is normally drawn: the
+    /// two strands rarely carry features at the same density, and one lane hides
+    /// that.
     pub fn split_strands(mut self, split: bool) -> Self {
         self.split_strands = split;
         self
@@ -651,7 +652,7 @@ impl FeatureRing {
 
     /// Sets the smallest angle a feature is drawn at, in degrees.
     ///
-    /// A gene of a thousand bases on a four megabase chromosome is a tenth of a
+    /// A feature of a thousand bases on a four megabase sequence is a tenth of a
     /// degree. Without a floor the whole annotation would be invisible, and
     /// with one a feature's width says nothing about its length.
     pub fn min_degrees(mut self, degrees: f64) -> Self {

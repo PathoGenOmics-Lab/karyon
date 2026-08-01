@@ -2,9 +2,10 @@
 //!
 //! # The idea
 //!
-//! A genomic island, an operon, a prophage or a biosynthetic cluster is a
-//! stretch of a few dozen genes, and the question asked of it is almost never
-//! "what is in it" but "what is in it that the other one has not". Answering
+//! A locus of a few dozen features, whether that is a gene cluster, an operon,
+//! a viral genome or a syntenic block, is rarely looked at on its own: the
+//! question asked of it is almost never "what is in it" but "what is in it that
+//! the other one has not". Answering
 //! that needs the loci one under another, the genes drawn as genes, and a line
 //! from each gene to whatever it matches in the row below. What the reader is
 //! then looking for is the gaps: the ribbon that goes nowhere, the arrow that

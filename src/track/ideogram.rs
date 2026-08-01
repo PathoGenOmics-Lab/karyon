@@ -164,8 +164,9 @@ impl IdeogramTrack {
     /// A chromosome `length` bases long, made of `bands`.
     ///
     /// Bands need not tile the chromosome: gaps simply draw as the page colour,
-    /// and an empty list gives a bare outline, which is what a bacterial genome
-    /// with no cytogenetics to speak of will want.
+    /// and an empty list gives a bare outline, which is what anything with no
+    /// cytoband data will want. A plasmid, an organelle genome, an unplaced
+    /// contig and a bacterial chromosome all end up there.
     pub fn new(length: u64, bands: impl Into<Vec<Band>>) -> Self {
         IdeogramTrack {
             length: length.max(1),
@@ -250,8 +251,9 @@ impl IdeogramTrack {
 
     /// Where the centromere sits, as the span of the `acen` bands.
     ///
-    /// `None` when no band is stained as a centromere, which is the normal
-    /// answer for a bacterial chromosome and for an unbanded ideogram.
+    /// `None` when no band is stained as a centromere. That is the normal answer
+    /// for a sequence with no centromere to place, and for any ideogram built
+    /// without bands.
     pub fn centromere(&self) -> Option<(u64, u64)> {
         let mut span: Option<(u64, u64)> = None;
         for band in self.bands.iter().filter(|b| b.stain.is_centromere()) {

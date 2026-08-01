@@ -8,15 +8,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `CodonTrack`, a ruler in codons. Everything clinically interesting about a
-  bacterial genome is named in residues (rpoB S450L, katG S315T, gyrA D94G) and
-  the crate could only speak bases, so no figure could be pointed at with the
-  name its result has. It partitions a coding sequence into codons, numbers
-  them, and translates them where a letter fits. The partition is itself the
-  claim: two changes in one codon are competing alleles at one residue, not a
-  double mutant. On the reverse strand codon 1 sits at the highest coordinate,
-  which is the whole reason this is a track and not a division by three, since
-  katG and pncA both run backwards.
+- `CodonTrack`, a ruler in codons. A variant in a coding sequence is named by
+  residue (BRAF V600E, TP53 R175H, rpoB S450L) and the crate could only speak
+  bases, so no figure could be pointed at with the name its result has. It
+  partitions a coding sequence into codons, numbers them, and translates them
+  where a letter fits. The partition is itself the claim: two changes in one
+  codon are competing alleles at one residue, not a double mutant. On the
+  reverse strand codon 1 sits at the highest coordinate, which is the whole
+  reason this is a track and not a division by three: roughly half the coding
+  sequences in any annotation run backwards, and getting their numbering wrong
+  is silent.
+- `CodonTrack::genetic_code`, since the translation table was hard-coded to NCBI
+  table 1. Table 11 gives the same residues so bacteria, archaea and plastids
+  were fine, but a mitochondrial or ciliate sequence was quietly translated into
+  a plausible protein that was wrong.
 - `SplitReadTrack`, `SplitRead` and `SplitSegment`, reads that align in pieces.
   A `PileupTrack` read is one start, one CIGAR and one strand, so a molecule
   that visits three places cannot be written down in it, and a `StructuralTrack`
@@ -24,8 +29,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has been summarised away. This is the evidence: one row per molecule, one bar
   per alignment, connectors saying in what order and orientation it went. A
   backward hop dips under the row and a forward one arches over, so a read
-  crossing an inversion is a different picture from one crossing a deletion. An
-  IS6110 transposition is three segments and not an arc.
+  crossing an inversion is a different picture from one crossing a deletion. A
+  transposition is three segments and not an arc.
 - `CladeTrack` and `CladeBlock`, genomic intervals painted onto a phylogeny. A
   `MatrixTrack` cell is one base wide and cells never merge, so a matrix can
   only say that six samples each carry something here, which is six
@@ -43,6 +48,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   twenty-two panels.
 - The README track table now lists all twenty-nine track types. It had stopped at
   `AxisTrack` and was fourteen tracks out of date.
+
+### Changed
+
+- Documentation throughout now states the general case rather than the bacterial
+  or tuberculosis one. Twenty-three sentences across the API docs and the README
+  said what the library is for in terms of one clade: circular plotting existed
+  because "a bacterial chromosome has no ends", protein coordinates because of
+  what is "clinically interesting about a bacterial genome", split reads for
+  `IS6110`. The crate is organism-agnostic and the prose now reads that way.
+  Example and doctest data are untouched, since a figure has to be of something
+  and rpoB at H37Rv coordinates is as good as anything.
 
 ### Removed
 
