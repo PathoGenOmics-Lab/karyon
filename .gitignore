@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 .DS_Store
+
+# MkDocs build output. The site is published from the docs workflow.
+/site

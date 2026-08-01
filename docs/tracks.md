@@ -1,0 +1,870 @@
+# Tracks
+
+![Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator](assets/figures/gallery.svg)
+
+Twenty-nine track types ship with the crate, one source file each. Every one of
+them is an implementation of the same small trait, `Track`, and none of them has
+privileged access to the figure: a track reports how tall it wants to be, then
+draws inside the band it is handed, already clipped. A track type the crate does
+not have is about thirty lines, and it is added the same way these are. See
+[extending](how-it-works/extending.md).
+
+This page says, for each of them, what it draws, when to reach for it, and what
+it refuses to do. The refusals are the interesting part. Several of these tracks
+encode a claim rather than a picture, and the way they behave when the data does
+not support the claim is what makes them worth having.
+
+**Signal and sequence**
+[CoverageTrack](#coveragetrack) &middot;
+[WindowTrack](#windowtrack) &middot;
+[MethylationTrack](#methylationtrack) &middot;
+[SequenceTrack](#sequencetrack) &middot;
+[LogoTrack](#logotrack)
+
+**Annotation**
+[FeatureTrack](#featuretrack) &middot;
+[TranscriptionUnitTrack](#transcriptionunittrack) &middot;
+[OrfTrack](#orftrack)
+
+**Variation**
+[VariantTrack](#varianttrack) &middot;
+[StructuralTrack](#structuraltrack) &middot;
+[SnpTrack](#snptrack) &middot;
+[MatrixTrack](#matrixtrack) &middot;
+[ManhattanTrack](#manhattantrack)
+
+**Reads and molecules**
+[PileupTrack](#pileuptrack) &middot;
+[SplitReadTrack](#splitreadtrack) &middot;
+[BisulfiteTrack](#bisulfitetrack) &middot;
+[SquiggleTrack](#squiggletrack)
+
+**Comparison**
+[MsaTrack](#msatrack) &middot;
+[DotplotTrack](#dotplottrack) &middot;
+[SyntenyTrack](#syntenytrack) &middot;
+[LocusTrack](#locustrack)
+
+**Phylogeny**
+[TreeTrack](#treetrack) &middot;
+[TanglegramTrack](#tanglegramtrack) &middot;
+[CladeTrack](#cladetrack)
+
+**Whole genome**
+[IdeogramTrack](#ideogramtrack) &middot;
+[GenomeTrack](#genometrack)
+
+**Scales and keys**
+[AxisTrack](#axistrack) &middot;
+[CodonTrack](#codontrack) &middot;
+[LegendTrack](#legendtrack)
+
+## The entry test
+
+A track has to live on the genomic coordinate axis. In code that reads: its
+`draw` has to use `ctx.scale`, the shared mapping from position to pixel that
+every band in the figure is drawn through. That is the whole reason this crate
+exists rather than a general plotting library. A track whose x is a list of
+samples or a count of genomes is a bar chart, a line chart or a heatmap that
+happens to have been handed genomic data, and matplotlib draws those better.
+
+Three track types were in the crate and are not any more. `AccumulationTrack`,
+`DistanceTrack` and `FrequencyTrack` all failed this test: their x axes were a
+count of genomes, a count of genomes and a list of sample names, so what they
+actually drew was a bar chart, a line chart with a quantile ribbon and a
+clustered heatmap. Removing them broke the public API, which was the cost of
+being honest about it. The analyses they carried are still worth having: a
+rarefaction over a presence matrix is a statistic rather than a plot type, and
+it does not need a `Track` to compute it.
+
+Twenty-four of the twenty-nine draw through `ctx.scale`. The five that do not
+each answer for it, and each says so in its own module:
+
+- [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
+  area on purpose. A track that showed only the region on display could not say
+  where the region is: it would be a picture of the window, drawn inside the
+  window.
+- [TreeTrack](#treetrack) and [TanglegramTrack](#tanglegramtrack) measure
+  evolutionary distance across, which has nothing to do with position. What they
+  share with their neighbours is the other axis, because a leaf is a row.
+- [SnpTrack](#snptrack) lays its own columns out. Its x is a site index, since
+  throwing the invariant columns away is the point of the panel, and no shared
+  ruler survives that.
+- [LegendTrack](#legendtrack) carries no coordinates at all. It is a horizontal
+  band that has to be stacked, sized and clipped like every other one, which is
+  exactly what a track is.
+
+!!! warning "Coordinates"
+    Every position on this page is 0-based and half-open, the BED convention, so
+    a GFF interval `759806..763325` is `Feature::new(759_805, 763_325)` and a VCF
+    `POS` is `POS - 1`. The two exceptions are the ones a reader sees:
+    `Region::parse` accepts the 1-based inclusive locus strings samtools and IGV
+    use, and the tick labels an [AxisTrack](#axistrack) prints are in that same
+    form. Some tracks are not in genomic coordinates at all: MsaTrack counts
+    alignment columns, SnpTrack counts variable sites, SquiggleTrack counts
+    signal samples, and the two tree tracks measure branch length. Each entry
+    below says which. The full argument is in
+    [coordinates](how-it-works/coordinates.md).
+
+Every track type has a matching `add_` on `Plot` and can equally be pushed onto
+a `Figure`, which is what you want when the track is built by an alternative
+constructor or read back before it is drawn:
+
+```rust
+use karyon::{AxisTrack, CoverageTrack, Figure, Region};
+
+Figure::new(Region::parse("NC_000962.3:761000-763000")?)
+    .push(CoverageTrack::new(760_999, depth).label("depth"))
+    .push(AxisTrack::new())
+    .save_svg("rpoB.svg")?;
+```
+
+The two layers are described in [plot](guide/plot.md) and
+[figure](guide/figure.md).
+
+## Signal and sequence
+
+Most figures made with this crate are a stack of several tracks. The one below
+holds four of them: a depth profile with a dropout in it, the reference bases,
+two gene models and a set of variant calls, all over one axis.
+
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+
+### CoverageTrack
+
+A quantitative signal sampled once per base: read depth, GC content,
+mappability, anything with one number per position. Values are stored densely
+from a start position, which is the shape `samtools depth` output arrives in,
+and `CoverageTrack::from_pairs` builds the same thing from sparse
+`(position, value)` pairs, with a buffer that spans the region on display
+rather than the genome.
+
+When a pixel covers more than one base the column is reduced with `Aggregate`,
+and the choice is a claim about what you are looking for. `Max` is the default
+and keeps a narrow spike visible, which is what you want when hunting
+duplications. `Min` is the one to use when hunting dropouts, because a mean
+smooths a dropout away. Whatever the region, the SVG carries at most one point
+per pixel column.
+
+It draws upward from the floor of its band, and that is the refusal: zero is
+the floor in fact and not by convention, which is true of read depth and false
+of a signed statistic. A number that can fall below its baseline belongs in a
+[WindowTrack](#windowtrack).
+
+### WindowTrack
+
+A statistic computed in windows, drawn against a line it may fall below. pN/pS
+is centred on one, GC skew and Tajima's D cross zero wherever the thing they
+measure changes direction, and drawn up from the bottom of a band all of those
+lose the one thing they were computed to say, which is which side of the line a
+window fell on.
+
+![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows that fall below the line in a colour of their own](assets/figures/example-selection.svg)
+
+`WindowStyle::Steps` is the default and the honest one, because a window is an
+interval and a block says so; `WindowStyle::Line` is for a statistic read as a
+curve, GC skew being the usual case. A ratio needs one more step, and
+`WindowTrack::ratios` takes it: on a linear axis a pN/pS of 0.5 sits half a unit
+under the line while a 2.0 sits a whole unit over it, so the same twofold
+departure looks twice as big in one direction. Plotting log2 of the ratio puts
+them at equal distances.
+
+Two constructors compute the statistic for you from the sequence itself:
+
+```rust
+use karyon::WindowTrack;
+
+let skew = WindowTrack::gc_skew(0, genome, 10_000).label("GC skew");
+```
+
+`WindowTrack::gc_content` is the same shape without the sign.
+
+### MethylationTrack
+
+Per-site methylation, one lane per strand: forward calls above the line,
+reverse below. A methylation call is not a variant, because the base is the same
+base and the measurement is a fraction of reads rather than a genotype, and the
+two things that follow from that are why this is not a
+[VariantTrack](#varianttrack).
+
+![Dam methylation at GATC sites across the E. coli origin of replication, forward strand calls above the line and reverse below, each faded by how many reads covered it](assets/figures/example-methylation.svg)
+
+The first is strand. Methylation belongs to one strand of a duplex, so the two
+strands of a palindromic site are two measurements and the asymmetry is often
+the finding. The track refuses to average them, and the disagreement is a query
+rather than something to read off by eye:
+
+```rust
+use karyon::{MethylSite, MethylationTrack, Strand};
+
+let sites = vec![
+    MethylSite::new(1_010, Strand::Forward, 0.95, 40),
+    MethylSite::new(1_011, Strand::Reverse, 0.08, 38),
+];
+let track = MethylationTrack::new(sites);
+assert_eq!(track.hemimethylated(0.5), vec![1_010]);
+```
+
+The partner is the nearest reverse call within `pair_within`, one base by
+default, because the two modified bases of a `GATC` or a `CpG` are a base apart
+and never on the same coordinate.
+
+The second is coverage. A site called from four reads and a site called from
+four hundred are the same size to anything that plots the fraction alone, so
+sites under `min_coverage` are dropped, five by default and counted by
+`discarded()`, and the rest fade with depth up to `saturating_coverage`.
+
+### SequenceTrack
+
+The reference bases themselves, drawn the way a genome browser draws them:
+coloured letters once a base is at least seven pixels wide, plain coloured
+blocks below that, and a hint to zoom in once the bases would be thinner than
+0.6 of a pixel.
+
+![The same locus at base resolution, with the reference sequence drawn as coloured letters](assets/figures/example-zoom.svg)
+
+That last case is the refusal. Five million one-pixel rectangles is a file no
+viewer will open, so once the bases are that thin the track prints the hint
+instead of drawing them. Base colours follow the IGV convention by default,
+which is not colour vision safe and has an alternative that is; see
+[theming](guide/theming.md).
+
+### LogoTrack
+
+A sequence logo over consecutive positions, built from aligned sequences with
+`LogoTrack::from_sequences`, from a position weight matrix with
+`LogoTrack::from_matrix`, or column by column.
+
+![The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it](assets/figures/example-logo.svg)
+
+A logo has to decide what a letter's height means, and `LogoScore` offers seven
+answers. Five of them measure a symbol against a background and can therefore
+hang it below the baseline, which is the thing a classic logo cannot do: a
+column that is nearly uniform is flat in bits, and a base that is missing from
+it is invisible. `LogoTrack::edlogo` is the one to reach for first.
+
+![The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient](assets/figures/example-logo-scores.svg)
+
+Which one is chosen changes the reading, not just the drawing: the same four
+columns scored five ways put the emphasis in five different places.
+
+Two things are worth knowing before believing one. Left alone the alphabet is
+the set of symbols that actually appear, which is wrong for a DNA motif where
+one base never shows up, since information content is measured against
+`log2(K)` and a uniform background is `1/K`: `alphabet_size(4)` says the
+alphabet is four letters whatever the alignment happened to contain. And a logo
+drawn from four sequences looks identical to one drawn from four thousand, which
+is an estimation problem rather than a plotting one, so `LogoTrack::stabilize`
+shrinks each column towards the background by the amount its sample size
+supports, and `dash_fit` reports how far each column moved.
+
+![The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred](assets/figures/example-logo-stability.svg)
+
+Symbols are arbitrary strings, so three letter amino acid codes and k-mers plot
+as readily as bases:
+
+![A sequence logo whose symbols are three letter amino acid codes](assets/figures/example-logo-protein.svg)
+
+## Annotation
+
+### FeatureTrack
+
+Annotated intervals: genes, exons, repeats, primers, anything from a BED or GFF
+file. Features that would collide on screen are pushed onto extra rows and the
+track grows to fit them. Collisions are measured in pixels and include the room
+a label takes, so the number of rows changes with zoom, which is why
+`Track::height` takes a `Scale` at all.
+
+Strand is drawn as an arrowhead, and the head never eats more than eight pixels
+of a long feature, so an interval stays a bar with a point on it rather than
+becoming a triangle. The colour follows the strand through `strand_color`, one
+convention for the whole crate: a figure with a pileup two bands down would
+otherwise have blue meaning forward in one place and reverse in the other, with
+nothing on the page saying so.
+
+What it refuses to say is that two genes are on one molecule. A feature is an
+interval and an interval is all it is; co-transcription is
+[TranscriptionUnitTrack](#transcriptionunittrack).
+
+### TranscriptionUnitTrack
+
+Where transcription starts, how far the leader runs, and where it stops: a bent
+arrow at the start site, a hollow 5' leader, and a hairpin or a plain bar at the
+terminator depending on whether it is intrinsic or Rho dependent.
+
+![Transcription units over a gene cluster, each drawn as a bent arrow at its start site, a hollow leader and a hairpin at its terminator, above a feature track of the genes they carry](assets/figures/example-transcripts.svg)
+
+The span is the claim. From the arrow to the terminator is one RNA molecule, so
+the genes under it are co-transcribed and a promoter mutation upstream of the
+arrow changes all of them at once. Put a [FeatureTrack](#featuretrack) below it
+to draw the genes; this draws only what a gene model cannot say.
+
+A leaderless transcript, one whose `cds_start` is its `tss`, has no hollow
+segment at all and its arrowhead lands flush on the start codon. It is a
+different picture rather than a differently labelled one, and how much of a
+collection is leaderless is usually the observation the figure exists to make.
+A start codon on the wrong side of the start site reads as no leader rather than
+a negative one, because that input is a contradiction and not a measurement.
+
+### OrfTrack
+
+The six reading frames of a stretch of sequence: three lanes above a line for
+the frames read left to right and three below for the other strand, with each
+stop codon a tick across its lane and each open reading frame the bar between
+two of them.
+
+![Six lanes of reading frames across three and a half kilobases, stop codons drawn as ticks and the open stretches between them as bars, three lanes above the line and three below](assets/figures/example-frames.svg)
+
+Open means a run of at least `min_codons` codons with no stop in it, thirty by
+default. Whether it starts at a methionine is a separate question and a separate
+switch, `require_start`, which is off by default because the first thing you
+want from a six frame map is where the stops are not. `ATG`, `GTG` and `TTG` all
+count as starts.
+
+The frames are numbered against the sequence you hand it, not against the
+chromosome: frame `-1` is read from the far end of that slice. Hand it the
+sequence of the region on display and the reverse frames are the reverse frames
+of what is on screen, which is what every ORF finder does and what a reader
+assumes.
+
+## Variation
+
+### VariantTrack
+
+Point events along the sequence: SNPs, indels, insertion sites, peaks. A
+lollipop whose stem height is the value, or a plain tick once the variants are
+dense enough that heads would smear into each other. A variant with no value
+gets a full-height stem, which is right when there is no quantity to show.
+
+Categories drive the colour and the legend entry, and they are coloured in order
+of first appearance rather than by hash. That determinism is the refusal: a
+figure that recolours itself when a sample is added is not one you can put in a
+paper.
+
+### StructuralTrack
+
+Structural variant calls as arcs between their two breakpoints, springing from
+the axis at both ends, with arch height following how far apart the ends are and
+stroke weight following the supporting read count.
+
+![Five structural variant calls drawn as arcs between their breakpoints: a deletion, a duplication, an inversion, an insertion, and a translocation whose far end leaves the frame. Underneath, a depth profile that drops to nothing under the deletion and steps up under the duplication](assets/figures/example-structural.svg)
+
+The arc is the point. A structural variant is not a mark at a position, it is a
+statement that two positions belong together: the two ends of a deletion, the
+source and destination of a duplication, the pair of junctions an inversion
+creates. A [VariantTrack](#varianttrack) draws one point per call and cannot say
+that, and a bar spanning the event says only that something happened in the
+middle, which is usually the one place nothing happened.
+
+Put a [CoverageTrack](#coveragetrack) under it. Half of reading an SV call is
+whether the depth agrees, and a deletion with no drop under it is a call to
+argue with.
+
+### SnpTrack
+
+The variable columns of an alignment and nothing else, spaced evenly, one row
+per sample.
+
+![A panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
+
+An alignment of closely related genomes is almost entirely agreement: thirty
+kilobases carrying thirty-four differences would spend 99.9% of its pixels on
+the part that says nothing. So the invariant columns go, and a smear becomes
+thirty-four legible columns. Everything else in the panel is reading aid: a cell
+that matches the reference is a quiet bar because the matches are the noise,
+alternating columns are tinted so the eye can cross a wide panel, and each row
+carries its own count of differences on the right.
+
+`SnpTrack::tree` puts a phylogeny in the strip beside the rows and sorts the
+rows to match, so a clade's shared substitutions line up into a block instead of
+being scattered down the panel in whatever order the samples were listed. Rows
+are matched to leaves by name, and a sample the tree does not mention keeps its
+place at the bottom rather than vanishing, because a row silently dropped from a
+figure is worse than a row out of order.
+
+The refusal is a ruler. Two adjacent columns here may be nine bases apart or
+nine kilobases apart and nothing about the spacing says which, so every column
+carries its own position turned on end underneath and an
+[AxisTrack](#axistrack) does not belong under this panel. The figure's region is
+the site index space: a panel of twenty sites is `Region::new("sites", 0, 20)`.
+
+### MatrixTrack
+
+One row per sample, one column per site, and a cell saying what that sample had
+there. A genotype matrix out of a VCF is exactly this shape, and so is a
+pangenome presence and absence matrix once its genes have coordinates. The
+columns sit at their real coordinates, so the matrix shares the figure's axis
+with whatever is above it.
+
+![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg)
+
+Three things have to look different in a matrix: a sample that does not carry
+the allele, a sample that was never typed, and empty page. So the sequential
+ramp starts a step off the surface rather than on it, and missing data has its
+own grey. `f64::NAN` is missing; zero is a genotype. `CellScale::Sequential` is
+one hue light to dark, because two hues would imply a meaningful middle and zero
+to one has no middle to mean anything; `CellScale::Categorical` reads the value
+as an index into the palette instead.
+
+`MatrixTrack::tree` sorts the rows by descent the same way the SNP panel does,
+which is what turns a speckle into rectangles:
+
+![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](assets/figures/example-pangenome.svg)
+
+Cells never merge, and that is the refusal. Six carriers drawn as six cells are
+six observations. One rectangle covering six rows would be one claim, and that
+claim is [CladeTrack](#cladetrack).
+
+### ManhattanTrack
+
+Association statistics: one point per test, height by significance, a line where
+significance starts, and the hits above it coloured and ringed. The plot is
+named for the skyline that appears when a real signal stacks a run of
+neighbouring markers into a tower.
+
+`genome_wide_threshold` is a Bonferroni correction for a million independent
+tests. It is the convention in human GWAS and frequently the wrong number
+everywhere else, because the right one follows from how many independent tests
+were really run: a shorter genome, or stronger linkage between neighbouring
+sites, leaves far fewer than a million. `threshold` sets your own.
+
+The x axis is genomic, so this draws one sequence or one region of one. A
+genome-wide plot laying every sequence end to end is a different coordinate
+system and the crate does not pretend otherwise: build it with `Genome`, hand
+`Genome::boundaries` to `ManhattanTrack::bands` so the alternating shading falls
+on the sequence edges, and put a [GenomeTrack](#genometrack) underneath.
+
+## Reads and molecules
+
+### PileupTrack
+
+Aligned reads, stacked the way a genome browser stacks them. This is the track
+you open when a variant call looks wrong.
+
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg)
+
+A read is not an interval, so the track takes a real CIGAR and walks it. `M`,
+`=` and `X` all become `Match` and the track compares the sequences itself
+rather than trusting the operation; `I`, `D`, `N`, `S` and `H` each consume what
+the specification says they consume. That is what puts a mismatched base at the
+right position when there is an insertion upstream of it. Without
+`PileupTrack::reference`, no mismatch can be found at all.
+
+Two defaults are worth knowing, and both are refusals. A pileup at thousandfold
+depth is a thousand rows tall and useful to nobody, so it stops at forty rows
+and writes `+N reads not shown` on the band rather than dropping them quietly.
+And mismatches are only hunted once a base is worth at least a fifth of a pixel,
+because below that finding one means walking every base of every read to draw
+something invisible. Reads fade with mapping quality when `fade_by_quality` is
+on, with the ramp topping out at 30, which is as good as most aligners report.
+
+### SplitReadTrack
+
+One row per molecule, one bar per alignment, and connectors between the bars
+saying in what order and in which orientation that single piece of DNA visited
+those coordinates. A connector that runs backwards is drawn under the row rather
+than over it, so a read crossing an inversion looks different from a read
+crossing a deletion instead of merely being annotated differently.
+
+![Eight molecules each aligned in three pieces, two at a new insertion site and one back to the reference copy of the element on the reverse strand, with the connectors that run backwards drawn under their rows, above a depth profile that doubles over the donor](assets/figures/example-split.svg)
+
+This is the evidence, and neither neighbour can hold it. A
+[PileupTrack](#pileuptrack) read is one start, one CIGAR and one strand, so a
+molecule that visits three places cannot be written down in it at all. A
+[StructuralTrack](#structuraltrack) arc starts from a finished two-breakpoint
+call, so by the time there is an arc the evidence has been summarised away. A
+transposition is three segments and not an arc.
+
+Colour ramps along the read from its 5' end, which is the other half of the
+claim: it distinguishes a molecule that went A then B then C from one that went
+C then B then A across the same three places.
+
+```rust
+use karyon::{SplitRead, SplitSegment, Strand};
+
+let read = SplitRead::new(vec![
+    SplitSegment::new(1_000, 1_600, Strand::Forward),
+    SplitSegment::new(9_000, 9_400, Strand::Reverse),
+    SplitSegment::new(1_600, 2_100, Strand::Forward),
+])
+.name("m64011_1");
+assert!(read.goes_backwards());
+```
+
+### BisulfiteTrack
+
+Methylation one molecule at a time: one row per read, one column per site,
+filled for modified and open for not.
+
+![Sixteen molecules across a human imprinting control region, one row each, with filled and open circles per cytosine: some reads are methylated at every site and others at none](assets/figures/example-bisulfite.svg)
+
+A [MethylationTrack](#methylationtrack) gives a fraction per site, and half the
+reads methylated at every site has two very different explanations. Either every
+molecule is methylated at about half its sites, scattered, or half the molecules
+are methylated at all of them and half at none. The first is a region modified
+loosely; the second is two populations of cells, or an allele-specific pattern.
+The site fractions are identical in both cases. One row per molecule tells them
+apart at a glance: the first is confetti, the second is stripes, and
+`discordance()` puts a number on it.
+
+The refusal is in the marks. An unmethylated call gets a ring and a site the
+molecule did not cover gets no mark at all, because "measured and not
+methylated" and "not measured" are different statements and must not look the
+same. Columns sit at the real distances between the cytosines, which matters
+when the question is whether an island is uniformly modified.
+
+### SquiggleTrack
+
+Raw nanopore current, before it was ever a base. A read starts life as a few
+hundred thousand current measurements in picoamperes, and basecalling turns that
+into letters and throws the rest away. When a basecall is in doubt, or a
+modification is the thing being measured, the current is the evidence and the
+letters are the summary.
+
+![Raw nanopore current for one read, drawn as a min to max envelope that resolves into the trace, with the bases the basecaller assigned to each stretch marked above it](assets/figures/example-squiggle.svg)
+
+The x axis is sample number, which is time and not position, so the figure goes
+over `Region::new("read", 0, samples)`. Above one sample per pixel each column
+is drawn as the range of the samples underneath it, the way an oscilloscope and
+an audio editor draw the same problem: the extremes are honest and the shape
+between them is not there. Zoom in far enough and the samples are drawn as
+themselves.
+
+`SquiggleTrack::moves` attaches the basecaller move table, which is the only
+thing in the plot connecting time to sequence, and `dwells()` reports how many
+samples each called base held the pore for.
+
+## Comparison
+
+### MsaTrack
+
+A multiple sequence alignment, row by row.
+
+![A conservation logo above a multiple sequence alignment, with only the disagreements painted](assets/figures/example-msa.svg)
+
+The coordinates are alignment columns, not genomic positions. They are two
+different things, so the figure's region is the column space, an alignment 900
+columns wide being `Region::new("alignment", 0, 900)`, and the ruler under it
+counts columns. Ungapping a row back to reference coordinates is a real
+operation with real decisions in it, and the crate does not do it behind your
+back.
+
+A wall of coloured residues is pretty and says very little, because in a real
+alignment most cells agree and the agreement is the noise. So the default is
+`MsaDisplay::Differences`: rows are a quiet bar and only what disagrees with the
+comparison row is painted. Compare against a named row when one of them is the
+reference, or leave it and the consensus is used. Conservation belongs above the
+alignment rather than inside it, and [LogoTrack](#logotrack) takes the same
+sequences this track does.
+
+![A short protein alignment with residues coloured by class](assets/figures/example-msa-protein.svg)
+
+Protein alignments colour by physicochemical class, six of them, which is how
+many hues the validated palette has. Neighbouring cells of the same colour are
+merged into one rectangle, which is the difference between a figure and a file
+no viewer will open.
+
+### DotplotTrack
+
+Two sequences on two axes, with each alignment block drawn as a diagonal. A
+forward block runs bottom left to top right, a reversed one the other way, and a
+rearrangement is whatever shape those make: a translocation sits off the main
+diagonal, an inversion is an anti-diagonal.
+
+![A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block](assets/figures/example-synteny.svg)
+
+The figure's region is always the query. The target keeps its own scale, either
+its whole length through `target_length` or a slice of it through
+`target_range`, and gets the height of the band. Blocks are given with both
+spans ascending and the strand as a flag, which is how PAF records them.
+
+### SyntenyTrack
+
+The same `AlignmentBlock`s as ribbons between two bars. Compact, follows one
+block at a time, and an inversion becomes a twist rather than a shape you read
+off two axes.
+
+![The inversion on its own: two bars joined by ribbons that cross where the alignment reverses](assets/figures/example-synteny-inversion.svg)
+
+Neither form is a summary of the other, which is why both ship. The dotplot
+shows the shape of a rearrangement at a glance and costs a tall panel; the
+ribbons cost one band. Ribbons are translucent so two crossing ones read as two,
+and each block is also drawn solid on both bars, so a thin ribbon still shows
+exactly what it connects.
+
+### LocusTrack
+
+Several loci from several genomes, one row each, genes drawn as arrows and
+joined to their matches in the row below by identity ribbons.
+
+![The ESX-1 locus in three genomes, one row each, genes drawn as arrows and joined by identity ribbons, with the genes deleted in one of them left outlined and unjoined](assets/figures/example-cluster.svg)
+
+The question asked of a gene cluster, an operon, a viral genome or a syntenic
+block is almost never "what is in it" but "what is in it that the other one has
+not". So the genes with no homolog are outlined by default: the missing ribbon
+says it too, but only to a reader who thought to look for an absence, and an
+absence is the hardest thing to notice.
+
+The x axis is the figure's own, shared with every other track, so a kilobase is
+a kilobase in every row and the loci can be compared for length as well as for
+content. Give each `Locus` its genes in whatever coordinates they came in and
+shift a row with `Locus::offset` to line it up with its neighbour.
+
+Homologies are between neighbouring rows only. That is a limit of the reading
+rather than of the drawing: a ribbon that skips a row crosses one it has nothing
+to do with, and a figure of those is a figure of crossings.
+
+## Phylogeny
+
+### TreeTrack
+
+A phylogeny from a Newick string, drawn as a phylogram when the branch lengths
+mean something or a cladogram when they do not.
+
+Its x is evolutionary distance, so it does not use the shared scale. Its y does
+mean something to its neighbours, because a leaf is a row, and that is the whole
+point: [SnpTrack](#snptrack) and [MatrixTrack](#matrixtrack) each take a tree of
+their own and sort their rows to match it, which is what turns a scatter of
+shared substitutions into a block.
+
+### TanglegramTrack
+
+Two trees over the same taxa, drawn facing each other with every shared tip
+joined across the middle. A gene tree against a species tree, a core tree
+against an accessory tree, two methods over one alignment: drawn side by side
+the disagreement is something you have to hold in your head, and drawn this way
+the disagreement is the crossings, which are a thing you can point at.
+
+![Core and accessory genome trees of eight isolates drawn face to face, the same tips joined across the middle and the crossing ties coloured](assets/figures/example-tanglegram.svg)
+
+```rust
+use karyon::tree::Tree;
+use karyon::TanglegramTrack;
+
+let core = Tree::parse_newick("((A:0.1,B:0.1):0.2,(C:0.1,D:0.1):0.2);")?;
+let accessory = Tree::parse_newick("((A:0.1,C:0.1):0.2,(B:0.1,D:0.1):0.2);")?;
+
+let track = TanglegramTrack::new(core, accessory).names("core", "accessory");
+assert!(track.crossings() > 0);
+```
+
+`crossings()` is worth putting in a caption, and it is not a statistic. The
+count depends on how each tree happened to rotate its clades, and a clade
+rotates freely without changing what the tree says, so two trees that agree
+completely can be drawn with a great many crossings by an unlucky rotation.
+Untangling is a separate problem this does not solve: the count is what the
+drawing shows, and the drawing is one of many.
+
+A tip only one of the trees has is drawn on that tree and joined to nothing,
+because a taxon missing from one analysis is a fact about the analysis.
+`shared()` lists the tips both trees have and `unshared()` the ones they do
+not.
+
+### CladeTrack
+
+Genomic intervals painted onto a phylogeny: a block whose width is a coordinate
+span and whose height is a clade.
+
+![Lineage-defining deletions drawn as blocks across a SARS-CoV-2 phylogeny, each spanning the rows of the lineages that carry it, with the recurrent one cut out where a lineage between the carriers does not](assets/figures/example-clades.svg)
+
+A [MatrixTrack](#matrixtrack) cell is one base wide and cells never merge, so a
+matrix can only say that these six samples each carry something here. That is
+six observations. This says one: a rectangle covering a whole clade asserts a
+single acquisition or loss on the branch below which every carrier sits. The
+difference between those two claims is most of what a comparative genomics
+figure is arguing about.
+
+The track can only lie in one way, and it refuses to. When the carriers are not
+every leaf under their common ancestor, the block is still drawn across the rows
+it spans, but every row inside it that does not carry the block is cut out, so a
+paraphyletic set can never pass for a clade:
+
+```rust
+use karyon::tree::Tree;
+use karyon::{CladeBlock, CladeTrack};
+
+let tree = Tree::parse_newick("(((A:1,B:1):1,C:2):1,D:3);")?;
+let track = CladeTrack::new(
+    tree,
+    vec![
+        CladeBlock::new(1_000, 4_000, ["A", "B"]).name("RD1"),
+        CladeBlock::new(6_000, 7_000, ["A", "C"]).name("recurrent"),
+    ],
+);
+
+assert!(track.is_clade(0));
+assert!(!track.is_clade(1));
+assert_eq!(track.cut_rows(1), 1);
+```
+
+In the figure above that is the nsp6 SGF deletion, which five lineages carry and
+Delta, sitting between them, does not: one block with a row cut out of it rather
+than one ancestral event. Because the horizontal extent is a real
+coordinate span, the questions a reader asks of the block are coordinate
+questions: does it cover this gene, do two blocks on different branches share an
+endpoint, does the deletion stop where a repeat element sits. `unmatched()` and
+`unplaced()` report the taxa the tree does not have and the blocks that
+therefore could not be placed.
+
+## Whole genome
+
+### IdeogramTrack
+
+The whole chromosome drawn end to end across the plotting area, with a marker
+showing which part of it the tracks below are showing.
+
+![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](assets/figures/example-ideogram.svg)
+
+Of the five tracks that do not use the shared scale, this is the only one whose
+x is still a genomic coordinate, and it is not the figure's. The reason is the
+question it answers: "where am I" cannot be answered by a track that only shows
+the region on display, so it maps the whole sequence across the plotting area
+instead. That makes it worth knowing before you put a ruler under it.
+
+A row of the UCSC cytoBand table converts into a
+`Band` without a lookup table of your own, the grey ladder is mixed from the
+theme's own ink and page so a dark figure gets a dark ladder, and a tiny window
+still gets a marker with a minimum width, because a pointer too thin to see is
+neither a pointer nor a measurement.
+
+Most sequences have no cytogenetics to speak of: plasmids, organelle genomes,
+viruses, draft assemblies and bacterial chromosomes among them.
+`IdeogramTrack::bare` gives an outline instead, which still answers the only
+question the track was ever asked.
+
+![The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it](assets/figures/example-ideogram-bacterial.svg)
+
+### GenomeTrack
+
+The sequences of a `Genome` laid end to end, as alternating blocks with their
+names on them. A figure is one region on one sequence, which is right for a
+locus and wrong for an assembly; `Genome` hands back the single region that
+covers all of them, and every other track then works across the lot at once.
+
+![An association scan and a depth profile drawn across every contig of a draft assembly, with the contigs underneath as alternating named blocks](assets/figures/example-genomewide.svg)
+
+What it refuses to be is a ruler. A ruler of global coordinates under a
+concatenated genome would be a ruler of a coordinate system nothing else uses,
+since nobody has ever quoted a position as "1,437,902 bases into the assembly".
+So it labels the sequences and marks where each one ends instead. An assembly of
+two hundred contigs has two hundred names and room for perhaps twelve, so the
+ones that do not fit are left out rather than overprinted, and
+`GenomeTrack::named` says how many were written and how many were not.
+
+## Scales and keys
+
+### AxisTrack
+
+The coordinate ruler. Ticks land on round 1-based coordinates, the numbers a
+reader would type into a genome browser, with the step rounded to 1, 2 or 5
+times a power of ten so the labels stay round. `plot()` puts one at the bottom
+without being asked; a tall figure is worth giving one at the top as well.
+
+One unit, bp or kb or Mb, is chosen for the whole ruler, because an axis that
+switches from kb to Mb half way across is unreadable. `center_on_bases` moves
+each tick to the middle of its base rather than its left edge, which is right
+once a base is a column you can see, as in a logo or a short motif: a ruler
+marks boundaries, but a number under a visible column belongs under the column
+it counts.
+
+### CodonTrack
+
+A ruler in codons, so a coding sequence can be read in protein coordinates.
+
+![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](assets/figures/example-codons.svg)
+
+A variant in a coding sequence is named by residue rather than by base: BRAF
+V600E, TP53 R175H, rpoB S450L. A figure drawn in bases cannot be pointed at with
+any of those names. This is the sibling of [AxisTrack](#axistrack) that can. It
+partitions the sequence into codons, numbers them, and translates them where
+there is room for a letter, and the partition is itself the claim: two changes
+at different bases of one codon are competing alleles at one residue rather than
+a double mutant, and two changes in neighbouring codons are two substitutions
+however few bases apart they are.
+
+On the reverse strand codon 1 sits at the highest coordinate and the numbering
+runs right to left, which is the whole reason this is a track and not a division
+by three. Roughly half the coding sequences in any annotation run backwards, and
+getting their numbering wrong is silent: the figure still draws, it just names
+the wrong residue. Hand it the reference as it is and it complements and reverses
+the bases itself.
+
+```rust
+use karyon::{CodonTrack, Strand};
+
+let ruler = CodonTrack::new(759_806, 763_325, Strand::Forward);
+assert_eq!(ruler.codon_of(761_154), Some(450));
+assert_eq!(ruler.span_of(450), Some((761_153, 761_156)));
+```
+
+Translation is NCBI table 1, and table 11 gives the same residues, so bacteria,
+archaea and plastids need nothing. `genetic_code` takes any other table in the
+same form, which is what a mitochondrial or ciliate sequence needs to avoid
+being translated into a plausible protein that is wrong. A codon whose bases
+were not supplied is drawn without a letter rather than guessed at.
+
+### LegendTrack
+
+A key to the colours as a band of its own. Keys can be a filled square, a dot, a
+line, an area, an outline or a continuous ramp between two colours.
+
+A legend is a horizontal strip of the figure that carries no coordinates, which
+is exactly what a track is. Making it one means it stacks, clips and lays itself
+out like everything else, and it goes where the caller puts it rather than where
+a track decided to squeeze it. It also means the figure reserves room for it: a
+legend drawn into a corner that already has data in it is a legend with a line
+through it.
+
+Entries are laid across the band and wrap onto another row when they run out of
+width, so its height depends on how wide the figure is. Nothing is ever dropped
+for want of room, because a key that is not drawn is worse than a legend that is
+two rows tall.
+
+## From the command line
+
+Twelve of the twenty-nine tracks have a standard text format to read, and those
+are the ones `karyon` the command can build. Each flag starts a track and the
+flags after it describe that one, so the order of the flags is the order of the
+stack.
+
+| Flag | Track | Format |
+|:-----|:------|:-------|
+| `--coverage` | [CoverageTrack](#coveragetrack) | bedGraph, `samtools depth`, or one value per line |
+| `--sequence` | [SequenceTrack](#sequencetrack) | FASTA |
+| `--features` | [FeatureTrack](#featuretrack) | BED or GFF3 |
+| `--variants` | [VariantTrack](#varianttrack) | VCF |
+| `--windows` | [WindowTrack](#windowtrack) | bedGraph |
+| `--manhattan` | [ManhattanTrack](#manhattantrack) | a table of position and value |
+| `--tree` | [TreeTrack](#treetrack) | Newick |
+| `--msa` | [MsaTrack](#msatrack) | aligned FASTA |
+| `--snps` | [SnpTrack](#snptrack) | aligned FASTA |
+| `--ideogram` | [IdeogramTrack](#ideogramtrack) | a cytoBand table |
+| `--matrix` | [MatrixTrack](#matrixtrack) | a table of a value per sample per site |
+| `--pileup` | [PileupTrack](#pileuptrack) | SAM text, as `samtools view` writes it |
+
+An [AxisTrack](#axistrack) is added at the bottom without being asked for, and
+`--axis` puts one wherever the flag sits instead. Any track file may be `-` for
+standard input, which is how the binary formats get in: `samtools` and
+`bcftools` already write exactly what these readers take.
+
+`AxisTrack` makes up the twenty-ninth: `--axis` places the ruler, which reads no
+file because it has nothing to read. The other sixteen have no standard text
+file to read from either, so they stay in the library: [BisulfiteTrack](#bisulfitetrack), [CladeTrack](#cladetrack),
+[CodonTrack](#codontrack), [DotplotTrack](#dotplottrack),
+[GenomeTrack](#genometrack), [LegendTrack](#legendtrack),
+[LocusTrack](#locustrack), [LogoTrack](#logotrack),
+[MethylationTrack](#methylationtrack), [OrfTrack](#orftrack),
+[SplitReadTrack](#splitreadtrack), [SquiggleTrack](#squiggletrack),
+[StructuralTrack](#structuraltrack), [SyntenyTrack](#syntenytrack),
+[TanglegramTrack](#tanglegramtrack) and
+[TranscriptionUnitTrack](#transcriptionunittrack). A flag for each of them would
+mean inventing sixteen file formats nobody else writes, and the library takes
+vectors of structs rather than paths in any case. The reasoning, and the whole
+grammar, is in [the command line guide](guide/cli.md).
+
+!!! note "Not a track"
+    A circular sequence is not a stack of bands, so it is not a track and not a
+    `Figure` either. `Rings` maps position to an angle, puts annotation,
+    composition and variants on concentric rings, and uses the middle for chords
+    joining the two ends of a rearrangement. A `Rings` plot and a `Figure` can
+    share one `Panels` sheet. See [figure](guide/figure.md).
