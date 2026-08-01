@@ -324,6 +324,7 @@ impl Track for MatrixTrack {
                     shape: self.tree_shape,
                     color: &ctx.theme.foreground,
                     width: 1.1,
+                    mirror: false,
                 },
             );
         }

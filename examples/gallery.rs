@@ -21,13 +21,14 @@ use karyon::theme::mix;
 use karyon::tree::Tree;
 use karyon::{
     AccumulationTrack, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band,
-    CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature, FeatureRing,
-    FeatureTrack, Figure, Frequency, FrequencyTrack, Genome, GenomeTrack, Homology, IdeogramTrack,
-    Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoTrack, ManhattanTrack,
-    MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Move, MsaColoring,
-    MsaDisplay, MsaSequence, MsaTrack, Panels, PileupTrack, Read, ReadColoring, Region, Rings,
-    SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand, SyntenyTrack, Theme,
-    TreeTrack, Variant, VariantTrack, Window, WindowStyle, WindowTrack,
+    BisulfiteTrack, CellScale, CigarOp, CoverageTrack, DistanceTrack, DotplotTrack, Feature,
+    FeatureRing, FeatureTrack, Figure, Frequency, FrequencyTrack, Genome, GenomeTrack, Homology,
+    IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoTrack,
+    ManhattanTrack, MarkerRing, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
+    Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, OrfTrack, Panels, PileupTrack, Read,
+    ReadColoring, Region, Rings, SequenceTrack, SignalRing, SnpTrack, SquiggleTrack, Stain, Strand,
+    StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack, Theme, TreeTrack,
+    Variant, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -124,6 +125,26 @@ fn main() -> std::io::Result<()> {
             &spectrum(),
             "Q",
             "What the pangenome is made of: core, shell and cloud",
+        )
+        .push_captioned(
+            &structural(),
+            "R",
+            "Structural variants as arcs between their breakpoints",
+        )
+        .push_captioned(
+            &frames(),
+            "S",
+            "Six reading frames: the stops, and what is open between them",
+        )
+        .push_captioned(
+            &tanglegram(),
+            "T",
+            "Two trees face to face, and where they disagree",
+        )
+        .push_captioned(
+            &bisulfite(),
+            "U",
+            "Methylation one molecule at a time, not one fraction per site",
         );
 
     sheet.save_svg(out.join("gallery.svg"))?;
@@ -851,6 +872,156 @@ fn spectrum() -> Figure {
         .push(track.height(150.0))
         .push(LegendTrack::new(legend))
         .push(AxisTrack::new().center_on_bases(true).label("genomes"))
+}
+
+/// R: arcs between breakpoints.
+fn structural() -> Figure {
+    let span = 60_000u64;
+    let mut rng = Lcg::new(7_919);
+    let calls = vec![
+        StructuralVariant::new(8_000, 14_000, SvKind::Deletion)
+            .support(34)
+            .name("RD1"),
+        StructuralVariant::new(24_000, 31_000, SvKind::Duplication).support(21),
+        StructuralVariant::new(38_000, 44_000, SvKind::Inversion).support(9),
+        StructuralVariant::new(5_000, 52_000, SvKind::Translocation).support(6),
+        StructuralVariant::new(20_000, 20_000, SvKind::Insertion).support(17),
+    ];
+    let depth: Vec<f64> = (0..span)
+        .map(|at| {
+            let base = if (8_000..14_000).contains(&at) {
+                2.0
+            } else if (24_000..31_000).contains(&at) {
+                84.0
+            } else {
+                42.0
+            };
+            base + (rng.next() % 70) as f64 / 10.0
+        })
+        .collect();
+
+    let track = StructuralTrack::new(calls).label("SV").height(88.0);
+    let theme = Theme::light();
+    let legend = Legend::new()
+        .line("deletion", track.color_of(SvKind::Deletion, &theme))
+        .line("duplication", track.color_of(SvKind::Duplication, &theme))
+        .line("inversion", track.color_of(SvKind::Inversion, &theme))
+        .line(
+            "translocation",
+            track.color_of(SvKind::Translocation, &theme),
+        )
+        .line("insertion", track.color_of(SvKind::Insertion, &theme));
+
+    Figure::new(Region::new("NC_000962.3", 0, span).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(track)
+        .push(CoverageTrack::new(0, depth).label("depth").height(50.0))
+        .push(LegendTrack::new(legend))
+        .push(AxisTrack::new())
+}
+
+/// S: the six frames.
+fn frames() -> Figure {
+    let mut rng = Lcg::new(2_718);
+    let span = 3_600usize;
+    let mut seq: Vec<u8> = (0..span)
+        .map(|_| b"ACGT"[(rng.next() % 4) as usize])
+        .collect();
+    let gene_at = 900usize;
+    seq[gene_at..gene_at + 3].copy_from_slice(b"ATG");
+    let mut at = gene_at + 3;
+    while at + 3 <= gene_at + 1_500 {
+        let codon = loop {
+            let picked = [
+                b"ACGT"[(rng.next() % 4) as usize],
+                b"ACGT"[(rng.next() % 4) as usize],
+                b"ACGT"[(rng.next() % 4) as usize],
+            ];
+            if !matches!(
+                picked,
+                [b'T', b'A', b'A'] | [b'T', b'A', b'G'] | [b'T', b'G', b'A']
+            ) {
+                break picked;
+            }
+        };
+        seq[at..at + 3].copy_from_slice(&codon);
+        at += 3;
+    }
+    seq[at..at + 3].copy_from_slice(b"TAA");
+
+    Figure::new(Region::new("plasmid", 0, span as u64).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(OrfTrack::new(0, seq).min_codons(60).label("frames"))
+        .push(AxisTrack::new())
+}
+
+/// T: two trees that disagree.
+fn tanglegram() -> Figure {
+    let core = Tree::parse_newick(
+        "(((ERR5001:0.004,ERR5002:0.004):0.010,(ERR5003:0.003,ERR5004:0.005):0.009):0.020,\
+          ((ERR5005:0.004,ERR5006:0.003):0.011,(ERR5007:0.005,ERR5008:0.004):0.008):0.018);",
+    )
+    .expect("the tree in this example is well formed");
+    let accessory = Tree::parse_newick(
+        "(((ERR5001:0.030,ERR5006:0.028):0.040,(ERR5003:0.031,ERR5004:0.029):0.038):0.050,\
+          ((ERR5005:0.030,ERR5002:0.032):0.041,(ERR5007:0.028,ERR5008:0.030):0.039):0.048);",
+    )
+    .expect("the tree in this example is well formed");
+
+    Figure::new(Region::new("taxa", 0, 8).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            TanglegramTrack::new(core, accessory)
+                .names("core genome", "accessory genome")
+                .row_height(18.0)
+                .label("8 isolates"),
+        )
+}
+
+/// U: one row per molecule.
+fn bisulfite() -> Figure {
+    let mut rng = Lcg::new(1_729);
+    let start = 1_460_000u64;
+    let sites: Vec<u64> = (0..14)
+        .map(|index| {
+            if index < 9 {
+                start + 40 + index * 22
+            } else {
+                start + 420 + (index - 9) * 70
+            }
+        })
+        .collect();
+    let molecules: Vec<Molecule> = (0..14)
+        .map(|index| {
+            let methylated = index % 2 == 0;
+            let calls: Vec<Option<bool>> = (0..sites.len())
+                .map(|site| {
+                    if site > 10 && rng.next() % 100 < 30 {
+                        return None;
+                    }
+                    Some(if methylated {
+                        rng.next() % 100 > 8
+                    } else {
+                        rng.next() % 100 < 6
+                    })
+                })
+                .collect();
+            Molecule::new(format!("read_{:02}", index + 1), calls)
+        })
+        .collect();
+
+    Figure::new(Region::new("NC_000962.3", start, start + 800).unwrap())
+        .width(WIDTH)
+        .show_region_label(false)
+        .push(
+            BisulfiteTrack::new(sites, molecules)
+                .label("CpG")
+                .row_height(12.0),
+        )
+        .push(AxisTrack::new())
 }
 
 /// A linear congruential generator, so the sheet is reproducible without a

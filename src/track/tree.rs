@@ -64,6 +64,10 @@ pub struct TreeStyle<'a> {
     pub color: &'a str,
     /// Branch width in pixels.
     pub width: f64,
+    /// Whether the root is on the right and the tips on the left.
+    ///
+    /// For the second tree of a tanglegram, which faces the first.
+    pub mirror: bool,
 }
 
 /// Draws a tree into a rectangle, rows evenly spaced down it.
@@ -79,14 +83,16 @@ pub fn draw_tree(
     style: TreeStyle<'_>,
 ) {
     let (shape, color, width) = (style.shape, style.color, style.width);
+    let style = &style;
     let cladogram = shape == TreeShape::Cladogram;
     let layout = tree.layout(cladogram);
     let span = tree.max_depth(cladogram);
     let x_of = |depth: f64| {
-        if span <= 0.0 {
-            area.x
+        let fraction = if span <= 0.0 { 0.0 } else { depth / span };
+        if style.mirror {
+            area.right() - fraction * area.w
         } else {
-            area.x + (depth / span) * area.w
+            area.x + fraction * area.w
         }
     };
     let y_of = |row: f64| first_row_centre + row * row_pitch;
@@ -250,6 +256,7 @@ impl Track for TreeTrack {
                 shape: self.shape,
                 color: &color,
                 width: self.line_width,
+                mirror: false,
             },
         );
 
