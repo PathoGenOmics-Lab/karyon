@@ -1,5 +1,10 @@
 //! A statistic computed in windows, drawn against a line it may fall below.
 //!
+//! A [`Window`] is a half-open span and one number; the track is the run of
+//! them. pN/pS along a gene, Tajima's D along a chromosome, GC skew around a
+//! plasmid: all of them arrive in that shape, and what none of them arrive with
+//! is where the line they are read against belongs.
+//!
 //! # Why this is not a coverage track
 //!
 //! [`CoverageTrack`](crate::CoverageTrack) draws upwards from the floor of its
@@ -14,13 +19,23 @@
 //! So this track puts the line where the statistic says it belongs and lets a
 //! window hang below it, in a colour of its own.
 //!
-//! # Ratios
+//! # The constructor is where the statistic is decided
 //!
-//! A ratio needs one more step. On a linear axis a pN/pS of 0.5 sits half a
-//! unit under the line and a 2.0 sits a whole unit over it, so the same
-//! twofold departure looks twice as big in one direction as the other.
-//! [`WindowTrack::ratios`] plots log2 of the ratio instead, which puts them at
-//! equal distances, where they belong.
+//! Where the line goes and whether the values are transformed on the way in are
+//! the two things easiest to get wrong here and hardest to catch afterwards, so
+//! each named constructor settles them rather than leaving them to the caller.
+//!
+//! A ratio needs one more step than a signed statistic. On a linear axis a
+//! pN/pS of 0.5 sits half a unit under the line and a 2.0 sits a whole unit
+//! over it, so the same twofold departure looks twice as big in one direction
+//! as the other. [`WindowTrack::ratios`] plots log2 of the ratio instead, which
+//! puts the two at equal distances from the line, where they belong.
+//!
+//! A composition needs the line moved instead. [`WindowTrack::gc_content`] puts
+//! it at the GC of the sequence it was handed rather than at a half;
+//! [`WindowTrack::gc_skew`] leaves it at zero, where the sign of the statistic
+//! already means what it says. [`WindowTrack::new`] takes the values as they
+//! came, and then [`WindowTrack::baseline`] is yours to place.
 
 use crate::region::Region;
 use crate::scale::Scale;

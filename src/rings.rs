@@ -1,31 +1,40 @@
 //! A circular genome, drawn as concentric rings.
 //!
-//! # Why this is not a figure
+//! A bacterial chromosome, a plasmid and an organelle genome have no left end
+//! and no right end, and everything else in the crate stacks bands over a
+//! horizontal [`Scale`](crate::Scale), which assumes both. A ring maps position
+//! to an angle instead, which is a different coordinate system and therefore a
+//! different container: [`Rings`] is to [`Ring`] what
+//! [`Figure`](crate::Figure) is to [`Track`](crate::Track), and the two have
+//! nothing in common but the [`Drawing`] trait, which is all it takes to put a
+//! stack and a circle on one [`Panels`](crate::Panels) sheet.
 //!
-//! Everything else in the crate stacks bands over one horizontal
-//! [`Scale`](crate::Scale), which maps a position to an x coordinate. A
-//! plasmid, an organelle genome, a viral genome and most bacterial chromosomes
-//! have no ends to put on the left and the right of a page: each is a circle, and
-//! drawing one as a line puts an edge where the biology has none, right through
-//! whatever happens to sit at coordinate zero. So a
-//! circular plot maps position to an angle instead, which is a different
-//! coordinate system and therefore a different container. [`Rings`] is to
-//! [`Ring`] what [`Figure`](crate::Figure) is to [`Track`](crate::Track), and
-//! the two can sit side by side on one [`Panels`](crate::Panels) sheet.
+//! # The rings carry what the bands carry
 //!
-//! # What goes on a ring
+//! Annotation ([`FeatureRing`]), a quantity in windows ([`SignalRing`]), points
+//! ([`MarkerRing`]) and a ruler ([`AxisRing`]), each of them saying how thick it
+//! wants to be and then drawing between the two radii it is given. What the
+//! circle adds is the middle: [`Rings::link`] draws a chord across it between
+//! the two ends of an inversion, or a duplication and its source, and it is the
+//! one element of the plot that is not a ring.
 //!
-//! The same things that go in a band: annotation ([`FeatureRing`]), a quantity
-//! in windows ([`SignalRing`]), points ([`MarkerRing`]) and a ruler
-//! ([`AxisRing`]). What a circle adds over a stack of bands is the middle,
-//! where [`Rings::link`] draws a chord between two places that belong together:
-//! the two ends of an inversion, a duplication and its source, a pair of
-//! sequences a rearrangement joined.
+//! # Which ring a thing goes on is a choice
+//!
+//! An angle is the same all the way across the plot but an arc is not, so the
+//! outer rings have pixels to spare and the inner ones do not.
+//! [`Polar::bp_per_px`] is how a ring finds out where it stands, and
+//! [`Rings::push`] puts each new ring inside the last, so the first thing
+//! pushed gets the most room to say something in. Push the ring with detail in
+//! it first.
 //!
 //! # Where zero is
 //!
 //! At twelve o'clock, running clockwise, which is the convention every circular
-//! genome viewer uses.
+//! genome viewer uses. [`Rings::origin_gap`] opens a few degrees there by
+//! default, so the plot shows the join rather than hiding it. Because the
+//! sequence closes, a span may arrive with its end below its start: 900 to 100
+//! on a thousand-base circle is the two hundred bases across the origin, not
+//! the eight hundred the other way round.
 
 use std::f64::consts::PI;
 use std::fs;

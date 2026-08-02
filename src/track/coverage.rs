@@ -1,4 +1,34 @@
 //! Per-base quantitative signal: read depth, GC content, mappability.
+//!
+//! Dense values from a start position are what [`CoverageTrack::new`] takes;
+//! scattered points come in through [`CoverageTrack::from_pairs`]. The profile
+//! is drawn upwards from the floor of the band, so the quantity has to be one
+//! whose zero is the bottom in fact and not by convention: a signed or centred
+//! statistic belongs in [`WindowTrack`](crate::WindowTrack).
+//!
+//! # What a pixel column throws away
+//!
+//! A region wider than the figure has more bases than columns, so each column
+//! is a summary of the bases beneath it. Which summary is [`Aggregate`], and
+//! the default is [`Aggregate::Max`], so a single base spike survives being
+//! drawn at a megabase.
+//!
+//! The cost is the mirror image, and it is quiet: a maximum cannot show a hole.
+//! Across a 5 Mb view one pixel spans thousands of bases, and a 300 bp deletion
+//! inside an otherwise well covered gene contributes nothing to the maximum of
+//! its column, so the profile is drawn flat over it. [`Aggregate::Min`] takes
+//! the floor of each column instead, and the dropout appears. A column with
+//! nothing under it at all is skipped rather than drawn at zero, so a gap in
+//! the input stays a gap in the profile.
+//!
+//! # The ceiling moves unless it is pinned
+//!
+//! Left alone, the top of the band is the largest value on screen, so the
+//! profile fills the band whatever the depth is. [`CoverageTrack::max`] fixes
+//! the top and is taken literally; an automatic ceiling is lifted by six per
+//! cent instead, so the tallest point reads as a peak rather than as something
+//! that ran out of room. [`CoverageTrack::log_scale`] is the other way to make
+//! a wide range fit into one band.
 
 use crate::region::Region;
 use crate::scale::Scale;
@@ -66,7 +96,7 @@ pub struct CoverageTrack {
 impl CoverageTrack {
     /// A track whose `values[i]` describes base `start + i`, 0-based.
     ///
-    /// Values need not cover the whole region: anything outside is simply not
+    /// Values need not cover the whole region: anything outside is not
     /// drawn, and non-finite values are treated as missing.
     pub fn new(start: u64, values: impl Into<Vec<f64>>) -> Self {
         CoverageTrack {

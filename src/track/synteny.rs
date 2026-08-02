@@ -1,13 +1,32 @@
 //! Two sequences compared: as a dotplot, or as ribbons between two bars.
 //!
-//! Both tracks draw the same thing, a set of alignment blocks, and differ only
-//! in where they put the second sequence. A dotplot gives it the vertical axis,
-//! which shows the shape of a rearrangement at a glance and costs a tall panel.
-//! Ribbons give it a second bar under the first, which is compact and follows
-//! one block at a time. Neither is a summary of the other, so both are here.
+//! One list of [`AlignmentBlock`]s feeds both tracks, so a comparison drawn one
+//! way becomes the other by swapping the track and changing nothing else. What
+//! the two forms disagree about is where the second sequence goes, and that is
+//! the whole difference between them.
 //!
-//! The figure's region is always the query. The target is whatever the blocks
-//! say it is, on its own scale.
+//! # Neither form is a summary of the other
+//!
+//! A dotplot gives the target the vertical axis, so a rearrangement has a shape:
+//! a colinear stretch is a diagonal, an inversion is the anti-diagonal crossing
+//! it, a translocation is a diagonal that has slid sideways. That shape is the
+//! comparison seen all at once, and reading it costs a tall panel.
+//!
+//! Ribbons give the target a second bar under the first and cost one short
+//! band, which is what lets the comparison stack under coverage and annotation
+//! and stay in register with them. They follow one block at a time: this piece
+//! of the query went there, that one went somewhere else. Ribbons cannot show
+//! the shape and a dotplot cannot sit in a stack, so both are here.
+//!
+//! # The target is not on the figure's axis
+//!
+//! The region measures the query, as it does for every other track. The target
+//! is measured against the height of the dotplot or the width of the lower bar,
+//! and unpinned it spans exactly what the blocks reach: two lists differing by
+//! one block are then two different vertical axes, and neither says so.
+//! [`DotplotTrack::target_length`] and [`SyntenyTrack::target_length`] fix it to
+//! the whole sequence, `target_range` to one window of it. Fix it whenever two
+//! figures are meant to be read against each other.
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};

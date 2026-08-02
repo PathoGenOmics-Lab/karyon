@@ -1,5 +1,27 @@
-//! Annotated intervals: genes, exons, repeats, primers, anything from a BED or
-//! GFF file.
+//! Annotated intervals from a BED or GFF file.
+//!
+//! A [`Feature`] is a span with an optional name, strand and colour: a gene, an
+//! exon, a repeat, a primer. Coordinates are BED's, 0-based and half-open, so a
+//! BED record goes in as it stands while a GFF or GenBank one has to be
+//! converted first. The track's work is then to get a lot of them onto a few
+//! rows without any two of them touching.
+//!
+//! # Rows follow the zoom, not the data
+//!
+//! Packing is first fit, leftmost first, and it is done in pixels rather than
+//! in bases, so the same features take one row in a wide view and four in a
+//! narrow one. A name too long to sit inside its feature is drawn to the right
+//! of it on the same row, which is why the room a name needs is reserved during
+//! the packing and not after it.
+//!
+//! # Three places a colour can come from
+//!
+//! In order: the feature's own colour if it has one, then the track colour set
+//! with [`FeatureTrack::color`], then [`strand_color`]. Falling through to the
+//! last of those rather than to a track accent is what makes the default
+//! useful, since five other tracks and the circular plots import that same
+//! function from this module: a reverse feature drawn in the accent would wear
+//! the colour that means forward in the pileup two bands down.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

@@ -1,10 +1,37 @@
 //! Phylogenies: reading them, and working out where their branches go.
 //!
-//! A tree on its own is a tree, and there are viewers for those. What this one
-//! is for is ordering: its leaf order is the row order of a
-//! [`SnpTrack`](crate::SnpTrack), so the panel of variable sites beside it is
-//! sorted by descent rather than by sample name, and a clade's shared
-//! substitutions line up into a block you can see.
+//! Nothing here draws. The module turns a Newick string into a [`Tree`] and
+//! places every node at a depth and a row; five tracks read that placement, and
+//! two of them, [`SnpTrack`](crate::SnpTrack) and
+//! [`MatrixTrack`](crate::MatrixTrack), want something from a tree that has
+//! nothing to do with drawing one.
+//!
+//! # The leaf order is half of what a tree is for
+//!
+//! [`Tree::leaves`] walks the clades depth first with the children in the order
+//! the file listed them, which is the order the tips come out in when the tree
+//! is drawn. Sort the rows of a panel beside it by that rather than by sample
+//! name, which is what [`leaf_order`](crate::track::tree::leaf_order) does, and
+//! a pattern carried by a clade stops being a speckle spread down the panel and
+//! becomes a rectangle.
+//!
+//! # A Newick label does not say what it is
+//!
+//! The format writes support values and internal names in the same place, so
+//! the parser decides: a label that reads as a number becomes
+//! [`Clade::support`], anything else becomes [`Clade::name`], and there is no
+//! switch to ask for the other reading. Everything in square brackets is
+//! dropped, and that is not tidiness: a `[&R]` rootedness marker read as a name
+//! is a second root, and one of those fails the whole file.
+//!
+//! # One layout, two ways of measuring depth
+//!
+//! [`Tree::layout`] takes a single flag, and it changes one of the two numbers
+//! it produces. Depth is either the branch lengths added up or the branches
+//! counted, so the same tree comes out as a phylogram or as a cladogram without
+//! anything downstream knowing which it is looking at. Rows do not change
+//! between them, and a parent always sits between its children, so a panel
+//! sorted by [`Tree::leaves`] lines up either way.
 
 use crate::error::Error;
 

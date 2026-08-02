@@ -4,6 +4,25 @@
 //! one column per site, and a cell saying what that sample had there. A
 //! genotype matrix out of a VCF is exactly this shape, and so is a pangenome
 //! presence and absence matrix once its genes have coordinates.
+//!
+//! # What a cell says, and what it does not
+//!
+//! A cell says where and what. It does not say how wide: every cell is drawn at
+//! one floor width, so its edges stand for no particular amount of sequence.
+//!
+//! What the colours do have to keep apart is three states: a sample that does
+//! not carry the allele, a sample that was never typed there, and stretches of
+//! the region with no site in them at all. Those are three different statements,
+//! and if any two of them look alike the figure is read wrong. It is why the
+//! bottom of a sequential ramp is a step off the page colour and not the page
+//! colour itself.
+//!
+//! # The row order is a claim
+//!
+//! Nothing about a matrix orders its rows, so whatever order they arrive in is
+//! doing work in the figure whether or not anyone chose it. [`MatrixTrack::tree`]
+//! is how that order gets chosen on purpose: it sorts the rows by descent and
+//! draws the tree that justifies the sorting in the same strip as the row names.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
@@ -112,8 +131,8 @@ impl MatrixTrack {
     /// A matrix over `sites`, one row per sample.
     ///
     /// `sites[j]` is the 0-based position of column `j`, and `rows[i].values[j]`
-    /// is what sample `i` had there. Rows shorter than the site list simply
-    /// stop; nothing is invented to fill them.
+    /// is what sample `i` had there. Rows shorter than the site list stop
+    /// where they stop; nothing is invented to fill them.
     pub fn new(sites: impl Into<Vec<u64>>, rows: impl Into<Vec<MatrixRow>>) -> Self {
         MatrixTrack {
             sites: sites.into(),

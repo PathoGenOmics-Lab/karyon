@@ -38,12 +38,12 @@ command, which takes the line based text a genomics shell already writes.
 
 <div class="grid cards" markdown>
 
--   :material-download: **[Install](getting-started/installation.md)**
+-   :material-download: **[Installation](getting-started/installation.md)**
 
     Point Cargo at the repository for the library, `cargo install` for the
     command. Nothing else to install alongside it.
 
--   :material-rocket-launch: **[Quick start](getting-started/quickstart.md)**
+-   :material-rocket-launch: **[Quickstart](getting-started/quickstart.md)**
 
     A first figure in a dozen lines, and the same figure without writing any
     Rust.
@@ -53,7 +53,7 @@ command, which takes the line based text a genomics shell already writes.
     All twenty-nine of them: what each one draws, what it takes, and the ones
     that carry a caveat worth reading.
 
--   :material-code-braces: **[The plot API](guide/plot.md)**
+-   :material-code-braces: **[Plot API](guide/plot.md)**
 
     One call per track, in the order they stack. What the plot remembers
     between calls, what it fills in, and where the short form stops.
@@ -63,7 +63,7 @@ command, which takes the line based text a genomics shell already writes.
     The same grammar with spaces instead of dots. Flag order is stack order,
     and any track file may be `-`, so the pipeline is the parser.
 
--   :material-file-document-outline: **[Input formats](guide/formats.md)**
+-   :material-file-document-outline: **[File formats](guide/formats.md)**
 
     bedGraph, BED, GFF3, VCF, FASTA, Newick, cytoBand and SAM text, each read
     with the coordinate convention its own specification defines.

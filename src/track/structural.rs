@@ -1,5 +1,10 @@
 //! Structural variants as arcs between their two breakpoints.
 //!
+//! A [`StructuralVariant`] is two 0-based positions and a [`SvKind`] saying what
+//! happened between them. Everything the band draws follows from that pair:
+//! where the arc springs from, how far it reaches, and whether there is any
+//! reference sequence underneath it to mark at all.
+//!
 //! # Why an arc
 //!
 //! A structural variant is not a mark at a position, it is a statement that two
@@ -13,6 +18,15 @@
 //! from the axis at both ends. How high it arches follows how far apart the two
 //! ends are, so a local event sits low and a rearrangement across a chromosome
 //! reaches over everything between, which is what it actually did.
+//!
+//! # What the height of an arc means
+//!
+//! Where the call sits among the calls it was given, and nothing more. The
+//! tallest arc is always the widest event in the track, on screen or not, and
+//! every other height is a fraction of that, so two panels drawn from two sets
+//! of calls do not share a scale. Height is not proportional to the span even
+//! within one track, so read it as an ordering and never as a length. Weight is
+//! a separate reading: an arc is drawn heavier the more reads support the call.
 //!
 //! # What to put under it
 //!

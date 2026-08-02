@@ -1,11 +1,38 @@
 //! Aligned reads, stacked the way a genome browser stacks them.
 //!
-//! This is the track you open when a variant call looks wrong. It draws the
-//! reads themselves: where they start, which strand they came off, where they
-//! disagree with the reference, and where the aligner had to open a gap. Most
-//! of the work is in the CIGAR, because a read is not an interval. It is a
-//! sequence of operations against the reference, and only some of them advance
-//! along it.
+//! This is the track you open when a variant call looks wrong: the reads
+//! themselves, where they start, which strand they came off, and where the
+//! aligner had to open a gap.
+//!
+//! # A read is not an interval
+//!
+//! It is a sequence of operations against the reference and only some of them
+//! advance along it, so a start and a length misplace it the moment there is an
+//! indel. [`Read::segments`] walks the CIGAR once and hands back geometry:
+//! aligned blocks carrying the read offset they begin at, deletions and skips
+//! as gaps to span, an insertion as a point between two reference bases. That
+//! offset is carried rather than counted from the first aligned base, because a
+//! soft clip advances the read and places nothing.
+//!
+//! # The rows are packing, not meaning
+//!
+//! Reads are sorted by where they start and dropped into the first row with
+//! pixel room left in it, so a row says only that the reads on it do not
+//! overlap. Only the ones on screen are packed, which is also what sets the
+//! height: a window holding two reads gets a band two reads tall, not one sized
+//! for the deepest pile in the file. [`PileupTrack::max_rows`] caps how far
+//! that can go, and what the cap held back is written on the figure.
+//!
+//! # Where the colour goes
+//!
+//! Onto the bases that disagree, over quiet read bodies, since a mismatch is
+//! what the track is opened for. They are found by comparing each read against
+//! the reference handed to [`PileupTrack::reference`] rather than by trusting
+//! the CIGAR, because `M` covers a match and a mismatch alike. The comparison
+//! is not cheap, and [`PileupTrack::mismatch_threshold`] is where it stops
+//! being worth making. [`ReadColoring::Strand`] spends the read bodies on
+//! strand instead, and [`PileupTrack::fade_by_quality`] their opacity on
+//! mapping quality.
 
 use crate::region::Region;
 use crate::scale::Scale;

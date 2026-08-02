@@ -5,16 +5,29 @@
 //! in through a pipe, as `samtools depth`, `samtools view` or `bcftools view`
 //! already write exactly what these readers take.
 //!
-//! # Coordinates
+//! # The one place the convention is not uniform
 //!
-//! This is the one place in the project where the convention is not uniform,
-//! and getting it wrong is silent, so every reader states which it is reading
-//! and every one has a test that pins a known position.
+//! Everywhere else in the project a position is 0-based and half-open. Here it
+//! is whatever the specification of the file says, and a reader that takes it
+//! for the other one is out by a base and quiet about it, so every reader
+//! states which convention it is reading and every one has a test in `audit`
+//! that pins a known position.
+//!
+//! # Which formats count from one
 //!
 //! Half-open and 0-based, passed straight through: BED, bedGraph, cytoBand.
 //!
 //! Inclusive and 1-based, so one is taken off the start on the way in: GFF3,
 //! VCF, SAM and the output of `samtools depth`.
+//!
+//! # Silence is for rows that were never ours
+//!
+//! A whole file is handed over and one locus is asked for, so a row naming
+//! another sequence and a row outside the window are the ordinary case and go
+//! past without a word. A row that will not parse is the other kind. It says
+//! the file is not what the flag claimed it was, and reading on would hand
+//! someone a figure with data missing from it and nothing said, so the read
+//! stops there and the [`ReadError`] carries the line it stopped on.
 
 pub mod align;
 #[cfg(test)]

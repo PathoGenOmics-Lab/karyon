@@ -1,4 +1,31 @@
 //! Reads that align to more than one place, drawn as one molecule.
+//!
+//! A single molecule that landed in three coordinates is the observation most
+//! structural calls are made from, and it falls between the two tracks either
+//! side of it: [`PileupTrack`](crate::PileupTrack) cannot write the second
+//! place down, and [`StructuralTrack`](crate::StructuralTrack) starts after the
+//! molecules have been summarised into a call. What goes in this band is the
+//! raw observation, which is a thing a reader can argue with.
+//!
+//! # The order is the read's, not the reference's
+//!
+//! [`SplitRead::new`] takes segments in the order the molecule runs through
+//! them, and that order is most of what the picture says: connectors join
+//! consecutive segments, [`SplitRead::goes_backwards`] asks whether any of
+//! those steps moves back down the reference, and the colour ramp says the same
+//! thing a second way. Sorting the segments by coordinate first is not the
+//! neutral choice it looks like: it describes a molecule that ran left to right
+//! through the reference, which is a claim nobody made.
+//! [`SplitSegment::read_span`] pins the order to measured positions instead,
+//! which a SAM `SA` tag gives as soft clipping.
+//!
+//! # Nothing is allowed to vanish quietly
+//!
+//! A wide enough view rounds a short segment away to nothing, so
+//! [`SplitReadTrack::min_segment`] floors how thin one may be drawn. A segment
+//! outside the view cannot be floored back into it, so those are counted in the
+//! corner of the band: otherwise a molecule that visited three places looks
+//! like one that visited two.
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};

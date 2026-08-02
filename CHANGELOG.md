@@ -107,6 +107,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Every module doc is at one level. The crate had been written by many hands
+  and read like two crates: eighteen modules carried a single line of `//!`,
+  among them `figure.rs` at 462 lines of code, `theme.rs`, `codon.rs` and all
+  four command line readers, while `bisulfite.rs` carried three named sections
+  and the crate root carried eight. A module doc now opens with one summary
+  line and an orienting paragraph, and takes named sections in twos or more,
+  since exactly one heading is worse than none. Headings state a claim or ask a
+  question, the way "The frames are not the strands" does, rather than saying
+  Overview or Usage. The spread went from 1 to 106 lines to 17 to 105, with the
+  middle half of the crate between 28 and 35.
+- A module doc states the decision and the item doc keeps the reasoning, which
+  is a rule the levelling pass broke before it held it: seven modules ended up
+  restating their own `///` docs, and in two of them the same sentence stood in
+  three places counting the documentation site. Those are back to one place
+  each.
+- The documentation site is one shape too. Every page title is a noun phrase,
+  which matters because the title is the navigation label, and thirteen of the
+  fifteen pages now close with the `## Next` block the other tools in the lab
+  use. The two that do not are the home page, which has the card grid, and the
+  changelog, which is an include.
 - The examples are no longer all one organism, and three of them were showing
   an assay the organism does not have. The bisulfite panel drew a CpG island on
   a genome whose methylome is 6mA and which has no 5mC at all; it is now the

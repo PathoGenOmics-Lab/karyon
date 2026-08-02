@@ -1,11 +1,20 @@
 //! Coordinate audit: one known base per format, start and end checked apart.
 //!
-//! Every fixture below covers exactly one base, or a span whose length is known
-//! from the specification, so that a shift of one shows up as a failed
-//! assertion rather than as a figure that looks fine.
+//! Every reader tests its own format next door. What that cannot catch is two
+//! readers disagreeing, which is what an off-by-one comes to once a figure
+//! stacks them, so every format is brought to the same base here and the
+//! readers are checked against each other rather than against themselves. Each
+//! fixture covers exactly one base, or a span whose length the specification
+//! fixes, so a shift of one shows up as a failed assertion rather than as a
+//! figure that looks fine.
 //!
-//! The base everything aims at is 1-based position 100 on `chr1`, which is
-//! 0-based 99.
+//! The base they all aim at is 1-based position 100 on `chr1`. The groups below
+//! work outwards from it: the end coordinate apart from the start, then the
+//! edges of the window, then the rows the readers already place correctly,
+//! pinned so that a later change cannot move them, and last the format
+//! identification, which is where these readers went wrong in practice rather
+//! than in the arithmetic. A reader added to this directory wants a fixture
+//! here on the same base.
 
 #![cfg(test)]
 

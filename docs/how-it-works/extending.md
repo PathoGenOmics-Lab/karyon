@@ -2,8 +2,10 @@
 
 The [twenty-nine track types](../tracks.md) the crate ships are implementations
 of one trait with no privileged access to the figure. `CoverageTrack` and
-`PileupTrack` see exactly what your track sees, which means a track type the
-crate does not have is not a fork, it is a file in your own project.
+`PileupTrack` see exactly what a track written outside the crate sees, so a
+track type the crate does not have is not a fork of it, it is one more file in
+the project that needs it. This page is that trait: what the figure hands a
+track, what it does on the track's behalf, and what it leaves to the track.
 
 ## The entry test
 
@@ -11,9 +13,9 @@ Before anything else, one question decides whether the thing belongs here at
 all.
 
 !!! warning "Does `draw` read `ctx.scale`?"
-    If it does not, the x axis is a sample list, a category or a count, and what
-    you have is a bar chart, a line chart or a heatmap that happened to be
-    handed genomic data. A general plotting library already draws those better.
+    If it does not, the x axis is a sample list, a category or a count, and the
+    plot is a bar chart, a line chart or a heatmap that happened to be handed
+    genomic data. A general plotting library already draws those better.
 
 That is the rule the crate holds itself to, and three tracks were removed under
 it rather than kept for the sake of a longer list.
@@ -46,8 +48,8 @@ there.
 
 ## A whole track
 
-Here is a complete one. It draws a tick per position, which is what you want for
-anything whose only quantity is "here": restriction sites, primer landing sites,
+Here is a complete one. It draws a tick per position, which is what anything
+whose only quantity is "here" needs: restriction sites, primer landing sites,
 integration sites, the positions a peak caller kept.
 
 ```rust
@@ -211,9 +213,9 @@ may draw its own ticks and numbers there. The figure reserves the **widest**
 request across every track and gives that width to all of them, so the plotting
 areas still start at the same x and the tracks still line up.
 
-Ask for exactly the width of the widest label you will print, measured with
-`text_width`, plus a little padding. Then check `ctx.axis.w > 0.0` before
-drawing into it, because a caller may have turned your axis off:
+Ask for exactly the width of the widest label the track will print, measured
+with `text_width`, plus a little padding. Then check `ctx.axis.w > 0.0` before
+drawing into it, because a caller may have turned the axis off:
 
 ```rust
 use karyon::svg::text_width;
@@ -254,7 +256,7 @@ impl Track for CountedRug {
 ```
 
 The default of zero is the right answer for most tracks. A pileup or a sequence
-has no value to put a number on, and asking for a strip you do not use narrows
+has no value to put a number on, and a strip asked for and left empty narrows
 every plotting area in the figure.
 
 ## `SvgWriter`
@@ -293,15 +295,15 @@ you pass is the left edge, the middle or the right edge of the text.
   not the size of the input. `region.contains`, `scale.bounds()` and
   `scale.pos_at_x` are the three tools for that, and
   [Scale](scale.md) is the longer version of the argument.
-- **Bin above one base per pixel.** If your data are denser than the output, say
-  what a pixel column means rather than overdrawing it. `Aggregate` is one
-  answer, an envelope of the extremes is another, and both are honest in a way
-  that "the last value drawn wins" is not.
+- **Bin above one base per pixel.** Data denser than the output has to say what
+  a pixel column means rather than overdrawing it. `Aggregate` is one answer, an
+  envelope of the extremes is another, and both are honest in a way that "the
+  last value drawn wins" is not.
 - **Be deterministic.** No hash iteration order, no clock, no unstable sort
   without a tie-break. The same input has to render byte-identical output, or
   the figure in the paper and the figure in the repository stop being the same
   figure.
-- **Coordinates in, pixels out.** Take 0-based half-open positions in your
+- **Coordinates in, pixels out.** Take 0-based half-open positions in the
   constructors, like the rest of the crate, and let the scale do the arithmetic.
   [Coordinates](coordinates.md) is the whole of that convention.
 
@@ -313,4 +315,11 @@ carries a `Polar` and two radii instead of a `Scale` and a `Rect`. A ring maps
 position to an angle, so it is not a `Track` and cannot be pushed onto a
 `Figure`. What the two have in common is `Panels`, the sheet that holds figures
 of either kind, and `Drawing` is exactly the small surface `Panels` needs from
-both: give me your dimensions, and render yourself with these ids.
+both: state your dimensions, and render yourself with these ids.
+
+## Next
+
+- [Tracks](../tracks.md), for the twenty-nine already written to this trait.
+- [Scale](scale.md), for the binning a new track has to do for itself.
+- [Contributing](../about/contributing.md), for what a track shipped by the
+  crate needs on top of the trait.

@@ -2,7 +2,10 @@
 
 The library reads no files. `karyon` the crate takes vectors of numbers and
 structs; `karyon` the command is where the reading lives, and every format below
-is line based text, which is what keeps the dependency count at zero.
+is line based text, which is what keeps the dependency count at zero. There is
+one section per format, each saying which columns are read, which coordinate
+convention the file counts in, and what stops the figure rather than being
+skipped.
 
 ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
 
@@ -25,7 +28,7 @@ it. Which flag takes which file, and everything else about the grammar, is in
     A row **on another sequence, or outside the region on display, is skipped
     without a word**. Handing over a whole genome file and drawing one window
     of it is the normal way to use this, so those rows are not an error and not
-    a warning: they are simply not in this figure.
+    a warning: they are not in this figure.
 
     A row that **does not parse is never skipped**. It stops the figure and
     names the line:
@@ -49,7 +52,7 @@ since that is what says whether the record was placed anywhere at all. For
 `--features` and `--ideogram` the sequence is compared first, so a broken row
 elsewhere in a genome-wide annotation goes past unread.
 
-### What every reader drops before it looks at anything
+Four things are dropped by every reader before it looks at anything else:
 
 - Blank lines.
 - Lines starting with `#`, which covers BED and GFF3 comments, GFF3 pragmas and
@@ -717,3 +720,11 @@ The first thing to check is the sequence name, which has to match the region's
 exactly: `chr1` and `1` and `NC_000001.11` are three different sequences as far
 as these readers are concerned, and rows on a sequence that is not the one being
 drawn are skipped by design.
+
+## Next
+
+- [Command line](cli.md), for which flag takes which file and the rest of the
+  grammar.
+- [Coordinates](../how-it-works/coordinates.md), for why the conversions above
+  are the conversions they are.
+- [Recipes](../recipes.md), for these readers at the end of a real pipeline.

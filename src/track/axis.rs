@@ -1,4 +1,33 @@
 //! The coordinate ruler.
+//!
+//! Every other track draws data. This one draws the coordinate that the data is
+//! read against, and takes no data of its own: everything it needs is the
+//! region already on display. What it has to get right is turning that region
+//! into a handful of numbers a reader can use without translating them first.
+//!
+//! # The labels are 1-based on purpose
+//!
+//! Positions are 0-based and half-open everywhere else in the crate, and the
+//! ruler is the one place where that choice would reach a reader. A tick
+//! reading `761,100` has to be the coordinate that goes into a browser search
+//! box or a samtools region string, so tick positions are chosen in 1-based
+//! space and converted back to `pos - 1` on the way to the [`Scale`].
+//!
+//! Whether a tick belongs on the boundary between two bases or in the middle of
+//! one is the caller's to settle, since only the caller knows how far the
+//! figure is zoomed in: [`AxisTrack::center_on_bases`] moves it.
+//!
+//! # One step and one unit for the whole ruler
+//!
+//! [`AxisTrack::tick_spacing`] asks for a density and not for a step, and the
+//! step it settles on is rounded until the labels come out round. The same
+//! rounding chooses which codon numbers [`CodonTrack`](crate::CodonTrack)
+//! prints, which is why it is defined in this module and not in that one.
+//!
+//! The unit is picked from the largest label and the step together, because
+//! either one alone gets it wrong. Whichever unit wins is then used for every
+//! label on that ruler, since an axis that changes unit half way across has to
+//! be decoded rather than read.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

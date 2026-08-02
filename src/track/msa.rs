@@ -1,6 +1,11 @@
 //! A multiple sequence alignment, row by row.
 //!
-//! # Coordinates
+//! An [`MsaSequence`] is a name and the residues under it, and [`MsaTrack`] is
+//! the stack of them. Two decisions about that stack are worth settling before
+//! any of the styling: what the figure's coordinate actually counts, and how
+//! much of the alignment is worth painting at all.
+//!
+//! # A column is not a position
 //!
 //! An alignment has its own coordinate system: column indices, gaps included.
 //! Those are not genomic positions, and the two must not be confused, so the
@@ -9,15 +14,27 @@
 //! Ungapping a row back to reference coordinates is a real operation with real
 //! decisions in it, and this crate does not do it silently.
 //!
-//! # Reading one
+//! # Most of an alignment is not worth ink
 //!
 //! A wall of coloured residues is pretty and says very little, because in a
 //! real alignment most cells agree and the agreement is the noise. The default
 //! is therefore [`MsaDisplay::Differences`]: rows are drawn as a quiet bar and
-//! only what disagrees with the comparison row is painted. Conservation itself
-//! belongs above the alignment rather than inside it, and
-//! [`LogoTrack::from_sequences`](crate::LogoTrack::from_sequences) takes the
-//! same sequences this track does.
+//! only what disagrees with the comparison row is painted. Which row that is
+//! matters as much as the display, and it is the consensus until
+//! [`MsaTrack::compare_to`] names one, since comparing against a sequence no
+//! more privileged than the rest turns the figure into a story about that
+//! sequence. Conservation itself belongs above the alignment rather than inside
+//! it, and [`LogoTrack::from_sequences`](crate::LogoTrack::from_sequences)
+//! takes the same sequences this track does.
+//!
+//! # A deep alignment is not shown whole
+//!
+//! Rows are capped, at forty by default, and what the cap hid is counted in the
+//! corner rather than left to be noticed, because a figure that quietly drops
+//! half its samples is worse than one that is visibly truncated.
+//! [`MsaTrack::max_rows`] moves the cap or lifts it. Within a row, runs of
+//! equally coloured cells are merged into one rectangle on the way out, which
+//! is what keeps a wide alignment from becoming a file no viewer will open.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

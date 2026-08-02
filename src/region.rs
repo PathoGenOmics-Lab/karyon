@@ -1,4 +1,31 @@
 //! Genomic intervals and the coordinate convention used throughout the crate.
+//!
+//! A [`Region`] is a sequence name and a span, and it is the first thing a
+//! figure is built from. Its one invariant is that the span is never empty:
+//! both constructors refuse `end <= start`, because the [`Scale`](crate::Scale)
+//! divides by the length and every track downstream is written as though there
+//! is at least one position on screen.
+//!
+//! # Where the 1-based dialect stops
+//!
+//! At the constructor, in both directions, and nowhere after it. Everything
+//! downstream is 0-based and half-open, the ruler included: the axis track does
+//! not do the arithmetic for its tick labels, it asks
+//! [`Region::display_start`] and [`Region::display_end`]. Keeping both halves
+//! of the conversion in one file is what makes the off-by-one answerable rather
+//! than a matter of opinion, and the test at the foot of it holds the two
+//! together: the locus a figure prints in its corner parses back to the region
+//! it came from.
+//!
+//! # The sequence name is never looked up
+//!
+//! Nothing resolves it and nothing compares it against a FASTA or a BAM. It is
+//! printed in the corner of the figure, and that is the whole of its job, which
+//! is what lets a region stand for any axis a track can be laid along:
+//! `alignment:1-320` counts columns of an alignment, a raw current trace is
+//! counted in samples, and [`Genome::region`](crate::Genome::region) hands back
+//! one region called `genome` covering an assembly laid end to end. A region is
+//! a coordinate system with a label on it, and the label is for the reader.
 
 use std::fmt;
 

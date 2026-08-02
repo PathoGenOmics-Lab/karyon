@@ -1,15 +1,23 @@
 //! Several loci from several genomes, with their homologies drawn between.
 //!
-//! # The idea
+//! A [`Locus`] is one row, a genome's name and its genes; the [`Homology`] list
+//! is what joins one row to the next. A single annotated stretch on its own is
+//! a [`FeatureTrack`](crate::FeatureTrack), and this track exists for the
+//! comparison instead, which is where every decision in it comes from.
+//!
+//! # The finding is what is missing
 //!
 //! A locus of a few dozen features, whether that is a gene cluster, an operon,
 //! a viral genome or a syntenic block, is rarely looked at on its own: the
 //! question asked of it is almost never "what is in it" but "what is in it that
-//! the other one has not". Answering
-//! that needs the loci one under another, the genes drawn as genes, and a line
-//! from each gene to whatever it matches in the row below. What the reader is
-//! then looking for is the gaps: the ribbon that goes nowhere, the arrow that
-//! points the other way, the block that arrived as a unit.
+//! the other one has not". Answering that needs the loci one under another, the
+//! genes drawn as genes, and a line from each gene to whatever it matches in
+//! the row below. What the reader is then looking for is the gaps: the ribbon
+//! that goes nowhere, the arrow that points the other way, the block that
+//! arrived as a unit.
+//!
+//! Which is why [`LocusTrack::mark_unmatched`] is on by default and outlines
+//! the genes no homology reaches.
 //!
 //! # What the x axis is
 //!

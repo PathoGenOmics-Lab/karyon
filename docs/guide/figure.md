@@ -1,11 +1,12 @@
-# The figure
+# Figure
 
 [`plot()`](plot.md) is the short way to write a figure down. `Figure` is what it
 builds, and it is the layer to reach for when a track comes from an alternative
 constructor, when a track has to be read back before it is drawn, or when the
-stack is assembled somewhere other than a single expression. Neither layer can
-draw anything the other cannot; the difference is only how much has to be
-written down.
+stack is assembled somewhere other than a single expression. This page is that
+layer, how it lays a stack out, and the three things around it: a `Panels`
+sheet, the circular `Rings`, and the `Genome` that puts several sequences on one
+axis.
 
 ```rust
 use karyon::{AxisTrack, CoverageTrack, Figure, Region};
@@ -398,3 +399,10 @@ fn sheet(a: &impl Drawing, b: &impl Drawing) -> Panels {
 
 Panel J of the gallery above is a `Rings` plot and every other panel is a
 `Figure`. The sheet does not know or care which is which.
+
+## Next
+
+- [Plot API](plot.md), for the short form that builds one of these.
+- [Theming](theming.md), for the colours and fonts a figure hands every track.
+- [Writing a track](../how-it-works/extending.md), for what a figure asks of a
+  track and what it does on the track's behalf.

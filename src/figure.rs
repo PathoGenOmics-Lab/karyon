@@ -1,4 +1,43 @@
 //! The figure: a stack of tracks over one shared coordinate axis.
+//!
+//! Layout is the whole of this module: one pass that turns a region, a width
+//! and a list of tracks into rectangles, and it is kept away from the tracks on
+//! purpose. A track is handed a band and the shared [`Scale`], and is never
+//! told which band it is, how many others there are, or what any of them asked
+//! for, so a track type has nothing to negotiate with and no way to disturb its
+//! neighbours.
+//!
+//! # Why one track's value axis moves every other track
+//!
+//! Two strips come out of the width before anything is drawn, and each is
+//! settled by asking every track and taking one answer for all of them. The
+//! label gutter is there when any track has a [`label`](Track::label) to put in
+//! it. The value axis is the widest [`y_axis_width`](Track::y_axis_width) any
+//! one track asks for, and that width is then taken from all of them: a depth
+//! profile with room for tick labels would otherwise begin a tick label's width
+//! to the right of the ruler beneath it, and two tracks whose x axes disagree
+//! are worse than either alone, because nothing in the picture says they do.
+//!
+//! # Heights are computed, and computed last
+//!
+//! The horizontal decisions come first because the heights depend on them. The
+//! two strips are reserved, what is left of the width becomes the [`Scale`],
+//! and only then is each track asked how tall it wants to be, since some answer
+//! with the scale in hand: a pileup packs the reads that are in view, so it is
+//! a different height at a different zoom. Nothing after that may change the
+//! width, which is why the width is a setting on the figure that no track can
+//! influence, while the height is not a setting at all: it is whatever the
+//! tracks came to.
+//!
+//! # Nothing a track draws can leave its band
+//!
+//! [`Scale`] does not clamp, so a feature beginning before the window has a
+//! negative x and a read running past the end has one off the right edge. Each
+//! track is drawn inside a clip over its band and its axis strip, which is what
+//! makes that overhang free: a track draws the whole of a partly visible thing
+//! and the clip decides how much shows. The label is the exception, drawn by
+//! the figure outside the clip and to the left of the axis strip, so names line
+//! up whether or not a track drew an axis.
 
 use std::fs;
 use std::io;

@@ -1,4 +1,39 @@
 //! Intervals: BED, GFF3 and cytoBand.
+//!
+//! Gene models, the other annotated spans that go in a feature track, and the
+//! cytogenetic bands an ideogram is made of. BED and cytoBand are 0-based and
+//! half-open, the convention the rest of the crate counts in, so their
+//! coordinates pass straight through. GFF3 is 1-based and inclusive, so its
+//! start comes back one and its end stays where it is, having already been one
+//! past the last base once the count began at zero. A GFF3 span is one base
+//! longer than the BED span written with the same two numbers, and that is the
+//! whole of the conversion.
+//!
+//! # Telling the two apart without being told
+//!
+//! A `##gff-version` pragma settles it, and most GFF3 files have one. Failing
+//! that the answer is in column seven, which GFF3 spends on the strand and a
+//! BED of nine or more columns spends on `thickStart`, a number; a row with
+//! fewer than seven columns is BED, since a GFF3 row always has nine. The guess
+//! is worth making because reading one format as the other moves every feature
+//! by a base without failing, and `--format` is there because a guess that can
+//! be wrong needs a way to be overruled.
+//!
+//! # What refuses, and what passes by
+//!
+//! The sequence name is checked before the rest of a row is understood, so a
+//! whole genome annotation costs one comparison per row it does not need, and
+//! the FASTA section some GFF3 files carry at the end goes past rather than
+//! failing as a run of broken features. A feature that touches no base of the
+//! window is dropped here too: it would not be drawn, and it would still take a
+//! row in the track's layout, which is what decides how tall the track is.
+//!
+//! A row that cannot be read stops the file on its line. So does a span whose
+//! end is before its start, which is not malformed anywhere else but is here:
+//! [`Feature::new`] widens an inverted span into one base at the start and
+//! [`Band::new`] clamps it to nothing, so a gene would be drawn a whole
+//! interval from where either coordinate put it, or a band would vanish while
+//! its end still set the length of the chromosome.
 
 use karyon::{Band, Feature, Region, Stain, Strand};
 

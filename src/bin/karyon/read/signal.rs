@@ -1,4 +1,41 @@
 //! Per-base signal: bedGraph, `samtools depth`, and a bare column of values.
+//!
+//! Three formats that give a value to every base, read as `(position, value)`
+//! pairs for a coverage track and as spans for a window track, which takes
+//! bedGraph alone. bedGraph is 0-based and half-open and passes straight
+//! through, every base of an interval taking the interval's value. `samtools
+//! depth` is 1-based, one position to a line, so one comes off on the way in.
+//! A bare column names no coordinate at all and starts at the left edge of the
+//! region, so the same file over a different window is a different figure.
+//!
+//! # Which of the three a file is, and where the guess breaks
+//!
+//! Nothing in these files says which format they are, so the column count is
+//! the evidence: four is bedGraph, three is depth, one is a bare value. It is
+//! read off the first line carrying data and the rest of the file has to keep
+//! to it, since a file that changes width halfway is one whose positions
+//! cannot be trusted.
+//!
+//! `samtools depth` over several files writes a depth column per file, so two
+//! of them come to four columns and read as a bedGraph, each record becoming a
+//! run of bases at the height of the second sample: a figure that is wrong and
+//! does not look wrong. Overlap tells them apart, since a bedGraph never puts
+//! two intervals over the same base and depth records read as intervals cover
+//! each other nearly everywhere. An overlap is therefore refused, with a
+//! message naming `--format depth` for the file it really was and
+//! `--format bedgraph` for a bedGraph that was merely out of order. Three
+//! columns has no such tell: a BED3 carries no value column whose absence
+//! could be noticed, so `chr1 100 200` reads as depth and becomes one position
+//! at 0-based 99 carrying a depth of 200.
+//!
+//! # What stops the read, and what goes past without a word
+//!
+//! A row on another sequence, or one lying entirely outside the window, is
+//! skipped: handing over a whole genome file to draw one locus is the ordinary
+//! way to use this. A row that does not parse is the other case. The file is
+//! then not what it was taken for, and a reader that stepped over the row would
+//! draw a figure with data missing from it and say nothing, so it stops on the
+//! line and names the field that would not read.
 
 use karyon::{Region, Window};
 

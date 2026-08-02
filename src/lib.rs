@@ -7,7 +7,7 @@
 //! `save_svg`, and emits plain SVG 1.1 that opens unchanged in a browser, in
 //! Inkscape and in Illustrator.
 //!
-//! # Coordinates
+//! # 0-based inside, 1-based where a reader looks
 //!
 //! Positions are **0-based and half-open** everywhere, the BED convention. The
 //! two exceptions are the ones a reader sees: [`Region::parse`] accepts the
@@ -15,7 +15,7 @@
 //! are printed in that same 1-based form. A VCF `POS` or a GFF `start` is
 //! therefore `pos - 1` on the way in.
 //!
-//! # Example
+//! # Four tracks, one region, one call each
 //!
 //! ```
 //! use karyon::{plot, Feature, Strand, Variant};
@@ -43,51 +43,50 @@
 //! assert!(svg.starts_with("<svg"));
 //! ```
 //!
-//! # Two layers
+//! # Neither layer draws what the other cannot
 //!
 //! [`plot()`] is the short way to write a figure down: one call per track, in
 //! the order they stack, with the region held once and the coordinate ruler
 //! filled in. [`Figure`] is what it builds, and the layer to reach for when a
 //! track is built by an alternative constructor, read back before it is drawn,
-//! or passed around. Neither can draw anything the other cannot. See the
-//! [`plot`](mod@crate::plot) module for where the short form stops.
+//! or passed around. See the [`plot`](mod@crate::plot) module for where the
+//! short form stops.
 //!
-//! # Circular sequences
+//! # Drawing a circle as a line invents an edge
 //!
-//! A plasmid, an organelle genome and most bacterial chromosomes have no ends,
-//! and drawing one as a line puts an edge where the biology has none. [`Rings`] maps position to an angle instead, so
-//! it is a container of its own rather than a track: annotation, composition
-//! and variants go on concentric rings, and chords across the middle join the
-//! two ends of a rearrangement. A [`Rings`] plot and a [`Figure`] can share one
-//! [`Panels`] sheet, which is all the [`Drawing`] trait is for.
+//! A plasmid, an organelle genome and most bacterial chromosomes have no ends.
+//! [`Rings`] maps position to an angle instead, so it is a container of its own
+//! rather than a track: annotation, composition and variants go on concentric
+//! rings, and chords across the middle join the two ends of a rearrangement. A
+//! [`Rings`] plot and a [`Figure`] can share one [`Panels`] sheet, which is all
+//! the [`Drawing`] trait is for.
 //!
-//! # Whole genomes
+//! # Right for a locus, wrong for an assembly
 //!
-//! A figure is one region on one sequence, which is right for a locus and
-//! wrong for an assembly. [`Genome`] lays several sequences end to end and
-//! hands back the one region that covers them, so every track here works
-//! across all of them at once: the genome-wide association figure is a
-//! [`ManhattanTrack`] over a `Genome` with its
+//! A figure is one region on one sequence. [`Genome`] lays several sequences
+//! end to end and hands back the one region that covers them, so every track
+//! here works across all of them at once: the genome-wide association figure
+//! is a [`ManhattanTrack`] over a `Genome` with its
 //! [`boundaries`](Genome::boundaries) handed to
 //! [`bands`](ManhattanTrack::bands), and [`GenomeTrack`] draws the sequences
 //! underneath so a reader can see where one ends and the next begins.
 //!
-//! # Protein coordinates
+//! # A residue is a coordinate too
 //!
 //! A variant in a coding sequence is named by residue rather than by base:
-//! BRAF V600E, TP53 R175H, rpoB S450L. [`CodonTrack`] is the
-//! [`AxisTrack`] that can be pointed at with those names. It partitions a coding
-//! sequence into codons, numbers them, translates them where there is room for a
-//! letter, and counts from the far end on the reverse strand, which is where the
-//! arithmetic usually goes wrong.
+//! BRAF V600E, TP53 R175H, rpoB S450L. [`CodonTrack`] is the [`AxisTrack`] that
+//! can be pointed at with those names. It partitions a coding sequence into
+//! codons, numbers them, translates them where there is room for a letter, and
+//! counts from the far end on the reverse strand, which is where the arithmetic
+//! usually goes wrong.
 //!
-//! # Extending
+//! # A track type the crate lacks is thirty lines
 //!
-//! The twenty-nine track types shipped here are implementations of one small trait,
-//! [`Track`], with no privileged access to the figure. A track type the crate
-//! does not have is around thirty lines: see the example on [`Track`].
+//! The twenty-nine track types shipped here are implementations of one small
+//! trait, [`Track`], with no privileged access to the figure. See the example
+//! on [`Track`] for the whole of what a new one has to do.
 //!
-//! # Sequence logos
+//! # Information content is not the only score
 //!
 //! [`LogoTrack`] draws the classic information content logo and six other
 //! [`LogoScore`]s, five of which measure a symbol against a background and can

@@ -1,4 +1,28 @@
 //! A ruler in codons, so a coding sequence can be read in protein coordinates.
+//!
+//! Every other ruler in the crate counts bases. This one counts residues,
+//! because that is the unit a coding change is named and argued about in.
+//! [`CodonTrack`] is given the span of a coding sequence and the strand it is
+//! read off, and everything here, the numbering and the translation, follows
+//! from that pair.
+//!
+//! # The numbering is a partition, not a division by three
+//!
+//! A codon number belongs to the coding sequence and not to the base underneath
+//! it. [`CodonTrack::codon_of`] takes a base to the codon holding it and
+//! [`CodonTrack::span_of`] takes a codon back to the three bases it owns, and
+//! both of them count from the far end of the span when the strand is reverse.
+//! A length that is not a multiple of three keeps its whole codons and drops
+//! the remainder, at the low end on the reverse strand and the high end on the
+//! forward one.
+//!
+//! # Translating is a table, and the table is a choice
+//!
+//! Bases are optional. Hand them to [`CodonTrack::sequence`] and every codon
+//! with room for a letter carries one; leave them out and the ruler is numbers
+//! alone. Which letter a codon gets is [`CodonTrack::genetic_code`]'s to
+//! decide, and it is asked for rather than assumed, because nothing about a
+//! figure translated with the wrong table looks wrong.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

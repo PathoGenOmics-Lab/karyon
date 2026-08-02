@@ -176,17 +176,11 @@ diff appears only when the rendering actually changed. Your data will differ.
 The layout will not: the code on this page renders at the same 900 by 284 and
 900 by 203 as the two figures above.
 
-## Where to go next
+## Next
 
-- [Tracks](../tracks.md), the twenty-nine track types and what each one draws.
-- [The plot facade](../guide/plot.md), for what `label`, `adjust` and `done` do
-  and where the short form stops.
-- [Figures](../guide/figure.md), the layer underneath, which is what a track
-  built by an alternative constructor or read back before drawing needs.
-- [The command line](../guide/cli.md), for the rest of the grammar.
-- [Input formats](../guide/formats.md), for what each reader takes.
-- [Coordinates](../how-it-works/coordinates.md), which is the one thing here
-  that fails silently when it is wrong.
-- [Theming](../guide/theming.md), for colour, including the palettes that were
-  checked against colour vision deficiency rather than chosen by eye.
-- [Recipes](../recipes.md), for worked figures to start from.
+- [Tracks](../tracks.md), for the twenty-nine track types and what each one
+  draws.
+- [Plot API](../guide/plot.md), for what `label`, `adjust` and `done` do and
+  where the short form stops.
+- [Command line](../guide/cli.md), for the rest of the grammar the shell half
+  of this page used.

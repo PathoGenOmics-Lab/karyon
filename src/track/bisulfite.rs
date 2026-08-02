@@ -1,5 +1,9 @@
 //! Methylation one molecule at a time: filled and open circles.
 //!
+//! A [`Molecule`] is one read and what it said at each of the track's sites,
+//! and the track is the grid of them. Everything here follows from keeping the
+//! reads apart rather than pooling them into a number per site.
+//!
 //! # What this says that a fraction cannot
 //!
 //! [`MethylationTrack`](crate::MethylationTrack) gives a fraction per site: of
@@ -14,18 +18,19 @@
 //! One row per molecule and one column per site tells them apart at a glance:
 //! the first is confetti, the second is stripes.
 //!
-//! # The shape
+//! # Filled, open, and nothing
 //!
 //! Filled for modified, open for not, nothing at all where the molecule did not
 //! cover the site. Open and absent must not look the same, which is why an
 //! unmethylated call gets a ring and a missing one gets no mark: "measured and
 //! not methylated" and "not measured" are different statements.
 //!
-//! # What the x axis is
+//! # The columns sit at real distances
 //!
-//! The figure's own, so the columns sit at the real distances between the
-//! cytosines. Two sites four bases apart look four bases apart, which matters
-//! when the question is whether a CpG island is uniformly modified.
+//! The x axis is the figure's own, so the columns fall at the real distances
+//! between the cytosines. Two sites four bases apart look four bases apart,
+//! which matters when the question is whether a CpG island is uniformly
+//! modified.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

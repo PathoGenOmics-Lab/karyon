@@ -2,7 +2,9 @@
 
 `karyon` is a second front end onto the same library. The library itself reads
 no files, which is what keeps its dependency count at zero, so all the reading
-lives in the binary and every format it reads is line based text.
+lives in the binary and every format it reads is line based text. This page is
+the grammar: which flags start a track, which describe the one before them, and
+what the command says when one of them is wrong.
 
 ## The grammar is the stack
 
@@ -15,7 +17,7 @@ what `Plot` is, so the grammar is the obvious one:
 - **the order of the flags is the order of the stack**.
 
 Figure flags such as `--title` are attached to nothing and may sit anywhere.
-The correspondence with the Rust facade is one to one, spaces instead of dots:
+The correspondence with the Rust API is one to one, spaces instead of dots:
 
 ```text
 --coverage depth.bg --label depth --aggregate min
@@ -312,3 +314,10 @@ karyon: --features genes.gff3: no features in the region
 Rows on another sequence and rows outside the window are not errors on their
 own. They are skipped, which is what lets a whole genome annotation be handed to
 a two kilobase figure.
+
+## Next
+
+- [File formats](formats.md), for what each reader accepts, column by column.
+- [Recipes](../recipes.md), for whole pipelines that end in one of these
+  commands.
+- [Plot API](plot.md), for the same figure written in Rust.

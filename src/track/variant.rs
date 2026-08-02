@@ -1,4 +1,36 @@
 //! Point events along the sequence: SNPs, indels, insertion sites, peaks.
+//!
+//! A [`Variant`] is a position, an optional value and an optional category,
+//! which is the least a mark needs in order to be placed, sized and coloured.
+//! Nothing about the track is particular to sequence variation: any event that
+//! happens at one base and may carry a magnitude plots the same way.
+//!
+//! # Lollipops until they smear, then ticks
+//!
+//! A lollipop is a stem with a ringed head, and the height of the stem is the
+//! value against the top of the track. Density is what decides between the two
+//! styles, so [`VariantStyle`] is worth choosing again whenever the number of
+//! marks changes by an order of magnitude. The ring is what keeps two marks a
+//! base apart reading as two: it is drawn in the background colour, so a head
+//! in front of another head still has an edge.
+//!
+//! # The axis appears only when the stems are measuring something
+//!
+//! Ticks ignore their values by design, and a variant with no value gets a full
+//! height stem, so in either case a number at the top of the band would be one
+//! invented for the picture. The axis is therefore drawn only when several
+//! conditions hold at once, and the caller asking for it is only one of them.
+//! Pin the ceiling with [`VariantTrack::max`] whenever two panels are meant to
+//! carry the same quantity.
+//!
+//! # A category's colour is its place in the queue
+//!
+//! Categories take palette slots in order of first appearance, so the colouring
+//! is a property of the order the list arrives in rather than of the names in
+//! it. Appending leaves the marks already drawn alone; sorting the same
+//! variants by position or by frequency hands out different colours. Two
+//! figures that have to agree on what red means must be given their variants in
+//! one order.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

@@ -6,6 +6,23 @@
 //! of a locus string is byte `p - 1`. The cut down to the region on display is
 //! done later, in `stack`, by indexing what these functions return, so an
 //! off-by-one introduced here would move every base of the figure.
+//!
+//! # Layout is thrown away and nothing else is
+//!
+//! What comes back is the bytes of the record in the order the file wrote them.
+//! The line breaks go, and so does whatever padded a line at either end, a
+//! blank line in the middle of a record being layout too. Nothing else is
+//! touched: no byte is folded, rewritten or measured against an alphabet, so
+//! what the file says about the sequence is what the track draws.
+//!
+//! # What a truncated record would become
+//!
+//! What stops the read is a file that has lost something: bases before any `>`,
+//! a header with no name, a header with nothing after it, and, for an
+//! alignment, a record that is not the length of the first one. None of those
+//! can be read past honestly. A truncated record would become a lane that draws
+//! nothing, and rows of unequal length would become an alignment whose columns
+//! are not the same site.
 
 use super::ReadError;
 

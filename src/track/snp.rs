@@ -1,6 +1,11 @@
 //! Variable sites only, evenly spaced.
 //!
-//! # The idea
+//! This is the panel a phylogeny is usually read beside: samples down the side,
+//! the sites that tell them apart across the top, and nothing in between. What
+//! it buys is legibility and what it costs is the x axis, and both halves of
+//! that trade need to be understood before the panel goes into a figure.
+//!
+//! # Throwing away the columns that agree
 //!
 //! An alignment of closely related genomes is almost entirely agreement. Thirty
 //! kilobases of it might carry twenty differences, and a plot that draws all
@@ -9,17 +14,24 @@
 //! columns away and spaces what is left evenly, which turns a smear into
 //! twenty legible columns.
 //!
-//! # What that costs
+//! # The axis is an index, not a coordinate
 //!
-//! The x axis stops being linear in the genome. Two adjacent columns here may
-//! be nine bases apart or nine kilobases apart, and nothing about the spacing
-//! says which. That is the trade, and it is why every column carries its own
+//! Spacing stops being linear in the genome. Two adjacent columns here may be
+//! nine bases apart or nine kilobases apart, and nothing about the spacing says
+//! which. That is the trade, and it is why every column carries its own
 //! position underneath rather than relying on a ruler: a ruler under this
 //! panel would be a lie. Put an [`AxisTrack`](crate::AxisTrack) under something
 //! else.
 //!
 //! The figure's region is therefore the site index space: a panel of twenty
 //! sites is `Region::new("sites", 0, 20)`.
+//!
+//! It follows that the panel places its own columns rather than asking the
+//! figure's scale where they go, as most tracks here do. Two things make that
+//! necessary. An index axis means nothing to the track above or below, so there
+//! is no alignment with a neighbour left to preserve, and the per-sample
+//! difference counts need a strip of the band held back on the right, which is
+//! width the shared scale knows nothing about and would give to the cells.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

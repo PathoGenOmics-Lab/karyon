@@ -3,6 +3,34 @@
 //! Output is plain SVG 1.1 with no scripts, no external references and no
 //! embedded fonts, so it opens unchanged in a browser, in Inkscape and in
 //! Illustrator, and it survives being pasted into a manuscript figure.
+//!
+//! Writing it by hand is what keeps the dependency list empty. A general SVG
+//! library brings a document model, a namespace machinery and a release
+//! schedule of its own, in exchange for elements no track here draws. What a
+//! plotting backend is asked for is narrower than that and sharper in two
+//! places: it has to measure its own text, and it has to be frugal with the
+//! coordinates it writes, which are the bulk of a large figure.
+//!
+//! # A layout has to know how wide its text is
+//!
+//! Where a track label sits, whether a feature name fits inside its box and how
+//! much gutter to reserve are all settled before a single element is written,
+//! and there is no font engine here to ask. [`text_width`] answers from
+//! Helvetica's own advance widths, Helvetica being the first font in
+//! [`Theme::font_family`](crate::Theme::font_family) and metrically the same as
+//! Arial, so under the default theme the answer is exact rather than a guess.
+//! Nearly every track calls it, because a label that overruns the room reserved
+//! for it is a label that gets clipped.
+//!
+//! # Nothing malformed leaves here
+//!
+//! Names come out of user files, so every string is written through [`escape`]
+//! and every number through [`num`]: an `&` in a sequence name cannot break the
+//! document, and a coordinate that came out `NaN` cannot reach the output as
+//! one. A shape with a non-finite corner or a width of zero is dropped rather
+//! than written, and [`SvgWriter::finish`] closes whatever groups a track left
+//! open. None of that is a judgement call at the call site, which is the point:
+//! there is one way out of the crate and it is this one.
 
 use std::fmt::Write as _;
 

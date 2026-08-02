@@ -1,11 +1,32 @@
 //! A value per sample per site, as a table.
 //!
-//! The header is the one place in this file where the coordinate convention
-//! matters: the positions it names are 1-based, the way a VCF writes them and
-//! the way every tool that makes such a table prints them, so a site comes out
-//! at `position - 1`. Columns outside the region are dropped here rather than
-//! carried to the track, since a genome-wide genotype table is mostly not the
-//! window on display.
+//! One row per sample and one column per site: an allele fraction, a genotype
+//! written as a number, a per-sample depth. The coordinate convention is the
+//! header's, and it counts from one, the way a VCF writes positions and the way
+//! every tool that makes such a table prints them, so a site comes out at
+//! `position - 1`. Columns outside the region are dropped here rather than
+//! carried to the track, since a genome-wide table is mostly not the window on
+//! display.
+//!
+//! # The header is the whole coordinate system
+//!
+//! No data row says where its values sit. A value's position is the column it
+//! is in and nothing else, so the header has to be read before a row means
+//! anything, and a row that does not line up with it column for column holds
+//! values that belong to no site in particular. That stops the read, naming the
+//! sample and both counts.
+//!
+//! The first field of the header is the corner of the table, and it counts as
+//! one exactly when it does not read as a position. Nothing has to be said on
+//! the command line about which of the two kinds of table this is.
+//!
+//! # A blank cell is a statement, not a zero
+//!
+//! Tables of this shape come with holes in them, a sample that was never typed
+//! at a site being ordinary rather than an accident, so empty, `.` and `NA` are
+//! all read as no value at all. Filling a hole with a zero would invent a
+//! measurement, and the figure would then carry a claim nobody made. Anything
+//! else that is not a number stops the read on its line and names the column.
 
 use karyon::{MatrixRow, Region};
 

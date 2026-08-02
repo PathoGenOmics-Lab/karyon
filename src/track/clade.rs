@@ -1,4 +1,31 @@
 //! Stretches of DNA that belong to a clade rather than to a sample.
+//!
+//! A [`CladeBlock`] is a coordinate span plus the taxa that carry it, and
+//! [`CladeTrack`] paints those spans onto a phylogeny. One rectangle covering a
+//! whole clade is a claim about one event on one branch, which is a great deal
+//! more than the same taxa drawn as one row each, so most of this file is about
+//! not letting that claim be made when it is not true. [`CladeTrack::is_clade`]
+//! and [`CladeTrack::cut_rows`] are the same refusal in numbers, for a caller
+//! who wants to say it in the caption too.
+//!
+//! # The two axes come from different places
+//!
+//! Horizontally a block is on the figure's shared scale at true coordinates,
+//! which is what lets it be read against the gene models and the depth stacked
+//! above it. Vertically it is wherever the tree put its carriers: a block names
+//! taxa and never a row, so the phylogeny fixes the row order and with it the
+//! height of every rectangle. Setting [`CladeTrack::tree_width`] to zero drops
+//! the drawing of the tree and not its authority over the rows. Every leaf gets
+//! a hairline across the band, so a taxon carrying nothing is still a row
+//! rather than a gap.
+//!
+//! # Names are the join, so an unmatched name is counted
+//!
+//! Taxa are matched to leaves by exact name, and both ways that can fail are
+//! counted: [`CladeTrack::unmatched`] for a taxon the tree does not have,
+//! [`CladeTrack::unplaced`] for a block none of whose taxa it has. The counts
+//! are printed in the corner of the band rather than left to be asked for,
+//! since nothing else on the figure would look any different.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

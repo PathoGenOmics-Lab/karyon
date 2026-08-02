@@ -1,4 +1,33 @@
 //! Error type returned by fallible constructors.
+//!
+//! One enum, four variants, no dependency and no source chain. Four things in
+//! the crate can fail, and each of them is a value being built out of text or
+//! out of names the caller chose: a region with nothing in it
+//! ([`Region::new`](crate::Region::new)), a locus string that is not
+//! `seq:start-end` ([`Region::parse`](crate::Region::parse)), a Newick string
+//! that is not a tree ([`Tree::parse_newick`](crate::Tree::parse_newick)), and
+//! a genome that names one sequence twice
+//! ([`Genome::checked`](crate::Genome::checked)). Everything else that returns
+//! a `Result` either forwards one of those, the way [`plot`](fn@crate::plot)
+//! forwards the locus parse, or is writing a file.
+//!
+//! # No `?` in the middle of a figure
+//!
+//! Failure sits at the two ends of a program that draws: reading a locus or a
+//! tree at the start, writing the SVG at the end. Nothing between them is
+//! fallible, which is what lets a figure be one chain of builder calls and
+//! [`Figure::to_svg`](crate::Figure::to_svg) hand back a `String`. The
+//! conversion into [`std::io::Error`] below is what joins the two ends up.
+//!
+//! # What is not an error
+//!
+//! Data that cannot be drawn as asked is drawn as well as it can be. A coverage
+//! array that runs out before the region does stops where it stops, a feature
+//! that begins before the window keeps its real start and is clipped, and a
+//! width too small to leave a plotting area, or not a number at all, is raised
+//! to the smallest width that renders. Each of those could be a variant here,
+//! and each would trade a figure with one clipped rectangle in it for no figure
+//! at all.
 
 use std::fmt;
 

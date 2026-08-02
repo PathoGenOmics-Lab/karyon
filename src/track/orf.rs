@@ -1,6 +1,12 @@
 //! The six reading frames, with their stops and their open stretches.
 //!
-//! # The shape
+//! [`OrfTrack`] is handed a stretch of sequence and the coordinate its first
+//! base sits at, and works out everything it draws from those two: no
+//! annotation goes in and none is needed. [`OrfTrack::stops`] and
+//! [`OrfTrack::orfs`] hand back the same findings as numbers, for a caller who
+//! wants to act on them rather than look at them.
+//!
+//! # Six lanes around a line
 //!
 //! Six lanes: three above a line for the frames read left to right, three below
 //! for the frames read right to left off the other strand. A stop codon is a
@@ -12,11 +18,10 @@
 //! # What counts as open
 //!
 //! A run of codons with no stop in it, at least [`OrfTrack::min_codons`] long.
-//! Whether it starts at a methionine is a separate question and a separate
-//! switch: [`OrfTrack::require_start`] asks for one. `ATG`, `GTG` and `TTG` all
-//! count, since alternative starts are ordinary in bacteria, archaea and
-//! organelle genomes, and the default is off because the first thing you want
-//! from a six frame map is where the stops are not.
+//! Nothing about a start codon enters that definition, and whether one is
+//! required is a separate question with a separate switch,
+//! [`OrfTrack::require_start`], which is off unless you ask for it. So by
+//! default the six lanes are a map of stop codons and the gaps between them.
 //!
 //! # The frames are not the strands
 //!

@@ -5,14 +5,28 @@
 //! figure is usually several of those with letters on them, and so is an
 //! overview of everything a library can draw. Panels stack finished drawings
 //! into a single SVG without any of them having to know about the others, and
-//! it takes anything that implements [`Drawing`], so a linear
-//! stack and a circle go on the same sheet.
+//! it takes anything that implements [`Drawing`], so a linear stack and a
+//! circle go on the same sheet.
 //!
-//! Each figure is embedded as a nested `<svg>` inside a translated group, so
-//! nothing is reparsed and nothing is moved around afterwards. The one thing a
-//! panel does not keep to itself is its ids: an id in SVG belongs to the whole
-//! document, so every figure is rendered with a prefix of its own and its clips
-//! go on meaning what they meant.
+//! # A panel is nested, not redrawn
+//!
+//! Each figure is rendered on its way in and embedded as a nested `<svg>`
+//! inside a translated group, so a panel on a sheet is the picture it is on its
+//! own, moved. The one thing it does not keep to itself is its ids, since an id
+//! in SVG belongs to the whole document and `url(#id)` resolves to the first
+//! match anywhere in it. Every figure is therefore rendered with a prefix of
+//! its own and its clips go on meaning what they meant. Letters and captions
+//! are written over the top afterwards, because a figure paints its own page
+//! colour and anything put down before it is a mark nobody sees.
+//!
+//! # The order is the reader's, not the packer's
+//!
+//! [`Panels::columns`] spreads a tall gallery sideways. Nothing reorders the
+//! panels to make them pack better: their sequence is what the letters mean,
+//! and a sheet that packs well by rearranging them has broken the one thing a
+//! reader navigates it by. Where a column ends is the only decision left, and
+//! it is settled by comparing whole arrangements rather than by filling columns
+//! as the panels arrive.
 
 use std::fs;
 use std::io;

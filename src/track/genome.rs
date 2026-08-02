@@ -1,10 +1,27 @@
 //! The sequences of a [`Genome`], drawn as the axis they are.
 //!
-//! A ruler of global coordinates under a concatenated genome would be a ruler
-//! of a coordinate system nothing else uses: nobody has ever quoted a position
-//! as "1,437,902 bases into the assembly". So this track labels the sequences
-//! instead, and marks where each one ends, which is the thing a reader of a
-//! genome-wide figure actually needs to know.
+//! A ruler of global coordinates under a concatenated genome would number a
+//! coordinate system nothing else uses: nobody has ever quoted a position as
+//! "1,437,902 bases into the assembly". This track is what goes there instead,
+//! and it answers the two questions that ruler could not, which sequence a mark
+//! is on and where that sequence ends.
+//!
+//! # Two shades rather than a colour each
+//!
+//! The blocks alternate between a darker and a paler mix of one hue. An
+//! assembly has more sequences than any palette has colours, and what a reader
+//! needs from the bar is the joins, which two shades mark exactly as well as
+//! two hundred colours would. It also leaves the hues in the figure to the
+//! tracks carrying data, where they mean something.
+//!
+//! # A name that does not fit is counted, not dropped
+//!
+//! A name is written only where its block is wide enough to hold it, and how
+//! many went unwritten is printed inside the bar. A row of unlabelled blocks
+//! otherwise looks like a row of labelled ones with the labels forgotten, and
+//! a reader has no way to tell which of the two they are looking at.
+//! [`GenomeTrack::named`] is that count before anything is drawn, for deciding
+//! whether the figure is wide enough to be worth drawing.
 
 use crate::genome::Genome;
 use crate::scale::Scale;

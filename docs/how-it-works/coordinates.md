@@ -148,7 +148,7 @@ is the one place in the project where the convention is not uniform, because
 each format defines its own. Every reader states which it is reading, and every
 one has a test that pins a known base through the conversion. What each format
 is otherwise expected to look like is on the
-[input formats](../guide/formats.md) page.
+[file formats](../guide/formats.md) page.
 
 | Flag | Format | The file's convention | On the way in |
 |:-----|:-------|:----------------------|:--------------|
@@ -330,5 +330,10 @@ than guessed at.
 - Codons are 1-based, and on the reverse strand codon 1 is at the highest
   coordinate.
 
-The other half of what the scale does with those numbers, once a pixel covers
-more than one of them, is on [Scale](scale.md).
+## Next
+
+- [Scale](scale.md), for what happens to these numbers once one pixel covers
+  more than one of them.
+- [File formats](../guide/formats.md), for the conversion each reader performs
+  on the way in.
+- [Tracks](../tracks.md), for the tracks whose axis is not in bases at all.

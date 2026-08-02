@@ -1,14 +1,16 @@
-# The `plot` facade
+# Plot API
+
+`plot()` is the short way to write a figure down: one call per track, in the
+order they stack, and the figure comes out the other end. What it remembers
+between calls, what it fills in without being asked, and where the short form
+stops are what this page covers.
 
 A figure is a stack of tracks over one shared coordinate axis. Built with
 [`Figure`](figure.md) directly, a good deal of what gets typed is plumbing: a
 `Region` to unwrap, a `use` line naming every track type, a `push` around each
 track, and the window start repeated on every track that takes one even though
-the figure already holds it.
-
-`plot()` holds the region and names the track types, so none of that is written
-twice. One call per track, in the order they stack, and the figure comes out the
-other end.
+the figure already holds it. `plot()` holds the region and names the track
+types, so none of that is written twice.
 
 ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
 
@@ -483,3 +485,10 @@ document, byte for byte, and a test in `src/plot.rs` asserts it.
     ```
 
 The difference is only how much has to be written down.
+
+## Next
+
+- [Figure](figure.md), for the layer underneath and the containers a finished
+  figure goes into.
+- [Tracks](../tracks.md), for what each `add_` builds and what it refuses to do.
+- [Command line](cli.md), for the same grammar with spaces instead of dots.

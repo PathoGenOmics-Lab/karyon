@@ -868,3 +868,9 @@ grammar, is in [the command line guide](guide/cli.md).
     composition and variants on concentric rings, and uses the middle for chords
     joining the two ends of a rearrangement. A `Rings` plot and a `Figure` can
     share one `Panels` sheet. See [figure](guide/figure.md).
+
+## Next
+
+- [Plot API](guide/plot.md), for the `add_` method that builds each of these.
+- [Writing a track](how-it-works/extending.md), for adding a thirtieth.
+- [Recipes](recipes.md), for worked figures that stack several of them.

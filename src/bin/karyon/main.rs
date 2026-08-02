@@ -7,6 +7,16 @@
 //!
 //! The grammar is in [`args`], the readers in [`read`], and the walk from one
 //! to a figure in [`stack`].
+//!
+//! Errors stay values until `main`, which is the only place that prints one and
+//! the only place that picks an exit code. Everything under it returns a
+//! `Result`, so a test can drive a whole command line without spawning a
+//! process, and a command line that makes no sense is an error message rather
+//! than a panic in front of the person who wrote it.
+//!
+//! The figure goes to standard output unless `-o` names a file, since a track
+//! plot is usually one step of a pipeline rather than the end of one, and the
+//! same is true on the way in: any track may read `-`, and one of them may.
 
 mod args;
 mod read;

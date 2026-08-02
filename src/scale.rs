@@ -1,4 +1,31 @@
 //! Mapping between genomic coordinates and horizontal pixels.
+//!
+//! A figure builds one [`Scale`] and hands the same one to every track. It is
+//! four numbers: where the region starts, how far it runs, where the plotting
+//! area begins, how wide it is. What it has no opinion about is what a unit is.
+//! Bases, columns of an alignment and samples of a raw signal are all
+//! "position n" to it, which is why a track written against the scale rather
+//! than against the idea of a chromosome works on all three.
+//!
+//! # It does not clamp
+//!
+//! A position outside the region maps outside the plotting area, and an x to
+//! the left of it is a normal answer rather than a mistake. That is the useful
+//! behaviour: a gene that begins before the window is drawn as the whole
+//! rectangle it is, with its left edge off the page, and the
+//! [`Figure`](crate::Figure) clip decides how much of it shows. Clamping would
+//! stop the rectangle neatly at the border and say the gene ends there.
+//!
+//! # What a track asks before it draws
+//!
+//! [`Scale::px_per_bp`] and its inverse are how a track finds out how much room
+//! it has, and every decision that changes with zoom is written as a comparison
+//! against them: whether a base is wide enough for a letter, whether to draw a
+//! mark per datum or reduce whatever falls under one pixel to a single value
+//! with [`Scale::pos_at_x`], whether there is any point drawing at all. Those
+//! thresholds are in pixels per base rather than in bases, so they mean the
+//! same thing at any image width, and a track finds out that it now has room
+//! for letters by asking rather than by being told the figure got wider.
 
 use crate::region::Region;
 

@@ -35,7 +35,7 @@
 //! assert!(svg.starts_with("<svg"));
 //! ```
 //!
-//! # What the plot remembers
+//! # One track is pending at a time
 //!
 //! A plot holds the track the last `add_` built, so the call after it still
 //! talks about that track. [`Plot::label`] names it, and [`Plot::adjust`] hands
@@ -61,17 +61,15 @@
 //!
 //! Adding the next track puts the previous one away, and so does anything that
 //! renders. [`Plot::save`] hands back a plot with nothing pending, and so does
-//! [`Plot::add_track`], which takes a track already built and pushes it
-//! straight through.
+//! [`Plot::add_track`].
 //!
-//! # What it fills in
+//! # Two things happen without being asked
 //!
-//! Two things happen without being asked, both of which can be undone.
+//! Both can be undone.
 //!
 //! An [`AxisTrack`] goes on the bottom, since a figure without coordinates
 //! along it is rarely what anyone meant. [`Plot::add_axis`] puts it somewhere
-//! else instead, and [`Plot::remove_axis`] leaves it out, which is what a
-//! tanglegram or a bare tree wants.
+//! else instead, and [`Plot::remove_axis`] leaves it out.
 //!
 //! Tracks that lay an array along the axis start at the left edge of the
 //! region. [`Plot::add_coverage`] is the depth of the region on display, so
@@ -83,7 +81,7 @@
 //! that unit, as in `plot("alignment:1-320")`. The region is a coordinate
 //! system, not a claim about a genome.
 //!
-//! # Where it stops
+//! # Where a plot stops and what takes over
 //!
 //! A plot is a stack of tracks over one axis and nothing more. [`Panels`] for a
 //! sheet of figures and [`Rings`] for a circular sequence are still there, and

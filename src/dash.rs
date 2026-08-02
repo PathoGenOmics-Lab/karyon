@@ -11,11 +11,9 @@
 //! drawn. Each column of counts is modelled as multinomial with a prior that is
 //! a mixture of Dirichlet distributions, all centred on the background and
 //! differing only in how tightly: a very concentrated component says the column
-//! is background noise, a diffuse one says it is whatever the data says. The
-//! mixture weights are fitted across every column at once, which is what makes
-//! this empirical Bayes rather than a guess. A column with thousands of
-//! observations overrules the prior and barely moves; a column with five gets
-//! pulled most of the way home.
+//! is background noise, a diffuse one says it is whatever the data says. A
+//! column with thousands of observations overrules the prior and barely moves;
+//! a column with five gets pulled most of the way home.
 //!
 //! The method is the one `Logolas` calls dash, from Dey, Xie and Stephens,
 //! *A new sequence logo plot to highlight enrichment and depletion*,
@@ -34,16 +32,28 @@
 //! ];
 //! let fit = Dash::new().fit(&counts, &[0.25; 4]);
 //!
-//! // Every posterior is a composition: positive and summing to one.
-//! for posterior in &fit.posterior {
-//!     assert!(posterior.iter().all(|p| *p > 0.0));
-//!     assert!((posterior.iter().sum::<f64>() - 1.0).abs() < 1e-9);
-//! }
-//!
 //! // The thin column is pulled towards the background harder than the thick
 //! // one, even though they have the same shape.
 //! assert!(fit.shrinkage(1) > fit.shrinkage(0));
 //! ```
+//!
+//! # Counts, not proportions
+//!
+//! [`Dash::fit`] takes counts and it means it, and nothing in the signature
+//! catches a caller who normalised first. What comes back is not an error and
+//! does not look like one: a figure with a faint pattern in it, drawn from data
+//! that had a strong one. That is the first thing to check when a logo comes
+//! out flatter than the alignment behind it.
+//!
+//! # A column is judged next to its neighbours
+//!
+//! The mixture weights are fitted across every column at once, which is what
+//! makes this empirical Bayes rather than a guess, and it means a column
+//! borrows credibility from the others. The same thin column shrinks less among
+//! forty that say the same kind of thing than it does on its own, and the flat
+//! third column above is part of what the other two are judged against. The
+//! price is a fit that a small enough set of columns could sway, and
+//! [`Dash::null_weight`] is the ballast against it.
 
 /// The fitted shrinkage and everything needed to report it.
 ///

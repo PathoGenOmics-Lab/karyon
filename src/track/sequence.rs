@@ -1,4 +1,31 @@
 //! The reference bases themselves.
+//!
+//! What a base can look like depends entirely on how much room it has, so this
+//! track has three regimes rather than one. Wider than
+//! [`SequenceTrack::letter_threshold`] pixels per base there is space for a
+//! letter and the letter is drawn. Narrower than that each base is a coloured
+//! block, which still carries the composition of the stretch even though no
+//! individual base is legible. Narrower than
+//! [`SequenceTrack::block_threshold`] the track draws nothing at all and prints
+//! a line of text asking for more zoom.
+//!
+//! # The floor is not politeness
+//!
+//! A megabase of blocks is a million rectangles in the file and tens of
+//! megabytes of SVG, spent on marks thinner than the pixels they are drawn on.
+//! Above the floor the cost follows the width of the figure rather than the
+//! length of the sequence handed in, since only the bases inside the region are
+//! visited: a whole chromosome can be given to a track showing two hundred
+//! bases of it.
+//!
+//! # Nothing is left uncoloured, and case is lost
+//!
+//! Colour comes from the theme's [`BaseColors`](crate::BaseColors), where `U`
+//! is the colour of `T` and everything the palette does not name, an `N` or a
+//! gap, takes one neutral colour rather than being dropped. Lower case is drawn
+//! as upper case, so soft masking survives as sequence but not as a mark: a
+//! repeat-masked region has to be a [`FeatureTrack`](crate::FeatureTrack) over
+//! the top if it is to be visible.
 
 use crate::scale::Scale;
 use crate::svg::Anchor;

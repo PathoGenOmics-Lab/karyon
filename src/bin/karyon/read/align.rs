@@ -1,4 +1,37 @@
 //! SAM text, as `samtools view` writes it.
+//!
+//! Column four is `POS`, 1-based, so a read starts at `POS - 1`, and a `POS` of
+//! zero is a record that was never placed rather than a coordinate to subtract
+//! from. Column five is MAPQ, where 255 means the aligner had no mapping
+//! quality to give: it comes through as no quality rather than as the number
+//! 255, which would sit at the top of a scale aligners rarely take past 60.
+//! Column ten is the read's own bases, kept unless it is `*`, since the track
+//! paints mismatches by comparing them against the reference itself.
+//!
+//! # Why the CIGAR is turned into operations here
+//!
+//! A record does not say where it ends. That comes out of column six one
+//! operation at a time, only some of which advance along the reference, and it
+//! is needed before the record can be filtered at all, since whether a read
+//! touches the window is a question about its span. So the CIGAR is read on the
+//! way in, and a letter that is not an operation stops the file here rather
+//! than reaching a track that would have to draw around it. `M`, `=` and `X`
+//! all arrive as matches, the track comparing the sequences itself rather than
+//! trusting the letter, and `P` is dropped, padding advancing along neither.
+//!
+//! # Skipped, and refused
+//!
+//! Four kinds of record go past without a word, none of them a sign of a broken
+//! file: unmapped records, which is bit 4 of the flag; records with `*` for a
+//! CIGAR, which have no shape to draw; records on another sequence; and records
+//! whose span misses the window. An aligner writes all four in an ordinary run,
+//! and a whole file piped in to draw one locus is how this reader is reached.
+//!
+//! Everything else stops the read on its line: a record short of the eleven
+//! mandatory columns, a flag or a `POS` that is not a number, a MAPQ outside 0
+//! to 255. Each of those means the text is not SAM, or is SAM cut in half, and
+//! the alternative to stopping is a pileup quietly missing the reads that would
+//! have answered the question.
 
 use karyon::{CigarOp, Read, Region, Strand};
 
@@ -92,7 +125,7 @@ pub fn sam(text: &str, region: &Region) -> Result<Vec<Read>, ReadError> {
             read = read.sequence(sequence.as_bytes().to_vec());
         }
 
-        // A read outside the window is not an error, it is simply not in this
+        // A read outside the window is not an error, it is not in this
         // figure, the same as a read on another sequence.
         if read.overlaps(region) {
             reads.push(read);

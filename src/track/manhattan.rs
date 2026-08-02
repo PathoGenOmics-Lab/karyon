@@ -2,7 +2,25 @@
 //!
 //! One point per test, height by significance, and a line where significance
 //! starts. The plot is named for the skyline that appears when a real signal
-//! stacks a run of neighbouring markers into a tower.
+//! stacks a run of neighbouring markers into a tower, and it is read as a
+//! texture rather than as a set of markers.
+//!
+//! # A tower is only a tower against a crowd
+//!
+//! Which settles the drawing. Points are small by default, and a point above
+//! the threshold is given a ring rather than a larger disc: the ring keeps it
+//! findable where the crowd is densest without swallowing the neighbours it has
+//! to be seen against.
+//!
+//! # Where significance starts is not decided here
+//!
+//! [`ManhattanTrack::threshold`] takes a number from the caller,
+//! [`ManhattanTrack::significant`] returns nothing at all until it has one, and
+//! no point is coloured as a hit without it. What is being plotted is the
+//! caller's too: [`Association::from_p_value`] converts a p-value into the
+//! conventional `-log10(p)`, but a test statistic or a Bayes factor plots the
+//! same way and only [`ManhattanTrack::unit`] tells the axis which of them it
+//! is showing.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};

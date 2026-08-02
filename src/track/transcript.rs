@@ -1,4 +1,31 @@
 //! Where transcription starts, how far the leader runs, and where it stops.
+//!
+//! Every other interval in the crate is a piece of the reference. A
+//! [`TranscriptionUnit`] is a molecule the reference does not contain, so its
+//! glyph carries three statements no arrangement of gene models can make: where
+//! the polymerase started, how much of the RNA runs before the first codon, and
+//! how it stopped. [`Terminator::Unknown`] is the default of the third, so a 3'
+//! end nobody has explained is a plain tick rather than a mechanism nobody
+//! claimed.
+//!
+//! # The start site is the anchor, not the lower coordinate
+//!
+//! Several of the types nearby sort a reversed pair of coordinates on the way
+//! in and carry on. This one cannot, because the two ends of a transcript are
+//! not interchangeable: swapping them turns the molecule around. Everything
+//! else is measured from the start site, which is why a coordinate on the wrong
+//! side of it reads as a contradiction and not as a negative distance.
+//!
+//! # Rows are packed in pixels, not in coordinates
+//!
+//! A unit takes up more of the figure than its span does: the bent arrow rises
+//! out of the transcript at the start site, the terminator stands over the 3'
+//! end, and both are a fixed size in pixels whatever the zoom. Packing on the
+//! coordinates alone would seat two transcripts a kilobase apart on one row at
+//! every scale, and across a view megabases wide their glyphs would be drawn
+//! through each other. The packer reserves a margin in pixels either side of
+//! each unit instead, so the number of rows, and with it the height of the
+//! track, changes with the width of the view.
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};

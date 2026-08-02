@@ -3,9 +3,8 @@
 A figure of four megabases is about 900 pixels wide, of which 788 are the
 plotting area once the left gutter is holding the track labels. One pixel column
 therefore covers around 5,000 bases, and a track that drew one mark per base
-would emit four million marks to fill 788 columns.
-The result would be a file no viewer opens and a picture no reader can tell apart
-from the correct one.
+would emit four million marks to fill 788 columns. The result would be a file no
+viewer opens and a picture no reader can tell apart from the correct one.
 
 Every track in the crate is written the other way round: it asks the shared
 `Scale` how much sequence a pixel covers and draws at the resolution of the
@@ -138,7 +137,7 @@ a seam at every join that reads as a bar chart of the wrong bars.
 
 **`SquiggleTrack`** draws each column as the range of the samples underneath it,
 which is the envelope an oscilloscope and an audio editor draw for the same
-problem. The extremes are honest and the shape between them is simply not there.
+problem. The extremes are honest and the shape between them is not there.
 Zoom in past the point threshold and the samples are drawn as themselves, with a
 ringed dot on each.
 
@@ -196,6 +195,13 @@ decimals and no trailing zeros, so the same geometry always produces the same
 digits, and non-finite numbers never reach the output at all. A shape with a
 `NaN` in it is skipped rather than written, which is also checked by a test.
 
-Both of those hold for a track you write yourself only if you make them hold.
-[Writing a track](extending.md) is the list of what the figure does for you and
-what it does not.
+Both of those hold for a track written outside the crate only if it makes them
+hold. Nothing in the figure enforces either one.
+
+## Next
+
+- [Writing a track](extending.md), for what the figure does on a track's behalf
+  and what it leaves to the track.
+- [Coordinates](coordinates.md), for the convention the positions arrive in.
+- [Tracks](../tracks.md), for which track bins, which merges and which draws a
+  hint instead.

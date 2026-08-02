@@ -3,7 +3,9 @@
 A `Theme` is the colours, fonts and spacing every track in a
 [figure](figure.md) shares. It is a plain struct with every field public, so
 there is no builder to learn and nothing hidden: start from `Theme::light` or
-`Theme::dark` and overwrite what you need.
+`Theme::dark` and overwrite what you need. This page is every field, why the two
+palettes hold the colours they hold, and the one method and three functions that
+blend a colour against the page.
 
 ```rust
 use karyon::{Figure, Region, Theme};
@@ -336,3 +338,10 @@ Four things to keep in mind when replacing a palette:
     `cap_height_ratio` among them. Code that builds one with
     `Theme { .. }` has to be updated each time; code that starts from
     `Theme::light()` never does.
+
+## Next
+
+- [Figure](figure.md), for where a theme is attached and what else the figure
+  decides.
+- [Writing a track](../how-it-works/extending.md), for how a track reads one.
+- [Recipes](../recipes.md), for the same stack rendered light and dark.

@@ -1,5 +1,10 @@
 //! A key to the colours, as a band of its own.
 //!
+//! A [`Legend`] is a list of keys and colour ramps, and [`LegendTrack`] draws it
+//! wherever in the stack the caller pushes it. Nothing in the crate builds one
+//! automatically: a track knows the colours it drew, but which of them a reader
+//! needs explained is a judgement about the figure rather than about the track.
+//!
 //! # Why this is a track
 //!
 //! A legend is a horizontal strip of the figure that carries no coordinates,
@@ -14,9 +19,24 @@
 //! # Entries wrap
 //!
 //! Keys are laid across the band and wrap onto another row when they run out
-//! of width, so [`Legend::height`] depends on how wide the figure is. Nothing
-//! is ever dropped for want of room: a key that is not drawn is worse than a
-//! legend that is two rows tall.
+//! of width, so [`Legend::height`] depends on how wide the figure is. That
+//! width is the only thing this track ever asks the shared [`Scale`] for;
+//! nothing in it is placed at a position. Nothing is ever dropped for want of
+//! room, however many rows that takes.
+//!
+//! # A key is a copy of the mark
+//!
+//! Which is what [`Marker`] is for. A colour alone does not identify a mark the
+//! figure drew as a wash inside an edge, or as an outline with nothing in it,
+//! and the reader has to make the connection by matching hues across half a
+//! page. [`Legend::area`] and [`Legend::outline`] draw the swatch the way the
+//! track drew the thing.
+//!
+//! A [`Legend::ramp`] has no fixed colours to copy, so take its two ends from
+//! the track that owns them rather than writing them down here. Written down,
+//! they stop being true the first time the ramp moves and nothing says so:
+//! [`LocusTrack::ramp_ends`](crate::LocusTrack::ramp_ends) is the other side of
+//! that.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor, SvgWriter};

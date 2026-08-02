@@ -1,5 +1,10 @@
 //! Two trees face to face, with the same tips joined.
 //!
+//! [`TanglegramTrack`] takes two trees over the same taxa, draws the first
+//! facing the second, and runs a tie from each tip to the tip of the same name
+//! opposite. The ties are the figure; the trees are there to put the tips in
+//! the order each of them argues for.
+//!
 //! # What it is for
 //!
 //! Two trees over the same taxa that disagree, and the question of where. A
@@ -12,15 +17,24 @@
 //! # What a crossing means
 //!
 //! That two taxa are in one order on the left and the other order on the right.
-//! [`TanglegramTrack::crossings`] counts them, which is a summary of how much
-//! the two trees disagree and is worth putting in the caption.
+//! [`TanglegramTrack::crossings`] counts them, which is worth putting in a
+//! caption and is not a statistic: the count belongs to this drawing rather
+//! than to the two trees, and the drawing is one of many. Untangling, which
+//! would go looking for the drawing that minimises it, is a separate problem
+//! this crate does not solve.
 //!
-//! It is not, however, a statistic. The count depends on how each tree happened
-//! to rotate its clades, and a clade can be rotated freely without changing
-//! what the tree says. Two trees that agree completely can be drawn with a
-//! great many crossings by an unlucky rotation. Untangling is a separate
-//! problem this does not solve; the count is what the drawing shows, and the
-//! drawing is one of many.
+//! # Neither axis is the figure's
+//!
+//! Like [`TreeTrack`](crate::TreeTrack), this track never reads the shared
+//! scale. Each tree draws its own axis of evolutionary distance into the share
+//! of the band [`TanglegramTrack::tree_width`] gives it, mirrored on the right.
+//! The [`Region`](crate::Region) a figure is built on is still required and
+//! still ignored: nothing here is measured in bases.
+//!
+//! The vertical axis is not shared either, and that is the subject rather than
+//! an oversight. Row three on the left and row three on the right are two
+//! different taxa wherever the trees disagree, so there is no one row order a
+//! neighbouring track could be sorted into. A tanglegram is read on its own.
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};

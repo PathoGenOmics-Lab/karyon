@@ -1,22 +1,29 @@
 //! Several sequences on one axis.
 //!
-//! # The gap this fills
-//!
 //! A [`Figure`](crate::Figure) is one [`Region`] on one sequence, which is
-//! right for a locus and wrong for a genome. An assembly is two hundred
+//! right for a locus and wrong for a genome: an assembly is two hundred
 //! contigs, a eukaryote is a couple of dozen chromosomes, and a bacterium with
-//! a plasmid is two replicons. None of those fit in one region, so none of them
-//! could be drawn.
+//! a plasmid is two replicons. A [`Genome`] lays the sequences end to end and
+//! hands back the single region that covers them all, so a genome-wide picture
+//! is an ordinary figure over an unusually long axis.
 //!
-//! A [`Genome`] lays the sequences end to end and hands back the single region
-//! that covers them all. Positions go through [`Genome::at`] on the way in, and
-//! from then on every track in the crate works unchanged: the coverage track,
-//! the feature track, the variant track and the association track are all
-//! drawing on one axis that happens to be several sequences long. The classic
-//! genome-wide association figure, chromosomes side by side with the colour
-//! alternating, is a [`ManhattanTrack`](crate::ManhattanTrack) over a `Genome`
-//! with [`Genome::boundaries`] handed to
+//! # Every track works unchanged
+//!
+//! Positions cross onto the shared axis through [`Genome::at`] on the way in,
+//! and nothing after that knows the difference: the coverage track, the feature
+//! track, the variant track and the association track are all drawing on one
+//! axis that happens to be several sequences long. The classic genome-wide
+//! association figure is a [`ManhattanTrack`](crate::ManhattanTrack) over a
+//! `Genome`, with [`Genome::boundaries`] handed to
 //! [`ManhattanTrack::bands`](crate::ManhattanTrack::bands).
+//!
+//! # The name is the join
+//!
+//! Everything crosses onto the shared axis through a sequence name, and nothing
+//! here normalises one, so a reference that calls it `chr1` and a variant file
+//! that calls it `1` never meet. Stripping a prefix would be right for one pair
+//! of files and wrong for the next, so [`Genome::at`] and [`Genome::map`] both
+//! refuse to guess, and both say so.
 //!
 //! # What it costs
 //!

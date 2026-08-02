@@ -91,3 +91,9 @@ bases surprises every reader.
 ## License
 
 [GPL-3.0-or-later](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+
+## Next
+
+- [Changelog](changelog.md), for what moved between the version cited and this
+  one.
+- [Contributing](contributing.md), for reporting a figure that came out wrong.

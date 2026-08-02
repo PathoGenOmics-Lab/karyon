@@ -5,10 +5,21 @@
 //! nothing to do with each other. Unlike the ideogram, its y axis means
 //! something to its neighbours, because a leaf is a row.
 //!
+//! # The rows are sorted to match the tree
+//!
 //! That is the whole point. [`SnpTrack::tree`](crate::SnpTrack::tree) puts one
 //! of these in the strip beside a panel of variable sites and sorts the rows to
 //! match, so a clade's shared substitutions line up into a block instead of
 //! being scattered down the panel in whatever order the samples were listed.
+//! [`leaf_order`] is that sort, and it never drops a row.
+//!
+//! # One function draws every tree in the crate
+//!
+//! [`draw_tree`] is a free function rather than a method on [`TreeTrack`]: the
+//! standalone track, the tracks that carry a tree in a strip of their own and
+//! both halves of a tanglegram all go through it. What it draws is rectangular
+//! rather than diagonal, because a diagonal would imply the tree says something
+//! about the space between two rows, and it says nothing about it.
 
 use crate::scale::Scale;
 use crate::svg::text_width;

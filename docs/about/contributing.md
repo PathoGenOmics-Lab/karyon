@@ -1,7 +1,11 @@
 # Contributing
 
 Issues and pull requests are welcome at
-[PathoGenOmics-Lab/karyon](https://github.com/PathoGenOmics-Lab/karyon).
+[PathoGenOmics-Lab/karyon](https://github.com/PathoGenOmics-Lab/karyon). What a
+report of a wrong figure has to carry, the four gates a change has to pass, and
+the conventions the code holds itself to are below. The figures on this site are
+part of the build rather than illustrations committed once, which is the part
+most likely to catch someone out.
 
 ## Reporting a problem
 
@@ -205,3 +209,10 @@ Ubuntu and macOS. The second renders the ten README figures and fails if
 Running it on purpose rather than on every push is a deliberate choice about
 Actions minutes, not an oversight. It also means the gates above are yours to
 run locally before you open a pull request.
+
+## Next
+
+- [Writing a track](../how-it-works/extending.md), for the trait a new track
+  implements.
+- [Tracks](../tracks.md), for what the twenty-nine already there draw.
+- [Citation](citation.md), for what to record about the version you used.

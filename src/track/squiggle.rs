@@ -1,20 +1,23 @@
 //! Raw nanopore current, before it was ever a base.
 //!
-//! # The idea
+//! A read starts life as a few hundred thousand current measurements, in
+//! picoamperes, sampled thousands of times a second while the strand ratchets
+//! through the pore. Basecalling turns that into letters and throws the rest
+//! away. When a basecall is in doubt, or a modification is the thing being
+//! measured, the current is the evidence and the letters are the summary: a
+//! methylated cytosine does not change the base, it changes the current.
 //!
-//! A nanopore read starts life as a few hundred thousand current measurements,
-//! in picoamperes, sampled at four kilohertz while the strand ratchets through
-//! the pore. Basecalling turns that into letters and throws the rest away. When
-//! a basecall is in doubt, or a modification is the thing being measured, the
-//! current is the evidence and the letters are the summary: a methylated
-//! cytosine does not change the base, it changes the current.
+//! The y axis is that current as it was recorded, which is comparable within a
+//! read and not between reads. [`SquiggleTrack::normalized`] is what puts two
+//! reads on one axis, at the price of an axis that is no longer in picoamperes.
 //!
-//! # What the x axis is
+//! # The x axis is time, not position
 //!
-//! Sample number, which is time, not position. Put the figure over
-//! `Region::new("read", 0, samples)`. A [`SquiggleTrack`] with base boundaries
-//! attached can also say which samples belong to which called base, and that
-//! mapping is the only thing in the plot connecting time to sequence.
+//! It counts samples, so put the figure over `Region::new("read", 0, samples)`.
+//! Nothing in the band is measured in bases until [`SquiggleTrack::moves`]
+//! attaches the basecaller's move table; with it the trace picks up a tint per
+//! called base, letters where there is room for them, and the dwell times
+//! [`SquiggleTrack::dwells`] reports.
 //!
 //! # Reading it at a distance
 //!

@@ -1,10 +1,35 @@
-//! Sequence logos, including the enrichment and depletion variant.
+//! Sequence logos: a table of symbol weights in, a column of glyphs out.
 //!
-//! A logo turns a column of symbol frequencies into stacked letters whose
-//! heights carry the numbers. Which numbers is [`LogoScore`], and there are
-//! seven: what is here, how conserved it is, and five ways of asking how it
-//! differs from a background. Where the baseline sits is the separate question
-//! [`Centering`] answers.
+//! The path between those two has a seam. Scoring is arithmetic on
+//! probabilities; drawing is glyphs stretched to the heights that arithmetic
+//! produced. [`LogoTrack::stacks`] is where they meet, and it is public because
+//! the heights are the claim the figure makes, and a claim that can only be
+//! looked at is harder to check than one that can be printed.
+//!
+//! # Choosing a score is not choosing a style
+//!
+//! [`LogoScore`] decides which column of a motif comes out loudest, not merely
+//! how the columns are drawn. Under [`LogoScore::LogOdds`] a position whose one
+//! feature is a symbol that never occurs towers over a position carrying a real
+//! gradient; under [`LogoScore::KullbackLeibler`] the gradient wins. Both are
+//! right about different questions, and the drawn figure does not record which
+//! one was asked.
+//!
+//! # The alphabet is declared, not counted
+//!
+//! No table of weights reveals how many symbols the alphabet has, since an
+//! alphabet with an unused symbol and a smaller alphabet are the same table. So
+//! an alignment in which T never appears is scored over three letters unless
+//! someone says otherwise, and a column uniform across the other three then
+//! carries no information rather than the 0.4 bits it should.
+//! [`LogoTrack::alphabet_size`] is the only place that can be put right.
+//!
+//! # Two logos are not comparable until they are made so
+//!
+//! Two of the scores come with a ceiling their convention settled long ago. The
+//! rest have none and take whatever is on screen, so two panels of equal height
+//! can be two different axes with nothing on the page to say so.
+//! [`LogoTrack::max_extent`] pins them to one number.
 
 use crate::dash::{Dash, DashFit};
 use crate::region::Region;

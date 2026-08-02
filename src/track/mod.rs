@@ -4,6 +4,30 @@
 //! to be and how to draw itself, and it never decides where it sits: the
 //! [`Figure`](crate::Figure) stacks the bands and hands each track the
 //! rectangle it may paint in, already clipped.
+//!
+//! # What makes a track a track
+//!
+//! [`Track::draw`] has to put its marks where [`DrawContext::scale`] says, and
+//! that is the entry requirement. A band that ignores the scale and spreads its
+//! data evenly across the width it was given is a bar chart that was handed
+//! genomic data: right on its own, wrong the moment it is stacked, because a
+//! reader is entitled to run a finger down the figure and read every band it
+//! crosses at one position.
+//!
+//! One track breaks that deliberately. [`IdeogramTrack`] draws the whole
+//! sequence rather than the region on display, since that is the only way it
+//! can answer where the region is: a legitimate exception is not a track that
+//! forgot the scale but one whose subject is elsewhere.
+//!
+//! # Height is asked for, position is not
+//!
+//! A track answers [`Track::height`] and nothing else about its geometry. The
+//! figure asks once, lays the bands out in push order and clips each one, so a
+//! track that draws past its edges loses the overflow rather than landing in
+//! its neighbour.
+//!
+//! [`Track::y_axis_width`] is the one request a track cannot answer alone, so
+//! the figure settles it once for every band rather than band by band.
 
 pub mod axis;
 pub mod bisulfite;

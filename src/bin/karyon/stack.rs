@@ -9,6 +9,14 @@
 //! methods, because a command line always has the settings in hand before the
 //! track exists: `--label` and `--height` have already been read by the time
 //! this runs, so there is nothing left for `Plot::label` to do afterwards.
+//!
+//! A file that opened, parsed, and held nothing on the sequence in the window
+//! is an error here rather than a track with nothing in it. An empty lane reads
+//! as a stretch of the genome where there is no data, which is a different
+//! claim from a file that names another sequence or a locus typed one digit
+//! out, and the figure has no way to tell the reader which of them happened.
+//! Every error names the flag that asked for the file and the file it was,
+//! since a stack is as many files as it has tracks.
 
 use std::fmt;
 use std::fs;

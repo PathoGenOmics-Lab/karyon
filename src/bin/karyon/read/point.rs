@@ -1,4 +1,42 @@
 //! Point events: VCF calls and association statistics.
+//!
+//! Both formats count from one, so both lose a base on the way in: a VCF `POS`
+//! and the position column of an association table land at `POS - 1`. Zero is
+//! not a position in a file that starts at one, and taking one off it would
+//! wrap rather than fail, so a zero is a malformed line and is refused as one.
+//!
+//! # Where a call sits and how far it reaches
+//!
+//! A call is drawn at one base and can be about several. A deletion is written
+//! one base to the left of the bases it removes, so the window is tested
+//! against what `REF` spells and not against the anchor alone; filtering on the
+//! anchor would take a deletion that eats the first bases of the window out of
+//! the figure entirely. A row with several alternates becomes one call per
+//! alternate at the same position, each with its own fraction when `AF` gives
+//! one per allele and the shared one when it gives a single number, since that
+//! is what a caller writing one `AF` for the row means. A row with no `AF` at
+//! all is drawn full height: a call is a call whether or not anyone measured
+//! what proportion of the reads carried it.
+//!
+//! What a call is called is the annotator's word when there is one, from `ANN`
+//! or from `BCSQ`, and otherwise the shape of the call read off `REF` against
+//! `ALT`, which says whether it is a substitution, an insertion or a deletion
+//! without needing anything annotated at all.
+//!
+//! # What is dropped and what is refused
+//!
+//! Rows on another sequence, rows outside the window, and rows with no
+//! alternate allele go past without a word. The last of those is most of a
+//! gVCF, and a reference block is a statement that nothing happened rather than
+//! a call. A row that does not parse stops the read on its line, because a VCF
+//! that cannot be read is not a VCF and a figure short of the calls it should
+//! have shows nothing wrong on its face.
+//!
+//! An association table of two columns names no sequence, so every row in one
+//! is taken to be about the sequence on display; three columns puts the name in
+//! front and it is matched. A word where a position belongs is a header, but
+//! only on the first line worth looking at, so the same word further down the
+//! file is an error rather than a row that disappears.
 
 use std::cmp::Ordering;
 

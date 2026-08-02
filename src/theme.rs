@@ -1,4 +1,35 @@
 //! Colours, fonts and spacing shared by every track in a figure.
+//!
+//! A figure builds one [`Theme`] and hands every track a `&Theme` when its turn
+//! to draw comes, so appearance is settled once for the whole picture rather
+//! than argued track by track. Nothing here draws: it is the values a drawing
+//! reads from, and the few functions for deriving a value the theme does not
+//! already carry.
+//!
+//! # A track never writes a colour down
+//!
+//! A shade the theme has no field for is mixed from one it does, which is what
+//! [`mix`], [`wash`] and [`contrast_ink`] are for and why they sit beside the
+//! theme rather than in the tracks that call them. A hardcoded grey is the same
+//! grey on a white page and on a black one, and it cannot be right on both.
+//!
+//! # Nothing turns a light figure dark
+//!
+//! [`Theme::dark`] is a second set of measured values, not [`Theme::light`] put
+//! through a transform, and there is no call that converts one into the other.
+//! The page a figure is going on is therefore a decision taken before it is
+//! built: a track takes its ink from whatever it is handed and never asks which
+//! way the page runs.
+//!
+//! # Where convention and legibility disagree
+//!
+//! The categorical palette is measured for colour vision deficiency rather than
+//! chosen by eye, and [`Theme::color`] hands its entries out in a fixed order
+//! with [`Theme::accent`] first, so a figure with one series and a figure with
+//! six agree about what the first colour is. The nucleotide colours are the one
+//! place where the measurement does not decide: convention is the default, and
+//! [`BaseColors::colorblind_safe`] ships beside it for the figures where that
+//! default costs too much.
 
 /// Visual settings applied to a whole [`Figure`](crate::Figure).
 ///

@@ -14,6 +14,31 @@
 //!
 //! Figure flags such as `--title` are not attached to anything and may sit
 //! anywhere.
+//!
+//! # What position alone cannot say
+//!
+//! Where a word sits is the whole of what binds it to a track, and two things
+//! fall outside that. One is a track whose data is not one file: a `--<track>`
+//! flag takes one path, so a tanglegram, which is two trees, has nowhere to put
+//! the second, and thirteen of the crate's twenty-nine track types are all the
+//! command line reaches.
+//!
+//! The other is a modifier the track before it has no use for, which the order
+//! of the words does nothing to prevent. Every modifier therefore carries the
+//! tracks it says anything to and is refused by name anywhere else: a flag
+//! written and then ignored gives a figure that is not the one asked for and
+//! does not look wrong.
+//!
+//! # Where `--format` overrules a guess
+//!
+//! A signal file is bedGraph, `samtools depth` or a bare column of values
+//! according to how many columns it has, and an interval file is BED or GFF3
+//! according to a pragma and to column seven. Either guess can be wrong without
+//! failing, and a wrong one moves every coordinate in the figure by a base,
+//! which is what `--format` settles. It is the one modifier not checked here
+//! against the track it follows, its words spelling formats for two readers at
+//! once: coverage and features ask for a format, and anywhere else it parses
+//! and goes nowhere.
 
 use std::fmt;
 use std::path::PathBuf;

@@ -460,3 +460,9 @@ assembling the page.
 The output is plain SVG 1.1 with no scripts, no external references and no
 embedded fonts, so it also goes straight into Inkscape or Illustrator with
 every element still selectable.
+
+## Next
+
+- [Tracks](tracks.md), for the track types these recipes did not reach for.
+- [Plot API](guide/plot.md), for what the Rust half of the page was doing.
+- [Command line](guide/cli.md), for the whole grammar the shell half used.

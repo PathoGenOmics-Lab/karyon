@@ -1,16 +1,32 @@
-//! The whole chromosome, and a mark showing which part of it you are looking
-//! at.
+//! The whole chromosome, with a mark on the part in view.
 //!
-//! Every other track in this crate maps its data through the shared
-//! [`Scale`], which is what keeps their x axes aligned. This one deliberately
-//! does not. An ideogram exists to answer "where am I", and a track that only
-//! showed the region on display could not answer it: it would be a picture of
-//! the window, drawn inside the window. So it draws the whole chromosome across
-//! the plotting area and puts a marker where the region sits.
+//! Every other track in this crate maps its data through the shared [`Scale`],
+//! which is what keeps their x axes aligned. This one deliberately does not. An
+//! ideogram exists to answer "where am I", and a track that only showed the
+//! region on display could not answer it: it would be a picture of the window,
+//! drawn inside the window. So it draws the whole chromosome across the plotting
+//! area and puts a marker where the region sits.
 //!
-//! That makes it the one track whose horizontal position means something
-//! different from its neighbours', which is worth knowing before you put a
-//! ruler under it.
+//! # A ruler under this band would lie
+//!
+//! It is the one track whose horizontal position means something different from
+//! its neighbours'. A point halfway across the band is halfway along the
+//! sequence, not at the coordinate the ruler under the stack would give it, and
+//! nothing here is to be read against the tracks below.
+//!
+//! The marker is also the one mark in the crate with a width of its own. Ten
+//! kilobases of a five megabase chromosome is a fraction of a pixel, and a
+//! pointer too thin to see would answer nothing, so it has a floor.
+//!
+//! # Most sequences have no bands to draw
+//!
+//! Cytogenetic banding belongs to a handful of well studied genomes, and
+//! [`IdeogramTrack::bare`] is what everything else gets: an outline with the
+//! marker on it and nothing else, which answers the question the track was put
+//! there to answer just as well. Where a table does exist, the stain names are
+//! UCSC's rather than a vocabulary of this crate's own, through
+//! [`Stain::from_name`], and the centromere is drawn as a waist rather than as
+//! one more band.
 
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
@@ -163,7 +179,7 @@ pub struct IdeogramTrack {
 impl IdeogramTrack {
     /// A chromosome `length` bases long, made of `bands`.
     ///
-    /// Bands need not tile the chromosome: gaps simply draw as the page colour,
+    /// Bands need not tile the chromosome: gaps draw as the page colour,
     /// and an empty list gives a bare outline, which is what anything with no
     /// cytoband data will want. A plasmid, an organelle genome, an unplaced
     /// contig and a bacterial chromosome all end up there.

@@ -21,9 +21,9 @@ karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
 A git dependency with nothing else on it follows the default branch, and Cargo
-records the commit it resolved in your `Cargo.lock`. That is reproducible for
-you and not for anyone who runs `cargo update`, so pin the commit when the
-figure has to come out the same next year:
+records the commit it resolved in the `Cargo.lock`. That is reproducible for
+one checkout and not for anyone who runs `cargo update`, so pin the commit when
+a figure has to come out the same next year:
 
 ```toml
 [dependencies]
@@ -87,7 +87,7 @@ have moved.
 `Cargo.toml` declares `rust-version = "1.74"` and edition 2021. Cargo reads
 that before it starts building, so an older toolchain gets a message naming the
 version it needs rather than a type error from somewhere inside the crate.
-What you have:
+What is installed:
 
 ```bash
 rustc --version
@@ -111,7 +111,7 @@ version = "0.14.0"
 Nothing has to be installed first: no cairo, no fontconfig, no libssl, no
 Python, no headless browser. The SVG writer is a few hundred lines inside the
 crate, the output names fonts rather than embedding them, and the library does
-no I/O beyond writing the file you ask it to write. A clean build of it takes
+no I/O beyond writing the file it is asked to write. A clean build of it takes
 about a second.
 
 This is also what keeps the crate usable inside a pipeline: adding it to a tool
@@ -136,5 +136,7 @@ against optimised code, which is what CI does after the debug run, along with
 
 ## Next
 
-[Quickstart](quickstart.md) draws a figure from Rust and the same kind of
-figure from the shell.
+- [Quickstart](quickstart.md), for a first figure from Rust and the same kind of
+  figure from the shell.
+- [Command line](../guide/cli.md), for the grammar the installed binary takes.
+- [Tracks](../tracks.md), for what each of the twenty-nine track types draws.
