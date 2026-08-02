@@ -24,9 +24,11 @@
 //! is how that order gets chosen on purpose: it sorts the rows by descent and
 //! draws the tree that justifies the sorting in the same strip as the row names.
 
+use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -353,6 +355,14 @@ impl Track for MatrixTrack {
             // The gap between rows is left in the page colour rather than drawn.
             let cell_height = self.row_height;
 
+            // The row is named and the cell is not. Rows times sites is tens of
+            // thousands of elements on a matrix worth drawing, and a figure
+            // that quadrupled in bytes would have given up the one thing this
+            // crate promises. A cell's name is its row's name and its column's
+            // position, and the row already carries the half a reader is
+            // hovering to find out.
+            ctx.svg.begin_titled(&self.row_tooltip(row, ctx.region));
+
             for (column, site) in self.sites.iter().enumerate() {
                 if !ctx.region.contains(*site) {
                     continue;
@@ -376,7 +386,52 @@ impl Track for MatrixTrack {
                     Anchor::End,
                 );
             }
+
+            ctx.svg.end_group();
         }
+    }
+}
+
+impl MatrixTrack {
+    /// What a reader hovering one row is told.
+    ///
+    /// The sample, and how much of it there is. How many sites the row was
+    /// called at is the one thing a row of cells does not say plainly: a
+    /// missing cell and a cell at the bottom of the ramp are deliberately
+    /// different colours, but counting them along a row is work, and the
+    /// difference between a sample typed everywhere and one typed half the
+    /// time is the difference between two readings of the same figure.
+    ///
+    /// `called` is the honest word for it whatever the cells hold. A value is
+    /// either there or it is not; what it means when it is there is the
+    /// caller's business, and the gutter label is where that is said.
+    ///
+    /// Both numbers are counted over the sites [`MatrixTrack::draw`] actually
+    /// paints, which is why the region has to come in here. Counting the whole
+    /// track instead described cells that were not on the page: six sites in
+    /// the data, three of them inside a zoomed region, three cells drawn and a
+    /// tooltip claiming six. A tooltip that disagrees with the figure it sits
+    /// on is worse than no tooltip, so the filter is the same predicate the
+    /// drawing loop uses and nothing else.
+    fn row_tooltip(&self, row: &MatrixRow, region: &Region) -> String {
+        let visible: Vec<usize> = (0..self.sites.len())
+            .filter(|column| region.contains(self.sites[*column]))
+            .collect();
+        let total = visible.len();
+        if total == 0 {
+            return row.name.clone();
+        }
+        let called = visible
+            .iter()
+            .filter(|column| row.value(**column).is_some())
+            .count();
+        format!(
+            "{}, {} of {} site{} called",
+            row.name,
+            group_thousands(called as u64),
+            group_thousands(total as u64),
+            if total == 1 { "" } else { "s" }
+        )
     }
 }
 
@@ -527,6 +582,125 @@ mod tests {
             .collect();
         assert!(!widths.is_empty());
         assert!(widths.iter().all(|w| *w >= 6.0), "{widths:?}");
+    }
+
+    /// Every group a track opens has to be closed by exactly one `end_group`.
+    fn groups_balance(svg: &str) -> bool {
+        svg.matches("<g ").count() + svg.matches("<g>").count() == svg.matches("</g>").count()
+    }
+
+    #[test]
+    fn a_row_names_the_sample_and_how_much_of_it_there_is() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(matrix())
+            .to_svg();
+        assert!(
+            svg.contains("<title>ERR001, 4 of 4 sites called</title>"),
+            "{svg}"
+        );
+        // The third row was never typed at the third site, which is a different
+        // statement from having been typed and found absent.
+        assert!(
+            svg.contains("<title>ERR003, 3 of 4 sites called</title>"),
+            "{svg}"
+        );
+        assert!(groups_balance(&svg));
+    }
+
+    #[test]
+    fn the_row_is_named_and_the_cell_is_not() {
+        // Three rows of four sites is twelve cells. Naming each of them is
+        // where a matrix figure quadruples in size, and a cell's name is its
+        // row's name anyway.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(matrix())
+            .to_svg();
+        assert_eq!(svg.matches("<title>").count(), 3, "one per row, {svg}");
+    }
+
+    #[test]
+    fn one_site_is_a_site_and_not_sites() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MatrixTrack::new(
+                vec![1_100u64],
+                vec![MatrixRow::new("S1", vec![1.0])],
+            ))
+            .to_svg();
+        assert!(
+            svg.contains("<title>S1, 1 of 1 site called</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_row_counts_the_cells_on_the_page_and_not_the_ones_off_it() {
+        // Six sites in the track, one row called at every one of them, and a
+        // region that reaches only the first three. Three cells are drawn, so
+        // three is what the tooltip has to say: a row claiming six over three
+        // rectangles is the figure disagreeing with itself.
+        let track = MatrixTrack::new(
+            vec![100u64, 200, 300, 400, 500, 600],
+            vec![MatrixRow::new("S1", vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0])],
+        );
+        let svg = Figure::new(Region::parse("chr1:1-350").unwrap())
+            .show_region_label(false)
+            .push(track.clone())
+            .to_svg();
+        assert!(
+            svg.contains("<title>S1, 3 of 3 sites called</title>"),
+            "{svg}"
+        );
+
+        // Zoomed out to the whole track, all six are on the page again.
+        let whole = Figure::new(Region::parse("chr1:1-1000").unwrap())
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(
+            whole.contains("<title>S1, 6 of 6 sites called</title>"),
+            "{whole}"
+        );
+    }
+
+    #[test]
+    fn a_row_with_nothing_in_view_names_the_sample_and_stops() {
+        let svg = Figure::new(Region::parse("chr1:5000-6000").unwrap())
+            .show_region_label(false)
+            .push(MatrixTrack::new(
+                vec![100u64, 200],
+                vec![MatrixRow::new("S1", vec![1.0, 1.0])],
+            ))
+            .to_svg();
+        assert!(svg.contains("<title>S1</title>"), "{svg}");
+    }
+
+    #[test]
+    fn counts_past_a_thousand_are_grouped_like_every_other_number() {
+        let sites: Vec<u64> = (0..1_200u64).map(|i| i * 2 + 1_000).collect();
+        let values = vec![1.0f64; 1_200];
+        let svg = Figure::new(Region::parse("chr1:1-5000").unwrap())
+            .show_region_label(false)
+            .push(MatrixTrack::new(sites, vec![MatrixRow::new("S1", values)]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>S1, 1,200 of 1,200 sites called</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_matrix_with_no_sites_names_the_row_and_stops() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MatrixTrack::new(
+                Vec::new(),
+                vec![MatrixRow::new("S1", Vec::new())],
+            ))
+            .to_svg();
+        assert!(svg.contains("<title>S1</title>"), "{svg}");
     }
 
     #[test]

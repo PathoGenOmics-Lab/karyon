@@ -33,7 +33,8 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{contrast_ink, mix, wash, Theme};
-use crate::track::feature::strand_color;
+use crate::track::axis::group_thousands;
+use crate::track::feature::{span_label, strand_color, strand_label};
 
 /// How much of a gene's height the shaft of an arrow takes, the rest being the
 /// overhang of its head.
@@ -353,6 +354,94 @@ impl LocusTrack {
     fn row_top(&self, row: usize) -> f64 {
         row as f64 * (self.gene_height + self.link_height)
     }
+
+    /// What a reader hovering one gene is told.
+    ///
+    /// The genome leads, because in this track a gene name alone does not
+    /// identify a glyph: `espA` is drawn once per row, and which row it is in
+    /// is the whole subject. Then the span and the strand, as everywhere else.
+    ///
+    /// Genome and gene are comma-separated, the way [`LocusTrack::gene_ref`]
+    /// separates them at the end of a ribbon. They are two facts and not a
+    /// compound name, and a figure that wrote `H37Rv eccA1` on the gene and
+    /// `H37Rv, eccA1` on the ribbon reaching it would be naming one glyph two
+    /// ways within a single band.
+    ///
+    /// A gene no homology reached says so, since that is the finding the
+    /// figure was drawn to make and the outline around it is the only other
+    /// thing carrying it. It is an absence, and an absence is the hardest
+    /// thing to notice.
+    fn gene_title(&self, locus: &str, gene: &Feature, unmatched: bool) -> String {
+        let mut title = String::from(locus);
+        if let Some(name) = gene.name.as_deref().filter(|name| !name.is_empty()) {
+            if !title.is_empty() {
+                title.push_str(", ");
+            }
+            title.push_str(name);
+        }
+        if !title.is_empty() {
+            title.push_str(", ");
+        }
+        title.push_str(&span_label(gene.start, gene.end));
+        let strand = strand_label(gene.strand);
+        if !strand.is_empty() {
+            title.push_str(", ");
+            title.push_str(strand);
+        }
+        if unmatched {
+            title.push_str(", unmatched");
+        }
+        title
+    }
+
+    /// How one end of a ribbon is named: its genome, then its gene.
+    ///
+    /// Comma-separated rather than run together, because they are two facts and
+    /// not a compound name: `H37Rv espA` reads as a single identifier a reader
+    /// might go looking for, and there is no such identifier.
+    ///
+    /// A gene with no name falls back to where it starts, which is enough to
+    /// find it in the row and is what the reader would read off the ruler.
+    fn gene_ref(&self, row: usize, index: usize) -> String {
+        let mut out = self
+            .loci
+            .get(row)
+            .map(|locus| locus.name.clone())
+            .unwrap_or_default();
+        let Some(gene) = self.gene(row, index) else {
+            return out;
+        };
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        match gene.name.as_deref().filter(|name| !name.is_empty()) {
+            Some(name) => out.push_str(name),
+            None => out.push_str(&group_thousands(gene.start + 1)),
+        }
+        out
+    }
+
+    /// What a reader hovering one ribbon is told: what it joins, and how alike
+    /// the two are.
+    ///
+    /// The two ends are labelled rather than joined by a connector, the way an
+    /// alignment block labels its query and its target. ` to ` is what
+    /// [`span_label`] puts between two coordinates, so a ribbon written
+    /// `X to Y` was using one word for two unrelated relations in tooltips
+    /// sitting inches apart. `upper` and `lower` are also what a reader sees:
+    /// a ribbon runs between row `n` and row `n + 1`, and rows go down the
+    /// page.
+    ///
+    /// The identity is named rather than left as a bare number, because `0.91`
+    /// on its own is not a statement about anything.
+    fn homology_title(&self, link: &Homology) -> String {
+        format!(
+            "homology, upper {}, lower {}, identity {:.2}",
+            self.gene_ref(link.row, link.from),
+            self.gene_ref(link.row + 1, link.to),
+            link.identity
+        )
+    }
 }
 
 impl Track for LocusTrack {
@@ -433,10 +522,20 @@ impl Track for LocusTrack {
                 num(ax0),
                 num(top),
             );
+            // The fill and its edge are one ribbon and answer a pointer once.
+            // A ribbon between two sub-pixel genes is a hairline with nothing
+            // to rest on, so it goes unnamed.
+            let pointable = (ax1 - ax0).max(bx1 - bx0) >= 1.0;
+            if pointable {
+                ctx.svg.begin_titled(&self.homology_title(link));
+            }
             ctx.svg.path(&d, &shade, 1.0);
             // A hairline edge, and no more. At these tints a dark outline
             // fights the genes, and the genes are the subject.
             ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.10), 0.5);
+            if pointable {
+                ctx.svg.end_group();
+            }
         }
 
         for (row, locus) in self.loci.iter().enumerate() {
@@ -466,9 +565,9 @@ impl Track for LocusTrack {
             // top of each other, which is worse than printing neither.
             let mut label_right = f64::NEG_INFINITY;
             for (index, gene) in locus.genes.iter().enumerate() {
-                let ink = ctx.theme.foreground.clone();
                 let unmatched = orphans.contains(&index);
-                label_right = self.draw_gene(ctx, gene, top, unmatched, ink, label_right);
+                let title = self.gene_title(&locus.name, gene, unmatched);
+                label_right = self.draw_gene(ctx, gene, top, unmatched, &title, label_right);
             }
             if self.show_names && ctx.axis.w > 0.0 {
                 let size = (ctx.theme.font_size - 1.0).min(self.gene_height);
@@ -493,7 +592,7 @@ impl LocusTrack {
         gene: &Feature,
         top: f64,
         unmatched: bool,
-        ink: String,
+        title: &str,
         label_right: f64,
     ) -> f64 {
         let x0 = ctx.scale.x(gene.start);
@@ -569,6 +668,17 @@ impl LocusTrack {
         } else {
             (color.clone(), mix(&color, "#000000", 0.3))
         };
+
+        // The arrow, its edge, the outline that marks it unmatched and the
+        // name written on or under it are one gene, so they share one group
+        // and answer a pointer once. A gene floored to `min_gene_width` from
+        // less than a pixel is not a gene a pointer can find, so it is left
+        // unnamed rather than given a title nobody can reach.
+        let pointable = ctx.scale.x(gene.end) - x0 >= 1.0;
+        if pointable {
+            ctx.svg.begin_titled(title);
+        }
+
         ctx.svg.polygon(&points, &fill);
         let mut edge: Vec<(f64, f64)> = points.clone();
         edge.push(points[0]);
@@ -579,9 +689,12 @@ impl LocusTrack {
             // family colour it came in with.
             let mut outline: Vec<(f64, f64)> = points.clone();
             outline.push(points[0]);
-            ctx.svg.polyline(&outline, &ink, 1.6);
+            ctx.svg.polyline(&outline, &ctx.theme.foreground, 1.6);
         }
 
+        // One exit from here on, so the group opened above is closed exactly
+        // once whichever way the name falls out.
+        let mut next_label_right = label_right;
         if self.show_gene_names {
             if let Some(name) = &gene.name {
                 let room = if barbed { height * SHAFT } else { height };
@@ -611,12 +724,16 @@ impl LocusTrack {
                             size,
                             Anchor::Middle,
                         );
-                        return left + width;
+                        next_label_right = left + width;
                     }
                 }
             }
         }
-        label_right
+
+        if pointable {
+            ctx.svg.end_group();
+        }
+        next_label_right
     }
 }
 
@@ -940,6 +1057,109 @@ mod tests {
             )
             .to_svg();
         assert!(!flat.contains(">a_very_long_gene_name</text>"));
+    }
+
+    #[test]
+    fn a_gene_is_named_by_its_genome_its_span_and_its_strand() {
+        // The genome leads: `espA` is drawn once per row, and which row it is
+        // in is the whole subject of the track.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        assert!(
+            svg.contains("<title>H37Rv, espA, 1 to 1,200, forward</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>CDC1551, espD, 1,401 to 2,200, reverse</title>"));
+    }
+
+    #[test]
+    fn a_gene_nothing_matched_says_so_in_its_tooltip() {
+        // The outline carries it too, but only to a reader who thought to look
+        // for an absence.
+        let marked = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        assert!(
+            marked.contains("<title>H37Rv, espC, 1,301 to 2,100, forward, unmatched</title>"),
+            "{marked}"
+        );
+
+        let plain = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()).mark_unmatched(false))
+            .to_svg();
+        assert!(plain.contains("<title>H37Rv, espC, 1,301 to 2,100, forward</title>"));
+        assert!(!plain.contains("unmatched"));
+    }
+
+    #[test]
+    fn a_ribbon_says_what_it_joins_and_how_alike_they_are() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        // The ends are labelled rather than joined by ` to `, which is what a
+        // span puts between two coordinates and would be the same word doing
+        // two jobs in one figure. Genome and gene are two facts, so a comma
+        // goes between them rather than a space making a compound name.
+        assert!(
+            svg.contains(
+                "<title>homology, upper H37Rv, espA, lower CDC1551, espA, identity 0.99</title>"
+            ),
+            "{svg}"
+        );
+        // 0.91 on its own is not a statement about anything, so the number is
+        // named.
+        assert!(svg.contains(
+            "<title>homology, upper H37Rv, espD, lower CDC1551, espD, identity 0.91</title>"
+        ));
+    }
+
+    #[test]
+    fn an_unnamed_gene_falls_back_to_where_it_starts() {
+        let track = LocusTrack::new(vec![
+            Locus::new("one", vec![Feature::new(0, 900)]),
+            Locus::new("two", vec![Feature::new(1_200, 2_100)]),
+        ])
+        .links(vec![Homology::new(0, 0, 0, 0.8)]);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(svg.contains("<title>one, 1 to 900</title>"), "{svg}");
+        assert!(
+            svg.contains("<title>homology, upper one, 1, lower two, 1,201, identity 0.80</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn every_group_a_locus_opens_is_closed_again() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        assert_eq!(
+            svg.matches("<g").count(),
+            svg.matches("</g>").count(),
+            "{svg}"
+        );
+        // Five genes and two ribbons.
+        assert_eq!(svg.matches("<title>").count(), 7);
+    }
+
+    #[test]
+    fn a_gene_thinner_than_a_pixel_is_not_named() {
+        let svg = Figure::new(Region::new("x", 0, 4_000_000).unwrap())
+            .show_region_label(false)
+            .push(LocusTrack::new(loci()).links(links()))
+            .to_svg();
+        // Every gene is floored to `min_gene_width`, but a floor is not a
+        // width and there is nothing there to point at.
+        assert!(!svg.contains("<title>"), "{svg}");
     }
 
     #[test]

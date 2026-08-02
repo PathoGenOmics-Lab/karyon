@@ -74,6 +74,10 @@ pub struct SvgWriter {
     id_prefix: String,
     next_id: usize,
     open_groups: usize,
+    /// What the document as a whole is, for `<title>`.
+    name: String,
+    /// What it shows, for `<desc>`.
+    description: String,
 }
 
 impl SvgWriter {
@@ -399,6 +403,85 @@ impl SvgWriter {
         self.open_groups += 1;
     }
 
+    /// Opens a group carrying a tooltip, closed by [`SvgWriter::end_group`].
+    ///
+    /// A `<title>` as the first child of a group is what a browser shows when a
+    /// pointer rests anywhere inside it, and what a screen reader announces.
+    /// That is SVG 1.1 and not an extension: it needs no script, nothing is
+    /// fetched to render it, and Inkscape and Illustrator both keep it, so a
+    /// figure that gains one has given up none of what it promised.
+    ///
+    /// A group rather than a `<title>` inside the shape, because most glyphs
+    /// here are more than one shape. A gene is an arrow and its name, a variant
+    /// is a stem and a head, and a tooltip on half of one is worse than none.
+    ///
+    /// An empty `text` opens a plain group, so a caller with nothing to say
+    /// stays balanced against its own [`SvgWriter::end_group`] without paying
+    /// for an empty element.
+    ///
+    /// ```
+    /// use karyon::SvgWriter;
+    ///
+    /// let mut svg = SvgWriter::new();
+    /// svg.begin_titled("rpoB, 759,807 to 763,325, forward");
+    /// svg.rect(10.0, 10.0, 100.0, 12.0, "#0072b2");
+    /// svg.end_group();
+    ///
+    /// let out = svg.finish(200.0, 40.0, "#ffffff", "Helvetica");
+    /// assert!(out.contains("<title>rpoB, 759,807 to 763,325, forward</title>"));
+    /// ```
+    pub fn begin_titled(&mut self, text: &str) {
+        if text.is_empty() {
+            self.body.push_str("<g>");
+        } else {
+            let _ = write!(self.body, "<g><title>{}</title>", escape(text));
+        }
+        self.open_groups += 1;
+    }
+
+    /// The same group, but transparent to the pointer.
+    ///
+    /// A `<title>` resolves to the innermost group under the pointer, so a
+    /// translucent shape drawn over data takes every hover inside its own
+    /// footprint and the data underneath can never be reached. That is the
+    /// wrong way round when the shape on top is decoration: the region marker
+    /// on an ideogram says where the figure is looking, and the bands beneath
+    /// it are what a reader is pointing at.
+    ///
+    /// `pointer-events="none"` hands the hover back to the shapes below while
+    /// leaving the title where a screen reader still finds it, which is why
+    /// this is a group attribute rather than a dropped title.
+    ///
+    /// ```
+    /// use karyon::SvgWriter;
+    ///
+    /// let mut svg = SvgWriter::new();
+    /// svg.begin_titled_inert("region shown, 1 to 1,000");
+    /// svg.rect(10.0, 10.0, 100.0, 12.0, "#d7263d");
+    /// svg.end_group();
+    ///
+    /// let out = svg.finish(200.0, 40.0, "#ffffff", "Helvetica");
+    /// assert!(out.contains(r#"<g pointer-events="none">"#));
+    /// ```
+    pub fn begin_titled_inert(&mut self, text: &str) {
+        self.body.push_str(r#"<g pointer-events="none">"#);
+        if !text.is_empty() {
+            let _ = write!(self.body, "<title>{}</title>", escape(text));
+        }
+        self.open_groups += 1;
+    }
+
+    /// Names the document as a whole, for its `<title>` and `<desc>`.
+    ///
+    /// These are the first two children of the root element, which is where a
+    /// screen reader looks and what a browser shows as the tooltip of the
+    /// figure itself. Passing an empty string for either leaves that element
+    /// out rather than writing an empty one.
+    pub fn describe(&mut self, name: &str, description: &str) {
+        self.name = name.to_string();
+        self.description = description.to_string();
+    }
+
     /// Closes the innermost open group.
     pub fn end_group(&mut self) {
         if self.open_groups == 0 {
@@ -420,15 +503,53 @@ impl SvgWriter {
             self.end_group();
         }
         let mut out = String::with_capacity(self.body.len() + self.defs.len() + 512);
+        // `role="img"` and `aria-labelledby` are what make an assistive
+        // technology read the title and the description instead of walking
+        // several thousand rectangles that mean nothing one at a time.
+        let title_id = format!("{}karyon-title", self.id_prefix);
+        let desc_id = format!("{}karyon-desc", self.id_prefix);
+        let mut labels = String::new();
+        if !self.name.is_empty() {
+            labels.push_str(&title_id);
+        }
+        if !self.description.is_empty() {
+            if !labels.is_empty() {
+                labels.push(' ');
+            }
+            labels.push_str(&desc_id);
+        }
+        let accessible = if labels.is_empty() {
+            String::new()
+        } else {
+            format!(r#" role="img" aria-labelledby="{labels}""#)
+        };
         let _ = write!(
             out,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}" font-family="{}">"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}" font-family="{}"{}>"#,
             num(width),
             num(height),
             num(width),
             num(height),
-            escape(font_family)
+            escape(font_family),
+            accessible
         );
+        // First two children, which is where the specification puts them.
+        if !self.name.is_empty() {
+            let _ = write!(
+                out,
+                r#"<title id="{}">{}</title>"#,
+                title_id,
+                escape(&self.name)
+            );
+        }
+        if !self.description.is_empty() {
+            let _ = write!(
+                out,
+                r#"<desc id="{}">{}</desc>"#,
+                desc_id,
+                escape(&self.description)
+            );
+        }
         if !self.defs.is_empty() {
             let _ = write!(out, "<defs>{}</defs>", self.defs);
         }

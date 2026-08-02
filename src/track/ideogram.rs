@@ -31,6 +31,7 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::feature::span_label;
 use crate::track::{DrawContext, Track};
 
 /// How far the region marker stands proud of the chromosome, in pixels.
@@ -103,6 +104,44 @@ impl Stain {
     pub fn is_centromere(self) -> bool {
         matches!(self, Stain::Acen)
     }
+}
+
+/// The `gieStain` value a stain came from, which is what a tooltip quotes.
+///
+/// The inverse of [`Stain::from_name`], and deliberately the same vocabulary:
+/// a reader who finds `gpos75` in a tooltip can look it up in the file the
+/// bands were loaded from, which a phrase invented here could not be.
+fn stain_name(stain: Stain) -> &'static str {
+    match stain {
+        Stain::Gneg => "gneg",
+        Stain::Gpos25 => "gpos25",
+        Stain::Gpos50 => "gpos50",
+        Stain::Gpos75 => "gpos75",
+        Stain::Gpos100 => "gpos100",
+        Stain::Acen => "acen",
+        Stain::Gvar => "gvar",
+        Stain::Stalk => "stalk",
+    }
+}
+
+/// What a band is, where it is and how it was stained.
+///
+/// The stain is in there because it is the only thing the shade of the band
+/// encodes, and a grey is not readable back into a stain by eye.
+fn band_title(band: &Band) -> String {
+    let mut title = String::new();
+    // An unnamed band still opens on what it is rather than on a coordinate,
+    // the way the centromere below it does and the way every other tooltip in
+    // the crate does.
+    match band.name.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => title.push_str(name),
+        None => title.push_str("band"),
+    }
+    title.push_str(", ");
+    title.push_str(&span_label(band.start, band.end));
+    title.push_str(", ");
+    title.push_str(stain_name(band.stain));
+    title
 }
 
 /// One cytogenetic band, in 0-based half-open coordinates.
@@ -418,8 +457,17 @@ impl Track for IdeogramTrack {
                     continue;
                 }
                 let color = self.band_color(cytoband, ctx.theme);
+                // A band drawn thinner than a pixel is the floor rather than
+                // the band, and there is nothing there to rest a pointer on.
+                let pointable = x1 - x0 >= 1.0;
+                if pointable {
+                    ctx.svg.begin_titled(&band_title(cytoband));
+                }
                 ctx.svg
                     .rect(x0, top, (x1 - x0).max(0.4), body_height, &color);
+                if pointable {
+                    ctx.svg.end_group();
+                }
             }
             ctx.svg.end_group();
             ctx.svg.path_stroked(&path, &outline, 1.0);
@@ -436,6 +484,14 @@ impl Track for IdeogramTrack {
             // chromosome read as having a waist. Both edges converge on the
             // centre and open out again, so the shape is symmetric about it.
             let waist = body_height * 0.3;
+            // Named like any other band, since that is what it is: the one
+            // band with no name of its own would otherwise be the one shape on
+            // the chromosome that answers a pointer with nothing.
+            ctx.svg.begin_titled(&format!(
+                "centromere, {}, {}",
+                span_label(start, end),
+                stain_name(Stain::Acen)
+            ));
             ctx.svg.polygon(
                 &[
                     (x0, top),
@@ -447,6 +503,7 @@ impl Track for IdeogramTrack {
                 ],
                 &color,
             );
+            ctx.svg.end_group();
         }
 
         if self.show_band_names {
@@ -485,6 +542,26 @@ impl Track for IdeogramTrack {
             // the marker has a minimum width. It is a pointer, not a
             // measurement, and one too thin to see would be neither.
             let x1 = at(end).max(x0 + 3.0);
+            // The marker is the answer to "where am I", so it says so in words
+            // too, and in the true coordinates rather than the widened ones it
+            // is drawn at. A marker pointing somewhere other than the region on
+            // display is a different claim and says a different thing.
+            //
+            // Inert, because it is a translucent wash drawn after the bands and
+            // therefore on top of them: a `<title>` resolves to the innermost
+            // group under the pointer, so without this the marker answers every
+            // hover inside the highlighted span and the bands it is pointing at
+            // are the one part of the chromosome a reader cannot interrogate.
+            // The title stays where a screen reader still reads it.
+            ctx.svg.begin_titled_inert(&format!(
+                "{}, {}",
+                if self.highlight.is_some() {
+                    "highlighted span"
+                } else {
+                    "region shown"
+                },
+                span_label(start, end)
+            ));
             ctx.svg.rect_opacity(
                 x0,
                 top - MARKER_PAD,
@@ -508,6 +585,7 @@ impl Track for IdeogramTrack {
                 &color,
                 1.2,
             );
+            ctx.svg.end_group();
         }
     }
 }
@@ -530,6 +608,19 @@ mod tests {
 
     fn region() -> Region {
         Region::new("chr1", 3_000_000, 3_010_000).unwrap()
+    }
+
+    /// The text a reader can see on the page, which is not the same as the
+    /// text in the document: a band carries its name in a tooltip whether or
+    /// not there is room to print it under the chromosome.
+    fn drawn_text(svg: &str) -> String {
+        svg.split("<text")
+            .skip(1)
+            .filter_map(|piece| piece.split_once('>'))
+            .filter_map(|(_, rest)| rest.split_once("</text>"))
+            .map(|(content, _)| content)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]
@@ -782,11 +873,15 @@ mod tests {
             .show_region_label(false)
             .push(IdeogramTrack::new(5_000_000, bands).show_band_names(true))
             .to_svg();
-        assert!(svg.contains("q11"), "the roomy band should be labelled");
+        let drawn = drawn_text(&svg);
+        assert!(drawn.contains("q11"), "the roomy band should be labelled");
         assert!(
-            !svg.contains("q12.33"),
+            !drawn.contains("q12.33"),
             "a name wider than its band is dropped, not squeezed"
         );
+        // Dropped from the page, not from the document: the band still
+        // answers a pointer with its name.
+        assert!(svg.contains("<title>q12.33, 4,000,001 to 4,010,000, gpos75</title>"));
     }
 
     #[test]
@@ -795,7 +890,116 @@ mod tests {
             .show_region_label(false)
             .push(IdeogramTrack::new(5_000_000, banded()))
             .to_svg();
-        assert!(!svg.contains("q11"));
+        assert!(!drawn_text(&svg).contains("q11"));
+    }
+
+    #[test]
+    fn every_band_is_named_with_its_span_and_its_stain() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(IdeogramTrack::new(5_000_000, banded()))
+            .to_svg();
+        assert!(
+            svg.contains("<title>p13, 1 to 2,000,000, gneg</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>p12, 2,000,001 to 2,400,000, gpos75</title>"));
+        assert!(svg.contains("<title>q11, 2,600,001 to 4,000,000, gpos50</title>"));
+        assert!(svg.contains("<title>q12, 4,000,001 to 5,000,000, gneg</title>"));
+        // The centromere is a band too, drawn as its own shape.
+        assert!(svg.contains("<title>centromere, 2,400,001 to 2,600,000, acen</title>"));
+        // Four bands, the centromere and the marker.
+        assert_eq!(svg.matches("<title>").count(), 6);
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn the_marker_says_where_the_region_is_in_words() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(IdeogramTrack::bare(5_000_000))
+            .to_svg();
+        assert!(
+            svg.contains("<title>region shown, 3,000,001 to 3,010,000</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_marker_pointed_elsewhere_does_not_claim_to_be_the_region() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(IdeogramTrack::bare(5_000_000).highlight(100_000, 900_000))
+            .to_svg();
+        assert!(
+            svg.contains("<title>highlighted span, 100,001 to 900,000</title>"),
+            "{svg}"
+        );
+        assert!(!svg.contains("region shown"));
+    }
+
+    #[test]
+    fn the_marker_does_not_take_the_hover_off_the_bands_underneath_it() {
+        // The marker is a translucent wash written after the band loop, so it
+        // is on top of it, and a `<title>` resolves to the innermost group
+        // under the pointer. Without `pointer-events="none"` the bands inside
+        // the highlighted span are the one part of the chromosome a reader
+        // cannot interrogate, which is the part the figure is pointing at.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(IdeogramTrack::new(5_000_000, banded()).highlight(100_000, 900_000))
+            .to_svg();
+        let marker = svg
+            .find("<title>highlighted span")
+            .expect("the marker is drawn");
+        let group = svg[..marker].rfind("<g").expect("it opens a group");
+        assert!(
+            svg[group..marker].contains(r#"pointer-events="none""#),
+            "{}",
+            &svg[group..marker]
+        );
+        // The title is still there for a screen reader, which pointer-events
+        // says nothing to.
+        assert!(svg.contains("<title>highlighted span, 100,001 to 900,000</title>"));
+        // And it is the only inert group on the page: the bands stay hoverable.
+        assert_eq!(svg.matches(r#"pointer-events="none""#).count(), 1, "{svg}");
+    }
+
+    #[test]
+    fn a_band_thinner_than_a_pixel_goes_unnamed() {
+        let bands = vec![
+            Band::new(0, 4_000_000, Stain::Gneg).name("q11"),
+            Band::new(4_000_000, 4_001_000, Stain::Gpos75).name("q12.33"),
+        ];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(IdeogramTrack::new(5_000_000, bands).show_marker(false))
+            .to_svg();
+        assert!(
+            svg.contains("<title>q11, 1 to 4,000,000, gneg</title>"),
+            "{svg}"
+        );
+        assert_eq!(
+            svg.matches("<title>").count(),
+            1,
+            "a thousand bases of five megabases is a sixth of a pixel"
+        );
+    }
+
+    #[test]
+    fn a_stain_name_is_the_one_it_was_read_from() {
+        for stain in [
+            Stain::Gneg,
+            Stain::Gpos25,
+            Stain::Gpos50,
+            Stain::Gpos75,
+            Stain::Gpos100,
+            Stain::Acen,
+            Stain::Gvar,
+            Stain::Stalk,
+        ] {
+            assert_eq!(Stain::from_name(stain_name(stain)), stain);
+        }
     }
 
     #[test]

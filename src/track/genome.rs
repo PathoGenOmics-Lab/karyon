@@ -27,6 +27,7 @@ use crate::genome::Genome;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
 /// The sequence bar of a genome-wide figure.
@@ -149,6 +150,18 @@ impl Track for GenomeTrack {
         for (index, (name, start, end)) in self.genome.spans().into_iter().enumerate() {
             let x0 = ctx.scale.x(start);
             let x1 = ctx.scale.x(end).max(x0 + 0.5);
+            // The name and the length, which are the two questions the bar
+            // exists to answer, and no coordinates: the global axis a block
+            // sits on is a coordinate system nobody quotes, which is the
+            // reason this track is here instead of a ruler.
+            //
+            // A block thinner than a pixel is not something a pointer can
+            // rest on, so an assembly of thousands of contigs pays nothing.
+            let titled = x1 - x0 >= 1.0 && !name.is_empty();
+            if titled {
+                ctx.svg
+                    .begin_titled(&format!("{name}, {} bp", group_thousands(end - start)));
+            }
             ctx.svg
                 .rect(x0, top, x1 - x0, bar, &shades[index % shades.len()]);
 
@@ -161,6 +174,9 @@ impl Track for GenomeTrack {
                     size,
                     Anchor::Middle,
                 );
+            }
+            if titled {
+                ctx.svg.end_group();
             }
         }
 
@@ -251,6 +267,31 @@ mod tests {
             .parse()
             .unwrap();
         assert!(y > clip_top, "the count sits above the band at {y}");
+    }
+
+    #[test]
+    fn a_block_names_its_sequence_and_how_long_it_is() {
+        let svg = Figure::new(genome().region())
+            .show_region_label(false)
+            .push(GenomeTrack::new(genome()))
+            .to_svg();
+        assert!(svg.contains("<title>chr1, 900,000 bp</title>"), "{svg}");
+        assert!(svg.contains("<title>chr2, 600,000 bp</title>"));
+        assert!(svg.contains("<title>chr3, 500,000 bp</title>"));
+        assert_eq!(svg.matches("<title>").count(), 3);
+        assert_eq!(svg.matches("<g>").count(), 3);
+    }
+
+    #[test]
+    fn a_block_thinner_than_a_pixel_is_not_named() {
+        // Two thousand contigs across the figure is under half a pixel each,
+        // which is nothing a pointer can rest on.
+        let many = Genome::new((0..2_000).map(|index| (format!("contig_{index}"), 20_000u64)));
+        let svg = Figure::new(many.region())
+            .show_region_label(false)
+            .push(GenomeTrack::new(many))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
     }
 
     #[test]

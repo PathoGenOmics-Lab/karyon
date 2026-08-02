@@ -34,11 +34,14 @@
 //! strand instead, and [`PileupTrack::fade_by_quality`] their opacity on
 //! mapping quality.
 
+use std::fmt::Write as _;
+
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
-use crate::track::feature::{strand_color, Strand};
+use crate::track::axis::group_thousands;
+use crate::track::feature::{span_label, strand_color, strand_label, Strand};
 use crate::track::{DrawContext, Rect, Track};
 
 /// One CIGAR operation.
@@ -571,6 +574,13 @@ impl Track for PileupTrack {
             let opacity = self.opacity(read);
             let middle = top + self.read_height / 2.0;
 
+            // A read narrower than a pixel cannot be pointed at, and a pileup
+            // at that zoom is thousands of them, so it is drawn and not named.
+            let named = ctx.scale.x(read.end()) - ctx.scale.x(read.start) >= 1.0;
+            if named {
+                ctx.svg.begin_titled(&read_tooltip(read));
+            }
+
             for segment in read.segments() {
                 match segment {
                     Segment::Aligned { start, len, .. } => {
@@ -615,6 +625,10 @@ impl Track for PileupTrack {
 
             if hunt_mismatches {
                 self.draw_mismatches(ctx, read, top, draw_letters);
+            }
+
+            if named {
+                ctx.svg.end_group();
             }
         }
 
@@ -767,6 +781,56 @@ impl PileupTrack {
             }
         }
     }
+}
+
+/// What a reader hovering one read is told.
+///
+/// One read is one glyph, however many blocks the CIGAR breaks it into, so the
+/// tooltip goes on the whole alignment and the mismatches inside it inherit it.
+/// A mismatch is a base of a read rather than a datum of its own, and several
+/// thousand of them named one at a time would be a larger figure saying less.
+///
+/// The span is the reference span, so an indel is inside it rather than beside
+/// it, and it is written the way every other span in the crate is written.
+fn read_tooltip(read: &Read) -> String {
+    let mut text = format!("read, {}", span_label(read.start, read.end()));
+    // Nothing rather than a guess when the strand is unknown: the glyph does
+    // not claim a direction for one either, it loses its arrowhead.
+    let strand = strand_label(read.strand);
+    if !strand.is_empty() {
+        text.push_str(", ");
+        text.push_str(strand);
+    }
+    let cigar = cigar_summary(&read.cigar);
+    if !cigar.is_empty() {
+        text.push_str(", ");
+        text.push_str(&cigar);
+    }
+    text
+}
+
+/// The CIGAR the way a SAM record writes it, or a count when it is too long.
+///
+/// A long read across a repeat can carry hundreds of operations, and a tooltip
+/// is a label rather than a record: past a handful the string stops being
+/// readable and starts being weight in the file, so it becomes its own length.
+fn cigar_summary(cigar: &[CigarOp]) -> String {
+    if cigar.len() > 8 {
+        return format!("{} CIGAR operations", group_thousands(cigar.len() as u64));
+    }
+    let mut out = String::with_capacity(cigar.len() * 4);
+    for op in cigar {
+        let (len, letter) = match *op {
+            CigarOp::Match(n) => (n, 'M'),
+            CigarOp::Insertion(n) => (n, 'I'),
+            CigarOp::Deletion(n) => (n, 'D'),
+            CigarOp::Skip(n) => (n, 'N'),
+            CigarOp::SoftClip(n) => (n, 'S'),
+            CigarOp::HardClip(n) => (n, 'H'),
+        };
+        let _ = write!(out, "{len}{letter}");
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1179,6 +1243,76 @@ mod tests {
         assert_eq!(capped.height(&s), 10.0 * 9.0 + 9.0 * 2.0);
         // A track with one read does not reserve ten rows of empty space.
         assert_eq!(shallow.height(&s), 9.0);
+    }
+
+    #[test]
+    fn a_read_is_named_with_its_span_its_strand_and_its_cigar() {
+        let reads = vec![Read::new(
+            40,
+            vec![CigarOp::Match(20), CigarOp::Deletion(5), CigarOp::Match(55)],
+        )
+        .strand(Strand::Reverse)];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(PileupTrack::new(reads))
+            .to_svg();
+        // 1-based inclusive, the same coordinates the ruler prints.
+        assert!(
+            svg.contains("<title>read, 41 to 120, reverse, 20M5D55M</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_read_with_no_strand_does_not_claim_one() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(PileupTrack::new(vec![Read::aligned(40, 80)]))
+            .to_svg();
+        assert!(svg.contains("<title>read, 41 to 120, 80M</title>"), "{svg}");
+    }
+
+    #[test]
+    fn a_cigar_too_long_for_a_label_becomes_its_own_length() {
+        // A tooltip is a label, and a long read across a repeat can carry
+        // hundreds of operations that would be weight rather than reading.
+        let cigar: Vec<CigarOp> = (0..12).map(|_| CigarOp::Match(5)).collect();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(PileupTrack::new(vec![Read::new(40, cigar)]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>read, 41 to 100, 12 CIGAR operations</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_read_thinner_than_a_pixel_is_drawn_but_not_named() {
+        // Ten megabases across the figure puts a 150 bp read at a hundredth of
+        // a pixel. Nobody can rest a pointer on that, and a deep pileup at this
+        // zoom would be thousands of titles for it.
+        let reads = vec![Read::aligned(1_000, 150).strand(Strand::Forward)];
+        let svg = Figure::new(Region::new("chr1", 0, 10_000_000).unwrap())
+            .show_region_label(false)
+            .push(PileupTrack::new(reads))
+            .to_svg();
+        assert!(!svg.contains("<title>read,"), "{svg}");
+        assert!(svg.contains("#b3bcc6"), "the read is still drawn");
+    }
+
+    #[test]
+    fn every_group_a_pileup_opens_is_closed_again() {
+        // A stray group nests the rest of the figure inside one read.
+        let reads: Vec<Read> = (0..30)
+            .map(|i| Read::aligned(i * 3, 40).strand(Strand::Forward))
+            .collect();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(PileupTrack::new(reads).max_rows(Some(6)))
+            .to_svg();
+        let open = svg.matches("<g>").count() + svg.matches("<g ").count();
+        assert_eq!(open, svg.matches("</g>").count(), "{svg}");
     }
 
     #[test]

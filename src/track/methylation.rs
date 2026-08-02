@@ -32,6 +32,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::feature::strand_color;
 use crate::track::{DrawContext, Strand, Track};
 
@@ -290,6 +291,9 @@ impl Track for MethylationTrack {
             // from six reads does not look like a call from six hundred.
             let color = mix(ctx.theme.surface(), hue, self.weight(site.coverage));
 
+            // A marker is a fraction and the fraction is the height, so the one
+            // thing the geometry cannot show is how many reads it came from.
+            ctx.svg.begin_titled(&site_tooltip(site));
             if self.show_stems {
                 ctx.svg.line(x, middle, x, y, &stem, 0.8);
             }
@@ -302,6 +306,7 @@ impl Track for MethylationTrack {
                 ctx.theme.surface(),
                 self.radius * 0.45,
             );
+            ctx.svg.end_group();
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
@@ -335,6 +340,36 @@ impl Track for MethylationTrack {
             );
         }
     }
+}
+
+/// What a reader hovering one call is told.
+///
+/// The noun leads, as it does in every other tooltip in the crate: a mark that
+/// opened on a bare `3,924,562` was the one glyph in a stack of bands whose
+/// answer had to be decoded from its position on the page.
+///
+/// The percentage is written as a percentage rather than as a bare fraction,
+/// and it is followed by the depth it was computed from, because those are the
+/// two numbers the marker's height cannot separate: a nine tenths from six
+/// reads and a nine tenths from six hundred sit at exactly the same place, and
+/// only the wash of the colour tells them apart.
+fn site_tooltip(site: &MethylSite) -> String {
+    format!(
+        "methylation site, {}, {}, {}% modified in {} {}",
+        group_thousands(site.pos + 1),
+        // The track has two lanes and everything that is not reverse is drawn
+        // in the forward one, so this names the lane the marker is in.
+        if site.is_reverse() {
+            "reverse"
+        } else {
+            "forward"
+        },
+        (site.fraction * 100.0).round() as i64,
+        // A deep site is a five figure read count, and a count in a tooltip is
+        // grouped wherever it appears.
+        group_thousands(site.coverage as u64),
+        if site.coverage == 1 { "read" } else { "reads" }
+    )
 }
 
 #[cfg(test)]
@@ -523,6 +558,55 @@ mod tests {
         assert!(svg.contains(">fwd 100%</text>"));
         assert!(svg.contains(">rev 100%</text>"));
         assert!(svg.contains(">0</text>"));
+    }
+
+    #[test]
+    fn a_site_is_named_with_its_position_its_strand_and_its_fraction() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MethylationTrack::new(sites()))
+            .to_svg();
+        // The fraction says what it is a fraction of, because the height of
+        // the marker cannot tell six reads from six hundred.
+        assert!(
+            svg.contains(
+                "<title>methylation site, 1,011, forward, 95% modified in 40 reads</title>"
+            ),
+            "{svg}"
+        );
+        assert!(
+            svg.contains(
+                "<title>methylation site, 1,041, reverse, 5% modified in 41 reads</title>"
+            ),
+            "{svg}"
+        );
+        // The call from two reads was dropped, so it is not named either.
+        assert!(!svg.contains("1,071, forward"), "{svg}");
+    }
+
+    #[test]
+    fn one_read_is_a_read_and_not_one_reads() {
+        let lone = vec![MethylSite::new(1_010, Strand::Forward, 1.0, 1)];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MethylationTrack::new(lone).min_coverage(1))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>methylation site, 1,011, forward, 100% modified in 1 read</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn every_group_a_methylation_track_opens_is_closed_again() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MethylationTrack::new(sites()))
+            .to_svg();
+        let open = svg.matches("<g>").count() + svg.matches("<g ").count();
+        assert_eq!(open, svg.matches("</g>").count(), "{svg}");
     }
 
     #[test]

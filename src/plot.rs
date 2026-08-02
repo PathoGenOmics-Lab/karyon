@@ -907,8 +907,18 @@ mod tests {
         let locus = Region::parse("NC_000962.3:761001-762000")
             .unwrap()
             .to_string();
-        assert!(with.contains(&locus));
-        assert!(!without.contains(&locus));
+        let drawn = |svg: &str| -> bool {
+            svg.split("<text").skip(1).any(|piece| {
+                piece
+                    .split("</text>")
+                    .next()
+                    .is_some_and(|t| t.contains(&locus))
+            })
+        };
+        assert!(drawn(&with));
+        // Only the drawn label goes; the document keeps its accessible name.
+        assert!(!drawn(&without));
+        assert!(without.contains("<title"));
     }
 
     #[test]

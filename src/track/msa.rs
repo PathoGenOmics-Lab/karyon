@@ -39,6 +39,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
 /// One aligned sequence.
@@ -78,6 +79,22 @@ impl MsaSequence {
 /// Whether a gap character is a gap.
 pub fn is_gap(residue: u8) -> bool {
     matches!(residue, b'-' | b'.' | b'~' | b' ')
+}
+
+/// A count with its noun, in the number the count calls for.
+///
+/// The plural is given rather than derived, since the nouns a tooltip needs
+/// are not all one letter apart from their singular. The number is grouped,
+/// because every number in a tooltip is: an alignment thirty kilobases wide
+/// reads `30,000 columns`, and a rule that grouped only the numbers a reader
+/// found long would make the punctuation a fact about the data.
+fn count(n: usize, one: &str, many: &str) -> String {
+    let n = group_thousands(n as u64);
+    if n == "1" {
+        format!("{n} {one}")
+    } else {
+        format!("{n} {many}")
+    }
 }
 
 /// What gets painted.
@@ -433,6 +450,13 @@ impl Track for MsaTrack {
         for (index, row) in self.sequences.iter().take(rows).enumerate() {
             let top = band.y + index as f64 * (self.row_height + self.row_gap);
 
+            // The row is named, and never the cell. A tooltip per residue is
+            // rows times columns elements, which is tens of thousands of them
+            // on an alignment worth drawing, and the name of a cell is its
+            // row's name anyway.
+            ctx.svg
+                .begin_titled(&self.row_title(row, &comparison, first, last));
+
             // Neighbouring cells of the same colour are merged into one
             // rectangle. Most of an alignment agrees with itself, so this is
             // the difference between a figure and a file no viewer will open.
@@ -471,6 +495,8 @@ impl Track for MsaTrack {
                     Anchor::End,
                 );
             }
+
+            ctx.svg.end_group();
         }
 
         if hidden > 0 {
@@ -498,6 +524,53 @@ impl Track for MsaTrack {
 }
 
 impl MsaTrack {
+    /// What a row is and how much of it departs from the comparison row.
+    ///
+    /// This is the claim the track makes about a row, so it is what a pointer
+    /// resting on the row is told. Counting is over the columns in view rather
+    /// than the whole alignment, since a tooltip that described columns nobody
+    /// can see would disagree with the figure it sits on.
+    ///
+    /// Gaps are counted apart from mismatches because they are a third thing:
+    /// a gap disagrees with the comparison row without carrying a residue that
+    /// could have agreed, and it is painted in its own colour to say so.
+    fn row_title(&self, row: &MsaSequence, comparison: &[u8], first: usize, last: usize) -> String {
+        let mut columns = 0usize;
+        let mut mismatches = 0usize;
+        let mut gaps = 0usize;
+        for column in first..last {
+            let Some(residue) = row.residue(column) else {
+                continue;
+            };
+            columns += 1;
+            if is_gap(residue) {
+                gaps += 1;
+                continue;
+            }
+            let agrees = comparison
+                .get(column)
+                .copied()
+                .is_some_and(|other| !is_gap(other) && other.eq_ignore_ascii_case(&residue));
+            if !agrees {
+                mismatches += 1;
+            }
+        }
+
+        let mut title = String::new();
+        if !row.name.is_empty() {
+            title.push_str(&row.name);
+            title.push_str(", ");
+        }
+        title.push_str(&count(columns, "column", "columns"));
+        title.push_str(", ");
+        title.push_str(&count(mismatches, "mismatch", "mismatches"));
+        if gaps > 0 {
+            title.push_str(", ");
+            title.push_str(&count(gaps, "gap", "gaps"));
+        }
+        title
+    }
+
     /// Paints one merged run of equally coloured columns.
     fn paint_run(&self, ctx: &mut DrawContext<'_>, from: usize, to: usize, top: f64, color: &str) {
         let x = ctx.scale.x(from as u64);
@@ -795,6 +868,91 @@ mod tests {
         assert!(svg.starts_with("<svg "));
         assert!(!svg.contains("NaN"));
         assert_eq!(MsaTrack::new(Vec::new()).visible_rows(), (0, 0));
+    }
+
+    #[test]
+    fn a_row_is_named_once_and_a_cell_is_never_named() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MsaTrack::new(alignment()))
+            .to_svg();
+        // The consensus is ACGTTCGTAC, so H37Rv is the row that disagrees and
+        // Beijing is the row with the gap.
+        assert!(
+            svg.contains("<title>H37Rv, 10 columns, 1 mismatch</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>CDC1551, 10 columns, 0 mismatches</title>"));
+        assert!(svg.contains("<title>Beijing, 10 columns, 0 mismatches, 1 gap</title>"));
+        assert!(svg.contains("<title>Erdman, 10 columns, 0 mismatches</title>"));
+        // Four rows, four tooltips. Forty cells, no tooltips.
+        assert_eq!(svg.matches("<title>").count(), 4);
+    }
+
+    #[test]
+    fn a_count_in_a_tooltip_is_grouped_like_every_other_number() {
+        // An alignment wide enough to reach four figures reads `1,200 columns`,
+        // because a rule that grouped only the numbers a reader found long
+        // would make the punctuation a fact about the data.
+        let wide: Vec<u8> = b"ACGT".iter().cycle().take(1_200).copied().collect();
+        let rows = vec![
+            MsaSequence::new("ref", wide.clone()),
+            MsaSequence::new("s1", wide),
+        ];
+        let svg = Figure::new(Region::new("aln", 0, 1_200).unwrap())
+            .show_region_label(false)
+            .push(MsaTrack::new(rows))
+            .to_svg();
+        assert!(
+            svg.contains("<title>ref, 1,200 columns, 0 mismatches</title>"),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn a_row_is_counted_over_the_columns_in_view() {
+        let over = |start, end| {
+            Figure::new(Region::new("alignment", start, end).unwrap())
+                .show_region_label(false)
+                .push(MsaTrack::new(alignment()))
+                .to_svg()
+        };
+        // The one disagreement sits in column 4, so it is in the first half of
+        // the alignment and not in the second.
+        assert!(over(0, 5).contains("<title>H37Rv, 5 columns, 1 mismatch</title>"));
+        assert!(over(5, 10).contains("<title>H37Rv, 5 columns, 0 mismatches</title>"));
+    }
+
+    #[test]
+    fn a_row_that_stops_early_counts_only_the_columns_it_has() {
+        let ragged = vec![
+            MsaSequence::new("full", b"ACGTACGT".to_vec()),
+            MsaSequence::new("short", b"ACGT".to_vec()),
+        ];
+        let svg = Figure::new(Region::new("alignment", 0, 8).unwrap())
+            .show_region_label(false)
+            .push(MsaTrack::new(ragged))
+            .to_svg();
+        assert!(
+            svg.contains("<title>full, 8 columns, 0 mismatches</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>short, 4 columns, 0 mismatches</title>"));
+    }
+
+    #[test]
+    fn only_the_rows_that_are_drawn_are_named() {
+        let rows: Vec<MsaSequence> = (0..60)
+            .map(|i| MsaSequence::new(format!("s{i}"), b"ACGT".to_vec()))
+            .collect();
+        let svg = Figure::new(Region::new("alignment", 0, 4).unwrap())
+            .show_region_label(false)
+            .push(MsaTrack::new(rows).max_rows(Some(10)))
+            .to_svg();
+        assert_eq!(svg.matches("<title>").count(), 10);
+        assert!(svg.contains("<title>s9, 4 columns, 0 mismatches</title>"));
+        assert!(!svg.contains("<title>s10,"), "a hidden row is not named");
     }
 
     #[test]

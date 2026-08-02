@@ -38,6 +38,8 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
+use crate::track::feature::span_label;
 use crate::track::{DrawContext, Track};
 
 /// What a structural variant did.
@@ -322,6 +324,11 @@ impl Track for StructuralTrack {
             let x1 = ctx.scale.x_center(call.end);
             let apex = baseline - self.arch(call) * band.h;
 
+            // A call is a footprint, an arc and sometimes a name, and the whole
+            // of it is one event. The group holds them together so a pointer
+            // anywhere on the call answers for the call.
+            ctx.svg.begin_titled(&tooltip(call));
+
             if self.show_footprints && call.kind.has_footprint() {
                 // What the call covers, along the axis. It is a footprint and
                 // not the mark itself: the interesting part of a deletion is
@@ -341,40 +348,71 @@ impl Track for StructuralTrack {
                 ctx.svg
                     .line(x0, baseline, x0, apex, &color, self.stroke_of(call));
                 ctx.svg.circle(x0, apex, self.stroke_of(call) * 0.9, &color);
-                continue;
-            }
+            } else {
+                // Springing from the axis at both ends. A control point twice
+                // the height puts the apex of the curve at the height asked for.
+                let control = baseline - (baseline - apex) * 2.0;
+                let d = format!(
+                    "M{} {}Q{} {} {} {}",
+                    num(x0),
+                    num(baseline),
+                    num((x0 + x1) / 2.0),
+                    num(control),
+                    num(x1),
+                    num(baseline)
+                );
+                ctx.svg.path_stroked(&d, &color, self.stroke_of(call));
 
-            // Springing from the axis at both ends. A control point twice the
-            // height puts the apex of the curve at the height asked for.
-            let control = baseline - (baseline - apex) * 2.0;
-            let d = format!(
-                "M{} {}Q{} {} {} {}",
-                num(x0),
-                num(baseline),
-                num((x0 + x1) / 2.0),
-                num(control),
-                num(x1),
-                num(baseline)
-            );
-            ctx.svg.path_stroked(&d, &color, self.stroke_of(call));
-
-            if self.show_names {
-                if let Some(name) = &call.name {
-                    let size = ctx.theme.font_size - 2.0;
-                    if (x1 - x0).abs() > text_width(name, size) + 6.0 {
-                        ctx.svg.text(
-                            (x0 + x1) / 2.0,
-                            apex - 3.0,
-                            name,
-                            &ctx.theme.muted,
-                            size,
-                            Anchor::Middle,
-                        );
+                if self.show_names {
+                    if let Some(name) = &call.name {
+                        let size = ctx.theme.font_size - 2.0;
+                        if (x1 - x0).abs() > text_width(name, size) + 6.0 {
+                            ctx.svg.text(
+                                (x0 + x1) / 2.0,
+                                apex - 3.0,
+                                name,
+                                &ctx.theme.muted,
+                                size,
+                                Anchor::Middle,
+                            );
+                        }
                     }
                 }
             }
+
+            ctx.svg.end_group();
         }
     }
+}
+
+/// What a reader hovering one call is told.
+///
+/// What happened, where it happened, and how much read evidence there was for
+/// saying so. Support is the one number on the glyph that cannot be read off
+/// it: stroke weight orders the calls but does not measure them, and the
+/// height of an arc is an ordering too, so the count belongs here.
+///
+/// A call whose breakpoints coincide gets one coordinate rather than two. An
+/// insertion is sequence the reference does not have, so `4,362,001 to
+/// 4,362,001` would be a span where the data has a point.
+fn tooltip(call: &StructuralVariant) -> String {
+    let mut text = call.kind.name().to_string();
+    text.push_str(", ");
+    if call.start == call.end {
+        text.push_str(&group_thousands(call.start + 1));
+    } else {
+        text.push_str(&span_label(call.start, call.end));
+    }
+    if let Some(reads) = call.support {
+        text.push_str(", ");
+        text.push_str(&group_thousands(reads as u64));
+        text.push_str(if reads == 1 {
+            " supporting read"
+        } else {
+            " supporting reads"
+        });
+    }
+    text
 }
 
 #[cfg(test)]
@@ -575,6 +613,99 @@ mod tests {
             .name("a_long_event_name")]))
             .to_svg();
         assert!(!cramped.contains(">a_long_event_name</text>"));
+    }
+
+    /// Every group a track opens has to be closed by exactly one `end_group`.
+    /// This track is the one at risk of getting it wrong, because a spike used
+    /// to leave the loop early.
+    fn groups_balance(svg: &str) -> bool {
+        svg.matches("<g ").count() + svg.matches("<g>").count() == svg.matches("</g>").count()
+    }
+
+    #[test]
+    fn a_call_says_what_happened_where_and_on_what_evidence() {
+        let svg = Figure::new(Region::new("chr1", 4_340_000, 4_400_000).unwrap())
+            .show_region_label(false)
+            .push(StructuralTrack::new(vec![StructuralVariant::new(
+                4_350_000,
+                4_359_600,
+                SvKind::Deletion,
+            )
+            .support(62)
+            .name("RD1")]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>deletion, 4,350,001 to 4,359,600, 62 supporting reads</title>"),
+            "{svg}"
+        );
+        assert!(groups_balance(&svg));
+    }
+
+    #[test]
+    fn a_call_with_one_breakpoint_gets_one_coordinate() {
+        // An insertion is sequence the reference does not have, so a span
+        // would be a claim about a stretch that is not there.
+        let svg = Figure::new(Region::new("chr1", 4_340_000, 4_400_000).unwrap())
+            .show_region_label(false)
+            .push(StructuralTrack::new(vec![StructuralVariant::new(
+                4_362_000,
+                4_362_000,
+                SvKind::Insertion,
+            )
+            .support(17)]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>insertion, 4,362,001, 17 supporting reads</title>"),
+            "{svg}"
+        );
+        // A spike draws a line and a head and leaves the loop by another path
+        // than an arc does, and it still closes its group.
+        assert!(groups_balance(&svg));
+    }
+
+    #[test]
+    fn a_call_with_no_support_figure_claims_none() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(StructuralTrack::new(vec![StructuralVariant::new(
+                4_000,
+                4_500,
+                SvKind::Inversion,
+            )]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>inversion, 4,001 to 4,500</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn one_supporting_read_is_a_read_and_not_reads() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(StructuralTrack::new(vec![StructuralVariant::new(
+                1_000,
+                2_000,
+                SvKind::Duplication,
+            )
+            .support(1)]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>duplication, 1,001 to 2,000, 1 supporting read</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn every_call_on_screen_is_named_exactly_once() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(StructuralTrack::new(calls()))
+            .to_svg();
+        // Four calls, four tooltips: the footprint, the arc and the name of one
+        // call are one event and share one group.
+        assert_eq!(svg.matches("<title>").count(), 4, "{svg}");
+        assert!(groups_balance(&svg));
     }
 
     #[test]

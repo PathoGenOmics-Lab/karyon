@@ -286,6 +286,15 @@ impl Legend {
             let baseline = middle + font * 0.35;
             for (offset, index) in entries {
                 let at = x + offset;
+                // A key is one datum drawn as one mark, so it gets a tooltip,
+                // and the tooltip carries the colour itself: the swatch shows
+                // which hue it is, and a reader matching a figure against a
+                // palette wants the value.
+                let title = item_title(&self.items[*index]);
+                let titled = !title.is_empty();
+                if titled {
+                    svg.begin_titled(&title);
+                }
                 match &self.items[*index] {
                     LegendItem::Key {
                         label,
@@ -377,8 +386,35 @@ impl Legend {
                         svg.text(cursor, baseline, high, &theme.muted, font, Anchor::Start);
                     }
                 }
+                if titled {
+                    svg.end_group();
+                }
             }
         }
+    }
+}
+
+/// What one key stands for, for its tooltip.
+///
+/// A key with nothing to say gets no group at all rather than an empty one,
+/// and a ramp never has anything to say. Its label and both of its ends are
+/// already drawn beside the strip in text a reader is looking straight at, so
+/// its tooltip was the one in the crate that repeated the page back to it.
+///
+/// A key does have something: the colour value. The swatch shows the hue and a
+/// reader matching a figure against a palette wants the number, so it is
+/// named rather than left as a bare hex string dangling after a comma, which
+/// made it the one tooltip in the crate that ended in an unlabelled datum.
+fn item_title(item: &LegendItem) -> String {
+    match item {
+        LegendItem::Key { label, color, .. } => {
+            if label.is_empty() {
+                String::new()
+            } else {
+                format!("{label}, colour {color}")
+            }
+        }
+        LegendItem::Ramp { .. } => String::new(),
     }
 }
 
@@ -553,6 +589,44 @@ mod tests {
             "only {} shades: {shades:?}",
             shades.len()
         );
+    }
+
+    #[test]
+    fn a_key_names_its_colour_and_a_ramp_says_nothing_at_all() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(
+                Legend::new()
+                    .key("resistant", "#d55e00")
+                    .ramp("identity", "#eeeeee", "#333333", "70%", "100%"),
+            ))
+            .to_svg();
+        // The colour is the one thing the swatch shows without saying, and it
+        // is named rather than left bare after a comma.
+        assert!(
+            svg.contains("<title>resistant, colour #d55e00</title>"),
+            "{svg}"
+        );
+        // The ramp's label and both its ends are drawn beside it in text, so a
+        // tooltip repeating them would be the page read back to the reader.
+        assert!(!svg.contains("70% to 100%</title>"), "{svg}");
+        assert!(
+            svg.contains(">70%</text>") && svg.contains(">100%</text>"),
+            "the ends are still drawn, {svg}"
+        );
+        // One key and nothing else claiming a tooltip.
+        assert_eq!(svg.matches("<title>").count(), 1);
+        assert_eq!(svg.matches("<g>").count(), 1);
+    }
+
+    #[test]
+    fn a_key_with_no_label_opens_no_group_at_all() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(Legend::new().key("", "#d55e00")))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
+        assert!(svg.contains("#d55e00"), "the swatch is still drawn");
     }
 
     #[test]

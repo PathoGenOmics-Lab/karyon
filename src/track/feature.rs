@@ -26,7 +26,75 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
+
+/// A span as a reader reads it: 1-based, inclusive, thousands separated.
+///
+/// Coordinates are 0-based and half-open everywhere the crate computes, and a
+/// tooltip is one of the two places that reaches a reader, the ruler being the
+/// other. So `100..900` comes back as `101 to 900`, the coordinates the tick
+/// labels print and the ones that go into a browser search box. It shares
+/// [`group_thousands`] with the ruler for the same reason the ruler has one
+/// unit across its whole width: two conventions on one figure have to be
+/// decoded rather than read.
+///
+/// **This is the only place in the crate that writes a span.** Four tracks
+/// once spelled `start + 1 .. end` out by hand and every one of them lost the
+/// degenerate case with it: a zero-length interval has no last base to count
+/// from one, so `100..100` came out `101 to 100`, a span running backwards on
+/// a figure whose whole subject is direction. The floor below is what stops
+/// that, and it only stops it for callers who come through here.
+pub(crate) fn span_label(start: u64, end: u64) -> String {
+    // Half-open in, inclusive out: the last base of `start..end` is `end - 1`,
+    // which is `end` again once it is counted from one.
+    let last = end.max(start + 1) - 1;
+    format!(
+        "{} to {}",
+        group_thousands(start + 1),
+        group_thousands(last + 1)
+    )
+}
+
+/// How a strand is named in a tooltip, and nothing at all when it is unknown.
+///
+/// [`Strand::Unknown`] is drawn as a plain box precisely because there is
+/// nothing to say about it, and a tooltip reading `unknown` would be a claim
+/// where the glyph makes none.
+pub(crate) fn strand_label(strand: Strand) -> &'static str {
+    match strand {
+        Strand::Forward => "forward",
+        Strand::Reverse => "reverse",
+        Strand::Unknown => "",
+    }
+}
+
+/// What a reader hovering one feature is told: its name, its span, its strand.
+///
+/// The name leads because it is what was looked for. A feature without one
+/// still gets its span, since where it is is the other half of the question and
+/// the only half a nameless interval can answer.
+///
+/// A nameless one is given the noun `feature` in front of that span rather
+/// than opening on a bare coordinate. Every tooltip in the crate is
+/// `what it is, where it is`, and a name is what fills the first slot when
+/// there is one; the fallback has to fill it too, or one glyph in a figure of
+/// thirty answers a pointer in a different grammar from the rest.
+pub(crate) fn feature_title(feature: &Feature) -> String {
+    let mut title = String::new();
+    match feature.name.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => title.push_str(name),
+        None => title.push_str("feature"),
+    }
+    title.push_str(", ");
+    title.push_str(&span_label(feature.start, feature.end));
+    let strand = strand_label(feature.strand);
+    if !strand.is_empty() {
+        title.push_str(", ");
+        title.push_str(strand);
+    }
+    title
+}
 
 /// The colour a strand is drawn in, wherever a track colours by strand.
 ///
@@ -305,6 +373,20 @@ impl Track for FeatureTrack {
                     .unwrap_or_else(|| strand_color(feature.strand, ctx.theme).to_string())
             });
 
+            // A gene with a name is the thing a reader most wants to point at,
+            // so every feature carries one: the arrow and its label are one
+            // glyph and answer together.
+            //
+            // Except when the feature is thinner than a pixel. `right` is
+            // floored so a short feature stays visible, but a floor is not a
+            // width: across a whole genome several thousand genes are a smear
+            // a pointer cannot resolve, and naming each one would put a title
+            // on a mark nobody can hit.
+            let pointable = ctx.scale.x(feature.end) - left >= 1.0;
+            if pointable {
+                ctx.svg.begin_titled(&feature_title(feature));
+            }
+
             // The arrowhead eats a third of a short feature but never more
             // than 8 pixels of a long one, so an interval stays a bar with a
             // point rather than becoming a triangle.
@@ -340,32 +422,34 @@ impl Track for FeatureTrack {
                 ),
             }
 
-            if !self.show_names {
-                continue;
+            // One exit from here on, so the group opened above is closed
+            // exactly once however the name turns out.
+            if let (true, Some(name)) = (self.show_names, &feature.name) {
+                let width = text_width(name, font);
+                let baseline = middle + font * 0.35;
+                if width + 6.0 <= right - left {
+                    ctx.svg.text(
+                        (left + right) / 2.0,
+                        baseline,
+                        name,
+                        contrast_ink(&color),
+                        font,
+                        Anchor::Middle,
+                    );
+                } else {
+                    ctx.svg.text(
+                        right + 3.0,
+                        baseline,
+                        name,
+                        &ctx.theme.foreground,
+                        font,
+                        Anchor::Start,
+                    );
+                }
             }
-            let Some(name) = &feature.name else {
-                continue;
-            };
-            let width = text_width(name, font);
-            let baseline = middle + font * 0.35;
-            if width + 6.0 <= right - left {
-                ctx.svg.text(
-                    (left + right) / 2.0,
-                    baseline,
-                    name,
-                    contrast_ink(&color),
-                    font,
-                    Anchor::Middle,
-                );
-            } else {
-                ctx.svg.text(
-                    right + 3.0,
-                    baseline,
-                    name,
-                    &ctx.theme.foreground,
-                    font,
-                    Anchor::Start,
-                );
+
+            if pointable {
+                ctx.svg.end_group();
             }
         }
     }
@@ -374,6 +458,7 @@ impl Track for FeatureTrack {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::figure::Figure;
     use crate::region::Region;
 
     fn scale(region: &Region) -> Scale {
@@ -463,5 +548,117 @@ mod tests {
         let region = Region::new("chr1", 0, 1000).unwrap();
         let track = FeatureTrack::new(Vec::new());
         assert_eq!(track.height(&scale(&region)), 14.0);
+    }
+
+    #[test]
+    fn a_span_is_quoted_the_way_the_ruler_prints_it() {
+        // 0-based half-open in, 1-based inclusive out, grouped like the ticks.
+        assert_eq!(span_label(759_806, 763_325), "759,807 to 763,325");
+        assert_eq!(span_label(0, 1), "1 to 1");
+        assert_eq!(span_label(99, 100), "100 to 100");
+    }
+
+    #[test]
+    fn a_zero_length_span_still_reads_forwards() {
+        // Written by hand as `start + 1 to end` this is `101 to 100`, a span
+        // running backwards on a figure whose subject is direction. Four
+        // tracks wrote it by hand and all four had the bug, which is why this
+        // is the only span formatter left.
+        assert_eq!(span_label(100, 100), "101 to 101");
+        assert_eq!(span_label(0, 0), "1 to 1");
+        // An end before the start collapses to the start rather than inverting.
+        assert_eq!(span_label(100, 50), "101 to 101");
+    }
+
+    #[test]
+    fn a_gene_is_named_by_its_name_its_span_and_its_strand() {
+        let svg = Figure::new(Region::parse("NC_000962.3:759001-764000").unwrap())
+            .show_region_label(false)
+            .push(FeatureTrack::new(vec![Feature::new(759_806, 763_325)
+                .name("rpoB")
+                .strand(Strand::Forward)]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>rpoB, 759,807 to 763,325, forward</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_reverse_gene_says_so_and_a_strandless_one_says_nothing() {
+        let render = |feature: Feature| {
+            Figure::new(Region::new("chr1", 0, 2_000).unwrap())
+                .show_region_label(false)
+                .push(FeatureTrack::new(vec![feature]))
+                .to_svg()
+        };
+        assert!(
+            render(Feature::new(100, 900).name("katG").strand(Strand::Reverse))
+                .contains("<title>katG, 101 to 900, reverse</title>")
+        );
+        // Unknown is drawn as a plain box because there is nothing to say, and
+        // a tooltip reading `unknown` would be a claim the glyph does not make.
+        assert!(
+            render(Feature::new(100, 900).name("katG")).contains("<title>katG, 101 to 900</title>")
+        );
+    }
+
+    #[test]
+    fn a_feature_with_no_name_still_gets_its_span() {
+        let svg = Figure::new(Region::new("chr1", 0, 2_000).unwrap())
+            .show_region_label(false)
+            .push(FeatureTrack::new(vec![
+                Feature::new(100, 900).strand(Strand::Forward)
+            ]))
+            .to_svg();
+        // The noun stands in for the missing name, so the tooltip still opens
+        // on what it is rather than on a bare coordinate.
+        assert!(
+            svg.contains("<title>feature, 101 to 900, forward</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_feature_thinner_than_a_pixel_is_not_named() {
+        // Two thousand genes across a bacterial genome are a smear a pointer
+        // cannot resolve, and a title on each would be a title on a mark
+        // nobody can hit as well as a quarter of the file.
+        let genes: Vec<Feature> = (0..2_000)
+            .map(|i| Feature::new(i * 2_000, i * 2_000 + 300).name(format!("g{i}")))
+            .collect();
+        let wide = Figure::new(Region::new("chr1", 0, 4_000_000).unwrap())
+            .show_region_label(false)
+            .push(FeatureTrack::new(genes.clone()).show_names(false))
+            .to_svg();
+        assert!(!wide.contains("<title>"), "a sub-pixel gene was named");
+
+        // Zoomed in far enough to point at one, it is named again.
+        let close = Figure::new(Region::new("chr1", 0, 20_000).unwrap())
+            .show_region_label(false)
+            .push(FeatureTrack::new(genes).show_names(false))
+            .to_svg();
+        assert!(close.contains("<title>g0, 1 to 300</title>"), "{close}");
+    }
+
+    #[test]
+    fn every_group_a_feature_opens_is_closed_again() {
+        let svg = Figure::new(Region::new("chr1", 0, 3_000).unwrap())
+            .show_region_label(false)
+            .push(FeatureTrack::new(vec![
+                // Named and wide, named and narrow, and nameless.
+                Feature::new(0, 900).name("wide").strand(Strand::Forward),
+                Feature::new(1_000, 1_020)
+                    .name("a_name_far_wider_than_its_feature")
+                    .strand(Strand::Reverse),
+                Feature::new(2_000, 2_800),
+            ]))
+            .to_svg();
+        assert_eq!(
+            svg.matches("<g").count(),
+            svg.matches("</g>").count(),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("<title>").count(), 3);
     }
 }

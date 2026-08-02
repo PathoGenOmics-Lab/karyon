@@ -30,6 +30,8 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::mix;
+use crate::track::axis::group_thousands;
+use crate::track::feature::{span_label, strand_label};
 use crate::track::{strand_color, DrawContext, Strand, Track};
 
 /// How a transcript is brought to an end.
@@ -143,6 +145,60 @@ impl TranscriptionUnit {
     pub fn is_leaderless(&self) -> bool {
         self.leader() == Some(0)
     }
+}
+
+/// What a reader hovering one transcript is told.
+///
+/// The three statements the glyph exists to make, in the order it makes them:
+/// the span the molecule covers, then how much of it runs before the first
+/// codon, then how it stopped. A gene model can say none of these, which is why
+/// this is a track of its own and why a tooltip on it is worth more than a
+/// tooltip on an interval.
+///
+/// The span is the reference extent, low coordinate first, as every other
+/// track writes one; the strand is what says which end the polymerase started
+/// at, since on the reverse strand that is the higher coordinate.
+fn unit_title(unit: &TranscriptionUnit) -> String {
+    let mut title = String::new();
+    match unit.name.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => title.push_str(name),
+        None => title.push_str("transcript"),
+    }
+    title.push_str(", ");
+    let (low, high) = unit.extent();
+    title.push_str(&span_label(low, high));
+    let strand = strand_label(unit.strand);
+    if !strand.is_empty() {
+        title.push_str(", ");
+        title.push_str(strand);
+    }
+    // How much of the RNA runs before the first codon. `None` is a transcript
+    // whose start codon was never given, or one on the wrong side of the start
+    // site, and neither is a length to quote.
+    //
+    // A leader of zero bases is `no leader` and not `leaderless`: one slot
+    // holding a noun phrase for every other value and an adjective for this
+    // one is two grammars in the same place, and the reader has to notice the
+    // switch before they can read past it.
+    match unit.leader() {
+        Some(0) => title.push_str(", no leader"),
+        Some(bases) => {
+            title.push_str(", ");
+            title.push_str(&group_thousands(bases));
+            title.push_str(" base leader");
+        }
+        None => {}
+    }
+    // An unknown terminator says nothing, which is the rule `strand_label`
+    // follows for an unknown strand: the glyph makes no claim about how the
+    // molecule stopped, and `terminator not known` is a claim about the record
+    // dressed up as a claim about the transcript.
+    title.push_str(match unit.terminator {
+        Terminator::Intrinsic => ", intrinsic terminator",
+        Terminator::RhoDependent => ", Rho-dependent terminator",
+        Terminator::Unknown => "",
+    });
+    title
 }
 
 /// Transcription units, one glyph set per RNA molecule.
@@ -326,6 +382,16 @@ impl TranscriptionUnitTrack {
             return;
         }
 
+        // Opened after the off-screen return, so a transcript nobody can see
+        // does not leave an empty group behind, and closed at the foot of this
+        // method: the wire, the bent arrow, the terminator and the name are one
+        // molecule and answer a pointer once.
+        //
+        // No width test here, unlike the interval tracks. The glyph is not the
+        // span: the arrow and the terminator are a fixed size in pixels at any
+        // zoom, so there is always something to rest a pointer on.
+        ctx.svg.begin_titled(&unit_title(unit));
+
         // The leader is hollow and the coding part solid, so the distance from
         // the start site to the start codon can be measured off the ruler.
         // Only when the start codon is downstream of the start site: a leader
@@ -405,6 +471,8 @@ impl TranscriptionUnitTrack {
                 }
             }
         }
+
+        ctx.svg.end_group();
     }
 
     /// A hairpin, a bar, or nothing at all when how it ends is not known.
@@ -618,6 +686,116 @@ mod tests {
             )]))
             .to_svg();
         assert!(!away.contains("<polygon"), "no arrowhead is in view");
+    }
+
+    #[test]
+    fn a_transcript_is_named_by_its_span_its_leader_and_how_it_stopped() {
+        // The three statements the glyph exists to make, which no arrangement
+        // of gene models can make.
+        let svg = Figure::new(Region::new("chr", 0, 5_000).unwrap())
+            .show_region_label(false)
+            .push(TranscriptionUnitTrack::new(vec![TranscriptionUnit::new(
+                1_000,
+                2_400,
+                Strand::Forward,
+            )
+            .cds_start(1_064)
+            .terminator(Terminator::Intrinsic)
+            .name("esxB")]))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>esxB, 1,001 to 2,400, forward, 64 base leader, intrinsic terminator</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn one_slot_holds_one_grammar_and_an_absence_says_nothing() {
+        let render = |cds: Option<u64>, terminator: Terminator| {
+            let mut unit = TranscriptionUnit::new(1_000, 2_400, Strand::Forward)
+                .terminator(terminator)
+                .name("t");
+            if let Some(cds) = cds {
+                unit = unit.cds_start(cds);
+            }
+            Figure::new(Region::new("chr", 0, 5_000).unwrap())
+                .show_region_label(false)
+                .push(TranscriptionUnitTrack::new(vec![unit]))
+                .to_svg()
+        };
+        // `no leader` and not `leaderless`: the slot holds a noun phrase for
+        // every other value and it holds one here too.
+        let none = render(Some(1_000), Terminator::Intrinsic);
+        assert!(
+            none.contains(
+                "<title>t, 1,001 to 2,400, forward, no leader, intrinsic terminator</title>"
+            ),
+            "{none}"
+        );
+        assert!(!none.contains("leaderless"), "{none}");
+        // No start codon is not a leader of nought, so nothing is claimed.
+        assert!(render(None, Terminator::RhoDependent)
+            .contains("<title>t, 1,001 to 2,400, forward, Rho-dependent terminator</title>"));
+        // Nor is a start codon upstream of the start site, which is a
+        // contradiction rather than a distance. An unknown terminator says
+        // nothing at all, the way an unknown strand does: the glyph makes no
+        // claim about how the molecule stopped and neither does the tooltip.
+        let unknown = render(Some(900), Terminator::Unknown);
+        assert!(
+            unknown.contains("<title>t, 1,001 to 2,400, forward</title>"),
+            "{unknown}"
+        );
+        assert!(!unknown.contains("terminator"), "{unknown}");
+    }
+
+    #[test]
+    fn a_reverse_transcript_is_named_by_the_span_it_covers() {
+        // The start site is the higher coordinate on this strand, and the
+        // strand is what says so.
+        let svg = Figure::new(Region::new("chr", 0, 5_000).unwrap())
+            .show_region_label(false)
+            .push(TranscriptionUnitTrack::new(vec![TranscriptionUnit::new(
+                4_000,
+                1_000,
+                Strand::Reverse,
+            )
+            .cds_start(3_950)
+            .name("espK")]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>espK, 1,001 to 4,000, reverse, 50 base leader</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_transcript_off_screen_leaves_no_empty_group_behind() {
+        let away = Figure::new(Region::new("chr", 0, 5_000).unwrap())
+            .show_region_label(false)
+            .push(TranscriptionUnitTrack::new(vec![TranscriptionUnit::new(
+                900_000,
+                904_000,
+                Strand::Forward,
+            )
+            .name("gone")]))
+            .to_svg();
+        assert!(!away.contains("<title>gone"), "{away}");
+
+        let here = Figure::new(Region::new("chr", 0, 5_000).unwrap())
+            .show_region_label(false)
+            .push(TranscriptionUnitTrack::new(vec![
+                TranscriptionUnit::new(1_000, 2_000, Strand::Forward).name("a"),
+                TranscriptionUnit::new(3_000, 4_000, Strand::Reverse).name("b"),
+            ]))
+            .to_svg();
+        assert_eq!(
+            here.matches("<g").count(),
+            here.matches("</g>").count(),
+            "{here}"
+        );
+        assert_eq!(here.matches("<title>").count(), 2);
     }
 
     #[test]

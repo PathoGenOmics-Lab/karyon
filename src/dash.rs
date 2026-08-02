@@ -189,7 +189,13 @@ impl Dash {
         if symbols == 0 || counts.is_empty() {
             return DashFit {
                 concentrations: self.concentrations.clone(),
-                weights: vec![1.0; self.concentrations.len().max(1)],
+                weights: {
+                    // No data to move the weights off the prior, whose mode
+                    // with a null-biased Dirichlet is the null component.
+                    let mut weights = vec![0.0; self.concentrations.len().max(1)];
+                    weights[0] = 1.0;
+                    weights
+                },
                 posterior: Vec::new(),
                 observed: Vec::new(),
                 background,

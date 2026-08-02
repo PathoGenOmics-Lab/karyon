@@ -36,6 +36,7 @@ use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Rect, Track};
 
 /// What quantity a symbol's height stands for.
@@ -830,6 +831,23 @@ impl Track for LogoTrack {
                 continue;
             }
 
+            // One tooltip for the column and none for the symbols inside it.
+            // A column is the datum; a stack is that one datum drawn in
+            // pieces, and a title on every piece multiplies a protein logo by
+            // twenty for a number the column total already carries. A column
+            // thinner than a pixel is nothing a pointer can rest on, and a
+            // column that draws nothing has nothing to point at: a stack whose
+            // symbols all round to no height is not empty by `is_empty`, but a
+            // group wrapped around it would carry a title no pointer can ever
+            // reach, which is the same as no title with a group's cost.
+            let visible = |stack: &[(String, f64)]| {
+                stack.iter().any(|(_, height)| height * units_per_px >= 0.5)
+            };
+            let titled = right - left >= 1.0 && (visible(&stack.up) || visible(&stack.down));
+            if titled {
+                ctx.svg.begin_titled(&self.column_title(stack));
+            }
+
             let mut cursor = baseline_y;
             for (symbol, height) in &stack.up {
                 let pixels = height * units_per_px;
@@ -857,6 +875,10 @@ impl Track for LogoTrack {
                 self.draw_symbol(ctx, cell, symbol, &color);
                 cursor += pixels;
             }
+
+            if titled {
+                ctx.svg.end_group();
+            }
         }
 
         if self.show_scale {
@@ -876,6 +898,45 @@ impl Track for LogoTrack {
 }
 
 impl LogoTrack {
+    /// What one column is, for its tooltip: where it sits and what it scored.
+    ///
+    /// The noun leads, as it does in every other tooltip in the crate, and the
+    /// position after it is 1-based, the number the ruler under it prints.
+    ///
+    /// The quantity is named once, in front of both numbers, **whatever the
+    /// score is**. It used to be named only when the score had no unit, on the
+    /// reasoning that `bits` said what `information content` would have said,
+    /// which left the name and the unit taking turns at the same job and the
+    /// unit repeated on each number besides. A unit is a unit; it stays on its
+    /// number, and the quantity is what goes in front.
+    ///
+    /// Every number says which side it is. A two-sided score is two numbers and
+    /// not one, because a column that is loud in both directions is not a quiet
+    /// column, and a side that rounds to nothing is left out rather than
+    /// printed as a zero. A one-sided column is that same sentence with the
+    /// silent half dropped, so it keeps `enriched` rather than falling through
+    /// to a number with nothing said about it.
+    fn column_title(&self, stack: &LogoStack) -> String {
+        let at = group_thousands(stack.pos + 1);
+        let unit = self.score.unit();
+        let up = trim(stack.up_total());
+        let down = trim(stack.down_total());
+        let mut sides: Vec<String> = Vec::with_capacity(2);
+        // A column that scored nothing at all still says which side the zero is
+        // on, so the slot never comes back empty.
+        if up != "0" || down == "0" {
+            sides.push(format!("{up}{unit} enriched"));
+        }
+        if down != "0" {
+            sides.push(format!("{down}{unit} depleted"));
+        }
+        format!(
+            "logo column {at}, {} {}",
+            quantity(self.score),
+            sides.join(", ")
+        )
+    }
+
     /// Draws one symbol stretched to fill `cell`.
     fn draw_symbol(&self, ctx: &mut DrawContext<'_>, cell: Rect, symbol: &str, color: &str) {
         if cell.h <= 0.2 {
@@ -1043,6 +1104,21 @@ fn quantile(values: &[f64], q: f64) -> f64 {
     }
     let weight = position - lower as f64;
     sorted[lower] + weight * (sorted[upper] - sorted[lower])
+}
+
+/// What a score measures, in a word, for the scores whose unit is empty.
+///
+/// [`LogoScore::unit`] names the number for the rest.
+fn quantity(score: LogoScore) -> &'static str {
+    match score {
+        LogoScore::Probability => "probability",
+        LogoScore::InformationContent => "information content",
+        LogoScore::LogOdds => "log odds",
+        LogoScore::KullbackLeibler => "divergence",
+        LogoScore::Difference => "difference",
+        LogoScore::Ratio => "ratio",
+        LogoScore::OddsRatio => "odds ratio",
+    }
 }
 
 /// Two decimals at most, and none at all when they would be zeros.
@@ -1640,6 +1716,72 @@ mod tests {
         assert!(svg.contains("textLength"));
         assert!(svg.contains("lengthAdjust=\"spacingAndGlyphs\""));
         assert!(svg.contains(">A</text>"));
+    }
+
+    #[test]
+    fn a_column_names_its_position_and_what_it_scored() {
+        let svg = Figure::new(Region::new("motif", 0, 2).unwrap())
+            .show_region_label(false)
+            .push(dna(vec![
+                LogoColumn::acgt(10.0, 0.0, 0.0, 0.0),
+                LogoColumn::acgt(5.0, 5.0, 5.0, 5.0),
+            ]))
+            .to_svg();
+        // A perfectly conserved DNA column, in the unit the corner prints,
+        // with the quantity named in front of it and the side named after it.
+        assert!(
+            svg.contains("<title>logo column 1, information content 2 bits enriched</title>"),
+            "{svg}"
+        );
+        // The uniform one has nothing above or below the line, so it opens no
+        // group rather than an empty one.
+        assert_eq!(svg.matches("<title>").count(), 1);
+        assert_eq!(svg.matches("<g>").count(), 1);
+    }
+
+    #[test]
+    fn a_two_sided_column_names_both_of_its_sides() {
+        let svg = Figure::new(Region::new("motif", 0, 1).unwrap())
+            .show_region_label(false)
+            .push(dna(vec![LogoColumn::acgt(70.0, 15.0, 15.0, 0.0)]).edlogo())
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>logo column 1, log odds 2.2 log2 enriched, 5.93 log2 depleted</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_score_with_no_unit_of_its_own_is_named_the_same_way() {
+        // `0.25` on its own is not a statement, and the quantity goes in front
+        // of both numbers whether or not the score also carries a unit.
+        let svg = Figure::new(Region::new("motif", 0, 1).unwrap())
+            .show_region_label(false)
+            .push(
+                dna(vec![LogoColumn::acgt(0.5, 0.25, 0.25, 0.0)])
+                    .score(LogoScore::Difference)
+                    .centering(Centering::None)
+                    .smoothing(1e-9),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("<title>logo column 1, difference 0.25 enriched, 0.25 depleted</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn columns_thinner_than_a_pixel_are_not_named() {
+        // Six thousand columns across 900 pixels: not a letter, not a bar a
+        // pointer can find, and not a tooltip.
+        let columns = vec![LogoColumn::acgt(9.0, 1.0, 0.0, 0.0); 6_000];
+        let svg = Figure::new(Region::new("motif", 0, 6_000).unwrap())
+            .show_region_label(false)
+            .push(dna(columns))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "a tooltip on a sliver");
     }
 
     #[test]

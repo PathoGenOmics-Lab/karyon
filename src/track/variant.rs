@@ -14,6 +14,19 @@
 //! base apart reading as two: it is drawn in the background colour, so a head
 //! in front of another head still has an edge.
 //!
+//! # Only lollipops carry a tooltip
+//!
+//! A lollipop is one mark per call that a pointer can land on, so each one
+//! names itself: its position, its category and the number it carried.
+//!
+//! A tick does not, and the reason is the same one that chose ticks in the
+//! first place. Reaching for [`VariantStyle::Tick`] is the caller saying the
+//! marks are now too dense to be told apart, which is the statement a binned
+//! track makes when it draws one point per pixel column rather than one per
+//! datum. A mark a reader cannot isolate is not a mark worth naming, and
+//! naming every tick in a genome-wide panel adds about two thirds again to the
+//! size of the file for labels nobody can reach.
+//!
 //! # The axis appears only when the stems are measuring something
 //!
 //! Ticks ignore their values by design, and a variant with no value gets a full
@@ -35,6 +48,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
 /// How a variant track is drawn.
@@ -313,6 +327,12 @@ impl Track for VariantTrack {
 
             match self.style {
                 VariantStyle::Tick => {
+                    // Not named, and the style is the reason. Choosing ticks is
+                    // the caller saying the marks are too dense to be told
+                    // apart, which is the same statement a binned track makes
+                    // when it draws one point per pixel column: a mark a
+                    // pointer cannot land on alone is not one worth naming.
+                    // Naming them anyway costs about two thirds of the file.
                     ctx.svg
                         .line(x, baseline, x, baseline - stem_room, &color, 1.0);
                 }
@@ -324,11 +344,16 @@ impl Track for VariantTrack {
                         _ => 1.0,
                     };
                     let top = baseline - fraction * stem_room;
+                    // A lollipop is a stem and a head, and the group is what
+                    // makes the two of them one thing. A tooltip on half of a
+                    // mark is worse than none.
+                    ctx.svg.begin_titled(&tooltip(variant));
                     ctx.svg.line(x, baseline, x, top, &color, 1.4);
                     // The ring is what keeps two variants a base apart reading
                     // as two variants instead of one blob.
                     ctx.svg
                         .circle_ringed(x, top, self.radius, &color, &ctx.theme.background, 1.5);
+                    ctx.svg.end_group();
                 }
             }
         }
@@ -360,6 +385,78 @@ impl Track for VariantTrack {
             }
         }
     }
+}
+
+/// What a reader hovering one mark is told.
+///
+/// The noun first, then the position in the 1-based form the ruler under it
+/// prints, then what kind of event it is and what number it carried. The last
+/// two are optional in the data and neither is invented when it is absent: a
+/// mark with nothing but a position says nothing but its noun and a position.
+///
+/// The noun is there because every tooltip in the crate is `what it is, where
+/// it is`, and a mark that opened on a bare `31,218,401` was the one glyph on
+/// a sheet answering in a different grammar from the pileup above it.
+///
+/// The number is named rather than printed bare, because `0.55` on its own is
+/// not a statement. What it is named is `value` and not anything more specific,
+/// since the track takes any quantity at all: the same band draws allele
+/// fractions, peak heights and read counts, and only the caller knows which.
+/// The gutter label is where that is said, and it is said once rather than on
+/// every mark.
+///
+/// Only lollipops are named. See the module documentation for why a tick is
+/// not.
+fn tooltip(variant: &Variant) -> String {
+    let mut text = format!("variant, {}", group_thousands(variant.pos + 1));
+    if let Some(category) = variant.category.as_deref() {
+        if !category.is_empty() {
+            text.push_str(", ");
+            text.push_str(category);
+        }
+    }
+    if let Some(value) = variant.value {
+        if value.is_finite() {
+            text.push_str(", value ");
+            text.push_str(&exact_value(value));
+        }
+    }
+    text
+}
+
+/// The value written out in full, for the tooltip and nowhere else.
+///
+/// [`format_value`] is an axis-label abbreviator and belongs on the axis, where
+/// the room is a few characters wide and `1.2k` is the only thing that fits. A
+/// tooltip has no width constraint at all and is the one place a reader goes
+/// for the exact figure, so a read depth of 1,234 that came back as `1.2k` had
+/// been rounded by a layout decision made somewhere else on the page.
+///
+/// The integer part is grouped like every other number in a tooltip, and the
+/// fraction is written to a fixed two places rather than to however many the
+/// value happens to need. Fixed, because the track takes allele fractions,
+/// peak heights and read counts without being told which: a rule that dropped
+/// the decimals from whole numbers would put `1` under a pointer and `0.98`
+/// under the one beside it, and a reader comparing two marks would be reading
+/// two formats. `1.00` and `0.98` line up; `1,234.00` is the price of that,
+/// and it is a price paid in one trailing zero.
+fn exact_value(value: f64) -> String {
+    if !value.is_finite() {
+        return "0.00".to_string();
+    }
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs();
+    // Past the point where an f64 has hundredths to report, hand it to the
+    // formatter rather than pretending the scaling below is exact.
+    if magnitude >= 1e15 {
+        return format!("{value:.2}");
+    }
+    let hundredths = (magnitude * 100.0).round() as u64;
+    format!(
+        "{sign}{}.{:02}",
+        group_thousands(hundredths / 100),
+        hundredths % 100
+    )
 }
 
 /// Label for a point on the value axis.
@@ -510,6 +607,24 @@ mod tests {
     }
 
     #[test]
+    fn a_tooltip_prints_the_figure_and_the_axis_abbreviates_it() {
+        // The axis has a few characters of room and the tooltip has none of
+        // that constraint, so the two formatters are two functions. A read
+        // depth of 1,234 rounded to `1.2k` had been rounded by a layout
+        // decision taken somewhere else on the page.
+        assert_eq!(format_value(1234.0), "1.2k");
+        assert_eq!(exact_value(1234.0), "1,234.00");
+        assert_eq!(exact_value(1_234_567.0), "1,234,567.00");
+        // Two places always, so a column of allele fractions lines up.
+        assert_eq!(exact_value(1.0), "1.00");
+        assert_eq!(exact_value(0.98), "0.98");
+        assert_eq!(exact_value(0.5), "0.50");
+        assert_eq!(exact_value(0.0), "0.00");
+        assert_eq!(exact_value(-0.25), "-0.25");
+        assert_eq!(exact_value(f64::NAN), "0.00");
+    }
+
+    #[test]
     fn variants_outside_the_region_are_not_drawn() {
         let region = Region::parse("chr1:1-100").unwrap();
         let svg = Figure::new(region)
@@ -517,6 +632,91 @@ mod tests {
             .push(VariantTrack::new(vec![Variant::new(5_000)]).show_legend(false))
             .to_svg();
         assert!(!svg.contains("<circle"));
+    }
+
+    /// Every group a track opens has to be closed by exactly one `end_group`,
+    /// or the rest of the figure ends up nested inside the last mark drawn.
+    fn groups_balance(svg: &str) -> bool {
+        svg.matches("<g ").count() + svg.matches("<g>").count() == svg.matches("</g>").count()
+    }
+
+    #[test]
+    fn a_mark_says_where_it_is_what_it_is_and_what_it_carried() {
+        let svg = Figure::new(Region::parse("chr1:761001-761300").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(761_154).value(1.00).category("missense"),
+                    Variant::new(761_155).value(0.55).category("synonymous"),
+                ])
+                .show_legend(false),
+            )
+            .to_svg();
+        // 1-based and thousands separated, the form the ruler prints, and the
+        // number named rather than left bare.
+        assert!(
+            svg.contains("<title>variant, 761,155, missense, value 1.00</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>variant, 761,156, synonymous, value 0.55</title>"));
+        assert!(groups_balance(&svg));
+    }
+
+    #[test]
+    fn a_mark_with_only_a_position_claims_only_a_position() {
+        let svg = Figure::new(Region::parse("chr1:761001-761300").unwrap())
+            .show_region_label(false)
+            .push(VariantTrack::new(vec![Variant::new(761_200)]))
+            .to_svg();
+        assert!(svg.contains("<title>variant, 761,201</title>"), "{svg}");
+    }
+
+    #[test]
+    fn ticks_are_not_named_and_lollipops_are() {
+        // Choosing ticks is choosing not to resolve the marks one at a time,
+        // and a mark a pointer cannot land on alone is not one worth naming.
+        // Naming them anyway costs about two thirds of a genome-wide file.
+        let variants = vec![Variant::new(761_154).value(0.55).category("missense")];
+        let figure = |style| {
+            Figure::new(Region::parse("chr1:761001-761300").unwrap())
+                .show_region_label(false)
+                .push(
+                    VariantTrack::new(variants.clone())
+                        .style(style)
+                        .show_legend(false),
+                )
+                .to_svg()
+        };
+
+        let ticks = figure(VariantStyle::Tick);
+        assert!(!ticks.contains("<title>"), "{ticks}");
+        assert!(groups_balance(&ticks));
+
+        let lollipops = figure(VariantStyle::Lollipop);
+        assert!(
+            lollipops.contains("<title>variant, 761,155, missense, value 0.55</title>"),
+            "{lollipops}"
+        );
+        assert!(groups_balance(&lollipops));
+    }
+
+    #[test]
+    fn a_mark_off_screen_is_not_named_either() {
+        let svg = Figure::new(Region::parse("chr1:1-100").unwrap())
+            .show_region_label(false)
+            .push(VariantTrack::new(vec![Variant::new(5_000)]).show_legend(false))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
+    }
+
+    #[test]
+    fn a_non_finite_value_is_left_out_rather_than_printed() {
+        let svg = Figure::new(Region::parse("chr1:1-100").unwrap())
+            .show_region_label(false)
+            .push(VariantTrack::new(vec![Variant::new(10).value(f64::NAN)]))
+            .to_svg();
+        assert!(svg.contains("<title>variant, 11</title>"), "{svg}");
+        assert!(!svg.contains("NaN"));
     }
 
     #[test]

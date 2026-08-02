@@ -30,6 +30,8 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, wash, Theme};
+use crate::track::axis::group_thousands;
+use crate::track::feature::span_label;
 use crate::track::tree::{draw_tree, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -416,6 +418,41 @@ impl Track for CladeTrack {
 }
 
 impl CladeTrack {
+    /// What a block is, where it is, how much of the tree carries it, and
+    /// whether the rectangle had to be cut to stay honest.
+    ///
+    /// The cut rows are in the tooltip because they are the whole claim of the
+    /// track. A rectangle covering a run of rows says one event on one branch,
+    /// and it is only entitled to say that when every row inside it carries the
+    /// block; when it is not, the figure cuts the rows out and this says so in
+    /// words, so the refusal survives being read rather than looked at.
+    /// The count of carriers gets the verb the rest of the crate's `N of M`
+    /// clauses get. `2 of 7 taxa` names a subset and stops; what the subset
+    /// did is the whole reason the rectangle is on the page.
+    fn block_title(&self, block: &CladeBlock, placed: Placed) -> String {
+        let mut title = String::new();
+        match block.name.as_deref().filter(|name| !name.is_empty()) {
+            Some(name) => title.push_str(name),
+            None => title.push_str("clade block"),
+        }
+        title.push_str(", ");
+        title.push_str(&span_label(block.start, block.end));
+        title.push_str(&format!(
+            ", {} of {} taxa carrying",
+            group_thousands(placed.carriers as u64),
+            group_thousands(self.tree.leaf_count() as u64)
+        ));
+        let cut = placed.rows() - placed.carriers;
+        if cut > 0 {
+            title.push_str(&format!(
+                ", {} of {} rows cut out",
+                group_thousands(cut as u64),
+                group_thousands(placed.rows() as u64)
+            ));
+        }
+        title
+    }
+
     fn draw_block(
         &self,
         ctx: &mut DrawContext<'_>,
@@ -440,6 +477,12 @@ impl CladeTrack {
         let top = self.row_centre(band, placed.first) - self.row_height / 2.0;
         let bottom = self.row_centre(band, placed.last) + self.row_height / 2.0;
         let fill = wash(color, theme);
+
+        // The wash, the rows cut out of it, the outline and the name are one
+        // block, so they answer a pointer once and with the same sentence.
+        // `min_block` has already floored the width, so there is always
+        // something here wide enough to rest a pointer on.
+        ctx.svg.begin_titled(&self.block_title(block, placed));
 
         ctx.svg.rect(x0, top, x1 - x0, bottom - top, &fill);
 
@@ -509,6 +552,8 @@ impl CladeTrack {
                 }
             }
         }
+
+        ctx.svg.end_group();
     }
 
     /// Whether the leaf on `row` is one of the block's taxa.
@@ -701,6 +746,83 @@ mod tests {
         let here = render(vec![CladeBlock::new(2_000, 3_000, ["A", "B"])]);
         assert_eq!(away.matches("<rect").count(), empty, "nothing is in view");
         assert!(here.matches("<rect").count() > empty);
+    }
+
+    #[test]
+    fn a_block_is_named_with_its_span_and_how_much_of_the_tree_carries_it() {
+        let track = CladeTrack::new(
+            tree(),
+            vec![CladeBlock::new(2_000, 8_000, ["A", "B"]).name("RD1")],
+        );
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            svg.contains("<title>RD1, 2,001 to 8,000, 2 of 7 taxa carrying</title>"),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("<title>").count(), 1, "one block, one tooltip");
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn a_paraphyletic_block_says_in_words_that_it_was_cut() {
+        // A and D have B and C between them, so the rectangle spans four rows
+        // and two of them are cut out. That refusal is the claim of the track,
+        // so it has to survive being read as well as being looked at.
+        let track = CladeTrack::new(
+            tree(),
+            vec![CladeBlock::new(2_000, 8_000, ["A", "D"]).name("scattered")],
+        );
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>scattered, 2,001 to 8,000, 2 of 7 taxa carrying, 2 of 4 rows cut out</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn an_unnamed_block_leads_with_the_noun_and_not_with_a_coordinate() {
+        let track = CladeTrack::new(tree(), vec![CladeBlock::new(2_000, 8_000, ["E"])]);
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            svg.contains("<title>clade block, 2,001 to 8,000, 1 of 7 taxa carrying</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_zero_length_block_still_reads_forwards() {
+        // Written by hand as `start + 1 to end` this came out `101 to 100`, a
+        // span running backwards. The one span formatter in the crate guards
+        // it, which is the whole reason there is only one.
+        let track = CladeTrack::new(
+            tree(),
+            vec![CladeBlock::new(100, 100, ["A", "B"]).name("point")],
+        );
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            svg.contains("<title>point, 101 to 101, 2 of 7 taxa carrying</title>"),
+            "{svg}"
+        );
+        assert!(!svg.contains("101 to 100"), "{svg}");
+    }
+
+    #[test]
+    fn a_block_nobody_carries_is_named_no_more_than_it_is_drawn() {
+        let track = CladeTrack::new(tree(), vec![CladeBlock::new(2_000, 8_000, ["nobody"])]);
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(track)
+            .to_svg();
+        assert_eq!(svg.matches("<title>").count(), 0);
     }
 
     #[test]

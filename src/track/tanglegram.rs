@@ -39,7 +39,7 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
-use crate::track::tree::{draw_tree, TreeShape, TreeStyle};
+use crate::track::tree::{draw_tree_titled, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -291,6 +291,14 @@ impl Track for TanglegramTrack {
             let ink = if crosses { &crossing } else { &straight };
             let x0 = band.x + side;
             let x1 = band.right() - side;
+            // A tie is one taxon drawn as one curve, and whether it crosses is
+            // the finding. Saying so in words is what a reader who cannot tell
+            // the two colours apart has instead.
+            let titled = !name.is_empty();
+            if titled {
+                let state = if crosses { "crossing" } else { "straight" };
+                ctx.svg.begin_titled(&format!("{name}, {state}"));
+            }
             // Leaving each tip horizontally so the line reads as belonging to
             // that tip rather than pointing at whatever is above it.
             let d = format!(
@@ -320,6 +328,9 @@ impl Track for TanglegramTrack {
                     Anchor::Start,
                 );
             }
+            if titled {
+                ctx.svg.end_group();
+            }
         }
 
         for (tree, mirror) in [(&self.left, false), (&self.right, true)] {
@@ -329,7 +340,7 @@ impl Track for TanglegramTrack {
                 w: side,
                 h: band.h - header,
             };
-            draw_tree(
+            draw_tree_titled(
                 ctx.svg,
                 tree,
                 area,
@@ -341,6 +352,9 @@ impl Track for TanglegramTrack {
                     width: 1.2,
                     mirror,
                 },
+                // The tie already carries the taxon's name beside the tip, so
+                // naming the branch too would be that string a third time.
+                !self.show_tips,
             );
         }
 
@@ -480,6 +494,34 @@ mod tests {
         assert_eq!(svg.matches("<line").count(), 18);
         // The mirrored one reaches the right edge; the other starts at the left.
         assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn a_tie_names_its_taxon_and_says_whether_it_crosses() {
+        // A B C D against A C B D: B and C swap and the other two do not.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(disagreeing())
+            .to_svg();
+        assert!(svg.contains("<title>A, straight</title>"), "{svg}");
+        assert!(svg.contains("<title>B, crossing</title>"), "{svg}");
+        assert!(svg.contains("<title>C, crossing</title>"));
+        assert!(svg.contains("<title>D, straight</title>"));
+        // Which is what a reader who cannot tell the two colours apart has
+        // instead of the colour.
+        assert_eq!(svg.matches("crossing</title>").count(), 2);
+    }
+
+    #[test]
+    fn every_tip_of_both_trees_is_named_too() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(disagreeing().show_tips(false))
+            .to_svg();
+        // Four taxa, on both trees, plus the four ties.
+        assert_eq!(svg.matches("<title>A</title>").count(), 2, "{svg}");
+        assert_eq!(svg.matches("<title>").count(), 12);
+        assert_eq!(svg.matches("<g>").count(), 12);
     }
 
     #[test]

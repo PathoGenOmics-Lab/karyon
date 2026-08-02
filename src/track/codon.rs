@@ -27,7 +27,8 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
-use crate::track::axis::nice_step;
+use crate::track::axis::{group_thousands, nice_step};
+use crate::track::feature::span_label;
 use crate::track::{strand_color, DrawContext, Strand, Track};
 
 /// NCBI translation table 1, the standard code, indexed by
@@ -332,10 +333,17 @@ impl Track for CodonTrack {
                 };
                 let x0 = ctx.scale.x(from);
                 let x1 = ctx.scale.x(to);
+                let residue = self.residue_of(codon);
+                // A cell is drawn only once a codon is two and a half pixels
+                // wide, which is the same test that decides it is a thing on
+                // the page rather than a stripe of the rule, so every cell
+                // drawn here is worth naming.
+                ctx.svg
+                    .begin_titled(&self.cell_title(codon, from, to, residue));
                 let fill = if codon % 2 == 0 { &pale } else { &paler };
                 ctx.svg.rect(x0, cells_y, (x1 - x0).max(0.4), cells_h, fill);
                 if letters {
-                    let glyph = self.residue_of(codon).unwrap_or(b'-');
+                    let glyph = residue.unwrap_or(b'-');
                     let text = (glyph as char).to_string();
                     // A stop is the one residue worth reading as a warning.
                     let color = if glyph == b'*' {
@@ -352,6 +360,7 @@ impl Track for CodonTrack {
                         Anchor::Middle,
                     );
                 }
+                ctx.svg.end_group();
             }
         } else {
             // Below cell resolution the extent of the sequence is still worth
@@ -396,6 +405,22 @@ impl Track for CodonTrack {
 }
 
 impl CodonTrack {
+    /// What one codon cell is, for its tooltip.
+    ///
+    /// The span is written 1-based inclusive, the form the ruler under it
+    /// prints and the form a variant is quoted in, and the residue comes last
+    /// because it is the thing the cell already shows when there is room.
+    fn cell_title(&self, codon: u64, from: u64, to: u64, residue: Option<u8>) -> String {
+        let span = span_label(from, to);
+        // The codon number is a count like any other number in a tooltip, so
+        // a gene long enough to reach four figures reads `codon 1,234`.
+        let at = group_thousands(codon);
+        match residue {
+            Some(glyph) => format!("codon {at}, {span}, {}", glyph as char),
+            None => format!("codon {at}, {span}"),
+        }
+    }
+
     /// A chevron on the first codon, pointing the way the sequence is read.
     fn draw_start(&self, ctx: &mut DrawContext<'_>, y: f64, h: f64, ink: &str) {
         let Some((from, to)) = self.span_of(1) else {
@@ -636,6 +661,77 @@ mod tests {
             .to_svg();
         assert!(svg.contains(">M<"), "codons are translated");
         assert!(svg.contains("rpoB"));
+    }
+
+    #[test]
+    fn a_codon_cell_names_its_number_its_span_and_its_residue() {
+        use crate::figure::Figure;
+
+        let bases: Vec<u8> = b"ATG".iter().cycle().take(300).copied().collect();
+        let svg = Figure::new(Region::new("chr", 1_000, 1_060).unwrap())
+            .show_region_label(false)
+            .push(
+                CodonTrack::new(1_000, 1_300, Strand::Forward)
+                    .sequence(1_000, bases)
+                    .label("rpoB"),
+            )
+            .to_svg();
+        // 1-based inclusive, the form the ruler prints and a variant is quoted
+        // in, and the residue the cell itself is showing.
+        assert!(
+            svg.contains("<title>codon 1, 1,001 to 1,003, M</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>codon 20, 1,058 to 1,060, M</title>"));
+        // Twenty codons on screen, one group each and all of them closed.
+        assert_eq!(svg.matches("<title>").count(), 20);
+        assert_eq!(svg.matches("<g>").count(), 20);
+    }
+
+    #[test]
+    fn a_zero_length_codon_cell_still_reads_forwards() {
+        // The span formatter is shared with every other track precisely so
+        // that the degenerate case is guarded in one place: written by hand
+        // this came out `1,001 to 1,000`.
+        let track = CodonTrack::new(1_000, 1_060, Strand::Forward);
+        assert_eq!(
+            track.cell_title(7, 1_000, 1_000, Some(b'M')),
+            "codon 7, 1,001 to 1,001, M"
+        );
+        // And the codon number is grouped like every other count.
+        assert_eq!(
+            track.cell_title(1_234, 1_000, 1_003, None),
+            "codon 1,234, 1,001 to 1,003"
+        );
+    }
+
+    #[test]
+    fn a_codon_with_no_bases_behind_it_is_still_named() {
+        use crate::figure::Figure;
+
+        let svg = Figure::new(Region::new("chr", 1_000, 1_060).unwrap())
+            .show_region_label(false)
+            .push(CodonTrack::new(1_000, 1_300, Strand::Reverse))
+            .to_svg();
+        // Reverse strand: codon 1 sits at the far end, so this window holds
+        // the high eighties.
+        assert!(
+            svg.contains("<title>codon 81, 1,058 to 1,060</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_codon_thinner_than_a_cell_is_not_named() {
+        use crate::figure::Figure;
+
+        // Ninety kilobases across the figure: a codon is a hundredth of a
+        // pixel, no cell is drawn, and naming one would name nothing.
+        let svg = Figure::new(Region::new("chr", 0, 90_000).unwrap())
+            .show_region_label(false)
+            .push(CodonTrack::new(0, 90_000, Strand::Forward))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
     }
 
     #[test]

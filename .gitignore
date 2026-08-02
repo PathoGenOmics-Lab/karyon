@@ -4,3 +4,8 @@
 
 # MkDocs build output. The site is published from the docs workflow.
 /site
+
+# Every example takes an output directory and defaults to the working one, so
+# `cargo run --example locus` with no argument writes its figures here. The
+# committed copies live in assets/ and docs/assets/figures/ and nowhere else.
+/*.svg

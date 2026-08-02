@@ -106,6 +106,7 @@ pub struct Figure {
     label_width: f64,
     track_gap: f64,
     show_region_label: bool,
+    description: Option<String>,
 }
 
 impl Figure {
@@ -121,6 +122,7 @@ impl Figure {
             label_width: 84.0,
             track_gap: 10.0,
             show_region_label: true,
+            description: None,
         }
     }
 
@@ -141,6 +143,30 @@ impl Figure {
     /// Sets the title drawn above the tracks.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Sets the `<desc>` of the rendered document: what the figure shows.
+    ///
+    /// This is the alt text. It is read by a screen reader in place of the
+    /// several thousand rectangles a figure is made of, and it is what a reader
+    /// gets when the image does not load. Without it the document still carries
+    /// a `<title>`, but a title says which locus this is and an alt text says
+    /// what happens in it, and only the person drawing the figure knows that.
+    ///
+    /// ```
+    /// use karyon::{AxisTrack, Figure, Region};
+    ///
+    /// let svg = Figure::new(Region::parse("chr7:1-1000").unwrap())
+    ///     .description("Read depth falls to zero across the deleted exon.")
+    ///     .push(AxisTrack::new())
+    ///     .to_svg();
+    ///
+    /// assert!(svg.contains("<desc"));
+    /// assert!(svg.contains("Read depth falls to zero"));
+    /// ```
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
         self
     }
 
@@ -208,6 +234,47 @@ impl Figure {
         (self.width, layout.total_height)
     }
 
+    /// What the document calls itself: the visible title, or the locus.
+    ///
+    /// A figure always has one of the two, so the `<title>` is never empty and
+    /// a reader hovering the image is never told nothing.
+    fn document_name(&self) -> String {
+        match &self.title {
+            Some(title) => format!("{}, {}", title, self.region),
+            None => self.region.to_string(),
+        }
+    }
+
+    /// The alt text: whatever [`Figure::description`] was given, or a
+    /// statement of what the figure is made of.
+    ///
+    /// The fallback is composed only from things the figure knows for certain,
+    /// the region and the labels of the tracks in the order they are drawn, so
+    /// it can say what is here without claiming anything about what it shows.
+    /// That is the part [`Figure::description`] exists for.
+    fn document_description(&self) -> String {
+        if let Some(description) = &self.description {
+            return description.clone();
+        }
+        let labels: Vec<&str> = self.tracks.iter().filter_map(|t| t.label()).collect();
+        let count = self.tracks.len();
+        let stack = match count {
+            0 => "no tracks".to_string(),
+            1 => "one track".to_string(),
+            n => format!("{n} tracks"),
+        };
+        if labels.is_empty() {
+            format!("A karyon figure over {}, with {}.", self.region, stack)
+        } else {
+            format!(
+                "A karyon figure over {}, with {}, drawn top to bottom: {}.",
+                self.region,
+                stack,
+                labels.join(", ")
+            )
+        }
+    }
+
     /// Renders the figure to a standalone SVG document.
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
@@ -224,6 +291,16 @@ impl Figure {
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let layout = self.layout();
         let mut svg = SvgWriter::with_id_prefix(prefix);
+        // A prefix means this document is going inside another one, and a
+        // nested document must not name itself. `<title>` resolves to the
+        // innermost element under the pointer, so a title here would shadow
+        // the one the sheet puts on the panel over the panel's whole area,
+        // and `role="img"` inside another `role="img"` hides its contents
+        // from a screen reader rather than describing them. The sheet is the
+        // root and names itself; see [`Panels`](crate::Panels).
+        if prefix.is_empty() {
+            svg.describe(&self.document_name(), &self.document_description());
+        }
 
         if let Some(title) = &self.title {
             svg.text_bold(
@@ -255,10 +332,14 @@ impl Figure {
                 h: *height,
             };
 
+            // The strip is what this track asked for, laid against the plot
+            // area, not the widest strip in the figure: a track that asked for
+            // no axis gets none, and is clipped to its band alone.
+            let axis_width = track.y_axis_width(&self.theme).max(0.0);
             let axis = Rect {
-                x: band.x - layout.axis_width,
+                x: band.x - axis_width,
                 y,
-                w: layout.axis_width,
+                w: axis_width,
                 h: *height,
             };
 
@@ -266,7 +347,7 @@ impl Figure {
                 // Labels sit to the left of the value axes, so a track with an
                 // axis and one without still line their names up.
                 svg.text(
-                    axis.x - 8.0,
+                    band.x - layout.axis_width - 8.0,
                     band.mid_y() + self.theme.label_font_size * 0.35,
                     label,
                     &self.theme.muted,
@@ -482,8 +563,24 @@ mod tests {
 
     #[test]
     fn the_region_label_can_be_turned_off() {
+        // What is turned off is the drawn label. The document still calls
+        // itself by its locus, since a figure with no accessible name is
+        // worse than one with a name nobody can see.
         let svg = Figure::new(region()).show_region_label(false).to_svg();
-        assert!(!svg.contains("chr1:1-1000"));
+        assert!(!drawn_text(&svg).contains("chr1:1-1000"));
+        assert!(svg.contains("<title id=\"karyon-title\">chr1:1-1000</title>"));
+    }
+
+    /// Everything the figure actually draws as text, with the title and the
+    /// description left out.
+    fn drawn_text(svg: &str) -> String {
+        svg.split("<text")
+            .skip(1)
+            .filter_map(|piece| piece.split_once('>'))
+            .filter_map(|(_, rest)| rest.split_once("</text>"))
+            .map(|(content, _)| content)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]

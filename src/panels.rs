@@ -19,6 +19,17 @@
 //! are written over the top afterwards, because a figure paints its own page
 //! colour and anything put down before it is a mark nobody sees.
 //!
+//! # The sheet has to say what the panels stopped saying
+//!
+//! A [`Figure`](crate::Figure) alone names itself in its own `<title>` and
+//! describes itself in its own `<desc>`, and those are the first two children
+//! of a root element. Nested, they are the first two children of something that
+//! is no longer a root, so the sheet names and describes itself instead, out of
+//! the one thing it knows and the panels do not: which panel is which. The
+//! letter and the caption already on the page are that text, so the group each
+//! panel is moved by carries them as its tooltip rather than a second name for
+//! the same thing.
+//!
 //! # The order is the reader's, not the packer's
 //!
 //! [`Panels::columns`] spreads a tall gallery sideways. Nothing reorders the
@@ -69,6 +80,7 @@ pub struct Panels {
     margin: f64,
     theme: Theme,
     title: Option<String>,
+    description: Option<String>,
 }
 
 /// Where the panels ended up and how big a sheet it took.
@@ -92,6 +104,7 @@ impl Panels {
             margin: 14.0,
             theme: Theme::light(),
             title: None,
+            description: None,
         }
     }
 
@@ -137,6 +150,29 @@ impl Panels {
     /// Sets a title across the top of the sheet.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Sets the `<desc>` of the rendered sheet: what the whole sheet shows.
+    ///
+    /// This is the alt text of the sheet, and it replaces the descriptions the
+    /// panels carried on their own, which stop being read the moment they are
+    /// nested. Without it the sheet still describes itself from its letters and
+    /// captions, which says what is on it but not what any of it means.
+    ///
+    /// ```
+    /// use karyon::{AxisTrack, Figure, Panels, Region};
+    ///
+    /// let figure = Figure::new(Region::parse("chr1:1-1000").unwrap()).push(AxisTrack::new());
+    /// let svg = Panels::new()
+    ///     .description("The deletion in panel A is the one panel B genotypes.")
+    ///     .push(&figure, "A")
+    ///     .to_svg();
+    ///
+    /// assert!(svg.contains("The deletion in panel A"));
+    /// ```
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
         self
     }
 
@@ -206,6 +242,56 @@ impl Panels {
     /// Whether the sheet is empty.
     pub fn is_empty(&self) -> bool {
         self.panels.is_empty()
+    }
+
+    /// What the sheet calls itself: its own title, or what it is made of.
+    ///
+    /// One of the two is always there, so the `<title>` is never empty and a
+    /// reader hovering the sheet is never told nothing.
+    fn document_name(&self) -> String {
+        if let Some(title) = &self.title {
+            return title.clone();
+        }
+        match self.panels.len() {
+            0 => "An empty karyon sheet".to_string(),
+            1 => "A karyon sheet of one panel".to_string(),
+            n => format!("A karyon sheet of {n} panels"),
+        }
+    }
+
+    /// The alt text: whatever [`Panels::description`] was given, or the letters
+    /// and captions already on the page.
+    ///
+    /// The fallback claims nothing the sheet does not know. Every panel's own
+    /// description went quiet when it was nested, and the sheet cannot write a
+    /// replacement, but it can list what a sighted reader sees down the side of
+    /// it, which is more than a nested figure gets otherwise.
+    fn document_description(&self) -> String {
+        if let Some(description) = &self.description {
+            return description.clone();
+        }
+        let count = match self.panels.len() {
+            0 => "no panels".to_string(),
+            1 => "one panel".to_string(),
+            n => format!("{n} panels"),
+        };
+        let columns = self.columns.max(1).min(self.panels.len().max(1));
+        let sheet = if columns > 1 {
+            format!("A karyon sheet of {count} in {columns} columns")
+        } else {
+            format!("A karyon sheet of {count}")
+        };
+        let named: Vec<String> = self
+            .panels
+            .iter()
+            .map(panel_title)
+            .filter(|title| !title.is_empty())
+            .collect();
+        if named.is_empty() {
+            format!("{sheet}.")
+        } else {
+            format!("{}: {}.", sheet, named.join("; "))
+        }
     }
 
     /// How much room one panel takes vertically, caption included.
@@ -308,13 +394,20 @@ impl Panels {
             let left = column_x + layout.gutter;
             // The panel goes in untouched, inside a group that moves it, and it
             // goes in first: a figure paints its own page colour, so anything
-            // written before it would end up underneath and invisible.
+            // written before it would end up underneath and invisible. The
+            // group that moves it is also the one that names it, so naming a
+            // panel costs a `<title>` and not an element.
             body.push_str(&format!(
-                r#"<g transform="translate({} {})">{}</g>"#,
+                r#"<g transform="translate({} {})">"#,
                 num(left),
-                num(*top),
-                panel.svg
+                num(*top)
             ));
+            let title = panel_title(panel);
+            if !title.is_empty() {
+                body.push_str(&format!("<title>{}</title>", escape(&title)));
+            }
+            body.push_str(&panel.svg);
+            body.push_str("</g>");
 
             if let Some(label) = &panel.label {
                 svg.text_bold(
@@ -342,15 +435,18 @@ impl Panels {
         // own lettering has to sit over the panels and the panels are not the
         // writer's to hold.
         let (defs, overlay) = svg.into_parts();
-        let mut out = String::with_capacity(body.len() + overlay.len() + 512);
-        out.push_str(&format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}" font-family="{}">"#,
-            num(width),
-            num(height),
-            num(width),
-            num(height),
-            escape(&self.theme.font_family)
-        ));
+
+        // The root element is still the writer's, though, finished over a
+        // transparent page and reopened. A sheet is a document like any other
+        // here and has to carry the same `role`, the same `aria-labelledby` and
+        // the same first two children; writing that a second time by hand is
+        // how the two drift apart.
+        let mut root = SvgWriter::new();
+        root.describe(&self.document_name(), &self.document_description());
+        let root = root.finish(width, height, "none", &self.theme.font_family);
+
+        let mut out = String::with_capacity(root.len() + body.len() + overlay.len() + 512);
+        out.push_str(root.strip_suffix("</svg>").unwrap_or(root.as_str()));
         if !defs.is_empty() {
             out.push_str(&format!("<defs>{defs}</defs>"));
         }
@@ -381,6 +477,25 @@ impl Panels {
 impl Default for Panels {
     fn default() -> Self {
         Panels::new()
+    }
+}
+
+/// What a reader hovering one panel is told: which panel it is, and what its
+/// caption already says it shows.
+///
+/// Both halves are text the sheet has drawn on the page, reused rather than
+/// rewritten, because a second name for the same panel is a second thing to
+/// reconcile. The letter alone is not a name a reader can use out of context,
+/// so it gets its noun; a panel with neither letter nor caption gets nothing at
+/// all, which is what leaves it byte for byte the picture it was.
+fn panel_title(panel: &Panel) -> String {
+    let label = panel.label.as_deref().filter(|label| !label.is_empty());
+    let caption = panel.caption.as_deref().filter(|text| !text.is_empty());
+    match (label, caption) {
+        (Some(label), Some(caption)) => format!("panel {label}, {caption}"),
+        (Some(label), None) => format!("panel {label}"),
+        (None, Some(caption)) => caption.to_string(),
+        (None, None) => String::new(),
     }
 }
 
@@ -727,6 +842,92 @@ mod tests {
         assert!(svg.contains(">A</text>"));
         assert!(svg.contains("a coverage profile"));
         assert!(svg.contains(">everything</text>"));
+    }
+
+    #[test]
+    fn the_sheet_names_itself_where_a_figure_would_have() {
+        let svg = Panels::new()
+            .title("everything")
+            .push_captioned(&figure(), "A", "a coverage profile")
+            .to_svg();
+        assert!(
+            svg.contains(r#"<title id="karyon-title">everything</title>"#),
+            "{svg}"
+        );
+        assert!(svg.contains(r#"role="img""#));
+        assert!(svg.contains(r#"aria-labelledby="karyon-title karyon-desc""#));
+    }
+
+    #[test]
+    fn a_sheet_with_no_title_of_its_own_says_what_it_is_made_of() {
+        let svg = Panels::new()
+            .push_bare(&figure())
+            .push_bare(&figure())
+            .to_svg();
+        assert!(
+            svg.contains(r#"<title id="karyon-title">A karyon sheet of 2 panels</title>"#),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn the_description_lists_the_panels_a_reader_can_see() {
+        let svg = Panels::new()
+            .push_captioned(&figure(), "A", "a coverage profile")
+            .push_captioned(&figure(), "B", "the same again")
+            .to_svg();
+        assert!(
+            svg.contains(
+                r#"<desc id="karyon-desc">A karyon sheet of 2 panels: panel A, a coverage profile; panel B, the same again.</desc>"#
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_description_of_the_authors_own_replaces_the_list() {
+        let svg = Panels::new()
+            .description("Depth over the deleted region, before and after.")
+            .push_captioned(&figure(), "A", "a coverage profile")
+            .to_svg();
+        assert!(svg.contains("Depth over the deleted region, before and after."));
+        assert!(!svg.contains("A karyon sheet of one panel:"));
+    }
+
+    #[test]
+    fn hovering_a_panel_says_which_panel_it_is() {
+        let svg = Panels::new()
+            .push_captioned(&figure(), "A", "a coverage profile")
+            .push(&figure(), "B")
+            .to_svg();
+        // The letter and the caption already on the page, not a second name
+        // for the same panel.
+        assert!(
+            svg.contains("<title>panel A, a coverage profile</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>panel B</title>"));
+    }
+
+    #[test]
+    fn a_panel_with_nothing_to_say_opens_no_title() {
+        let svg = Panels::new().push_bare(&figure()).to_svg();
+        // The document's own title carries an id; a tooltip does not. There
+        // being none of the second kind is what keeps a bare panel exactly the
+        // bytes it was.
+        assert!(!svg.contains("<title>"), "{svg}");
+    }
+
+    #[test]
+    fn a_tooltip_cannot_break_the_sheet() {
+        let svg = Panels::new()
+            .push_captioned(&figure(), "A & B", "genes <one> & \"two\"")
+            .to_svg();
+        assert!(
+            svg.contains("<title>panel A &amp; B, genes &lt;one&gt; &amp; &quot;two&quot;</title>")
+        );
+        let open = svg.matches("<g ").count() + svg.matches("<g>").count();
+        assert_eq!(open, svg.matches("</g>").count(), "unbalanced groups");
     }
 
     #[test]

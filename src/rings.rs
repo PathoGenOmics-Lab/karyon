@@ -27,6 +27,18 @@
 //! pushed gets the most room to say something in. Push the ring with detail in
 //! it first.
 //!
+//! # A circle is the one place a label cannot go beside its mark
+//!
+//! A band has a row to write a name on and a margin to the right of it. A ring
+//! has neither: an arc a third of the way round has no horizontal beside it,
+//! and [`FeatureRing::show_names`] is off by default precisely because a whole
+//! annotation drawn with names is a wheel of unreadable text. So the arcs and
+//! the chords carry a `<title>` instead, and the plot as a whole names itself
+//! the way a [`Figure`](crate::Figure) does. An arc under a pixel wide gets
+//! none: at four megabases on a ring of that radius a gene is a hairline held
+//! open by [`FeatureRing::min_degrees`], and a tooltip on it would belong to
+//! whichever of several overlapping slivers the pointer happened to catch.
+//!
 //! # Where zero is
 //!
 //! At twelve o'clock, running clockwise, which is the convention every circular
@@ -43,7 +55,8 @@ use std::path::Path;
 
 use crate::svg::{num, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
-use crate::track::feature::strand_color;
+use crate::track::axis::group_thousands;
+use crate::track::feature::{feature_title, span_label, strand_color};
 use crate::track::window::Window;
 use crate::track::{Feature, Strand};
 
@@ -279,6 +292,27 @@ struct Chord {
     opacity: f64,
 }
 
+impl Chord {
+    /// What a reader hovering one chord is told: the two spans it joins.
+    ///
+    /// Both of them, because a chord is the one mark here that is in two places
+    /// at once and neither end means anything without the other. The spans are
+    /// written the way the ruler writes a position, 1-based and inclusive.
+    ///
+    /// Each end is labelled, the way an alignment block labels its query and
+    /// its target. Four numbers strung together with `to` used it once as a
+    /// connector between the ends and twice as a connector inside them, so
+    /// which pair belonged to which end had to be inferred from the shape of
+    /// the sentence rather than read off it.
+    fn title(&self) -> String {
+        format!(
+            "link, source {}, target {}",
+            span_label(self.from.0, self.from.1),
+            span_label(self.to.0, self.to.1)
+        )
+    }
+}
+
 /// A circular sequence and the rings drawn around it.
 ///
 /// ```
@@ -306,6 +340,7 @@ pub struct Rings {
     theme: Theme,
     title: Option<String>,
     subtitle: Option<String>,
+    description: Option<String>,
 }
 
 impl Rings {
@@ -321,6 +356,7 @@ impl Rings {
             theme: Theme::light(),
             title: None,
             subtitle: None,
+            description: None,
         }
     }
 
@@ -361,6 +397,30 @@ impl Rings {
     /// Sets a second, quieter line under the title.
     pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
         self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    /// Sets the `<desc>` of the rendered document: what the plot shows.
+    ///
+    /// This is the alt text, read in place of several thousand arcs by a screen
+    /// reader and shown in place of the image when it does not load. Without it
+    /// the document still names itself, but a name says which sequence this is
+    /// and an alt text says what happens on it, and only the person drawing the
+    /// plot knows that.
+    ///
+    /// ```
+    /// use karyon::{AxisRing, Rings};
+    ///
+    /// let svg = Rings::new(4_411_532)
+    ///     .description("GC skew turns over at the origin and again at the terminus.")
+    ///     .push(AxisRing::new())
+    ///     .to_svg();
+    ///
+    /// assert!(svg.contains("<desc"));
+    /// assert!(svg.contains("GC skew turns over"));
+    /// ```
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
         self
     }
 
@@ -428,6 +488,53 @@ impl Rings {
         radius.max(4.0)
     }
 
+    /// What the document calls itself: the text in the middle of the circle,
+    /// or the length of the sequence.
+    ///
+    /// One of them is always there, so the `<title>` is never empty. A circle
+    /// has no locus to fall back on the way a figure does: the plot is the whole
+    /// sequence, so how long it is is the only thing left that identifies it.
+    fn document_name(&self) -> String {
+        match (&self.title, &self.subtitle) {
+            (Some(title), Some(subtitle)) => format!("{title}, {subtitle}"),
+            (Some(title), None) => title.clone(),
+            (None, Some(subtitle)) => subtitle.clone(),
+            (None, None) => format!(
+                "A circular sequence of {} bases",
+                group_thousands(self.length)
+            ),
+        }
+    }
+
+    /// The alt text: whatever [`Rings::description`] was given, or a statement
+    /// of what the plot is made of.
+    ///
+    /// The fallback is built only from what the plot knows for certain, since
+    /// a ring is not asked for a label the way a track is and there is nothing
+    /// here to name the rings with. What they mean is what
+    /// [`Rings::description`] exists for.
+    fn document_description(&self) -> String {
+        if let Some(description) = &self.description {
+            return description.clone();
+        }
+        let rings = match self.rings.len() {
+            0 => "no rings".to_string(),
+            1 => "one ring".to_string(),
+            n => format!("{n} rings"),
+        };
+        let chords = match self.chords.len() {
+            0 => String::new(),
+            1 => " and one chord across the middle".to_string(),
+            n => format!(" and {n} chords across the middle"),
+        };
+        format!(
+            "A karyon plot of a circular sequence {} bases long, with {}{}.",
+            group_thousands(self.length),
+            rings,
+            chords
+        )
+    }
+
     /// Renders the plot to a standalone SVG document.
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
@@ -442,6 +549,15 @@ impl Rings {
         let centre = width / 2.0;
         let polar = Polar::new(self.length, centre, centre, self.gap_degrees);
         let mut svg = SvgWriter::with_id_prefix(prefix);
+        // A prefix means this plot is going inside another document, and a
+        // nested document must not name itself: `<title>` resolves to the
+        // innermost element under the pointer, so a title here would shadow
+        // the one the sheet puts on the panel over the panel's whole area.
+        // The same rule as
+        // [`Figure::to_svg_with_id_prefix`](crate::Figure::to_svg_with_id_prefix).
+        if prefix.is_empty() {
+            svg.describe(&self.document_name(), &self.document_description());
+        }
 
         // Chords first, so that the rings sit over them rather than being
         // washed out by a dozen translucent ribbons crossing the middle.
@@ -451,11 +567,16 @@ impl Rings {
                 .color
                 .clone()
                 .unwrap_or_else(|| self.theme.accent.clone());
+            // One ribbon per link, always wide enough to point at, since the
+            // middle of the circle is the one part of the plot with nothing
+            // else in it.
+            svg.begin_titled(&chord.title());
             svg.path(
                 &polar.ribbon(chord.from, chord.to, inner),
                 &color,
                 chord.opacity,
             );
+            svg.end_group();
         }
 
         let mut outer = self.diameter / 2.0;
@@ -705,6 +826,25 @@ impl Ring for FeatureRing {
                 &forward
             };
             let end = feature.end.max(feature.start + floor.max(1));
+
+            // One arc per feature and nothing is binned, so a feature is named
+            // when it is something a pointer can land on. The measure is the
+            // arc as drawn, floor included, and the width comes from the lane's
+            // own radius: the same gene is half as wide on a ring of half the
+            // radius, which is the whole difference between a circle and a
+            // stack of bands.
+            let lane = (lane_inner + lane_outer) / 2.0;
+            let pixels = (end - feature.start) as f64 / ctx.polar.bp_per_px(lane);
+            let title = if pixels >= 1.0 {
+                feature_title(feature)
+            } else {
+                String::new()
+            };
+            let named = !title.is_empty();
+            if named {
+                ctx.svg.begin_titled(&title);
+            }
+
             ctx.svg.path(
                 &ctx.polar.sector(feature.start, end, lane_inner, lane_outer),
                 color,
@@ -732,6 +872,13 @@ impl Ring for FeatureRing {
                         anchor,
                     );
                 }
+            }
+
+            // The name goes inside the group with the arc, because a feature
+            // drawn with one is two shapes and a tooltip on half of it is
+            // worse than none.
+            if named {
+                ctx.svg.end_group();
             }
         }
     }
@@ -1231,6 +1378,149 @@ mod tests {
     }
 
     #[test]
+    fn the_document_names_itself_the_way_a_figure_does() {
+        let svg = Rings::new(4_411_532)
+            .title("H37Rv")
+            .subtitle("4.41 Mb")
+            .push(AxisRing::new())
+            .to_svg();
+        assert!(
+            svg.contains(r#"<title id="karyon-title">H37Rv, 4.41 Mb</title>"#),
+            "{svg}"
+        );
+        assert!(svg.contains(r#"role="img""#));
+    }
+
+    #[test]
+    fn a_plot_with_no_title_falls_back_to_how_long_the_sequence_is() {
+        // A circle has no locus to print: the plot is the whole sequence.
+        let svg = Rings::new(4_411_532).to_svg();
+        assert!(
+            svg.contains(
+                r#"<title id="karyon-title">A circular sequence of 4,411,532 bases</title>"#
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn the_description_says_what_the_plot_is_made_of() {
+        let svg = Rings::new(1_000_000)
+            .push(AxisRing::new())
+            .push(FeatureRing::new(Vec::new()))
+            .link((0, 100), (500, 600))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "A karyon plot of a circular sequence 1,000,000 bases long, with 2 rings and one chord across the middle."
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_description_of_the_authors_own_replaces_the_inventory() {
+        let svg = Rings::new(1_000)
+            .description("Skew turns over at the terminus.")
+            .to_svg();
+        assert!(svg.contains("Skew turns over at the terminus."));
+        assert!(!svg.contains("A karyon plot of a circular sequence"));
+    }
+
+    #[test]
+    fn a_gene_wide_enough_to_point_at_carries_its_name_and_its_span() {
+        let svg = Rings::new(1_000_000)
+            .diameter(600.0)
+            .push(FeatureRing::new(vec![Feature::new(100_000, 200_000)
+                .name("rpoB")
+                .strand(Strand::Forward)]))
+            .to_svg();
+        // 1-based and inclusive, the coordinates the ruler prints.
+        assert!(
+            svg.contains("<title>rpoB, 100,001 to 200,000, forward</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_nameless_gene_is_still_told_where_it_is() {
+        let svg = Rings::new(1_000_000)
+            .diameter(600.0)
+            .push(FeatureRing::new(vec![
+                Feature::new(400_000, 500_000).strand(Strand::Reverse)
+            ]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>feature, 400,001 to 500,000, reverse</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_gene_thinner_than_a_pixel_is_not_named() {
+        // A thousand bases on a four megabase chromosome is drawn as a hairline
+        // held open by `min_degrees`. Naming it would name the floor rather
+        // than the gene, and there is no pointing at it to read the name.
+        let plot = || {
+            Rings::new(4_411_532)
+                .diameter(600.0)
+                .push(FeatureRing::new(vec![
+                    Feature::new(10_000, 11_000).name("x")
+                ]))
+        };
+        assert!(!plot().to_svg().contains("<title>"), "{}", plot().to_svg());
+
+        // The same gene on a sequence short enough for it to be an arc.
+        let wide = Rings::new(20_000)
+            .diameter(600.0)
+            .push(FeatureRing::new(vec![
+                Feature::new(10_000, 11_000).name("x")
+            ]))
+            .to_svg();
+        assert!(
+            wide.contains("<title>x, 10,001 to 11,000</title>"),
+            "{wide}"
+        );
+    }
+
+    #[test]
+    fn a_chord_says_both_of_the_places_it_joins() {
+        let svg = Rings::new(1_000_000)
+            .link((100_000, 200_000), (600_000, 700_000))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>link, source 100,001 to 200,000, target 600,001 to 700,000</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn every_group_a_tooltip_opens_is_closed_again() {
+        let svg = Rings::new(1_000_000)
+            .diameter(600.0)
+            .push(AxisRing::new())
+            .push(
+                FeatureRing::new(vec![
+                    Feature::new(0, 100_000).name("a").strand(Strand::Forward),
+                    Feature::new(200_000, 300_000)
+                        .name("b")
+                        .strand(Strand::Reverse),
+                    // Too thin to name, so it opens no group at all.
+                    Feature::new(400_000, 400_100).name("c"),
+                ])
+                .show_names(true),
+            )
+            .push(MarkerRing::new([1_000, 2_000]))
+            .link((0, 1_000), (500_000, 501_000))
+            .to_svg();
+        let open = svg.matches("<g ").count() + svg.matches("<g>").count();
+        assert_eq!(open, svg.matches("</g>").count(), "{svg}");
+        assert_eq!(svg.matches("<title>").count(), 3, "two arcs and one chord");
+    }
+
+    #[test]
     fn positions_are_written_in_the_unit_that_suits_them() {
         assert_eq!(megabases(0), "0");
         assert_eq!(megabases(500), "500");
@@ -1263,6 +1553,17 @@ mod tests {
         let sheet = Panels::new().push(&stack, "A").push(&circle, "B").to_svg();
         assert_eq!(sheet.matches("<svg ").count(), 3);
         assert!(sheet.contains(">H37Rv</text>"));
-        assert!(sheet.contains("p1-") || !circle.to_svg().contains("id="));
+
+        // The prefix is for ids the writer generates, which is what `url(#id)`
+        // resolves against. Checking for the prefix on its own would pass on
+        // any id at all, so it is checked only where there is one to prefix.
+        if circle.to_svg().contains("karyon-clip-") {
+            assert!(sheet.contains("p1-karyon-clip-"), "{sheet}");
+        }
+
+        // A nested document does not name itself: two `<title>` elements
+        // inside one panel would leave the outer one unreachable everywhere
+        // the inner one covers.
+        assert_eq!(sheet.matches("<title id=").count(), 1, "{sheet}");
     }
 }

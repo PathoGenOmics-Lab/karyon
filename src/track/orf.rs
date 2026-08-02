@@ -33,6 +33,8 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, wash, Theme};
+use crate::track::axis::group_thousands;
+use crate::track::feature::span_label;
 use crate::track::{DrawContext, Track};
 
 /// One open reading frame.
@@ -286,6 +288,38 @@ impl OrfTrack {
     }
 }
 
+/// A frame as it is written, `+1` through `-3`.
+///
+/// One function for the lane labels and for the tooltips, so a reader who
+/// hovers a bar in the lane marked `-2` is told `-2` and not `frame 4`.
+fn frame_label(frame: i8) -> String {
+    if frame > 0 {
+        format!("+{frame}")
+    } else {
+        format!("{frame}")
+    }
+}
+
+/// What a reader hovering one open reading frame is told.
+///
+/// Which frame it is in comes first, because six lanes of bars are otherwise
+/// distinguished only by height on the page. Then the span, then how long it
+/// is in codons, which is the number the [`OrfTrack::min_codons`] floor is set
+/// against and the one that says whether a stretch is worth believing.
+///
+/// A stop codon gets none of this. It is a one pixel tick, there is nothing
+/// there to point at, and there are hundreds of them in any real sequence.
+fn orf_title(orf: &Orf) -> String {
+    let codons = orf.codons();
+    format!(
+        "frame {}, {}, {} codon{}",
+        frame_label(orf.frame),
+        span_label(orf.start, orf.end),
+        group_thousands(codons),
+        if codons == 1 { "" } else { "s" }
+    )
+}
+
 /// A codon that ends translation.
 fn is_stop(codon: &[u8; 3]) -> bool {
     matches!(
@@ -398,6 +432,13 @@ impl Track for OrfTrack {
             let x0 = ctx.scale.x(orf.start);
             let x1 = ctx.scale.x(orf.end).max(x0 + 1.0);
             let color = if orf.is_reverse() { &reverse } else { &forward };
+            // The wash and the edge around it are one open frame and answer a
+            // pointer once. Floored to a pixel from less than one it is a mark
+            // nobody can rest on, so it goes unnamed.
+            let pointable = ctx.scale.x(orf.end) - x0 >= 1.0;
+            if pointable {
+                ctx.svg.begin_titled(&orf_title(&orf));
+            }
             ctx.svg.rect_rounded(
                 x0,
                 top,
@@ -414,17 +455,16 @@ impl Track for OrfTrack {
                 color,
                 0.9,
             );
+            if pointable {
+                ctx.svg.end_group();
+            }
         }
 
         if self.show_frames && ctx.axis.w > 0.0 {
             let size = (ctx.theme.font_size - 3.0).min(self.lane_height);
             for frame in [3i8, 2, 1, -1, -2, -3] {
                 let top = self.lane(frame, band.y);
-                let text = if frame > 0 {
-                    format!("+{frame}")
-                } else {
-                    format!("{frame}")
-                };
+                let text = frame_label(frame);
                 // In the strip rather than in the plotting area. Written at the
                 // left of the band they sat on top of whatever open frame
                 // reached the edge of the view, which is most of them.
@@ -602,6 +642,85 @@ mod tests {
         assert!(top(3) < top(2) && top(2) < top(1));
         assert!(top(1) < top(-1));
         assert!(top(-1) < top(-2) && top(-2) < top(-3));
+    }
+
+    #[test]
+    fn an_open_frame_is_named_by_its_frame_its_span_and_its_length() {
+        // A start, ninety-nine codons and a stop, all in frame +1.
+        let svg = Figure::new(region(306))
+            .show_region_label(false)
+            .push(OrfTrack::new(0, coding()).min_codons(50))
+            .to_svg();
+        assert!(
+            svg.contains("<title>frame +1, 1 to 300, 100 codons</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_reverse_frame_wears_the_sign_its_lane_is_labelled_with() {
+        // A reader who hovers a bar in the lane marked -2 has to be told -2.
+        let mut seq = b"TTA".to_vec();
+        seq.extend(std::iter::repeat(b'C').take(600));
+        let svg = Figure::new(region(603))
+            .show_region_label(false)
+            .push(OrfTrack::new(0, seq).min_codons(50))
+            .to_svg();
+        let frames: Vec<&str> = ["-1", "-2", "-3"]
+            .into_iter()
+            .filter(|frame| svg.contains(&format!("<title>frame {frame}, ")))
+            .collect();
+        assert!(!frames.is_empty(), "{svg}");
+        for frame in frames {
+            assert!(svg.contains(&format!(">{frame}</text>")), "no lane {frame}");
+        }
+    }
+
+    #[test]
+    fn a_stop_tick_is_not_worth_a_tooltip() {
+        // A stop is one pixel wide, there is nothing there to point at, and
+        // there are far more of them than there are open stretches: only the
+        // open stretches are named.
+        let mut seq = coding();
+        seq.extend(b"TAATAGTGATAATAGTGA");
+        let track = OrfTrack::new(0, seq.clone()).min_codons(50);
+        let orfs = track.orfs().len();
+        assert!(
+            track.stops().len() > orfs,
+            "the fixture itself has too few stops"
+        );
+
+        let svg = Figure::new(region(seq.len() as u64))
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert_eq!(svg.matches("<title>").count(), orfs, "{svg}");
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn one_codon_is_not_one_codons() {
+        let orf = Orf {
+            start: 0,
+            end: 3,
+            frame: 1,
+        };
+        assert_eq!(orf_title(&orf), "frame +1, 1 to 3, 1 codon");
+        let long = Orf {
+            start: 0,
+            end: 6_000,
+            frame: -3,
+        };
+        assert_eq!(orf_title(&long), "frame -3, 1 to 6,000, 2,000 codons");
+    }
+
+    #[test]
+    fn an_open_frame_thinner_than_a_pixel_is_not_named() {
+        let svg = Figure::new(region(4_000_000))
+            .show_region_label(false)
+            .push(OrfTrack::new(0, coding()).min_codons(50))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
     }
 
     #[test]

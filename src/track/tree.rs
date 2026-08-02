@@ -20,9 +20,16 @@
 //! both halves of a tanglegram all go through it. What it draws is rectangular
 //! rather than diagonal, because a diagonal would imply the tree says something
 //! about the space between two rows, and it says nothing about it.
+//!
+//! The tracks whose subject is the tree itself take the same drawing with its
+//! branches named, so a clade can be pointed at for its support. A tree
+//! standing beside a panel of rows does not, because the rows are named down
+//! the side already and a title on every branch would be that same string a
+//! second time. A tip is named on its branch only when its label is not drawn,
+//! for exactly the same reason.
 
 use crate::scale::Scale;
-use crate::svg::text_width;
+use crate::svg::{num, text_width};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -93,6 +100,76 @@ pub fn draw_tree(
     first_row_centre: f64,
     style: TreeStyle<'_>,
 ) {
+    draw(
+        svg,
+        tree,
+        area,
+        row_pitch,
+        first_row_centre,
+        style,
+        Titles {
+            nodes: false,
+            leaves: false,
+        },
+    );
+}
+
+/// The same drawing, with the branches named.
+///
+/// An internal node's riser always carries its support, since there is nothing
+/// else on the page that does. A leaf's branch carries the leaf's name only
+/// when `name_leaves` is set, which is the caller saying it has not drawn that
+/// name anywhere else.
+///
+/// That switch is the whole reason this takes an argument. A tip label is
+/// drawn four pixels from the branch it belongs to, at a width the track
+/// reserved for it so it is never clipped, and a tooltip repeating it is a
+/// pointer answering with what the reader is already looking at. Suppressed,
+/// the hover falls through to nothing, which is the honest result: there is
+/// no second thing to say about a tip whose name is on the page. With tips
+/// hidden the title is the only way to read the tree at all, so it comes back.
+pub(crate) fn draw_tree_titled(
+    svg: &mut crate::svg::SvgWriter,
+    tree: &Tree,
+    area: Rect,
+    row_pitch: f64,
+    first_row_centre: f64,
+    style: TreeStyle<'_>,
+    name_leaves: bool,
+) {
+    draw(
+        svg,
+        tree,
+        area,
+        row_pitch,
+        first_row_centre,
+        style,
+        Titles {
+            nodes: true,
+            leaves: name_leaves,
+        },
+    );
+}
+
+/// Which parts of a tree name themselves.
+#[derive(Debug, Clone, Copy)]
+struct Titles {
+    /// Whether an internal node's riser carries its support.
+    nodes: bool,
+    /// Whether a leaf's branch carries the leaf's name.
+    leaves: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    svg: &mut crate::svg::SvgWriter,
+    tree: &Tree,
+    area: Rect,
+    row_pitch: f64,
+    first_row_centre: f64,
+    style: TreeStyle<'_>,
+    titles: Titles,
+) {
     let (shape, color, width) = (style.shape, style.color, style.width);
     let style = &style;
     let cladogram = shape == TreeShape::Cladogram;
@@ -118,10 +195,23 @@ pub fn draw_tree(
         let x1 = x_of(placement.depth);
         let y = y_of(placement.row);
 
+        // A leaf is named on the branch that ends at it, the one piece of the
+        // drawing that belongs to it alone.
+        let name = if titles.leaves && node.is_leaf() {
+            node.name.as_deref().unwrap_or_default()
+        } else {
+            ""
+        };
+        if !name.is_empty() {
+            svg.begin_titled(name);
+        }
         // Rectangular branches: along to the child's depth, then the parent's
         // riser joins its children. Diagonals would imply the tree says
         // something about the space between two rows, and it does not.
         svg.line(x0, y, x1, y, color, width);
+        if !name.is_empty() {
+            svg.end_group();
+        }
     }
 
     for placement in &layout {
@@ -138,7 +228,22 @@ pub fn draw_tree(
             (lo.min(*row), hi.max(*row))
         });
         let x = x_of(placement.depth);
+        // An internal node has nothing to be called, so its riser is named by
+        // the one number it does carry, and a node without one gets no group
+        // rather than an empty one.
+        let support = match (titles.nodes, node.support) {
+            (true, Some(support)) if support.is_finite() => {
+                Some(format!("clade support {}", num(support)))
+            }
+            _ => None,
+        };
+        if let Some(text) = &support {
+            svg.begin_titled(text);
+        }
         svg.line(x, y_of(top), x, y_of(bottom), color, width);
+        if support.is_some() {
+            svg.end_group();
+        }
     }
 }
 
@@ -257,7 +362,7 @@ impl Track for TreeTrack {
             h: band.h,
         };
 
-        draw_tree(
+        draw_tree_titled(
             ctx.svg,
             &self.tree,
             area,
@@ -269,6 +374,10 @@ impl Track for TreeTrack {
                 width: self.line_width,
                 mirror: false,
             },
+            // The tips are drawn beside the branches at a width reserved for
+            // them, so with them on the branch title would be the same string
+            // twice. With them off it is the only way to read the tree.
+            !self.show_tips,
         );
 
         if self.show_tips {
@@ -331,6 +440,81 @@ mod tests {
         for tip in ["A", "B", "C", "D"] {
             assert!(svg.contains(&format!(">{tip}</text>")), "missing {tip}");
         }
+    }
+
+    #[test]
+    fn a_leaf_is_named_on_its_own_branch_when_its_label_is_not_drawn() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(tree()).show_tips(false))
+            .to_svg();
+        for tip in ["A", "B", "C", "D"] {
+            assert!(svg.contains(&format!("<title>{tip}</title>")), "{svg}");
+        }
+        // One of the two clades carries a support value and the other does
+        // not, so only one of them opens a group.
+        assert!(svg.contains("<title>clade support 0.9</title>"), "{svg}");
+        assert_eq!(svg.matches("clade support").count(), 1);
+        assert_eq!(svg.matches("<title>").count(), 5);
+        assert_eq!(svg.matches("<g>").count(), 5);
+    }
+
+    #[test]
+    fn a_tip_whose_label_is_drawn_is_not_named_a_second_time() {
+        // The label sits four pixels from the branch, at a width the track
+        // reserved for it, so it is never clipped. A tooltip carrying that
+        // same string is the pointer answering with what is already on screen.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(tree()))
+            .to_svg();
+        for tip in ["A", "B", "C", "D"] {
+            assert!(svg.contains(&format!(">{tip}</text>")), "the label, {svg}");
+            assert!(
+                !svg.contains(&format!("<title>{tip}</title>")),
+                "the same string twice, {svg}"
+            );
+        }
+        // The clade support is the one thing no label carries, so it stays.
+        assert!(svg.contains("<title>clade support 0.9</title>"), "{svg}");
+        assert_eq!(svg.matches("<title>").count(), 1);
+    }
+
+    #[test]
+    fn an_unnamed_leaf_opens_no_group() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(Tree::parse_newick("((,),(,));").unwrap()).show_tips(false))
+            .to_svg();
+        assert!(!svg.contains("<title>"), "{svg}");
+    }
+
+    #[test]
+    fn a_tree_drawn_beside_rows_is_left_unnamed() {
+        // The panel tracks name their rows down the side already, so the plain
+        // drawing has to stay plain: a title on every branch there would be
+        // the same string twice.
+        let mut svg = crate::svg::SvgWriter::new();
+        draw_tree(
+            &mut svg,
+            &tree(),
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 100.0,
+                h: 60.0,
+            },
+            15.0,
+            7.5,
+            TreeStyle {
+                shape: TreeShape::Phylogram,
+                color: "#111111",
+                width: 1.0,
+                mirror: false,
+            },
+        );
+        let out = svg.finish(100.0, 60.0, "none", "sans-serif");
+        assert!(!out.contains("<title"), "{out}");
     }
 
     #[test]

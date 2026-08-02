@@ -35,6 +35,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
 /// One sequenced molecule and what it said at each site.
@@ -230,6 +231,57 @@ impl BisulfiteTrack {
             / fractions.len() as f64;
         Some(variance.sqrt())
     }
+
+    /// What a reader hovering one molecule's row is told.
+    ///
+    /// How many of the track's sites the molecule reached comes before how
+    /// many of those were modified, because the two are the whole reading of a
+    /// row: a molecule that covered four of fourteen sites and was modified at
+    /// all four is not the same observation as one that covered all fourteen.
+    ///
+    /// Counted over the track's sites rather than over the molecule's own
+    /// calls, so the numbers describe the row as it was actually drawn.
+    fn row_tooltip(&self, molecule: &Molecule) -> String {
+        let total = self.sites.len();
+        let mut covered = 0usize;
+        let mut modified = 0usize;
+        for site in 0..total {
+            match molecule.call(site) {
+                Some(true) => {
+                    covered += 1;
+                    modified += 1;
+                }
+                Some(false) => covered += 1,
+                None => {}
+            }
+        }
+        let sites = if total == 1 { "site" } else { "sites" };
+        let mut text = String::new();
+        if !molecule.name.is_empty() {
+            text.push_str(&molecule.name);
+            text.push_str(", ");
+        }
+        // Both clauses are `N of M noun participle`, the idiom every count in
+        // the crate is written in. The second counts out of the covered sites
+        // and not out of the track's, because a site the molecule never
+        // reached is not one it failed to modify; the noun is left out of it
+        // since it is the same noun twice in one breath.
+        text.push_str(&format!(
+            "{} of {} {sites} covered",
+            group_thousands(covered as u64),
+            group_thousands(total as u64)
+        ));
+        if covered > 0 {
+            // Nothing over nothing is not zero, and it is not zero modified
+            // either, so the second clause is left off rather than made up.
+            text.push_str(&format!(
+                ", {} of {} modified",
+                group_thousands(modified as u64),
+                group_thousands(covered as u64)
+            ));
+        }
+        text
+    }
 }
 
 impl Track for BisulfiteTrack {
@@ -275,6 +327,13 @@ impl Track for BisulfiteTrack {
         for (row, molecule) in self.molecules.iter().take(rows).enumerate() {
             let y = band.y + (row as f64 + 0.5) * self.row_height;
 
+            // On the row and not on the circle. A row is one molecule, which is
+            // the thing this track is made of; a circle is one call of it, and
+            // naming every cell of a grid would multiply the elements in the
+            // figure by the number of sites for a reading nobody takes one
+            // cell at a time.
+            ctx.svg.begin_titled(&self.row_tooltip(molecule));
+
             if self.show_rule {
                 // The line is what makes a row a molecule rather than a scatter
                 // of circles that happen to be level with each other.
@@ -311,6 +370,8 @@ impl Track for BisulfiteTrack {
                     Anchor::End,
                 );
             }
+
+            ctx.svg.end_group();
         }
 
         if hidden > 0 {
@@ -505,6 +566,70 @@ mod tests {
             .push(track)
             .to_svg();
         assert!(svg.contains("+70 more"));
+    }
+
+    #[test]
+    fn a_molecule_is_named_once_for_the_row_and_not_once_per_circle() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(BisulfiteTrack::new(sites(), stripes()))
+            .to_svg();
+        assert!(
+            svg.contains("<title>read_1, 4 of 4 sites covered, 4 of 4 modified</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>read_3, 4 of 4 sites covered, 0 of 4 modified</title>"),
+            "{svg}"
+        );
+        // Four molecules over four sites is sixteen cells. Naming each of them
+        // would quadruple the elements in the figure for a reading nobody
+        // takes one circle at a time.
+        assert_eq!(svg.matches("<title>").count(), 4, "one title per row");
+    }
+
+    #[test]
+    fn a_site_the_molecule_did_not_reach_is_left_out_of_its_count() {
+        let gapped: Vec<Molecule> = stripes()
+            .into_iter()
+            .map(|mut molecule| {
+                molecule.calls[1] = None;
+                molecule
+            })
+            .collect();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(BisulfiteTrack::new(sites(), gapped))
+            .to_svg();
+        assert!(
+            svg.contains("<title>read_1, 3 of 4 sites covered, 3 of 3 modified</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_molecule_that_reached_nothing_is_not_called_unmodified() {
+        // Nothing over nothing is not zero, and it is not zero modified
+        // either, so that clause is left off rather than made up.
+        let blank = vec![Molecule::new("read_1", vec![None; 4])];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(BisulfiteTrack::new(sites(), blank))
+            .to_svg();
+        assert!(
+            svg.contains("<title>read_1, 0 of 4 sites covered</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn every_group_a_bisulfite_track_opens_is_closed_again() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(BisulfiteTrack::new(sites(), stripes()))
+            .to_svg();
+        let open = svg.matches("<g>").count() + svg.matches("<g ").count();
+        assert_eq!(open, svg.matches("</g>").count(), "{svg}");
     }
 
     #[test]

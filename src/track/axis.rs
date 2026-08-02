@@ -293,7 +293,24 @@ fn decimals_for(step: u64, unit: u64, max_decimals: usize) -> Option<usize> {
 }
 
 /// `1234567` as `1,234,567`.
-fn group_thousands(value: u64) -> String {
+///
+/// Shared with the tracks rather than copied into them: a tooltip quotes the
+/// coordinate a reader would type, and a coordinate that is grouped on the
+/// ruler and ungrouped in a tooltip is two conventions on one figure.
+///
+/// # The rule the whole crate follows
+///
+/// **Every whole number a tooltip writes goes through here**, coordinates and
+/// counts alike, whatever its magnitude. `26 of 26 sites called` and
+/// `12,480 of 12,500 sites called` are the same sentence, and a rule that
+/// grouped only the numbers a reader happened to find long would make the
+/// tooltip's punctuation a fact about the data rather than a convention.
+///
+/// There is one exception, and it is written down where it is taken: a
+/// [`SnpTrack`](crate::SnpTrack) column prints its own position under itself
+/// in whatever the caller was counting in, and the tooltip echoes that label
+/// character for character rather than disagreeing with the figure it sits on.
+pub(crate) fn group_thousands(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {

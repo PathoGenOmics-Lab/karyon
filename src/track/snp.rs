@@ -36,6 +36,7 @@
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::msa::{is_gap, MsaSequence};
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
@@ -510,6 +511,20 @@ impl Track for SnpTrack {
         for row in 0..rows {
             for (index, site) in self.sites.iter().enumerate() {
                 let x = x_of(index);
+                // The cell is what a pointer lands on, so the cell is what
+                // carries the site. Naming only the column label left the
+                // panel itself unanswerable, and left `show_positions(false)`
+                // with no tooltips at all.
+                //
+                // Only a cell that differs is named. An agreement is the quiet
+                // state this panel exists to see past, it is roughly half the
+                // grid, and "matches" is the one thing a reader can already
+                // tell from the colour without asking. Naming them cost a
+                // third of the file for the least it could say.
+                let named = site.differs(row);
+                if named {
+                    ctx.svg.begin_titled(&self.cell_tooltip(site, row));
+                }
                 if !site.differs(row) {
                     // An agreement is a quiet bar. The whole point of the panel
                     // is that the disagreements are the only thing worth ink.
@@ -524,6 +539,9 @@ impl Track for SnpTrack {
                     continue;
                 }
                 let Some(allele) = site.allele(row) else {
+                    if named {
+                        ctx.svg.end_group();
+                    }
                     continue;
                 };
                 self.paint_cell(
@@ -538,6 +556,9 @@ impl Track for SnpTrack {
                     letters,
                     false,
                 );
+                if named {
+                    ctx.svg.end_group();
+                }
             }
 
             if let Some(name) = self.names.get(row) {
@@ -560,6 +581,14 @@ impl Track for SnpTrack {
         if self.show_positions {
             let size = ctx.theme.font_size - 2.0;
             for (index, site) in self.sites.iter().enumerate() {
+                // The column is the datum here, not the cell: one column is one
+                // site, and the cells in it are one site seen once per sample.
+                // So the site is named once, on the label that identifies the
+                // column, rather than once per cell. The cells cannot carry it
+                // between them because they are written row by row, and a
+                // column is therefore not a run of elements anything can be
+                // wrapped around without reordering the document.
+                ctx.svg.begin_titled(&self.site_tooltip(site));
                 // Standing the label on end is what lets a five digit position
                 // sit under a column narrower than it is.
                 ctx.svg.text_rotated(
@@ -570,6 +599,7 @@ impl Track for SnpTrack {
                     size,
                     Anchor::End,
                 );
+                ctx.svg.end_group();
             }
         }
 
@@ -587,6 +617,69 @@ impl Track for SnpTrack {
 }
 
 impl SnpTrack {
+    /// What a reader hovering one column is told.
+    ///
+    /// What it is, where the site is, what the reference has there, and how
+    /// much of the panel departs from it. The last of those is the only one a
+    /// reader cannot get by looking: counting coloured cells down a column is
+    /// exactly the work a tooltip is for.
+    ///
+    /// The position is written **exactly as the column's own label writes it**,
+    /// ungrouped and without the shift to 1-based coordinates the rest of the
+    /// crate applies. This is the crate's one exception to
+    /// [`group_thousands`](crate::track::axis::group_thousands) like every
+    /// other number the crate writes into a tooltip. The drawn column label
+    /// stays ungrouped, which is not a disagreement but the same split
+    /// [`VariantTrack`](crate::VariantTrack) makes between `format_value` and
+    /// its exact form: a label stood on end in a column narrower than itself
+    /// pays for every character, and a tooltip pays for none, so the label
+    /// abbreviates and the tooltip is exact.
+    ///
+    /// The count clause takes the participle every other `N of M` clause in the
+    /// crate takes. `differs` and `differ` are a finite verb agreeing with a
+    /// number, which put two grammars in one slot for no gain: the tooltip is a
+    /// label, and a label does not conjugate.
+    fn site_tooltip(&self, site: &SnpSite) -> String {
+        let differing = site.count();
+        let total = site.alleles.len();
+        let mut text = format!("site, {}", group_thousands(site.position));
+        text.push_str(", reference ");
+        text.push((site.reference as char).to_ascii_uppercase());
+        if total > 0 {
+            text.push_str(&format!(
+                ", {} of {} sample{} differing",
+                group_thousands(differing as u64),
+                group_thousands(total as u64),
+                if total == 1 { "" } else { "s" }
+            ));
+        }
+        text
+    }
+
+    /// What a reader hovering one cell is told.
+    ///
+    /// The cell is the only thing in this panel a pointer can land on, so it
+    /// carries the site and then says what this one sample has there, which is
+    /// the question a cell exists to answer. A cell that agrees says so rather
+    /// than repeating the reference base, since agreement is the quiet state
+    /// and naming it twice would bury the difference.
+    fn cell_tooltip(&self, site: &SnpSite, row: usize) -> String {
+        let mut text = format!("site, {}", group_thousands(site.position));
+        text.push_str(", reference ");
+        text.push((site.reference as char).to_ascii_uppercase());
+        let sample = self.names.get(row).map(String::as_str).unwrap_or("sample");
+        match site.allele(row) {
+            Some(allele) if site.differs(row) => {
+                text.push_str(&format!(
+                    ", {sample} has {}",
+                    (allele as char).to_ascii_uppercase()
+                ));
+            }
+            _ => text.push_str(&format!(", {sample} matches")),
+        }
+        text
+    }
+
     /// Paints one residue cell, with its letter when there is room.
     fn paint_cell(
         &self,
@@ -852,6 +945,84 @@ mod tests {
         let without = SnpTrack::from_alignment(0, &alignment()).show_positions(false);
         assert!(with.position_strip(&theme) > 0.0);
         assert_eq!(without.position_strip(&theme), 0.0);
+    }
+
+    /// Every group a track opens has to be closed by exactly one `end_group`.
+    fn groups_balance(svg: &str) -> bool {
+        svg.matches("<g ").count() + svg.matches("<g>").count() == svg.matches("</g>").count()
+    }
+
+    fn panel_svg(panel: SnpTrack) -> String {
+        let sites = panel.sites().len().max(1) as u64;
+        Figure::new(Region::new("sites", 0, sites).unwrap())
+            .show_region_label(false)
+            .push(panel)
+            .to_svg()
+    }
+
+    #[test]
+    fn a_cell_says_where_the_site_is_and_what_this_sample_has() {
+        let svg = panel_svg(SnpTrack::from_alignment(0, &alignment()).offset(1_472_000));
+        // Column 4 of the alignment, where sample_1 and sample_2 both differ.
+        // The cell is what a pointer lands on, so the cell is what answers.
+        assert!(
+            svg.contains("<title>site, 1,472,004, reference A, sample_1 has T</title>"),
+            "{svg}"
+        );
+        assert!(groups_balance(&svg));
+    }
+
+    #[test]
+    fn only_a_cell_that_differs_is_named() {
+        // Agreement is the quiet state this panel exists to see past, it is
+        // about half the grid, and the colour already says it. Naming it cost
+        // a third of the file for the least it could say.
+        let svg = panel_svg(SnpTrack::from_alignment(0, &alignment()).offset(1_472_000));
+        assert!(!svg.contains("matches</title>"), "{svg}");
+        assert_eq!(svg.matches(" has ").count(), 4, "four cells differ: {svg}");
+    }
+
+    #[test]
+    fn the_count_clause_takes_a_participle_and_never_conjugates() {
+        let svg = panel_svg(SnpTrack::from_alignment(0, &alignment()).offset(1_472_000));
+        // Column 7, where only sample_3 carries the gap. One and two read the
+        // same way, which is the whole point of a participle: `N of M noun
+        // participle` is the idiom every count clause in the crate uses.
+        assert!(
+            svg.contains("<title>site, 1,472,007, reference T, 1 of 3 samples differing</title>"),
+            "{svg}"
+        );
+        assert!(!svg.contains("differs"), "{svg}");
+    }
+
+    #[test]
+    fn every_cell_can_be_pointed_at_even_with_the_labels_turned_off() {
+        // The tooltip used to hang on the rotated column label, so the panel
+        // itself answered nothing and turning the labels off took every
+        // tooltip in the track with them.
+        let with_labels = panel_svg(SnpTrack::from_alignment(0, &alignment()));
+        let without = panel_svg(SnpTrack::from_alignment(0, &alignment()).show_positions(false));
+
+        // Four of the nine cells differ, and each answers for itself, plus one
+        // label per site when the labels are drawn.
+        assert_eq!(without.matches("<title>").count(), 4, "{without}");
+        assert_eq!(with_labels.matches("<title>").count(), 7, "{with_labels}");
+        assert!(!without.contains("rotate(-90)"), "no labels are drawn");
+        assert!(without.contains(" has "), "the cells still answer");
+        assert!(groups_balance(&without));
+    }
+
+    #[test]
+    fn the_tooltip_is_exact_where_the_drawn_label_abbreviates() {
+        // A label stood on end in a narrow column pays for every character and
+        // a tooltip pays for none, which is the same split VariantTrack makes.
+        let sites = vec![SnpSite::new(9_100, b'G', b"T".to_vec())];
+        let svg = panel_svg(SnpTrack::new(vec!["s".to_string()], sites));
+        assert!(svg.contains(">9100</text>"), "the label the reader sees");
+        assert!(
+            svg.contains("<title>site, 9,100, reference G, s has T</title>"),
+            "{svg}"
+        );
     }
 
     #[test]

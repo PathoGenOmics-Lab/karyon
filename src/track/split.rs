@@ -27,9 +27,13 @@
 //! corner of the band: otherwise a molecule that visited three places looks
 //! like one that visited two.
 
+use std::fmt::Write as _;
+
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
+use crate::track::feature::{span_label, strand_label};
 use crate::track::{DrawContext, Strand, Track};
 
 /// One alignment of one read.
@@ -438,6 +442,9 @@ impl SplitReadTrack {
         }
 
         for (index, segment) in read.segments.iter().enumerate() {
+            let Some(span) = self.segment_span(ctx, segment) else {
+                continue;
+            };
             let along = if self.ramp {
                 self.along(read, index)
             } else {
@@ -451,7 +458,17 @@ impl SplitReadTrack {
                 Some(q) if q < 20 => mix(&fill, theme.surface(), 0.45),
                 _ => fill,
             };
-            self.draw_segment(ctx, segment, top, h, &fill);
+            // Which piece of the molecule this is and which way round it went
+            // is the whole claim of the track, and it is the one thing the
+            // geometry alone leaves a reader to reconstruct.
+            let named = span.1 - span.0 >= 1.0;
+            if named {
+                ctx.svg.begin_titled(&segment_tooltip(read, index));
+            }
+            self.draw_segment(ctx, segment, span, top, h, &fill);
+            if named {
+                ctx.svg.end_group();
+            }
         }
 
         // Names go in the axis strip rather than beside the leftmost segment.
@@ -471,15 +488,13 @@ impl SplitReadTrack {
         }
     }
 
-    /// One alignment: a bar with a head on the end the molecule leaves by.
-    fn draw_segment(
-        &self,
-        ctx: &mut DrawContext<'_>,
-        segment: &SplitSegment,
-        top: f64,
-        h: f64,
-        fill: &str,
-    ) {
+    /// Where a segment is drawn, floored to [`SplitReadTrack::min_segment`],
+    /// or `None` when it falls outside the band entirely.
+    ///
+    /// Separate from the drawing because the tooltip has to be opened before
+    /// the first element of the glyph is written, and a segment nobody can see
+    /// should not be paying for a group and a title.
+    fn segment_span(&self, ctx: &DrawContext<'_>, segment: &SplitSegment) -> Option<(f64, f64)> {
         let band = ctx.band;
         let x0 = ctx.scale.x(segment.start);
         let x1 = ctx.scale.x(segment.end);
@@ -489,10 +504,20 @@ impl SplitReadTrack {
         } else {
             (x0, x1)
         };
-        if x1 < band.x - 2.0 || x0 > band.right() + 2.0 {
-            return;
-        }
+        (x1 >= band.x - 2.0 && x0 <= band.right() + 2.0).then_some((x0, x1))
+    }
 
+    /// One alignment: a bar with a head on the end the molecule leaves by.
+    fn draw_segment(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        segment: &SplitSegment,
+        span: (f64, f64),
+        top: f64,
+        h: f64,
+        fill: &str,
+    ) {
+        let (x0, x1) = span;
         let head = ((x1 - x0) * 0.3).min(h * 0.8).min(x1 - x0).max(0.0);
         let bottom = top + h;
         let reverse = segment.strand == Strand::Reverse;
@@ -515,6 +540,37 @@ impl SplitReadTrack {
         };
         ctx.svg.polygon(&points, fill);
     }
+}
+
+/// What a reader hovering one alignment is told.
+///
+/// Which piece of the molecule it is comes first, because that is what the
+/// track exists to say: the same three coordinates visited in a different order
+/// are a different event, and the ramp and the connectors are the only other
+/// things carrying it. Then the reference span in the 1-based inclusive form
+/// the ruler prints, then the orientation the piece landed in.
+fn segment_tooltip(read: &SplitRead, index: usize) -> String {
+    let segment = &read.segments[index];
+    let mut text = String::new();
+    if let Some(name) = &read.name {
+        if !name.is_empty() {
+            text.push_str(name);
+            text.push(' ');
+        }
+    }
+    let _ = write!(
+        text,
+        "segment {} of {}, {}",
+        group_thousands(index as u64 + 1),
+        group_thousands(read.segments.len() as u64),
+        span_label(segment.start, segment.end)
+    );
+    let strand = strand_label(segment.strand);
+    if !strand.is_empty() {
+        text.push_str(", ");
+        text.push_str(strand);
+    }
+    text
 }
 
 /// The rectangle a row of this track occupies, for tests.
@@ -721,6 +777,59 @@ mod tests {
             .push(track)
             .to_svg();
         assert!(!svg.contains("<polygon"));
+    }
+
+    #[test]
+    fn every_segment_says_which_piece_of_the_molecule_it_is() {
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(SplitReadTrack::new(vec![transposition()]))
+            .to_svg();
+        // In read order, not in reference order: the middle piece of this
+        // molecule is the one that landed furthest away and on the far strand,
+        // and that is the whole observation.
+        for expected in [
+            "<title>m64011_1 segment 1 of 3, 1,001 to 1,600, forward</title>",
+            "<title>m64011_1 segment 2 of 3, 9,001 to 9,400, reverse</title>",
+            "<title>m64011_1 segment 3 of 3, 1,601 to 2,100, forward</title>",
+        ] {
+            assert!(svg.contains(expected), "missing {expected} in {svg}");
+        }
+    }
+
+    #[test]
+    fn an_unnamed_molecule_still_says_which_piece_this_is() {
+        let read = SplitRead::new(vec![
+            SplitSegment::new(100, 400, Strand::Forward),
+            SplitSegment::new(700, 900, Strand::Reverse),
+        ]);
+        let svg = Figure::new(Region::new("chr", 0, 1_000).unwrap())
+            .push(SplitReadTrack::new(vec![read]))
+            .to_svg();
+        assert!(
+            svg.contains("<title>segment 2 of 2, 701 to 900, reverse</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_segment_out_of_view_is_not_given_a_title_of_its_own() {
+        // It draws nothing, so a group and a title for it would be bytes with
+        // nothing behind them. The corner count is what reports it instead.
+        let svg = Figure::new(Region::new("chr", 0, 3_000).unwrap())
+            .push(SplitReadTrack::new(vec![transposition()]))
+            .to_svg();
+        assert!(!svg.contains("9,001 to 9,400"), "{svg}");
+        assert_eq!(svg.matches("<title>").count(), 2);
+        assert!(svg.contains("1 segment not in view"));
+    }
+
+    #[test]
+    fn every_group_a_split_read_track_opens_is_closed_again() {
+        let svg = Figure::new(Region::new("chr", 0, 10_000).unwrap())
+            .push(SplitReadTrack::new(vec![transposition(), transposition()]))
+            .to_svg();
+        let open = svg.matches("<g>").count() + svg.matches("<g ").count();
+        assert_eq!(open, svg.matches("</g>").count(), "{svg}");
     }
 
     #[test]

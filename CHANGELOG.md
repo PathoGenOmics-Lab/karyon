@@ -8,6 +8,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Every figure now says what it is. The document carries a `<title>`, a `<desc>`,
+  `role="img"` and `aria-labelledby`, so a screen reader is given a sentence
+  instead of several thousand unnamed rectangles, and a reader whose image did
+  not load is given the alt text. `Figure::description` sets that text; without
+  it the description is composed only from what the figure knows for certain,
+  the region and the labels of its tracks in order, which says what is there
+  without claiming anything about what it shows.
+- `SvgWriter::begin_titled` and `SvgWriter::describe`, and a tooltip on every
+  glyph worth pointing at: a gene gives its name, span and strand, a variant its
+  position, consequence and allele fraction, a read its span and CIGAR. A
+  `<title>` as the first child of a group is SVG 1.1, so this needs no script,
+  fetches nothing, and survives Inkscape and Illustrator.
+- What gets named follows the rule the crate already binned by: the thing that
+  decides whether a datum is drawn on its own decides whether it is named. A
+  coverage bin is the resolution of the output rather than of the input and gets
+  nothing; a dense row-major track names the row and not the cell; a glyph under
+  a pixel is nothing a pointer can rest on. The worst a figure grew was a third,
+  and the genome-wide figure did not grow at all.
+- `SvgWriter::begin_titled_inert` for decoration drawn over data. The ideogram's
+  region marker is a translucent rectangle written after the bands, so its own
+  tooltip took every hover inside the highlighted span and the bands it points
+  at were the one part of the chromosome a reader could not interrogate.
 - `plot` and `Plot`, a short way to write a figure down. `Figure` takes
   tracks that already exist, which is right when a track is built elsewhere and
   wrong for the ordinary case: a handful of tracks written out once, in place.
@@ -104,6 +126,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   twenty-two panels.
 - The README track table now lists all twenty-nine track types. It had stopped at
   `AxisTrack` and was fourteen tracks out of date.
+
+### Fixed
+
+- A nested figure named itself, which left every panel of a sheet unnameable.
+  `<title>` resolves to the innermost element under the pointer, so the title a
+  figure writes for itself shadowed the one `Panels` puts on the panel over the
+  panel's whole area: all twenty-two panel tooltips in the gallery existed in
+  the file and none could be reached. A document rendered with an id prefix is
+  being nested, so it no longer names itself; `role="img"` inside another
+  `role="img"` also hid its contents from a screen reader rather than describing
+  them.
+- `SnpTrack` hung its tooltip on the rotated column label rather than on the
+  data, so the panel itself answered nothing, and `show_positions(false)` took
+  every tooltip in the track with it. The cell is what a pointer lands on, so
+  the cell now carries the site, the reference base and what that sample has.
+  Only a cell that differs is named: agreement is the state the panel exists to
+  see past, the colour already says it, and naming it cost a third of the file.
+- `MatrixTrack` counted every site in the track while the drawing loop skipped
+  the ones outside the region, so a zoomed figure described cells that were not
+  on the page. Both numbers now count over the predicate the drawing uses.
+- Four tracks spelled the coordinate conversion themselves as `start + 1`,
+  which dropped the guard on a degenerate interval, so a zero-length span came
+  out backwards: a clade block at 100 to 100 read `101 to 100`. There is one
+  span formatter in the crate now and all of them call it.
 
 ### Changed
 

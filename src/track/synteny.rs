@@ -31,6 +31,7 @@
 use crate::scale::Scale;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::feature::span_label;
 use crate::track::{DrawContext, Track};
 
 /// One alignment between a stretch of the query and a stretch of the target.
@@ -136,6 +137,34 @@ fn block_color(
             .clone()
             .unwrap_or_else(|| theme.color(0).to_string())
     }
+}
+
+/// What a block is, where it lands on both sequences, and which way round.
+///
+/// A block is one datum drawn as one glyph in either track, so it is named in
+/// both, and identically: a comparison read as ribbons and the same comparison
+/// read as a dotplot have to answer a pointer with the same sentence.
+///
+/// Coordinates are the 1-based inclusive ones the ruler prints, on both
+/// sequences, since a reader who copies one into a browser is not thinking
+/// about which half of the crate stores them half-open.
+fn block_title(block: &AlignmentBlock) -> String {
+    let mut title = format!(
+        "alignment block, query {}, target {}, {}",
+        span_label(block.query_start, block.query_end),
+        span_label(block.target_start, block.target_end),
+        if block.reversed {
+            "reversed"
+        } else {
+            "forward"
+        }
+    );
+    // Named rather than left as a bare number: 0.98 on its own is not a
+    // statement about anything.
+    if let Some(identity) = block.identity {
+        title.push_str(&format!(", identity {identity:.2}"));
+    }
+    title
 }
 
 /// Two sequences on two axes, alignments as diagonals.
@@ -304,7 +333,16 @@ impl Track for DotplotTrack {
             } else {
                 (y_of(block.target_start), y_of(block.target_end))
             };
+            // A diagonal shorter than a pixel is a dot, and there is nothing
+            // there for a pointer to rest on, so it goes unnamed.
+            let pointable = (x1 - x0).hypot(y1 - y0) >= 1.0;
+            if pointable {
+                ctx.svg.begin_titled(&block_title(block));
+            }
             ctx.svg.line(x0, y0, x1, y1, &color, self.line_width);
+            if pointable {
+                ctx.svg.end_group();
+            }
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
@@ -554,6 +592,9 @@ impl Track for SyntenyTrack {
                 num(qx1),
                 num(query_bottom)
             );
+            // The ribbon, its edge and the two solid blocks on the bars are one
+            // alignment, so they share one group and answer a pointer once.
+            ctx.svg.begin_titled(&block_title(block));
             ctx.svg.path(&d, &color, self.ribbon_opacity);
             // An edge on the ribbon, so a pale one crossing a pale one is two
             // ribbons rather than a wash.
@@ -581,6 +622,7 @@ impl Track for SyntenyTrack {
                     0.8,
                 );
             }
+            ctx.svg.end_group();
         }
 
         if ctx.axis.w > 0.0 {
@@ -860,6 +902,83 @@ mod tests {
         assert!(!svg.contains("<path"));
         // The page background, the two bars, and the clip path's own rect.
         assert_eq!(svg.matches("<rect").count(), 4);
+    }
+
+    #[test]
+    fn a_diagonal_names_both_spans_and_its_orientation() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(DotplotTrack::new(blocks()).target_length(10_000))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "<title>alignment block, query 1 to 4,000, target 1 to 4,000, forward</title>"
+            ),
+            "{svg}"
+        );
+        assert!(svg.contains(
+            "<title>alignment block, query 4,001 to 6,000, target 6,001 to 8,000, reversed</title>"
+        ));
+        // One per visible block, and every group closed again.
+        assert_eq!(svg.matches("<title>").count(), 3);
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
+    }
+
+    #[test]
+    fn a_zero_length_block_still_reads_forwards_on_both_sequences() {
+        // Written by hand as `start + 1 to end` this came out `101 to 100` on
+        // whichever sequence collapsed, a span running backwards in a track
+        // whose whole subject is orientation. One span formatter, one guard.
+        let title = block_title(&AlignmentBlock::new(100, 100, 200, 200));
+        assert_eq!(
+            title,
+            "alignment block, query 101 to 101, target 201 to 201, forward"
+        );
+        assert!(!title.contains("to 100"), "{title}");
+    }
+
+    #[test]
+    fn an_identity_is_named_rather_than_left_as_a_bare_number() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                DotplotTrack::new(vec![AlignmentBlock::new(0, 4_000, 0, 4_000).identity(0.976)])
+                    .target_length(10_000),
+            )
+            .to_svg();
+        assert!(svg.contains(
+            "<title>alignment block, query 1 to 4,000, target 1 to 4,000, forward, identity 0.98</title>"
+        ));
+    }
+
+    #[test]
+    fn a_diagonal_under_a_pixel_long_goes_unnamed() {
+        // Five bases of a ten kilobase comparison: the line is there, but
+        // there is nothing a pointer could rest on.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                DotplotTrack::new(vec![AlignmentBlock::new(1_000, 1_005, 1_000, 1_005)])
+                    .target_length(10_000),
+            )
+            .to_svg();
+        assert!(svg.contains("<line"), "the block is still drawn");
+        assert!(!svg.contains("<title>"), "{svg}");
+    }
+
+    #[test]
+    fn a_ribbon_answers_a_pointer_with_the_same_sentence_as_a_diagonal() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(SyntenyTrack::new(blocks()).target_length(10_000))
+            .to_svg();
+        assert!(svg.contains(
+            "<title>alignment block, query 4,001 to 6,000, target 6,001 to 8,000, reversed</title>"
+        ));
+        // One group per block, holding the ribbon, its edge and both bar
+        // blocks, rather than one tooltip per shape.
+        assert_eq!(svg.matches("<title>").count(), 3);
+        assert_eq!(svg.matches("<g").count(), svg.matches("</g>").count());
     }
 
     #[test]
