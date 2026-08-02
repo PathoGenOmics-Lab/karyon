@@ -416,7 +416,7 @@ impl LocusTrack {
         }
         match gene.name.as_deref().filter(|name| !name.is_empty()) {
             Some(name) => out.push_str(name),
-            None => out.push_str(&group_thousands(gene.start + 1)),
+            None => out.push_str(&group_thousands(gene.start.saturating_add(1))),
         }
         out
     }

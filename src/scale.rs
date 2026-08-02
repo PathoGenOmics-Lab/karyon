@@ -93,9 +93,14 @@ impl Scale {
     /// A track is handed the scale before it is handed a region, and some of
     /// them have to know what is on screen in order to say how tall they are:
     /// a pileup packs only the reads in view, so its height follows the view.
+    /// Both ends saturate rather than wrapping. A coordinate near the top of
+    /// the range does not survive the trip through `f64`: `u64::MAX - 10` is
+    /// not representable, rounds to 2^64, and comes back as `u64::MAX`, so the
+    /// span added to it overflows. Saturating is the honest answer, since at
+    /// that magnitude the precision to do better is already gone.
     pub fn bounds(&self) -> (u64, u64) {
         let start = self.start.max(0.0) as u64;
-        (start, start + self.span.max(0.0) as u64)
+        (start, start.saturating_add(self.span.max(0.0) as u64))
     }
 
     /// Left edge of the plotting area.

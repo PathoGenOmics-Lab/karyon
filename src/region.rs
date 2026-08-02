@@ -168,7 +168,7 @@ impl Region {
 
     /// First base of the region as it is shown to users, 1-based.
     pub fn display_start(&self) -> u64 {
-        self.start + 1
+        self.start.saturating_add(1)
     }
 
     /// Last base of the region as it is shown to users, 1-based inclusive.

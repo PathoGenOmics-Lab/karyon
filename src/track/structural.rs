@@ -404,7 +404,7 @@ fn tooltip(call: &StructuralVariant) -> String {
     let mut text = call.kind.name().to_string();
     text.push_str(", ");
     if call.start == call.end {
-        text.push_str(&group_thousands(call.start + 1));
+        text.push_str(&group_thousands(call.start.saturating_add(1)));
     } else {
         text.push_str(&span_label(call.start, call.end));
     }

@@ -635,7 +635,7 @@ impl LogoTrack {
             .iter()
             .enumerate()
             .map(|(index, column)| {
-                let pos = self.start + index as u64;
+                let pos = self.start.saturating_add(index as u64);
                 // Only a background-relative score needs the column repaired
                 // against zeros, so the two absolute scores stay exact. A
                 // shrunk column needs no repair at all: its posterior is
@@ -823,7 +823,7 @@ impl Track for LogoTrack {
                 continue;
             }
             let left = ctx.scale.x(stack.pos);
-            let right = ctx.scale.x(stack.pos + 1);
+            let right = ctx.scale.x(stack.pos.saturating_add(1));
             let padding = ((right - left) * 0.06).min(1.0);
             let x = left + padding;
             let width = (right - left) - 2.0 * padding;
@@ -917,7 +917,7 @@ impl LogoTrack {
     /// silent half dropped, so it keeps `enriched` rather than falling through
     /// to a number with nothing said about it.
     fn column_title(&self, stack: &LogoStack) -> String {
-        let at = group_thousands(stack.pos + 1);
+        let at = group_thousands(stack.pos.saturating_add(1));
         let unit = self.score.unit();
         let up = trim(stack.up_total());
         let down = trim(stack.down_total());

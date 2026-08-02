@@ -284,7 +284,7 @@ impl IdeogramTrack {
     /// otherwise draw: a whole gene, say, while the tracks below show one exon
     /// of it.
     pub fn highlight(mut self, start: u64, end: u64) -> Self {
-        self.highlight = Some((start, end.max(start + 1)));
+        self.highlight = Some((start, end.max(start.saturating_add(1))));
         self
     }
 

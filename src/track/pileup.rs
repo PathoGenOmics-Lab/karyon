@@ -188,13 +188,21 @@ impl Read {
     }
 
     /// How much reference the read covers, gaps and skips included.
+    ///
+    /// Saturating, since a CIGAR is read from a file and the sum of its
+    /// operations is whatever that file says rather than whatever fits.
     pub fn reference_span(&self) -> u64 {
-        self.cigar.iter().map(|op| op.reference_len()).sum()
+        self.cigar
+            .iter()
+            .fold(0u64, |total, op| total.saturating_add(op.reference_len()))
     }
 
     /// One past the last reference position the read touches.
+    ///
+    /// Saturating for the same reason the span is: a read placed near the top
+    /// of the coordinate range would otherwise take the figure down with it.
     pub fn end(&self) -> u64 {
-        self.start + self.reference_span()
+        self.start.saturating_add(self.reference_span())
     }
 
     /// Whether the read touches a region.
@@ -222,8 +230,8 @@ impl Read {
                             query,
                         });
                     }
-                    reference += len as u64;
-                    query += len as usize;
+                    reference = reference.saturating_add(len as u64);
+                    query = query.saturating_add(len as usize);
                 }
                 CigarOp::Deletion(len) => {
                     if len > 0 {
@@ -232,7 +240,7 @@ impl Read {
                             len: len as u64,
                         });
                     }
-                    reference += len as u64;
+                    reference = reference.saturating_add(len as u64);
                 }
                 CigarOp::Skip(len) => {
                     if len > 0 {
@@ -241,13 +249,13 @@ impl Read {
                             len: len as u64,
                         });
                     }
-                    reference += len as u64;
+                    reference = reference.saturating_add(len as u64);
                 }
                 CigarOp::Insertion(len) => {
                     if len > 0 {
                         segments.push(Segment::Insertion { at: reference, len });
                     }
-                    query += len as usize;
+                    query = query.saturating_add(len as usize);
                 }
                 CigarOp::SoftClip(len) => query += len as usize,
                 CigarOp::HardClip(_) => {}
@@ -267,7 +275,7 @@ impl Read {
         }
         for segment in self.segments() {
             if let Segment::Aligned { start, len, query } = segment {
-                if position >= start && position < start + len {
+                if position >= start && position < start.saturating_add(len) {
                     let offset = query + (position - start) as usize;
                     return self.sequence.get(offset).copied();
                 }
@@ -588,7 +596,7 @@ impl Track for PileupTrack {
                         let block = Rect {
                             x: left,
                             y: top,
-                            w: ctx.scale.x(start + len) - left,
+                            w: ctx.scale.x(start.saturating_add(len)) - left,
                             h: self.read_height,
                         };
                         self.draw_body(ctx, read, block, &color, opacity);
@@ -599,7 +607,7 @@ impl Track for PileupTrack {
                         ctx.svg.line(
                             ctx.scale.x(start),
                             middle,
-                            ctx.scale.x(start + len),
+                            ctx.scale.x(start.saturating_add(len)),
                             middle,
                             &color,
                             1.5,
@@ -609,7 +617,7 @@ impl Track for PileupTrack {
                         ctx.svg.line(
                             ctx.scale.x(start),
                             middle,
-                            ctx.scale.x(start + len),
+                            ctx.scale.x(start.saturating_add(len)),
                             middle,
                             &ctx.theme.rule,
                             1.0,
@@ -745,7 +753,7 @@ impl PileupTrack {
                 continue;
             };
             let from = start.max(first);
-            let to = (start + len).min(last);
+            let to = start.saturating_add(len).min(last);
             for position in from..to {
                 let offset = query + (position - start) as usize;
                 let Some(base) = read.sequence.get(offset).copied() else {
@@ -759,7 +767,7 @@ impl PileupTrack {
                 }
 
                 let x = ctx.scale.x(position);
-                let width = ctx.scale.x(position + 1) - x;
+                let width = ctx.scale.x(position.saturating_add(1)) - x;
                 let color = ctx.theme.bases.of(base).to_string();
                 // A mismatch is the reason the track exists, so it never gets
                 // to be thinner than a pixel. The floor only bites at the wide

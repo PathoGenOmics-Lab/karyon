@@ -228,7 +228,10 @@ impl CodonTrack {
         Some(if self.strand == Strand::Reverse {
             (self.end - 3 * codon, self.end - 3 * codon + 3)
         } else {
-            (self.start + 3 * (codon - 1), self.start + 3 * codon)
+            (
+                self.start.saturating_add(3 * (codon - 1)),
+                self.start.saturating_add(3 * codon),
+            )
         })
     }
 
@@ -275,7 +278,10 @@ impl CodonTrack {
         let (lo, hi) = if self.strand == Strand::Reverse {
             (self.end - 3 * total, self.end - 1)
         } else {
-            (self.start, self.start + 3 * total - 1)
+            (
+                self.start,
+                self.start.saturating_add(3 * total).saturating_sub(1),
+            )
         };
         let at = |pos: u64| self.codon_of(pos.clamp(lo, hi));
         let left = at(view_start)?;

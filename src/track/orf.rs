@@ -221,7 +221,7 @@ impl OrfTrack {
                         // `open` was Some, so at least one codon precedes the
                         // stop in walk order.
                         let before = if reverse {
-                            *position + 3
+                            position.saturating_add(3)
                         } else {
                             *position - 3
                         };
@@ -268,14 +268,14 @@ impl OrfTrack {
                     complement(self.seq[end - 2]),
                     complement(self.seq[at]),
                 ];
-                out.push((self.start + at as u64, codon));
+                out.push((self.start.saturating_add(at as u64), codon));
                 end -= 3;
             }
         } else {
             let mut at = offset;
             while at + 3 <= len {
                 let codon = [self.seq[at], self.seq[at + 1], self.seq[at + 2]];
-                out.push((self.start + at as u64, codon));
+                out.push((self.start.saturating_add(at as u64), codon));
                 at += 3;
             }
         }
@@ -373,9 +373,9 @@ fn complement(base: u8) -> u8 {
 /// span the walk started at.
 fn span(from: u64, to: u64, reverse: bool) -> (u64, u64) {
     if reverse {
-        (to.min(from), from.max(to) + 3)
+        (to.min(from), from.max(to).saturating_add(3))
     } else {
-        (from, to + 3)
+        (from, to.saturating_add(3))
     }
 }
 
@@ -431,7 +431,7 @@ impl Track for OrfTrack {
         // them: the ticks are what bound it.
         for (position, frame) in self.stops() {
             let top = self.lane(frame, band.y);
-            let x = ctx.scale.x_center(position + 1);
+            let x = ctx.scale.x_center(position.saturating_add(1));
             let color = if frame < 0 { &reverse } else { &forward };
             ctx.svg.rect(
                 x - 0.5,

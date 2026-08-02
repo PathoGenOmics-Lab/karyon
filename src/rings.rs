@@ -869,7 +869,7 @@ impl Ring for FeatureRing {
             } else {
                 &forward
             };
-            let end = feature.end.max(feature.start + floor.max(1));
+            let end = feature.end.max(feature.start.saturating_add(floor.max(1)));
 
             // One arc per feature and nothing is binned, so a feature is named
             // when it is something a pointer can land on. The measure is the

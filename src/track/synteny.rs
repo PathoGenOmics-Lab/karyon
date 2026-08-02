@@ -116,7 +116,7 @@ fn spanning_range(blocks: &[AlignmentBlock]) -> TargetRange {
     let end = blocks.iter().map(|b| b.target_end).max().unwrap_or(1);
     TargetRange {
         start,
-        end: end.max(start + 1),
+        end: end.max(start.saturating_add(1)),
     }
 }
 
@@ -243,7 +243,7 @@ impl DotplotTrack {
     pub fn target_range(mut self, start: u64, end: u64) -> Self {
         self.target = Some(TargetRange {
             start,
-            end: end.max(start + 1),
+            end: end.max(start.saturating_add(1)),
         });
         self
     }
@@ -452,7 +452,7 @@ impl SyntenyTrack {
     pub fn target_range(mut self, start: u64, end: u64) -> Self {
         self.target = Some(TargetRange {
             start,
-            end: end.max(start + 1),
+            end: end.max(start.saturating_add(1)),
         });
         self
     }

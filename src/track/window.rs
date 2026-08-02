@@ -548,7 +548,7 @@ fn scan(start: u64, seq: &[u8], window: u64, value: impl Fn(Counts) -> f64) -> V
     seq.chunks(step)
         .enumerate()
         .map(|(index, chunk)| {
-            let from = start + (index * step) as u64;
+            let from = start.saturating_add((index * step) as u64);
             Window::new(from, from + chunk.len() as u64, value(counts_of(chunk)))
         })
         .collect()

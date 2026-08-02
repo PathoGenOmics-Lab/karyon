@@ -356,7 +356,7 @@ impl Track for MethylationTrack {
 fn site_tooltip(site: &MethylSite) -> String {
     format!(
         "methylation site, {}, {}, {}% modified in {} {}",
-        group_thousands(site.pos + 1),
+        group_thousands(site.pos.saturating_add(1)),
         // The track has two lanes and everything that is not reverse is drawn
         // in the forward one, so this names the lane the marker is in.
         if site.is_reverse() {

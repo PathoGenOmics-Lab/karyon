@@ -134,7 +134,10 @@ impl Track for SequenceTrack {
         // Only the bases actually on screen, so the cost follows the figure
         // width rather than the length of the sequence handed in.
         let first = ctx.region.start().max(self.start);
-        let last = ctx.region.end().min(self.start + self.seq.len() as u64);
+        let last = ctx
+            .region
+            .end()
+            .min(self.start.saturating_add(self.seq.len() as u64));
         if last <= first {
             return;
         }
@@ -148,7 +151,7 @@ impl Track for SequenceTrack {
                 continue;
             };
             let x = ctx.scale.x(pos);
-            let width = ctx.scale.x(pos + 1) - x;
+            let width = ctx.scale.x(pos.saturating_add(1)) - x;
             let color = ctx.theme.bases.of(base).to_string();
 
             if draw_letters {

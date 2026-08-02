@@ -408,7 +408,10 @@ impl Track for VariantTrack {
 /// Only lollipops are named. See the module documentation for why a tick is
 /// not.
 fn tooltip(variant: &Variant) -> String {
-    let mut text = format!("variant, {}", group_thousands(variant.pos + 1));
+    let mut text = format!(
+        "variant, {}",
+        group_thousands(variant.pos.saturating_add(1))
+    );
     if let Some(category) = variant.category.as_deref() {
         if !category.is_empty() {
             text.push_str(", ");
