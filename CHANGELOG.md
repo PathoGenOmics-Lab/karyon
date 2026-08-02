@@ -148,6 +148,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A variant tooltip printed `f64::MAX` as three hundred and ten digits. The
+  guard against that existed and its fallback expanded the number anyway, and
+  its threshold was above the point where the precision it was protecting had
+  already gone: an `f64` holds consecutive integers to 2^53 and therefore
+  consecutive hundredths only to a hundredth of that, so 999,999,999,999,999
+  came back reading `.04`. Past that the magnitude is all there is to say, and
+  a new invariant says no tooltip may carry more than twenty digits in a row,
+  which is what `u64::MAX` needs and more than any grouped number reaches.
 - Six coordinate overflows, every one found by the property suite on its first
   run and none reachable with ordinary data: `Scale::bounds`, `Read::end` and
   the CIGAR walk, the codon walk in `OrfTrack`, and the sequence track's right

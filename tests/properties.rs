@@ -497,6 +497,31 @@ fn every_figure_renders_a_valid_document() {
 }
 
 #[test]
+fn no_tooltip_prints_more_digits_than_a_number_has() {
+    // `u64::MAX` is twenty digits, and every number the crate groups breaks
+    // into runs of three, so nothing legitimate reaches twenty-one in a row.
+    // `f64::MAX` written to two decimal places is three hundred and ten, which
+    // is what a formatter does when nobody has told it that an f64 stops
+    // holding consecutive integers at 2^53.
+    for seed in 0..ROUNDS {
+        let svg = figure(seed).to_svg();
+        for piece in svg.split("<title>").skip(1) {
+            let Some(text) = piece.split("</title>").next() else {
+                continue;
+            };
+            let mut run = 0usize;
+            for byte in text.bytes() {
+                run = if byte.is_ascii_digit() { run + 1 } else { 0 };
+                assert!(
+                    run <= 20,
+                    "seed {seed}: a tooltip carries {run} digits in a row: {text:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn rendering_is_deterministic() {
     for seed in 0..ROUNDS {
         assert_eq!(

@@ -445,14 +445,21 @@ fn tooltip(variant: &Variant) -> String {
 /// and it is a price paid in one trailing zero.
 fn exact_value(value: f64) -> String {
     if !value.is_finite() {
-        return "0.00".to_string();
+        // The one caller filters these out. Saying `0.00` would claim a
+        // measurement of zero, so if this is ever reached it says what it got.
+        return format!("{value}");
     }
     let sign = if value < 0.0 { "-" } else { "" };
     let magnitude = value.abs();
-    // Past the point where an f64 has hundredths to report, hand it to the
-    // formatter rather than pretending the scaling below is exact.
-    if magnitude >= 1e15 {
-        return format!("{value:.2}");
+    // An f64 holds consecutive integers up to 2^53, so it holds consecutive
+    // hundredths up to a hundredth of that, and above it the two decimal
+    // places below are the formatter's invention rather than the value's:
+    // 999,999,999,999,999 comes back as `.04`. Past that the magnitude is all
+    // there is to say, and it says it in seven characters rather than in the
+    // three hundred and ten `f64::MAX` expands to under a pointer.
+    const EXACT_HUNDREDTHS: f64 = (1u64 << 53) as f64 / 100.0;
+    if magnitude >= EXACT_HUNDREDTHS {
+        return format!("{value:.3e}");
     }
     let hundredths = (magnitude * 100.0).round() as u64;
     format!(
@@ -618,13 +625,26 @@ mod tests {
         assert_eq!(format_value(1234.0), "1.2k");
         assert_eq!(exact_value(1234.0), "1,234.00");
         assert_eq!(exact_value(1_234_567.0), "1,234,567.00");
+        // A number too large to have hundredths is given as a magnitude, not
+        // as the three hundred and ten digits the formatter would expand it to.
+        assert_eq!(exact_value(f64::MAX), "1.798e308");
+        assert!(exact_value(f64::MAX).len() < 20);
+        assert_eq!(exact_value(-f64::MAX), "-1.798e308");
+        // The last magnitude whose hundredths an f64 still holds, and the
+        // first one whose it does not.
+        assert_eq!(exact_value(9e13), "90,000,000,000,000.00");
+        assert_eq!(exact_value(1e14), "1.000e14");
         // Two places always, so a column of allele fractions lines up.
         assert_eq!(exact_value(1.0), "1.00");
         assert_eq!(exact_value(0.98), "0.98");
         assert_eq!(exact_value(0.5), "0.50");
         assert_eq!(exact_value(0.0), "0.00");
         assert_eq!(exact_value(-0.25), "-0.25");
-        assert_eq!(exact_value(f64::NAN), "0.00");
+        // The caller filters a non-finite value out, so this is unreachable
+        // from a figure. If it is ever reached it says what it got, since
+        // "0.00" would claim a measurement of zero that nobody made.
+        assert_eq!(exact_value(f64::NAN), "NaN");
+        assert_eq!(exact_value(f64::INFINITY), "inf");
     }
 
     #[test]
