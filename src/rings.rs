@@ -196,8 +196,8 @@ impl Polar {
     /// towards the centre, which is what keeps a chord readable when a dozen of
     /// them cross: a straight one would be a chord of noise.
     pub fn ribbon(&self, from: (u64, u64), to: (u64, u64), radius: f64) -> String {
-        let (a0, a1) = self.span(from.0, from.1);
-        let (b0, b1) = self.span(to.0, to.1);
+        let (a0, a1) = self.chord_span(from.0, from.1);
+        let (b0, b1) = self.chord_span(to.0, to.1);
         let (ax0, ay0) = self.at(a0, radius);
         let (ax1, ay1) = self.at(a1, radius);
         let (bx0, by0) = self.at(b0, radius);
@@ -217,6 +217,17 @@ impl Polar {
             num(ax0),
             num(ay0),
         )
+    }
+
+    /// The angles of one end of a chord, which unlike a sector is a single
+    /// closed shape and so cannot be cut in two at the origin: a span that
+    /// wraps is carried past twelve o'clock as an angle beyond the sweep.
+    fn chord_span(&self, from: u64, to: u64) -> (f64, f64) {
+        if to < from {
+            let a0 = self.angle(from);
+            return (a0, (self.angle(to) + 2.0 * PI).max(a0 + 1e-4));
+        }
+        self.span(from, to)
     }
 
     /// The angles of a span, always at least a hair wide so that a single base
@@ -307,10 +318,28 @@ impl Chord {
     fn title(&self) -> String {
         format!(
             "link, source {}, target {}",
-            span_label(self.from.0, self.from.1),
-            span_label(self.to.0, self.to.1)
+            chord_end_label(self.from.0, self.from.1),
+            chord_end_label(self.to.0, self.to.1)
         )
     }
+}
+
+/// One end of a chord in words, 1-based and inclusive like the ruler.
+///
+/// A span whose end is below its start runs through the origin, and
+/// [`span_label`] reads it as a backwards one and pushes the end up to the
+/// start, so 900 to 100 came out as "901 to 901". The two numbers are still
+/// the right ones the right way round; what has to be said as well is that the
+/// span gets from the first to the second through twelve o'clock.
+fn chord_end_label(from: u64, to: u64) -> String {
+    if to < from {
+        return format!(
+            "{} to {} across the origin",
+            group_thousands(from + 1),
+            group_thousands(to.max(1))
+        );
+    }
+    span_label(from, to)
 }
 
 /// A circular sequence and the rings drawn around it.
@@ -656,6 +685,10 @@ impl AxisRing {
     }
 
     /// Sets how much radius the ruler takes.
+    ///
+    /// The coordinates are written inside this band, so a ruler thinner than
+    /// the text it would carry is drawn as ticks alone. See
+    /// [`AxisRing::show_labels`].
     pub fn thickness(mut self, thickness: f64) -> Self {
         self.thickness = thickness.max(4.0);
         self
@@ -668,6 +701,11 @@ impl AxisRing {
     }
 
     /// Draws or hides the coordinate labels.
+    ///
+    /// Asking for them is not enough on a ruler too thin to hold them: the
+    /// labels sit inside the tick marks, so on a thin band they would be
+    /// printed over the ring below. A ruler with no room for legible text
+    /// draws its ticks and says nothing.
     pub fn show_labels(mut self, show: bool) -> Self {
         self.show_labels = show;
         self
@@ -688,10 +726,16 @@ impl Ring for AxisRing {
     fn draw(&self, ctx: &mut RingContext<'_>) {
         let polar = ctx.polar;
         let step = nice_step(polar.length() as f64 / self.ticks as f64);
-        let size = ctx.theme.font_size - 1.0;
         // Labels go inside the tick marks rather than outside the circle, so
-        // the plot stays inside the square it said it would occupy.
+        // the plot stays inside the square it said it would occupy. The size
+        // has to fit the band the ring was given as well: the ruler is drawn
+        // from the outer edge inwards, so a full-size label on a thin ring
+        // lands on the ring below, over whatever that one is drawing. Below
+        // the size a label can be read at there is no label, which is the rule
+        // the rest of the crate uses when a band is too thin to say something.
+        let size = (ctx.theme.font_size - 1.0).min(ctx.thickness() - 12.0);
         let label_radius = ctx.outer - 7.0 - size * 0.7;
+        let show_labels = self.show_labels && size >= 4.0;
 
         ctx.svg
             .path_stroked(&polar.circle(ctx.outer), &ctx.theme.rule, 1.0);
@@ -700,10 +744,10 @@ impl Ring for AxisRing {
         while pos < polar.length() {
             let angle = polar.angle(pos);
             let (x0, y0) = polar.at(angle, ctx.outer);
-            let (x1, y1) = polar.at(angle, ctx.outer - 5.0);
+            let (x1, y1) = polar.at(angle, (ctx.outer - 5.0).max(ctx.inner));
             ctx.svg.line(x0, y0, x1, y1, &ctx.theme.rule, 1.0);
 
-            if self.show_labels {
+            if show_labels {
                 let (tx, ty) = polar.at(angle, label_radius);
                 ctx.svg.text(
                     tx,
@@ -853,7 +897,12 @@ impl Ring for FeatureRing {
 
             if self.show_names {
                 if let Some(name) = &feature.name {
-                    let mid = feature.start + (feature.end - feature.start) / 2;
+                    // The middle of the arc as drawn, floor included, which is
+                    // also the only subtraction that cannot run backwards: a
+                    // span that wraps through the origin has its end below its
+                    // start, and `feature.end` here would take a u64 below
+                    // zero.
+                    let mid = feature.start + (end - feature.start) / 2;
                     let angle = ctx.polar.angle(mid);
                     let (x, y) = ctx.polar.at(angle, ctx.inner - 4.0);
                     // Anchored away from the centre, so a name on the left of
@@ -1259,6 +1308,47 @@ mod tests {
     }
 
     #[test]
+    fn a_chord_end_across_the_origin_keeps_all_two_hundred_of_its_bases() {
+        // 900 to 100 on a thousand-base circle is the two hundred bases
+        // through twelve o'clock. A sector is cut in two at the origin before
+        // it is measured, but a ribbon is one closed shape and cannot be, so
+        // its ends went through `span`, which reads a wrapped pair as
+        // backwards and pushes the end back up to the start: 0.02 bases of the
+        // 200, a hairline where one end of the chord should be.
+        let p = polar();
+        let (a0, a1) = p.chord_span(900, 100);
+        let covered = (a1 - a0) / (2.0 * PI) * 1_000.0;
+        assert!((covered - 200.0).abs() < 1e-9, "{covered} bases, want 200");
+
+        // Carried past twelve o'clock rather than wrapped, and the sine and
+        // the cosine do not care, so the end still lands on position 100.
+        let (x, y) = p.at(a1, 40.0);
+        let (px, py) = p.point(100, 40.0);
+        assert!((x - px).abs() < 1e-9 && (y - py).abs() < 1e-9);
+
+        // Which leaves the large-arc flag right on its own: a fifth of the
+        // circle is the short way round and four fifths is not.
+        let short = p.ribbon((900, 100), (400, 600), 40.0);
+        assert_eq!(short.matches("A40 40 0 1").count(), 0, "{short}");
+        let long = p.ribbon((600, 400), (400, 600), 40.0);
+        assert_eq!(long.matches("A40 40 0 1").count(), 1, "{long}");
+    }
+
+    #[test]
+    fn a_chord_end_across_the_origin_says_that_it_crosses_it() {
+        // The same wrapped span read as a backwards one came out of the shared
+        // span label as "901 to 901", a hundred and ninety nine bases short of
+        // what the ribbon covers.
+        let svg = Rings::new(1_000).link((900, 100), (400, 600)).to_svg();
+        assert!(
+            svg.contains(
+                "<title>link, source 901 to 100 across the origin, target 401 to 600</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    #[test]
     fn rings_stack_inwards_and_leave_room_in_the_middle() {
         let plot = Rings::new(1_000)
             .diameter(400.0)
@@ -1325,6 +1415,85 @@ mod tests {
             .push(FeatureRing::new(vec![Feature::new(10_000, 11_000)]).min_degrees(1.0))
             .to_svg();
         assert!(visible.len() > hair.len());
+    }
+
+    #[test]
+    fn a_named_feature_across_the_origin_is_drawn_rather_than_panicking() {
+        // A gene either side of coordinate zero is ordinary on a circular
+        // sequence. Its name was anchored at `start + (end - start) / 2`,
+        // which for a wrapped span takes a u64 below zero: a panic where the
+        // rule is that nothing panics on data.
+        let wrapped = Feature {
+            start: 4_400_000,
+            end: 1_000,
+            name: Some("dnaA".to_string()),
+            strand: Strand::Forward,
+            color: None,
+        };
+        let svg = Rings::new(4_411_532)
+            .push(FeatureRing::new(vec![wrapped]).show_names(true))
+            .to_svg();
+        assert!(svg.contains(">dnaA</text>"), "{svg}");
+        assert!(!svg.contains("NaN"));
+
+        // And it lands under the arc as drawn, a little anticlockwise of
+        // twelve o'clock on a plot whose centre is (334, 334), rather than at
+        // whatever angle the wrapped arithmetic happened to give.
+        let (_, x, y) = &labels(&svg)[0];
+        assert!(
+            (x - 324.178).abs() < 0.5 && (y - 34.161).abs() < 0.5,
+            "{x} {y}"
+        );
+    }
+
+    /// Every text element of a document as `(content, x, y)`.
+    fn labels(svg: &str) -> Vec<(String, f64, f64)> {
+        svg.match_indices("<text ")
+            .map(|(i, _)| {
+                let element = &svg[i..i + svg[i..].find("</text>").unwrap()];
+                let content = element[element.find('>').unwrap() + 1..].to_string();
+                let read = |name: &str| -> f64 {
+                    let key = format!("{name}=\"");
+                    let at = element.find(&key).unwrap() + key.len();
+                    element[at..at + element[at..].find('"').unwrap()]
+                        .parse()
+                        .unwrap()
+                };
+                (content, read("x"), read("y"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_ruler_keeps_its_coordinates_inside_the_band_it_was_given() {
+        // The label radius was a fixed fourteen pixels in from the outer edge
+        // whatever the thickness, so a four pixel ruler on a 660 pixel plot
+        // printed all eight of its coordinates at radius 316, inside a band of
+        // [326, 330] and on top of the gene ring at [301, 321] below it.
+        let centre = (660.0 + 28.0) / 2.0;
+        let genes: Vec<Feature> = (0..400)
+            .map(|i| Feature::new(i * 10_000, i * 10_000 + 9_000))
+            .collect();
+
+        for (thickness, wanted) in [(4.0, 0), (10.0, 0), (20.0, 8), (22.0, 8)] {
+            let outer = 330.0;
+            let inner = outer - thickness;
+            let svg = Rings::new(4_000_000)
+                .diameter(660.0)
+                .push(AxisRing::new().thickness(thickness))
+                .push(FeatureRing::new(genes.clone()).thickness(20.0))
+                .to_svg();
+
+            let drawn = labels(&svg);
+            assert_eq!(drawn.len(), wanted, "thickness {thickness}: {drawn:?}");
+            for (content, x, y) in drawn {
+                let radius = ((x - centre).powi(2) + (y - centre).powi(2)).sqrt();
+                assert!(
+                    radius >= inner && radius <= outer,
+                    "{content} at {radius} is outside [{inner}, {outer}]"
+                );
+            }
+        }
     }
 
     #[test]

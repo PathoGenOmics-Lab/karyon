@@ -104,8 +104,11 @@ impl SquiggleTrack {
     /// picoamperes from two reads are not comparable and normalised ones are.
     /// The unit becomes a count of deviations rather than a current.
     ///
-    /// A signal with no spread at all is returned untouched, since dividing by
-    /// its deviation would divide by zero.
+    /// A signal whose median absolute deviation is zero is returned untouched
+    /// and keeps its raw unit, since dividing by that deviation would divide by
+    /// zero. It takes no more than half the samples being equal for the
+    /// deviation to be zero, which is what a stalled pore or a long homopolymer
+    /// looks like, so this is not only the flat signal.
     pub fn normalized(start: usize, signal: impl Into<Vec<f64>>) -> Self {
         let signal = signal.into();
         let median = median_of(&signal);
@@ -115,14 +118,13 @@ impl SquiggleTrack {
             .map(|value| (value - median).abs())
             .collect();
         let mad = median_of(&deviations);
-        let scaled = if mad > 0.0 {
-            signal
-                .iter()
-                .map(|value| (value - median) / mad)
-                .collect::<Vec<f64>>()
-        } else {
-            signal
-        };
+        if mad <= 0.0 {
+            // Nothing was divided, so the axis is still whatever the samples
+            // were measured in. Labelling it a count of deviations would print
+            // picoamperes under a unit they are not.
+            return SquiggleTrack::new(start, signal);
+        }
+        let scaled: Vec<f64> = signal.iter().map(|value| (value - median) / mad).collect();
         SquiggleTrack::new(start, scaled).unit(" MAD")
     }
 
@@ -156,8 +158,17 @@ impl SquiggleTrack {
     }
 
     /// Pins the current axis, instead of taking it from the signal.
+    ///
+    /// A pin with no width to it is widened to a unit window around the value
+    /// asked for, since an axis whose two ends are the same maps every sample
+    /// to nothing at all and would drop the trace without saying so.
     pub fn range(mut self, low: f64, high: f64) -> Self {
-        self.range = Some((low.min(high), low.max(high)));
+        let (low, high) = (low.min(high), low.max(high));
+        self.range = Some(if high > low {
+            (low, high)
+        } else {
+            (low - 1.0, low + 1.0)
+        });
         self
     }
 
@@ -215,6 +226,11 @@ impl SquiggleTrack {
     }
 
     /// The current values the axis spans, low first.
+    ///
+    /// The low end is always below the high one. A signal that never moves
+    /// still says what the current was, so it gets a unit window around that
+    /// value rather than an axis invented out of nothing; only a signal with no
+    /// finite sample in it at all falls back to nought to one.
     pub fn extent(&self) -> (f64, f64) {
         if let Some(range) = self.range {
             return range;
@@ -225,8 +241,14 @@ impl SquiggleTrack {
             low = low.min(*value);
             high = high.max(*value);
         }
-        if !low.is_finite() || high <= low {
+        if !low.is_finite() {
             return (0.0, 1.0);
+        }
+        if high <= low {
+            // A constant signal still says what the current was, so the axis is
+            // a window around it rather than a fabricated nought to one that
+            // would label the band in a range the trace is nowhere near.
+            return (low - 1.0, low + 1.0);
         }
         let pad = (high - low) * 0.06;
         (low - pad, high + pad)
@@ -513,6 +535,64 @@ mod tests {
         let track = SquiggleTrack::normalized(0, vec![100.0; 20]);
         assert!(track.signal().iter().all(|value| value.is_finite()));
         assert_eq!(track.signal()[0], 100.0, "returned untouched");
+    }
+
+    #[test]
+    fn a_signal_that_was_never_divided_keeps_the_unit_it_was_measured_in() {
+        // Sixty samples at 100 and forty climbing from 60 give a median
+        // absolute deviation of zero without being flat, which is what a
+        // stalled pore or a long homopolymer looks like. Nothing was divided,
+        // so the numbers are still picoamperes and the axis has to say so.
+        let mut signal = vec![100.0f64; 60];
+        signal.extend((0..40).map(|i| 60.0 + i as f64));
+        let track = SquiggleTrack::normalized(0, signal.clone());
+        assert_eq!(track.signal(), signal.as_slice(), "returned untouched");
+        assert_eq!(
+            track.unit, " pA",
+            "and not relabelled a count of deviations"
+        );
+        let svg = Figure::new(region(100))
+            .show_region_label(false)
+            .push(track.label("s"))
+            .to_svg();
+        assert!(!svg.contains("MAD"));
+        assert!(svg.contains("102.4 pA"));
+    }
+
+    #[test]
+    fn a_constant_signal_gets_an_axis_around_the_current_it_held() {
+        // Not a fabricated nought to one, which would label the band 0 and 1
+        // while the trace sits at 90 and is clamped to the top of it.
+        let flat = SquiggleTrack::new(0, vec![90.0f64; 100]);
+        assert_eq!(flat.extent(), (89.0, 91.0));
+        let svg = Figure::new(region(100))
+            .show_region_label(false)
+            .push(flat.label("pA"))
+            .to_svg();
+        assert!(svg.contains(">91 pA</text>"));
+        assert!(svg.contains(">89 pA</text>"));
+        assert!(!svg.contains(">1 pA</text>"));
+    }
+
+    #[test]
+    fn a_range_pinned_to_a_single_value_still_draws_the_trace() {
+        // low == high made every sample nought over nought, so the whole trace
+        // was dropped by the finiteness guard with nothing said about it.
+        let track =
+            SquiggleTrack::new(0, (0..100).map(|i| i as f64).collect::<Vec<_>>()).range(50.0, 50.0);
+        assert_eq!(track.extent(), (49.0, 51.0));
+        let svg = Figure::new(region(100))
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(svg.contains("<polyline"), "the trace is drawn");
+        assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn an_axis_with_no_finite_sample_to_hang_on_falls_back_to_nought_to_one() {
+        let track = SquiggleTrack::new(0, vec![f64::NAN, f64::NAN]);
+        assert_eq!(track.extent(), (0.0, 1.0));
     }
 
     #[test]

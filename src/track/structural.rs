@@ -129,12 +129,17 @@ impl StructuralVariant {
         self.end - self.start
     }
 
-    /// Whether either breakpoint falls in a span.
+    /// Whether the call reaches into a span.
     ///
-    /// Either, not both: an arc with one end off screen still says something,
-    /// and dropping it would quietly hide every event reaching out of the view.
+    /// Either breakpoint inside it, or the two of them either side: an arc that
+    /// leaves the view at one end still says something, and one that leaves it
+    /// at both is the widest event there is, so asking only whether a
+    /// breakpoint is on screen would hide exactly the calls that matter most.
+    /// The end is inclusive, so a call with one breakpoint (an insertion, where
+    /// the start and the end are the same) on the first base of the span is
+    /// kept.
     pub fn touches(&self, start: u64, end: u64) -> bool {
-        (self.start < end && self.start >= start) || (self.end < end && self.end >= start)
+        self.start < end && self.end >= start
     }
 }
 
@@ -449,6 +454,20 @@ mod tests {
         assert!(reaching.touches(0, 10_000));
         let elsewhere = StructuralVariant::new(500_000, 900_000, SvKind::Deletion);
         assert!(!elsewhere.touches(0, 10_000));
+    }
+
+    #[test]
+    fn a_call_that_engulfs_the_view_is_the_one_least_safe_to_drop() {
+        // Neither breakpoint of a 499 kb deletion at 1,000..500,000 is inside
+        // chr1:100,000-200,000, and the window is entirely deleted, so an empty
+        // band would be the most misleading answer there is.
+        let engulfing = StructuralVariant::new(1_000, 500_000, SvKind::Deletion).support(40);
+        assert!(engulfing.touches(100_000, 200_000));
+        let svg = Figure::new(Region::new("chr1", 100_000, 200_000).unwrap())
+            .show_region_label(false)
+            .push(StructuralTrack::new(vec![engulfing]).label("SV"))
+            .to_svg();
+        assert_eq!(svg.matches("<path").count(), 1, "the arc crosses the band");
     }
 
     #[test]

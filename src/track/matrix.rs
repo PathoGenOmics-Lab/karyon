@@ -367,8 +367,15 @@ impl Track for MatrixTrack {
                 if !ctx.region.contains(*site) {
                     continue;
                 }
-                let x = ctx.scale.x(*site);
-                let width = (ctx.scale.x(site + 1) - x).max(self.min_cell_width);
+                // The floor is hung symmetrically off the middle of the base,
+                // the point every other track marks a site at. Growing it
+                // rightwards from the left edge instead put a floored cell
+                // half a floor to the right of the site it stands for, so the
+                // tower of a Manhattan track above it did not stand over its
+                // own column.
+                let width = (ctx.scale.x(site.saturating_add(1)) - ctx.scale.x(*site))
+                    .max(self.min_cell_width);
+                let x = ctx.scale.x_center(*site) - width / 2.0;
                 let color = match row.value(column) {
                     Some(value) => self.cell_color(value, ceiling, ctx.theme),
                     None => missing.clone(),
@@ -582,6 +589,61 @@ mod tests {
             .collect();
         assert!(!widths.is_empty());
         assert!(widths.iter().all(|w| *w >= 6.0), "{widths:?}");
+    }
+
+    #[test]
+    fn a_floored_cell_stays_centred_on_the_site_it_stands_for() {
+        // The cell used to grow rightwards from the left edge of the base, so
+        // a 3 px floor over a 2 kb window put its middle 1.282 px right of
+        // x_center, and a 6 px floor put it 2.782 px right: half a cell, which
+        // is enough for a Manhattan point above it to miss its own column.
+        use crate::track::manhattan::{Association, ManhattanTrack};
+
+        for (floor, tolerance) in [(3.0f64, 1e-9), (6.0, 1e-9)] {
+            let site = 2_000u64;
+            let svg = Figure::new(Region::new("chr1", 1_000, 3_000).unwrap())
+                .show_region_label(false)
+                .push(ManhattanTrack::new(vec![Association::new(site, 5.0)]).show_scale(false))
+                .push(
+                    MatrixTrack::new(vec![site], vec![MatrixRow::new("S1", vec![1.0])])
+                        .scale(CellScale::Categorical)
+                        .show_row_names(false)
+                        .min_cell_width(floor),
+                )
+                .to_svg();
+
+            let circle = &svg[svg.find("<circle").unwrap()..];
+            let cx: f64 = {
+                let at = circle.find("cx=\"").unwrap() + 4;
+                circle[at..at + circle[at..].find('"').unwrap()]
+                    .parse()
+                    .unwrap()
+            };
+            let cell = svg
+                .match_indices("<rect x=\"")
+                .map(|(i, _)| &svg[i..i + svg[i..].find("/>").unwrap()])
+                .find(|element| {
+                    let at = element.find("width=\"").unwrap() + 7;
+                    let width: f64 = element[at..at + element[at..].find('"').unwrap()]
+                        .parse()
+                        .unwrap();
+                    width < 500.0
+                })
+                .unwrap();
+            let value = |name: &str| -> f64 {
+                let at = cell.find(&format!("{name}=\"")).unwrap() + name.len() + 2;
+                cell[at..at + cell[at..].find('"').unwrap()]
+                    .parse()
+                    .unwrap()
+            };
+            let (x, width) = (value("x"), value("width"));
+            assert_eq!(width, floor, "the floor is what binds here");
+            assert!(
+                (x + width / 2.0 - cx).abs() < tolerance,
+                "cell centre {} against the point at {cx}",
+                x + width / 2.0
+            );
+        }
     }
 
     /// Every group a track opens has to be closed by exactly one `end_group`.

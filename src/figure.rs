@@ -33,11 +33,14 @@
 //!
 //! [`Scale`] does not clamp, so a feature beginning before the window has a
 //! negative x and a read running past the end has one off the right edge. Each
-//! track is drawn inside a clip over its band and its axis strip, which is what
-//! makes that overhang free: a track draws the whole of a partly visible thing
-//! and the clip decides how much shows. The label is the exception, drawn by
-//! the figure outside the clip and to the left of the axis strip, so names line
-//! up whether or not a track drew an axis.
+//! track is drawn inside a clip over its band and the axis strip it asked for
+//! itself, which is what makes that overhang free: a track draws the whole of a
+//! partly visible thing and the clip decides how much shows. A track that asked
+//! for no axis is clipped to its band alone, so it cannot paint left of the
+//! plot origin however wide a neighbour's axis is. The label is the exception,
+//! drawn by the figure outside the clip and to the left of the widest axis
+//! strip in the figure, so names line up whether or not a track drew an axis,
+//! and cut down to the gutter when there is not room for the whole of it.
 
 use std::fs;
 use std::io;
@@ -45,7 +48,7 @@ use std::path::Path;
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{Anchor, SvgWriter};
+use crate::svg::{text_width, Anchor, SvgWriter};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Rect, Track};
 
@@ -177,8 +180,24 @@ impl Figure {
     }
 
     /// Replaces the margins.
+    ///
+    /// A side that is negative or not a number is taken as zero, since the
+    /// margins are added into the total height and a total height that is not a
+    /// number is written out as a document zero pixels tall.
     pub fn margin(mut self, margin: Margin) -> Self {
-        self.margin = margin;
+        let side = |value: f64| {
+            if value.is_finite() {
+                value.max(0.0)
+            } else {
+                0.0
+            }
+        };
+        self.margin = Margin {
+            top: side(margin.top),
+            right: side(margin.right),
+            bottom: side(margin.bottom),
+            left: side(margin.left),
+        };
         self
     }
 
@@ -333,8 +352,9 @@ impl Figure {
             };
 
             // The strip is what this track asked for, laid against the plot
-            // area, not the widest strip in the figure: a track that asked for
-            // no axis gets none, and is clipped to its band alone.
+            // area, and not the widest strip in the figure: a track that asked
+            // for no axis gets none, and is clipped to its band alone rather
+            // than to a neighbour's room.
             let axis_width = track.y_axis_width(&self.theme).max(0.0);
             let axis = Rect {
                 x: band.x - axis_width,
@@ -344,12 +364,17 @@ impl Figure {
             };
 
             if let Some(label) = track.label() {
-                // Labels sit to the left of the value axes, so a track with an
-                // axis and one without still line their names up.
+                // Labels sit to the left of the widest value axis, so a track
+                // with an axis and one without still line their names up, and
+                // they are cut down to the gutter, since a name wider than the
+                // room reserved for it would start off the left edge of the
+                // image and lose its first characters.
+                let right = band.x - layout.axis_width - 8.0;
+                let label = fit_label(label, right - self.margin.left, self.theme.label_font_size);
                 svg.text(
-                    band.x - layout.axis_width - 8.0,
+                    right,
                     band.mid_y() + self.theme.label_font_size * 0.35,
-                    label,
+                    &label,
                     &self.theme.muted,
                     self.theme.label_font_size,
                     Anchor::End,
@@ -413,10 +438,20 @@ impl Figure {
         let plot_width = (self.width - plot_x - self.margin.right).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
+        // A height that is not a number is not a height. It would reach
+        // `total_height`, which is written out as `height="0"`, and on a sheet
+        // it would stack every later panel back at the top.
         let track_heights: Vec<f64> = self
             .tracks
             .iter()
-            .map(|t| t.height(&scale).max(1.0))
+            .map(|t| {
+                let height = t.height(&scale);
+                if height.is_finite() {
+                    height.max(1.0)
+                } else {
+                    1.0
+                }
+            })
             .collect();
         let content_height: f64 = track_heights.iter().sum::<f64>()
             + self.track_gap * (self.tracks.len().saturating_sub(1)) as f64;
@@ -444,6 +479,37 @@ impl crate::rings::Drawing for Figure {
     }
 }
 
+/// `label` cut down to whatever fits in `room` pixels at `font_size`.
+///
+/// Track labels are right aligned against the plotting area, so a label wider
+/// than the gutter reserved for it does not overflow to the right where it
+/// would be noticed: it runs off the left edge of the image and quietly loses
+/// its first characters, which leaves a plausible but wrong name on the figure.
+/// What does not fit is trimmed from the end instead and given an ellipsis, so
+/// what a reader sees is the start of the name and the mark that says there was
+/// more of it. A gutter of no room at all yields nothing, and
+/// [`SvgWriter`] draws no element for empty content.
+fn fit_label(label: &str, room: f64, font_size: f64) -> String {
+    if room <= 0.0 {
+        return String::new();
+    }
+    if text_width(label, font_size) <= room {
+        return label.to_string();
+    }
+    let mut kept = label.len();
+    while kept > 0 {
+        kept -= 1;
+        while kept > 0 && !label.is_char_boundary(kept) {
+            kept -= 1;
+        }
+        let shortened = format!("{}\u{2026}", &label[..kept]);
+        if text_width(&shortened, font_size) <= room {
+            return shortened;
+        }
+    }
+    String::new()
+}
+
 struct Layout {
     scale: Scale,
     plot_x: f64,
@@ -458,7 +524,7 @@ struct Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::track::{AxisTrack, CoverageTrack};
+    use crate::track::{AxisTrack, CoverageTrack, Feature, FeatureTrack};
 
     fn region() -> Region {
         Region::parse("chr1:1-1000").unwrap()
@@ -581,6 +647,141 @@ mod tests {
             .map(|(content, _)| content)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    #[test]
+    fn a_label_wider_than_the_gutter_is_shortened_rather_than_run_off_the_canvas() {
+        // The default gutter is 84 px, and the 8 px of air before the axes
+        // leaves 76 px of room. This name is 123.52 px, and right aligned at
+        // x = 88 the whole of it would begin at x = -35.52, off an image whose
+        // left edge is x = 0, so its first five characters would not be drawn
+        // and "NC_000962.3 read depth" would read as "0962.3 read depth".
+        let name = "NC_000962.3 read depth";
+        assert!((text_width(name, 11.0) - 123.52).abs() < 0.01);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 1000]).label(name))
+            .to_svg();
+
+        let drawn = drawn_text(&svg);
+        assert!(!drawn.contains(name), "the whole name was drawn: {drawn}");
+        assert!(drawn.contains("NC_000962.3\u{2026}"), "{drawn}");
+        // Right aligned at 88, so the ink starts inside the left margin.
+        assert!(88.0 - text_width("NC_000962.3\u{2026}", 11.0) >= 12.0);
+    }
+
+    #[test]
+    fn a_label_that_fits_the_gutter_is_left_exactly_as_it_was() {
+        // 75.21 px against 76 px of room: the threshold is the gutter and
+        // nothing tighter, so a name that just fits is not shortened.
+        let name = "enrich / deplete";
+        assert!(text_width(name, 11.0) <= 76.0);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 1000]).label(name))
+            .to_svg();
+        assert!(drawn_text(&svg).contains(name), "{svg}");
+    }
+
+    #[test]
+    fn a_gutter_with_no_room_draws_no_label_rather_than_one_off_the_canvas() {
+        // With the gutter turned off a label is right aligned at x = 4, which
+        // is 8 px left of the margin: every one of them would be off the page.
+        let svg = Figure::new(region())
+            .label_width(0.0)
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 1000]).label("dp"))
+            .to_svg();
+        assert!(!drawn_text(&svg).contains("dp"), "{svg}");
+    }
+
+    #[test]
+    fn a_track_that_asked_for_no_axis_is_clipped_to_its_band_alone() {
+        // The coverage track reserves 38.02 px for its tick labels, so every
+        // plotting area begins at x = 50.02. The feature track asks for no
+        // axis, and a gene overhanging the left of the window has to stop at
+        // the plot origin rather than 38.02 px, some 46 bases, before it.
+        let figure = Figure::new(Region::new("chr1", 1000, 2000).unwrap())
+            .show_region_label(false)
+            .push(CoverageTrack::new(1000, vec![40.0; 1000]))
+            .push(FeatureTrack::new(vec![Feature::new(0, 1500)]));
+        let layout = figure.layout();
+        assert!(
+            (layout.axis_width - 38.02).abs() < 0.01,
+            "{}",
+            layout.axis_width
+        );
+        assert!((layout.plot_x - 50.02).abs() < 0.01, "{}", layout.plot_x);
+
+        let svg = figure.to_svg();
+        let clips: Vec<f64> = svg
+            .match_indices("<clipPath")
+            .map(|(at, _)| {
+                let rest = &svg[at..];
+                let x = rest.find(r#"x=""#).unwrap() + 3;
+                rest[x..].split('"').next().unwrap().parse().unwrap()
+            })
+            .collect();
+        assert_eq!(clips.len(), 2);
+        assert!(
+            (clips[0] - 12.0).abs() < 1e-9,
+            "the strip this track asked for: {clips:?}"
+        );
+        assert!(
+            (clips[1] - layout.plot_x).abs() < 1e-9,
+            "and no strip at all for the track that asked for none: {clips:?}"
+        );
+    }
+
+    #[test]
+    fn a_label_still_lines_up_with_its_neighbours_when_the_strips_differ() {
+        // The strips are now the track's own, but the names are not: they hang
+        // off the widest strip in the figure so that a track with an axis and
+        // one without still read down a single edge.
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 1000]).label("depth"))
+            .push(AxisTrack::new().label("position"))
+            .to_svg();
+        let anchors: Vec<&str> = svg
+            .match_indices(r#"<text x=""#)
+            .map(|(at, prefix)| {
+                let rest = &svg[at + prefix.len()..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect();
+        assert!(anchors.windows(2).any(|pair| pair[0] == pair[1]), "{svg}");
+    }
+
+    #[test]
+    fn a_non_finite_margin_is_taken_as_no_margin_rather_than_no_document() {
+        // Margin is added into the total height, and a total height that is
+        // not a number is written out as a document zero pixels tall.
+        let figure = Figure::new(region())
+            .margin(Margin {
+                top: f64::NAN,
+                right: 16.0,
+                bottom: -4.0,
+                left: 12.0,
+            })
+            .push(AxisTrack::new());
+        assert_eq!(figure.margin.top, 0.0);
+        assert_eq!(figure.margin.bottom, 0.0);
+        let (_, height) = figure.dimensions();
+        assert!(height.is_finite() && height > 0.0, "{height}");
+        assert!(!figure.to_svg().contains(r#"height="0""#));
+    }
+
+    #[test]
+    fn a_non_finite_track_height_is_floored_rather_than_flattening_the_document() {
+        let broken = Figure::new(region())
+            .show_region_label(false)
+            .push(AxisTrack::new().height(f64::INFINITY));
+        let (_, height) = broken.dimensions();
+        assert_eq!(height, 21.0, "10 of margin, one pixel of band, 10 more");
+        let svg = broken.to_svg();
+        assert!(!svg.contains(r#"height="0""#), "{svg}");
+        assert!(!svg.contains("inf"), "{svg}");
     }
 
     #[test]

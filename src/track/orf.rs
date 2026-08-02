@@ -215,7 +215,17 @@ impl OrfTrack {
             if is_stop(codon) {
                 if let Some(from) = open.take() {
                     if started {
-                        let (start, end) = span(from, *position, reverse);
+                        // The run ends at the codon before this stop in the
+                        // order the frame is walked, so the tick bounds the bar
+                        // rather than being drawn over by it. No underflow:
+                        // `open` was Some, so at least one codon precedes the
+                        // stop in walk order.
+                        let before = if reverse {
+                            *position + 3
+                        } else {
+                            *position - 3
+                        };
+                        let (start, end) = span(from, before, reverse);
                         push_orf(&mut orfs, start, end, frame, self.min_codons);
                     }
                 }
@@ -231,7 +241,7 @@ impl OrfTrack {
         // gene runs off the edge of what was handed in.
         if let (Some(from), true) = (open, started) {
             let last = codons.last().map_or(from, |(position, _)| *position);
-            let (start, end) = span(from, last + 3, reverse);
+            let (start, end) = span(from, last, reverse);
             push_orf(&mut orfs, start, end, frame, self.min_codons);
         }
         orfs
@@ -356,11 +366,16 @@ fn complement(base: u8) -> u8 {
 }
 
 /// The forward-strand span of a stretch walked in either direction.
+///
+/// `from` and `to` are the first and the last codon of the run, each written as
+/// the position of its own first base on the forward strand. They mean the same
+/// thing in both directions, so the caller never has to know which end of the
+/// span the walk started at.
 fn span(from: u64, to: u64, reverse: bool) -> (u64, u64) {
     if reverse {
         (to.min(from), from.max(to) + 3)
     } else {
-        (from, to)
+        (from, to + 3)
     }
 }
 
@@ -607,6 +622,72 @@ mod tests {
         let seq: Vec<u8> = std::iter::repeat(b'A').take(600).collect();
         let track = OrfTrack::new(0, seq).min_codons(50);
         assert!(track.orfs().iter().any(|orf| orf.frame == 1));
+    }
+
+    /// The reverse complement of `seq`.
+    fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+        seq.iter().rev().map(|base| complement(*base)).collect()
+    }
+
+    #[test]
+    fn a_reverse_frame_orf_stops_before_the_stop_that_bounds_it() {
+        // The reverse complement is thirty codons, then a stop, then five more,
+        // so frame -1 holds exactly one stop, at forward bases 15 to 18.
+        let mut rc = Vec::new();
+        rc.extend(std::iter::repeat(b'A').take(90));
+        rc.extend(b"TAA");
+        rc.extend(std::iter::repeat(b'A').take(15));
+        let seq = reverse_complement(&rc);
+
+        let track = OrfTrack::new(0, seq).min_codons(1);
+        assert_eq!(track.stops(), vec![(15, -1)]);
+        let mut spans: Vec<(u64, u64, u64)> = track
+            .orfs()
+            .into_iter()
+            .filter(|orf| orf.frame == -1)
+            .map(|orf| (orf.start, orf.end, orf.codons()))
+            .collect();
+        spans.sort_unstable();
+        // The run below the stop keeps the codon at 0, and the run above it
+        // begins past the stop rather than on top of it.
+        assert_eq!(spans, vec![(0, 15, 5), (18, 108, 30)]);
+    }
+
+    #[test]
+    fn the_reverse_frames_of_a_sequence_are_the_forward_frames_of_its_complement() {
+        // Three stops scattered across all three reverse frames, plus a run off
+        // each end, so every branch of the walk is exercised.
+        let mut rc = Vec::new();
+        rc.extend(std::iter::repeat(b'A').take(30));
+        rc.extend(b"TAAC");
+        rc.extend(std::iter::repeat(b'C').take(50));
+        rc.extend(b"TGAGG");
+        rc.extend(std::iter::repeat(b'G').take(60));
+        rc.extend(b"TAG");
+        rc.extend(std::iter::repeat(b'T').take(41));
+        let len = rc.len() as u64;
+        let seq = reverse_complement(&rc);
+
+        let mut reverse: Vec<(i8, u64, u64)> = OrfTrack::new(0, seq)
+            .min_codons(1)
+            .orfs()
+            .into_iter()
+            .filter(|orf| orf.is_reverse())
+            .map(|orf| (orf.frame, orf.start, orf.end))
+            .collect();
+        // The same frames read forwards off the complement, reflected back
+        // through the length of the sequence.
+        let mut mirrored: Vec<(i8, u64, u64)> = OrfTrack::new(0, rc)
+            .min_codons(1)
+            .orfs()
+            .into_iter()
+            .filter(|orf| !orf.is_reverse())
+            .map(|orf| (-orf.frame, len - orf.end, len - orf.start))
+            .collect();
+        reverse.sort_unstable();
+        mirrored.sort_unstable();
+        assert!(!mirrored.is_empty());
+        assert_eq!(reverse, mirrored);
     }
 
     #[test]

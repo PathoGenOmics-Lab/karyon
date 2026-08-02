@@ -129,6 +129,90 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+Thirty-five defects, found by hunting the crate along seven failure modes and
+then handing each claim to an independent reviewer whose job was to refute it.
+Seven were refuted. Every one below has a reproduction that runs and a test
+that pins the answer.
+
+**Wrong figures.**
+
+- Reverse-frame open reading frames were a whole codon out at both ends. They
+  swallowed the stop codon that is supposed to bound them and dropped their
+  last codon, so `OrfTrack` reported 94 codons where there were 93 and painted
+  the bar over the very tick that ends it, while the three forward lanes beside
+  it were right. Frame -k of a sequence walks the codons frame +k of its
+  reverse complement walks, and over 5,520 random sequences 5,519 disagreed
+  with their own mirror. They now all agree, and the property is a test.
+- `MatrixTrack` put its cell half a floor-width to the right of the site it
+  stands for, so it did not line up with the Manhattan point above it in the
+  same figure.
+- `contrast_ink` chose the less legible ink for adenine and guanine. The
+  contrast ratios say so, and now the ink follows them.
+- `AxisRing` placed its labels from the outer radius alone, so a thin ruler
+  printed its coordinates on top of the ring inside it.
+- Every track was clipped to the widest value axis in the figure, so a track
+  that asked for no axis could paint into the strip another track had reserved.
+- A track label longer than the gutter was drawn off the left edge of the
+  canvas and lost its first characters; it is ellipsised now.
+- `Panels` sized the sheet from the panel widths alone, so a caption could be
+  painted over the next column.
+- `Panels::share_out` did not return the most level partition among those tying
+  on the tallest column.
+- `FeatureTrack` packed features that were off screen, so the band height and
+  the row of every visible feature depended on data nobody could see.
+- `AxisTrack`'s tick loop overflowed at the top of the coordinate range: a
+  panic in a debug build, and 503 wrapped-around tick labels in a release one.
+- A doubled quote inside a quoted Newick label started a new taxon, inventing
+  tips that are not in the tree.
+- `Genome::at` did not bound-check, so a coordinate past the end of one
+  sequence was drawn inside the next one and counted as mapped. It now accepts
+  exactly the positions `Genome::locate` inverts, which is a narrowing: the end
+  of a half-open interval is `Genome::offset`, not `at`.
+
+**Data dropped without a word.**
+
+- `CodonTrack` drew nothing at all when the coding sequence length was not a
+  multiple of three, or when the trailing partial codon was in view.
+- A structural variant whose two breakpoints straddle the whole window was
+  dropped, so the largest events were the ones that vanished.
+- `Tree::parse_newick` silently discarded every unnamed leaf, so a legal Newick
+  tree lost tips and changed topology.
+- A UTF-8 byte order mark made the first data row of every column reader
+  disappear.
+- Track heights were computed against `Theme::default` while the rows were
+  packed with the figure's own theme, so any other font size could cut a row
+  off the bottom of a band.
+- `Rings::link` collapsed the origin-spanning end of a chord to a hairline.
+- `--matrix` whose sites all fall outside the region was a silently empty lane
+  and exit 0.
+
+**Output that was not valid SVG.**
+
+- `--color` was pasted into an attribute unescaped. That is attribute
+  injection, not a malformed file: a value carrying `<` put elements of the
+  caller's choosing into the document. Metacharacters are refused now.
+- `svg::num` wrote the literal `inf` for finite inputs above `f64::MAX / 1000`,
+  which was the one guard the writer had against a non-finite number reaching
+  the page.
+- `escape` let XML-forbidden control characters through, so a name read from a
+  user's file could produce a document no parser accepts.
+- A theme font size below 1 made tracks emit a negative `font-size`.
+- A non-finite figure height was written as `height="0"`, and on a sheet it
+  stacked every later panel on top of it.
+
+**Panics on data.**
+
+- `u64` coordinate arithmetic overflowed across eight constructors.
+- A large finite `Figure::width` panicked with a capacity overflow.
+- A named origin-spanning feature panicked `FeatureRing` with a subtraction
+  overflow.
+- A number on the command line unwound instead of returning an error.
+
+**And the gate that should have caught some of this.** The CI step that fails
+when the committed figures disagree with the code rendered ten of the sixteen
+examples, so six figures could drift unnoticed, and it never checked the copies
+the documentation site serves. It renders all sixteen now and checks both.
+
 - A nested figure named itself, which left every panel of a sheet unnameable.
   `<title>` resolves to the innermost element under the pointer, so the title a
   figure writes for itself shadowed the one `Panels` puts on the panel over the

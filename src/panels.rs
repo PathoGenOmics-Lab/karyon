@@ -44,7 +44,7 @@ use std::io;
 use std::path::Path;
 
 use crate::rings::Drawing;
-use crate::svg::{escape, num, Anchor, SvgWriter};
+use crate::svg::{escape, num, text_width, Anchor, SvgWriter};
 use crate::theme::Theme;
 
 /// One figure placed on a sheet.
@@ -314,10 +314,22 @@ impl Panels {
     /// the same height and a fixed count leaves one column half empty.
     fn layout(&self) -> Layout {
         let gutter = self.letter_gutter();
+        // A caption is as much a part of the column as the panel over it, and
+        // it is drawn at the panel's left edge running right, so a caption
+        // wider than the panel would otherwise be painted across the next
+        // column, or off the sheet entirely in the last one. The column is as
+        // wide as the wider of the two.
         let column_width = self
             .panels
             .iter()
-            .map(|panel| panel.width)
+            .map(|panel| {
+                panel.width.max(
+                    panel
+                        .caption
+                        .as_deref()
+                        .map_or(0.0, |caption| text_width(caption, self.theme.font_size)),
+                )
+            })
             .fold(0.0f64, f64::max)
             + gutter;
         let header = if self.title.is_some() {
@@ -355,9 +367,19 @@ impl Panels {
             tallest = tallest.max(filled - self.gap);
         }
 
-        let width = self.margin * 2.0
+        // The title runs across the top from the left margin, so a sheet
+        // narrower than its own title is a sheet with the end of the title cut
+        // off by the root viewBox.
+        let width = (self.margin * 2.0
             + columns as f64 * column_width
-            + columns.saturating_sub(1) as f64 * self.column_gap;
+            + columns.saturating_sub(1) as f64 * self.column_gap)
+            .max(
+                self.margin * 2.0
+                    + self
+                        .title
+                        .as_deref()
+                        .map_or(0.0, |title| text_width(title, self.theme.title_font_size)),
+            );
         Layout {
             places,
             gutter,
@@ -512,6 +534,16 @@ fn panel_title(panel: &Panel) -> String {
 /// It is rarely settled uniquely, though, and the runners up are what a reader
 /// sees as a ragged foot, so the sum of squares breaks the tie: of two sheets
 /// no taller than each other, it takes the one whose columns come out level.
+///
+/// The two are settled in two passes over the same table rather than in one,
+/// because they are not the same sub-problem. Weighing a pair of scores
+/// together keeps, for each run of panels, the arrangement of the rest that is
+/// shortest first and level second, and once the tallest column of the whole
+/// sheet is fixed by an earlier run the rest is no longer being asked to be
+/// short at all: it is being asked only to be level under a ceiling it already
+/// meets. Minimising the tallest column has proper optimal substructure on its
+/// own, so the first pass settles the ceiling, and the second minimises the sum
+/// of squares over the arrangements that stay under it.
 fn share_out(heights: &[f64], gap: f64, columns: usize) -> Vec<usize> {
     let count = heights.len();
     let columns = columns.min(count);
@@ -524,30 +556,47 @@ fn share_out(heights: &[f64], gap: f64, columns: usize) -> Vec<usize> {
         heights[from..until].iter().sum::<f64>() + gap * (until - from - 1) as f64
     };
 
-    // best[c][i]: laying panels i.. out in c columns, the shortest tallest
-    // column and, under that, the most level rest. `cut[c][i]` is where the
-    // first of those columns ends.
-    let worse = (f64::INFINITY, f64::INFINITY);
-    let mut best = vec![vec![worse; count + 1]; columns + 1];
-    let mut cut = vec![vec![count; count + 1]; columns + 1];
-    for (from, slot) in best[1].iter_mut().enumerate().take(count) {
-        let only = run(from, count);
-        *slot = (only, only * only);
+    // First pass. tall[c][i]: laying panels i.. out in c columns, the shortest
+    // the tallest of those columns can be.
+    let mut tall = vec![vec![f64::INFINITY; count + 1]; columns + 1];
+    for (from, slot) in tall[1].iter_mut().enumerate().take(count) {
+        *slot = run(from, count);
     }
     for spare in 2..=columns {
         for from in 0..count {
             // Leave at least one panel for each of the columns after this one.
             for until in from + 1..=count.saturating_sub(spare - 1) {
-                let (rest_tallest, rest_square) = best[spare - 1][until];
-                if !rest_tallest.is_finite() {
+                let rest = tall[spare - 1][until];
+                if !rest.is_finite() {
                     continue;
                 }
+                tall[spare][from] = tall[spare][from].min(run(from, until).max(rest));
+            }
+        }
+    }
+    let ceiling = tall[columns][0];
+
+    // Second pass. square[c][i]: the most level way of laying panels i.. out in
+    // c columns none of which is taller than the ceiling, scored by the sum of
+    // their squares. `cut[c][i]` is where the first of those columns ends.
+    let mut square = vec![vec![f64::INFINITY; count + 1]; columns + 1];
+    let mut cut = vec![vec![count; count + 1]; columns + 1];
+    for (from, slot) in square[1].iter_mut().enumerate().take(count) {
+        let only = run(from, count);
+        if only <= ceiling + 1e-9 {
+            *slot = only * only;
+        }
+    }
+    for spare in 2..=columns {
+        for from in 0..count {
+            for until in from + 1..=count.saturating_sub(spare - 1) {
+                let rest = square[spare - 1][until];
                 let here = run(from, until);
-                let score = (here.max(rest_tallest), here * here + rest_square);
-                if score.0 < best[spare][from].0 - 1e-9
-                    || (score.0 < best[spare][from].0 + 1e-9 && score.1 < best[spare][from].1)
-                {
-                    best[spare][from] = score;
+                if !rest.is_finite() || here > ceiling + 1e-9 {
+                    continue;
+                }
+                if here * here + rest < square[spare][from] - 1e-9 {
+                    square[spare][from] = here * here + rest;
                     cut[spare][from] = until;
                 }
             }
@@ -726,25 +775,37 @@ mod tests {
         totals
     }
 
-    /// Every way of cutting `heights` into three ordered runs.
-    fn every_partition(heights: &[f64], gap: f64) -> Vec<(f64, f64)> {
-        let mut out = Vec::new();
-        for first in 1..heights.len() - 1 {
-            for second in first + 1..heights.len() {
-                let runs = [
-                    &heights[..first],
-                    &heights[first..second],
-                    &heights[second..],
-                ];
-                let totals: Vec<f64> = runs
-                    .iter()
-                    .map(|run| run.iter().sum::<f64>() + gap * (run.len() - 1) as f64)
-                    .collect();
+    /// Every way of cutting `heights` into `columns` ordered runs, each scored
+    /// by its tallest column and by the sum of the squares of its columns.
+    fn every_partition(heights: &[f64], gap: f64, columns: usize) -> Vec<(f64, f64)> {
+        fn walk(
+            heights: &[f64],
+            gap: f64,
+            columns: usize,
+            from: usize,
+            totals: &mut Vec<f64>,
+            out: &mut Vec<(f64, f64)>,
+        ) {
+            let run = |from: usize, until: usize| {
+                heights[from..until].iter().sum::<f64>() + gap * (until - from - 1) as f64
+            };
+            let left = columns - totals.len();
+            if left == 1 {
+                totals.push(run(from, heights.len()));
                 let tallest = totals.iter().cloned().fold(0.0f64, f64::max);
                 let square: f64 = totals.iter().map(|total| total * total).sum();
                 out.push((tallest, square));
+                totals.pop();
+                return;
+            }
+            for until in from + 1..=heights.len() - (left - 1) {
+                totals.push(run(from, until));
+                walk(heights, gap, columns, until, totals, out);
+                totals.pop();
             }
         }
+        let mut out = Vec::new();
+        walk(heights, gap, columns, 0, &mut Vec::new(), &mut out);
         out
     }
 
@@ -772,7 +833,7 @@ mod tests {
         let tallest = column_heights(&heights, gap, &assignment, 3)
             .into_iter()
             .fold(0.0f64, f64::max);
-        let best = every_partition(&heights, gap)
+        let best = every_partition(&heights, gap, 3)
             .into_iter()
             .map(|(tallest, _)| tallest)
             .fold(f64::INFINITY, f64::min);
@@ -795,7 +856,7 @@ mod tests {
         let totals = column_heights(&heights, 0.0, &assignment, 3);
         let square: f64 = totals.iter().map(|total| total * total).sum();
         let tallest = totals.iter().cloned().fold(0.0f64, f64::max);
-        let best = every_partition(&heights, 0.0)
+        let best = every_partition(&heights, 0.0, 3)
             .into_iter()
             .filter(|(other, _)| (other - tallest).abs() < 1e-9)
             .map(|(_, square)| square)
@@ -803,6 +864,128 @@ mod tests {
         assert!(
             (square - best).abs() < 1e-9,
             "of the cuts that tie on height, this is not the most level one"
+        );
+    }
+
+    #[test]
+    fn the_most_level_of_the_cuts_that_tie_on_height_is_taken_across_five_columns() {
+        // Thirteen panels over five columns, where 495 cuts tie on a tallest
+        // column of 878. Weighing the shortest tallest column and the most
+        // level rest together as one score per sub-problem took
+        // [878, 845, 790, 552, 486], a sum of squares of 2_649_909 with a last
+        // column 77 px short of the room it had. The most level of the ties is
+        // [878, 564, 684, 563, 862], a sum of squares of 2_616_849.
+        let heights = [
+            165.0, 258.0, 419.0, 170.0, 109.0, 249.0, 263.0, 403.0, 369.0, 176.0, 358.0, 92.0,
+            376.0,
+        ];
+        let gap = 18.0;
+        let assignment = share_out(&heights, gap, 5);
+        assert_eq!(assignment, vec![0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4]);
+
+        let totals = column_heights(&heights, gap, &assignment, 5);
+        assert_eq!(totals, vec![878.0, 564.0, 684.0, 563.0, 862.0]);
+        let tallest = totals.iter().cloned().fold(0.0f64, f64::max);
+        let square: f64 = totals.iter().map(|total| total * total).sum();
+        assert_eq!(tallest, 878.0);
+        assert_eq!(square, 2_616_849.0);
+
+        let every = every_partition(&heights, gap, 5);
+        let shortest = every
+            .iter()
+            .map(|(tallest, _)| *tallest)
+            .fold(f64::INFINITY, f64::min);
+        assert_eq!(shortest, 878.0, "no cut leaves a shorter tallest column");
+        let best = every
+            .iter()
+            .filter(|(other, _)| (other - tallest).abs() < 1e-9)
+            .map(|(_, square)| *square)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            (square - best).abs() < 1e-9,
+            "of the cuts that tie on height, this is not the most level one"
+        );
+    }
+
+    #[test]
+    fn a_caption_wider_than_its_panel_widens_the_column_it_sits_under() {
+        // 583.29 px of caption under a 300 px panel. Sized from the panels
+        // alone, a two-column sheet of four of these came out 686 px wide: the
+        // left column's captions were painted straight across the panel at
+        // x = 376, and the right column's ran to x = 959.29 on a sheet whose
+        // viewBox ended at 686.
+        let caption = "Read depth across the rpoB resistance determining region of isolate ERR5001234, binned to one point per pixel column";
+        let narrow = Figure::new(Region::new("chr1", 0, 1_000).unwrap())
+            .width(300.0)
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![10.0; 1_000]));
+        let sheet = Panels::new()
+            .columns(2)
+            .margin(10.0)
+            .column_gap(26.0)
+            .push_captioned(&narrow, "A", caption)
+            .push_captioned(&narrow, "B", caption)
+            .push_captioned(&narrow, "C", caption)
+            .push_captioned(&narrow, "D", caption);
+
+        let text = text_width(caption, sheet.theme.font_size);
+        assert!((text - 583.29).abs() < 0.01, "{text}");
+        let (width, _) = sheet.dimensions();
+        assert!(width > 686.0, "the sheet is still sized from its panels");
+
+        let layout = sheet.layout();
+        let mut columns: Vec<f64> = layout.places.iter().map(|(x, _)| *x).collect();
+        columns.dedup();
+        assert_eq!(columns.len(), 2);
+        // A caption is drawn at the panel's left edge, running right.
+        for left in columns.iter().map(|x| x + layout.gutter) {
+            assert!(
+                left + text <= width + 1e-9,
+                "a caption from {left} runs past the sheet edge at {width}"
+            );
+        }
+        assert!(
+            columns[0] + layout.gutter + text <= columns[1] + 1e-9,
+            "a caption crossed into the next column"
+        );
+    }
+
+    #[test]
+    fn the_sheet_is_at_least_as_wide_as_its_own_title() {
+        // Sized from its panels alone, an empty sheet was 28 px wide and wrote
+        // 214.77 px of title across it.
+        let title = "A sheet with a rather long title on it";
+        let sheet = Panels::new().title(title);
+        let (width, _) = sheet.dimensions();
+        let text = text_width(title, sheet.theme.title_font_size);
+        assert!((text - 214.774).abs() < 0.01, "{text}");
+        assert!(
+            (width - (28.0 + text)).abs() < 1e-9,
+            "{width} of sheet for {text} of title"
+        );
+    }
+
+    #[test]
+    fn a_panel_of_no_finite_height_does_not_stack_the_rest_back_at_the_top() {
+        // A figure whose height came out infinite reported it, the running y
+        // went with it, and the number written into the transform was 0: the
+        // second panel landed above the first instead of below it.
+        let region = Region::new("chr1", 0, 1_000).unwrap();
+        let broken = Figure::new(region.clone())
+            .show_region_label(false)
+            .push(AxisTrack::new().height(f64::INFINITY));
+        let sound = Figure::new(region)
+            .show_region_label(false)
+            .push(AxisTrack::new().height(40.0));
+        let sheet = Panels::new().push_bare(&broken).push_bare(&sound);
+
+        let (_, height) = sheet.dimensions();
+        assert!(height.is_finite(), "{height}");
+        let places = &sheet.layout().places;
+        assert_eq!(places.len(), 2);
+        assert!(
+            places[1].1 > places[0].1,
+            "the second panel went above the first: {places:?}"
         );
     }
 

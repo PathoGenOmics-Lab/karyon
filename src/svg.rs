@@ -304,7 +304,11 @@ impl SvgWriter {
     }
 
     fn write_text(&mut self, x: f64, y: f64, content: &str, ink: Ink<'_>, bold: bool) {
-        if content.is_empty() || !finite(&[x, y]) {
+        // A track that derives its label size from the theme can arrive here
+        // with a size at or below zero, and `font-size` is a length SVG does
+        // not allow to be negative. Dropping matches `glyph`, and the element
+        // would have drawn nothing anyway.
+        if content.is_empty() || ink.size <= 0.0 || !finite(&[x, y, ink.size]) {
             return;
         }
         let _ = write!(
@@ -371,7 +375,9 @@ impl SvgWriter {
         anchor: Anchor,
     ) {
         let (x, y) = at;
-        if content.is_empty() || !finite(&[x, y, degrees]) {
+        // Same reason as `write_text`: `font-size` is a length that cannot be
+        // negative, and this path writes its own.
+        if content.is_empty() || size <= 0.0 || !finite(&[x, y, degrees, size]) {
             return;
         }
         let _ = write!(
@@ -594,7 +600,16 @@ pub fn num(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();
     }
-    let rounded = (v * 1000.0).round() / 1000.0;
+    // Scaling by a thousand overflows to infinity above `f64::MAX / 1000`, and
+    // `format!` would then write the literal `inf` into the document. A finite
+    // value that large has an ulp far wider than one, so it is already an
+    // integer and rounding it to three decimals is the identity.
+    let scaled = v * 1000.0;
+    let rounded = if scaled.is_finite() {
+        scaled.round() / 1000.0
+    } else {
+        v
+    };
     if rounded == rounded.trunc() && rounded.abs() < 1e15 {
         format!("{}", rounded as i64)
     } else {
@@ -602,10 +617,17 @@ pub fn num(v: f64) -> String {
     }
 }
 
-/// Escapes the five XML characters that would otherwise break the document.
+/// Escapes the five XML metacharacters, and drops the characters XML has no
+/// way to write at all.
 ///
 /// Sequence names and feature names come from user files and routinely contain
 /// `&` and `<`, so nothing reaches the output without passing through here.
+///
+/// A name that carries a stray control byte is a harder case than an `&`: XML
+/// 1.0 §2.2 admits only tab, newline and carriage return below `U+0020`, and a
+/// numeric character reference cannot encode the others either. Such a
+/// character is dropped, because the alternative is a document no parser will
+/// open over a byte that would have drawn nothing.
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -615,6 +637,11 @@ pub fn escape(text: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
+            // Outside XML 1.0's `Char` production, so not writable at all.
+            // Surrogates need no arm here: a Rust `str` cannot hold one.
+            c if (c < '\u{20}' && c != '\t' && c != '\n' && c != '\r')
+                || c == '\u{fffe}'
+                || c == '\u{ffff}' => {}
             _ => out.push(c),
         }
     }
@@ -703,8 +730,60 @@ mod tests {
     }
 
     #[test]
+    fn a_finite_number_too_large_to_scale_is_still_written_as_a_number() {
+        // `v * 1000.0` overflows above f64::MAX / 1000 = 1.7976931348623157e305,
+        // and the literal `inf` is not an SVG number.
+        for v in [f64::MAX, 1e308, -1e308, 1.8e305, -1.8e305] {
+            let out = num(v);
+            assert!(!out.contains("inf"), "num({v}) = {out}");
+            assert!(out.parse::<f64>().is_ok(), "num({v}) = {out}");
+        }
+        assert_eq!(num(1e308).len(), 309);
+        // One ulp below the threshold keeps the answer it always gave.
+        assert_eq!(num(1.7976931348623156e305).len(), 306);
+    }
+
+    #[test]
     fn escaping_covers_every_xml_metacharacter() {
         assert_eq!(escape(r#"a&b<c>d"e'f"#), "a&amp;b&lt;c&gt;d&quot;e&apos;f");
+    }
+
+    #[test]
+    fn a_control_character_in_a_name_is_dropped_rather_than_written() {
+        // XML 1.0 has no way to write these, escaped or not, so a name that
+        // carries one would otherwise produce a document no parser will open.
+        assert_eq!(escape("a\u{1}b"), "ab");
+        assert_eq!(escape("rpoB\u{0}\u{7}\u{b}\u{c}\u{1b}"), "rpoB");
+        assert_eq!(escape("a\u{fffe}b\u{ffff}c"), "abc");
+        // Tab, newline and carriage return are characters, and so is everything
+        // from U+0020 up.
+        assert_eq!(escape("a\tb\nc\rd"), "a\tb\nc\rd");
+        assert_eq!(escape("gene\u{200f}\u{1f9ec}"), "gene\u{200f}\u{1f9ec}");
+    }
+
+    #[test]
+    fn a_font_size_at_or_below_zero_draws_nothing_instead_of_a_negative_length() {
+        // A track that derives its label size from the theme can reach -1 from
+        // a theme font size of 0, and `font-size` is not allowed to be negative.
+        let mut svg = SvgWriter::new();
+        svg.text(10.0, 10.0, "depth", "#6b7280", -1.0, Anchor::End);
+        svg.text_bold(10.0, 10.0, "title", "#6b7280", 0.0, Anchor::Start);
+        svg.text_rotated(
+            (10.0, 10.0),
+            -90.0,
+            "column",
+            "#6b7280",
+            -3.0,
+            Anchor::Middle,
+        );
+        svg.text(10.0, 10.0, "nan", "#6b7280", f64::NAN, Anchor::Start);
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        assert!(!out.contains("<text"), "{out}");
+        // A positive size still writes its element.
+        let mut svg = SvgWriter::new();
+        svg.text(10.0, 10.0, "depth", "#6b7280", 1.0, Anchor::End);
+        let out = svg.finish(20.0, 20.0, "none", "sans-serif");
+        assert!(out.contains(r#"font-size="1""#), "{out}");
     }
 
     #[test]

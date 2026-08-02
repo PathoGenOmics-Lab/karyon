@@ -89,8 +89,16 @@ impl std::error::Error for ReadError {}
 /// A UCSC header has to carry a `key=value` to be taken as one, because a
 /// sequence may be called `track`, and in a space separated file its rows are
 /// otherwise indistinguishable from the header and disappear without a word.
+///
+/// A UTF-8 byte order mark at the very start of the text is dropped. It is a
+/// mark on the file rather than the first character of the first field, and
+/// tooling on Windows and spreadsheet exports write one, so leaving it in would
+/// glue it to the first field of the first row and lose that row silently.
 pub fn lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    text.lines()
+    // The mark carries no newline, so the numbering is unchanged by this.
+    text.strip_prefix('\u{feff}')
+        .unwrap_or(text)
+        .lines()
         .enumerate()
         .map(|(index, line)| (index + 1, line.trim_end_matches(['\r'])))
         .filter(|(_, line)| {
@@ -146,6 +154,20 @@ chr1\t10\t20\t5
             .map(|(_, line)| line)
             .collect();
         assert_eq!(kept, vec!["track 99 100 x", "browser 5 6 y"]);
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_swallow_the_first_row() {
+        // A BED written by tooling that stamps a UTF-8 BOM on the file. The
+        // mark used to stay glued to the first field, so `chr1` on line 1 read
+        // as a different sequence and geneA was dropped without a word.
+        let text = "\u{feff}chr1\t100\t200\tgeneA\nchr1\t300\t400\tgeneB\n";
+        let kept: Vec<(usize, &str)> = lines(text).collect();
+        assert_eq!(
+            kept,
+            vec![(1, "chr1\t100\t200\tgeneA"), (2, "chr1\t300\t400\tgeneB"),]
+        );
+        assert_eq!(columns(kept[0].1)[0], "chr1");
     }
 
     #[test]

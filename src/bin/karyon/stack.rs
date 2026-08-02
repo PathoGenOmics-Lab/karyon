@@ -62,7 +62,12 @@ pub enum BuildError {
         wanted: &'static str,
     },
     /// The tree would not parse.
-    Tree(karyon::Error),
+    Tree {
+        /// What it was called, or `standard input`.
+        path: String,
+        /// Why it is not a tree.
+        cause: karyon::Error,
+    },
 }
 
 impl fmt::Display for BuildError {
@@ -75,7 +80,7 @@ impl fmt::Display for BuildError {
                 path,
                 wanted,
             } => write!(f, "--{track} {path}: no {wanted} in the region"),
-            BuildError::Tree(cause) => write!(f, "--tree: {cause}"),
+            BuildError::Tree { path, cause } => write!(f, "--tree {path}: {cause}"),
         }
     }
 }
@@ -255,7 +260,10 @@ fn track(spec: &TrackSpec, region: &Region) -> Result<Box<dyn Track>, BuildError
             Box::new(named(track, label, ManhattanTrack::label))
         }
         Kind::Tree => {
-            let tree = Tree::parse_newick(text.trim()).map_err(BuildError::Tree)?;
+            let tree = Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                path: path.clone(),
+                cause,
+            })?;
             Box::new(named(TreeTrack::new(tree), label, TreeTrack::label))
         }
         Kind::Msa => {
@@ -280,7 +288,10 @@ fn track(spec: &TrackSpec, region: &Region) -> Result<Box<dyn Track>, BuildError
         }
         Kind::Matrix => {
             let (sites, rows) = wrap(name, &path, read::table::matrix(&text, region))?;
-            if rows.is_empty() {
+            // No sample lines at all, and a header whose every site lies
+            // outside the window, both leave nothing to draw: the second one
+            // used to give a lane of names beside no cells.
+            if rows.is_empty() || sites.is_empty() {
                 return Err(empty("samples"));
             }
             Box::new(named(
@@ -362,6 +373,25 @@ mod tests {
         }
     }
 
+    /// A file with `text` in it, named after the test that asked for it.
+    ///
+    /// The path is not split on whitespace, since a temporary directory may
+    /// have a space in its name.
+    fn written(name: &str, text: &str) -> String {
+        let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
+        fs::write(&path, text).unwrap();
+        path.display().to_string()
+    }
+
+    /// One region, one track flag and one path, which may hold spaces.
+    fn over(locus: &str, flag: &str, path: &str) -> Invocation {
+        let args = vec![locus.to_string(), flag.to_string(), path.to_string()];
+        match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        }
+    }
+
     #[test]
     fn a_reference_is_cut_down_to_the_region() {
         let region = Region::parse("chr1:11-20").unwrap();
@@ -396,5 +426,39 @@ mod tests {
         let error = build(&invocation("chr1:1-1000 --features nowhere.bed")).unwrap_err();
         let message = error.to_string();
         assert!(message.starts_with("--features nowhere.bed:"), "{message}");
+    }
+
+    #[test]
+    fn a_matrix_whose_sites_all_lie_outside_the_region_is_an_error() {
+        // Two samples typed at sites 9000 and 9100, drawn over chr1:1-100. The
+        // rows survive the read and every column is filtered out, which used to
+        // give a figure of sample names beside no cells and exit 0.
+        let path = written(
+            "outside.matrix.tsv",
+            "sample\t9000\t9100\nERR1\t1\t0\nERR2\t0\t1\n",
+        );
+        let error = build(&over("chr1:1-100", "--matrix", &path)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("--matrix {path}: no samples in the region")
+        );
+    }
+
+    #[test]
+    fn a_matrix_with_a_site_in_the_region_still_draws() {
+        let path = written("inside.matrix.tsv", "sample\t50\t60\nERR1\t1\t0\n");
+        let svg = build(&over("chr1:1-100", "--matrix", &path)).unwrap();
+        assert!(svg.contains("ERR1"), "{svg}");
+    }
+
+    #[test]
+    fn a_tree_that_will_not_parse_names_the_file_it_was() {
+        // The other failures of one flag name the file, and this one did not.
+        let path = written("unbalanced.nwk", "((a,b\n");
+        let error = build(&over("chr1:1-100", "--tree", &path)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("--tree {path}: invalid Newick tree: unbalanced parentheses")
+        );
     }
 }

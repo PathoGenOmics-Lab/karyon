@@ -269,7 +269,15 @@ impl CodonTrack {
         if view_end <= self.start || view_start >= self.end {
             return None;
         }
-        let at = |pos: u64| self.codon_of(pos.clamp(self.start, self.end - 1));
+        // Clamped into the whole codons and not into the whole span: a trailing
+        // partial codon has no number, so probing one would take the whole
+        // ruler down with it.
+        let (lo, hi) = if self.strand == Strand::Reverse {
+            (self.end - 3 * total, self.end - 1)
+        } else {
+            (self.start, self.start + 3 * total - 1)
+        };
+        let at = |pos: u64| self.codon_of(pos.clamp(lo, hi));
         let left = at(view_start)?;
         let right = at(view_end.saturating_sub(1).max(view_start))?;
         Some((left.min(right), left.max(right)))
@@ -541,6 +549,34 @@ mod tests {
         assert_eq!(reverse.codon_of(10), Some(1));
         assert_eq!(reverse.codon_of(2), Some(3));
         assert_eq!(reverse.codon_of(1), None);
+    }
+
+    #[test]
+    fn a_trailing_partial_codon_does_not_blank_the_whole_ruler() {
+        use crate::figure::Figure;
+
+        // A hundred bases is thirty-three whole codons and one base left over.
+        // A view holding that leftover base still draws all thirty-three.
+        let forward = CodonTrack::new(0, 100, Strand::Forward);
+        assert_eq!(forward.codons(), 33);
+        assert_eq!(forward.codon_of(99), None, "the leftover base has no codon");
+        assert_eq!(forward.visible(&scale(0, 100)), Some((1, 33)));
+        assert_eq!(forward.visible(&scale(0, 99)), Some((1, 33)));
+
+        // On the reverse strand the leftover is at the low end instead, so it
+        // is a view reaching the start of the sequence that used to blank it.
+        let reverse = CodonTrack::new(1_000, 1_100, Strand::Reverse);
+        assert_eq!(reverse.visible(&scale(900, 1_050)), Some((17, 33)));
+        assert_eq!(reverse.visible(&scale(1_001, 1_050)), Some((17, 33)));
+
+        let svg = Figure::new(Region::new("chr", 0, 100).unwrap())
+            .show_region_label(false)
+            .push(CodonTrack::new(0, 100, Strand::Forward))
+            .to_svg();
+        // Thirty-three cells on top of the page background and the clip
+        // rectangle, one number apiece, and the start chevron.
+        assert_eq!(svg.matches("<rect").count(), 35, "{svg}");
+        assert_eq!(svg.matches("<polygon").count(), 1);
     }
 
     #[test]

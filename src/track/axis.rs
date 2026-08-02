@@ -183,7 +183,13 @@ impl AxisTrack {
         }
         while pos <= last && positions.len() < 512 {
             positions.push(pos);
-            pos += step;
+            // A region running to the top of the coordinate range has a last
+            // tick with no next one. Unchecked, the step wrapped and the ruler
+            // carried on with hundreds of labels counting backwards.
+            pos = match pos.checked_add(step) {
+                Some(next) => next,
+                None => break,
+            };
         }
         // A region narrower than one step gets its own edges labelled instead
         // of nothing at all.
@@ -365,6 +371,24 @@ mod tests {
         let ticks = axis.ticks(1_000_001, 1_000_003, 800.0);
         assert_eq!(ticks.step, 1);
         assert_eq!(ticks.positions, vec![1_000_001, 1_000_002, 1_000_003]);
+    }
+
+    #[test]
+    fn a_ruler_running_to_the_top_of_the_coordinate_range_stops_at_its_last_tick() {
+        // Region::new("chr1", 0, u64::MAX) is a legal region, so the ruler over
+        // it has to end rather than wrap: the step used to overflow, which
+        // panicked in a debug build and drew 503 ticks counting backwards in a
+        // release one.
+        let axis = AxisTrack::new();
+        let ticks = axis.ticks(1, u64::MAX, 872.0);
+        assert_eq!(ticks.step, 2_000_000_000_000_000_000);
+        assert_eq!(ticks.positions.len(), 9);
+        assert_eq!(ticks.positions[0], 2_000_000_000_000_000_000);
+        assert_eq!(
+            ticks.positions[8], 18_000_000_000_000_000_000,
+            "the last tick is the last multiple of the step that fits"
+        );
+        assert!(ticks.positions.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
     #[test]

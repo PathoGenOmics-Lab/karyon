@@ -93,6 +93,12 @@ impl Tree {
     /// Handles nested clades, branch lengths, quoted names and internal labels,
     /// reading an internal label as a support value when it parses as a number
     /// and keeping it as a name when it does not. Trailing semicolon optional.
+    /// A doubled quote inside a quoted name is one literal quote, so
+    /// `'O''Brien'` is a single tip.
+    ///
+    /// An empty label is a tip too: `(,,(,));` is four unnamed leaves, and a
+    /// branch length written on an empty slot belongs to that leaf rather than
+    /// to the clade around it.
     ///
     /// Square bracket comments are skipped wherever they appear, which is what
     /// lets a file straight out of RAxML or BEAST be read: those write a `[&R]`
@@ -145,6 +151,12 @@ impl Tree {
                     current = None;
                 }
                 ')' => {
+                    // An empty slot just before the clade closes is an unnamed
+                    // leaf, which the format allows and which has to be
+                    // materialised or the tip is lost.
+                    if let (None, Some(parent)) = (current, stack.last().copied()) {
+                        new_node(&mut nodes, Some(parent));
+                    }
                     let closed = stack.pop().ok_or(Error::InvalidNewick {
                         reason: "unbalanced parentheses",
                     })?;
@@ -155,6 +167,11 @@ impl Tree {
                         return Err(Error::InvalidNewick {
                             reason: "comma outside any clade",
                         });
+                    }
+                    // Likewise for an empty slot before the comma: nothing
+                    // between two delimiters is a tip without a name.
+                    if current.is_none() {
+                        new_node(&mut nodes, stack.last().copied());
                     }
                     current = None;
                 }
@@ -171,12 +188,19 @@ impl Tree {
                     let length = number.parse::<f64>().map_err(|_| Error::InvalidNewick {
                         reason: "branch length is not a number",
                     })?;
-                    let target =
-                        current
-                            .or_else(|| stack.last().copied())
-                            .ok_or(Error::InvalidNewick {
+                    // A length on an empty slot belongs to the unnamed leaf
+                    // that slot stands for, not to the clade around it.
+                    let target = match current {
+                        Some(index) => index,
+                        None => {
+                            let parent = stack.last().copied().ok_or(Error::InvalidNewick {
                                 reason: "branch length with nothing to attach to",
                             })?;
+                            let index = new_node(&mut nodes, Some(parent));
+                            current = Some(index);
+                            index
+                        }
+                    };
                     nodes[target].branch_length = Some(length);
                 }
                 '[' => {
@@ -203,6 +227,14 @@ impl Tree {
                         if quoted {
                             if *next == quote {
                                 chars.next();
+                                // A doubled quote is how the standard writes
+                                // one literal quote inside a quoted label, so
+                                // it is part of the name, not the end of it.
+                                if chars.peek() == Some(&quote) {
+                                    name.push(quote);
+                                    chars.next();
+                                    continue;
+                                }
                                 break;
                             }
                             name.push(*next);
@@ -419,6 +451,45 @@ mod tests {
     fn quoted_names_keep_their_punctuation() {
         let tree = Tree::parse_newick("('ERR (one)':0.1,'B,C':0.2);").unwrap();
         assert_eq!(tree.leaf_names(), ["ERR (one)", "B,C"]);
+    }
+
+    #[test]
+    fn a_doubled_quote_is_one_literal_quote_and_not_a_second_taxon() {
+        let tree = Tree::parse_newick("('O''Brien':0.1,B:0.2);").unwrap();
+        assert_eq!(tree.leaf_names(), ["O'Brien", "B"]);
+        assert_eq!(tree.leaf_count(), 2);
+        let named = tree.leaves();
+        assert_eq!(tree.nodes()[named[0]].branch_length, Some(0.1));
+    }
+
+    #[test]
+    fn an_empty_label_is_an_unnamed_leaf_rather_than_a_dropped_tip() {
+        // The canonical example of the format is four unnamed leaves.
+        let tree = Tree::parse_newick("(,,(,));").unwrap();
+        assert_eq!(tree.leaf_count(), 4);
+        assert_eq!(tree.nodes().len(), 6, "four leaves, two clades");
+        assert_eq!(tree.leaf_names(), ["", "", "", ""]);
+
+        assert_eq!(Tree::parse_newick("((,),(,));").unwrap().leaf_count(), 4);
+        assert_eq!(Tree::parse_newick("(A,B,);").unwrap().leaf_count(), 3);
+        assert_eq!(Tree::parse_newick("(A,B,);").unwrap().nodes().len(), 4);
+    }
+
+    #[test]
+    fn a_branch_length_on_an_empty_label_lands_on_that_leaf() {
+        let tree = Tree::parse_newick("(:0.1,:0.2,(:0.3,:0.4):0.5);").unwrap();
+        assert_eq!(tree.nodes().len(), 6);
+        assert_eq!(tree.leaf_count(), 4);
+        // Root first, then the five branches in the order the file wrote them.
+        let lengths: Vec<Option<f64>> =
+            tree.nodes().iter().map(|node| node.branch_length).collect();
+        assert_eq!(
+            lengths,
+            vec![None, Some(0.1), Some(0.2), Some(0.5), Some(0.3), Some(0.4)]
+        );
+        // The clade keeps its own 0.5 and its children keep theirs.
+        assert_eq!(tree.nodes()[3].children, vec![4, 5]);
+        assert!((tree.max_depth(false) - 0.9).abs() < 1e-12, "0.5 then 0.4");
     }
 
     #[test]

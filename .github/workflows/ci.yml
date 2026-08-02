@@ -45,17 +45,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Render the README figures
+      # Every example, not a selection of them. Six were missing from this
+      # list, so six figures could drift without the gate noticing, which is
+      # how a committed figure came to disagree with the code that draws it.
+      - name: Render every figure
         run: |
-          cargo run --example locus -- assets
-          cargo run --example logo -- assets
-          cargo run --example pileup -- assets
-          cargo run --example ideogram -- assets
-          cargo run --example association -- assets
-          cargo run --example synteny -- assets
-          cargo run --example msa -- assets
-          cargo run --example snps -- assets
-          cargo run --example pangenome -- assets
-          cargo run --example gallery -- assets
+          for example in association circular gallery genomewide ideogram \
+                         locus logo msa niche pangenome pileup reading \
+                         selection shapes snps synteny; do
+            cargo run --example "$example" -- assets
+          done
       - name: Fail if the committed figures are stale
         run: git diff --exit-code -- assets
+      # The documentation site serves its own copies, because MkDocs only
+      # serves what is under docs/. They are the same files and drift the
+      # same way.
+      - name: Fail if the documentation figures are stale
+        run: |
+          cp assets/*.svg docs/assets/figures/
+          git diff --exit-code -- docs/assets/figures

@@ -190,8 +190,9 @@ impl Dash {
             return DashFit {
                 concentrations: self.concentrations.clone(),
                 weights: {
-                    // No data to move the weights off the prior, whose mode
-                    // with a null-biased Dirichlet is the null component.
+                    // Nothing to move the weights off the prior, whose mode
+                    // under a null-biased Dirichlet is the null component.
+                    // The vector still has to be a distribution.
                     let mut weights = vec![0.0; self.concentrations.len().max(1)];
                     weights[0] = 1.0;
                     weights
@@ -657,6 +658,24 @@ mod tests {
         assert_eq!(fit.iterations, 0);
         let fit = Dash::new().fit(&[vec![]], &[]);
         assert!(fit.posterior.is_empty());
+    }
+
+    #[test]
+    fn the_weights_of_an_empty_fit_are_still_a_distribution() {
+        // Not a closed defect: this holds today and is here so it keeps
+        // holding. Nothing to fit is not a uniform prior over nothing, so the
+        // weights of an empty fit still have to be a distribution.
+        for fit in [
+            Dash::new().fit(&[], &[0.25; 4]),
+            Dash::new().fit(&[vec![9.0, 1.0, 0.0, 0.0]], &[]),
+        ] {
+            assert_eq!(fit.weights.len(), fit.concentrations.len());
+            assert_eq!(fit.weights.len(), 8);
+            assert!(close(fit.weights.iter().sum::<f64>(), 1.0, 1e-9));
+            assert!(fit.weights.iter().all(|w| *w >= 0.0));
+            // With nothing to fit, the prior mode is the null component.
+            assert_eq!(fit.weights[0], 1.0);
+        }
     }
 
     #[test]

@@ -206,7 +206,10 @@ impl CoverageTrack {
 
     /// Index range of `self.values` overlapping `region`.
     fn visible_slice(&self, region: &Region) -> Option<(usize, usize)> {
-        let end = self.start + self.values.len() as u64;
+        // Saturating, because a caller is free to hand in a start near the top
+        // of the coordinate range and the sum is computed before the test that
+        // would have thrown the track out for being off screen.
+        let end = self.start.saturating_add(self.values.len() as u64);
         if region.end() <= self.start || region.start() >= end {
             return None;
         }
@@ -257,6 +260,25 @@ impl CoverageTrack {
             value
         }
     }
+}
+
+/// How many samples a band of `width` pixels is reduced to, and how far apart.
+///
+/// One per pixel column, which is what the profile is drawn from, up to a
+/// ceiling. A width is a number a caller supplies, and turning it straight
+/// into a column count turned a large finite width into an allocation that
+/// aborted the render: `1e30` pixels is not an image, but it is a `f64` a
+/// builder will accept. Past the ceiling the samples are spread over the whole
+/// band instead of stopping part way across it, so the profile still spans the
+/// band it was given. Below it the step is exactly one pixel and nothing about
+/// the drawing changes.
+fn column_grid(width: f64) -> (usize, f64) {
+    const MAX_COLUMNS: usize = 100_000;
+    let wanted = width.max(1.0).ceil();
+    // A NaN width casts to zero, so the floor is applied after the cast too.
+    let columns = (wanted as usize).clamp(1, MAX_COLUMNS);
+    let step = (wanted / columns as f64).max(1.0);
+    (columns, step)
 }
 
 impl Track for CoverageTrack {
@@ -318,12 +340,12 @@ impl Track for CoverageTrack {
             return;
         }
 
-        let columns = band.w.max(1.0).ceil() as usize;
+        let (columns, step) = column_grid(band.w);
         let mut points: Vec<(f64, f64)> = Vec::with_capacity(columns);
         for column in 0..columns {
-            let x = band.x + column as f64;
+            let x = band.x + column as f64 * step;
             let lo = ctx.scale.pos_at_x(x);
-            let hi = ctx.scale.pos_at_x(x + 1.0);
+            let hi = ctx.scale.pos_at_x(x + step);
             let Some(value) = self.sample(lo, hi) else {
                 continue;
             };
@@ -334,7 +356,7 @@ impl Track for CoverageTrack {
                     ctx.svg.rect_opacity(
                         x,
                         y,
-                        1.0,
+                        step,
                         baseline - y,
                         &color,
                         self.fill_opacity.unwrap_or(1.0),
@@ -562,5 +584,39 @@ mod tests {
         assert_eq!(format_value(72.04), "72");
         assert_eq!(format_value(72.44), "72.4");
         assert_eq!(format_value(2_000_400.0), "2M");
+    }
+
+    #[test]
+    fn data_starting_at_the_top_of_the_coordinate_range_is_off_screen_not_a_panic() {
+        use crate::figure::Figure;
+        // `start + values.len()` used to be computed before the disjointness
+        // test below it, so a track at u64::MAX aborted the render.
+        let track = CoverageTrack::new(u64::MAX, vec![7.0]);
+        assert_eq!(track.visible_slice(&region()), None);
+        assert_eq!(track.visible_max(&region()), None);
+        let svg = Figure::new(region()).push(track).to_svg();
+        assert!(svg.contains("</svg>"));
+    }
+
+    #[test]
+    fn a_band_wider_than_any_image_is_still_sampled_across_its_whole_width() {
+        // One sample per pixel up to the ceiling; past it the samples are
+        // spread over the band rather than turned into an allocation. 1e30
+        // pixels used to abort with a capacity overflow.
+        assert_eq!(column_grid(800.4), (801, 1.0));
+        assert_eq!(column_grid(0.0), (1, 1.0));
+        let (columns, step) = column_grid(1e30);
+        assert_eq!(columns, 100_000);
+        assert!((columns as f64 * step - 1e30).abs() <= 1e15);
+    }
+
+    #[test]
+    fn a_figure_a_thousand_times_wider_than_any_screen_still_renders() {
+        use crate::figure::Figure;
+        let svg = Figure::new(Region::new("chr1", 0, 1000).unwrap())
+            .width(1e30)
+            .push(CoverageTrack::new(0, vec![1.0, 2.0, 3.0]))
+            .to_svg();
+        assert!(svg.contains("</svg>"));
     }
 }

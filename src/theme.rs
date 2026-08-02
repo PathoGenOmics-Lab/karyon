@@ -317,24 +317,47 @@ const WASH: f64 = 0.62;
 /// Feature labels are drawn inside coloured boxes whose colour the caller
 /// chooses, so the ink has to be picked per box rather than fixed by the theme.
 /// Anything that is not a `#rrggbb` string is assumed dark.
+///
+/// The choice is the WCAG contrast ratio of each ink against `color`, computed
+/// from sRGB relative luminance. Rec. 601 luma over the gamma-encoded channels
+/// is a different quantity and is not monotone in relative luminance across
+/// hues, so on a mid saturated orange or green it picks the less legible of the
+/// two by a wide margin.
 pub fn contrast_ink(color: &str) -> &'static str {
-    let Some(hex) = color.strip_prefix('#') else {
+    let Some((r, g, b)) = parse_hex(color) else {
         return "#ffffff";
     };
-    if hex.len() != 6 {
-        return "#ffffff";
-    }
-    let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).ok();
-    let (Some(r), Some(g), Some(b)) = (channel(0..2), channel(2..4), channel(4..6)) else {
-        return "#ffffff";
-    };
-    // Rec. 601 luma, good enough to choose between two inks.
-    let luma = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
-    if luma > 150.0 {
-        "#1b1f23"
+    let luma = relative_luminance(r, g, b);
+    let dark = relative_luminance(DARK_INK_RGB.0, DARK_INK_RGB.1, DARK_INK_RGB.2);
+    // Contrast ratio is (lighter + 0.05) / (darker + 0.05), and `color` always
+    // sits between the two inks, so each ratio is one division. White has a
+    // relative luminance of exactly 1.
+    let against_white = 1.05 / (luma + 0.05);
+    let against_dark = (luma + 0.05) / (dark + 0.05);
+    if against_dark > against_white {
+        DARK_INK
     } else {
         "#ffffff"
     }
+}
+
+/// The dark ink [`contrast_ink`] hands out, which is also
+/// [`Theme::light`]'s foreground, and its channels.
+const DARK_INK: &str = "#1b1f23";
+const DARK_INK_RGB: (u8, u8, u8) = (0x1b, 0x1f, 0x23);
+
+/// sRGB relative luminance, as WCAG 2.x defines it: undo the transfer function
+/// on each channel, then weight them by the response of the eye.
+fn relative_luminance(r: u8, g: u8, b: u8) -> f64 {
+    let linear = |c: u8| {
+        let s = c as f64 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
 }
 
 #[cfg(test)]
@@ -363,6 +386,50 @@ mod tests {
         assert_eq!(contrast_ink("#0072b2"), "#ffffff");
         assert_eq!(contrast_ink("#ffffff"), "#1b1f23");
         assert_eq!(contrast_ink("#f0e442"), "#1b1f23");
+    }
+
+    #[test]
+    fn ink_follows_the_contrast_ratio_and_not_gamma_encoded_luma() {
+        // Rec. 601 luma over the encoded channels put white on all four of
+        // these. The WCAG ratios say otherwise for the green and the orange:
+        // #33a02c is 3.384 against white and 4.898 against the dark ink, and
+        // #e08214 is 2.848 against white, under the 3:1 floor, against 5.820.
+        let bases = BaseColors::conventional();
+        assert_eq!(contrast_ink(&bases.a), "#1b1f23", "A #33a02c");
+        assert_eq!(contrast_ink(&bases.c), "#ffffff", "C #1f78b4");
+        assert_eq!(contrast_ink(&bases.g), "#1b1f23", "G #e08214");
+        assert_eq!(contrast_ink(&bases.t), "#ffffff", "T #e31a1c");
+
+        let safe = BaseColors::colorblind_safe();
+        assert_eq!(contrast_ink(&safe.a), "#1b1f23", "A #009e73");
+        assert_eq!(contrast_ink(&safe.c), "#ffffff", "C #0072b2");
+        assert_eq!(contrast_ink(&safe.g), "#1b1f23", "G #e69f00");
+        assert_eq!(contrast_ink(&safe.t), "#1b1f23", "T #d55e00");
+    }
+
+    #[test]
+    fn the_ink_it_picks_is_the_one_with_the_higher_contrast_ratio() {
+        // The property, checked over the whole cube rather than a palette.
+        let ratio = |x: f64, y: f64| {
+            let (hi, lo) = if x > y { (x, y) } else { (y, x) };
+            (hi + 0.05) / (lo + 0.05)
+        };
+        let dark = relative_luminance(0x1b, 0x1f, 0x23);
+        for r in (0..=255).step_by(17) {
+            for g in (0..=255).step_by(17) {
+                for b in (0..=255).step_by(17) {
+                    let (r, g, b) = (r as u8, g as u8, b as u8);
+                    let hex = format!("#{r:02x}{g:02x}{b:02x}");
+                    let luma = relative_luminance(r, g, b);
+                    let want = if ratio(luma, dark) > ratio(luma, 1.0) {
+                        "#1b1f23"
+                    } else {
+                        "#ffffff"
+                    };
+                    assert_eq!(contrast_ink(&hex), want, "{hex}");
+                }
+            }
+        }
     }
 
     #[test]

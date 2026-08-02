@@ -78,9 +78,29 @@ pub enum ArgError {
     ExtraRegion(String),
     /// No locus at all.
     NoRegion,
+    /// A locus whose span is larger than a figure is drawn over.
+    HugeRegion {
+        /// The locus as it was written.
+        given: String,
+        /// How many bases it spans.
+        span: u64,
+    },
     /// More than one track wanted standard input.
     StdinTwice,
 }
+
+/// The widest figure that is drawn, in pixels.
+///
+/// A width becomes a column of pixels per band, and no screen or page goes
+/// past this, so a larger number is a typo rather than an intention.
+const MAX_WIDTH: f64 = 100_000.0;
+
+/// The longest region that is drawn, in bases.
+///
+/// A per-base track keeps one value for every base of the window, so the span
+/// is what a figure costs in memory. This is well above the longest sequence
+/// anyone assembles and below the point where the buffer cannot be allocated.
+const MAX_SPAN: u64 = 1 << 32;
 
 impl fmt::Display for ArgError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -107,6 +127,10 @@ impl fmt::Display for ArgError {
             ArgError::NoRegion => write!(
                 f,
                 "the first argument is the region, as in NC_000962.3:761,000-763,000"
+            ),
+            ArgError::HugeRegion { given, span } => write!(
+                f,
+                "{given:?} spans {span} bases, and a figure is drawn over at most {MAX_SPAN}"
             ),
             ArgError::StdinTwice => write!(f, "only one track can read from standard input"),
         }
@@ -503,6 +527,17 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--color" => {
                 let text = value("--color")?.clone();
+                // The colour goes into an SVG attribute as it was written, so a
+                // value carrying a quote or an angle bracket would end the
+                // attribute early and leave a document that will not parse. No
+                // spelling of a paint value needs one of these characters.
+                if text.contains(['"', '\'', '<', '>', '&']) {
+                    return Err(ArgError::BadValue {
+                        flag: "--color",
+                        given: text,
+                        expected: "a colour, as in '#d55e00'",
+                    });
+                }
                 let track = last(&mut tracks, "--color")?;
                 if !matches!(track.kind, Kind::Coverage | Kind::Features) {
                     return Err(ArgError::WrongTrack {
@@ -524,11 +559,23 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--title" => title = Some(value("--title")?.clone()),
             "--width" => {
                 let text = value("--width")?;
-                width = Some(text.parse::<f64>().map_err(|_| ArgError::BadValue {
+                let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
                     flag: "--width",
                     given: text.clone(),
                     expected: "a number of pixels",
-                })?);
+                })?;
+                // A width becomes one column of pixels per band, so a figure
+                // wider than any screen or page asks for an allocation that
+                // fails rather than a figure. A small width is raised to a
+                // drawable one further down, so only the top end is refused.
+                if !px.is_finite() || px > MAX_WIDTH {
+                    return Err(ArgError::BadValue {
+                        flag: "--width",
+                        given: text.clone(),
+                        expected: "a number of pixels, at most 100000",
+                    });
+                }
+                width = Some(px);
             }
             "--theme" => {
                 let text = value("--theme")?;
@@ -554,7 +601,17 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 if region.is_some() {
                     return Err(ArgError::ExtraRegion(locus.to_string()));
                 }
-                region = Some(Region::parse(locus).map_err(ArgError::BadRegion)?);
+                let parsed = Region::parse(locus).map_err(ArgError::BadRegion)?;
+                // A track that keeps one value per base of the window sizes its
+                // buffer from the span, so a span past every sequence anyone
+                // has is an allocation that fails rather than a figure.
+                if parsed.len() > MAX_SPAN {
+                    return Err(ArgError::HugeRegion {
+                        given: locus.to_string(),
+                        span: parsed.len(),
+                    });
+                }
+                region = Some(parsed);
             }
         }
     }
@@ -701,6 +758,88 @@ mod tests {
             parse(&args("nonsense --version")).unwrap(),
             Request::Version
         ));
+    }
+
+    #[test]
+    fn a_colour_carrying_an_xml_metacharacter_is_refused() {
+        // The value is written into an SVG attribute as it stands, so this is
+        // attribute injection and not merely a malformed file: `blue"` closed
+        // the attribute early, and a value carrying `<` went further and put
+        // elements of the caller's choosing into the document.
+        for given in ["blue\"", "<script>", "red\" onload=\"x", "a&b", "it's"] {
+            let args = vec![
+                "chr1:1-1000".to_string(),
+                "--coverage".to_string(),
+                "d.bg".to_string(),
+                "--color".to_string(),
+                given.to_string(),
+            ];
+            let err = parse(&args).unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    ArgError::BadValue {
+                        flag: "--color",
+                        ..
+                    }
+                ),
+                "{given:?} was taken: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_spelling_of_a_colour_still_goes_through() {
+        for given in ["#d55e00", "blue", "rgb(0,0,255)", "url(#g)"] {
+            let args = vec![
+                "chr1:1-1000".to_string(),
+                "--coverage".to_string(),
+                "d.bg".to_string(),
+                "--color".to_string(),
+                given.to_string(),
+            ];
+            match parse(&args).unwrap() {
+                Request::Draw(it) => assert_eq!(it.tracks[0].color.as_deref(), Some(given)),
+                other => panic!("expected a figure, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_width_no_renderer_could_draw_is_an_error_rather_than_a_panic() {
+        // 1e308 used to reach an allocation of one column per pixel and abort
+        // the process with `capacity overflow`.
+        for given in ["1e308", "inf", "nan", "1e15", "100001"] {
+            let err = parse(&args(&format!(
+                "chr1:1-200 --coverage d.bg --width {given}"
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    ArgError::BadValue {
+                        flag: "--width",
+                        ..
+                    }
+                ),
+                "{given:?} was taken: {err}"
+            );
+        }
+        assert_eq!(draw("chr1:1-200 --width 100000").width, Some(100_000.0));
+    }
+
+    #[test]
+    fn a_region_longer_than_a_figure_is_drawn_over_is_an_error() {
+        // The whole u64 range used to reach `vec![0.0; region.len() as usize]`
+        // and abort the process with `capacity overflow`.
+        let err = parse(&args("chr1:1-18446744073709551615 --coverage d.bg")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "\"chr1:1-18446744073709551615\" spans 18446744073709551615 bases, \
+             and a figure is drawn over at most 4294967296"
+        );
+        // A whole large sequence is an ordinary figure and stays one.
+        assert_eq!(draw("chr1:1-248956422").region.len(), 248_956_422);
     }
 
     #[test]

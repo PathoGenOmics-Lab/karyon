@@ -149,11 +149,24 @@ impl Genome {
     /// A position on one sequence, as a position on the shared axis.
     ///
     /// `None` when the genome has no such sequence, which is what a name
-    /// mismatch between a VCF and a reference looks like. Better to notice it
-    /// than to draw the point somewhere plausible.
+    /// mismatch between a VCF and a reference looks like, and `None` when the
+    /// position is past that sequence's own end, which is what a file called
+    /// against a different reference build, or 1-based positions handed in
+    /// unconverted, look like. Better to notice either than to draw the point
+    /// somewhere plausible, which here means inside the next sequence along.
+    ///
+    /// A caller that wants the shared-axis coordinate of the end of a
+    /// half-open interval, where `position` may equal the length, wants
+    /// [`Genome::offset`] instead.
     pub fn at(&self, name: &str, position: u64) -> Option<u64> {
-        let offset = self.offset(name)?;
-        Some(offset + position)
+        let mut offset = 0u64;
+        for sequence in &self.sequences {
+            if sequence.name == name {
+                return (position < sequence.length).then_some(offset + position);
+            }
+            offset += sequence.length + self.gap;
+        }
+        None
     }
 
     /// The sequence and offset a shared-axis position falls on.
@@ -201,9 +214,10 @@ impl Genome {
 
     /// Maps a list of per-sequence positions onto the shared axis.
     ///
-    /// Anything naming a sequence the genome does not have is dropped, and the
-    /// count of those comes back with the rest so a caller can say how many
-    /// went missing rather than wondering why the figure looks thin.
+    /// Anything naming a sequence the genome does not have is dropped, as is
+    /// anything sitting past the end of the sequence it names, and the count of
+    /// those comes back with the rest so a caller can say how many went missing
+    /// rather than wondering why the figure looks thin.
     pub fn map<T>(
         &self,
         items: impl IntoIterator<Item = (String, u64, T)>,
@@ -279,6 +293,46 @@ mod tests {
         // A name mismatch between a VCF and a reference is common and quiet.
         // Better to notice it than to draw the point somewhere plausible.
         assert_eq!(genome().at("chr9", 10), None);
+    }
+
+    #[test]
+    fn a_position_past_the_end_of_its_sequence_is_refused_rather_than_landing_on_the_next() {
+        // chr1 is 1,000 bases, so 1,500 is 500 bases into chr2. Placing it
+        // there would draw a chr1 point inside chr2's band and count it as
+        // mapped, which is what a file called against another reference build,
+        // or 1-based positions handed in unconverted, look like.
+        let genome = genome();
+        assert_eq!(genome.spans()[1], ("chr2", 1_000, 1_600));
+        assert_eq!(genome.at("chr1", 1_500), None);
+        assert_eq!(genome.at("chr1", 1_000), None, "the length is past the end");
+        assert_eq!(genome.at("chr1", 999), Some(999), "the last base is not");
+        assert_eq!(
+            genome.map([("chr1".to_string(), 1_500u64, 9.9)]),
+            (Vec::new(), 1),
+            "and it is counted, not quietly placed"
+        );
+    }
+
+    #[test]
+    fn every_position_at_accepts_comes_back_from_locate() {
+        // locate is documented as the inverse of at, so the two have to agree
+        // on which positions exist at all.
+        for genome in [genome(), genome().gap(100)] {
+            for sequence in genome.sequences() {
+                for position in [0, 1, sequence.length / 2, sequence.length - 1] {
+                    let at = genome
+                        .at(&sequence.name, position)
+                        .expect("in range on its own sequence");
+                    assert_eq!(
+                        genome.locate(at),
+                        Some((sequence.name.as_str(), position)),
+                        "{} at {position}",
+                        sequence.name
+                    );
+                }
+                assert_eq!(genome.at(&sequence.name, sequence.length), None);
+            }
+        }
     }
 
     #[test]

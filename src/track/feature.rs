@@ -14,6 +14,9 @@
 //! of it on the same row, which is why the room a name needs is reserved during
 //! the packing and not after it.
 //!
+//! Only the features in view are packed, which is also what sets the height, so
+//! a cluster off the left edge cannot push the one gene on screen down a row.
+//!
 //! # Three places a colour can come from
 //!
 //! In order: the feature's own colour if it has one, then the track colour set
@@ -47,12 +50,14 @@ use crate::track::{DrawContext, Track};
 /// that, and it only stops it for callers who come through here.
 pub(crate) fn span_label(start: u64, end: u64) -> String {
     // Half-open in, inclusive out: the last base of `start..end` is `end - 1`,
-    // which is `end` again once it is counted from one.
-    let last = end.max(start + 1) - 1;
+    // which is `end` again once it is counted from one. The adds saturate
+    // because a coordinate is a caller's number: counting the last base of the
+    // range from one has nowhere to go, and a tooltip is not worth a panic.
+    let last = end.max(start.saturating_add(1)) - 1;
     format!(
         "{} to {}",
-        group_thousands(start + 1),
-        group_thousands(last + 1)
+        group_thousands(start.saturating_add(1)),
+        group_thousands(last.saturating_add(1))
     )
 }
 
@@ -159,11 +164,12 @@ impl Feature {
     ///
     /// An end at or before the start is widened to a single base, so a
     /// zero-length record from a converter still shows up rather than silently
-    /// vanishing.
+    /// vanishing. A start at the very top of the coordinate range has no next
+    /// base to widen into, so it keeps the end it was given.
     pub fn new(start: u64, end: u64) -> Self {
         Feature {
             start,
-            end: end.max(start + 1),
+            end: end.max(start.saturating_add(1)),
             name: None,
             strand: Strand::Unknown,
             color: None,
@@ -282,13 +288,33 @@ impl FeatureTrack {
     /// Assigns each feature to a row, first fit, left to right.
     ///
     /// Returns the row per feature in input order, plus the number of rows.
+    ///
+    /// Only what is on screen takes part, by the same test [`FeatureTrack::draw`]
+    /// uses to skip a feature. Packing the rest decided the band height and the
+    /// row of every visible feature from data the reader cannot see: three short
+    /// features ending ten bases before the window opened reserved label room in
+    /// pixels that reached into it, took the first three rows, and left the one
+    /// gene in view floating on the fourth under three empty ones. A feature
+    /// that merely overlaps an edge is kept, so its full pixel extent and its
+    /// label room still count.
     fn layout(&self, scale: &Scale, theme: &Theme) -> (Vec<usize>, usize) {
         let mut rows = vec![0usize; self.features.len()];
         if self.features.is_empty() {
             return (rows, 1);
         }
 
-        let mut order: Vec<usize> = (0..self.features.len()).collect();
+        // The edges of the view as fractional positions rather than through
+        // `Scale::bounds`, whose sum of the two overflows on a region running
+        // to the top of the coordinate range. Every coordinate a genome uses is
+        // far inside the range an f64 counts exactly.
+        let view_start = scale.pos_at_x(scale.x0());
+        let view_end = scale.pos_at_x(scale.x0() + scale.width());
+        let mut order: Vec<usize> = (0..self.features.len())
+            .filter(|&i| {
+                self.features[i].end as f64 > view_start
+                    && (self.features[i].start as f64) < view_end
+            })
+            .collect();
         order.sort_by_key(|&i| (self.features[i].start, self.features[i].end));
 
         // Horizontal breathing room between two features on the same row.
@@ -541,6 +567,72 @@ mod tests {
         let s = scale(&region);
         assert_eq!(one.height(&s), 14.0);
         assert_eq!(two.height(&s), 14.0 * 2.0 + 3.0);
+    }
+
+    #[test]
+    fn a_feature_off_the_left_edge_does_not_push_the_one_in_view_down_a_row() {
+        // Three 10 bp features ending ten bases before the window opens are
+        // never drawn, but their names reserved pixels that reached into it,
+        // took rows 0 to 2 and left rpoB alone on row 3 under three empty ones.
+        let region = Region::new("NC_000962.3", 761_000, 763_000).unwrap();
+        let s = scale(&region);
+        let visible = Feature::new(761_200, 762_400).name("rpoB");
+        let mut all = vec![visible.clone()];
+        all.extend((0..3u64).map(|i| {
+            Feature::new(760_900 + i, 760_910 + i)
+                .name("a_gene_with_a_very_long_name_indeed_xxxxxxxx")
+        }));
+
+        let alone = FeatureTrack::new(vec![visible]);
+        let together = FeatureTrack::new(all);
+        assert_eq!(alone.height(&s), 14.0);
+        assert_eq!(together.height(&s), 14.0, "65.0 before the view filter");
+        assert_eq!(together.layout(&s, &Theme::default()).0[0], 0);
+    }
+
+    #[test]
+    fn a_feature_hanging_over_the_edge_still_takes_part_in_the_packing() {
+        // Overlapping the view is enough to be packed, since the part of it on
+        // screen is drawn and can be collided with.
+        let region = Region::new("chr1", 1_000, 2_000).unwrap();
+        let s = scale(&region);
+        let track = FeatureTrack::new(vec![Feature::new(900, 1_500), Feature::new(1_200, 1_800)])
+            .show_names(false);
+        let (rows, count) = track.layout(&s, &Theme::default());
+        assert_eq!(count, 2);
+        assert_eq!(rows, vec![0, 1]);
+    }
+
+    #[test]
+    fn a_feature_at_the_top_of_the_coordinate_range_keeps_the_end_it_was_given() {
+        // `end.max(start + 1)` overflowed, so a record at u64::MAX aborted the
+        // render instead of being drawn off screen.
+        let feature = Feature::new(u64::MAX, u64::MAX);
+        assert_eq!(feature.start, u64::MAX);
+        assert_eq!(feature.end, u64::MAX);
+        assert_eq!(
+            span_label(u64::MAX, u64::MAX),
+            "18,446,744,073,709,551,615 to 18,446,744,073,709,551,615"
+        );
+        let svg = Figure::new(Region::new("chr1", 0, 1000).unwrap())
+            .push(FeatureTrack::new(vec![feature]))
+            .to_svg();
+        assert!(svg.contains("</svg>"));
+    }
+
+    #[test]
+    fn a_region_running_to_the_top_of_the_coordinate_range_is_drawn_rather_than_refused() {
+        // A guard rather than a closed defect: the new view filter reads the
+        // edges off the scale as fractional positions, and `Scale::bounds`
+        // adds its start to its span, which overflows at the top of the range.
+        // Packing is not worth a panic, so the arithmetic has to be saturating.
+        for (start, end) in [(0u64, u64::MAX), (1, u64::MAX), (u64::MAX - 10, u64::MAX)] {
+            let region = Region::new("chr1", start, end).unwrap();
+            let svg = Figure::new(region)
+                .push(FeatureTrack::new(vec![Feature::new(start, start + 5)]))
+                .to_svg();
+            assert!(svg.contains("</svg>"), "{start}..{end}");
+        }
     }
 
     #[test]
