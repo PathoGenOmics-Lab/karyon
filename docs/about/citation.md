@@ -90,7 +90,7 @@ bases surprises every reader.
 
 ## License
 
-[GPL-3.0-or-later](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+[MIT](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
 
 ## Next
 

@@ -9,7 +9,7 @@ site_url: https://pathogenomics-lab.github.io/karyon/
 repo_name: PathoGenOmics-Lab/karyon
 repo_url: https://github.com/PathoGenOmics-Lab/karyon
 edit_uri: edit/main/docs/
-copyright: Copyright &copy; PathoGenOmics Lab &middot; GPL-3.0
+copyright: Copyright &copy; 2026 Paula Ruiz-Rodriguez and Mireia Coscolla &middot; MIT
 
 theme:
   name: material

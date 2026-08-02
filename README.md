@@ -5,7 +5,7 @@
 
   <p>
     <a href="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml"><img src="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
     <img src="https://img.shields.io/badge/Rust-1.74%2B-orange.svg" alt="Rust 1.74+">
     <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero dependencies">
     <a href="https://github.com/PathoGenOmics-Lab"><img src="https://img.shields.io/badge/PathoGenOmics-lab-red?" alt="PathoGenOmics Lab"></a>
@@ -676,7 +676,11 @@ is released there.
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
+
+A plotting library is meant to be a dependency, and a copyleft one cannot be
+used by a tool that is not itself copyleft. The formats it sits beside are
+permissive for the same reason: noodles and rust-bio are both MIT.
 
 ---
 <h2 id="contributors" align="center">
