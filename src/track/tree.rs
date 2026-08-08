@@ -80,12 +80,27 @@ pub enum TraitScale {
     Continuous,
 }
 
+/// Mark used for one metadata dataset beside or around a tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TraitStyle {
+    /// One filled cell or annular sector per terminal taxon.
+    #[default]
+    Strip,
+    /// Numeric value encoded by bar length or radial height.
+    Bar,
+    /// Boolean or zero/non-zero value encoded by presence of a marker.
+    Binary,
+    /// Category encoded redundantly by both colour and marker shape.
+    Symbol,
+}
+
 /// One metadata column drawn beside the terminal taxa of a tree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitColumn {
     key: String,
     label: String,
     scale: TraitScale,
+    style: TraitStyle,
     width: f64,
     ring_width: f64,
     show_values: bool,
@@ -99,6 +114,7 @@ impl TraitColumn {
             label: key.clone(),
             key,
             scale: TraitScale::Categorical,
+            style: TraitStyle::Strip,
             width: 56.0,
             ring_width: 10.0,
             show_values: true,
@@ -109,6 +125,35 @@ impl TraitColumn {
     pub fn continuous(key: impl Into<String>) -> Self {
         let mut column = Self::categorical(key);
         column.scale = TraitScale::Continuous;
+        column
+    }
+
+    /// Builds a numeric bar column or radial bar ring.
+    pub fn bar(key: impl Into<String>) -> Self {
+        let mut column = Self::continuous(key);
+        column.style = TraitStyle::Bar;
+        column.show_values = false;
+        column
+    }
+
+    /// Builds a boolean presence/absence marker dataset.
+    ///
+    /// Boolean values and finite numbers are accepted; zero is absent and a
+    /// non-zero number is present. Text is left missing rather than guessed.
+    pub fn binary(key: impl Into<String>) -> Self {
+        let mut column = Self::categorical(key);
+        column.style = TraitStyle::Binary;
+        column.width = 28.0;
+        column.show_values = false;
+        column
+    }
+
+    /// Builds a categorical dataset encoded by colour and marker shape.
+    pub fn symbol(key: impl Into<String>) -> Self {
+        let mut column = Self::categorical(key);
+        column.style = TraitStyle::Symbol;
+        column.width = 32.0;
+        column.show_values = false;
         column
     }
 
@@ -144,6 +189,12 @@ impl TraitColumn {
         self
     }
 
+    /// Replaces the visual mark while retaining the column's value mapping.
+    pub fn style(mut self, style: TraitStyle) -> Self {
+        self.style = style;
+        self
+    }
+
     /// The annotation key read from each terminal taxon.
     pub fn key(&self) -> &str {
         &self.key
@@ -152,6 +203,11 @@ impl TraitColumn {
     /// The colour mapping used by this column.
     pub fn scale(&self) -> TraitScale {
         self.scale
+    }
+
+    /// The mark used in rectangular and radial projections.
+    pub fn trait_style(&self) -> TraitStyle {
+        self.style
     }
 }
 
@@ -644,6 +700,21 @@ impl TreeTrack {
     /// Adds a continuous numeric metadata strip.
     pub fn trait_continuous(self, key: impl Into<String>) -> Self {
         self.trait_column(TraitColumn::continuous(key))
+    }
+
+    /// Adds a numeric bar column or radial bar ring.
+    pub fn trait_bar(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::bar(key))
+    }
+
+    /// Adds a boolean presence/absence dataset.
+    pub fn trait_binary(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::binary(key))
+    }
+
+    /// Adds a categorical colour-and-shape dataset.
+    pub fn trait_symbol(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::symbol(key))
     }
 
     /// The tree.
@@ -1241,6 +1312,182 @@ fn draw_radial_collapsed(
     }
 }
 
+#[derive(Debug, Clone)]
+struct TraitDomain {
+    categories: BTreeMap<String, usize>,
+    minimum: f64,
+    maximum: f64,
+}
+
+impl TraitDomain {
+    fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
+        let values: Vec<&AnnotationValue> = values.into_iter().collect();
+        let mut categories: BTreeMap<String, usize> = values
+            .iter()
+            .map(|value| value.to_string())
+            .map(|value| (value, 0usize))
+            .collect();
+        for (index, value) in categories.values_mut().enumerate() {
+            *value = index;
+        }
+        let numeric: Vec<f64> = values
+            .iter()
+            .filter_map(|value| value.as_number())
+            .filter(|value| value.is_finite())
+            .collect();
+        TraitDomain {
+            categories,
+            minimum: numeric.iter().copied().fold(f64::MAX, f64::min),
+            maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
+        }
+    }
+
+    fn fraction(&self, value: Option<&AnnotationValue>) -> Option<f64> {
+        let value = value?.as_number()?;
+        if !value.is_finite() {
+            return None;
+        }
+        Some(if self.maximum <= self.minimum {
+            1.0
+        } else {
+            ((value - self.minimum) / (self.maximum - self.minimum)).clamp(0.0, 1.0)
+        })
+    }
+
+    fn category(&self, value: Option<&AnnotationValue>) -> Option<usize> {
+        self.categories.get(&value?.to_string()).copied()
+    }
+
+    fn color(
+        &self,
+        column: &TraitColumn,
+        value: Option<&AnnotationValue>,
+        theme: &Theme,
+    ) -> Option<String> {
+        match column.scale {
+            TraitScale::Categorical => self
+                .category(value)
+                .map(|index| theme.color(index).to_string()),
+            TraitScale::Continuous => self
+                .fraction(value)
+                .map(|fraction| mix(&theme.muted, &theme.accent, fraction)),
+        }
+    }
+}
+
+fn binary_state(value: Option<&AnnotationValue>) -> Option<bool> {
+    match value? {
+        AnnotationValue::Boolean(value) => Some(*value),
+        AnnotationValue::Number(value) if value.is_finite() => Some(*value != 0.0),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_trait_sector(
+    ctx: &mut DrawContext<'_>,
+    column: &TraitColumn,
+    value: Option<&AnnotationValue>,
+    domain: &TraitDomain,
+    title: &str,
+    centre: (f64, f64),
+    inner: f64,
+    outer: f64,
+    start: f64,
+    end: f64,
+    angle: f64,
+) {
+    let path = annular_sector_path(centre.0, centre.1, inner, outer, start, end);
+    let fill = domain.color(column, value, ctx.theme);
+    let middle_radius = (inner + outer) / 2.0;
+    let (x, y) = (
+        centre.0 + angle.cos() * middle_radius,
+        centre.1 + angle.sin() * middle_radius,
+    );
+    let thickness = (outer - inner).max(0.0);
+    let arc_room = middle_radius * (end - start).abs();
+    let marker_radius = (thickness.min(arc_room) * 0.28).clamp(1.4, 5.5);
+    ctx.svg.begin_titled(title);
+    match column.style {
+        TraitStyle::Strip => {
+            if let Some(fill) = &fill {
+                ctx.svg.path(&path, fill, 1.0);
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+        }
+        TraitStyle::Bar => {
+            ctx.svg
+                .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            if let Some(fraction) = domain.fraction(value) {
+                let bar_outer = inner + thickness * fraction;
+                if bar_outer > inner + 0.1 {
+                    let bar = annular_sector_path(centre.0, centre.1, inner, bar_outer, start, end);
+                    ctx.svg
+                        .path(&bar, fill.as_deref().unwrap_or(&ctx.theme.accent), 0.92);
+                }
+            }
+        }
+        TraitStyle::Binary => match binary_state(value) {
+            Some(true) => ctx.svg.circle_ringed(
+                x,
+                y,
+                marker_radius,
+                &ctx.theme.accent,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            Some(false) => ctx.svg.circle_ringed(
+                x,
+                y,
+                (marker_radius * 0.42).max(1.0),
+                &ctx.theme.rule,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            None => ctx
+                .svg
+                .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline),
+        },
+        TraitStyle::Symbol => {
+            if let Some(index) = domain.category(value) {
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    marker_radius,
+                    ctx.theme.symbol(index),
+                    fill.as_deref().unwrap_or(&ctx.theme.accent),
+                    &ctx.theme.background,
+                    ctx.theme.tokens.hairline,
+                );
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+        }
+    }
+    if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+        let text = value.map(ToString::to_string).unwrap_or_else(|| "—".into());
+        let size = (ctx.theme.font_size - 3.0).max(6.0);
+        if thickness >= size + 1.0 && arc_room >= text_width(&text, size) + 4.0 {
+            let ink = fill
+                .as_deref()
+                .map(contrast_ink)
+                .unwrap_or(ctx.theme.muted.as_str());
+            ctx.svg.text_rotated(
+                (x, y + size * 0.3),
+                upright_tangent(angle),
+                &text,
+                ink,
+                size,
+                crate::svg::Anchor::Middle,
+            );
+        }
+    }
+    ctx.svg.end_group();
+}
+
 fn draw_trait_rings(
     track: &TreeTrack,
     ctx: &mut DrawContext<'_>,
@@ -1259,27 +1506,9 @@ fn draw_trait_rings(
             .iter()
             .map(|node| inherited_annotation(&track.tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
-            .map(ToString::to_string)
-            .fold(BTreeMap::new(), |mut categories, value| {
-                let next = categories.len();
-                categories.entry(value).or_insert(next);
-                categories
-            });
-        let numeric: Vec<f64> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
-            .filter_map(AnnotationValue::as_number)
-            .filter(|value| value.is_finite())
-            .collect();
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        let domain = TraitDomain::new(scene.placements.iter().flatten().filter_map(|placement| {
+            inherited_annotation(&track.tree, placement.node, &column.key)
+        }));
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
@@ -1297,74 +1526,28 @@ fn draw_trait_rings(
                 (angle + half).min(geometry.start + geometry.sweep)
             };
             let value = values[row];
-            let fill = match (column.scale, value) {
-                (TraitScale::Categorical, Some(value)) => {
-                    let value = value.to_string();
-                    categories
-                        .get(&value)
-                        .map(|index| ctx.theme.color(*index).to_string())
-                }
-                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
-                    value.is_finite().then(|| {
-                        let fraction = if maximum <= minimum {
-                            1.0
-                        } else {
-                            (value - minimum) / (maximum - minimum)
-                        };
-                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
-                    })
-                }),
-                _ => None,
-            };
             let displayed = value.map(ToString::to_string);
             let name = terminal_label(&track.tree, *node, &track.collapsed);
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
             };
-            let path = radial_sector_path(geometry, inner, outer, start, end);
-            ctx.svg.begin_titled(&title);
-            if let Some(fill) = &fill {
-                ctx.svg.path(&path, fill, 1.0);
-            } else {
-                ctx.svg
-                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
-            }
-            if column.show_values {
-                let text = displayed.as_deref().unwrap_or("—");
-                let size = (ctx.theme.font_size - 3.0).max(6.0);
-                let middle_radius = (inner + outer) / 2.0;
-                let arc_room = middle_radius * (end - start).abs();
-                if column.ring_width >= size + 1.0 && arc_room >= text_width(text, size) + 4.0 {
-                    let (x, y) = geometry.point(middle_radius, angle);
-                    let ink = match &fill {
-                        Some(fill) => contrast_ink(fill),
-                        None => ctx.theme.muted.as_str(),
-                    };
-                    ctx.svg.text_rotated(
-                        (x, y + size * 0.3),
-                        upright_tangent(angle),
-                        text,
-                        ink,
-                        size,
-                        crate::svg::Anchor::Middle,
-                    );
-                }
-            }
-            ctx.svg.end_group();
+            draw_trait_sector(
+                ctx,
+                column,
+                value,
+                &domain,
+                &title,
+                (geometry.cx, geometry.cy),
+                inner,
+                outer,
+                start,
+                end,
+                angle,
+            );
         }
         inner = outer + gap;
     }
-}
-
-fn radial_sector_path(
-    geometry: &RadialGeometry,
-    inner: f64,
-    outer: f64,
-    start: f64,
-    end: f64,
-) -> String {
-    annular_sector_path(geometry.cx, geometry.cy, inner, outer, start, end)
 }
 
 fn annular_sector_path(cx: f64, cy: f64, inner: f64, outer: f64, start: f64, end: f64) -> String {
@@ -1405,14 +1588,41 @@ fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         if visible != column.label {
             ctx.svg.begin_titled(&column.label);
         }
-        ctx.svg.circle_ringed(
-            x + 7.0,
-            ctx.band.y + 7.0,
-            4.0,
-            &ctx.theme.background,
-            &ctx.theme.rule,
-            ctx.theme.tokens.hairline,
-        );
+        match column.style {
+            TraitStyle::Strip => {
+                ctx.svg
+                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, &ctx.theme.accent)
+            }
+            TraitStyle::Bar => {
+                ctx.svg.rect_outline(
+                    x + 2.0,
+                    ctx.band.y + 3.0,
+                    10.0,
+                    8.0,
+                    &ctx.theme.rule,
+                    ctx.theme.tokens.hairline,
+                );
+                ctx.svg
+                    .rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, &ctx.theme.accent);
+            }
+            TraitStyle::Binary => ctx.svg.circle_ringed(
+                x + 7.0,
+                ctx.band.y + 7.0,
+                3.6,
+                &ctx.theme.accent,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            TraitStyle::Symbol => ctx.svg.symbol_ringed(
+                x + 7.0,
+                ctx.band.y + 7.0,
+                3.8,
+                ctx.theme.symbol(index),
+                ctx.theme.color(index),
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+        }
         ctx.svg.text(
             x + 16.0,
             ctx.band.y + size + 2.0,
@@ -1863,68 +2073,36 @@ fn draw_unrooted_trait_rings(
             .iter()
             .map(|node| inherited_annotation(&track.tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = scene
-            .visible
-            .iter()
-            .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
-            .map(ToString::to_string)
-            .fold(BTreeMap::new(), |mut categories, value| {
-                let next = categories.len();
-                categories.entry(value).or_insert(next);
-                categories
-            });
-        let numeric: Vec<f64> = scene
-            .visible
-            .iter()
-            .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
-            .filter_map(AnnotationValue::as_number)
-            .filter(|value| value.is_finite())
-            .collect();
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        let domain = TraitDomain::new(
+            scene
+                .visible
+                .iter()
+                .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key)),
+        );
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]
                 .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
             let half = (step / 2.0 - gap_angle).max(step * 0.12);
             let value = values[row];
-            let fill = match (column.scale, value) {
-                (TraitScale::Categorical, Some(value)) => categories
-                    .get(&value.to_string())
-                    .map(|index| ctx.theme.color(*index).to_string()),
-                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
-                    value.is_finite().then(|| {
-                        let fraction = if maximum <= minimum {
-                            1.0
-                        } else {
-                            (value - minimum) / (maximum - minimum)
-                        };
-                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
-                    })
-                }),
-                _ => None,
-            };
             let name = terminal_label(&track.tree, *node, &track.collapsed);
             let title = match value {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
             };
-            let path = annular_sector_path(
-                geometry.cx,
-                geometry.cy,
+            draw_trait_sector(
+                ctx,
+                column,
+                value,
+                &domain,
+                &title,
+                (geometry.cx, geometry.cy),
                 inner,
                 outer,
                 angle - half,
                 angle + half,
+                angle,
             );
-            ctx.svg.begin_titled(&title);
-            if let Some(fill) = &fill {
-                ctx.svg.path(&path, fill, 1.0);
-            } else {
-                ctx.svg
-                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
-            }
-            ctx.svg.end_group();
         }
         inner = outer + gap;
     }
@@ -2313,27 +2491,12 @@ fn draw_trait_columns(
             .iter()
             .map(|node| inherited_annotation(tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
-            .map(ToString::to_string)
-            .fold(BTreeMap::new(), |mut categories, value| {
-                let next = categories.len();
-                categories.entry(value).or_insert(next);
-                categories
-            });
-        let numeric: Vec<f64> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
-            .filter_map(AnnotationValue::as_number)
-            .filter(|value| value.is_finite())
-            .collect();
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        let domain =
+            TraitDomain::new(
+                scene.placements.iter().flatten().filter_map(|placement| {
+                    inherited_annotation(tree, placement.node, &column.key)
+                }),
+            );
 
         let heading = fit_text(&column.label, column.width, size);
         ctx.svg.text(
@@ -2350,72 +2513,120 @@ fn draw_trait_columns(
             let height = (row_pitch - 2.0).max(1.0);
             let name = terminal_label(tree, *node, collapsed);
             let value = values[row];
-            let fill = match (column.scale, value) {
-                (TraitScale::Categorical, Some(value)) => {
-                    let value = value.to_string();
-                    categories
-                        .get(&value)
-                        .map(|index| ctx.theme.color(*index).to_string())
-                }
-                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
-                    value.is_finite().then(|| {
-                        let fraction = if maximum <= minimum {
-                            1.0
-                        } else {
-                            (value - minimum) / (maximum - minimum)
-                        };
-                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
-                    })
-                }),
-                _ => None,
-            };
+            let fill = domain.color(column, value, ctx.theme);
             let displayed = value.map(ToString::to_string);
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
             };
             ctx.svg.begin_titled(&title);
-            if let Some(fill) = &fill {
-                ctx.svg.rect_rounded(
-                    x,
-                    y,
-                    column.width,
-                    height,
-                    ctx.theme.corner_radius.min(2.0),
-                    fill,
-                );
-                if column.show_values {
-                    if let Some(value) = &displayed {
-                        let value = fit_text(value, column.width - 4.0, size);
-                        ctx.svg.text(
-                            x + column.width / 2.0,
-                            y + height / 2.0 + size * 0.35,
-                            &value,
-                            contrast_ink(fill),
-                            size,
-                            crate::svg::Anchor::Middle,
+            match column.style {
+                TraitStyle::Strip => {
+                    if let Some(fill) = &fill {
+                        ctx.svg.rect_rounded(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            ctx.theme.corner_radius.min(2.0),
+                            fill,
+                        );
+                    } else {
+                        ctx.svg.rect_outline(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
                         );
                     }
                 }
-            } else {
-                ctx.svg.rect_outline(
-                    x,
-                    y,
-                    column.width,
-                    height,
-                    &ctx.theme.rule,
-                    ctx.theme.tokens.hairline,
-                );
-                if column.show_values {
-                    ctx.svg.text(
-                        x + column.width / 2.0,
-                        y + height / 2.0 + size * 0.35,
-                        "—",
-                        &ctx.theme.muted,
-                        size,
-                        crate::svg::Anchor::Middle,
+                TraitStyle::Bar => {
+                    ctx.svg.rect_outline(
+                        x,
+                        y,
+                        column.width,
+                        height,
+                        &ctx.theme.rule,
+                        ctx.theme.tokens.hairline,
                     );
+                    if let Some(fraction) = domain.fraction(value) {
+                        ctx.svg.rect_rounded(
+                            x,
+                            y,
+                            column.width * fraction,
+                            height,
+                            ctx.theme.corner_radius.min(2.0),
+                            fill.as_deref().unwrap_or(&ctx.theme.accent),
+                        );
+                    }
                 }
+                TraitStyle::Binary => match binary_state(value) {
+                    Some(true) => ctx.svg.circle_ringed(
+                        x + column.width / 2.0,
+                        y + height / 2.0,
+                        (height * 0.28).clamp(1.4, 5.0),
+                        &ctx.theme.accent,
+                        &ctx.theme.background,
+                        ctx.theme.tokens.hairline,
+                    ),
+                    Some(false) => ctx.svg.circle_ringed(
+                        x + column.width / 2.0,
+                        y + height / 2.0,
+                        (height * 0.12).clamp(0.8, 2.0),
+                        &ctx.theme.rule,
+                        &ctx.theme.background,
+                        ctx.theme.tokens.hairline,
+                    ),
+                    None => ctx.svg.rect_outline(
+                        x,
+                        y,
+                        column.width,
+                        height,
+                        &ctx.theme.rule,
+                        ctx.theme.tokens.hairline,
+                    ),
+                },
+                TraitStyle::Symbol => {
+                    if let Some(index) = domain.category(value) {
+                        ctx.svg.symbol_ringed(
+                            x + column.width / 2.0,
+                            y + height / 2.0,
+                            (height * 0.28).clamp(1.4, 5.0),
+                            ctx.theme.symbol(index),
+                            fill.as_deref().unwrap_or(&ctx.theme.accent),
+                            &ctx.theme.background,
+                            ctx.theme.tokens.hairline,
+                        );
+                    } else {
+                        ctx.svg.rect_outline(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
+                        );
+                    }
+                }
+            }
+            if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+                let text = displayed.as_deref().unwrap_or("—");
+                let visible = fit_text(text, column.width - 4.0, size);
+                let ink = fill
+                    .as_deref()
+                    .filter(|_| column.style == TraitStyle::Strip)
+                    .map(contrast_ink)
+                    .unwrap_or(ctx.theme.muted.as_str());
+                ctx.svg.text(
+                    x + column.width / 2.0,
+                    y + height / 2.0 + size * 0.35,
+                    &visible,
+                    ink,
+                    size,
+                    crate::svg::Anchor::Middle,
+                );
             }
             ctx.svg.end_group();
         }
@@ -2721,10 +2932,17 @@ mod tests {
     fn trait_column_builders_expose_their_mapping() {
         let categorical = TraitColumn::categorical("lineage");
         let continuous = TraitColumn::continuous("clock_rate");
+        let bar = TraitColumn::bar("coverage");
+        let binary = TraitColumn::binary("resistant");
+        let symbol = TraitColumn::symbol("host");
         assert_eq!(categorical.key(), "lineage");
         assert_eq!(categorical.scale(), TraitScale::Categorical);
+        assert_eq!(categorical.trait_style(), TraitStyle::Strip);
         assert_eq!(continuous.key(), "clock_rate");
         assert_eq!(continuous.scale(), TraitScale::Continuous);
+        assert_eq!(bar.trait_style(), TraitStyle::Bar);
+        assert_eq!(binary.trait_style(), TraitStyle::Binary);
+        assert_eq!(symbol.trait_style(), TraitStyle::Symbol);
     }
 
     #[test]
@@ -2860,6 +3078,40 @@ mod tests {
         for heading in [">Country</text>", ">Depth</text>"] {
             assert!(svg.contains(heading), "{svg}");
         }
+    }
+
+    #[test]
+    fn itol_style_bars_binary_marks_and_symbols_keep_exact_values() {
+        let tree = Tree::parse_annotated_newick(
+            "(A[&coverage=18,resistant=true,host=human]:1,B[&coverage=30,resistant=false,host=animal]:1,C[&coverage=42,resistant=true,host=water]:1);",
+        )
+        .unwrap();
+        let svg = Figure::new(region())
+            .width(620.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .circular()
+                    .trait_column(TraitColumn::bar("coverage").label("Depth"))
+                    .trait_column(TraitColumn::binary("resistant").label("AMR"))
+                    .trait_column(TraitColumn::symbol("host").label("Host")),
+            )
+            .to_svg();
+        for title in ["A; coverage 18", "B; resistant false", "C; host water"] {
+            assert!(svg.contains(&format!("<title>{title}</title>")), "{svg}");
+        }
+        for heading in [">Depth</text>", ">AMR</text>", ">Host</text>"] {
+            assert!(svg.contains(heading), "{svg}");
+        }
+        assert!(
+            svg.contains("fill-opacity=\"0.92\""),
+            "numeric radial bars: {svg}"
+        );
+        assert!(
+            svg.contains("<polygon"),
+            "shape must reinforce colour: {svg}"
+        );
+        assert!(!svg.contains("NaN"));
     }
 
     #[test]

@@ -152,7 +152,7 @@ pub use crate::track::{
     SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack,
     StackOrder, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack,
     TangleLabels, TangleTieStyle, TanglegramTrack, Terminator, Track, TraitColumn, TraitScale,
-    TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack, Variant,
-    VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
+    TraitStyle, TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack,
+    Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 pub use crate::tree::{AnnotationValue, Annotations, Clade, Placement, TimeDirection, Tree};
