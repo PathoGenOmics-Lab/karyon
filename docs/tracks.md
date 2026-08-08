@@ -1,7 +1,5 @@
 # Tracks
 
-![Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator](assets/figures/gallery.svg)
-
 Twenty-nine track types ship with the crate, one source file each. Every one of
 them is an implementation of the same small trait, `Track`, and none of them has
 privileged access to the figure: a track reports how tall it wants to be, then
@@ -13,6 +11,50 @@ This page says, for each of them, what it draws, when to reach for it, and what
 it refuses to do. The refusals are the interesting part. Several of these tracks
 encode a claim rather than a picture, and the way they behave when the data does
 not support the claim is what makes them worth having.
+
+<div class="track-gallery">
+  <a class="track-card" href="#coveragetrack">
+    <img src="../assets/figures/example.svg" alt="Coverage, sequence, feature and variant tracks sharing one genomic axis">
+    <span><strong>Locus</strong><small>Signal, sequence and annotation</small></span>
+  </a>
+  <a class="track-card" href="#pileuptrack">
+    <img src="../assets/figures/example-pileup.svg" alt="Read pileup with mismatches, insertions, deletions and spliced alignments">
+    <span><strong>Read pileup</strong><small>Alignments and variants</small></span>
+  </a>
+  <a class="track-card" href="#logotrack">
+    <img src="../assets/figures/example-logo.svg" alt="Nucleotide sequence logos">
+    <span><strong>Sequence logo</strong><small>Conservation and motifs</small></span>
+  </a>
+  <a class="track-card" href="#manhattantrack">
+    <img src="../assets/figures/example-association.svg" alt="Association statistics above a genotype matrix">
+    <span><strong>Association</strong><small>Statistics and genotypes</small></span>
+  </a>
+  <a class="track-card" href="#syntenytrack">
+    <img src="../assets/figures/example-synteny.svg" alt="A dotplot and synteny ribbons comparing two sequences">
+    <span><strong>Synteny</strong><small>Genome comparison</small></span>
+  </a>
+  <a class="track-card" href="#msatrack">
+    <img src="../assets/figures/example-msa.svg" alt="Multiple sequence alignment coloured by nucleotide">
+    <span><strong>Alignment</strong><small>Multiple sequences</small></span>
+  </a>
+  <a class="track-card" href="#windowtrack">
+    <img src="../assets/figures/example-selection.svg" alt="Windowed statistics plotted around their baselines">
+    <span><strong>Selection</strong><small>Windowed statistics</small></span>
+  </a>
+  <a class="track-card" href="#genometrack">
+    <img src="../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with genomic rings">
+    <span><strong>Circular genome</strong><small>Whole-genome context</small></span>
+  </a>
+  <a class="track-card" href="#bisulfitetrack">
+    <img src="../assets/figures/example-bisulfite.svg" alt="Single-molecule bisulfite methylation calls">
+    <span><strong>Methylation</strong><small>Reads and molecules</small></span>
+  </a>
+</div>
+
+<details class="track-overview">
+  <summary>See all twenty-nine track types on one sheet</summary>
+  <img src="../assets/figures/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
+</details>
 
 **Signal and sequence**
 [CoverageTrack](#coveragetrack) &middot;

@@ -4,7 +4,7 @@ A `Theme` is the colours, fonts and spacing every track in a
 [figure](figure.md) shares. It is a plain struct with every field public, so
 there is no builder to learn and nothing hidden: start from `Theme::light` or
 `Theme::dark` and overwrite what you need. This page is every field, why the two
-palettes hold the colours they hold, and the one method and three functions that
+palettes hold the colours they hold, and the two methods and three functions that
 blend a colour against the page.
 
 ```rust
@@ -40,9 +40,9 @@ validated there. The two palettes are the same length and share no entries.
 | Field | Type | What it is |
 |:------|:-----|:-----------|
 | `background` | `String` | The page. Set it to `"none"` for a transparent SVG. |
-| `foreground` | `String` | Titles and tick labels. |
+| `foreground` | `String` | Titles, primary axes and tick marks. |
 | `muted` | `String` | Secondary text: coordinates, track labels, legends. |
-| `rule` | `String` | Axis lines, baselines and tick marks. |
+| `rule` | `String` | Quiet baselines, guides and secondary separators. |
 | `accent` | `String` | Default colour for a track that was not given one. |
 | `palette` | `Vec<String>` | Categorical colours, cycled by `Theme::color`. |
 | `bases` | `BaseColors` | Per-nucleotide colours, used by every track that paints a base: the reference sequence, a pileup mismatch, an alignment column, a logo letter. |
@@ -53,6 +53,7 @@ validated there. The two palettes are the same length and share no entries.
 | `label_font_size` | `f64` | Track labels in the left gutter. |
 | `title_font_size` | `f64` | The figure title. |
 | `cap_height_ratio` | `f64` | Height of a capital letter as a fraction of the font size. |
+| `tokens` | `VisualTokens` | Shared stroke, marker, tick, feature, legend and spacing measurements. |
 
 And the values the two constructors give them:
 
@@ -60,15 +61,15 @@ And the values the two constructors give them:
 |:------|:-----------------|:----------------|
 | `background` | `#ffffff` | `#14181d` |
 | `foreground` | `#1b1f23` | `#e6edf3` |
-| `muted` | `#6b7280` | `#9aa4b0` |
-| `rule` | `#c8ccd1` | `#3a424c` |
+| `muted` | `#4b5563` | `#aab4c0` |
+| `rule` | `#d7dce2` | `#3a424c` |
 | `accent` | `#0072b2` | `#3987e5` |
 | `insertion` | `#8e44ad` | `#8e44ad` |
-| `corner_radius` | `2.0` | `2.0` |
-| `font_family` | `Helvetica, Arial, sans-serif` | `Helvetica, Arial, sans-serif` |
-| `font_size` | `11.0` | `11.0` |
-| `label_font_size` | `11.0` | `11.0` |
-| `title_font_size` | `14.0` | `14.0` |
+| `corner_radius` | `2.5` | `2.5` |
+| `font_family` | `Liberation Sans, Arial, Helvetica, sans-serif` | `Liberation Sans, Arial, Helvetica, sans-serif` |
+| `font_size` | `12.0` | `12.0` |
+| `label_font_size` | `12.0` | `12.0` |
+| `title_font_size` | `18.0` | `18.0` |
 | `cap_height_ratio` | `0.72` | `0.72` |
 
 `corner_radius` is the one field that is neither a colour nor a size of text.
@@ -77,6 +78,12 @@ one that looks emitted. Set it to zero for square corners. Features, reads in a
 pileup, legend swatches, variable-site cells and open reading frames all use it,
 and the radius is clamped to half the smaller side, so a short bar becomes a
 lozenge rather than losing its geometry to an oversized corner.
+
+`Theme::scaled(factor)` returns the same palette and font stack with all three
+font sizes, the corner radius and every visual token scaled together.
+`Figure`, `Plot`, `Rings` and `Panels` expose `visual_scale`; named
+`RenderProfile` values provide a coordinated starting point. See the
+[visual-system guide](visual-system.md).
 
 ## The categorical palette
 
@@ -230,8 +237,9 @@ machine without them substitutes, and text will set slightly differently there.
 
 That matters more than it sounds, because the crate has to know how wide a
 string will be before it draws it. `karyon::svg::text_width(text, font_size)`
-answers that, and the widths it uses are Helvetica's own advance widths, the
-first font in the default `font_family` and metrically the same as Arial. For
+answers that, and the widths it uses are Arial-compatible advance widths.
+Liberation Sans and Arial are the first two fonts in the default stack and are
+metrically compatible. For
 the default theme the measurement is exact rather than approximate. One flat
 width per character would under-reserve for a run of capitals by about a fifth,
 which is precisely what a column of sample accessions is, and a label that
@@ -254,7 +262,7 @@ worth checking on the longest label in the figure.
 `cap_height_ratio` is the one font setting that is not a size. A sequence logo
 stretches each letter to an exact box, which means working back from a box
 height to a font size, and that division needs the cap height. The default of
-`0.72` suits Helvetica and Arial. **Change it and `font_family` together**, or
+`0.72` suits Liberation Sans and Arial. **Change it and `font_family` together**, or
 logo letters will sit slightly proud of their boxes.
 
 ## A transparent background

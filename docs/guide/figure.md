@@ -78,7 +78,7 @@ The box is the image; the space between it and the content is `margin`.
 The pieces, in the order the figure decides them:
 
 **The header.** Present when there is a title, a region label, or both, and
-`title_font_size + 10` pixels tall. The title is drawn bold at the left margin,
+`title_font_size + 12` pixels tall. The title is drawn bold at the left margin,
 the locus string in the muted colour at the right. `show_region_label(false)`
 turns the locus off; a figure with neither has no header at all.
 
@@ -87,7 +87,8 @@ turns the locus off; a figure with neither has no header at all.
 uses the full width whatever `label_width` says, so the setting costs nothing
 until it is used. Labels are drawn right-aligned against the left edge of the
 value axis strip, which is what makes a track with an axis and a track without
-one line their names up.
+one line their names up. By default the gutter follows the widest label, between
+48 and 160 pixels; `label_width` is the explicit override for fixed layouts.
 
 **The value axis strip.** Each track is asked, through `Track::y_axis_width`,
 how much room it wants for its own ticks. The figure then gives **every track
@@ -125,9 +126,12 @@ Every setting is a consuming builder method, so they chain in any order.
 | `width(f64)` | `900.0` | Image width in pixels. |
 | `title(impl Into<String>)` | none | Bold line above the tracks. |
 | `theme(Theme)` | `Theme::light()` | Colours, fonts and corner radius. See [Theming](theming.md). |
-| `margin(Margin)` | `10, 16, 10, 12` | Whitespace around the plotting area. |
-| `label_width(f64)` | `84.0` | Width of the left gutter holding track labels. |
-| `track_gap(f64)` | `10.0` | Vertical gap between bands. |
+| `profile(RenderProfile)` | `Manuscript` geometry | Selects a named palette, scale and density together. |
+| `visual_scale(f64)` | `1.0` | Scales type, marks, bands, margins, gaps and corners without changing genomic coordinates. |
+| `density(Density)` | `Balanced` | Packs repeated data rows compactly or spaciously. |
+| `margin(Margin)` | `14, 18, 14, 16` | Whitespace around the plotting area. |
+| `label_width(f64)` | automatic | Explicit width of the left gutter holding track labels. |
+| `track_gap(f64)` | `12.0` | Vertical gap between bands. |
 | `show_region_label(bool)` | `true` | The locus string in the top right corner. |
 
 ```rust
@@ -136,6 +140,7 @@ use karyon::{Figure, Margin, Region, Theme};
 let figure = Figure::new(Region::new("contig_01", 0, 50_000)?)
     .width(1_200.0)
     .theme(Theme::dark())
+    .visual_scale(1.15)
     .margin(Margin { top: 14.0, right: 20.0, bottom: 14.0, left: 16.0 })
     .label_width(120.0)
     .track_gap(6.0)
@@ -143,7 +148,7 @@ let figure = Figure::new(Region::new("contig_01", 0, 50_000)?)
 ```
 
 `Margin` has four public `f64` fields, `top`, `right`, `bottom` and `left`, and
-a `Default` of `10, 16, 10, 12`. `top` is the space above the title, `left` the
+a `Default` of `14, 18, 14, 16`. `top` is the space above the title, `left` the
 space to the left of the track labels.
 
 A width that would leave no plotting area is raised to the smallest one that
@@ -215,6 +220,9 @@ changes to it do not reach the sheet.
 | `column_gap(f64)` | `26.0` | Horizontal gap between columns. |
 | `margin(f64)` | `14.0` | Whitespace around the whole sheet. |
 | `theme(Theme)` | `Theme::light()` | Used for the sheet's own title and letters, not for the panels, each of which keeps its own. |
+| `profile(RenderProfile)` | manuscript scale | Selects a named sheet palette and scale. |
+| `visual_scale(f64)` | `1.0` | Scales nested drawings and all sheet chrome together. |
+| `align_plot_areas(bool)` | `true` | Aligns the data origins of linear figures despite different gutters. |
 | `title(impl Into<String>)` | none | A line across the top of the sheet. |
 
 `len()`, `is_empty()` and `dimensions()` read the sheet back; `to_svg()` and
@@ -287,6 +295,9 @@ a dozen ribbons crossing the middle do not wash the data out.
 | `margin(f64)` | `14.0` | Whitespace around the circle. |
 | `origin_gap(f64)` | `2.0` | Degrees left blank at twelve o'clock. |
 | `theme(Theme)` | `Theme::light()` | Colours and fonts. |
+| `profile(RenderProfile)` | manuscript scale | Selects palette, type scale and ring density together. |
+| `visual_scale(f64)` | `1.0` | Scales typography, marks, margins and ring geometry. |
+| `density(Density)` | `Balanced` | Packs concentric bands compactly or spaciously. |
 | `title(impl Into<String>)` | none | Name written in the middle. |
 | `subtitle(impl Into<String>)` | none | A second, quieter line under it. |
 
