@@ -57,6 +57,8 @@ pub enum TreeProjection {
     Rectangular,
     /// Root and tips arranged on concentric radii.
     Circular,
+    /// Topology drawn without assigning the source root a privileged position.
+    Unrooted,
 }
 
 /// Direction in which branches radiate in a circular tree.
@@ -462,7 +464,7 @@ impl TreeTrack {
         self
     }
 
-    /// Chooses rectangular or circular coordinates.
+    /// Chooses rectangular, circular or unrooted coordinates.
     pub fn projection(mut self, projection: TreeProjection) -> Self {
         self.projection = projection;
         self
@@ -472,6 +474,15 @@ impl TreeTrack {
     pub fn circular(mut self) -> Self {
         self.projection = TreeProjection::Circular;
         self.radial.sweep_degrees = 360.0;
+        self
+    }
+
+    /// Draws an equal-angle tree around a topology-balanced central node.
+    ///
+    /// The source root is not used as the centre. Branch lengths are retained
+    /// for a phylogram and topology alone is used for a cladogram.
+    pub fn unrooted(mut self) -> Self {
+        self.projection = TreeProjection::Unrooted;
         self
     }
 
@@ -521,6 +532,20 @@ impl TreeTrack {
         } else {
             440.0
         };
+        self
+    }
+
+    /// Sets the requested height of an unrooted drawing in pixels.
+    pub fn unrooted_size(self, size: f64) -> Self {
+        self.radial_size(size)
+    }
+
+    /// Rotates the first equal-angle sector of an unrooted tree.
+    pub fn unrooted_start(mut self, degrees: f64) -> Self {
+        self.projection = TreeProjection::Unrooted;
+        if degrees.is_finite() {
+            self.radial.start_degrees = degrees;
+        }
         self
     }
 
@@ -747,6 +772,7 @@ impl Track for TreeTrack {
                     + self.trait_header_room()
             }
             TreeProjection::Circular => self.radial.size + self.trait_header_room(),
+            TreeProjection::Unrooted => self.radial.size + self.trait_header_room(),
         }
     }
 
@@ -760,6 +786,7 @@ impl Track for TreeTrack {
             TreeProjection::Circular => {
                 draw_radial_track(self, ctx);
             }
+            TreeProjection::Unrooted => draw_unrooted_track(self, ctx),
         }
     }
 }
@@ -1337,10 +1364,15 @@ fn radial_sector_path(
     start: f64,
     end: f64,
 ) -> String {
-    let (x0, y0) = geometry.point(outer, start);
-    let (x1, y1) = geometry.point(outer, end);
-    let (x2, y2) = geometry.point(inner, end);
-    let (x3, y3) = geometry.point(inner, start);
+    annular_sector_path(geometry.cx, geometry.cy, inner, outer, start, end)
+}
+
+fn annular_sector_path(cx: f64, cy: f64, inner: f64, outer: f64, start: f64, end: f64) -> String {
+    let point = |radius: f64, angle: f64| (cx + angle.cos() * radius, cy + angle.sin() * radius);
+    let (x0, y0) = point(outer, start);
+    let (x1, y1) = point(outer, end);
+    let (x2, y2) = point(inner, end);
+    let (x3, y3) = point(inner, start);
     let large = usize::from((end - start).abs() > std::f64::consts::PI);
     format!(
         "M {} {} A {} {} 0 {} 1 {} {} L {} {} A {} {} 0 {} 0 {} {} Z",
@@ -1401,6 +1433,501 @@ fn upright_tangent(angle: f64) -> f64 {
         degrees += 180.0;
     }
     degrees
+}
+
+#[derive(Debug, Clone)]
+struct UnrootedScene {
+    positions: Vec<Option<(f64, f64)>>,
+    parents: Vec<Option<usize>>,
+    angles: Vec<Option<f64>>,
+    terminals: Vec<usize>,
+    visible: Vec<usize>,
+    radius: f64,
+}
+
+impl UnrootedScene {
+    fn new(tree: &Tree, shape: TreeShape, collapsed: &BTreeSet<usize>, start_degrees: f64) -> Self {
+        let visibility = visible_nodes(tree, collapsed);
+        let visible: Vec<usize> = visibility
+            .iter()
+            .enumerate()
+            .filter_map(|(node, visible)| visible.then_some(node))
+            .collect();
+        let terminal_set: BTreeSet<usize> =
+            visible_terminals(tree, collapsed).into_iter().collect();
+        let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); tree.nodes().len()];
+        for (node, clade) in tree.nodes().iter().enumerate() {
+            let Some(parent) = clade.parent else {
+                continue;
+            };
+            if !visibility[node] || !visibility[parent] {
+                continue;
+            }
+            let length = if shape == TreeShape::Cladogram {
+                1.0
+            } else {
+                clade
+                    .branch_length
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(1.0)
+                    .max(0.0)
+            };
+            adjacency[parent].push((node, length));
+            adjacency[node].push((parent, length));
+        }
+
+        let candidates: Vec<usize> = visible
+            .iter()
+            .copied()
+            .filter(|node| adjacency[*node].len() > 1)
+            .collect();
+        let centre = candidates
+            .into_iter()
+            .min_by_key(|candidate| {
+                let largest = adjacency[*candidate]
+                    .iter()
+                    .map(|(next, _)| {
+                        component_terminal_count(*next, *candidate, &adjacency, &terminal_set)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                (
+                    largest,
+                    std::cmp::Reverse(adjacency[*candidate].len()),
+                    *candidate,
+                )
+            })
+            .or_else(|| visible.first().copied())
+            .unwrap_or(tree.root());
+
+        let mut positions = vec![None; tree.nodes().len()];
+        let mut parents = vec![None; tree.nodes().len()];
+        let mut angles = vec![None; tree.nodes().len()];
+        positions[centre] = Some((0.0, 0.0));
+        let start = start_degrees.to_radians();
+        if terminal_set.contains(&centre) {
+            angles[centre] = Some(start);
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        struct Task {
+            node: usize,
+            parent: Option<usize>,
+            start: f64,
+            end: f64,
+        }
+
+        let mut stack = vec![Task {
+            node: centre,
+            parent: None,
+            start,
+            end: start + std::f64::consts::TAU,
+        }];
+        while let Some(task) = stack.pop() {
+            let children: Vec<(usize, f64, usize)> = adjacency[task.node]
+                .iter()
+                .filter(|(next, _)| Some(*next) != task.parent)
+                .map(|(next, length)| {
+                    (
+                        *next,
+                        *length,
+                        component_terminal_count(*next, task.node, &adjacency, &terminal_set)
+                            .max(1),
+                    )
+                })
+                .collect();
+            let total: usize = children.iter().map(|(_, _, count)| *count).sum();
+            if total == 0 {
+                continue;
+            }
+            let parent_position = positions[task.node].unwrap_or((0.0, 0.0));
+            let mut cursor = task.start;
+            let mut pending = Vec::with_capacity(children.len());
+            for (child, length, count) in children {
+                let span = (task.end - task.start) * count as f64 / total as f64;
+                let end = cursor + span;
+                let angle = cursor + span / 2.0;
+                positions[child] = Some((
+                    parent_position.0 + angle.cos() * length,
+                    parent_position.1 + angle.sin() * length,
+                ));
+                parents[child] = Some(task.node);
+                angles[child] = Some(angle);
+                pending.push(Task {
+                    node: child,
+                    parent: Some(task.node),
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            stack.extend(pending.into_iter().rev());
+        }
+
+        let mut terminals: Vec<usize> = terminal_set.into_iter().collect();
+        terminals.sort_by(|left, right| {
+            angles[*left]
+                .unwrap_or(start)
+                .total_cmp(&angles[*right].unwrap_or(start))
+        });
+        let radius = positions
+            .iter()
+            .flatten()
+            .map(|(x, y)| x.hypot(*y))
+            .fold(0.0f64, f64::max)
+            .max(1e-9);
+        UnrootedScene {
+            positions,
+            parents,
+            angles,
+            terminals,
+            visible,
+            radius,
+        }
+    }
+}
+
+fn component_terminal_count(
+    start: usize,
+    blocked: usize,
+    adjacency: &[Vec<(usize, f64)>],
+    terminals: &BTreeSet<usize>,
+) -> usize {
+    let mut count = 0usize;
+    let mut stack = vec![(start, blocked)];
+    while let Some((node, parent)) = stack.pop() {
+        count += usize::from(terminals.contains(&node));
+        for (next, _) in &adjacency[node] {
+            if *next != parent {
+                stack.push((*next, node));
+            }
+        }
+    }
+    count
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UnrootedGeometry {
+    cx: f64,
+    cy: f64,
+    scale: f64,
+    branch_radius: f64,
+    ring_outer: f64,
+    label_radius: f64,
+}
+
+impl UnrootedGeometry {
+    fn new(track: &TreeTrack, theme: &Theme, scene: &UnrootedScene, area: Rect) -> Self {
+        let label_extent = if track.show_tips {
+            scene
+                .terminals
+                .iter()
+                .map(|node| {
+                    text_width(
+                        &terminal_label(&track.tree, *node, &track.collapsed),
+                        theme.font_size - 1.0,
+                    )
+                })
+                .fold(0.0f64, f64::max)
+                + 6.0
+        } else {
+            4.0
+        };
+        let gap = theme.tokens.legend_gap.clamp(1.0, 4.0);
+        let ring_room = if track.trait_columns.is_empty() {
+            0.0
+        } else {
+            track
+                .trait_columns
+                .iter()
+                .map(|column| column.ring_width)
+                .sum::<f64>()
+                + gap * track.trait_columns.len() as f64
+        };
+        let half = (area.w.min(area.h) / 2.0 - 4.0).max(2.0);
+        let ring_outer = (half - label_extent).max(4.0);
+        let branch_radius = (ring_outer - ring_room).max(2.0);
+        UnrootedGeometry {
+            cx: area.x + area.w / 2.0,
+            cy: area.y + area.h / 2.0,
+            scale: branch_radius * 0.88 / scene.radius,
+            branch_radius,
+            ring_outer,
+            label_radius: ring_outer + 4.0,
+        }
+    }
+
+    fn node(&self, point: (f64, f64)) -> (f64, f64) {
+        (
+            self.cx + point.0 * self.scale,
+            self.cy + point.1 * self.scale,
+        )
+    }
+
+    fn point(&self, radius: f64, angle: f64) -> (f64, f64) {
+        (
+            self.cx + angle.cos() * radius,
+            self.cy + angle.sin() * radius,
+        )
+    }
+}
+
+fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
+    let color = track
+        .color
+        .clone()
+        .unwrap_or_else(|| ctx.theme.foreground.clone());
+    let scene = UnrootedScene::new(
+        &track.tree,
+        track.shape,
+        &track.collapsed,
+        track.radial.start_degrees,
+    );
+    let header_room = track.trait_header_room();
+    let area = Rect {
+        x: ctx.band.x,
+        y: ctx.band.y + header_room,
+        w: ctx.band.w,
+        h: (ctx.band.h - header_room).max(1.0),
+    };
+    let geometry = UnrootedGeometry::new(track, ctx.theme, &scene, area);
+    let colors = unrooted_branch_colors(
+        &track.tree,
+        &scene,
+        track.color_by.as_deref(),
+        ctx.theme,
+        &color,
+    );
+
+    // Terminal leaders align labels and annotation rings without pretending
+    // unequal branch lengths all end at the same evolutionary distance.
+    for node in &scene.terminals {
+        let Some(raw) = scene.positions[*node] else {
+            continue;
+        };
+        let angle = scene.angles[*node].unwrap_or(track.radial.start_degrees.to_radians());
+        let (x0, y0) = geometry.node(raw);
+        let (x1, y1) = geometry.point(geometry.branch_radius, angle);
+        ctx.svg
+            .line(x0, y0, x1, y1, &ctx.theme.rule, ctx.theme.tokens.hairline);
+    }
+
+    for node in &scene.visible {
+        let Some(parent) = scene.parents[*node] else {
+            continue;
+        };
+        let (Some(from), Some(to)) = (scene.positions[parent], scene.positions[*node]) else {
+            continue;
+        };
+        let owner = if track.tree.nodes()[*node].parent == Some(parent) {
+            *node
+        } else {
+            parent
+        };
+        let title = branch_title(
+            &track.tree,
+            owner,
+            track.color_by.as_deref(),
+            !track.show_tips && scene.terminals.contains(node),
+            true,
+        );
+        if let Some(title) = &title {
+            ctx.svg.begin_titled(title);
+        }
+        let (x0, y0) = geometry.node(from);
+        let (x1, y1) = geometry.node(to);
+        ctx.svg
+            .line(x0, y0, x1, y1, &colors[owner], track.line_width);
+        if title.is_some() {
+            ctx.svg.end_group();
+        }
+    }
+
+    if track.show_nodes {
+        for node in &scene.visible {
+            if scene.terminals.contains(node) {
+                continue;
+            }
+            let Some(raw) = scene.positions[*node] else {
+                continue;
+            };
+            let (x, y) = geometry.node(raw);
+            ctx.svg.circle_ringed(
+                x,
+                y,
+                ctx.theme.tokens.marker_radius * 0.65,
+                &colors[*node],
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            );
+        }
+    }
+
+    draw_unrooted_trait_rings(track, ctx, &scene, &geometry);
+
+    if track.show_tips {
+        let size = ctx.theme.font_size - 1.0;
+        for node in &scene.terminals {
+            let angle = scene.angles[*node].unwrap_or(track.radial.start_degrees.to_radians());
+            let (x, y) = geometry.point(geometry.label_radius, angle);
+            let right = angle.cos() >= 0.0;
+            ctx.svg.text_rotated(
+                (x, y + size * 0.32),
+                if right {
+                    angle.to_degrees()
+                } else {
+                    angle.to_degrees() + 180.0
+                },
+                &terminal_label(&track.tree, *node, &track.collapsed),
+                &ctx.theme.muted,
+                size,
+                if right {
+                    crate::svg::Anchor::Start
+                } else {
+                    crate::svg::Anchor::End
+                },
+            );
+        }
+    }
+    draw_trait_ring_headings(track, ctx);
+}
+
+fn unrooted_branch_colors(
+    tree: &Tree,
+    scene: &UnrootedScene,
+    key: Option<&str>,
+    theme: &Theme,
+    default_color: &str,
+) -> Vec<String> {
+    let mut colors = vec![default_color.to_string(); tree.nodes().len()];
+    let Some(key) = key else {
+        return colors;
+    };
+    let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
+        .map(|node| inherited_annotation(tree, node, key))
+        .collect();
+    let numeric: Vec<f64> = scene
+        .visible
+        .iter()
+        .filter_map(|node| values[*node].and_then(AnnotationValue::as_number))
+        .collect();
+    let present = scene
+        .visible
+        .iter()
+        .filter(|node| values[**node].is_some())
+        .count();
+    if !numeric.is_empty() && numeric.len() == present {
+        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
+        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        for node in &scene.visible {
+            if let Some(value) = values[*node].and_then(AnnotationValue::as_number) {
+                let fraction = if maximum <= minimum {
+                    1.0
+                } else {
+                    (value - minimum) / (maximum - minimum)
+                };
+                colors[*node] = mix(&theme.muted, &theme.accent, fraction);
+            }
+        }
+    } else {
+        let mut categories = BTreeMap::new();
+        for node in &scene.visible {
+            let Some(value) = values[*node] else {
+                continue;
+            };
+            let value = value.to_string();
+            let next = categories.len();
+            let index = *categories.entry(value).or_insert(next);
+            colors[*node] = theme.color(index).to_string();
+        }
+    }
+    colors
+}
+
+fn draw_unrooted_trait_rings(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+) {
+    if track.trait_columns.is_empty() || scene.terminals.is_empty() {
+        return;
+    }
+    let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
+    let mut inner = geometry.branch_radius + gap;
+    let step = std::f64::consts::TAU / scene.terminals.len() as f64;
+    for column in &track.trait_columns {
+        let outer = (inner + column.ring_width).min(geometry.ring_outer);
+        let values: Vec<Option<&AnnotationValue>> = scene
+            .terminals
+            .iter()
+            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .collect();
+        let categories: BTreeMap<String, usize> = scene
+            .visible
+            .iter()
+            .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .map(ToString::to_string)
+            .fold(BTreeMap::new(), |mut categories, value| {
+                let next = categories.len();
+                categories.entry(value).or_insert(next);
+                categories
+            });
+        let numeric: Vec<f64> = scene
+            .visible
+            .iter()
+            .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .filter_map(AnnotationValue::as_number)
+            .filter(|value| value.is_finite())
+            .collect();
+        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
+        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        for (row, node) in scene.terminals.iter().enumerate() {
+            let angle = scene.angles[*node]
+                .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);
+            let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
+            let half = (step / 2.0 - gap_angle).max(step * 0.12);
+            let value = values[row];
+            let fill = match (column.scale, value) {
+                (TraitScale::Categorical, Some(value)) => categories
+                    .get(&value.to_string())
+                    .map(|index| ctx.theme.color(*index).to_string()),
+                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
+                    value.is_finite().then(|| {
+                        let fraction = if maximum <= minimum {
+                            1.0
+                        } else {
+                            (value - minimum) / (maximum - minimum)
+                        };
+                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
+                    })
+                }),
+                _ => None,
+            };
+            let name = terminal_label(&track.tree, *node, &track.collapsed);
+            let title = match value {
+                Some(value) => format!("{name}; {} {value}", column.key),
+                None => format!("{name}; {} missing", column.key),
+            };
+            let path = annular_sector_path(
+                geometry.cx,
+                geometry.cy,
+                inner,
+                outer,
+                angle - half,
+                angle + half,
+            );
+            ctx.svg.begin_titled(&title);
+            if let Some(fill) = &fill {
+                ctx.svg.path(&path, fill, 1.0);
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+            ctx.svg.end_group();
+        }
+        inner = outer + gap;
+    }
 }
 
 struct TreeScene {
@@ -2362,6 +2889,70 @@ mod tests {
                 .height(&scale),
             320.0
         );
+    }
+
+    #[test]
+    fn unrooted_height_is_explicit_and_the_source_root_is_not_the_centre() {
+        let scale = Scale::new(&region(), 0.0, 100.0);
+        let tree = Tree::parse_annotated_newick("[&U] (((((A:1,B:1):1,C:1):1,D:1):1,E:1):1,F:1);")
+            .unwrap();
+        let scene = UnrootedScene::new(&tree, TreeShape::Phylogram, &BTreeSet::new(), -90.0);
+        let centre = scene
+            .visible
+            .iter()
+            .copied()
+            .find(|node| scene.parents[*node].is_none())
+            .unwrap();
+        assert_ne!(
+            centre,
+            tree.root(),
+            "the Newick root must not anchor the view"
+        );
+        assert_eq!(
+            TreeTrack::new(tree)
+                .unrooted()
+                .unrooted_size(360.0)
+                .height(&scale),
+            360.0
+        );
+    }
+
+    #[test]
+    fn an_unrooted_tree_keeps_branches_labels_support_and_annotation_rings() {
+        let tree = Tree::parse_annotated_newick(
+            "[&U] ((A[&country=Peru]:0.1,B[&country=Chile]:0.2)0.9:0.3,(C[&country=Peru]:0.15,D[&country=Chile]:0.05):0.2);",
+        )
+        .unwrap();
+        let branches = tree.nodes().len() - 1;
+        let svg = Figure::new(region())
+            .width(560.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .unrooted()
+                    .show_nodes(true)
+                    .color_by("country")
+                    .trait_categorical("country"),
+            )
+            .to_svg();
+        assert!(!svg.contains("NaN"), "{svg}");
+        assert!(svg.matches("<line").count() >= branches + 4, "{svg}");
+        for label in [">A</text>", ">B</text>", ">C</text>", ">D</text>"] {
+            assert!(svg.contains(label), "{svg}");
+        }
+        assert!(svg.contains("clade support 0.9"), "{svg}");
+        assert!(svg.contains("<title>A; country Peru</title>"), "{svg}");
+        assert!(svg.contains(">country</text>"), "{svg}");
+    }
+
+    #[test]
+    fn a_single_unrooted_tip_is_finite() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(Tree::parse_newick("A;").unwrap()).unrooted())
+            .to_svg();
+        assert!(!svg.contains("NaN"));
+        assert!(svg.contains(">A</text>"));
     }
 
     #[test]
