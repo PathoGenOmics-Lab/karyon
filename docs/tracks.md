@@ -663,6 +663,18 @@ to do with, and a figure of those is a figure of crossings.
 A phylogeny from a Newick string, drawn as a phylogram when the branch lengths
 mean something or a cladogram when they do not.
 
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](assets/figures/example-phylogenetics.svg)
+
+Annotated Newick, BEAST, NHX and the first tree in a Nexus trees block retain
+typed metadata. `time` places nodes on a numeric date or height, `color_by`
+maps inherited branch metadata, and `TraitColumn` aligns categorical or
+continuous sample values to the visible tips. `TreeTrack::collapse` replaces a
+visible clade with a triangle without changing the `Tree` it owns.
+
+The [annotated phylogenetics guide](guide/phylogenetics.md) covers input
+semantics, time requirements, topology operations and the distinction between
+visual and destructive collapse.
+
 Its x is evolutionary distance, so it does not use the shared scale. Its y does
 mean something to its neighbours, because a leaf is a row, and that is the whole
 point: [SnpTrack](#snptrack) and [MatrixTrack](#matrixtrack) each take a tree of

@@ -133,6 +133,7 @@ nav:
       - guide/figure.md
       - guide/cli.md
       - guide/formats.md
+      - guide/phylogenetics.md
       - guide/theming.md
       - guide/visual-system.md
   - How it works:

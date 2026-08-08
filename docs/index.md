@@ -68,6 +68,11 @@ command, which takes the line based text a genomics shell already writes.
     bedGraph, BED, GFF3, VCF, FASTA, Newick, cytoBand and SAM text, each read
     with the coordinate convention its own specification defines.
 
+-   :material-family-tree: **[Annotated phylogenetics](guide/phylogenetics.md)**
+
+    BEAST, NHX and Nexus metadata; dated trees, topology operations, branch
+    colours, collapsed clades and aligned sample traits.
+
 -   :material-ruler: **[Coordinates](how-it-works/coordinates.md)**
 
     0-based and half-open everywhere, with two deliberate exceptions, both of

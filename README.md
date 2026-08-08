@@ -63,6 +63,34 @@ plot("chr1:1-10000")?
 
 <img src="assets/example-visual-system.svg" alt="Two aligned genomic panels using shared quantitative axes, reference lines, categorical point shapes and one type hierarchy" width="100%">
 
+### Annotated phylogenies
+
+Annotated Newick, BEAST, NHX and Nexus trees retain typed metadata. A tree can
+be placed on calendar time, coloured by inherited branch annotations and
+aligned to categorical or continuous sample traits; named clades can collapse
+visually without changing the source topology.
+
+```rust
+use karyon::{TraitColumn, Tree, TreeTrack};
+
+let tree = Tree::parse_annotated_newick(
+    "(sample_A[&date=2024.25,country=Peru,coverage=48]:0.2,\
+      sample_B[&date=2024.50,country=Spain,coverage=73]:0.3);",
+)?;
+let track = TreeTrack::new(tree)
+    .time("date")
+    .time_unit("year")
+    .color_by("country")
+    .trait_column(TraitColumn::categorical("country").label("Country"))
+    .trait_column(TraitColumn::continuous("coverage").label("Depth"));
+```
+
+<img src="assets/example-phylogenetics.svg" alt="A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with two named clades collapsed" width="100%">
+
+The [phylogenetics guide](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/)
+covers MRCA queries, rerooting, rotation, ladderising, subtree extraction and
+the input guarantees for time trees.
+
 ## Quick start
 
 Not on crates.io yet, so point Cargo at the repository:
@@ -191,7 +219,7 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick in, phylogram or cladogram out. Its leaf order is what sorts the row tracks |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; phylogram, cladogram or time tree out. Metadata can colour branches and form aligned trait columns |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
