@@ -73,16 +73,18 @@ or equal-angle unrooted view; named clades can collapse visually without
 changing the source topology.
 
 ```rust
-use karyon::{TraitColumn, Tree, TreeTrack};
+use karyon::{SupportStyle, TraitColumn, Tree, TreeTrack};
 
 let tree = Tree::parse_annotated_newick(
-    "(sample_A[&date=2024.25,country=Peru,coverage=48]:0.2,\
+    "(sample_A[&date=2024.25,country=Peru,coverage=48,mutation=rpoB-S450L]:0.2,\
       sample_B[&date=2024.50,country=Spain,coverage=73]:0.3);",
 )?;
 let track = TreeTrack::new(tree)
     .time("date")
     .time_unit("year")
     .color_by("country")
+    .support_style(SupportStyle::SymbolsAndLabels)
+    .branch_labels("mutation")
     .trait_column(
         TraitColumn::categorical("country")
             .label("Country")
@@ -94,10 +96,15 @@ let track = TreeTrack::new(tree)
 
 <img src="assets/example-phylo-layouts.svg" alt="Four views of the same synthetic outbreak phylogeny: an outward circular time tree with trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram" width="100%">
 
+Phylograms can also expose support, branch-specific events and a true
+branch-length scale in rectangular, circular and unrooted coordinates:
+
+<img src="assets/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms with visible support, branch event labels and evolutionary distance scale bars" width="100%">
+
 The [phylogenetics guide](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/)
-covers circular and fan geometry, trait rings, MRCA queries, rerooting,
-rotation, ladderising, subtree extraction and the input guarantees for time
-trees.
+covers circular and fan geometry, unrooted trees, trait rings, visible support,
+branch events, scale bars, MRCA queries, rerooting, rotation, ladderising,
+subtree extraction and the input guarantees for time trees.
 
 ### Geographic genomics
 
@@ -260,7 +267,7 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular, fan or unrooted phylograms and cladograms out. Metadata can colour branches and form layered iTOL-style columns or rings |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular, fan or unrooted phylograms and cladograms out. Support, branch events, scale bars and layered iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |

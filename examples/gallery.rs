@@ -36,8 +36,8 @@ use karyon::{
     LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, MarkerRing, MatrixRow, MethylSite,
     Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, Panels, Plot, Read, ReadColoring, Region,
     Rings, SignalRing, SnpTrack, SplitRead, SplitSegment, Stain, Strand, StructuralTrack,
-    StructuralVariant, SvKind, Terminator, Theme, TranscriptionUnit, Variant, VariantTrack, Window,
-    WindowStyle, WindowTrack,
+    StructuralVariant, SupportStyle, SvKind, Terminator, Theme, TranscriptionUnit, Variant,
+    VariantTrack, Window, WindowStyle, WindowTrack,
 };
 
 /// Width every panel is drawn at.
@@ -439,9 +439,10 @@ fn variable_sites() -> Figure {
 
 /// H: a tree by itself.
 fn phylogeny() -> Figure {
-    let tree = Tree::parse_newick(
-        "((lineage_1:0.012,lineage_2:0.011)0.99:0.006,\
-          (lineage_3:0.009,(lineage_4:0.007,lineage_4.9:0.008)0.95:0.003):0.005);",
+    let tree = Tree::parse_annotated_newick(
+        "((lineage_1[&event=rpoB-S450L]:0.012,lineage_2:0.011)0.99:0.006,\
+          (lineage_3[&event=gyrA-D94G]:0.009,\
+           (lineage_4:0.007,lineage_4.9[&event=katG-S315T]:0.008)0.95:0.003):0.005);",
     )
     .expect("the tree in this example is well formed");
 
@@ -452,7 +453,16 @@ fn phylogeny() -> Figure {
         .remove_axis()
         .add_tree(tree)
         .label("phylogeny")
-        .adjust(|track| track.row_height(17.0))
+        .adjust(|track| {
+            track
+                .row_height(24.0)
+                .support_style(SupportStyle::SymbolsAndLabels)
+                .support_threshold(0.9)
+                .branch_labels("event")
+                .branch_label_size(7.0)
+                .scale_bar()
+                .scale_bar_length(0.005)
+        })
         .into_figure()
 }
 

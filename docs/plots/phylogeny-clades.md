@@ -19,8 +19,8 @@ state, migration event or transmission chain.
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../tracks/#treetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-annotations.svg" alt="Unrooted and circular trees with layered metadata rings" loading="lazy"></span>
-    <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Rectangular, circular, fan or unrooted trees with branch metadata and iTOL-style strips, bars, binary marks and symbols.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted trees with support, branch events and evolutionary scale bars" loading="lazy"></span>
+    <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Rectangular, circular, fan or unrooted trees with visible support, branch events, distance scales and iTOL-style metadata.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" id="tree-to-tree-comparison" href="../../tracks/#tanglegramtrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Two trees joined through their matching terminal taxa" loading="lazy"></span>

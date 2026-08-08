@@ -699,6 +699,15 @@ root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
 the circular and unrooted projections while preserving exact values in SVG
 tooltips.
 
+![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](assets/figures/example-phylo-evidence.svg)
+
+`support_style` makes internal support visible as scaled symbols, exact labels
+or both, and `support_threshold` accepts either fractions or percentages.
+`branch_labels` prints a node's own event annotation along its incoming edge;
+it deliberately does not inherit ancestral values. `scale_bar` adds an
+automatic or exact branch-length ruler to any phylogram projection and refuses
+to imply those units on a cladogram or explicit time tree.
+
 The [annotated phylogenetics guide](guide/phylogenetics.md) covers input
 semantics, time requirements, topology operations and the distinction between
 visual and destructive collapse.

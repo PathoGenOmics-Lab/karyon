@@ -10,6 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Crossing-aware tanglegram untangling, equal-angle unrooted trees and layered
   iTOL-style annotation strips, bars, binary markers and symbols.
+- Projection-independent branch evidence for phylograms: support can use scaled
+  symbols, exact labels and a threshold in either common convention;
+  branch-specific annotations can follow their edge without ancestral
+  inheritance; and automatic or exact scale bars retain evolutionary units in
+  rectangular, circular and unrooted coordinates.
 - A visual plot catalogue for the documentation, separating discovery from the
   exhaustive track reference. Seven category pages group all twenty-nine
   tracks and the three standalone drawings by biological question, data shape

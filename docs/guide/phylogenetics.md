@@ -178,6 +178,45 @@ equal-angle sectors. Time axes are rooted quantities and are therefore not
 drawn in this projection. Use rectangular or circular coordinates when root
 age, direction or calendar time is part of the claim.
 
+## Put support, events and distance on the branches
+
+![The same synthetic phylogram drawn in rectangular, circular and unrooted coordinates with scaled support markers, exact support labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg)
+
+Support, an event and branch length answer different questions, so Karyon gives
+each one an independent channel. Support uses node markers and optional text;
+an event follows the branch that owns it; evolutionary distance gets a scale
+bar rather than being inferred from panel width.
+
+```rust
+use karyon::{SupportStyle, TreeTrack};
+
+let view = TreeTrack::new(tree)
+    .support_style(SupportStyle::SymbolsAndLabels)
+    .support_threshold(0.70)
+    .branch_labels("mutation")
+    .branch_label_size(7.0)
+    .scale_bar()
+    .scale_bar_length(0.1)
+    .scale_bar_unit("substitutions/site");
+```
+
+`SupportStyle::Symbols`, `Labels`, `SymbolsAndLabels` and `None` control only
+the visible encoding. Exact support remains in branch tooltips. Thresholds can
+use either the 0–1 convention (`0.70`) or the percentage convention (`70.0`);
+labels retain the value as supplied rather than silently converting it.
+
+`branch_labels` reads only the annotation attached to the incoming branch. It
+does not inherit ancestral values as `color_by` does, because a mutation, gain
+or loss must not be repeated on every descendant. Labels rotate with circular
+and unrooted edges. When an edge is too short, visible text is ellipsised and
+the complete key and value remain in the SVG tooltip.
+
+`scale_bar()` chooses a 1–2–5 length near one fifth of the visible branch span.
+`scale_bar_length` requests a value explicitly and clamps it to that span;
+`scale_bar_unit` prints its unit exactly. Scale bars are omitted from
+cladograms and explicitly time-scaled trees, where a branch-length ruler would
+make the wrong claim.
+
 ## Layer annotation rings like iTOL datasets
 
 `TraitColumn` uses the same dataset in rectangular columns, circular rings and

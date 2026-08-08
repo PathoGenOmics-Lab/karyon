@@ -395,6 +395,36 @@ Twelve contigs over 3.27 Mb, from `cargo run --example genomewide -- assets`.
     else. A shorter genome, or stronger linkage between neighbouring sites,
     leaves far fewer than a million. Use `threshold` when you know yours.
 
+### Put support, mutations and distance on one phylogram
+
+```rust
+use karyon::{Figure, Region, SupportStyle, TreeTrack};
+
+Figure::new(Region::new("phylogeny", 0, 1)?)
+    .show_region_label(false)
+    .push(
+        TreeTrack::new(tree)
+            .color_by("lineage")
+            .support_style(SupportStyle::SymbolsAndLabels)
+            .support_threshold(70.0)
+            .branch_labels("mutation")
+            .branch_label_size(7.0)
+            .scale_bar()
+            .scale_bar_length(0.1)
+            .scale_bar_unit("substitutions/site"),
+    )
+    .save_svg("branch-evidence.svg")?;
+```
+
+`color_by` may inherit a lineage from an ancestor. `branch_labels` never does:
+a gain, loss or mutation is printed only on the edge whose node carries that
+annotation. Support stays exact in labels and tooltips even though symbol size
+uses a normalised 0–1 value. A scale bar is meaningful on a phylogram and is
+therefore omitted automatically after switching to `TreeShape::Cladogram` or a
+calendar-time layout.
+
+![Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales](assets/figures/example-phylo-evidence.svg)
+
 ### A figure with no coordinate ruler
 
 A plot appends an axis at the bottom because a figure without coordinates along

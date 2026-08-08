@@ -12,7 +12,9 @@ use std::env;
 use std::path::PathBuf;
 
 use karyon::tree::Tree;
-use karyon::{Figure, Panels, RadialDirection, Region, TraitColumn, TreeShape, TreeTrack};
+use karyon::{
+    Figure, Panels, RadialDirection, Region, SupportStyle, TraitColumn, TreeShape, TreeTrack,
+};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -69,6 +71,13 @@ fn main() -> std::io::Result<()> {
     let (width, height) = advanced.dimensions();
     println!(
         "example-phylo-annotations.svg {width:.0} x {height:.0}, unrooted plus 4 annotation datasets"
+    );
+
+    let evidence = evidence_layouts(evidence_tree());
+    evidence.save_svg(out.join("example-phylo-evidence.svg"))?;
+    let (width, height) = evidence.dimensions();
+    println!(
+        "example-phylo-evidence.svg {width:.0} x {height:.0}, support plus branch events and distance scales"
     );
     Ok(())
 }
@@ -255,6 +264,83 @@ fn advanced_layouts(tree: Tree) -> Panels {
             "B",
             "Colour strips, radial bars, binary marks and shaped categories retain exact values in tooltips",
         )
+}
+
+fn evidence_track(tree: Tree) -> TreeTrack {
+    TreeTrack::new(tree)
+        .color_by("lineage")
+        .support_style(SupportStyle::SymbolsAndLabels)
+        .support_threshold(0.70)
+        .branch_labels("event")
+        .branch_label_size(7.0)
+        .scale_bar()
+        .scale_bar_length(0.1)
+        .scale_bar_unit("substitutions/site")
+}
+
+fn evidence_layouts(tree: Tree) -> Panels {
+    let rectangular = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Evidence-rich phylogram")
+        .width(530.0)
+        .show_region_label(false)
+        .push(evidence_track(tree.clone()).row_height(28.0));
+
+    let circular = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Circular evidence view")
+        .width(530.0)
+        .show_region_label(false)
+        .push(
+            evidence_track(tree.clone())
+                .circular()
+                .radial_start(-112.0)
+                .radial_size(500.0),
+        );
+
+    let unrooted = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Unrooted evidence view")
+        .width(530.0)
+        .show_region_label(false)
+        .push(
+            evidence_track(tree)
+                .unrooted()
+                .unrooted_start(-112.0)
+                .unrooted_size(500.0),
+        );
+
+    Panels::new()
+        .title("Branch evidence across phylogenetic projections (synthetic)")
+        .columns(3)
+        .gap(18.0)
+        .push_captioned(
+            &rectangular,
+            "A",
+            "Support, branch events and evolutionary distance remain independently readable",
+        )
+        .push_captioned(
+            &circular,
+            "B",
+            "Event labels rotate with their branch while exact text remains in tooltips",
+        )
+        .push_captioned(
+            &unrooted,
+            "C",
+            "The scale still measures edge length after removing the arbitrary source root",
+        )
+}
+
+fn evidence_tree() -> Tree {
+    Tree::parse_annotated_newick(concat!(
+        "[&R] (",
+        "((A01[&lineage=L1,event=rpoB-S450L]:0.18,A02[&lineage=L1]:0.14)",
+        "0.98[&lineage=L1,event=katG-S315T]:0.22,",
+        "(A03[&lineage=L2,event=gyrA-D94G]:0.21,A04[&lineage=L2]:0.16)",
+        "0.84[&lineage=L2]:0.19)0.93:0.17,",
+        "((B01[&lineage=L3,event=del-pks15]:0.13,B02[&lineage=L3]:0.20)",
+        "0.76[&lineage=L3]:0.24,",
+        "(B03[&lineage=L4,event=embB-M306V]:0.17,B04[&lineage=L4]:0.23)",
+        "0.64[&lineage=L4]:0.16)0.88:0.21);"
+    ))
+    .expect("the evidence tree in this example is well formed")
 }
 
 fn outbreak_tree() -> Tree {
