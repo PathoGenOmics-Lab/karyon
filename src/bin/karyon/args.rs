@@ -20,7 +20,7 @@
 //! Where a word sits is the whole of what binds it to a track, and two things
 //! fall outside that. One is a track whose data is not one file: a `--<track>`
 //! flag takes one path, so a tanglegram, which is two trees, has nowhere to put
-//! the second, and thirteen of the crate's twenty-nine track types are all the
+//! the second, and thirteen of the crate's thirty track types are all the
 //! command line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order

@@ -40,7 +40,9 @@ use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::axis::group_thousands;
-use crate::track::{DrawContext, Track};
+use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::{DrawContext, Rect, Track};
+use crate::tree::Tree;
 
 /// One aligned sequence.
 #[derive(Debug, Clone, PartialEq)]
@@ -203,6 +205,9 @@ pub struct MsaTrack {
     match_color: Option<String>,
     gap_color: Option<String>,
     uniform_color: Option<String>,
+    tree: Option<Tree>,
+    tree_width: f64,
+    tree_shape: TreeShape,
 }
 
 impl MsaTrack {
@@ -223,6 +228,9 @@ impl MsaTrack {
             match_color: None,
             gap_color: None,
             uniform_color: None,
+            tree: None,
+            tree_width: 100.0,
+            tree_shape: TreeShape::Phylogram,
         }
     }
 
@@ -301,6 +309,50 @@ impl MsaTrack {
     pub fn uniform_color(mut self, color: impl Into<String>) -> Self {
         self.uniform_color = Some(color.into());
         self
+    }
+
+    /// Draws a phylogeny beside the alignment and sorts sequences by descent.
+    ///
+    /// Rows match leaves by exact name. Sequences absent from the tree remain
+    /// at the bottom, and a selected comparison sequence follows its row when
+    /// the alignment is reordered.
+    pub fn tree(mut self, tree: Tree) -> Self {
+        let names: Vec<String> = self
+            .sequences
+            .iter()
+            .map(|sequence| sequence.name.clone())
+            .collect();
+        let order = leaf_order(&tree, &names);
+        if let Some(comparison) = self.compare_to {
+            self.compare_to = order.iter().position(|index| *index == comparison);
+        }
+        self.sequences = order
+            .iter()
+            .map(|index| self.sequences[*index].clone())
+            .collect();
+        self.tree = Some(tree);
+        self
+    }
+
+    /// Sets how much of the row-name strip the attached tree receives.
+    pub fn tree_width(mut self, width: f64) -> Self {
+        self.tree_width = if width.is_finite() {
+            width.max(0.0)
+        } else {
+            100.0
+        };
+        self
+    }
+
+    /// Chooses a phylogram or cladogram for the tree beside the alignment.
+    pub fn tree_shape(mut self, shape: TreeShape) -> Self {
+        self.tree_shape = shape;
+        self
+    }
+
+    /// The tree attached to the alignment, when present.
+    pub fn attached_tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
     }
 
     /// The sequences in the track.
@@ -423,8 +475,9 @@ impl Track for MsaTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
+        let tree = self.tree.as_ref().map_or(0.0, |_| self.tree_width);
         if !self.show_names || self.sequences.is_empty() {
-            return 0.0;
+            return tree;
         }
         let size = (theme.font_size - 2.0).min(self.row_height);
         let (rows, _) = self.visible_rows();
@@ -434,6 +487,7 @@ impl Track for MsaTrack {
             .map(|row| text_width(&row.name, size))
             .fold(0.0f64, f64::max)
             + 8.0
+            + tree
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -446,6 +500,28 @@ impl Track for MsaTrack {
 
         let first = ctx.region.start() as usize;
         let last = (ctx.region.end() as usize).min(self.columns());
+
+        if let Some(tree) = &self.tree {
+            let area = Rect {
+                x: ctx.axis.x + 2.0,
+                y: band.y,
+                w: (self.tree_width - 6.0).max(1.0),
+                h: band.h,
+            };
+            draw_tree(
+                ctx.svg,
+                tree,
+                area,
+                self.row_height + self.row_gap,
+                band.y + self.row_height / 2.0,
+                TreeStyle {
+                    shape: self.tree_shape,
+                    color: &ctx.theme.foreground,
+                    width: 1.1,
+                    mirror: false,
+                },
+            );
+        }
 
         for (index, row) in self.sequences.iter().take(rows).enumerate() {
             let top = band.y + index as f64 * (self.row_height + self.row_gap);
@@ -973,5 +1049,32 @@ mod tests {
             !wide.contains("textLength"),
             "an alignment letter keeps its own shape"
         );
+    }
+
+    #[test]
+    fn an_attached_tree_reorders_rows_and_keeps_the_comparison_sequence() {
+        let tree = Tree::parse_newick("(Beijing:1,(H37Rv:1,CDC1551:1):1,Erdman:1);").unwrap();
+        let track = MsaTrack::new(alignment()).compare_to(1).tree(tree);
+        let names: Vec<&str> = track
+            .sequences()
+            .iter()
+            .map(|row| row.name.as_str())
+            .collect();
+        assert_eq!(names, ["Beijing", "H37Rv", "CDC1551", "Erdman"]);
+        assert_eq!(track.compare_to, Some(2));
+        assert_eq!(track.comparison(), b"ACGTTCGTAC");
+        assert!(track.attached_tree().is_some());
+    }
+
+    #[test]
+    fn the_tree_and_alignment_share_row_centres() {
+        let tree = Tree::parse_newick("(Beijing:1,(H37Rv:1,CDC1551:1):1,Erdman:1);").unwrap();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(MsaTrack::new(alignment()).tree(tree).tree_width(110.0))
+            .to_svg();
+        assert!(svg.matches("<line").count() >= 6, "{svg}");
+        assert!(svg.contains("<title>Beijing, 10 columns"), "{svg}");
+        assert!(!svg.contains("NaN"));
     }
 }
