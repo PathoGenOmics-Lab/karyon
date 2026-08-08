@@ -1004,7 +1004,7 @@ impl TreeTrack {
             if let Some(root) = scene.placements[self.tree.root()] {
                 draw_root_marker(
                     ctx,
-                    scene.x(area, root.depth),
+                    scene.x(area, root.depth) + ctx.theme.tokens.marker_radius * 1.4,
                     area.y + self.row_height / 2.0 + root.row * self.row_height,
                 );
             }
