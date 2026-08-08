@@ -37,11 +37,40 @@
 //! neighbouring track could be sorted into. A tanglegram is read on its own.
 
 use crate::scale::Scale;
-use crate::svg::{num, text_width, Anchor};
+use std::collections::BTreeMap;
+
+use crate::style::LinePattern;
+use crate::svg::{fit_text, num, text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::tree::{draw_tree_titled, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
+
+/// Geometry used to join matching taxa between the two trees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TangleTieStyle {
+    /// A cubic curve leaves and reaches each tip horizontally.
+    #[default]
+    Curved,
+    /// A direct segment, useful for compact or low-crossing comparisons.
+    Straight,
+    /// A translucent band that remains visible in large exported figures.
+    Ribbon,
+}
+
+/// Which terminal names are written in the comparison corridor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TangleLabels {
+    /// Keep names in branch tooltips only.
+    None,
+    /// Write one name beside the left tree.
+    Left,
+    /// Write one name beside the right tree.
+    Right,
+    /// Write names at both ends of every tie, the clearest tracing view.
+    #[default]
+    Both,
+}
 
 /// Two trees drawn facing each other, tips joined.
 ///
@@ -73,12 +102,20 @@ pub struct TanglegramTrack {
     color: Option<String>,
     tie_color: Option<String>,
     crossing_color: Option<String>,
-    show_tips: bool,
+    tie_style: TangleTieStyle,
+    labels: TangleLabels,
+    label_width: f64,
+    tie_width: f64,
+    crossing_width: f64,
+    color_by: Option<String>,
+    show_summary: bool,
+    initial_crossings: usize,
 }
 
 impl TanglegramTrack {
     /// A pair of trees, the first on the left.
     pub fn new(left: Tree, right: Tree) -> Self {
+        let initial_crossings = count_crossings(&left, &right);
         TanglegramTrack {
             left,
             right,
@@ -91,7 +128,14 @@ impl TanglegramTrack {
             color: None,
             tie_color: None,
             crossing_color: None,
-            show_tips: true,
+            tie_style: TangleTieStyle::Curved,
+            labels: TangleLabels::Both,
+            label_width: 72.0,
+            tie_width: 0.9,
+            crossing_width: 1.5,
+            color_by: None,
+            show_summary: true,
+            initial_crossings,
         }
     }
 
@@ -146,9 +190,81 @@ impl TanglegramTrack {
         self
     }
 
+    /// Chooses curved lines, direct segments or translucent ribbons.
+    pub fn tie_style(mut self, style: TangleTieStyle) -> Self {
+        self.tie_style = style;
+        self
+    }
+
+    /// Sets the ordinary and crossing tie widths in pixels.
+    pub fn tie_widths(mut self, ordinary: f64, crossing: f64) -> Self {
+        if ordinary.is_finite() {
+            self.tie_width = ordinary.clamp(0.2, 12.0);
+        }
+        if crossing.is_finite() {
+            self.crossing_width = crossing.clamp(self.tie_width, 16.0);
+        }
+        self
+    }
+
+    /// Chooses where matching terminal names are written.
+    pub fn labels(mut self, labels: TangleLabels) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    /// Sets the maximum room reserved for a terminal name at each side.
+    pub fn label_width(mut self, width: f64) -> Self {
+        if width.is_finite() {
+            self.label_width = width.clamp(24.0, 180.0);
+        }
+        self
+    }
+
+    /// Colours ties by a terminal annotation shared by the two trees.
+    ///
+    /// Equal values receive one categorical colour. A disagreement is drawn
+    /// with the crossing colour and a dashed centre line, while endpoint marks
+    /// retain the value from each tree. Tooltips report both exact values.
+    pub fn color_by(mut self, key: impl Into<String>) -> Self {
+        self.color_by = Some(key.into());
+        self
+    }
+
+    /// Draws or hides the compact crossing and matching summary.
+    pub fn show_summary(mut self, show: bool) -> Self {
+        self.show_summary = show;
+        self
+    }
+
+    /// Greedily rotates free clades on both sides to reduce crossings.
+    ///
+    /// Rotation never changes a clade or branch length. The heuristic keeps a
+    /// rotation only when it strictly lowers the crossing count, alternates
+    /// between the two trees and therefore cannot make the drawing worse.
+    pub fn untangle(self) -> Self {
+        self.untangle_passes(12)
+    }
+
+    /// As [`TanglegramTrack::untangle`], with a bounded number of passes.
+    pub fn untangle_passes(mut self, passes: usize) -> Self {
+        for _ in 0..passes.clamp(1, 64) {
+            let right = improve_rotations(&mut self.right, &self.left, false);
+            let left = improve_rotations(&mut self.left, &self.right, true);
+            if !right && !left {
+                break;
+            }
+        }
+        self
+    }
+
     /// Draws or hides the tip names down the middle.
     pub fn show_tips(mut self, show: bool) -> Self {
-        self.show_tips = show;
+        self.labels = if show {
+            TangleLabels::Both
+        } else {
+            TangleLabels::None
+        };
         self
     }
 
@@ -206,16 +322,17 @@ impl TanglegramTrack {
     /// clade rotates freely without changing what the tree says. It is what
     /// this drawing shows, not a property of the two trees.
     pub fn crossings(&self) -> usize {
-        let ties = self.ties();
-        let mut count = 0usize;
-        for (index, (_, from, to)) in ties.iter().enumerate() {
-            for (other_from, other_to) in ties[index + 1..].iter().map(|(_, a, b)| (a, b)) {
-                if (from < other_from) != (to < other_to) {
-                    count += 1;
-                }
-            }
-        }
-        count
+        count_crossings(&self.left, &self.right)
+    }
+
+    /// Crossing count before any call to [`TanglegramTrack::untangle`].
+    pub fn initial_crossings(&self) -> usize {
+        self.initial_crossings
+    }
+
+    /// Number of crossings removed by automatic clade rotation.
+    pub fn crossing_reduction(&self) -> usize {
+        self.initial_crossings.saturating_sub(self.crossings())
     }
 
     /// Whether one tie crosses any other.
@@ -237,12 +354,99 @@ impl TanglegramTrack {
     /// is the one the figure will use unless the caller changed it, as in the
     /// feature track.
     fn header(&self, theme: &Theme) -> f64 {
-        if self.left_name.is_some() {
-            theme.font_size - 2.0 + 4.0
+        if self.left_name.is_some() || self.right_name.is_some() || self.show_summary {
+            theme.font_size - 2.0 + 8.0
         } else {
             0.0
         }
     }
+
+    fn annotation(&self, tree: &Tree, name: &str) -> Option<String> {
+        let key = self.color_by.as_deref()?;
+        let node = tree.node_named(name)?;
+        tree.annotation(node, key)
+            .or_else(|| {
+                tree.ancestors(node)
+                    .into_iter()
+                    .find_map(|ancestor| tree.annotation(ancestor, key))
+            })
+            .map(ToString::to_string)
+    }
+
+    fn annotation_categories(&self) -> BTreeMap<String, usize> {
+        let mut categories = BTreeMap::new();
+        for name in self.shared() {
+            for value in [
+                self.annotation(&self.left, &name),
+                self.annotation(&self.right, &name),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                categories.insert(value, 0);
+            }
+        }
+        for (index, value) in categories.values_mut().enumerate() {
+            *value = index;
+        }
+        categories
+    }
+}
+
+fn count_crossings(left: &Tree, right: &Tree) -> usize {
+    let left = left.leaf_names();
+    let right = right.leaf_names();
+    let ties: Vec<(usize, usize)> = left
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| !name.is_empty())
+        .filter_map(|(from, name)| {
+            right
+                .iter()
+                .position(|leaf| leaf == name)
+                .map(|to| (from, to))
+        })
+        .collect();
+    let mut count = 0usize;
+    for (index, (from, to)) in ties.iter().enumerate() {
+        for (other_from, other_to) in ties[index + 1..].iter() {
+            if (from < other_from) != (to < other_to) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn improve_rotations(candidate: &mut Tree, fixed: &Tree, candidate_is_left: bool) -> bool {
+    let mut internal: Vec<usize> = candidate
+        .nodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| node.children.len() > 1)
+        .map(|(node, _)| node)
+        .collect();
+    internal.sort_by_key(|node| std::cmp::Reverse(candidate.ancestors(*node).len()));
+    let mut improved = false;
+    for node in internal {
+        let before = if candidate_is_left {
+            count_crossings(candidate, fixed)
+        } else {
+            count_crossings(fixed, candidate)
+        };
+        candidate.rotate(node);
+        let after = if candidate_is_left {
+            count_crossings(candidate, fixed)
+        } else {
+            count_crossings(fixed, candidate)
+        };
+        if after < before {
+            improved = true;
+        } else {
+            candidate.rotate(node);
+        }
+    }
+    improved
 }
 
 impl Track for TanglegramTrack {
@@ -271,16 +475,41 @@ impl Track for TanglegramTrack {
             .crossing_color
             .clone()
             .unwrap_or_else(|| ctx.theme.color(1).to_string());
+        let categories = self.annotation_categories();
 
         let side = band.w * self.tree_width;
         let name_size = ctx.theme.font_size - 2.0;
-        let header = if self.left_name.is_some() {
-            name_size + 4.0
-        } else {
-            0.0
-        };
+        let header = self.header(ctx.theme);
         let top = band.y + header;
         let tip_first = top + self.row_height / 2.0;
+        let x0 = band.x + side;
+        let x1 = band.right() - side;
+        let corridor = (x1 - x0).max(1.0);
+        let label_room = self.label_width.min(corridor * 0.34);
+        let left_labels = matches!(self.labels, TangleLabels::Left | TangleLabels::Both);
+        let right_labels = matches!(self.labels, TangleLabels::Right | TangleLabels::Both);
+        let tie_start = x0 + if left_labels { label_room } else { 0.0 };
+        let tie_end = x1 - if right_labels { label_room } else { 0.0 };
+
+        // Quiet tree panels make the comparison corridor read as a third,
+        // deliberate region rather than unused space between two plots.
+        let panel = mix(ctx.theme.surface(), &ctx.theme.rule, 0.16);
+        ctx.svg.rect_rounded(
+            band.x,
+            top,
+            side,
+            (band.h - header).max(1.0),
+            ctx.theme.corner_radius,
+            &panel,
+        );
+        ctx.svg.rect_rounded(
+            band.right() - side,
+            top,
+            side,
+            (band.h - header).max(1.0),
+            ctx.theme.corner_radius,
+            &panel,
+        );
 
         // Ties first, under both trees.
         let ties = self.ties();
@@ -288,46 +517,147 @@ impl Track for TanglegramTrack {
             let y0 = tip_first + *from as f64 * self.row_height;
             let y1 = tip_first + *to as f64 * self.row_height;
             let crosses = self.crosses(&ties, index);
-            let ink = if crosses { &crossing } else { &straight };
-            let x0 = band.x + side;
-            let x1 = band.right() - side;
+            let left_value = self.annotation(&self.left, name);
+            let right_value = self.annotation(&self.right, name);
+            let mismatch = self.color_by.is_some() && left_value != right_value;
+            let annotation_color = left_value
+                .as_ref()
+                .and_then(|value| categories.get(value))
+                .map(|index| ctx.theme.color(*index).to_string());
+            let right_annotation_color = right_value
+                .as_ref()
+                .and_then(|value| categories.get(value))
+                .map(|index| ctx.theme.color(*index).to_string());
+            let ink = if mismatch {
+                crossing.clone()
+            } else if let Some(color) = &annotation_color {
+                color.clone()
+            } else if crosses {
+                crossing.clone()
+            } else {
+                straight.clone()
+            };
             // A tie is one taxon drawn as one curve, and whether it crosses is
             // the finding. Saying so in words is what a reader who cannot tell
             // the two colours apart has instead.
             let titled = !name.is_empty();
             if titled {
                 let state = if crosses { "crossing" } else { "straight" };
-                ctx.svg.begin_titled(&format!("{name}, {state}"));
+                let mut title = format!("{name}, {state}");
+                if let Some(key) = &self.color_by {
+                    title.push_str(&format!(
+                        "; left {key} {}; right {key} {}",
+                        left_value.as_deref().unwrap_or("missing"),
+                        right_value.as_deref().unwrap_or("missing")
+                    ));
+                    if mismatch {
+                        title.push_str("; annotation mismatch");
+                    }
+                }
+                ctx.svg.begin_titled(&title);
             }
-            // Leaving each tip horizontally so the line reads as belonging to
-            // that tip rather than pointing at whatever is above it.
-            let d = format!(
-                "M{} {}C{} {} {} {} {} {}",
-                num(x0),
-                num(y0),
-                num(x0 + (x1 - x0) * 0.35),
-                num(y0),
-                num(x1 - (x1 - x0) * 0.35),
-                num(y1),
-                num(x1),
-                num(y1)
-            );
-            ctx.svg
-                .path_stroked(&d, ink, if crosses { 1.3 } else { 0.9 });
+            let span = (tie_end - tie_start).max(1.0);
+            let centre = match self.tie_style {
+                TangleTieStyle::Curved | TangleTieStyle::Ribbon => format!(
+                    "M{} {}C{} {} {} {} {} {}",
+                    num(tie_start),
+                    num(y0),
+                    num(tie_start + span * 0.35),
+                    num(y0),
+                    num(tie_end - span * 0.35),
+                    num(y1),
+                    num(tie_end),
+                    num(y1)
+                ),
+                TangleTieStyle::Straight => format!(
+                    "M{} {}L{} {}",
+                    num(tie_start),
+                    num(y0),
+                    num(tie_end),
+                    num(y1)
+                ),
+            };
+            let width = if crosses {
+                self.crossing_width
+            } else {
+                self.tie_width
+            };
+            let pattern = if crosses || mismatch {
+                LinePattern::Dashed
+            } else {
+                LinePattern::Solid
+            };
+            if self.tie_style == TangleTieStyle::Ribbon {
+                let half = width.max(1.2) * 0.75;
+                let ribbon = format!(
+                    "M{} {}C{} {} {} {} {} {}L{} {}C{} {} {} {} {} {}Z",
+                    num(tie_start),
+                    num(y0 - half),
+                    num(tie_start + span * 0.35),
+                    num(y0 - half),
+                    num(tie_end - span * 0.35),
+                    num(y1 - half),
+                    num(tie_end),
+                    num(y1 - half),
+                    num(tie_end),
+                    num(y1 + half),
+                    num(tie_end - span * 0.35),
+                    num(y1 + half),
+                    num(tie_start + span * 0.35),
+                    num(y0 + half),
+                    num(tie_start),
+                    num(y0 + half)
+                );
+                ctx.svg
+                    .path(&ribbon, &ink, if crosses { 0.38 } else { 0.24 });
+                if crosses || mismatch {
+                    ctx.svg
+                        .path_stroked_pattern(&centre, &ink, ctx.theme.tokens.hairline, pattern);
+                }
+            } else {
+                ctx.svg.path_stroked_pattern(&centre, &ink, width, pattern);
+            }
 
-            if self.show_tips {
-                // At the left tip's row, not the middle of the tie. On the
-                // midpoint two crossing ties put their names in the same place
-                // and neither can be read.
+            if left_labels {
+                let visible = fit_text(name, (label_room - 9.0).max(1.0), name_size);
                 ctx.svg.text(
-                    x0 + (x1 - x0) * 0.22,
+                    x0 + 4.0,
                     y0 + name_size * 0.35,
-                    name,
+                    &visible,
                     &ctx.theme.muted,
                     name_size,
                     Anchor::Start,
                 );
             }
+            if right_labels {
+                let visible = fit_text(name, (label_room - 9.0).max(1.0), name_size);
+                ctx.svg.text(
+                    x1 - 4.0,
+                    y1 + name_size * 0.35,
+                    &visible,
+                    &ctx.theme.muted,
+                    name_size,
+                    Anchor::End,
+                );
+            }
+            let left_mark = annotation_color.as_deref().unwrap_or(&ink);
+            let right_mark = right_annotation_color.as_deref().unwrap_or(&ink);
+            ctx.svg.circle_ringed(
+                tie_start,
+                y0,
+                1.8,
+                left_mark,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            );
+            ctx.svg.circle_ringed(
+                tie_end,
+                y1,
+                1.8,
+                right_mark,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            );
             if titled {
                 ctx.svg.end_group();
             }
@@ -352,40 +682,61 @@ impl Track for TanglegramTrack {
                     width: 1.2,
                     mirror,
                 },
-                // The tie already carries the taxon's name beside the tip, so
-                // naming the branch too would be that string a third time.
-                !self.show_tips,
+                match (mirror, self.labels) {
+                    (_, TangleLabels::None) => true,
+                    (false, TangleLabels::Right) | (true, TangleLabels::Left) => true,
+                    _ => false,
+                },
             );
         }
 
-        if let (Some(left), Some(right)) = (&self.left_name, &self.right_name) {
-            ctx.svg.text(
+        if let Some(left) = &self.left_name {
+            ctx.svg.text_bold(
                 band.x,
                 band.y + name_size,
                 left,
-                &ctx.theme.muted,
+                &ctx.theme.foreground,
                 name_size,
                 Anchor::Start,
             );
-            ctx.svg.text(
+        }
+        if let Some(right) = &self.right_name {
+            ctx.svg.text_bold(
                 band.right(),
                 band.y + name_size,
                 right,
-                &ctx.theme.muted,
+                &ctx.theme.foreground,
                 name_size,
                 Anchor::End,
             );
         }
 
-        let odd = self.unshared().len();
-        if odd > 0 {
-            // A tip on one tree and not the other has no tie, and a missing
-            // line is exactly the thing a reader will not notice.
-            let text = format!("{odd} not in both");
-            ctx.svg.text(
-                band.right() - text_width(&text, name_size - 1.0) / 2.0 - 3.0,
-                band.bottom() - 2.0,
-                &text,
+        if self.show_summary {
+            let current = self.crossings();
+            let crossing_text = if current == self.initial_crossings {
+                format!("{current} crossings")
+            } else {
+                format!("{} → {current} crossings", self.initial_crossings)
+            };
+            let odd = self.unshared().len();
+            let mut summary = format!("{crossing_text} · {} linked", ties.len());
+            if odd > 0 {
+                summary.push_str(&format!(" · {odd} unmatched"));
+            }
+            let width = text_width(&summary, name_size - 1.0) + 14.0;
+            let x = band.x + band.w / 2.0;
+            ctx.svg.rect_rounded(
+                x - width / 2.0,
+                band.y,
+                width,
+                name_size + 4.0,
+                (name_size + 4.0) / 2.0,
+                &panel,
+            );
+            ctx.svg.text_bold(
+                x,
+                band.y + name_size,
+                &summary,
                 &ctx.theme.muted,
                 name_size - 1.0,
                 Anchor::Middle,
@@ -465,7 +816,7 @@ mod tests {
             .show_region_label(false)
             .push(TanglegramTrack::new(one, two))
             .to_svg();
-        assert!(svg.contains("2 not in both"), "a missing line goes unseen");
+        assert!(svg.contains("2 unmatched"), "a missing line goes unseen");
     }
 
     #[test]
@@ -531,7 +882,11 @@ mod tests {
             Tree::parse_newick("((A,B),(C,D));").unwrap(),
             Tree::parse_newick("(A,B);").unwrap(),
         );
-        assert_eq!(lopsided.height(&scale), 4.0 * 16.0);
+        assert_eq!(
+            lopsided.clone().show_summary(false).height(&scale),
+            4.0 * 16.0
+        );
+        assert!(lopsided.height(&scale) > 4.0 * 16.0);
         // Naming the trees puts a line above them, and that line is part of
         // the height: left out, the last tip fell past the band.
         let named = TanglegramTrack::new(
@@ -564,6 +919,59 @@ mod tests {
             .push(track)
             .to_svg();
         assert!(!svg.contains("NaN"));
-        assert!(svg.contains("8 not in both"));
+        assert!(svg.contains("8 unmatched"));
+    }
+
+    #[test]
+    fn free_clade_rotations_reduce_crossings_without_reordering_taxa_by_hand() {
+        let left = Tree::parse_newick("((A,B),(C,D));").unwrap();
+        let right = Tree::parse_newick("((B,A),(D,C));").unwrap();
+        let track = TanglegramTrack::new(left, right);
+        assert_eq!(track.initial_crossings(), 2);
+
+        let track = track.untangle();
+        assert_eq!(track.crossings(), 0);
+        assert_eq!(track.crossing_reduction(), 2);
+        assert_eq!(track.shared(), vec!["A", "B", "C", "D"]);
+
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(svg.contains("2 → 0 crossings"), "{svg}");
+    }
+
+    #[test]
+    fn annotations_colour_ties_and_report_disagreement_exactly() {
+        let left = Tree::parse_annotated_newick(
+            "((A[&country=Peru],B[&country=Spain]),(C[&country=Peru],D[&country=Spain]));",
+        )
+        .unwrap();
+        let right = Tree::parse_annotated_newick(
+            "((A[&country=Peru],C[&country=Peru]),(B[&country=Kenya],D[&country=Spain]));",
+        )
+        .unwrap();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TanglegramTrack::new(left, right).color_by("country"))
+            .to_svg();
+        assert!(svg.contains("left country Spain; right country Kenya"));
+        assert!(svg.contains("annotation mismatch"));
+        assert!(svg.contains("stroke-dasharray"));
+    }
+
+    #[test]
+    fn ribbons_and_one_sided_labels_are_available_for_dense_comparisons() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                disagreeing()
+                    .tie_style(TangleTieStyle::Ribbon)
+                    .labels(TangleLabels::Left),
+            )
+            .to_svg();
+        assert!(svg.contains("fill-opacity"), "the tie is not a ribbon");
+        assert_eq!(svg.matches(">A</text>").count(), 1, "{svg}");
+        assert!(!svg.contains("NaN"));
     }
 }

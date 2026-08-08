@@ -81,7 +81,7 @@ pub use split::{SplitRead, SplitReadTrack, SplitSegment};
 pub use squiggle::{Move, SquiggleTrack};
 pub use structural::{StructuralTrack, StructuralVariant, SvKind};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
-pub use tanglegram::TanglegramTrack;
+pub use tanglegram::{TangleLabels, TangleTieStyle, TanglegramTrack};
 pub use transcript::{Terminator, TranscriptionUnit, TranscriptionUnitTrack};
 pub use tree::{RadialDirection, TraitColumn, TraitScale, TreeProjection, TreeShape, TreeTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
