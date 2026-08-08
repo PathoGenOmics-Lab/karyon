@@ -471,7 +471,14 @@ pub struct TreeTrack {
     show_nodes: bool,
     support_style: SupportStyle,
     support_threshold: f64,
+    branch_labels: Option<BranchLabels>,
     trait_columns: Vec<TraitColumn>,
+}
+
+#[derive(Debug, Clone)]
+struct BranchLabels {
+    key: String,
+    size: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -530,6 +537,7 @@ impl TreeTrack {
             show_nodes: false,
             support_style: SupportStyle::None,
             support_threshold: 0.0,
+            branch_labels: None,
             trait_columns: Vec::new(),
         }
     }
@@ -736,6 +744,28 @@ impl TreeTrack {
         self
     }
 
+    /// Labels each incoming branch with its own annotation `key`.
+    ///
+    /// Unlike [`TreeTrack::color_by`], values are not inherited from ancestor
+    /// nodes. This makes the method suitable for mutations, gains, losses and
+    /// other events that belong to one branch. Long text is fitted to the
+    /// available segment while the complete value remains in its tooltip.
+    pub fn branch_labels(mut self, key: impl Into<String>) -> Self {
+        self.branch_labels = Some(BranchLabels {
+            key: key.into(),
+            size: 8.0,
+        });
+        self
+    }
+
+    /// Sets the font size of labels created by [`TreeTrack::branch_labels`].
+    pub fn branch_label_size(mut self, size: f64) -> Self {
+        if let Some(labels) = &mut self.branch_labels {
+            labels.size = finite_between(size, 5.0, 18.0, 8.0);
+        }
+        self
+    }
+
     /// Adds one metadata strip aligned to the visible terminal taxa.
     pub fn trait_column(mut self, column: TraitColumn) -> Self {
         self.trait_columns.push(column);
@@ -848,6 +878,7 @@ impl TreeTrack {
             self.show_nodes,
             self.support_style,
             self.support_threshold,
+            self.branch_labels.as_ref(),
             !self.show_tips,
         );
 
@@ -1139,6 +1170,10 @@ fn draw_radial_branches(
             &track.tree,
             placement.node,
             track.color_by.as_deref(),
+            track
+                .branch_labels
+                .as_ref()
+                .map(|labels| labels.key.as_str()),
             !track.show_tips,
             false,
         );
@@ -1149,6 +1184,9 @@ fn draw_radial_branches(
             .line(x0, y0, x1, y1, &colors[placement.node], track.line_width);
         if title.is_some() {
             ctx.svg.end_group();
+        }
+        if let Some(labels) = &track.branch_labels {
+            draw_branch_annotation(ctx, &track.tree, placement.node, labels, (x0, y0), (x1, y1));
         }
     }
 
@@ -1172,6 +1210,7 @@ fn draw_radial_branches(
                 &track.tree,
                 placement.node,
                 track.color_by.as_deref(),
+                None,
                 false,
                 true,
             );
@@ -1999,6 +2038,10 @@ fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
             &track.tree,
             owner,
             track.color_by.as_deref(),
+            track
+                .branch_labels
+                .as_ref()
+                .map(|labels| labels.key.as_str()),
             !track.show_tips && scene.terminals.contains(node),
             true,
         );
@@ -2011,6 +2054,9 @@ fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
             .line(x0, y0, x1, y1, &colors[owner], track.line_width);
         if title.is_some() {
             ctx.svg.end_group();
+        }
+        if let Some(labels) = &track.branch_labels {
+            draw_branch_annotation(ctx, &track.tree, owner, labels, (x0, y0), (x1, y1));
         }
     }
 
@@ -2371,6 +2417,49 @@ fn draw_support(
     }
 }
 
+fn draw_branch_annotation(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    labels: &BranchLabels,
+    start: (f64, f64),
+    end: (f64, f64),
+) {
+    let Some(value) = tree.annotation(node, &labels.key) else {
+        return;
+    };
+    let exact = value.to_string();
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let length = dx.hypot(dy);
+    let visible = fit_text(&exact, (length - 6.0).max(0.0), labels.size);
+    if visible.is_empty() {
+        return;
+    }
+    let angle = dy.atan2(dx);
+    let mut rotation = angle.to_degrees().rem_euclid(360.0);
+    if rotation > 90.0 && rotation < 270.0 {
+        rotation += 180.0;
+    }
+    let offset = labels.size * 0.55 + 1.0;
+    let x = (start.0 + end.0) / 2.0 + angle.sin() * offset;
+    let y = (start.1 + end.1) / 2.0 - angle.cos() * offset;
+    if visible != exact {
+        ctx.svg.begin_titled(&format!("{} {exact}", labels.key));
+    }
+    ctx.svg.text_rotated(
+        (x, y),
+        rotation,
+        &visible,
+        &ctx.theme.muted,
+        labels.size,
+        crate::svg::Anchor::Middle,
+    );
+    if visible != exact {
+        ctx.svg.end_group();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_tree_scene(
     ctx: &mut DrawContext<'_>,
@@ -2384,6 +2473,7 @@ fn draw_tree_scene(
     show_nodes: bool,
     support_style: SupportStyle,
     support_threshold: f64,
+    branch_labels: Option<&BranchLabels>,
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
@@ -2400,13 +2490,23 @@ fn draw_tree_scene(
         let x0 = scene.x(area, parent_placement.depth);
         let x1 = scene.x(area, placement.depth);
         let y = y_of(placement.row);
-        let title = branch_title(tree, placement.node, color_by, name_leaves, false);
+        let title = branch_title(
+            tree,
+            placement.node,
+            color_by,
+            branch_labels.map(|labels| labels.key.as_str()),
+            name_leaves,
+            false,
+        );
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
         ctx.svg.line(x0, y, x1, y, &colors[placement.node], width);
         if title.is_some() {
             ctx.svg.end_group();
+        }
+        if let Some(labels) = branch_labels {
+            draw_branch_annotation(ctx, tree, placement.node, labels, (x0, y), (x1, y));
         }
     }
 
@@ -2427,7 +2527,7 @@ fn draw_tree_scene(
             (lo.min(*row), hi.max(*row))
         });
         let x = scene.x(area, placement.depth);
-        let title = branch_title(tree, placement.node, color_by, false, true);
+        let title = branch_title(tree, placement.node, color_by, None, false, true);
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
@@ -2578,6 +2678,7 @@ fn branch_title(
     tree: &Tree,
     node: usize,
     color_by: Option<&str>,
+    branch_label: Option<&str>,
     name_leaf: bool,
     include_support: bool,
 ) -> Option<String> {
@@ -2597,6 +2698,11 @@ fn branch_title(
     }
     if let Some(key) = color_by {
         if let Some(value) = inherited_annotation(tree, node, key) {
+            parts.push(format!("{key} {value}"));
+        }
+    }
+    if let Some(key) = branch_label.filter(|key| Some(*key) != color_by) {
+        if let Some(value) = tree.annotation(node, key) {
             parts.push(format!("{key} {value}"));
         }
     }
@@ -2929,6 +3035,30 @@ mod tests {
                 .to_svg();
             assert!(!filtered.contains(">0.9</text>"), "{filtered}");
             assert!(filtered.contains("clade support 0.9"), "{filtered}");
+        }
+    }
+
+    #[test]
+    fn branch_event_labels_are_direct_exact_and_projection_independent() {
+        let event_tree = Tree::parse_annotated_newick(
+            "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",
+        )
+        .unwrap();
+        for track in [
+            TreeTrack::new(event_tree.clone()),
+            TreeTrack::new(event_tree.clone()).circular(),
+            TreeTrack::new(event_tree.clone()).unrooted(),
+        ] {
+            let svg = Figure::new(region())
+                .width(640.0)
+                .show_region_label(false)
+                .push(track.branch_labels("event").branch_label_size(6.0))
+                .to_svg();
+            for event in ["S_D614G", "N_R203K"] {
+                assert!(svg.contains(&format!(">{event}</text>")), "{svg}");
+                assert!(svg.contains(&format!("event {event}")), "{svg}");
+            }
+            assert_eq!(svg.matches(">S_D614G</text>").count(), 1, "{svg}");
         }
     }
 
