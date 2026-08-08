@@ -52,7 +52,8 @@ jobs:
         run: |
           for example in association circular gallery genomewide ideogram \
                          locus logo msa niche pangenome pileup reading \
-                         selection shapes snps synteny visual_system; do
+                         phylogenetics selection shapes snps synteny \
+                         visual_system; do
             cargo run --example "$example" -- assets
           done
       - name: Fail if the committed figures are stale

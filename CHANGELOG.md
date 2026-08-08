@@ -76,6 +76,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Tree`, `Clade` and `Placement` at the crate root. `TreeTrack`, `CladeTrack`
   and `TanglegramTrack` were re-exported there and all three take a `Tree`,
   which was not.
+- Typed phylogenetic annotations through `parse_annotated_newick` and
+  `parse_nexus`, including BEAST, NHX, rootedness markers and Nexus translation
+  tables. `Tree` now exposes MRCA, ancestor and descendant queries, rotation,
+  ladderising, internal-node rerooting, subtree extraction and collapse.
+- Dated `TreeTrack` layouts, metadata-driven branch colours, visible internal
+  nodes, non-destructive clade triangles and categorical or continuous trait
+  columns aligned to the terminal taxa. The synthetic surveillance example is
+  a committed visual regression target for the complete composition.
 - `From<Error> for std::io::Error`. A program that draws figures spends its
   errors on writing files, so its functions return `io::Result`, and the one
   call that parses a region was the only thing in such a function that could

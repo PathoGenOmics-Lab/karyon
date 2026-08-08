@@ -20,9 +20,10 @@
 //! The format writes support values and internal names in the same place, so
 //! the parser decides: a label that reads as a number becomes
 //! [`Clade::support`], anything else becomes [`Clade::name`], and there is no
-//! switch to ask for the other reading. Everything in square brackets is
-//! dropped, and that is not tidiness: a `[&R]` rootedness marker read as a name
-//! is a second root, and one of those fails the whole file.
+//! switch to ask for the other reading. [`Tree::parse_newick`] discards square
+//! bracket comments for compatibility, while [`Tree::parse_annotated_newick`]
+//! preserves BEAST and NHX values as typed annotations. A `[&R]` or `[&U]`
+//! prefix is stored as rootedness rather than mistaken for another node.
 //!
 //! # One layout, two ways of measuring depth
 //!
@@ -33,7 +34,76 @@
 //! between them, and a parent always sits between its children, so a panel
 //! sorted by [`Tree::leaves`] lines up either way.
 
+use std::collections::BTreeMap;
+use std::fmt;
+
 use crate::error::Error;
+
+/// One typed value attached to a phylogenetic node or to the tree itself.
+///
+/// Annotated Newick written by BEAST commonly carries numbers, booleans,
+/// strings and brace-delimited lists. Keeping those distinctions here avoids
+/// making every renderer parse the same text again.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnnotationValue {
+    /// Free text, including values whose syntax is not one of the types below.
+    Text(String),
+    /// A finite numeric value.
+    Number(f64),
+    /// A true or false flag.
+    Boolean(bool),
+    /// An ordered brace-delimited collection.
+    List(Vec<AnnotationValue>),
+}
+
+impl AnnotationValue {
+    /// The value as a number when it was numeric.
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            AnnotationValue::Number(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// The value as text when it was textual.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            AnnotationValue::Text(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// The value as a boolean when it was a flag.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            AnnotationValue::Boolean(value) => Some(*value),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for AnnotationValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AnnotationValue::Text(value) => f.write_str(value),
+            AnnotationValue::Number(value) => write!(f, "{value}"),
+            AnnotationValue::Boolean(value) => write!(f, "{value}"),
+            AnnotationValue::List(values) => {
+                f.write_str("{")?;
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str(",")?;
+                    }
+                    write!(f, "{value}")?;
+                }
+                f.write_str("}")
+            }
+        }
+    }
+}
+
+/// Stable, ordered annotations keyed by their source name.
+pub type Annotations = BTreeMap<String, AnnotationValue>;
 
 /// One node of a tree, internal or a leaf.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +139,16 @@ pub struct Placement {
     pub row: f64,
 }
 
+/// Direction in which calendar or height values run from root to tips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeDirection {
+    /// Dates increase towards the tips, as decimal calendar years do.
+    #[default]
+    Increasing,
+    /// Values decrease towards the tips, as heights before present do.
+    Decreasing,
+}
+
 /// A rooted phylogeny.
 ///
 /// Nodes live in one flat list and refer to each other by index, so a tree can
@@ -85,6 +165,9 @@ pub struct Placement {
 pub struct Tree {
     nodes: Vec<Clade>,
     root: usize,
+    annotations: Vec<Annotations>,
+    tree_annotations: Annotations,
+    rooted: Option<bool>,
 }
 
 impl Tree {
@@ -110,178 +193,27 @@ impl Tree {
     /// Returns [`Error::InvalidNewick`] for unbalanced parentheses, a stray
     /// comma, a branch length that is not a number, or an empty string.
     pub fn parse_newick(input: &str) -> Result<Self, Error> {
-        let text = input.trim().trim_end_matches(';').trim();
-        if text.is_empty() {
-            return Err(Error::InvalidNewick {
-                reason: "empty tree",
-            });
-        }
+        parse_newick_impl(input, false)
+    }
 
-        let mut nodes: Vec<Clade> = Vec::new();
-        let mut stack: Vec<usize> = Vec::new();
-        let mut current: Option<usize> = None;
-        let mut chars = text.chars().peekable();
+    /// Reads Newick while preserving BEAST, NHX and ordinary comments.
+    ///
+    /// BEAST fields such as `[&height=12.4,location="Peru"]` and NHX fields
+    /// such as `[&&NHX:S=human:B=95]` are attached to the node immediately
+    /// before them. Prefix markers `[&R]` and `[&U]` set [`Tree::rooted`].
+    /// [`Tree::parse_newick`] remains the compatibility parser and deliberately
+    /// discards comments.
+    pub fn parse_annotated_newick(input: &str) -> Result<Self, Error> {
+        parse_newick_impl(input, true)
+    }
 
-        let new_node = |nodes: &mut Vec<Clade>, parent: Option<usize>| -> usize {
-            nodes.push(Clade {
-                name: None,
-                branch_length: None,
-                support: None,
-                children: Vec::new(),
-                parent,
-            });
-            let index = nodes.len() - 1;
-            if let Some(parent) = parent {
-                nodes[parent].children.push(index);
-            }
-            index
-        };
-
-        while let Some(c) = chars.next() {
-            match c {
-                '(' => {
-                    let parent = stack.last().copied();
-                    if parent.is_none() && !nodes.is_empty() {
-                        return Err(Error::InvalidNewick {
-                            reason: "more than one root",
-                        });
-                    }
-                    let index = new_node(&mut nodes, parent);
-                    stack.push(index);
-                    current = None;
-                }
-                ')' => {
-                    // An empty slot just before the clade closes is an unnamed
-                    // leaf, which the format allows and which has to be
-                    // materialised or the tip is lost.
-                    if let (None, Some(parent)) = (current, stack.last().copied()) {
-                        new_node(&mut nodes, Some(parent));
-                    }
-                    let closed = stack.pop().ok_or(Error::InvalidNewick {
-                        reason: "unbalanced parentheses",
-                    })?;
-                    current = Some(closed);
-                }
-                ',' => {
-                    if stack.is_empty() {
-                        return Err(Error::InvalidNewick {
-                            reason: "comma outside any clade",
-                        });
-                    }
-                    // Likewise for an empty slot before the comma: nothing
-                    // between two delimiters is a tip without a name.
-                    if current.is_none() {
-                        new_node(&mut nodes, stack.last().copied());
-                    }
-                    current = None;
-                }
-                ':' => {
-                    let mut number = String::new();
-                    while let Some(next) = chars.peek() {
-                        if next.is_ascii_digit() || matches!(next, '.' | '-' | '+' | 'e' | 'E') {
-                            number.push(*next);
-                            chars.next();
-                        } else {
-                            break;
-                        }
-                    }
-                    let length = number.parse::<f64>().map_err(|_| Error::InvalidNewick {
-                        reason: "branch length is not a number",
-                    })?;
-                    // A length on an empty slot belongs to the unnamed leaf
-                    // that slot stands for, not to the clade around it.
-                    let target = match current {
-                        Some(index) => index,
-                        None => {
-                            let parent = stack.last().copied().ok_or(Error::InvalidNewick {
-                                reason: "branch length with nothing to attach to",
-                            })?;
-                            let index = new_node(&mut nodes, Some(parent));
-                            current = Some(index);
-                            index
-                        }
-                    };
-                    nodes[target].branch_length = Some(length);
-                }
-                '[' => {
-                    // A comment. Newick does not nest them, so the first
-                    // closing bracket ends it; an unclosed one runs to the end
-                    // rather than swallowing the tree as a name.
-                    for next in chars.by_ref() {
-                        if next == ']' {
-                            break;
-                        }
-                    }
-                }
-                c if c.is_whitespace() => {}
-                _ => {
-                    // A name: either a leaf being introduced, or the label of
-                    // the clade that just closed.
-                    let mut name = String::new();
-                    let quoted = c == '\'' || c == '"';
-                    if !quoted {
-                        name.push(c);
-                    }
-                    let quote = c;
-                    while let Some(next) = chars.peek() {
-                        if quoted {
-                            if *next == quote {
-                                chars.next();
-                                // A doubled quote is how the standard writes
-                                // one literal quote inside a quoted label, so
-                                // it is part of the name, not the end of it.
-                                if chars.peek() == Some(&quote) {
-                                    name.push(quote);
-                                    chars.next();
-                                    continue;
-                                }
-                                break;
-                            }
-                            name.push(*next);
-                            chars.next();
-                        } else if matches!(*next, '(' | ')' | ',' | ':' | ';' | '[') {
-                            break;
-                        } else {
-                            name.push(*next);
-                            chars.next();
-                        }
-                    }
-                    let name = name.trim().to_string();
-
-                    match current {
-                        // A label following a closed clade is its support or
-                        // its name, not a new leaf.
-                        Some(index) if !nodes[index].is_leaf() => match name.parse::<f64>() {
-                            Ok(support) => nodes[index].support = Some(support),
-                            Err(_) => nodes[index].name = Some(name),
-                        },
-                        _ => {
-                            let parent = stack.last().copied();
-                            if parent.is_none() && !nodes.is_empty() {
-                                return Err(Error::InvalidNewick {
-                                    reason: "more than one root",
-                                });
-                            }
-                            let index = new_node(&mut nodes, parent);
-                            nodes[index].name = Some(name);
-                            current = Some(index);
-                        }
-                    }
-                }
-            }
-        }
-
-        if !stack.is_empty() {
-            return Err(Error::InvalidNewick {
-                reason: "unbalanced parentheses",
-            });
-        }
-        if nodes.is_empty() {
-            return Err(Error::InvalidNewick {
-                reason: "empty tree",
-            });
-        }
-        Ok(Tree { nodes, root: 0 })
+    /// Reads the first tree from a Nexus `trees` block.
+    ///
+    /// A `translate` table is applied to leaf labels and annotations on the
+    /// Newick expression are preserved. This intentionally reads the portable
+    /// tree subset rather than trying to interpret arbitrary Nexus data blocks.
+    pub fn parse_nexus(input: &str) -> Result<Self, Error> {
+        parse_nexus(input)
     }
 
     /// The nodes, in the order they were parsed.
@@ -292,6 +224,45 @@ impl Tree {
     /// Index of the root.
     pub fn root(&self) -> usize {
         self.root
+    }
+
+    /// Annotations attached to `node`, or `None` when the index is absent.
+    pub fn annotations(&self, node: usize) -> Option<&Annotations> {
+        self.annotations.get(node)
+    }
+
+    /// Mutable annotations for `node`, for metadata assembled in Rust.
+    pub fn annotations_mut(&mut self, node: usize) -> Option<&mut Annotations> {
+        self.annotations.get_mut(node)
+    }
+
+    /// One annotation attached to `node`.
+    pub fn annotation(&self, node: usize, key: &str) -> Option<&AnnotationValue> {
+        self.annotations(node)?.get(key)
+    }
+
+    /// Annotations carried by the tree rather than by one node.
+    pub fn tree_annotations(&self) -> &Annotations {
+        &self.tree_annotations
+    }
+
+    /// Mutable annotations carried by the whole tree.
+    pub fn tree_annotations_mut(&mut self) -> &mut Annotations {
+        &mut self.tree_annotations
+    }
+
+    /// Whether the source explicitly marked the tree as rooted or unrooted.
+    ///
+    /// Plain Newick generally carries no such declaration and returns `None`.
+    pub fn rooted(&self) -> Option<bool> {
+        self.rooted
+    }
+
+    /// Finds the first node with the exact `name`.
+    pub fn node_named(&self, name: &str) -> Option<usize> {
+        self.nodes
+            .iter()
+            .position(|node| node.name.as_deref() == Some(name))
     }
 
     /// Leaf indices, left to right as the tree is drawn.
@@ -323,7 +294,175 @@ impl Tree {
 
     /// How many leaves the tree has.
     pub fn leaf_count(&self) -> usize {
-        self.nodes.iter().filter(|node| node.is_leaf()).count()
+        self.leaves().len()
+    }
+
+    /// Ancestors of `node`, from its parent back to the root.
+    pub fn ancestors(&self, node: usize) -> Vec<usize> {
+        let mut ancestors = Vec::new();
+        let mut current = self.nodes.get(node).and_then(|clade| clade.parent);
+        while let Some(index) = current {
+            ancestors.push(index);
+            current = self.nodes[index].parent;
+        }
+        ancestors
+    }
+
+    /// Descendants of `node` in drawn order, excluding `node` itself.
+    pub fn descendants(&self, node: usize) -> Vec<usize> {
+        let Some(clade) = self.nodes.get(node) else {
+            return Vec::new();
+        };
+        let mut descendants = Vec::new();
+        let mut stack: Vec<usize> = clade.children.iter().rev().copied().collect();
+        while let Some(index) = stack.pop() {
+            descendants.push(index);
+            for child in self.nodes[index].children.iter().rev() {
+                stack.push(*child);
+            }
+        }
+        descendants
+    }
+
+    /// Number of leaves below `node`, counting the node when it is a leaf.
+    pub fn clade_size(&self, node: usize) -> usize {
+        let Some(clade) = self.nodes.get(node) else {
+            return 0;
+        };
+        if clade.is_leaf() {
+            1
+        } else {
+            self.descendants(node)
+                .into_iter()
+                .filter(|index| self.nodes[*index].is_leaf())
+                .count()
+        }
+    }
+
+    /// Most recent common ancestor of every node in `nodes`.
+    ///
+    /// Returns `None` for an empty list or an index outside this tree.
+    pub fn mrca(&self, nodes: &[usize]) -> Option<usize> {
+        let first = *nodes.first()?;
+        self.nodes.get(first)?;
+        let mut candidates = vec![first];
+        candidates.extend(self.ancestors(first));
+        candidates.into_iter().find(|candidate| {
+            nodes.iter().skip(1).all(|node| {
+                self.nodes.get(*node).is_some()
+                    && (*node == *candidate || self.ancestors(*node).contains(candidate))
+            })
+        })
+    }
+
+    /// Reverses the child order of one internal node.
+    ///
+    /// A rotation changes how a tree is drawn but not the clades it contains.
+    pub fn rotate(&mut self, node: usize) -> bool {
+        let Some(clade) = self.nodes.get_mut(node) else {
+            return false;
+        };
+        if clade.children.len() < 2 {
+            return false;
+        }
+        clade.children.reverse();
+        true
+    }
+
+    /// Orders every split by the number of descendant leaves.
+    ///
+    /// With `largest_first`, the largest clade is drawn first. Equal clades
+    /// keep their source order, so repeated calls are deterministic.
+    pub fn ladderize(&mut self, largest_first: bool) {
+        let mut sizes = vec![0usize; self.nodes.len()];
+        for node in self.postorder() {
+            sizes[node] = if self.nodes[node].is_leaf() {
+                1
+            } else {
+                self.nodes[node]
+                    .children
+                    .iter()
+                    .map(|child| sizes[*child])
+                    .sum()
+            };
+        }
+        for clade in &mut self.nodes {
+            if largest_first {
+                clade
+                    .children
+                    .sort_by(|left, right| sizes[*right].cmp(&sizes[*left]));
+            } else {
+                clade
+                    .children
+                    .sort_by(|left, right| sizes[*left].cmp(&sizes[*right]));
+            }
+        }
+    }
+
+    /// Reorients the tree around internal `node`, preserving every undirected edge.
+    ///
+    /// Branch lengths stay on their edge when its direction changes. The new
+    /// root has no incoming branch length. A leaf is refused because turning a
+    /// sampled tip into an internal root would silently remove it from the tip set.
+    pub fn reroot(&mut self, node: usize) -> bool {
+        let Some(target) = self.nodes.get(node) else {
+            return false;
+        };
+        if target.is_leaf() && self.nodes.len() > 1 {
+            return false;
+        }
+        let mut adjacency: Vec<Vec<(usize, Option<f64>)>> = vec![Vec::new(); self.nodes.len()];
+        for (child, clade) in self.nodes.iter().enumerate() {
+            if let Some(parent) = clade.parent {
+                adjacency[parent].push((child, clade.branch_length));
+                adjacency[child].push((parent, clade.branch_length));
+            }
+        }
+        for clade in &mut self.nodes {
+            clade.parent = None;
+            clade.children.clear();
+        }
+        let mut stack = vec![(node, None, None)];
+        while let Some((current, parent, length)) = stack.pop() {
+            self.nodes[current].parent = parent;
+            self.nodes[current].branch_length = length;
+            if let Some(parent) = parent {
+                self.nodes[parent].children.push(current);
+            }
+            for (next, edge) in adjacency[current].iter().rev() {
+                if Some(*next) != parent {
+                    stack.push((*next, Some(current), *edge));
+                }
+            }
+        }
+        self.root = node;
+        self.rooted = Some(true);
+        true
+    }
+
+    /// Copies the clade rooted at `node` into a standalone tree.
+    pub fn subtree(&self, node: usize) -> Option<Tree> {
+        self.extract(node)
+    }
+
+    /// Replaces the descendants of `node` with one terminal clade.
+    ///
+    /// The selected node keeps its name, annotations and incoming branch.
+    /// This is a data operation; [`TreeTrack`](crate::TreeTrack) also supports
+    /// non-destructive visual collapsing.
+    pub fn collapse(&mut self, node: usize) -> bool {
+        let Some(clade) = self.nodes.get_mut(node) else {
+            return false;
+        };
+        if clade.children.is_empty() {
+            return false;
+        }
+        clade.children.clear();
+        let Some(compact) = self.extract(self.root) else {
+            return false;
+        };
+        *self = compact;
+        true
     }
 
     /// Every node placed at a depth and a row.
@@ -383,6 +522,60 @@ impl Tree {
             .collect()
     }
 
+    /// Places nodes by a numeric annotation such as `date` or `height`.
+    ///
+    /// Every tip must carry `key`. An unannotated internal node is inferred
+    /// from its children and their branch lengths, subtracting lengths for
+    /// [`TimeDirection::Increasing`] and adding them for `Decreasing`.
+    /// Returns `None` when a tip is missing a finite value.
+    pub fn time_layout(&self, key: &str, direction: TimeDirection) -> Option<Vec<Placement>> {
+        let rows = self.layout(false);
+        let mut values: Vec<Option<f64>> = (0..self.nodes.len())
+            .map(|node| {
+                self.annotation(node, key)
+                    .and_then(AnnotationValue::as_number)
+            })
+            .collect();
+        if self
+            .leaves()
+            .iter()
+            .any(|node| values[*node].map_or(true, |value| !value.is_finite()))
+        {
+            return None;
+        }
+        for node in self.postorder() {
+            if values[node].is_some() || self.nodes[node].is_leaf() {
+                continue;
+            }
+            let estimates: Vec<f64> = self.nodes[node]
+                .children
+                .iter()
+                .filter_map(|child| {
+                    let value = values[*child]?;
+                    let branch = self.nodes[*child].branch_length.unwrap_or(0.0).max(0.0);
+                    Some(match direction {
+                        TimeDirection::Increasing => value - branch,
+                        TimeDirection::Decreasing => value + branch,
+                    })
+                })
+                .collect();
+            if !estimates.is_empty() {
+                values[node] = Some(estimates.iter().sum::<f64>() / estimates.len() as f64);
+            }
+        }
+        if values.iter().any(Option::is_none) {
+            return None;
+        }
+        Some(
+            rows.into_iter()
+                .map(|placement| Placement {
+                    depth: values[placement.node].unwrap_or(0.0),
+                    ..placement
+                })
+                .collect(),
+        )
+    }
+
     /// The deepest leaf, in whatever units the layout used.
     pub fn max_depth(&self, cladogram: bool) -> f64 {
         self.layout(cladogram)
@@ -390,6 +583,50 @@ impl Tree {
             .filter(|placement| self.nodes[placement.node].is_leaf())
             .map(|placement| placement.depth)
             .fold(0.0f64, f64::max)
+    }
+
+    fn extract(&self, root: usize) -> Option<Tree> {
+        self.nodes.get(root)?;
+        let mut order = vec![root];
+        order.extend(self.descendants(root));
+        let mut mapping = vec![None; self.nodes.len()];
+        for (new, old) in order.iter().enumerate() {
+            mapping[*old] = Some(new);
+        }
+
+        let mut nodes = Vec::with_capacity(order.len());
+        let mut annotations = Vec::with_capacity(order.len());
+        for old in order {
+            let source = &self.nodes[old];
+            let parent = if old == root {
+                None
+            } else {
+                source.parent.and_then(|parent| mapping[parent])
+            };
+            nodes.push(Clade {
+                name: source.name.clone(),
+                branch_length: if old == root {
+                    None
+                } else {
+                    source.branch_length
+                },
+                support: source.support,
+                children: source
+                    .children
+                    .iter()
+                    .filter_map(|child| mapping[*child])
+                    .collect(),
+                parent,
+            });
+            annotations.push(self.annotations[old].clone());
+        }
+        Some(Tree {
+            nodes,
+            root: 0,
+            annotations,
+            tree_annotations: self.tree_annotations.clone(),
+            rooted: self.rooted,
+        })
     }
 
     /// Node indices with every child before its parent.
@@ -403,6 +640,405 @@ impl Tree {
         out.reverse();
         out
     }
+}
+
+fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Result<Tree, Error> {
+    let text = input.trim().trim_end_matches(';').trim();
+    if text.is_empty() {
+        return Err(Error::InvalidNewick {
+            reason: "empty tree",
+        });
+    }
+
+    let mut nodes: Vec<Clade> = Vec::new();
+    let mut annotations: Vec<Annotations> = Vec::new();
+    let mut tree_annotations = Annotations::new();
+    let mut rooted = None;
+    let mut stack: Vec<usize> = Vec::new();
+    let mut current: Option<usize> = None;
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '(' => {
+                let parent = stack.last().copied();
+                if parent.is_none() && !nodes.is_empty() {
+                    return Err(Error::InvalidNewick {
+                        reason: "more than one root",
+                    });
+                }
+                let index = add_node(&mut nodes, &mut annotations, parent);
+                stack.push(index);
+                current = None;
+            }
+            ')' => {
+                if let (None, Some(parent)) = (current, stack.last().copied()) {
+                    add_node(&mut nodes, &mut annotations, Some(parent));
+                }
+                let closed = stack.pop().ok_or(Error::InvalidNewick {
+                    reason: "unbalanced parentheses",
+                })?;
+                current = Some(closed);
+            }
+            ',' => {
+                if stack.is_empty() {
+                    return Err(Error::InvalidNewick {
+                        reason: "comma outside any clade",
+                    });
+                }
+                if current.is_none() {
+                    add_node(&mut nodes, &mut annotations, stack.last().copied());
+                }
+                current = None;
+            }
+            ':' => {
+                let mut number = String::new();
+                while let Some(next) = chars.peek() {
+                    if next.is_ascii_digit() || matches!(next, '.' | '-' | '+' | 'e' | 'E') {
+                        number.push(*next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let length = number.parse::<f64>().map_err(|_| Error::InvalidNewick {
+                    reason: "branch length is not a number",
+                })?;
+                let target = match current {
+                    Some(index) => index,
+                    None => {
+                        let parent = stack.last().copied().ok_or(Error::InvalidNewick {
+                            reason: "branch length with nothing to attach to",
+                        })?;
+                        let index = add_node(&mut nodes, &mut annotations, Some(parent));
+                        current = Some(index);
+                        index
+                    }
+                };
+                nodes[target].branch_length = Some(length);
+            }
+            '[' => {
+                let mut comment = String::new();
+                for next in chars.by_ref() {
+                    if next == ']' {
+                        break;
+                    }
+                    comment.push(next);
+                }
+                if preserve_annotations {
+                    let (root_marker, fields) = parse_comment(&comment);
+                    if let Some(value) = root_marker {
+                        rooted = Some(value);
+                    }
+                    if let Some(node) = current {
+                        annotations[node].extend(fields);
+                    } else {
+                        tree_annotations.extend(fields);
+                    }
+                }
+            }
+            c if c.is_whitespace() => {}
+            _ => {
+                let mut name = String::new();
+                let quoted = c == '\'' || c == '"';
+                if !quoted {
+                    name.push(c);
+                }
+                let quote = c;
+                while let Some(next) = chars.peek() {
+                    if quoted {
+                        if *next == quote {
+                            chars.next();
+                            if chars.peek() == Some(&quote) {
+                                name.push(quote);
+                                chars.next();
+                                continue;
+                            }
+                            break;
+                        }
+                        name.push(*next);
+                        chars.next();
+                    } else if matches!(*next, '(' | ')' | ',' | ':' | ';' | '[') {
+                        break;
+                    } else {
+                        name.push(*next);
+                        chars.next();
+                    }
+                }
+                let name = name.trim().to_string();
+
+                match current {
+                    Some(index) if !nodes[index].is_leaf() => match name.parse::<f64>() {
+                        Ok(support) => nodes[index].support = Some(support),
+                        Err(_) => nodes[index].name = Some(name),
+                    },
+                    _ => {
+                        let parent = stack.last().copied();
+                        if parent.is_none() && !nodes.is_empty() {
+                            return Err(Error::InvalidNewick {
+                                reason: "more than one root",
+                            });
+                        }
+                        let index = add_node(&mut nodes, &mut annotations, parent);
+                        nodes[index].name = Some(name);
+                        current = Some(index);
+                    }
+                }
+            }
+        }
+    }
+
+    if !stack.is_empty() {
+        return Err(Error::InvalidNewick {
+            reason: "unbalanced parentheses",
+        });
+    }
+    if nodes.is_empty() {
+        return Err(Error::InvalidNewick {
+            reason: "empty tree",
+        });
+    }
+    Ok(Tree {
+        nodes,
+        root: 0,
+        annotations,
+        tree_annotations,
+        rooted,
+    })
+}
+
+fn add_node(
+    nodes: &mut Vec<Clade>,
+    annotations: &mut Vec<Annotations>,
+    parent: Option<usize>,
+) -> usize {
+    nodes.push(Clade {
+        name: None,
+        branch_length: None,
+        support: None,
+        children: Vec::new(),
+        parent,
+    });
+    annotations.push(Annotations::new());
+    let index = nodes.len() - 1;
+    if let Some(parent) = parent {
+        nodes[parent].children.push(index);
+    }
+    index
+}
+
+fn parse_comment(comment: &str) -> (Option<bool>, Annotations) {
+    let text = comment.trim();
+    if text.eq_ignore_ascii_case("&R") {
+        return (Some(true), Annotations::new());
+    }
+    if text.eq_ignore_ascii_case("&U") {
+        return (Some(false), Annotations::new());
+    }
+
+    let mut annotations = Annotations::new();
+    if let Some(body) = text.strip_prefix("&&NHX:") {
+        for field in split_delimited(body, ':') {
+            insert_annotation(&mut annotations, &field, '=');
+        }
+    } else if let Some(body) = text.strip_prefix('&') {
+        for field in split_delimited(body, ',') {
+            insert_annotation(&mut annotations, &field, '=');
+        }
+    } else if !text.is_empty() {
+        annotations.insert(
+            "comment".to_string(),
+            AnnotationValue::Text(text.to_string()),
+        );
+    }
+    (None, annotations)
+}
+
+fn insert_annotation(annotations: &mut Annotations, field: &str, separator: char) {
+    let field = field.trim();
+    if field.is_empty() {
+        return;
+    }
+    let (key, value) = field
+        .split_once(separator)
+        .map_or((field, "true"), |(key, value)| (key.trim(), value.trim()));
+    if !key.is_empty() {
+        annotations.insert(key.to_string(), parse_annotation_value(value));
+    }
+}
+
+fn parse_annotation_value(value: &str) -> AnnotationValue {
+    let value = value.trim();
+    if value.len() >= 2 {
+        let first = value.as_bytes()[0];
+        let last = value.as_bytes()[value.len() - 1];
+        if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+            return AnnotationValue::Text(value[1..value.len() - 1].to_string());
+        }
+        if first == b'{' && last == b'}' {
+            return AnnotationValue::List(
+                split_delimited(&value[1..value.len() - 1], ',')
+                    .into_iter()
+                    .map(|item| parse_annotation_value(&item))
+                    .collect(),
+            );
+        }
+    }
+    if value.eq_ignore_ascii_case("true") {
+        return AnnotationValue::Boolean(true);
+    }
+    if value.eq_ignore_ascii_case("false") {
+        return AnnotationValue::Boolean(false);
+    }
+    if let Ok(number) = value.parse::<f64>() {
+        if number.is_finite() {
+            return AnnotationValue::Number(number);
+        }
+    }
+    AnnotationValue::Text(value.to_string())
+}
+
+fn split_delimited(input: &str, delimiter: char) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut field = String::new();
+    let mut quote = None;
+    let mut braces = 0usize;
+    for character in input.chars() {
+        if let Some(active) = quote {
+            field.push(character);
+            if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                field.push(character);
+            }
+            '{' => {
+                braces += 1;
+                field.push(character);
+            }
+            '}' => {
+                braces = braces.saturating_sub(1);
+                field.push(character);
+            }
+            value if value == delimiter && braces == 0 => {
+                fields.push(field.trim().to_string());
+                field.clear();
+            }
+            _ => field.push(character),
+        }
+    }
+    if !field.trim().is_empty() {
+        fields.push(field.trim().to_string());
+    }
+    fields
+}
+
+fn parse_nexus(input: &str) -> Result<Tree, Error> {
+    let statements = nexus_statements(input);
+    let mut translation = BTreeMap::new();
+    let mut expression = None;
+
+    for statement in &statements {
+        let trimmed = statement.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("translate") {
+            let body = trimmed.get("translate".len()..).unwrap_or_default().trim();
+            for entry in split_delimited(body, ',') {
+                let split = entry.find(char::is_whitespace).ok_or(Error::InvalidNexus {
+                    reason: "a translate entry has no taxon name",
+                })?;
+                let key = entry[..split].trim();
+                let name = unquote(entry[split..].trim());
+                if key.is_empty() || name.is_empty() {
+                    return Err(Error::InvalidNexus {
+                        reason: "an empty translate entry",
+                    });
+                }
+                translation.insert(key.to_string(), name);
+            }
+        } else if lower.starts_with("tree ") || lower.starts_with("utree ") {
+            expression = trimmed
+                .split_once('=')
+                .map(|(_, tree)| tree.trim().to_string());
+            if expression.is_none() {
+                return Err(Error::InvalidNexus {
+                    reason: "a tree statement has no equals sign",
+                });
+            }
+            break;
+        }
+    }
+
+    let expression = expression.ok_or(Error::InvalidNexus {
+        reason: "no tree statement",
+    })?;
+    let mut tree = Tree::parse_annotated_newick(&expression)?;
+    for leaf in tree.leaves() {
+        let Some(name) = tree.nodes[leaf].name.as_deref() else {
+            continue;
+        };
+        if let Some(translated) = translation.get(name) {
+            tree.nodes[leaf].name = Some(translated.clone());
+        }
+    }
+    Ok(tree)
+}
+
+fn nexus_statements(input: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut statement = String::new();
+    let mut quote = None;
+    let mut bracket_depth = 0usize;
+    for character in input.chars() {
+        if let Some(active) = quote {
+            statement.push(character);
+            if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                statement.push(character);
+            }
+            '[' => {
+                bracket_depth += 1;
+                statement.push(character);
+            }
+            ']' => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                statement.push(character);
+            }
+            ';' if bracket_depth == 0 => {
+                if !statement.trim().is_empty() {
+                    statements.push(statement.trim().to_string());
+                }
+                statement.clear();
+            }
+            _ => statement.push(character),
+        }
+    }
+    if !statement.trim().is_empty() {
+        statements.push(statement.trim().to_string());
+    }
+    statements
+}
+
+fn unquote(value: &str) -> String {
+    let value = value.trim();
+    if value.len() >= 2 {
+        let first = value.as_bytes()[0];
+        let last = value.as_bytes()[value.len() - 1];
+        if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+            return value[1..value.len() - 1].replace("''", "'");
+        }
+    }
+    value.to_string()
 }
 
 #[cfg(test)]
@@ -520,6 +1156,103 @@ mod tests {
     }
 
     #[test]
+    fn annotated_newick_keeps_beast_values_and_rootedness() {
+        let tree = Tree::parse_annotated_newick(
+            "[&R] (A[&date=2024.5,location='Lima',flags={1,2},selected=true]:0.1,B:0.2);",
+        )
+        .unwrap();
+        let a = tree.node_named("A").unwrap();
+        assert_eq!(tree.rooted(), Some(true));
+        assert_eq!(
+            tree.annotation(a, "date")
+                .and_then(AnnotationValue::as_number),
+            Some(2024.5)
+        );
+        assert_eq!(
+            tree.annotation(a, "location")
+                .and_then(AnnotationValue::as_text),
+            Some("Lima")
+        );
+        assert_eq!(
+            tree.annotation(a, "selected")
+                .and_then(AnnotationValue::as_bool),
+            Some(true)
+        );
+        assert!(matches!(
+            tree.annotation(a, "flags"),
+            Some(AnnotationValue::List(values)) if values.len() == 2
+        ));
+    }
+
+    #[test]
+    fn annotations_can_be_added_after_parsing() {
+        let mut tree = Tree::parse_newick("(A,B);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        tree.annotations_mut(a)
+            .unwrap()
+            .insert("country".into(), AnnotationValue::Text("Peru".into()));
+        tree.tree_annotations_mut()
+            .insert("clock".into(), AnnotationValue::Boolean(true));
+        assert_eq!(
+            tree.annotation(a, "country")
+                .and_then(AnnotationValue::as_text),
+            Some("Peru")
+        );
+        assert_eq!(
+            tree.tree_annotations()
+                .get("clock")
+                .and_then(AnnotationValue::as_bool),
+            Some(true)
+        );
+        assert!(tree.annotations_mut(99).is_none());
+    }
+
+    #[test]
+    fn nhx_annotations_are_typed_too() {
+        let tree = Tree::parse_annotated_newick("(A[&&NHX:S=human:B=95],B);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        assert_eq!(
+            tree.annotation(a, "S").and_then(AnnotationValue::as_text),
+            Some("human")
+        );
+        assert_eq!(
+            tree.annotation(a, "B").and_then(AnnotationValue::as_number),
+            Some(95.0)
+        );
+    }
+
+    #[test]
+    fn compatibility_newick_still_discards_annotations() {
+        let tree = Tree::parse_newick("[&R] (A[&date=2024.5],B);").unwrap();
+        assert_eq!(tree.rooted(), None);
+        assert!(tree
+            .annotations(tree.node_named("A").unwrap())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn nexus_translation_and_annotations_reach_the_tree() {
+        let nexus = "#NEXUS\nBegin trees;\nTranslate 1 'sample A', 2 sample_B;\n\
+                     Tree outbreak = [&R] (1[&country=Peru]:0.1,2:0.2);\nEnd;";
+        let tree = Tree::parse_nexus(nexus).unwrap();
+        assert_eq!(tree.leaf_names(), ["sample A", "sample_B"]);
+        assert_eq!(tree.rooted(), Some(true));
+        let a = tree.node_named("sample A").unwrap();
+        assert_eq!(tree.annotation(a, "country").unwrap().to_string(), "Peru");
+    }
+
+    #[test]
+    fn nexus_without_a_tree_says_what_is_missing() {
+        assert!(matches!(
+            Tree::parse_nexus("#NEXUS\nBegin taxa; End;"),
+            Err(Error::InvalidNexus {
+                reason: "no tree statement"
+            })
+        ));
+    }
+
+    #[test]
     fn a_semicolon_is_optional_and_whitespace_is_ignored() {
         let with = Tree::parse_newick("(A:0.1,B:0.2);").unwrap();
         let without = Tree::parse_newick("  (A:0.1,\n B:0.2)  ").unwrap();
@@ -554,6 +1287,30 @@ mod tests {
         assert!((depth_of("A") - 0.4).abs() < 1e-12, "0.3 then 0.1");
         assert!((depth_of("B") - 0.5).abs() < 1e-12);
         assert!((depth_of("C") - 0.05).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_time_layout_uses_tip_dates_and_infers_internal_dates() {
+        let tree = Tree::parse_annotated_newick(
+            "((A[&date=2024.0]:2,B[&date=2025.0]:3)AB:1,C[&date=2023.0]:4);",
+        )
+        .unwrap();
+        let layout = tree.time_layout("date", TimeDirection::Increasing).unwrap();
+        let value = |name: &str| {
+            let node = tree.node_named(name).unwrap();
+            layout[node].depth
+        };
+        assert_eq!(value("A"), 2024.0);
+        assert_eq!(value("B"), 2025.0);
+        assert_eq!(value("AB"), 2022.0, "mean of 2024-2 and 2025-3");
+    }
+
+    #[test]
+    fn a_time_layout_refuses_a_tip_without_the_requested_value() {
+        let tree = Tree::parse_annotated_newick("(A[&date=2024]:1,B:1);").unwrap();
+        assert!(tree
+            .time_layout("date", TimeDirection::Increasing)
+            .is_none());
     }
 
     #[test]
@@ -598,6 +1355,86 @@ mod tests {
         let tree = Tree::parse_newick("A;").unwrap();
         assert_eq!(tree.leaf_names(), ["A"]);
         assert_eq!(tree.max_depth(true), 0.0);
+    }
+
+    #[test]
+    fn ancestors_descendants_and_mrca_agree() {
+        let tree = Tree::parse_newick("(((A,B)AB,C)ABC,D);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let b = tree.node_named("B").unwrap();
+        let c = tree.node_named("C").unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        let abc = tree.node_named("ABC").unwrap();
+        assert_eq!(tree.mrca(&[a, b]), Some(ab));
+        assert_eq!(tree.mrca(&[a, c]), Some(abc));
+        assert!(tree.ancestors(a).contains(&ab));
+        assert!(tree.descendants(abc).contains(&c));
+        assert_eq!(tree.clade_size(abc), 3);
+        assert_eq!(tree.mrca(&[]), None);
+    }
+
+    #[test]
+    fn rotating_and_ladderizing_change_only_leaf_order() {
+        let mut tree = Tree::parse_newick("((A,B,C)large,D);").unwrap();
+        let large = tree.node_named("large").unwrap();
+        assert!(tree.rotate(large));
+        assert_eq!(tree.leaf_names(), ["C", "B", "A", "D"]);
+        tree.ladderize(false);
+        assert_eq!(tree.leaf_names()[0], "D");
+        let mut sorted = tree.leaf_names();
+        sorted.sort();
+        assert_eq!(sorted, ["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn rerooting_preserves_tips_and_pairwise_distance() {
+        let mut tree = Tree::parse_newick("((A:1,B:2)AB:3,(C:4,D:5)CD:6);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let c = tree.node_named("C").unwrap();
+        let before = pair_distance(&tree, a, c);
+        let ab = tree.node_named("AB").unwrap();
+        assert!(tree.reroot(ab));
+        assert_eq!(tree.root(), ab);
+        assert_eq!(tree.rooted(), Some(true));
+        assert_eq!(pair_distance(&tree, a, c), before);
+        let mut leaves = tree.leaf_names();
+        leaves.sort();
+        assert_eq!(leaves, ["A", "B", "C", "D"]);
+        assert!(!tree.reroot(a), "a sampled tip stays a sampled tip");
+    }
+
+    #[test]
+    fn a_subtree_remaps_nodes_and_keeps_annotations() {
+        let tree =
+            Tree::parse_annotated_newick("((A[&country=Peru]:1,B[&country=Chile]:1)AB:2,C:3);")
+                .unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        let subtree = tree.subtree(ab).unwrap();
+        assert_eq!(subtree.root(), 0);
+        assert_eq!(subtree.leaf_names(), ["A", "B"]);
+        assert_eq!(subtree.nodes()[0].branch_length, None);
+        let a = subtree.node_named("A").unwrap();
+        assert_eq!(
+            subtree.annotation(a, "country").unwrap().to_string(),
+            "Peru"
+        );
+    }
+
+    #[test]
+    fn collapsing_a_clade_removes_only_its_descendants() {
+        let mut tree = Tree::parse_newick("((A,B)AB,C);").unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        assert!(tree.collapse(ab));
+        assert_eq!(tree.leaf_names(), ["AB", "C"]);
+        assert_eq!(tree.nodes().len(), 3, "root and two terminal clades");
+        assert!(!tree.collapse(tree.node_named("AB").unwrap()));
+    }
+
+    fn pair_distance(tree: &Tree, left: usize, right: usize) -> f64 {
+        let layout = tree.layout(false);
+        let depth = |node: usize| layout.iter().find(|p| p.node == node).unwrap().depth;
+        let ancestor = tree.mrca(&[left, right]).unwrap();
+        depth(left) + depth(right) - 2.0 * depth(ancestor)
     }
 
     #[test]

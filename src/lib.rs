@@ -147,7 +147,7 @@ pub use crate::track::{
     OrfTrack, PileupLayout, PileupTrack, Read, ReadColoring, Rect, Segment, SequenceTrack, SnpSite,
     SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, StackOrder, Stain, Strand,
     StructuralTrack, StructuralVariant, SvKind, SyntenyTrack, TanglegramTrack, Terminator, Track,
-    TranscriptionUnit, TranscriptionUnitTrack, TreeShape, TreeTrack, Variant, VariantStyle,
-    VariantTrack, Window, WindowStyle, WindowTrack,
+    TraitColumn, TraitScale, TranscriptionUnit, TranscriptionUnitTrack, TreeShape, TreeTrack,
+    Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };
-pub use crate::tree::{Clade, Placement, Tree};
+pub use crate::tree::{AnnotationValue, Annotations, Clade, Placement, TimeDirection, Tree};
