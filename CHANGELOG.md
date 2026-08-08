@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Node-attached bubbles, pies, donuts and stacked bars from exact numeric
+  annotations; clade highlights that become rectangular bands, radial sectors
+  or unrooted fields; tree-aligned MSA rows; and a new `DomainTrack` for domain,
+  motif, exon or repeat architectures ordered by phylogenetic descent.
 - Crossing-aware tanglegram untangling, equal-angle unrooted trees and layered
   iTOL-style annotation strips, bars, binary markers and symbols.
 - Projection-independent branch evidence for phylograms: support can use scaled
@@ -20,7 +24,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   invalid requests do not mutate the tree, and rooted projections can mark the
   selected root explicitly without leaking that marker into unrooted views.
 - A visual plot catalogue for the documentation, separating discovery from the
-  exhaustive track reference. Seven category pages group all twenty-nine
+  exhaustive track reference. Seven category pages group all thirty
   tracks and the three standalone drawings by biological question, data shape
   and coordinate system, with responsive image-led cards, shorter section-only
   tables of contents and direct routes to the exact API contract.
@@ -165,7 +169,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   different label.
 - `examples/reading.rs` and four assets, plus gallery panels S to V. The sheet is
   twenty-two panels.
-- The README track table now lists all twenty-nine track types. It had stopped at
+- The README track table now lists all thirty track types. It had stopped at
   `AxisTrack` and was fourteen tracks out of date.
 
 ### Added

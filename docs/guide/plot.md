@@ -186,6 +186,7 @@ One per track type the crate ships. Each returns a plot holding that track.
 | `add_codons(start, end, strand)` | `CodonTrack` | `u64`, `u64`, `Strand` |
 | `add_coverage(values)` | `CoverageTrack` | `Vec<f64>`, one per base |
 | `add_dotplot(blocks)` | `DotplotTrack` | `Vec<AlignmentBlock>` |
+| `add_domains(rows)` | `DomainTrack` | `Vec<DomainArchitecture>` |
 | `add_features(features)` | `FeatureTrack` | `Vec<Feature>` |
 | `add_genome(genome)` | `GenomeTrack` | `Genome` |
 | `add_ideogram(length, bands)` | `IdeogramTrack` | `u64`, `Vec<Band>` |

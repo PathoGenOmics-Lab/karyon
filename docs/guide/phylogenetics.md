@@ -237,6 +237,80 @@ identity with shape as well as colour. `ring_width` controls each annular
 dataset independently; `show_values(false)` removes in-cell text without
 removing tooltips.
 
+## Attach data graphics to nodes and clades
+
+![Four synthetic phylogenetic data views: a rectangular tree with abundance bubbles, stacked host bars and a highlighted clade; a circular tree with ancestral-state donuts and a clade sector; a tree-aligned nucleotide alignment; and tree-aligned protein domain architectures](../assets/figures/example-phylo-faces.svg)
+
+`NodeGlyph` turns numeric node annotations into small plots without flattening
+them into labels. Bubble area follows one value; pie, donut and stacked-bar
+segments follow several keys in the order supplied. Composition geometry is
+normalised locally, while the tooltip retains every original value.
+
+```rust
+use karyon::{CladeHighlight, NodeGlyph, NodeGlyphTarget, TreeTrack};
+
+let outbreak = tree.node_named("outbreak").unwrap();
+let track = TreeTrack::new(tree)
+    .node_glyph(
+        NodeGlyph::bubble("isolates")
+            .label("Isolate count")
+            .target(NodeGlyphTarget::Internal),
+    )
+    .node_glyph(
+        NodeGlyph::donut(["human", "animal", "environment"])
+            .label("Host probability")
+            .target(NodeGlyphTarget::Internal),
+    )
+    .clade_highlight(
+        CladeHighlight::new(outbreak)
+            .label("Transmission cluster")
+            .opacity(0.12),
+    );
+```
+
+| Constructor | Data requirement | Encoding |
+|:--|:--|:--|
+| `NodeGlyph::bubble(key)` | one finite, non-negative number | circle area |
+| `NodeGlyph::pie(keys)` | one finite, non-negative number per key | filled sectors |
+| `NodeGlyph::donut(keys)` | one finite, non-negative number per key | annular sectors |
+| `NodeGlyph::stacked_bar(keys)` | one finite, non-negative number per key | compact horizontal composition |
+
+`NodeGlyphTarget::All`, `Internal` and `Leaves` prevent a dataset from being
+repeated where it has no biological meaning. A missing key suppresses that
+node's glyph rather than treating absence as zero. `CladeHighlight` becomes a
+descendant band in rectangular coordinates, an annular sector in radial
+coordinates and a topology-following field in an unrooted view. Its tooltip
+always reports the exact descendant-tip count.
+
+## Align sequences and domain architectures to descent
+
+`MsaTrack::tree` and `DomainTrack::tree` match rows to leaves by exact name,
+sort them by descent and draw the tree in the same gutter. A row not named by
+the tree remains at the bottom instead of disappearing.
+
+```rust
+use karyon::{DomainArchitecture, DomainFeature, DomainTrack, MsaTrack};
+
+let alignment = MsaTrack::new(sequences)
+    .tree(tree.clone())
+    .tree_width(110.0);
+
+let architectures = vec![
+    DomainArchitecture::new("sample_A", 300)
+        .feature(DomainFeature::new(20, 110).label("sensor"))
+        .feature(DomainFeature::new(170, 260).label("kinase")),
+];
+let domains = DomainTrack::new(architectures)
+    .tree(tree)
+    .tree_width(110.0);
+```
+
+Domain and motif boundaries remain 0-based and half-open. Colours are stable by
+feature label, explicit colours override the palette, and full names and
+boundaries remain in tooltips when visible text must be shortened. The renderer
+does not infer domains or ancestral states; it displays intervals and numeric
+probabilities supplied by an upstream analysis.
+
 ### Requirements for a time tree
 
 Every tip must carry a finite numeric value for the key passed to `time`.

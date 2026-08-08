@@ -13,7 +13,7 @@ Choose by whether the comparison is column-wise, pairwise, block-wise or
 anchored on gene neighbourhood. Reversals remain reversals rather than being
 normalised into forward-looking matches.
 
-<div class="plot-stats"><span><strong>4</strong> track types</span><span><strong>2+</strong> sequences</span></div>
+<div class="plot-stats"><span><strong>5</strong> track types</span><span><strong>2+</strong> sequences</span></div>
 
 </div>
 
@@ -21,6 +21,10 @@ normalised into forward-looking matches.
   <a class="plot-card" href="../../tracks/#msatrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-msa.svg" alt="Multiple nucleotide sequence alignment" loading="lazy"></span>
     <span class="plot-card__body"><small>Column-wise comparison</small><strong>MsaTrack</strong><span>Aligned nucleotides or residues coloured against a reference, consensus or residue class.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
+  </a>
+  <a class="plot-card" href="../../tracks/#domaintrack">
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Protein domain architectures aligned to the leaves of a phylogeny" loading="lazy"></span>
+    <span class="plot-card__body"><small>Interval architecture</small><strong>DomainTrack</strong><span>Domains, motifs, exons or repeats as labelled intervals, optionally sorted and justified by an adjacent tree.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#dotplottrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-synteny.svg" alt="Pairwise sequence dotplot with forward and reverse blocks" loading="lazy"></span>
@@ -41,6 +45,7 @@ normalised into forward-looking matches.
 | The shared unit is… | Start with |
 |:--|:--|
 | an aligned column across many sequences | `MsaTrack` |
+| domains or motifs along many sequences | `DomainTrack` |
 | a coordinate pair between two sequences | `DotplotTrack` |
 | an aligned block whose order matters | `SyntenyTrack` |
 | a gene and its neighbourhood across genomes | `LocusTrack` |

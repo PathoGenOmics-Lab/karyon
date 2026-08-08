@@ -5,7 +5,7 @@ description: Exhaustive behaviour and data contracts for every Karyon track type
 
 # Track API reference
 
-Twenty-nine track types ship with the crate, one source file each. Every one of
+Thirty track types ship with the crate, one source file each. Every one of
 them is an implementation of the same small trait, `Track`, and none of them has
 privileged access to the figure: a track reports how tall it wants to be, then
 draws inside the band it is handed, already clipped. A track type the crate does
@@ -63,8 +63,8 @@ not support the claim is what makes them worth having.
 </div>
 
 <details class="track-overview">
-  <summary>See all twenty-nine track types on one sheet</summary>
-  <img src="../assets/figures/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
+  <summary>See the main track gallery on one sheet</summary>
+  <img src="../assets/figures/gallery.svg" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
 </details>
 
 **Signal and sequence**
@@ -94,6 +94,7 @@ not support the claim is what makes them worth having.
 
 **Comparison**
 [MsaTrack](#msatrack) &middot;
+[DomainTrack](#domaintrack) &middot;
 [DotplotTrack](#dotplottrack) &middot;
 [SyntenyTrack](#syntenytrack) &middot;
 [LocusTrack](#locustrack)
@@ -130,7 +131,7 @@ being honest about it. The analyses they carried are still worth having: a
 rarefaction over a presence matrix is a statistic rather than a plot type, and
 it does not need a `Track` to compute it.
 
-Twenty-four of the twenty-nine draw through `ctx.scale`. The five that do not
+Twenty-five of the thirty draw through `ctx.scale`. The five that do not
 each answer for it, and each says so in its own module:
 
 - [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
@@ -617,6 +618,30 @@ many hues the validated palette has. Neighbouring cells of the same colour are
 merged into one rectangle, which is the difference between a figure and a file
 no viewer will open.
 
+`tree` matches sequence names to leaves, sorts rows by descent and draws a
+phylogram or cladogram in the same gutter. A selected comparison row follows
+the sequence when rows move; unmatched sequences remain at the bottom rather
+than being discarded.
+
+### DomainTrack
+
+Domains, motifs, exons, introns or repeats as labelled half-open intervals,
+one sequence per row.
+
+![Node graphics, a tree-aligned MSA and tree-aligned domain architectures](assets/figures/example-phylo-faces.svg)
+
+`DomainArchitecture` holds one named sequence length and its `DomainFeature`
+intervals. Features with the same label share a stable palette colour across
+rows; `DomainFeature::color` overrides it when a source already defines a
+colour. Labels are drawn only when they fit, while tooltips retain the complete
+name and exact boundaries.
+
+`tree` matches architecture names to terminal taxa and reorders rows by
+descent. The tree occupies the left part of the row-name strip, so its leaves,
+names and interval backbones share exact row centres. Samples absent from the
+tree stay at the bottom. The horizontal axis remains the sequence coordinate,
+so this track uses the shared figure scale unlike `TreeTrack` itself.
+
 ### DotplotTrack
 
 Two sequences on two axes, with each alignment block drawn as a diagonal. A
@@ -699,6 +724,14 @@ root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
 the circular and unrooted projections while preserving exact values in SVG
 tooltips.
 
+![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](assets/figures/example-phylo-faces.svg)
+
+`NodeGlyph::bubble`, `pie`, `donut` and `stacked_bar` attach numeric data to
+nodes. `NodeGlyphTarget` restricts marks to internal nodes or leaves, and
+missing values suppress a glyph rather than becoming zero. `CladeHighlight`
+projects one descendant set as a band, annular sector or unrooted field without
+changing topology. Exact values and descendant counts remain in tooltips.
+
 ![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](assets/figures/example-phylo-evidence.svg)
 
 `support_style` makes internal support visible as scaled symbols, exact labels
@@ -722,8 +755,9 @@ visual and destructive collapse.
 
 In the rectangular projection its x is evolutionary distance, so it does not
 use the shared scale. Its y does mean something to its neighbours, because a
-leaf is a row, and that is the whole point: [SnpTrack](#snptrack) and
-[MatrixTrack](#matrixtrack) each take a tree of
+leaf is a row, and that is the whole point: [SnpTrack](#snptrack),
+[MatrixTrack](#matrixtrack), [MsaTrack](#msatrack) and
+[DomainTrack](#domaintrack) each take a tree of
 their own and sort their rows to match it, which is what turns a scatter of
 shared substitutions into a block.
 
@@ -939,7 +973,7 @@ two rows tall.
 
 ## From the command line
 
-Twelve of the twenty-nine tracks have a standard text format to read, and those
+Twelve of the thirty tracks have a standard text format to read, and those
 are the ones `karyon` the command can build. Each flag starts a track and the
 flags after it describe that one, so the order of the flags is the order of the
 stack.
@@ -964,10 +998,12 @@ An [AxisTrack](#axistrack) is added at the bottom without being asked for, and
 standard input, which is how the binary formats get in: `samtools` and
 `bcftools` already write exactly what these readers take.
 
-`AxisTrack` makes up the twenty-ninth: `--axis` places the ruler, which reads no
-file because it has nothing to read. The other sixteen have no standard text
-file to read from either, so they stay in the library: [BisulfiteTrack](#bisulfitetrack), [CladeTrack](#cladetrack),
+`AxisTrack` is also available to the command: `--axis` places the ruler, which
+reads no file because it has nothing to read. The other seventeen have no
+standard text file to read from either, so they stay in the library:
+[BisulfiteTrack](#bisulfitetrack), [CladeTrack](#cladetrack),
 [CodonTrack](#codontrack), [DotplotTrack](#dotplottrack),
+[DomainTrack](#domaintrack),
 [GenomeTrack](#genometrack), [LegendTrack](#legendtrack),
 [LocusTrack](#locustrack), [LogoTrack](#logotrack),
 [MethylationTrack](#methylationtrack), [OrfTrack](#orftrack),
@@ -975,7 +1011,7 @@ file to read from either, so they stay in the library: [BisulfiteTrack](#bisulfi
 [StructuralTrack](#structuraltrack), [SyntenyTrack](#syntenytrack),
 [TanglegramTrack](#tanglegramtrack) and
 [TranscriptionUnitTrack](#transcriptionunittrack). A flag for each of them would
-mean inventing sixteen file formats nobody else writes, and the library takes
+mean inventing seventeen file formats nobody else writes, and the library takes
 vectors of structs rather than paths in any case. The reasoning, and the whole
 grammar, is in [the command line guide](guide/cli.md).
 
@@ -989,5 +1025,5 @@ grammar, is in [the command line guide](guide/cli.md).
 ## Next
 
 - [Plot API](guide/plot.md), for the `add_` method that builds each of these.
-- [Writing a track](how-it-works/extending.md), for adding a thirtieth.
+- [Writing a track](how-it-works/extending.md), for adding another one.
 - [Recipes](recipes.md), for worked figures that stack several of them.

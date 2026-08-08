@@ -185,7 +185,7 @@
 /* --------------------------------------------------------------------------
    Tables
 
-   The track table is twenty-nine rows of three columns, and the middle one is
+   The track table is thirty rows of three columns, and the middle one is
    the only one worth scanning, so it gets the room.
    -------------------------------------------------------------------------- */
 

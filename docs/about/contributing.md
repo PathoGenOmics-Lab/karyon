@@ -214,5 +214,5 @@ run locally before you open a pull request.
 
 - [Writing a track](../how-it-works/extending.md), for the trait a new track
   implements.
-- [Tracks](../tracks.md), for what the twenty-nine already there draw.
+- [Tracks](../tracks.md), for what the thirty already there draw.
 - [Citation](citation.md), for what to record about the version you used.

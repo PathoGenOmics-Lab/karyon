@@ -24,9 +24,9 @@ again, in every script.
 `karyon` is the small amount of code that already knows it. It draws what a
 genome browser draws: a stack of tracks over one coordinate axis, so a depth
 profile, the reference bases, the gene models and the variant calls all agree on
-where position 761,410 is. Twenty-nine track types ship with it, from a coverage
+where position 761,410 is. Thirty track types ship with it, from a coverage
 profile to a read pileup to a sequence logo, and each one is an implementation
-of the same small trait with no privileged access to the figure, so a thirtieth
+of the same small trait with no privileged access to the figure, so another one
 is about thirty lines.
 
 What comes out is plain SVG 1.1: no scripts, no external references, nothing to
@@ -50,7 +50,7 @@ command, which takes the line based text a genomics shell already writes.
 
 -   :material-view-grid-outline: **[Plot catalogue](plots/index.md)**
 
-    Seven visual routes through all twenty-nine tracks plus circular and
+    Seven visual routes through all thirty tracks plus circular and
     geographic drawings. Choose by biological question or data shape.
 
 -   :material-code-braces: **[Plot API](guide/plot.md)**

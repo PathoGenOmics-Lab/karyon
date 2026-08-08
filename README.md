@@ -253,7 +253,7 @@ samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
   | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 ```
 
-Twelve of the twenty-nine tracks have a standard text format to read, and those
+Twelve of the thirty tracks have a standard text format to read, and those
 are the ones the command has: `--coverage`, `--sequence`, `--features`,
 `--variants`, `--windows`, `--manhattan`, `--tree`, `--msa`, `--snps`,
 `--ideogram`, `--matrix` and `--pileup`, plus `--axis` for the ruler when it
@@ -274,9 +274,10 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, scale bars and layered iTOL-style metadata remain independently readable |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, scale bars, node glyphs, clade fields and layered iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
-| `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
+| `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring, optionally ordered by an adjacent tree |
+| `DomainTrack` | Domains and motifs along sequences | Labelled interval architectures, optionally ordered by an adjacent tree so gains and losses form clade blocks |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
 | `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
 | `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |

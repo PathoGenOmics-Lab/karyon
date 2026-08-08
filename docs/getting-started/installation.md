@@ -127,7 +127,7 @@ documentation can quietly stop compiling:
 | Library unit tests | 566 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the shrinkage fitter |
 | Command line unit tests | 174 | the flag grammar and the readers, including the coordinate conversion each format needs |
 | `tests/render.rs` | 15 | the document a user gets: well formed, deterministic, free of non-finite numbers, and correct about where a base lands on the page |
-| Doc tests | 51 | every example in the API documentation, compiled and run |
+| Doc tests | 59 | every example in the API documentation, compiled and run |
 
 Counts are from version 0.14.0. `cargo test --release` runs the same set
 against optimised code, which is what CI does after the debug run, along with
@@ -139,4 +139,4 @@ against optimised code, which is what CI does after the debug run, along with
 - [Quickstart](quickstart.md), for a first figure from Rust and the same kind of
   figure from the shell.
 - [Command line](../guide/cli.md), for the grammar the installed binary takes.
-- [Tracks](../tracks.md), for what each of the twenty-nine track types draws.
+- [Tracks](../tracks.md), for what each of the thirty track types draws.

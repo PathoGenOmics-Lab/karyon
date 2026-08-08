@@ -13,7 +13,9 @@ use std::path::PathBuf;
 
 use karyon::tree::Tree;
 use karyon::{
-    Figure, Panels, RadialDirection, Region, SupportStyle, TraitColumn, TreeShape, TreeTrack,
+    CladeHighlight, DomainArchitecture, DomainFeature, DomainTrack, Figure, MsaDisplay,
+    MsaSequence, MsaTrack, NodeGlyph, NodeGlyphTarget, Panels, RadialDirection, Region,
+    SupportStyle, TraitColumn, TreeShape, TreeTrack,
 };
 
 fn main() -> std::io::Result<()> {
@@ -86,7 +88,155 @@ fn main() -> std::io::Result<()> {
     println!(
         "example-phylo-reroot.svg {width:.0} x {height:.0}, source plus outgroup and midpoint roots"
     );
+
+    let faces = phylogenetic_faces();
+    faces.save_svg(out.join("example-phylo-faces.svg"))?;
+    let (width, height) = faces.dimensions();
+    println!(
+        "example-phylo-faces.svg {width:.0} x {height:.0}, node glyphs, clade fields, MSA and domains"
+    );
     Ok(())
+}
+
+fn phylogenetic_faces() -> Panels {
+    let tree = face_tree();
+    let focus = tree.node_named("outbreak").unwrap();
+    let rectangular = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Node abundance and clade context")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree.clone())
+                .row_height(32.0)
+                .scale_bar()
+                .node_glyph(
+                    NodeGlyph::bubble("isolates")
+                        .label("Isolate count")
+                        .target(NodeGlyphTarget::Internal)
+                        .size(10.0),
+                )
+                .node_glyph(
+                    NodeGlyph::stacked_bar(["human", "animal", "water"])
+                        .label("Tip host composition")
+                        .target(NodeGlyphTarget::Leaves)
+                        .size(7.0),
+                )
+                .clade_highlight(
+                    CladeHighlight::new(focus)
+                        .label("Genomic transmission cluster")
+                        .opacity(0.13),
+                ),
+        );
+
+    let radial = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Ancestral composition")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree.clone())
+                .circular()
+                .radial_start(-110.0)
+                .radial_size(500.0)
+                .node_glyph(
+                    NodeGlyph::donut(["human", "animal", "water"])
+                        .label("Host probability")
+                        .target(NodeGlyphTarget::Internal)
+                        .size(9.0),
+                )
+                .clade_highlight(
+                    CladeHighlight::new(focus)
+                        .label("outbreak")
+                        .color("#d55e00")
+                        .opacity(0.11),
+                ),
+        );
+
+    let alignment = vec![
+        MsaSequence::new("D", b"ACGTACGTACGTACGTAC".to_vec()),
+        MsaSequence::new("B", b"ACGTTCGTACGTACGTAC".to_vec()),
+        MsaSequence::new("A", b"ACGTTCGTACGTACGTGC".to_vec()),
+        MsaSequence::new("C", b"ACGTACGT-CGTTCGTAC".to_vec()),
+    ];
+    let msa = Figure::new(Region::new("alignment", 0, 18).unwrap())
+        .title("Tree-aligned multiple sequence alignment")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            MsaTrack::new(alignment)
+                .tree(tree.clone())
+                .tree_width(120.0)
+                .row_height(22.0)
+                .row_gap(3.0)
+                .display(MsaDisplay::Bases)
+                .label("isolates"),
+        );
+
+    let domains = vec![
+        DomainArchitecture::new("C", 180)
+            .feature(DomainFeature::new(12, 56).label("sensor"))
+            .feature(DomainFeature::new(104, 162).label("kinase")),
+        DomainArchitecture::new("A", 180)
+            .feature(DomainFeature::new(12, 56).label("sensor"))
+            .feature(DomainFeature::new(72, 94).label("repeat"))
+            .feature(DomainFeature::new(104, 162).label("kinase")),
+        DomainArchitecture::new("D", 180)
+            .feature(DomainFeature::new(12, 56).label("sensor"))
+            .feature(DomainFeature::new(104, 162).label("kinase")),
+        DomainArchitecture::new("B", 180)
+            .feature(DomainFeature::new(12, 56).label("sensor"))
+            .feature(DomainFeature::new(72, 94).label("repeat"))
+            .feature(DomainFeature::new(104, 162).label("kinase")),
+    ];
+    let architecture = Figure::new(Region::new("protein", 0, 180).unwrap())
+        .title("Tree-aligned domain architecture")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            DomainTrack::new(domains)
+                .tree(tree)
+                .tree_width(120.0)
+                .row_height(22.0)
+                .row_gap(3.0)
+                .label("proteins"),
+        );
+
+    Panels::new()
+        .title("Phylogenetic data faces (synthetic)")
+        .columns(2)
+        .gap(22.0)
+        .push_captioned(
+            &rectangular,
+            "A",
+            "Bubble area encodes abundance while leaf bars retain exact host composition",
+        )
+        .push_captioned(
+            &radial,
+            "B",
+            "Internal donuts and a clade sector keep ancestral uncertainty in context",
+        )
+        .push_captioned(
+            &msa,
+            "C",
+            "Alignment rows follow descent without losing residues or unmatched samples",
+        )
+        .push_captioned(
+            &architecture,
+            "D",
+            "Domain gains and losses become blocks justified by the adjacent tree",
+        )
+}
+
+fn face_tree() -> Tree {
+    Tree::parse_annotated_newick(concat!(
+        "((A[&isolates=1,human=1,animal=0,water=0]:0.14,",
+        "B[&isolates=1,human=1,animal=0,water=0]:0.17)",
+        "outbreak[&isolates=18,human=13,animal=3,water=2]:0.31,",
+        "(C[&isolates=1,human=0,animal=1,water=0]:0.22,",
+        "D[&isolates=1,human=0,animal=0,water=1]:0.19)",
+        "background[&isolates=7,human=2,animal=3,water=2]:0.26)",
+        "origin[&isolates=25,human=15,animal=6,water=4];"
+    ))
+    .expect("the node-glyph example tree is valid")
 }
 
 fn annotated_track(tree: Tree) -> TreeTrack {

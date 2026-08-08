@@ -14,7 +14,7 @@ Each route below leads to a small family of plots, a visual example and the
 exact reference entry for every component.
 
 <div class="plot-stats" aria-label="Catalogue summary">
-  <span><strong>29</strong> genomic tracks</span>
+  <span><strong>30</strong> genomic tracks</span>
   <span><strong>3</strong> standalone drawings</span>
   <span><strong>7</strong> biological routes</span>
 </div>
@@ -111,4 +111,3 @@ exact reference entry for every component.
 Need the exhaustive API behaviour rather than a visual route? Open the
 [alphabetical track reference](../tracks.md), or jump to the [worked
 recipes](../recipes.md) when the desired output is already clear.
-
