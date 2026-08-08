@@ -273,7 +273,175 @@ impl Tree {
 
     /// How many leaves the tree has.
     pub fn leaf_count(&self) -> usize {
-        self.nodes.iter().filter(|node| node.is_leaf()).count()
+        self.leaves().len()
+    }
+
+    /// Ancestors of `node`, from its parent back to the root.
+    pub fn ancestors(&self, node: usize) -> Vec<usize> {
+        let mut ancestors = Vec::new();
+        let mut current = self.nodes.get(node).and_then(|clade| clade.parent);
+        while let Some(index) = current {
+            ancestors.push(index);
+            current = self.nodes[index].parent;
+        }
+        ancestors
+    }
+
+    /// Descendants of `node` in drawn order, excluding `node` itself.
+    pub fn descendants(&self, node: usize) -> Vec<usize> {
+        let Some(clade) = self.nodes.get(node) else {
+            return Vec::new();
+        };
+        let mut descendants = Vec::new();
+        let mut stack: Vec<usize> = clade.children.iter().rev().copied().collect();
+        while let Some(index) = stack.pop() {
+            descendants.push(index);
+            for child in self.nodes[index].children.iter().rev() {
+                stack.push(*child);
+            }
+        }
+        descendants
+    }
+
+    /// Number of leaves below `node`, counting the node when it is a leaf.
+    pub fn clade_size(&self, node: usize) -> usize {
+        let Some(clade) = self.nodes.get(node) else {
+            return 0;
+        };
+        if clade.is_leaf() {
+            1
+        } else {
+            self.descendants(node)
+                .into_iter()
+                .filter(|index| self.nodes[*index].is_leaf())
+                .count()
+        }
+    }
+
+    /// Most recent common ancestor of every node in `nodes`.
+    ///
+    /// Returns `None` for an empty list or an index outside this tree.
+    pub fn mrca(&self, nodes: &[usize]) -> Option<usize> {
+        let first = *nodes.first()?;
+        self.nodes.get(first)?;
+        let mut candidates = vec![first];
+        candidates.extend(self.ancestors(first));
+        candidates.into_iter().find(|candidate| {
+            nodes.iter().skip(1).all(|node| {
+                self.nodes.get(*node).is_some()
+                    && (*node == *candidate || self.ancestors(*node).contains(candidate))
+            })
+        })
+    }
+
+    /// Reverses the child order of one internal node.
+    ///
+    /// A rotation changes how a tree is drawn but not the clades it contains.
+    pub fn rotate(&mut self, node: usize) -> bool {
+        let Some(clade) = self.nodes.get_mut(node) else {
+            return false;
+        };
+        if clade.children.len() < 2 {
+            return false;
+        }
+        clade.children.reverse();
+        true
+    }
+
+    /// Orders every split by the number of descendant leaves.
+    ///
+    /// With `largest_first`, the largest clade is drawn first. Equal clades
+    /// keep their source order, so repeated calls are deterministic.
+    pub fn ladderize(&mut self, largest_first: bool) {
+        let mut sizes = vec![0usize; self.nodes.len()];
+        for node in self.postorder() {
+            sizes[node] = if self.nodes[node].is_leaf() {
+                1
+            } else {
+                self.nodes[node]
+                    .children
+                    .iter()
+                    .map(|child| sizes[*child])
+                    .sum()
+            };
+        }
+        for clade in &mut self.nodes {
+            if largest_first {
+                clade
+                    .children
+                    .sort_by(|left, right| sizes[*right].cmp(&sizes[*left]));
+            } else {
+                clade
+                    .children
+                    .sort_by(|left, right| sizes[*left].cmp(&sizes[*right]));
+            }
+        }
+    }
+
+    /// Reorients the tree around internal `node`, preserving every undirected edge.
+    ///
+    /// Branch lengths stay on their edge when its direction changes. The new
+    /// root has no incoming branch length. A leaf is refused because turning a
+    /// sampled tip into an internal root would silently remove it from the tip set.
+    pub fn reroot(&mut self, node: usize) -> bool {
+        let Some(target) = self.nodes.get(node) else {
+            return false;
+        };
+        if target.is_leaf() && self.nodes.len() > 1 {
+            return false;
+        }
+        let mut adjacency: Vec<Vec<(usize, Option<f64>)>> = vec![Vec::new(); self.nodes.len()];
+        for (child, clade) in self.nodes.iter().enumerate() {
+            if let Some(parent) = clade.parent {
+                adjacency[parent].push((child, clade.branch_length));
+                adjacency[child].push((parent, clade.branch_length));
+            }
+        }
+        for clade in &mut self.nodes {
+            clade.parent = None;
+            clade.children.clear();
+        }
+        let mut stack = vec![(node, None, None)];
+        while let Some((current, parent, length)) = stack.pop() {
+            self.nodes[current].parent = parent;
+            self.nodes[current].branch_length = length;
+            if let Some(parent) = parent {
+                self.nodes[parent].children.push(current);
+            }
+            for (next, edge) in adjacency[current].iter().rev() {
+                if Some(*next) != parent {
+                    stack.push((*next, Some(current), *edge));
+                }
+            }
+        }
+        self.root = node;
+        self.rooted = Some(true);
+        true
+    }
+
+    /// Copies the clade rooted at `node` into a standalone tree.
+    pub fn subtree(&self, node: usize) -> Option<Tree> {
+        self.extract(node)
+    }
+
+    /// Replaces the descendants of `node` with one terminal clade.
+    ///
+    /// The selected node keeps its name, annotations and incoming branch.
+    /// This is a data operation; [`TreeTrack`](crate::TreeTrack) also supports
+    /// non-destructive visual collapsing.
+    pub fn collapse(&mut self, node: usize) -> bool {
+        let Some(clade) = self.nodes.get_mut(node) else {
+            return false;
+        };
+        if clade.children.is_empty() {
+            return false;
+        }
+        clade.children.clear();
+        let Some(compact) = self.extract(self.root) else {
+            return false;
+        };
+        *self = compact;
+        true
     }
 
     /// Every node placed at a depth and a row.
@@ -340,6 +508,50 @@ impl Tree {
             .filter(|placement| self.nodes[placement.node].is_leaf())
             .map(|placement| placement.depth)
             .fold(0.0f64, f64::max)
+    }
+
+    fn extract(&self, root: usize) -> Option<Tree> {
+        self.nodes.get(root)?;
+        let mut order = vec![root];
+        order.extend(self.descendants(root));
+        let mut mapping = vec![None; self.nodes.len()];
+        for (new, old) in order.iter().enumerate() {
+            mapping[*old] = Some(new);
+        }
+
+        let mut nodes = Vec::with_capacity(order.len());
+        let mut annotations = Vec::with_capacity(order.len());
+        for old in order {
+            let source = &self.nodes[old];
+            let parent = if old == root {
+                None
+            } else {
+                source.parent.and_then(|parent| mapping[parent])
+            };
+            nodes.push(Clade {
+                name: source.name.clone(),
+                branch_length: if old == root {
+                    None
+                } else {
+                    source.branch_length
+                },
+                support: source.support,
+                children: source
+                    .children
+                    .iter()
+                    .filter_map(|child| mapping[*child])
+                    .collect(),
+                parent,
+            });
+            annotations.push(self.annotations[old].clone());
+        }
+        Some(Tree {
+            nodes,
+            root: 0,
+            annotations,
+            tree_annotations: self.tree_annotations.clone(),
+            rooted: self.rooted,
+        })
     }
 
     /// Node indices with every child before its parent.
@@ -1021,6 +1233,86 @@ mod tests {
         let tree = Tree::parse_newick("A;").unwrap();
         assert_eq!(tree.leaf_names(), ["A"]);
         assert_eq!(tree.max_depth(true), 0.0);
+    }
+
+    #[test]
+    fn ancestors_descendants_and_mrca_agree() {
+        let tree = Tree::parse_newick("(((A,B)AB,C)ABC,D);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let b = tree.node_named("B").unwrap();
+        let c = tree.node_named("C").unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        let abc = tree.node_named("ABC").unwrap();
+        assert_eq!(tree.mrca(&[a, b]), Some(ab));
+        assert_eq!(tree.mrca(&[a, c]), Some(abc));
+        assert!(tree.ancestors(a).contains(&ab));
+        assert!(tree.descendants(abc).contains(&c));
+        assert_eq!(tree.clade_size(abc), 3);
+        assert_eq!(tree.mrca(&[]), None);
+    }
+
+    #[test]
+    fn rotating_and_ladderizing_change_only_leaf_order() {
+        let mut tree = Tree::parse_newick("((A,B,C)large,D);").unwrap();
+        let large = tree.node_named("large").unwrap();
+        assert!(tree.rotate(large));
+        assert_eq!(tree.leaf_names(), ["C", "B", "A", "D"]);
+        tree.ladderize(false);
+        assert_eq!(tree.leaf_names()[0], "D");
+        let mut sorted = tree.leaf_names();
+        sorted.sort();
+        assert_eq!(sorted, ["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn rerooting_preserves_tips_and_pairwise_distance() {
+        let mut tree = Tree::parse_newick("((A:1,B:2)AB:3,(C:4,D:5)CD:6);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let c = tree.node_named("C").unwrap();
+        let before = pair_distance(&tree, a, c);
+        let ab = tree.node_named("AB").unwrap();
+        assert!(tree.reroot(ab));
+        assert_eq!(tree.root(), ab);
+        assert_eq!(tree.rooted(), Some(true));
+        assert_eq!(pair_distance(&tree, a, c), before);
+        let mut leaves = tree.leaf_names();
+        leaves.sort();
+        assert_eq!(leaves, ["A", "B", "C", "D"]);
+        assert!(!tree.reroot(a), "a sampled tip stays a sampled tip");
+    }
+
+    #[test]
+    fn a_subtree_remaps_nodes_and_keeps_annotations() {
+        let tree =
+            Tree::parse_annotated_newick("((A[&country=Peru]:1,B[&country=Chile]:1)AB:2,C:3);")
+                .unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        let subtree = tree.subtree(ab).unwrap();
+        assert_eq!(subtree.root(), 0);
+        assert_eq!(subtree.leaf_names(), ["A", "B"]);
+        assert_eq!(subtree.nodes()[0].branch_length, None);
+        let a = subtree.node_named("A").unwrap();
+        assert_eq!(
+            subtree.annotation(a, "country").unwrap().to_string(),
+            "Peru"
+        );
+    }
+
+    #[test]
+    fn collapsing_a_clade_removes_only_its_descendants() {
+        let mut tree = Tree::parse_newick("((A,B)AB,C);").unwrap();
+        let ab = tree.node_named("AB").unwrap();
+        assert!(tree.collapse(ab));
+        assert_eq!(tree.leaf_names(), ["AB", "C"]);
+        assert_eq!(tree.nodes().len(), 3, "root and two terminal clades");
+        assert!(!tree.collapse(tree.node_named("AB").unwrap()));
+    }
+
+    fn pair_distance(tree: &Tree, left: usize, right: usize) -> f64 {
+        let layout = tree.layout(false);
+        let depth = |node: usize| layout.iter().find(|p| p.node == node).unwrap().depth;
+        let ancestor = tree.mrca(&[left, right]).unwrap();
+        depth(left) + depth(right) - 2.0 * depth(ancestor)
     }
 
     #[test]
