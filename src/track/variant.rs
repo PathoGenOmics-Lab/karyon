@@ -46,10 +46,11 @@
 //! one order.
 
 use crate::scale::Scale;
+use crate::style::{Emphasis, QuantitativeAxis, Symbol};
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
-use crate::track::{DrawContext, Track};
+use crate::track::{DrawContext, Legend, Track};
 
 /// How a variant track is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +130,7 @@ pub struct VariantTrack {
     show_legend: bool,
     show_scale: bool,
     color: Option<String>,
+    axis: QuantitativeAxis,
 }
 
 impl VariantTrack {
@@ -144,6 +146,7 @@ impl VariantTrack {
             show_legend: true,
             show_scale: true,
             color: None,
+            axis: QuantitativeAxis::new(),
         }
     }
 
@@ -177,6 +180,15 @@ impl VariantTrack {
     /// two panels of the same figure silently disagree about scale.
     pub fn max(mut self, max: f64) -> Self {
         self.max = Some(max);
+        self.axis.max = Some(max);
+        self
+    }
+
+    /// Uses a shared quantitative-axis contract for range, ticks, units and
+    /// reference lines.
+    pub fn axis(mut self, axis: QuantitativeAxis) -> Self {
+        self.max = axis.max;
+        self.axis = axis;
         self
     }
 
@@ -238,11 +250,26 @@ impl VariantTrack {
                 Some(acc.map_or(v, |a| a.max(v)))
             })
     }
+
+    fn legend(&self, theme: &Theme) -> Legend {
+        self.categories()
+            .iter()
+            .enumerate()
+            .fold(Legend::new(), |legend, (index, category)| {
+                legend.symbol(*category, theme.color(index), theme.symbol(index))
+            })
+    }
 }
 
 impl Track for VariantTrack {
-    fn height(&self, _scale: &Scale) -> f64 {
-        self.height
+    fn height(&self, scale: &Scale) -> f64 {
+        if self.show_legend {
+            let theme = Theme::default();
+            self.height
+                .max(self.legend(&theme).height(scale.width(), &theme) + self.radius + 2.0)
+        } else {
+            self.height
+        }
     }
 
     fn label(&self) -> Option<&str> {
@@ -253,8 +280,19 @@ impl Track for VariantTrack {
         if !self.has_scale() {
             return 0.0;
         }
-        let ceiling = self.max.or_else(|| self.value_ceiling()).unwrap_or(1.0);
-        text_width(&format_value(ceiling), theme.font_size - 1.0) + 8.0
+        let data_ceiling = self
+            .axis
+            .max
+            .or(self.max)
+            .or_else(|| self.value_ceiling())
+            .unwrap_or(1.0);
+        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+        let labels = [self.axis.label(ceiling), self.axis.label(floor)];
+        labels
+            .iter()
+            .map(|label| text_width(label, theme.font_size - 1.0))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -266,7 +304,7 @@ impl Track for VariantTrack {
             band.right(),
             baseline - 0.5,
             &ctx.theme.rule,
-            1.0,
+            ctx.theme.tokens.hairline,
         );
 
         let categories = self.categories();
@@ -274,41 +312,95 @@ impl Track for VariantTrack {
             .color
             .clone()
             .unwrap_or_else(|| ctx.theme.accent.clone());
-        let ceiling = self.max.or_else(|| self.value_ceiling()).unwrap_or(1.0);
+        let data_ceiling = self
+            .axis
+            .max
+            .or(self.max)
+            .or_else(|| self.value_ceiling())
+            .unwrap_or(1.0);
+        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+
+        let legend = self.legend(ctx.theme);
 
         // Leave room for the legend so a tall stem does not run through it.
         let legend_room = if self.show_legend && !categories.is_empty() {
-            ctx.theme.font_size + 4.0
+            legend.height(band.w, ctx.theme)
         } else {
             0.0
         };
-        let stem_room = (band.h - legend_room - self.radius).max(2.0);
+        let radius = self.radius * ctx.visual_scale;
+        let stem_room = (band.h - legend_room - radius).max(ctx.px(2.0));
+        let y_of = |value: f64| {
+            baseline - ((value - floor) / (ceiling - floor)).clamp(0.0, 1.0) * stem_room
+        };
 
         if self.has_scale() {
             // The height a variant at the ceiling reaches, which is where the
             // top of the scale is and nowhere else.
-            let ceiling_y = baseline - stem_room;
-            ctx.svg.line(
-                band.x,
-                ceiling_y,
-                band.right(),
-                ceiling_y,
-                &ctx.theme.rule,
-                1.0,
-            );
+            for value in self.axis.values(floor, ceiling) {
+                let y = y_of(value);
+                ctx.svg.line(
+                    band.x,
+                    y,
+                    band.right(),
+                    y,
+                    &ctx.theme.rule,
+                    ctx.theme.tokens.hairline,
+                );
+            }
+            for reference in &self.axis.references {
+                if !reference.value.is_finite()
+                    || reference.value < floor
+                    || reference.value > ceiling
+                {
+                    continue;
+                }
+                let y = y_of(reference.value);
+                let style = ctx.theme.mark_style(reference.emphasis);
+                let ink = if reference.emphasis == Emphasis::Alert {
+                    ctx.theme.color(1)
+                } else {
+                    &ctx.theme.muted
+                };
+                ctx.svg.line_pattern(
+                    band.x,
+                    y,
+                    band.right(),
+                    y,
+                    ink,
+                    style.stroke_width,
+                    reference.pattern,
+                );
+            }
             if ctx.axis.w > 0.0 {
                 let size = ctx.theme.font_size - 1.0;
                 let right = ctx.axis.right() - 4.0;
-                ctx.svg.text(
-                    right,
-                    ceiling_y + size * 0.35,
-                    &format_value(ceiling),
-                    &ctx.theme.muted,
-                    size,
-                    Anchor::End,
-                );
-                ctx.svg
-                    .text(right, baseline, "0", &ctx.theme.muted, size, Anchor::End);
+                for value in self.axis.values(floor, ceiling) {
+                    let y = y_of(value);
+                    ctx.svg.text(
+                        right,
+                        (y + size * 0.35).min(baseline),
+                        &self.axis.label(value),
+                        &ctx.theme.muted,
+                        size,
+                        Anchor::End,
+                    );
+                }
+                for reference in &self.axis.references {
+                    let Some(label) = reference.label.as_deref() else {
+                        continue;
+                    };
+                    if reference.value >= floor && reference.value <= ceiling {
+                        ctx.svg.text(
+                            band.x + ctx.theme.tokens.label_gap,
+                            (y_of(reference.value) - ctx.theme.tokens.row_gap).max(band.y + size),
+                            label,
+                            &ctx.theme.foreground,
+                            size,
+                            Anchor::Start,
+                        );
+                    }
+                }
             }
         }
 
@@ -333,56 +425,49 @@ impl Track for VariantTrack {
                     // when it draws one point per pixel column: a mark a
                     // pointer cannot land on alone is not one worth naming.
                     // Naming them anyway costs about two thirds of the file.
-                    ctx.svg
-                        .line(x, baseline, x, baseline - stem_room, &color, 1.0);
+                    ctx.svg.line(
+                        x,
+                        baseline,
+                        x,
+                        baseline - stem_room,
+                        &color,
+                        ctx.theme.tokens.stroke,
+                    );
                 }
                 VariantStyle::Lollipop => {
-                    let fraction = match variant.value {
-                        Some(value) if value.is_finite() && ceiling > 0.0 => {
-                            (value / ceiling).clamp(0.0, 1.0)
-                        }
-                        _ => 1.0,
-                    };
-                    let top = baseline - fraction * stem_room;
+                    let top = variant
+                        .value
+                        .filter(|value| value.is_finite())
+                        .map_or(baseline - stem_room, y_of);
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
                     ctx.svg.begin_titled(&tooltip(variant));
-                    ctx.svg.line(x, baseline, x, top, &color, 1.4);
+                    ctx.svg
+                        .line(x, baseline, x, top, &color, ctx.theme.tokens.stroke);
                     // The ring is what keeps two variants a base apart reading
                     // as two variants instead of one blob.
-                    ctx.svg
-                        .circle_ringed(x, top, self.radius, &color, &ctx.theme.background, 1.5);
+                    let symbol = variant
+                        .category
+                        .as_deref()
+                        .and_then(|category| categories.iter().position(|c| *c == category))
+                        .map_or(Symbol::Circle, |index| ctx.theme.symbol(index));
+                    ctx.svg.symbol_ringed(
+                        x,
+                        top,
+                        radius,
+                        symbol,
+                        &color,
+                        ctx.theme.surface(),
+                        ctx.theme.tokens.hairline,
+                    );
                     ctx.svg.end_group();
                 }
             }
         }
 
         if self.show_legend && !categories.is_empty() {
-            let font = ctx.theme.font_size - 1.0;
-            let gap = 12.0;
-            let swatch = 4.0;
-            let widths: Vec<f64> = categories
-                .iter()
-                .map(|c| swatch + 4.0 + text_width(c, font))
-                .collect();
-            let total: f64 = widths.iter().sum::<f64>() + gap * (categories.len() - 1) as f64;
-            let mut x = (band.right() - total).max(band.x);
-            let y = band.y + font;
-            for (index, category) in categories.iter().enumerate() {
-                let color = ctx.theme.color(index).to_string();
-                ctx.svg
-                    .circle(x + swatch / 2.0, y - font * 0.35, swatch / 2.0, &color);
-                ctx.svg.text(
-                    x + swatch + 4.0,
-                    y,
-                    category,
-                    &ctx.theme.muted,
-                    font,
-                    Anchor::Start,
-                );
-                x += widths[index] + gap;
-            }
+            legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);
         }
     }
 }
@@ -474,6 +559,7 @@ fn exact_value(value: f64) -> String {
 /// Variant values are usually allele frequencies, which live between zero and
 /// one and need decimals to say anything, but the track takes any quantity at
 /// all, so large numbers still have to come out short.
+#[cfg(test)]
 fn format_value(value: f64) -> String {
     if !value.is_finite() {
         return "0".to_string();
@@ -491,6 +577,7 @@ fn format_value(value: f64) -> String {
 }
 
 /// Rounds to `decimals` places and drops the point when nothing is left of it.
+#[cfg(test)]
 fn trim(value: f64, decimals: usize) -> String {
     let factor = 10f64.powi(decimals as i32);
     let rounded = (value * factor).round() / factor;
@@ -516,6 +603,28 @@ mod tests {
             Variant::new(4),
         ]);
         assert_eq!(track.categories(), vec!["indel", "snp"]);
+    }
+
+    #[test]
+    fn a_categorical_legend_wraps_and_copies_each_point_shape() {
+        let variants: Vec<Variant> = (0..12)
+            .map(|index| {
+                Variant::new(index)
+                    .value(1.0)
+                    .category(format!("class_{index}"))
+            })
+            .collect();
+        let track = VariantTrack::new(variants);
+        let wide = Scale::new(&Region::new("chr1", 0, 20).unwrap(), 0.0, 900.0);
+        let narrow = Scale::new(&Region::new("chr1", 0, 20).unwrap(), 0.0, 150.0);
+        assert!(Track::height(&track, &narrow) > Track::height(&track, &wide));
+        let svg = crate::Figure::new(Region::new("chr1", 0, 20).unwrap())
+            .width(300.0)
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(svg.contains("<circle"), "{svg}");
+        assert!(svg.contains("<polygon"), "{svg}");
     }
 
     #[test]

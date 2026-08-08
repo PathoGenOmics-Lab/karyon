@@ -108,8 +108,8 @@ fn a_variant_lands_on_the_centre_of_its_base() {
         .push(VariantTrack::new(vec![Variant::new(499)]).show_legend(false))
         .to_svg();
 
-    let plot_x = 12.0;
-    let plot_width = 900.0 - 12.0 - 16.0;
+    let plot_x = 16.0;
+    let plot_width = 900.0 - 16.0 - 18.0;
     let expected = plot_x + (499.5 / 1000.0) * plot_width;
 
     let start = svg.find("<circle cx=\"").expect("no variant head drawn");

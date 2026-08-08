@@ -141,6 +141,19 @@ pub struct DrawContext<'a> {
     pub axis: Rect,
     /// The region on display.
     pub region: &'a Region,
+    /// Scale applied to track-internal marks and repeated row geometry.
+    ///
+    /// Use [`DrawContext::px`] for fixed pixel measurements owned by a custom
+    /// track. Genomic x coordinates still come exclusively from `scale`.
+    pub visual_scale: f64,
+}
+
+impl DrawContext<'_> {
+    /// Scales one track-internal pixel measurement for the active profile and
+    /// density without changing genomic coordinates.
+    pub fn px(&self, value: f64) -> f64 {
+        value * self.visual_scale
+    }
 }
 
 /// One horizontal band of a figure.

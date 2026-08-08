@@ -101,6 +101,7 @@ use crate::error::Error;
 use crate::figure::{Figure, Margin};
 use crate::genome::Genome;
 use crate::region::Region;
+use crate::style::{Density, RenderProfile};
 use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
@@ -344,6 +345,24 @@ impl<T: Slot> Plot<T> {
     /// Replaces the theme. [`Theme::dark`] is the other one that ships.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.figure = self.figure.theme(theme);
+        self
+    }
+
+    /// Applies a named palette, type scale and track density together.
+    pub fn profile(mut self, profile: RenderProfile) -> Self {
+        self.figure = self.figure.profile(profile);
+        self
+    }
+
+    /// Scales fonts, margins, label gutters, gaps and rounded corners together.
+    pub fn visual_scale(mut self, factor: f64) -> Self {
+        self.figure = self.figure.visual_scale(factor);
+        self
+    }
+
+    /// Sets how tightly repeated data rows are packed.
+    pub fn density(mut self, density: Density) -> Self {
+        self.figure = self.figure.density(density);
         self
     }
 

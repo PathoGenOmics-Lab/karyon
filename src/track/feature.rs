@@ -382,17 +382,19 @@ impl Track for FeatureTrack {
         // and just as misleading.
         let override_color = self.color.clone();
         let font = ctx.theme.font_size;
+        let row_height = self.row_height * ctx.visual_scale;
+        let row_gap = self.row_gap * ctx.visual_scale;
 
         for (i, feature) in self.features.iter().enumerate() {
             if feature.end <= ctx.region.start() || feature.start >= ctx.region.end() {
                 continue;
             }
 
-            let top = band.y + rows[i] as f64 * (self.row_height + self.row_gap);
-            let bottom = top + self.row_height;
+            let top = band.y + rows[i] as f64 * (row_height + row_gap);
+            let bottom = top + row_height;
             let middle = (top + bottom) / 2.0;
             let left = ctx.scale.x(feature.start);
-            let right = ctx.scale.x(feature.end).max(left + 1.5);
+            let right = ctx.scale.x(feature.end).max(left + ctx.px(1.5));
             let color = feature.color.clone().unwrap_or_else(|| {
                 override_color
                     .clone()
@@ -416,7 +418,7 @@ impl Track for FeatureTrack {
             // The arrowhead eats a third of a short feature but never more
             // than 8 pixels of a long one, so an interval stays a bar with a
             // point rather than becoming a triangle.
-            let head = ((right - left) * 0.35).min(8.0);
+            let head = ((right - left) * 0.35).min(ctx.theme.tokens.arrow_size);
             match feature.strand {
                 Strand::Forward if head > 1.0 => ctx.svg.polygon(
                     &[
@@ -442,7 +444,7 @@ impl Track for FeatureTrack {
                     left,
                     top,
                     right - left,
-                    self.row_height,
+                    row_height,
                     ctx.theme.corner_radius,
                     &color,
                 ),
