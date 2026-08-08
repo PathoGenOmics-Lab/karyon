@@ -34,10 +34,19 @@
 //! between them, and a parent always sits between its children, so a panel
 //! sorted by [`Tree::leaves`] lines up either way.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::error::Error;
+
+#[derive(Debug, Clone, Copy)]
+struct TreeEdge {
+    node: usize,
+    length: Option<f64>,
+    support: Option<f64>,
+}
+
+type EdgeAdjacency = Vec<Vec<TreeEdge>>;
 
 /// One typed value attached to a phylogenetic node or to the tree itself.
 ///
@@ -401,9 +410,10 @@ impl Tree {
 
     /// Reorients the tree around internal `node`, preserving every undirected edge.
     ///
-    /// Branch lengths stay on their edge when its direction changes. The new
-    /// root has no incoming branch length. A leaf is refused because turning a
-    /// sampled tip into an internal root would silently remove it from the tip set.
+    /// Branch lengths and support stay on their edge when its direction
+    /// changes. The new root has neither, because it has no incoming branch. A
+    /// leaf is refused because turning a sampled tip into an internal root
+    /// would silently remove it from the tip set.
     pub fn reroot(&mut self, node: usize) -> bool {
         let Some(target) = self.nodes.get(node) else {
             return false;
@@ -411,33 +421,236 @@ impl Tree {
         if target.is_leaf() && self.nodes.len() > 1 {
             return false;
         }
-        let mut adjacency: Vec<Vec<(usize, Option<f64>)>> = vec![Vec::new(); self.nodes.len()];
+        let adjacency = self.edge_adjacency();
+        self.orient_from(node, &adjacency);
+        true
+    }
+
+    /// Roots the tree halfway along the branch leading to a monophyletic outgroup.
+    ///
+    /// Every index must name a leaf, and those leaves must be exactly the tips
+    /// below their current MRCA. A new degree-two root is inserted on that
+    /// clade's incoming edge, so no sampled tip is converted into an internal
+    /// node. Returns its stable index, or `None` without changing the tree when
+    /// the selection is empty, invalid, non-monophyletic or already spans the
+    /// whole tree.
+    pub fn reroot_outgroup(&mut self, outgroup: &[usize]) -> Option<usize> {
+        let selected: BTreeSet<usize> = outgroup.iter().copied().collect();
+        if selected.is_empty()
+            || selected.len() != outgroup.len()
+            || selected
+                .iter()
+                .any(|node| !self.nodes.get(*node).is_some_and(Clade::is_leaf))
+        {
+            return None;
+        }
+        let nodes: Vec<usize> = selected.iter().copied().collect();
+        let mrca = self.mrca(&nodes)?;
+        if mrca == self.root {
+            return None;
+        }
+        let clade_leaves: BTreeSet<usize> = if self.nodes[mrca].is_leaf() {
+            [mrca].into_iter().collect()
+        } else {
+            self.descendants(mrca)
+                .into_iter()
+                .filter(|node| self.nodes[*node].is_leaf())
+                .collect()
+        };
+        if clade_leaves != selected {
+            return None;
+        }
+        self.reroot_on_edge(mrca, 0.5)
+    }
+
+    /// Roots a fully weighted tree at the midpoint of its longest tip-to-tip path.
+    ///
+    /// Every branch must have a finite, non-negative length. A midpoint inside
+    /// an edge creates one degree-two root and splits that edge exactly; a
+    /// midpoint already on an internal node reuses it. Returns the root index,
+    /// or `None` without mutation when the required distances are unavailable.
+    pub fn reroot_midpoint(&mut self) -> Option<usize> {
+        let leaves = self.leaves();
+        if leaves.len() < 2 {
+            return None;
+        }
+        let mut adjacency = vec![Vec::<(usize, f64)>::new(); self.nodes.len()];
+        for (child, clade) in self.nodes.iter().enumerate() {
+            let Some(parent) = clade.parent else {
+                continue;
+            };
+            let length = clade.branch_length?;
+            if !length.is_finite() || length < 0.0 {
+                return None;
+            }
+            adjacency[parent].push((child, length));
+            adjacency[child].push((parent, length));
+        }
+
+        fn distances(
+            start: usize,
+            adjacency: &[Vec<(usize, f64)>],
+        ) -> (Vec<f64>, Vec<Option<usize>>) {
+            let mut distance = vec![0.0; adjacency.len()];
+            let mut previous = vec![None; adjacency.len()];
+            let mut stack = vec![(start, None)];
+            while let Some((node, parent)) = stack.pop() {
+                for (next, length) in &adjacency[node] {
+                    if Some(*next) == parent {
+                        continue;
+                    }
+                    distance[*next] = distance[node] + length;
+                    previous[*next] = Some(node);
+                    stack.push((*next, Some(node)));
+                }
+            }
+            (distance, previous)
+        }
+
+        let farthest_leaf = |distance: &[f64]| {
+            leaves.iter().copied().max_by(|left, right| {
+                distance[*left]
+                    .total_cmp(&distance[*right])
+                    .then_with(|| right.cmp(left))
+            })
+        };
+        let (first_distances, _) = distances(leaves[0], &adjacency);
+        let first = farthest_leaf(&first_distances)?;
+        let (diameter_distances, previous) = distances(first, &adjacency);
+        let last = farthest_leaf(&diameter_distances)?;
+        let diameter = diameter_distances[last];
+        if !diameter.is_finite() || diameter <= 0.0 {
+            return None;
+        }
+
+        let mut path = vec![last];
+        while *path.last()? != first {
+            path.push(previous[*path.last()?]?);
+        }
+        path.reverse();
+        let midpoint = diameter / 2.0;
+        let tolerance = diameter.max(1.0) * 1e-12;
+        let mut walked = 0.0;
+        for edge in path.windows(2) {
+            let from = edge[0];
+            let to = edge[1];
+            if (midpoint - walked).abs() <= tolerance {
+                return self.reroot(from).then_some(from);
+            }
+            let length = adjacency[from]
+                .iter()
+                .find_map(|(node, length)| (*node == to).then_some(*length))?;
+            let next = walked + length;
+            if (midpoint - next).abs() <= tolerance {
+                return self.reroot(to).then_some(to);
+            }
+            if midpoint > walked && midpoint < next {
+                let original_child = if self.nodes[from].parent == Some(to) {
+                    from
+                } else {
+                    to
+                };
+                let distance_from_child = if original_child == from {
+                    midpoint - walked
+                } else {
+                    next - midpoint
+                };
+                return self.reroot_on_edge(original_child, distance_from_child / length);
+            }
+            walked = next;
+        }
+        None
+    }
+
+    fn edge_adjacency(&self) -> EdgeAdjacency {
+        let mut adjacency = vec![Vec::new(); self.nodes.len()];
         for (child, clade) in self.nodes.iter().enumerate() {
             if let Some(parent) = clade.parent {
-                adjacency[parent].push((child, clade.branch_length));
-                adjacency[child].push((parent, clade.branch_length));
+                adjacency[parent].push(TreeEdge {
+                    node: child,
+                    length: clade.branch_length,
+                    support: clade.support,
+                });
+                adjacency[child].push(TreeEdge {
+                    node: parent,
+                    length: clade.branch_length,
+                    support: clade.support,
+                });
             }
         }
+        adjacency
+    }
+
+    fn orient_from(&mut self, root: usize, adjacency: &EdgeAdjacency) {
         for clade in &mut self.nodes {
             clade.parent = None;
             clade.children.clear();
+            clade.branch_length = None;
+            clade.support = None;
         }
-        let mut stack = vec![(node, None, None)];
-        while let Some((current, parent, length)) = stack.pop() {
+        let mut stack = vec![(root, None, None, None)];
+        while let Some((current, parent, length, support)) = stack.pop() {
             self.nodes[current].parent = parent;
             self.nodes[current].branch_length = length;
+            self.nodes[current].support = support;
             if let Some(parent) = parent {
                 self.nodes[parent].children.push(current);
             }
-            for (next, edge) in adjacency[current].iter().rev() {
-                if Some(*next) != parent {
-                    stack.push((*next, Some(current), *edge));
+            for edge in adjacency[current].iter().rev() {
+                if Some(edge.node) != parent {
+                    stack.push((edge.node, Some(current), edge.length, edge.support));
                 }
             }
         }
-        self.root = node;
+        self.root = root;
         self.rooted = Some(true);
-        true
+    }
+
+    fn reroot_on_edge(&mut self, child: usize, fraction_from_child: f64) -> Option<usize> {
+        let parent = self.nodes.get(child)?.parent?;
+        if !fraction_from_child.is_finite() || !(0.0..=1.0).contains(&fraction_from_child) {
+            return None;
+        }
+        let length = self.nodes[child].branch_length;
+        let support = self.nodes[child].support;
+        let child_length = length.map(|value| value * fraction_from_child);
+        let parent_length = length.map(|value| value * (1.0 - fraction_from_child));
+        let mut adjacency = self.edge_adjacency();
+        adjacency[child].retain(|edge| edge.node != parent);
+        adjacency[parent].retain(|edge| edge.node != child);
+
+        let root = self.nodes.len();
+        self.nodes.push(Clade {
+            name: None,
+            branch_length: None,
+            support: None,
+            children: Vec::new(),
+            parent: None,
+        });
+        self.annotations.push(Annotations::new());
+        adjacency.push(Vec::new());
+        adjacency[root].push(TreeEdge {
+            node: child,
+            length: child_length,
+            support,
+        });
+        adjacency[child].push(TreeEdge {
+            node: root,
+            length: child_length,
+            support,
+        });
+        adjacency[root].push(TreeEdge {
+            node: parent,
+            length: parent_length,
+            support: None,
+        });
+        adjacency[parent].push(TreeEdge {
+            node: root,
+            length: parent_length,
+            support: None,
+        });
+        self.orient_from(root, &adjacency);
+        Some(root)
     }
 
     /// Copies the clade rooted at `node` into a standalone tree.
@@ -1401,6 +1614,80 @@ mod tests {
         leaves.sort();
         assert_eq!(leaves, ["A", "B", "C", "D"]);
         assert!(!tree.reroot(a), "a sampled tip stays a sampled tip");
+    }
+
+    #[test]
+    fn rerooting_keeps_support_on_its_undirected_edge() {
+        let mut tree = Tree::parse_newick("((A:1,B:1)0.99:2,C:3);").unwrap();
+        let supported = tree
+            .nodes()
+            .iter()
+            .position(|node| node.support == Some(0.99))
+            .unwrap();
+        assert!(tree.reroot(supported));
+        assert_eq!(tree.nodes()[tree.root()].support, None);
+        assert_eq!(
+            tree.nodes()
+                .iter()
+                .filter(|node| node.support == Some(0.99))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_monophyletic_outgroup_gets_a_new_root_without_changing_distances() {
+        let mut tree = Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let o1 = tree.node_named("O1").unwrap();
+        let o2 = tree.node_named("O2").unwrap();
+        let out = tree.node_named("OUT").unwrap();
+        let before = pair_distance(&tree, a, o1);
+        let root = tree.reroot_outgroup(&[o1, o2]).unwrap();
+        assert_eq!(tree.root(), root);
+        assert_eq!(tree.rooted(), Some(true));
+        assert!(tree.nodes()[root].children.contains(&out));
+        assert_eq!(pair_distance(&tree, a, o1), before);
+        assert_eq!(tree.leaf_count(), 5);
+    }
+
+    #[test]
+    fn a_non_monophyletic_outgroup_is_refused_without_mutation() {
+        let mut tree = Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+        let before = tree.clone();
+        let a = tree.node_named("A").unwrap();
+        let o1 = tree.node_named("O1").unwrap();
+        assert_eq!(tree.reroot_outgroup(&[a, o1]), None);
+        assert_eq!(tree, before);
+    }
+
+    #[test]
+    fn midpoint_rooting_splits_the_diameter_edge_exactly() {
+        let mut tree = Tree::parse_newick("((A:1,B:1)AB:1,C:4);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        let b = tree.node_named("B").unwrap();
+        let c = tree.node_named("C").unwrap();
+        let ac = pair_distance(&tree, a, c);
+        let bc = pair_distance(&tree, b, c);
+        let old_nodes = tree.nodes().len();
+        let root = tree.reroot_midpoint().unwrap();
+        assert_eq!(root, old_nodes, "the midpoint lies inside the C edge");
+        let layout = tree.layout(false);
+        let depth = |node: usize| layout.iter().find(|p| p.node == node).unwrap().depth;
+        assert!((depth(a) - 3.0).abs() < 1e-12);
+        assert!((depth(c) - 3.0).abs() < 1e-12);
+        assert_eq!(pair_distance(&tree, a, c), ac);
+        assert_eq!(pair_distance(&tree, b, c), bc);
+    }
+
+    #[test]
+    fn midpoint_rooting_requires_complete_non_negative_lengths() {
+        for input in ["((A:1,B)AB:1,C:4);", "((A:1,B:-1)AB:1,C:4);"] {
+            let mut tree = Tree::parse_newick(input).unwrap();
+            let before = tree.clone();
+            assert_eq!(tree.reroot_midpoint(), None);
+            assert_eq!(tree, before);
+        }
     }
 
     #[test]
