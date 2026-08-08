@@ -84,7 +84,8 @@ pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use tanglegram::{TangleLabels, TangleTieStyle, TanglegramTrack};
 pub use transcript::{Terminator, TranscriptionUnit, TranscriptionUnitTrack};
 pub use tree::{
-    RadialDirection, TraitColumn, TraitScale, TraitStyle, TreeProjection, TreeShape, TreeTrack,
+    RadialDirection, SupportStyle, TraitColumn, TraitScale, TraitStyle, TreeProjection, TreeShape,
+    TreeTrack,
 };
 pub use variant::{Variant, VariantStyle, VariantTrack};
 pub use window::{Window, WindowStyle, WindowTrack};

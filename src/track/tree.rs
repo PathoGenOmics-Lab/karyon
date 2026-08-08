@@ -95,6 +95,33 @@ pub enum TraitStyle {
     Symbol,
 }
 
+/// Visible encoding used for internal-node support values.
+///
+/// Support always remains available in exact SVG tooltips. This setting adds
+/// marks or text when the values need to be readable without hovering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SupportStyle {
+    /// Keep support in tooltips only.
+    #[default]
+    None,
+    /// Scale an internal-node marker by support.
+    Symbols,
+    /// Print the original support value beside the node.
+    Labels,
+    /// Draw both the scaled marker and its value.
+    SymbolsAndLabels,
+}
+
+impl SupportStyle {
+    fn symbols(self) -> bool {
+        matches!(self, Self::Symbols | Self::SymbolsAndLabels)
+    }
+
+    fn labels(self) -> bool {
+        matches!(self, Self::Labels | Self::SymbolsAndLabels)
+    }
+}
+
 /// One metadata column drawn beside the terminal taxa of a tree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitColumn {
@@ -442,6 +469,8 @@ pub struct TreeTrack {
     color_by: Option<String>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
+    support_style: SupportStyle,
+    support_threshold: f64,
     trait_columns: Vec<TraitColumn>,
 }
 
@@ -499,6 +528,8 @@ impl TreeTrack {
             color_by: None,
             collapsed: BTreeSet::new(),
             show_nodes: false,
+            support_style: SupportStyle::None,
+            support_threshold: 0.0,
             trait_columns: Vec::new(),
         }
     }
@@ -687,6 +718,24 @@ impl TreeTrack {
         self
     }
 
+    /// Chooses how internal-node support is made visible.
+    ///
+    /// Values in either the `0..=1` or `0..=100` convention are recognised.
+    /// Their original representation is retained in labels and tooltips.
+    pub fn support_style(mut self, style: SupportStyle) -> Self {
+        self.support_style = style;
+        self
+    }
+
+    /// Hides visible support below `minimum`.
+    ///
+    /// `0.8` and `80.0` both mean eighty percent. Non-finite values reset the
+    /// threshold to zero.
+    pub fn support_threshold(mut self, minimum: f64) -> Self {
+        self.support_threshold = support_fraction(minimum).unwrap_or(0.0);
+        self
+    }
+
     /// Adds one metadata strip aligned to the visible terminal taxa.
     pub fn trait_column(mut self, column: TraitColumn) -> Self {
         self.trait_columns.push(column);
@@ -797,6 +846,8 @@ impl TreeTrack {
             self.line_width,
             self.color_by.as_deref(),
             self.show_nodes,
+            self.support_style,
+            self.support_threshold,
             !self.show_tips,
         );
 
@@ -1136,9 +1187,21 @@ fn draw_radial_branches(
                 ctx.svg.end_group();
             }
         }
-        if track.show_nodes {
-            let angle = geometry.angle(placement.row);
-            let (x, y) = geometry.point(radius, angle);
+        let angle = geometry.angle(placement.row);
+        let (x, y) = geometry.point(radius, angle);
+        if let Some(support) = node.support.filter(|value| {
+            track.support_style != SupportStyle::None
+                && support_fraction(*value).is_some_and(|value| value >= track.support_threshold)
+        }) {
+            draw_support(
+                ctx,
+                x,
+                y,
+                support,
+                &colors[placement.node],
+                track.support_style,
+            );
+        } else if track.show_nodes {
             ctx.svg.circle_ringed(
                 x,
                 y,
@@ -1951,7 +2014,7 @@ fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         }
     }
 
-    if track.show_nodes {
+    if track.show_nodes || track.support_style != SupportStyle::None {
         for node in &scene.visible {
             if scene.terminals.contains(node) {
                 continue;
@@ -1960,14 +2023,22 @@ fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
                 continue;
             };
             let (x, y) = geometry.node(raw);
-            ctx.svg.circle_ringed(
-                x,
-                y,
-                ctx.theme.tokens.marker_radius * 0.65,
-                &colors[*node],
-                &ctx.theme.background,
-                ctx.theme.tokens.hairline,
-            );
+            if let Some(support) = track.tree.nodes()[*node].support.filter(|value| {
+                track.support_style != SupportStyle::None
+                    && support_fraction(*value)
+                        .is_some_and(|value| value >= track.support_threshold)
+            }) {
+                draw_support(ctx, x, y, support, &colors[*node], track.support_style);
+            } else if track.show_nodes {
+                ctx.svg.circle_ringed(
+                    x,
+                    y,
+                    ctx.theme.tokens.marker_radius * 0.65,
+                    &colors[*node],
+                    &ctx.theme.background,
+                    ctx.theme.tokens.hairline,
+                );
+            }
         }
     }
 
@@ -2248,6 +2319,58 @@ fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> Stri
     }
 }
 
+fn support_fraction(value: f64) -> Option<f64> {
+    if !value.is_finite() {
+        return None;
+    }
+    let fraction = if value > 1.0 { value / 100.0 } else { value };
+    Some(fraction.clamp(0.0, 1.0))
+}
+
+fn draw_support(
+    ctx: &mut DrawContext<'_>,
+    x: f64,
+    y: f64,
+    support: f64,
+    color: &str,
+    style: SupportStyle,
+) {
+    let fraction = support_fraction(support).unwrap_or(0.0);
+    let radius = ctx.theme.tokens.marker_radius * (0.45 + fraction * 0.55);
+    if style.symbols() {
+        ctx.svg.circle_ringed(
+            x,
+            y,
+            radius,
+            color,
+            &ctx.theme.background,
+            ctx.theme.tokens.hairline,
+        );
+    }
+    if style.labels() {
+        let label = num(support);
+        let size = (ctx.theme.font_size - 3.0).max(6.0);
+        let offset = if style.symbols() { radius + 2.5 } else { 3.0 };
+        let width = text_width(&label, size) + 4.0;
+        ctx.svg.rect_rounded(
+            x + offset - 2.0,
+            y - size - 1.0,
+            width,
+            size + 3.0,
+            2.0,
+            &ctx.theme.background,
+        );
+        ctx.svg.text(
+            x + offset,
+            y - 1.5,
+            &label,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_tree_scene(
     ctx: &mut DrawContext<'_>,
@@ -2259,6 +2382,8 @@ fn draw_tree_scene(
     width: f64,
     color_by: Option<&str>,
     show_nodes: bool,
+    support_style: SupportStyle,
+    support_threshold: f64,
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
@@ -2317,7 +2442,19 @@ fn draw_tree_scene(
         if title.is_some() {
             ctx.svg.end_group();
         }
-        if show_nodes {
+        if let Some(support) = node.support.filter(|value| {
+            support_style != SupportStyle::None
+                && support_fraction(*value).is_some_and(|value| value >= support_threshold)
+        }) {
+            draw_support(
+                ctx,
+                x,
+                y_of(placement.row),
+                support,
+                &colors[placement.node],
+                support_style,
+            );
+        } else if show_nodes {
             ctx.svg.circle_ringed(
                 x,
                 y_of(placement.row),
@@ -2759,6 +2896,40 @@ mod tests {
         // The clade support is the one thing no label carries, so it stays.
         assert!(svg.contains("<title>clade support 0.9</title>"), "{svg}");
         assert_eq!(svg.matches("<title>").count(), 1);
+    }
+
+    #[test]
+    fn support_can_be_encoded_visibly_and_filtered_without_losing_tooltips() {
+        for track in [
+            TreeTrack::new(tree()),
+            TreeTrack::new(tree()).circular(),
+            TreeTrack::new(tree()).unrooted(),
+        ] {
+            let visible = Figure::new(region())
+                .width(540.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .clone()
+                        .support_style(SupportStyle::SymbolsAndLabels)
+                        .support_threshold(80.0),
+                )
+                .to_svg();
+            assert!(visible.contains(">0.9</text>"), "{visible}");
+            assert!(visible.contains("clade support 0.9"), "{visible}");
+
+            let filtered = Figure::new(region())
+                .width(540.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .support_style(SupportStyle::SymbolsAndLabels)
+                        .support_threshold(0.95),
+                )
+                .to_svg();
+            assert!(!filtered.contains(">0.9</text>"), "{filtered}");
+            assert!(filtered.contains("clade support 0.9"), "{filtered}");
+        }
     }
 
     #[test]

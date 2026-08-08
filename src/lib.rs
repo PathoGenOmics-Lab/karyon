@@ -150,9 +150,9 @@ pub use crate::track::{
     MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, Orf,
     OrfTrack, PileupLayout, PileupTrack, RadialDirection, Read, ReadColoring, Rect, Segment,
     SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack,
-    StackOrder, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, SyntenyTrack,
-    TangleLabels, TangleTieStyle, TanglegramTrack, Terminator, Track, TraitColumn, TraitScale,
-    TraitStyle, TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack,
-    Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
+    StackOrder, Stain, Strand, StructuralTrack, StructuralVariant, SupportStyle, SvKind,
+    SyntenyTrack, TangleLabels, TangleTieStyle, TanglegramTrack, Terminator, Track, TraitColumn,
+    TraitScale, TraitStyle, TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape,
+    TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 pub use crate::tree::{AnnotationValue, Annotations, Clade, Placement, TimeDirection, Tree};
