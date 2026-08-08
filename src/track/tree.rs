@@ -13,13 +13,16 @@
 //! being scattered down the panel in whatever order the samples were listed.
 //! [`leaf_order`] is that sort, and it never drops a row.
 //!
-//! # One function draws every tree in the crate
+//! # One function draws every rectangular tree in the crate
 //!
 //! [`draw_tree`] is a free function rather than a method on [`TreeTrack`]: the
 //! standalone track, the tracks that carry a tree in a strip of their own and
 //! both halves of a tanglegram all go through it. What it draws is rectangular
 //! rather than diagonal, because a diagonal would imply the tree says something
 //! about the space between two rows, and it says nothing about it.
+//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`]. Its
+//! topology, branch lengths, time values and terminal order stay the same; only
+//! the coordinates change. Circular trees do not align to neighbouring rows.
 //!
 //! The tracks whose subject is the tree itself take the same drawing with its
 //! branches named, so a clade can be pointed at for its support. A tree

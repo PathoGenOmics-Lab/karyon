@@ -84,6 +84,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nodes, non-destructive clade triangles and categorical or continuous trait
   columns aligned to the terminal taxa. The synthetic surveillance example is
   a committed visual regression target for the complete composition.
+- Circular `TreeTrack` projections with complete or partial sweeps, controllable
+  start angle and central gap, outward or inward branch direction, concentric
+  time guides, annular categorical or continuous trait rings and
+  non-destructive collapsed-clade wedges. The four-view radial gallery is a
+  committed visual regression target.
 - `From<Error> for std::io::Error`. A program that draws figures spends its
   errors on writing files, so its functions return `io::Result`, and the one
   call that parses a region was the only thing in such a function that could
