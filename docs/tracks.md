@@ -661,7 +661,9 @@ to do with, and a figure of those is a figure of crossings.
 ### TreeTrack
 
 A phylogeny from a Newick string, drawn as a phylogram when the branch lengths
-mean something or a cladogram when they do not.
+mean something or a cladogram when they do not. The projection can be
+rectangular, a complete circle or a partial fan, with branches radiating outwards
+or inwards.
 
 ![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](assets/figures/example-phylogenetics.svg)
 
@@ -671,13 +673,21 @@ maps inherited branch metadata, and `TraitColumn` aligns categorical or
 continuous sample values to the visible tips. `TreeTrack::collapse` replaces a
 visible clade with a triangle without changing the `Tree` it owns.
 
+![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](assets/figures/example-phylo-layouts.svg)
+
+In circular coordinates, time ticks are concentric guides, trait columns are
+annular rings and collapsed clades are wedges. `circular`, `fan`,
+`radial_start`, `radial_sweep`, `radial_direction` and `inner_radius` control
+the geometry without changing topology, branch values or terminal order.
+
 The [annotated phylogenetics guide](guide/phylogenetics.md) covers input
 semantics, time requirements, topology operations and the distinction between
 visual and destructive collapse.
 
-Its x is evolutionary distance, so it does not use the shared scale. Its y does
-mean something to its neighbours, because a leaf is a row, and that is the whole
-point: [SnpTrack](#snptrack) and [MatrixTrack](#matrixtrack) each take a tree of
+In the rectangular projection its x is evolutionary distance, so it does not
+use the shared scale. Its y does mean something to its neighbours, because a
+leaf is a row, and that is the whole point: [SnpTrack](#snptrack) and
+[MatrixTrack](#matrixtrack) each take a tree of
 their own and sort their rows to match it, which is what turns a scatter of
 shared substitutions into a block.
 

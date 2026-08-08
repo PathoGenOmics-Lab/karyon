@@ -13,13 +13,16 @@
 //! being scattered down the panel in whatever order the samples were listed.
 //! [`leaf_order`] is that sort, and it never drops a row.
 //!
-//! # One function draws every tree in the crate
+//! # One function draws every rectangular tree in the crate
 //!
 //! [`draw_tree`] is a free function rather than a method on [`TreeTrack`]: the
 //! standalone track, the tracks that carry a tree in a strip of their own and
 //! both halves of a tanglegram all go through it. What it draws is rectangular
 //! rather than diagonal, because a diagonal would imply the tree says something
 //! about the space between two rows, and it says nothing about it.
+//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`]. Its
+//! topology, branch lengths, time values and terminal order stay the same; only
+//! the coordinates change. Circular trees do not align to neighbouring rows.
 //!
 //! The tracks whose subject is the tree itself take the same drawing with its
 //! branches named, so a clade can be pointed at for its support. A tree
@@ -46,6 +49,26 @@ pub enum TreeShape {
     Cladogram,
 }
 
+/// Coordinate projection used by [`TreeTrack`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TreeProjection {
+    /// Root on the left and terminal taxa in rows on the right.
+    #[default]
+    Rectangular,
+    /// Root and tips arranged on concentric radii.
+    Circular,
+}
+
+/// Direction in which branches radiate in a circular tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RadialDirection {
+    /// Root nearest the centre and terminal taxa towards the circumference.
+    #[default]
+    Outward,
+    /// Root at the circumference and terminal taxa towards the centre.
+    Inward,
+}
+
 /// How a phylogenetic trait column maps values to colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraitScale {
@@ -62,6 +85,7 @@ pub struct TraitColumn {
     label: String,
     scale: TraitScale,
     width: f64,
+    ring_width: f64,
     show_values: bool,
 }
 
@@ -74,6 +98,7 @@ impl TraitColumn {
             key,
             scale: TraitScale::Categorical,
             width: 56.0,
+            ring_width: 10.0,
             show_values: true,
         }
     }
@@ -97,6 +122,16 @@ impl TraitColumn {
             width.max(12.0)
         } else {
             56.0
+        };
+        self
+    }
+
+    /// Sets the thickness of this trait when drawn as a circular ring.
+    pub fn ring_width(mut self, width: f64) -> Self {
+        self.ring_width = if width.is_finite() {
+            width.clamp(2.0, 24.0)
+        } else {
+            10.0
         };
         self
     }
@@ -339,6 +374,8 @@ pub struct TreeTrack {
     label: Option<String>,
     row_height: f64,
     shape: TreeShape,
+    projection: TreeProjection,
+    radial: RadialLayout,
     color: Option<String>,
     line_width: f64,
     show_tips: bool,
@@ -347,6 +384,35 @@ pub struct TreeTrack {
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
     trait_columns: Vec<TraitColumn>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RadialLayout {
+    start_degrees: f64,
+    sweep_degrees: f64,
+    direction: RadialDirection,
+    inner_radius: f64,
+    size: f64,
+}
+
+impl Default for RadialLayout {
+    fn default() -> Self {
+        RadialLayout {
+            start_degrees: -90.0,
+            sweep_degrees: 360.0,
+            direction: RadialDirection::Outward,
+            inner_radius: 0.08,
+            size: 440.0,
+        }
+    }
+}
+
+fn finite_between(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(minimum, maximum)
+    } else {
+        fallback
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +431,8 @@ impl TreeTrack {
             label: None,
             row_height: 15.0,
             shape: TreeShape::Phylogram,
+            projection: TreeProjection::Rectangular,
+            radial: RadialLayout::default(),
             color: None,
             line_width: 1.2,
             show_tips: true,
@@ -391,6 +459,68 @@ impl TreeTrack {
     /// Chooses a phylogram or a cladogram.
     pub fn shape(mut self, shape: TreeShape) -> Self {
         self.shape = shape;
+        self
+    }
+
+    /// Chooses rectangular or circular coordinates.
+    pub fn projection(mut self, projection: TreeProjection) -> Self {
+        self.projection = projection;
+        self
+    }
+
+    /// Draws a complete circular tree radiating outwards by default.
+    pub fn circular(mut self) -> Self {
+        self.projection = TreeProjection::Circular;
+        self.radial.sweep_degrees = 360.0;
+        self
+    }
+
+    /// Draws a circular fan covering `sweep_degrees` clockwise.
+    pub fn fan(mut self, sweep_degrees: f64) -> Self {
+        self.projection = TreeProjection::Circular;
+        self.radial.sweep_degrees = finite_between(sweep_degrees, 10.0, 359.0, 240.0);
+        self
+    }
+
+    /// Sets the angle where a circular tree begins, in clockwise degrees.
+    ///
+    /// Zero is three o'clock and -90 is twelve o'clock.
+    pub fn radial_start(mut self, degrees: f64) -> Self {
+        self.projection = TreeProjection::Circular;
+        if degrees.is_finite() {
+            self.radial.start_degrees = degrees;
+        }
+        self
+    }
+
+    /// Sets the clockwise angular span of a circular tree in degrees.
+    pub fn radial_sweep(mut self, degrees: f64) -> Self {
+        self.projection = TreeProjection::Circular;
+        self.radial.sweep_degrees = finite_between(degrees, 10.0, 360.0, 360.0);
+        self
+    }
+
+    /// Chooses whether tips point away from or towards the centre.
+    pub fn radial_direction(mut self, direction: RadialDirection) -> Self {
+        self.projection = TreeProjection::Circular;
+        self.radial.direction = direction;
+        self
+    }
+
+    /// Sets the central gap as a fraction of the tree radius.
+    pub fn inner_radius(mut self, fraction: f64) -> Self {
+        self.projection = TreeProjection::Circular;
+        self.radial.inner_radius = finite_between(fraction, 0.0, 0.85, 0.08);
+        self
+    }
+
+    /// Sets the requested height of the circular drawing in pixels.
+    pub fn radial_size(mut self, size: f64) -> Self {
+        self.radial.size = if size.is_finite() {
+            size.max(120.0)
+        } else {
+            440.0
+        };
         self
     }
 
@@ -541,25 +671,8 @@ impl TreeTrack {
             18.0
         }
     }
-}
 
-impl Track for TreeTrack {
-    fn height(&self, _scale: &Scale) -> f64 {
-        let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
-        rows * self.row_height
-            + self
-                .time
-                .as_ref()
-                .filter(|time| time.show_axis)
-                .map_or(0.0, |_| 22.0)
-            + self.trait_header_room()
-    }
-
-    fn label(&self) -> Option<&str> {
-        self.label.as_deref()
-    }
-
-    fn draw(&self, ctx: &mut DrawContext<'_>) {
+    fn draw_rectangular(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let color = self
             .color
@@ -618,6 +731,676 @@ impl Track for TreeTrack {
             draw_time_axis(ctx, &scene, area, time);
         }
     }
+}
+
+impl Track for TreeTrack {
+    fn height(&self, _scale: &Scale) -> f64 {
+        match self.projection {
+            TreeProjection::Rectangular => {
+                let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
+                rows * self.row_height
+                    + self
+                        .time
+                        .as_ref()
+                        .filter(|time| time.show_axis)
+                        .map_or(0.0, |_| 22.0)
+                    + self.trait_header_room()
+            }
+            TreeProjection::Circular => self.radial.size + self.trait_header_room(),
+        }
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    fn draw(&self, ctx: &mut DrawContext<'_>) {
+        match self.projection {
+            TreeProjection::Rectangular => self.draw_rectangular(ctx),
+            TreeProjection::Circular => {
+                draw_radial_track(self, ctx);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RadialGeometry {
+    cx: f64,
+    cy: f64,
+    tree_inner: f64,
+    tree_outer: f64,
+    ring_outer: f64,
+    label_radius: f64,
+    start: f64,
+    sweep: f64,
+    terminals: usize,
+    direction: RadialDirection,
+}
+
+impl RadialGeometry {
+    fn new(track: &TreeTrack, theme: &Theme, scene: &TreeScene, area: Rect) -> Self {
+        let label_extent = if track.show_tips {
+            scene
+                .terminals
+                .iter()
+                .map(|node| {
+                    text_width(
+                        &terminal_label(&track.tree, *node, &track.collapsed),
+                        theme.font_size - 1.0,
+                    )
+                })
+                .fold(0.0f64, f64::max)
+                + 6.0
+        } else {
+            4.0
+        };
+        let gap = theme.tokens.legend_gap.clamp(1.0, 4.0);
+        let ring_room = if track.trait_columns.is_empty() {
+            0.0
+        } else {
+            track
+                .trait_columns
+                .iter()
+                .map(|column| column.ring_width)
+                .sum::<f64>()
+                + gap * track.trait_columns.len() as f64
+        };
+        let half = (area.w.min(area.h) / 2.0 - 4.0).max(2.0);
+        let (tree_outer, tree_inner, ring_outer, label_radius) = match track.radial.direction {
+            RadialDirection::Outward => {
+                let ring_outer = (half - label_extent).max(4.0);
+                let tree_outer = (ring_outer - ring_room).max(2.0);
+                let tree_inner = tree_outer * track.radial.inner_radius;
+                (tree_outer, tree_inner, ring_outer, ring_outer + 4.0)
+            }
+            RadialDirection::Inward => {
+                let ring_outer = half;
+                let tree_outer = (ring_outer - ring_room).max(2.0);
+                let requested = tree_outer * track.radial.inner_radius;
+                let tree_inner = if track.show_tips {
+                    requested.max(label_extent + 4.0).min(tree_outer * 0.9)
+                } else {
+                    requested
+                };
+                (
+                    tree_outer,
+                    tree_inner,
+                    ring_outer,
+                    (tree_inner - 4.0).max(0.0),
+                )
+            }
+        };
+        RadialGeometry {
+            cx: area.x + area.w / 2.0,
+            cy: area.y + area.h / 2.0,
+            tree_inner,
+            tree_outer,
+            ring_outer,
+            label_radius,
+            start: track.radial.start_degrees.to_radians(),
+            sweep: track.radial.sweep_degrees.to_radians(),
+            terminals: scene.terminals.len().max(1),
+            direction: track.radial.direction,
+        }
+    }
+
+    fn angle(&self, row: f64) -> f64 {
+        if self.terminals == 1 {
+            return if self.full_circle() {
+                self.start
+            } else {
+                self.start + self.sweep / 2.0
+            };
+        }
+        let denominator = if self.full_circle() {
+            self.terminals as f64
+        } else {
+            (self.terminals - 1) as f64
+        };
+        self.start + self.sweep * row / denominator
+    }
+
+    fn angular_step(&self) -> f64 {
+        if self.terminals <= 1 {
+            self.sweep
+        } else if self.full_circle() {
+            self.sweep / self.terminals as f64
+        } else {
+            self.sweep / (self.terminals - 1) as f64
+        }
+    }
+
+    fn full_circle(&self) -> bool {
+        self.sweep >= std::f64::consts::TAU - 1e-6
+    }
+
+    fn point(&self, radius: f64, angle: f64) -> (f64, f64) {
+        (
+            self.cx + angle.cos() * radius,
+            self.cy + angle.sin() * radius,
+        )
+    }
+
+    fn radius(&self, scene: &TreeScene, value: f64) -> f64 {
+        let fraction = scene.fraction(value);
+        match self.direction {
+            RadialDirection::Outward => {
+                self.tree_inner + fraction * (self.tree_outer - self.tree_inner)
+            }
+            RadialDirection::Inward => {
+                self.tree_outer - fraction * (self.tree_outer - self.tree_inner)
+            }
+        }
+    }
+
+    fn terminal_boundary(&self) -> f64 {
+        match self.direction {
+            RadialDirection::Outward => self.tree_outer,
+            RadialDirection::Inward => self.tree_inner,
+        }
+    }
+}
+
+fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
+    let color = track
+        .color
+        .clone()
+        .unwrap_or_else(|| ctx.theme.foreground.clone());
+    let scene = TreeScene::new(
+        &track.tree,
+        track.shape,
+        track.time.as_ref(),
+        &track.collapsed,
+    );
+    let header_room = track.trait_header_room();
+    let area = Rect {
+        x: ctx.band.x,
+        y: ctx.band.y + header_room,
+        w: ctx.band.w,
+        h: (ctx.band.h - header_room).max(1.0),
+    };
+    let geometry = RadialGeometry::new(track, ctx.theme, &scene, area);
+    let colors = branch_colors(
+        &track.tree,
+        &scene,
+        track.color_by.as_deref(),
+        ctx.theme,
+        &color,
+    );
+
+    if let Some(time) = track.time.as_ref().filter(|time| time.show_axis) {
+        draw_radial_time_axis(ctx, &scene, &geometry, time);
+    }
+    draw_radial_padding(track, ctx, &scene, &geometry);
+    draw_radial_branches(track, ctx, &scene, &geometry, &colors);
+    draw_radial_collapsed(track, ctx, &scene, &geometry, &colors);
+    draw_trait_rings(track, ctx, &scene, &geometry);
+    draw_radial_labels(track, ctx, &scene, &geometry);
+    draw_trait_ring_headings(track, ctx);
+}
+
+fn draw_radial_padding(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+) {
+    if !track.show_tips && track.trait_columns.is_empty() {
+        return;
+    }
+    let boundary = geometry.terminal_boundary();
+    for (row, node) in scene.terminals.iter().enumerate() {
+        if !track.tree.nodes()[*node].is_leaf() {
+            continue;
+        }
+        let placement = scene.placements[*node].unwrap();
+        let radius = geometry.radius(scene, placement.depth);
+        if (radius - boundary).abs() <= 0.5 {
+            continue;
+        }
+        let angle = geometry.angle(row as f64);
+        let (x0, y0) = geometry.point(radius, angle);
+        let (x1, y1) = geometry.point(boundary, angle);
+        ctx.svg
+            .line(x0, y0, x1, y1, &ctx.theme.rule, ctx.theme.tokens.hairline);
+    }
+}
+
+fn draw_radial_branches(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+    colors: &[String],
+) {
+    for placement in scene.placements.iter().flatten() {
+        let node = &track.tree.nodes()[placement.node];
+        let Some(parent) = node.parent else {
+            continue;
+        };
+        let Some(parent_placement) = scene.placements[parent] else {
+            continue;
+        };
+        let angle = geometry.angle(placement.row);
+        let (x0, y0) = geometry.point(geometry.radius(scene, parent_placement.depth), angle);
+        let (x1, y1) = geometry.point(geometry.radius(scene, placement.depth), angle);
+        let title = branch_title(
+            &track.tree,
+            placement.node,
+            track.color_by.as_deref(),
+            !track.show_tips,
+            false,
+        );
+        if let Some(title) = &title {
+            ctx.svg.begin_titled(title);
+        }
+        ctx.svg
+            .line(x0, y0, x1, y1, &colors[placement.node], track.line_width);
+        if title.is_some() {
+            ctx.svg.end_group();
+        }
+    }
+
+    for placement in scene.placements.iter().flatten() {
+        let node = &track.tree.nodes()[placement.node];
+        if node.is_leaf() || scene.terminals.contains(&placement.node) {
+            continue;
+        }
+        let angles: Vec<f64> = node
+            .children
+            .iter()
+            .filter_map(|child| scene.placements[*child])
+            .map(|child| geometry.angle(child.row))
+            .collect();
+        let (Some(start), Some(end)) = (angles.first(), angles.last()) else {
+            continue;
+        };
+        let radius = geometry.radius(scene, placement.depth);
+        if radius > 0.5 && (end - start).abs() > 1e-9 {
+            let title = branch_title(
+                &track.tree,
+                placement.node,
+                track.color_by.as_deref(),
+                false,
+                true,
+            );
+            if let Some(title) = &title {
+                ctx.svg.begin_titled(title);
+            }
+            ctx.svg.path_stroked(
+                &radial_arc_path(geometry, radius, *start, *end),
+                &colors[placement.node],
+                track.line_width,
+            );
+            if title.is_some() {
+                ctx.svg.end_group();
+            }
+        }
+        if track.show_nodes {
+            let angle = geometry.angle(placement.row);
+            let (x, y) = geometry.point(radius, angle);
+            ctx.svg.circle_ringed(
+                x,
+                y,
+                ctx.theme.tokens.marker_radius * 0.65,
+                &colors[placement.node],
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            );
+        }
+    }
+}
+
+fn draw_radial_labels(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+) {
+    if !track.show_tips {
+        return;
+    }
+    let size = ctx.theme.font_size - 1.0;
+    for (row, node) in scene.terminals.iter().enumerate() {
+        let angle = geometry.angle(row as f64);
+        let (x, y) = geometry.point(geometry.label_radius, angle);
+        let degrees = angle.to_degrees().rem_euclid(360.0);
+        let right = angle.cos() >= 0.0;
+        let (rotation, anchor) = match (geometry.direction, right) {
+            (RadialDirection::Outward, true) => (degrees, crate::svg::Anchor::Start),
+            (RadialDirection::Outward, false) => (degrees + 180.0, crate::svg::Anchor::End),
+            (RadialDirection::Inward, true) => (degrees, crate::svg::Anchor::End),
+            (RadialDirection::Inward, false) => (degrees + 180.0, crate::svg::Anchor::Start),
+        };
+        ctx.svg.text_rotated(
+            (x, y + size * 0.32),
+            rotation,
+            &terminal_label(&track.tree, *node, &track.collapsed),
+            &ctx.theme.muted,
+            size,
+            anchor,
+        );
+    }
+}
+
+fn radial_arc_path(geometry: &RadialGeometry, radius: f64, start: f64, end: f64) -> String {
+    let delta = (end - start).abs();
+    let (x0, y0) = geometry.point(radius, start);
+    if delta >= std::f64::consts::TAU - 1e-6 {
+        let middle = start + std::f64::consts::PI;
+        let (xm, ym) = geometry.point(radius, middle);
+        return format!(
+            "M {} {} A {} {} 0 0 1 {} {} A {} {} 0 0 1 {} {}",
+            num(x0),
+            num(y0),
+            num(radius),
+            num(radius),
+            num(xm),
+            num(ym),
+            num(radius),
+            num(radius),
+            num(x0),
+            num(y0)
+        );
+    }
+    let (x1, y1) = geometry.point(radius, end);
+    format!(
+        "M {} {} A {} {} 0 {} 1 {} {}",
+        num(x0),
+        num(y0),
+        num(radius),
+        num(radius),
+        usize::from(delta > std::f64::consts::PI),
+        num(x1),
+        num(y1)
+    )
+}
+
+fn draw_radial_time_axis(
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+    time: &TimeAxis,
+) {
+    if !scene.temporal {
+        return;
+    }
+    let size = (ctx.theme.font_size - 2.0).max(6.0);
+    for index in 0..=2 {
+        let fraction = index as f64 / 2.0;
+        let value = scene.minimum + fraction * (scene.maximum - scene.minimum);
+        let radius = geometry.radius(scene, value);
+        if radius > 0.5 {
+            ctx.svg.path_stroked(
+                &radial_arc_path(
+                    geometry,
+                    radius,
+                    geometry.start,
+                    geometry.start + geometry.sweep,
+                ),
+                &ctx.theme.rule,
+                ctx.theme.tokens.hairline,
+            );
+        }
+        let label = match &time.unit {
+            Some(unit) => format!("{} {unit}", num(value)),
+            None => num(value),
+        };
+        let (x, y) = geometry.point((radius - 4.0).max(0.0), geometry.start);
+        let rotation = upright_tangent(geometry.start);
+        ctx.svg.text_rotated(
+            (x, y - 2.0),
+            rotation,
+            &label,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Middle,
+        );
+    }
+}
+
+fn draw_radial_collapsed(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+    colors: &[String],
+) {
+    for (row, node) in scene.terminals.iter().enumerate() {
+        if track.tree.nodes()[*node].is_leaf() {
+            continue;
+        }
+        let placement = scene.placements[*node].unwrap();
+        let start_radius = geometry.radius(scene, placement.depth);
+        let descendant_radii: Vec<f64> = track
+            .tree
+            .descendants(*node)
+            .into_iter()
+            .map(|descendant| geometry.radius(scene, scene.source_placements[descendant].depth))
+            .collect();
+        let far_radius = match geometry.direction {
+            RadialDirection::Outward => descendant_radii
+                .into_iter()
+                .fold(start_radius + 2.0, f64::max),
+            RadialDirection::Inward => descendant_radii
+                .into_iter()
+                .fold((start_radius - 2.0).max(0.0), f64::min),
+        };
+        let angle = geometry.angle(row as f64);
+        let half = (geometry.angular_step() * 0.34).min(std::f64::consts::PI * 0.24);
+        let (tip_x, tip_y) = geometry.point(start_radius, angle);
+        let (left_x, left_y) = geometry.point(far_radius, angle - half);
+        let (right_x, right_y) = geometry.point(far_radius, angle + half);
+        let d = format!(
+            "M {} {} L {} {} A {} {} 0 0 1 {} {} Z",
+            num(tip_x),
+            num(tip_y),
+            num(left_x),
+            num(left_y),
+            num(far_radius),
+            num(far_radius),
+            num(right_x),
+            num(right_y)
+        );
+        let title = format!(
+            "{} ({} tips)",
+            track.tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
+            track.tree.clade_size(*node)
+        );
+        ctx.svg.begin_titled(&title);
+        ctx.svg.path(&d, &colors[*node], 0.28);
+        ctx.svg.end_group();
+    }
+}
+
+fn draw_trait_rings(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+) {
+    if track.trait_columns.is_empty() {
+        return;
+    }
+    let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
+    let mut inner = geometry.tree_outer + gap;
+    for column in &track.trait_columns {
+        let outer = (inner + column.ring_width).min(geometry.ring_outer);
+        let values: Vec<Option<&AnnotationValue>> = scene
+            .terminals
+            .iter()
+            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .collect();
+        let categories: BTreeMap<String, usize> = scene
+            .placements
+            .iter()
+            .flatten()
+            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
+            .map(ToString::to_string)
+            .fold(BTreeMap::new(), |mut categories, value| {
+                let next = categories.len();
+                categories.entry(value).or_insert(next);
+                categories
+            });
+        let numeric: Vec<f64> = scene
+            .placements
+            .iter()
+            .flatten()
+            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
+            .filter_map(AnnotationValue::as_number)
+            .filter(|value| value.is_finite())
+            .collect();
+        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
+        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        for (row, node) in scene.terminals.iter().enumerate() {
+            let angle = geometry.angle(row as f64);
+            let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
+            let half = (geometry.angular_step() / 2.0 - gap_angle)
+                .max(geometry.angular_step() * 0.12)
+                .min(std::f64::consts::PI * 0.45);
+            let start = if geometry.full_circle() {
+                angle - half
+            } else {
+                (angle - half).max(geometry.start)
+            };
+            let end = if geometry.full_circle() {
+                angle + half
+            } else {
+                (angle + half).min(geometry.start + geometry.sweep)
+            };
+            let value = values[row];
+            let fill = match (column.scale, value) {
+                (TraitScale::Categorical, Some(value)) => {
+                    let value = value.to_string();
+                    categories
+                        .get(&value)
+                        .map(|index| ctx.theme.color(*index).to_string())
+                }
+                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
+                    value.is_finite().then(|| {
+                        let fraction = if maximum <= minimum {
+                            1.0
+                        } else {
+                            (value - minimum) / (maximum - minimum)
+                        };
+                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
+                    })
+                }),
+                _ => None,
+            };
+            let displayed = value.map(ToString::to_string);
+            let name = terminal_label(&track.tree, *node, &track.collapsed);
+            let title = match &displayed {
+                Some(value) => format!("{name}; {} {value}", column.key),
+                None => format!("{name}; {} missing", column.key),
+            };
+            let path = radial_sector_path(geometry, inner, outer, start, end);
+            ctx.svg.begin_titled(&title);
+            if let Some(fill) = &fill {
+                ctx.svg.path(&path, fill, 1.0);
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+            if column.show_values {
+                let text = displayed.as_deref().unwrap_or("—");
+                let size = (ctx.theme.font_size - 3.0).max(6.0);
+                let middle_radius = (inner + outer) / 2.0;
+                let arc_room = middle_radius * (end - start).abs();
+                if column.ring_width >= size + 1.0 && arc_room >= text_width(text, size) + 4.0 {
+                    let (x, y) = geometry.point(middle_radius, angle);
+                    let ink = match &fill {
+                        Some(fill) => contrast_ink(fill),
+                        None => ctx.theme.muted.as_str(),
+                    };
+                    ctx.svg.text_rotated(
+                        (x, y + size * 0.3),
+                        upright_tangent(angle),
+                        text,
+                        ink,
+                        size,
+                        crate::svg::Anchor::Middle,
+                    );
+                }
+            }
+            ctx.svg.end_group();
+        }
+        inner = outer + gap;
+    }
+}
+
+fn radial_sector_path(
+    geometry: &RadialGeometry,
+    inner: f64,
+    outer: f64,
+    start: f64,
+    end: f64,
+) -> String {
+    let (x0, y0) = geometry.point(outer, start);
+    let (x1, y1) = geometry.point(outer, end);
+    let (x2, y2) = geometry.point(inner, end);
+    let (x3, y3) = geometry.point(inner, start);
+    let large = usize::from((end - start).abs() > std::f64::consts::PI);
+    format!(
+        "M {} {} A {} {} 0 {} 1 {} {} L {} {} A {} {} 0 {} 0 {} {} Z",
+        num(x0),
+        num(y0),
+        num(outer),
+        num(outer),
+        large,
+        num(x1),
+        num(y1),
+        num(x2),
+        num(y2),
+        num(inner),
+        num(inner),
+        large,
+        num(x3),
+        num(y3)
+    )
+}
+
+fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
+    if track.trait_columns.is_empty() {
+        return;
+    }
+    let size = (ctx.theme.font_size - 2.0).max(6.0);
+    let slot = ctx.band.w / track.trait_columns.len() as f64;
+    for (index, column) in track.trait_columns.iter().enumerate() {
+        let x = ctx.band.x + index as f64 * slot;
+        let visible = fit_text(&column.label, (slot - 18.0).max(1.0), size);
+        if visible != column.label {
+            ctx.svg.begin_titled(&column.label);
+        }
+        ctx.svg.circle_ringed(
+            x + 7.0,
+            ctx.band.y + 7.0,
+            4.0,
+            &ctx.theme.background,
+            &ctx.theme.rule,
+            ctx.theme.tokens.hairline,
+        );
+        ctx.svg.text(
+            x + 16.0,
+            ctx.band.y + size + 2.0,
+            &visible,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+        if visible != column.label {
+            ctx.svg.end_group();
+        }
+    }
+}
+
+fn upright_tangent(angle: f64) -> f64 {
+    let mut degrees = (angle.to_degrees() + 90.0).rem_euclid(360.0);
+    if degrees > 90.0 && degrees < 270.0 {
+        degrees += 180.0;
+    }
+    degrees
 }
 
 struct TreeScene {
@@ -694,17 +1477,20 @@ impl TreeScene {
     }
 
     fn x(&self, area: Rect, value: f64) -> f64 {
+        area.x + self.fraction(value) * area.w
+    }
+
+    fn fraction(&self, value: f64) -> f64 {
         let span = self.maximum - self.minimum;
-        let fraction = if span <= 0.0 {
-            0.0
-        } else {
-            match self.direction {
-                TimeDirection::Increasing => (value - self.minimum) / span,
-                TimeDirection::Decreasing if self.temporal => (self.maximum - value) / span,
-                TimeDirection::Decreasing => (value - self.minimum) / span,
-            }
+        if span <= 0.0 {
+            return 0.0;
+        }
+        let fraction = match self.direction {
+            TimeDirection::Increasing => (value - self.minimum) / span,
+            TimeDirection::Decreasing if self.temporal => (self.maximum - value) / span,
+            TimeDirection::Decreasing => (value - self.minimum) / span,
         };
-        area.x + fraction.clamp(0.0, 1.0) * area.w
+        fraction.clamp(0.0, 1.0)
     }
 }
 
@@ -1442,6 +2228,139 @@ mod tests {
         assert!(
             svg[alpha..(alpha + 220).min(svg.len())].contains("fill=\"#0072b2\""),
             "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_circular_tree_preserves_every_branch_and_draws_internal_arcs() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(tree()).circular().show_tips(false))
+            .to_svg();
+        assert_eq!(svg.matches("<line").count(), 6, "one radial line per edge");
+        assert_eq!(svg.matches("<path").count(), 3, "one arc per internal node");
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    #[test]
+    fn circular_tip_labels_stay_upright_on_both_halves() {
+        let svg = Figure::new(region())
+            .width(520.0)
+            .show_region_label(false)
+            .push(TreeTrack::new(tree()).circular().radial_size(360.0))
+            .to_svg();
+        for tip in ["A", "B", "C", "D"] {
+            assert!(svg.contains(&format!(">{tip}</text>")), "{svg}");
+        }
+        assert!(svg.contains("rotate(0)"), "right-facing label: {svg}");
+        assert!(svg.contains("rotate(360)"), "left-facing label: {svg}");
+    }
+
+    #[test]
+    fn a_fan_and_an_inward_tree_are_distinct_finite_projections() {
+        let outward = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(tree()).fan(220.0).show_tips(false))
+            .to_svg();
+        let inward = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree())
+                    .fan(220.0)
+                    .radial_direction(RadialDirection::Inward)
+                    .inner_radius(0.35)
+                    .show_tips(false),
+            )
+            .to_svg();
+        assert_ne!(outward, inward);
+        assert!(!outward.contains("NaN"));
+        assert!(!inward.contains("NaN"));
+    }
+
+    #[test]
+    fn circular_time_guides_keep_their_exact_values() {
+        let tree = Tree::parse_annotated_newick(
+            "((A[&date=2024]:1,B[&date=2025]:2)AB:1,C[&date=2023]:3);",
+        )
+        .unwrap();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .circular()
+                    .time("date")
+                    .time_unit("year")
+                    .show_tips(false),
+            )
+            .to_svg();
+        for label in ["2021 year", "2023 year", "2025 year"] {
+            assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
+        }
+    }
+
+    #[test]
+    fn trait_columns_become_annotated_rings_in_circular_trees() {
+        let tree = Tree::parse_annotated_newick(
+            "(A[&country=Peru,coverage=18]:1,B[&country=Chile]:1,C[&country=Peru,coverage=42]:1);",
+        )
+        .unwrap();
+        let svg = Figure::new(region())
+            .width(560.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .circular()
+                    .trait_column(
+                        TraitColumn::categorical("country")
+                            .label("Country")
+                            .ring_width(12.0),
+                    )
+                    .trait_column(
+                        TraitColumn::continuous("coverage")
+                            .label("Depth")
+                            .ring_width(12.0),
+                    ),
+            )
+            .to_svg();
+        for title in [
+            "A; country Peru",
+            "B; country Chile",
+            "B; coverage missing",
+            "C; coverage 42",
+        ] {
+            assert!(svg.contains(&format!("<title>{title}</title>")), "{svg}");
+        }
+        for heading in [">Country</text>", ">Depth</text>"] {
+            assert!(svg.contains(heading), "{svg}");
+        }
+    }
+
+    #[test]
+    fn circular_collapse_is_a_non_destructive_wedge() {
+        let tree = Tree::parse_newick("((A:1,B:1)outbreak:1,C:2);").unwrap();
+        let outbreak = tree.node_named("outbreak").unwrap();
+        let track = TreeTrack::new(tree)
+            .circular()
+            .collapse(outbreak)
+            .show_tips(false);
+        assert_eq!(track.tree().leaf_names(), ["A", "B", "C"]);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(track)
+            .to_svg();
+        assert!(svg.contains("<title>outbreak (2 tips)</title>"), "{svg}");
+        assert!(svg.contains("fill-opacity=\"0.28\""), "{svg}");
+    }
+
+    #[test]
+    fn radial_height_is_explicit_and_independent_of_leaf_count() {
+        let scale = Scale::new(&region(), 0.0, 100.0);
+        assert_eq!(
+            TreeTrack::new(tree())
+                .projection(TreeProjection::Circular)
+                .radial_size(320.0)
+                .height(&scale),
+            320.0
         );
     }
 

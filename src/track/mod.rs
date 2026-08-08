@@ -83,7 +83,7 @@ pub use structural::{StructuralTrack, StructuralVariant, SvKind};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use tanglegram::TanglegramTrack;
 pub use transcript::{Terminator, TranscriptionUnit, TranscriptionUnitTrack};
-pub use tree::{TraitColumn, TraitScale, TreeShape, TreeTrack};
+pub use tree::{RadialDirection, TraitColumn, TraitScale, TreeProjection, TreeShape, TreeTrack};
 pub use variant::{Variant, VariantStyle, VariantTrack};
 pub use window::{Window, WindowStyle, WindowTrack};
 
