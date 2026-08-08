@@ -469,6 +469,7 @@ pub struct TreeTrack {
     color_by: Option<String>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
+    show_root: bool,
     support_style: SupportStyle,
     support_threshold: f64,
     branch_labels: Option<BranchLabels>,
@@ -542,6 +543,7 @@ impl TreeTrack {
             color_by: None,
             collapsed: BTreeSet::new(),
             show_nodes: false,
+            show_root: false,
             support_style: SupportStyle::None,
             support_threshold: 0.0,
             branch_labels: None,
@@ -650,6 +652,67 @@ impl TreeTrack {
         if degrees.is_finite() {
             self.radial.start_degrees = degrees;
         }
+        self
+    }
+
+    /// Reorients the owned tree around internal `node` and marks the new root.
+    ///
+    /// An invalid index or sampled tip leaves the tree unchanged. Use
+    /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
+    /// handled rather than represented as an unchanged builder.
+    pub fn reroot(mut self, node: usize) -> Self {
+        if self.tree.reroot(node) {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Reorients the owned tree around an internal node with this exact name.
+    pub fn reroot_named(mut self, name: &str) -> Self {
+        if let Some(node) = self.tree.node_named(name) {
+            if self.tree.reroot(node) {
+                self.show_root = true;
+            }
+        }
+        self
+    }
+
+    /// Roots halfway along the edge leading to a monophyletic named outgroup.
+    ///
+    /// Missing, duplicate, internal or non-monophyletic names leave the tree
+    /// unchanged. The new root is inserted without converting an outgroup tip
+    /// into an internal node.
+    pub fn reroot_outgroup<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut nodes = Vec::new();
+        for name in names {
+            let Some(node) = self.tree.node_named(name.as_ref()) else {
+                return self;
+            };
+            nodes.push(node);
+        }
+        if self.tree.reroot_outgroup(&nodes).is_some() {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Roots the owned phylogram at the midpoint of its weighted tip diameter.
+    ///
+    /// Missing, negative or non-finite branch lengths leave the tree unchanged.
+    pub fn reroot_midpoint(mut self) -> Self {
+        if self.tree.reroot_midpoint().is_some() {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Draws or hides the selected root marker in rooted projections.
+    pub fn show_root(mut self, show: bool) -> Self {
+        self.show_root = show;
         self
     }
 
@@ -937,6 +1000,15 @@ impl TreeTrack {
             self.branch_labels.as_ref(),
             !self.show_tips,
         );
+        if self.show_root {
+            if let Some(root) = scene.placements[self.tree.root()] {
+                draw_root_marker(
+                    ctx,
+                    scene.x(area, root.depth),
+                    area.y + self.row_height / 2.0 + root.row * self.row_height,
+                );
+            }
+        }
 
         if self.show_tips {
             let size = ctx.theme.font_size - 1.0;
@@ -1179,6 +1251,15 @@ fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     }
     draw_radial_padding(track, ctx, &scene, &geometry);
     draw_radial_branches(track, ctx, &scene, &geometry, &colors);
+    if track.show_root {
+        if let Some(root) = scene.placements[track.tree.root()] {
+            let (x, y) = geometry.point(
+                geometry.radius(&scene, root.depth),
+                geometry.angle(root.row),
+            );
+            draw_root_marker(ctx, x, y);
+        }
+    }
     draw_radial_collapsed(track, ctx, &scene, &geometry, &colors);
     draw_trait_rings(track, ctx, &scene, &geometry);
     draw_radial_labels(track, ctx, &scene, &geometry);
@@ -2443,6 +2524,20 @@ fn support_fraction(value: f64) -> Option<f64> {
     Some(fraction.clamp(0.0, 1.0))
 }
 
+fn draw_root_marker(ctx: &mut DrawContext<'_>, x: f64, y: f64) {
+    ctx.svg.begin_titled("selected root");
+    ctx.svg.symbol_ringed(
+        x,
+        y,
+        ctx.theme.tokens.marker_radius * 1.15,
+        crate::style::Symbol::Diamond,
+        &ctx.theme.accent,
+        &ctx.theme.background,
+        ctx.theme.tokens.hairline.max(1.0),
+    );
+    ctx.svg.end_group();
+}
+
 fn draw_support(
     ctx: &mut DrawContext<'_>,
     x: f64,
@@ -3297,6 +3392,59 @@ mod tests {
             )
             .to_svg();
         assert!(!cladogram.contains("branch length scale"), "{cladogram}");
+    }
+
+    #[test]
+    fn track_builders_reroot_by_node_name_outgroup_and_midpoint() {
+        let named_tree = Tree::parse_newick("((A:1,B:1)AB:2,(C:1,D:1)CD:2);").unwrap();
+        let ab = named_tree.node_named("AB").unwrap();
+        let by_node = TreeTrack::new(named_tree.clone()).reroot(ab);
+        assert_eq!(by_node.tree().root(), ab);
+        assert!(by_node.show_root);
+
+        let by_name = TreeTrack::new(named_tree).reroot_named("CD");
+        assert_eq!(
+            by_name.tree().nodes()[by_name.tree().root()]
+                .name
+                .as_deref(),
+            Some("CD")
+        );
+
+        let outgroup_tree =
+            Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+        let by_outgroup = TreeTrack::new(outgroup_tree).reroot_outgroup(["O1", "O2"]);
+        assert!(by_outgroup.show_root);
+        assert_eq!(by_outgroup.tree().leaf_count(), 5);
+
+        let midpoint_tree = Tree::parse_newick("((A:1,B:1)AB:1,C:4);").unwrap();
+        let old_nodes = midpoint_tree.nodes().len();
+        let by_midpoint = TreeTrack::new(midpoint_tree).reroot_midpoint();
+        assert_eq!(by_midpoint.tree().root(), old_nodes);
+        assert!(by_midpoint.show_root);
+    }
+
+    #[test]
+    fn selected_root_markers_are_explicit_and_only_belong_to_rooted_projections() {
+        let tree = Tree::parse_newick("((A:1,B:1)AB:2,(C:1,D:1)CD:2);").unwrap();
+        let rooted = TreeTrack::new(tree.clone()).reroot_named("AB");
+        for track in [rooted.clone(), rooted.clone().circular()] {
+            let svg = Figure::new(region())
+                .width(560.0)
+                .show_region_label(false)
+                .push(track)
+                .to_svg();
+            assert!(svg.contains("<title>selected root</title>"), "{svg}");
+        }
+
+        let unrooted = Figure::new(region())
+            .width(560.0)
+            .show_region_label(false)
+            .push(rooted.unrooted())
+            .to_svg();
+        assert!(!unrooted.contains("selected root"), "{unrooted}");
+
+        let unchanged = TreeTrack::new(tree).reroot_named("missing");
+        assert!(!unchanged.show_root);
     }
 
     #[test]
