@@ -1,12 +1,12 @@
 //! Error type returned by fallible constructors.
 //!
-//! One enum, four variants, no dependency and no source chain. Four things in
+//! One enum, five variants, no dependency and no source chain. Five things in
 //! the crate can fail, and each of them is a value being built out of text or
 //! out of names the caller chose: a region with nothing in it
 //! ([`Region::new`](crate::Region::new)), a locus string that is not
 //! `seq:start-end` ([`Region::parse`](crate::Region::parse)), a Newick string
 //! that is not a tree ([`Tree::parse_newick`](crate::Tree::parse_newick)), and
-//! a genome that names one sequence twice
+//! a Nexus document that carries no usable tree, and a genome that names one sequence twice
 //! ([`Genome::checked`](crate::Genome::checked)). Everything else that returns
 //! a `Result` either forwards one of those, the way [`plot`](fn@crate::plot)
 //! forwards the locus parse, or is writing a file.
@@ -63,6 +63,11 @@ pub enum Error {
         /// Why it failed.
         reason: &'static str,
     },
+    /// A Nexus document that does not contain a readable tree block.
+    InvalidNexus {
+        /// Why it failed.
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for Error {
@@ -79,6 +84,7 @@ impl fmt::Display for Error {
                 write!(f, "invalid locus {input:?}: {reason}")
             }
             Error::InvalidNewick { reason } => write!(f, "invalid Newick tree: {reason}"),
+            Error::InvalidNexus { reason } => write!(f, "invalid Nexus tree: {reason}"),
         }
     }
 }
