@@ -110,6 +110,7 @@ pub mod dash;
 pub mod error;
 pub mod figure;
 pub mod genome;
+pub mod map;
 pub mod panels;
 pub mod plot;
 pub mod region;
@@ -124,6 +125,9 @@ pub mod tree;
 pub use crate::error::Error;
 pub use crate::figure::{Figure, Margin};
 pub use crate::genome::{Chromosome, Genome};
+pub use crate::map::{
+    GeoFlow, GeoLocation, GeoPosition, GeoProjection, Map, PhyloConnector, PhyloMap,
+};
 pub use crate::panels::Panels;
 pub use crate::plot::{plot, Plot};
 pub use crate::region::Region;

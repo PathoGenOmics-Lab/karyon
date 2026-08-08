@@ -89,6 +89,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   time guides, annular categorical or continuous trait rings and
   non-destructive collapsed-clade wedges. The four-view radial gallery is a
   committed visual regression target.
+- `Map`, `GeoLocation`, `GeoFlow` and three explicit geographic projections.
+  Locations carry exact coordinates, counts and categories; categories use
+  shape as well as colour, weighted links retain direction, and invalid,
+  ambiguous or hidden inputs are counted rather than clamped or dropped. The
+  Natural Earth 1:110m land geometry is public-domain data compiled into the
+  crate, so rendering stays offline and deterministic.
+- `PhyloMap` and `PhyloConnector`, composing an inward circular time tree,
+  phylogram or cladogram around a central map. Terminal annotations match a
+  unique supplied coordinate table, with aggregated, individual or absent
+  connectors; the renderer does not infer coordinates, ancestral states or
+  migration. A two-view circular phylogeography gallery pins the composition
+  as a visual regression target.
 - `From<Error> for std::io::Error`. A program that draws figures spends its
   errors on writing files, so its functions return `io::Result`, and the one
   call that parses a region was the only thing in such a function that could

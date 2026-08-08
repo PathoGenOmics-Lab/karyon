@@ -134,6 +134,7 @@ nav:
       - guide/cli.md
       - guide/formats.md
       - guide/phylogenetics.md
+      - guide/maps.md
       - guide/theming.md
       - guide/visual-system.md
   - How it works:
