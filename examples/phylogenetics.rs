@@ -12,7 +12,7 @@ use std::env;
 use std::path::PathBuf;
 
 use karyon::tree::Tree;
-use karyon::{Figure, Panels, Region, TraitColumn, TreeTrack};
+use karyon::{Figure, Panels, RadialDirection, Region, TraitColumn, TreeShape, TreeTrack};
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -58,25 +58,117 @@ fn main() -> std::io::Result<()> {
         "example-phylogenetics.svg {width:.0} x {height:.0}, {} samples",
         sample_count
     );
+
+    let radial = radial_layouts(outbreak_tree());
+    radial.save_svg(out.join("example-phylo-layouts.svg"))?;
+    let (width, height) = radial.dimensions();
+    println!("example-phylo-layouts.svg {width:.0} x {height:.0}, 4 projections");
     Ok(())
 }
 
 fn annotated_track(tree: Tree) -> TreeTrack {
+    base_track(tree)
+        .trait_column(
+            TraitColumn::categorical("country")
+                .label("Country")
+                .width(62.0)
+                .ring_width(12.0),
+        )
+        .trait_column(
+            TraitColumn::continuous("coverage")
+                .label("Depth")
+                .width(46.0)
+                .ring_width(12.0),
+        )
+}
+
+fn base_track(tree: Tree) -> TreeTrack {
     TreeTrack::new(tree)
         .time("date")
         .time_unit("year")
         .color_by("country")
         .show_nodes(true)
         .row_height(18.0)
-        .trait_column(
-            TraitColumn::categorical("country")
-                .label("Country")
-                .width(62.0),
+}
+
+fn radial_layouts(tree: Tree) -> Panels {
+    let full = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Circular time tree")
+        .width(650.0)
+        .show_region_label(false)
+        .push(annotated_track(tree.clone()).circular().radial_size(440.0));
+
+    let mut fan_tree = tree.clone();
+    fan_tree.ladderize(true);
+    let peru = fan_tree.node_named("PER_outbreak").unwrap();
+    let fan = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Collapsed 250° fan")
+        .width(650.0)
+        .show_region_label(false)
+        .push(
+            annotated_track(fan_tree)
+                .collapse(peru)
+                .fan(250.0)
+                .radial_start(-215.0)
+                .radial_size(520.0)
+                .show_time_axis(false),
+        );
+
+    let inward = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Time radiating inwards")
+        .width(650.0)
+        .show_region_label(false)
+        .push(
+            base_track(tree.clone())
+                .circular()
+                .radial_direction(RadialDirection::Inward)
+                .inner_radius(0.34)
+                .radial_size(440.0)
+                .show_tips(false),
+        );
+
+    let cladogram = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Circular cladogram")
+        .width(650.0)
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree)
+                .shape(TreeShape::Cladogram)
+                .circular()
+                .radial_start(-72.0)
+                .radial_size(440.0)
+                .color_by("country")
+                .show_nodes(true)
+                .trait_column(
+                    TraitColumn::categorical("country")
+                        .label("Country")
+                        .ring_width(12.0),
+                ),
+        );
+
+    Panels::new()
+        .title("Circular and radial phylogenies (synthetic)")
+        .columns(2)
+        .gap(22.0)
+        .push_captioned(
+            &full,
+            "A",
+            "Outward calendar radii with categorical and continuous trait rings",
         )
-        .trait_column(
-            TraitColumn::continuous("coverage")
-                .label("Depth")
-                .width(46.0),
+        .push_captioned(
+            &fan,
+            "B",
+            "A partial sweep keeps room for annotation and a collapsed clade",
+        )
+        .push_captioned(
+            &inward,
+            "C",
+            "The same dated topology points towards a controlled central gap",
+        )
+        .push_captioned(
+            &cladogram,
+            "D",
+            "Branch counts replace lengths and every tip reaches one circumference",
         )
 }
 
