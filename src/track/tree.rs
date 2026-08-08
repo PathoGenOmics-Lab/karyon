@@ -886,11 +886,21 @@ fn branch_colors(
     let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
         .map(|node| inherited_annotation(tree, node, key))
         .collect();
-    let numeric: Vec<f64> = values
+    let visible: Vec<usize> = scene
+        .placements
         .iter()
-        .filter_map(|value| value.and_then(AnnotationValue::as_number))
+        .flatten()
+        .map(|placement| placement.node)
         .collect();
-    let all_numeric = numeric.len() == values.iter().filter(|value| value.is_some()).count()
+    let numeric: Vec<f64> = visible
+        .iter()
+        .filter_map(|node| values[*node].and_then(AnnotationValue::as_number))
+        .collect();
+    let all_numeric = numeric.len()
+        == visible
+            .iter()
+            .filter(|node| values[**node].is_some())
+            .count()
         && !numeric.is_empty();
     if all_numeric {
         let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
@@ -990,17 +1000,23 @@ fn draw_trait_columns(
             .iter()
             .map(|node| inherited_annotation(tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = values
+        let categories: BTreeMap<String, usize> = scene
+            .placements
             .iter()
-            .filter_map(|value| value.map(ToString::to_string))
+            .flatten()
+            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
+            .map(ToString::to_string)
             .fold(BTreeMap::new(), |mut categories, value| {
                 let next = categories.len();
                 categories.entry(value).or_insert(next);
                 categories
             });
-        let numeric: Vec<f64> = values
+        let numeric: Vec<f64> = scene
+            .placements
             .iter()
-            .filter_map(|value| value.and_then(AnnotationValue::as_number))
+            .flatten()
+            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
+            .filter_map(AnnotationValue::as_number)
             .filter(|value| value.is_finite())
             .collect();
         let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
@@ -1130,7 +1146,11 @@ fn draw_time_axis(ctx: &mut DrawContext<'_>, scene: &TreeScene, area: Rect, time
             &label,
             &ctx.theme.muted,
             size,
-            crate::svg::Anchor::Middle,
+            match index {
+                0 => crate::svg::Anchor::Start,
+                2 => crate::svg::Anchor::End,
+                _ => crate::svg::Anchor::Middle,
+            },
         );
     }
 }
@@ -1291,6 +1311,14 @@ mod tests {
         for label in ["2021 year", "2023 year", "2025 year"] {
             assert!(svg.contains(&format!(">{label}</text>")), "{label}: {svg}");
         }
+        assert!(
+            svg.contains("text-anchor=\"start\">2021 year</text>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("text-anchor=\"end\">2025 year</text>"),
+            "{svg}"
+        );
     }
 
     #[test]
@@ -1384,6 +1412,37 @@ mod tests {
         assert_eq!(categorical.scale(), TraitScale::Categorical);
         assert_eq!(continuous.key(), "clock_rate");
         assert_eq!(continuous.scale(), TraitScale::Continuous);
+    }
+
+    #[test]
+    fn trait_categories_keep_branch_colours_after_ladderizing_and_collapsing() {
+        let mut tree = Tree::parse_annotated_newick(
+            "((A[&kind=alpha]:1,B[&kind=alpha]:1)alpha_clade[&kind=alpha]:1,C[&kind=beta]:2);",
+        )
+        .unwrap();
+        let alpha = tree.node_named("alpha_clade").unwrap();
+        tree.ladderize(false);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .color_by("kind")
+                    .collapse(alpha)
+                    .trait_categorical("kind"),
+            )
+            .to_svg();
+        let beta = svg.find("<title>C; kind beta</title>").unwrap();
+        assert!(
+            svg[beta..(beta + 180).min(svg.len())].contains("fill=\"#d55e00\""),
+            "{svg}"
+        );
+        let alpha = svg
+            .find("<title>alpha_clade (2 tips); kind alpha</title>")
+            .unwrap();
+        assert!(
+            svg[alpha..(alpha + 220).min(svg.len())].contains("fill=\"#0072b2\""),
+            "{svg}"
+        );
     }
 
     #[test]
