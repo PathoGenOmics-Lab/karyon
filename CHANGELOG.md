@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A visual plot catalogue for the documentation, separating discovery from the
+  exhaustive track reference. Seven category pages group all twenty-nine
+  tracks and the three standalone drawings by biological question, data shape
+  and coordinate system, with responsive image-led cards, shorter section-only
+  tables of contents and direct routes to the exact API contract.
 - Every figure now says what it is. The document carries a `<title>`, a `<desc>`,
   `role="img"` and `aria-labelledby`, so a screen reader is given a sentence
   instead of several thousand unnamed rectangles, and a reader whose image did

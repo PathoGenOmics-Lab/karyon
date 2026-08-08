@@ -196,3 +196,327 @@
 .md-typeset table:not([class]) th {
   white-space: nowrap;
 }
+
+/* --------------------------------------------------------------------------
+   Plot catalogue
+
+   Discovery and reference are separate jobs. The catalogue uses large,
+   image-led routes; the exhaustive track page keeps the long-form contracts.
+   The components below are plain links and semantic headings, so the same
+   route remains usable without pointer hover or colour.
+   -------------------------------------------------------------------------- */
+
+.md-grid {
+  max-width: 76rem;
+}
+
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h2 {
+  margin-top: 2.2em;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.md-typeset .plot-hero {
+  --plot-accent: #0072b2;
+  --plot-tint: hsl(203 100% 35% / 8%);
+  position: relative;
+  overflow: hidden;
+  margin: 0 0 2rem;
+  padding: 1.65rem 1.8rem 1.55rem;
+  background:
+    radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--plot-accent) 18%, transparent) 0 5rem, transparent 5.1rem),
+    linear-gradient(135deg, var(--plot-tint), transparent 72%);
+  border: 1px solid color-mix(in srgb, var(--plot-accent) 28%, var(--md-default-fg-color--lightest));
+  border-left: 0.28rem solid var(--plot-accent);
+  border-radius: 0.8rem;
+}
+
+.md-typeset .plot-hero h1 {
+  max-width: 42rem;
+  margin: 0.2rem 0 0.55rem;
+  font-size: clamp(1.8rem, 4vw, 2.55rem);
+  line-height: 1.08;
+}
+
+.md-typeset .plot-hero > p {
+  max-width: 42rem;
+  margin: 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.9rem;
+}
+
+.md-typeset .plot-eyebrow {
+  display: block;
+  color: color-mix(in srgb, var(--plot-accent) 78%, var(--md-default-fg-color));
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.md-typeset .plot-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.15rem;
+}
+
+.md-typeset .plot-stats span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.32rem 0.58rem;
+  color: var(--md-default-fg-color--light);
+  background: color-mix(in srgb, var(--md-default-bg-color) 86%, transparent);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 999px;
+  font-size: 0.65rem;
+}
+
+.md-typeset .plot-stats strong {
+  color: color-mix(in srgb, var(--plot-accent) 78%, var(--md-default-fg-color));
+  font-size: 0.78rem;
+}
+
+.md-typeset .plot-hero--catalog { --plot-accent: #0072b2; --plot-tint: hsl(203 100% 35% / 9%); }
+.md-typeset .plot-hero--signal { --plot-accent: #0072b2; --plot-tint: hsl(203 100% 35% / 8%); }
+.md-typeset .plot-hero--annotation { --plot-accent: #009e73; --plot-tint: hsl(164 100% 31% / 8%); }
+.md-typeset .plot-hero--variation { --plot-accent: #d55e00; --plot-tint: hsl(26 100% 42% / 8%); }
+.md-typeset .plot-hero--reads { --plot-accent: #7b3294; --plot-tint: hsl(285 49% 39% / 8%); }
+.md-typeset .plot-hero--comparison { --plot-accent: #cc79a7; --plot-tint: hsl(327 45% 64% / 10%); }
+.md-typeset .plot-hero--phylo { --plot-accent: #e69f00; --plot-tint: hsl(41 100% 45% / 10%); }
+.md-typeset .plot-hero--world { --plot-accent: #3987e5; --plot-tint: hsl(213 76% 56% / 8%); }
+
+.md-typeset .plot-category-grid,
+.md-typeset .plot-card-grid,
+.md-typeset .plot-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin: 1rem 0 1.6rem;
+}
+
+.md-typeset .plot-category-card,
+.md-typeset .plot-card {
+  --card-accent: #0072b2;
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.65rem;
+  box-shadow: 0 0.12rem 0.5rem hsl(210 25% 20% / 4%);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.md-typeset .plot-category-card {
+  grid-template-columns: minmax(8rem, 42%) 1fr;
+  min-height: 12rem;
+  border-top: 0.2rem solid var(--card-accent);
+}
+
+.md-typeset .plot-category-card:hover,
+.md-typeset .plot-category-card:focus-visible,
+.md-typeset .plot-card:hover,
+.md-typeset .plot-card:focus-visible {
+  color: inherit;
+  border-color: var(--card-accent);
+  box-shadow: 0 0.5rem 1.2rem hsl(210 35% 18% / 12%);
+  transform: translateY(-2px);
+}
+
+.md-typeset .plot-category-card:focus-visible,
+.md-typeset .plot-card:focus-visible,
+.md-typeset .plot-route-grid a:focus-visible {
+  outline: 0.14rem solid var(--md-accent-fg-color);
+  outline-offset: 0.12rem;
+}
+
+.md-typeset .plot-category-card img {
+  width: 100%;
+  height: 100%;
+  min-height: 12rem;
+  box-sizing: border-box;
+  padding: 0.55rem;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.md-typeset .plot-category-card__body,
+.md-typeset .plot-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.85rem 0.95rem;
+}
+
+.md-typeset .plot-category-card small,
+.md-typeset .plot-card small {
+  color: color-mix(in srgb, var(--card-accent) 78%, var(--md-default-fg-color));
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.md-typeset .plot-category-card strong,
+.md-typeset .plot-card strong {
+  margin: 0.15rem 0 0.3rem;
+  color: var(--md-default-fg-color);
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.md-typeset .plot-category-card__body > span,
+.md-typeset .plot-card__body > span {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.md-typeset .plot-category-card b,
+.md-typeset .plot-card b {
+  margin-top: auto;
+  padding-top: 0.7rem;
+  color: color-mix(in srgb, var(--card-accent) 78%, var(--md-default-fg-color));
+  font-size: 0.64rem;
+}
+
+.md-typeset .plot-category-card--signal { --card-accent: #0072b2; }
+.md-typeset .plot-category-card--annotation { --card-accent: #009e73; }
+.md-typeset .plot-category-card--variation { --card-accent: #d55e00; }
+.md-typeset .plot-category-card--reads { --card-accent: #7b3294; }
+.md-typeset .plot-category-card--comparison { --card-accent: #b34f86; }
+.md-typeset .plot-category-card--phylo { --card-accent: #b77f00; }
+.md-typeset .plot-category-card--world { --card-accent: #3987e5; }
+
+.md-typeset .plot-card {
+  grid-template-rows: 10.5rem 1fr;
+  border-top: 0.18rem solid var(--card-accent);
+}
+
+.md-typeset .plot-card__media {
+  display: block;
+  overflow: hidden;
+  background: #ffffff;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset .plot-card__media img {
+  width: 100%;
+  height: 10.5rem;
+  box-sizing: border-box;
+  padding: 0.45rem;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.md-typeset .plot-route-grid a {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.8rem 0.9rem;
+  color: inherit;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--md-primary-fg-color) 5%, var(--md-default-bg-color));
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+}
+
+.md-typeset .plot-route-grid a:hover {
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .plot-route-grid strong {
+  color: var(--md-default-fg-color);
+  font-size: 0.73rem;
+}
+
+.md-typeset .plot-route-grid span {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.65rem;
+}
+
+.md-typeset .plot-concept-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.md-typeset .plot-concept-strip > div {
+  padding: 0.8rem;
+  background: var(--md-code-bg-color);
+  border-radius: 0.5rem;
+}
+
+.md-typeset .plot-concept-strip strong {
+  display: block;
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.72rem;
+}
+
+.md-typeset .plot-concept-strip p {
+  margin: 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.63rem;
+}
+
+.md-typeset .plot-chip {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  color: var(--md-primary-fg-color);
+  background: color-mix(in srgb, var(--md-primary-fg-color) 9%, transparent);
+  border-radius: 999px;
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media screen and (max-width: 76.234375em) {
+  .md-typeset .plot-category-card {
+    grid-template-columns: 1fr;
+  }
+
+  .md-typeset .plot-category-card img {
+    height: 9rem;
+    min-height: 9rem;
+  }
+}
+
+@media screen and (max-width: 44.984375em) {
+  .md-typeset .plot-hero {
+    padding: 1.2rem 1.05rem;
+    border-radius: 0.6rem;
+  }
+
+  .md-typeset .plot-category-grid,
+  .md-typeset .plot-card-grid,
+  .md-typeset .plot-route-grid,
+  .md-typeset .plot-concept-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .md-typeset .plot-card {
+    grid-template-rows: 9rem 1fr;
+  }
+
+  .md-typeset .plot-card__media img {
+    height: 9rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .plot-category-card,
+  .md-typeset .plot-card {
+    transition: none;
+  }
+}

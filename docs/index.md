@@ -48,10 +48,10 @@ command, which takes the line based text a genomics shell already writes.
     A first figure in a dozen lines, and the same figure without writing any
     Rust.
 
--   :material-layers-triple: **[Tracks](tracks.md)**
+-   :material-view-grid-outline: **[Plot catalogue](plots/index.md)**
 
-    All twenty-nine of them: what each one draws, what it takes, and the ones
-    that carry a caveat worth reading.
+    Seven visual routes through all twenty-nine tracks plus circular and
+    geographic drawings. Choose by biological question or data shape.
 
 -   :material-code-braces: **[Plot API](guide/plot.md)**
 
