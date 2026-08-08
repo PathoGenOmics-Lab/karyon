@@ -63,6 +63,13 @@ fn main() -> std::io::Result<()> {
     radial.save_svg(out.join("example-phylo-layouts.svg"))?;
     let (width, height) = radial.dimensions();
     println!("example-phylo-layouts.svg {width:.0} x {height:.0}, 4 projections");
+
+    let advanced = advanced_layouts(outbreak_tree());
+    advanced.save_svg(out.join("example-phylo-annotations.svg"))?;
+    let (width, height) = advanced.dimensions();
+    println!(
+        "example-phylo-annotations.svg {width:.0} x {height:.0}, unrooted plus 4 annotation datasets"
+    );
     Ok(())
 }
 
@@ -172,23 +179,101 @@ fn radial_layouts(tree: Tree) -> Panels {
         )
 }
 
+fn advanced_layouts(tree: Tree) -> Panels {
+    let annotated_unrooted = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Unrooted topology with metadata halo")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree.clone())
+                .unrooted()
+                .unrooted_start(-104.0)
+                .unrooted_size(560.0)
+                .color_by("country")
+                .show_nodes(true)
+                .trait_column(
+                    TraitColumn::categorical("country")
+                        .label("Country strip")
+                        .ring_width(11.0)
+                        .show_values(false),
+                )
+                .trait_column(
+                    TraitColumn::bar("coverage")
+                        .label("Depth bars")
+                        .ring_width(22.0),
+                )
+                .trait_column(
+                    TraitColumn::binary("resistant")
+                        .label("AMR")
+                        .ring_width(13.0),
+                )
+                .trait_column(TraitColumn::symbol("host").label("Host").ring_width(15.0)),
+        );
+
+    let circular_annotations = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("iTOL-style annotation rings")
+        .width(690.0)
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree)
+                .shape(TreeShape::Cladogram)
+                .circular()
+                .radial_start(-104.0)
+                .radial_size(560.0)
+                .color_by("country")
+                .show_nodes(true)
+                .trait_column(
+                    TraitColumn::categorical("country")
+                        .label("Country strip")
+                        .ring_width(11.0)
+                        .show_values(false),
+                )
+                .trait_column(
+                    TraitColumn::bar("coverage")
+                        .label("Depth bars")
+                        .ring_width(22.0),
+                )
+                .trait_column(
+                    TraitColumn::binary("resistant")
+                        .label("AMR")
+                        .ring_width(13.0),
+                )
+                .trait_column(TraitColumn::symbol("host").label("Host").ring_width(15.0)),
+        );
+
+    Panels::new()
+        .title("Unrooted trees and layered metadata (synthetic)")
+        .columns(2)
+        .gap(22.0)
+        .push_captioned(
+            &annotated_unrooted,
+            "A",
+            "A topology-balanced centre removes the arbitrary Newick root while leaders preserve unequal branch lengths",
+        )
+        .push_captioned(
+            &circular_annotations,
+            "B",
+            "Colour strips, radial bars, binary marks and shaped categories retain exact values in tooltips",
+        )
+}
+
 fn outbreak_tree() -> Tree {
     Tree::parse_annotated_newick(concat!(
         "[&R] (",
-        "((PER_001[&date=2023.10,country=Peru,coverage=48]:0.18,",
-        "PER_002[&date=2023.24,country=Peru,coverage=73]:0.32)",
+        "((PER_001[&date=2023.10,country=Peru,coverage=48,resistant=true,host=human]:0.18,",
+        "PER_002[&date=2023.24,country=Peru,coverage=73,resistant=true,host=human]:0.32)",
         "PER_A[&date=2022.92,country=Peru]:0.42,",
-        "(PER_003[&date=2023.68,country=Peru,coverage=31]:0.38,",
-        "PER_004[&date=2023.91,country=Peru,coverage=59]:0.61)",
+        "(PER_003[&date=2023.68,country=Peru,coverage=31,resistant=false,host=human]:0.38,",
+        "PER_004[&date=2023.91,country=Peru,coverage=59,resistant=true,host=animal]:0.61)",
         "PER_B[&date=2023.30,country=Peru]:0.38)",
         "PER_outbreak[&date=2022.50,country=Peru]:0.65,",
-        "((ESP_001[&date=2023.02,country=Spain,coverage=66]:0.30,",
-        "ESP_002[&date=2023.44,country=Spain,coverage=41]:0.72,",
-        "ESP_003[&date=2023.75,country=Spain,coverage=84]:1.03)",
+        "((ESP_001[&date=2023.02,country=Spain,coverage=66,resistant=false,host=human]:0.30,",
+        "ESP_002[&date=2023.44,country=Spain,coverage=41,resistant=false,host=water]:0.72,",
+        "ESP_003[&date=2023.75,country=Spain,coverage=84,resistant=true,host=human]:1.03)",
         "ESP_outbreak[&date=2022.72,country=Spain]:0.52,",
-        "(KEN_001[&date=2023.20,country=Kenya,coverage=28]:0.26,",
-        "(KEN_002[&date=2023.63,country=Kenya,coverage=52]:0.33,",
-        "KEN_003[&date=2024.08,country=Kenya,coverage=77]:0.78)",
+        "(KEN_001[&date=2023.20,country=Kenya,coverage=28,resistant=false,host=animal]:0.26,",
+        "(KEN_002[&date=2023.63,country=Kenya,coverage=52,resistant=true,host=human]:0.33,",
+        "KEN_003[&date=2024.08,country=Kenya,coverage=77,resistant=true,host=water]:0.78)",
         "KEN_B[&date=2023.30,country=Kenya]:0.36)",
         "KEN_outbreak[&date=2022.94,country=Kenya]:0.74)",
         "regional[&date=2022.20]:0.35)",

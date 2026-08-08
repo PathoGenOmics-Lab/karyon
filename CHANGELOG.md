@@ -8,6 +8,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Crossing-aware tanglegram untangling, equal-angle unrooted trees and layered
+  iTOL-style annotation strips, bars, binary markers and symbols.
 - A visual plot catalogue for the documentation, separating discovery from the
   exhaustive track reference. Seven category pages group all twenty-nine
   tracks and the three standalone drawings by biological question, data shape

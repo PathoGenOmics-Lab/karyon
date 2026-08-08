@@ -67,9 +67,10 @@ plot("chr1:1-10000")?
 
 Annotated Newick, BEAST, NHX and Nexus trees retain typed metadata. A tree can
 be placed on calendar time, coloured by inherited branch annotations and
-aligned to categorical or continuous sample traits. The same data can be drawn
-as a rectangular tree, complete circle or partial fan, outwards or inwards;
-named clades can collapse visually without changing the source topology.
+aligned to colour strips, heatmaps, bars, binary marks or shaped categories.
+The same data can be drawn as a rectangular tree, complete circle, partial fan
+or equal-angle unrooted view; named clades can collapse visually without
+changing the source topology.
 
 ```rust
 use karyon::{TraitColumn, Tree, TreeTrack};
@@ -259,7 +260,7 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular or fan phylograms, cladograms and time trees out. Metadata can colour branches and form aligned trait columns or rings |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular, fan or unrooted phylograms and cladograms out. Metadata can colour branches and form layered iTOL-style columns or rings |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |

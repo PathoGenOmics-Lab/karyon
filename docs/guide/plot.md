@@ -251,8 +251,13 @@ plot("taxa:1-8")?
     .title("K. pneumoniae: core and accessory genome trees over one collection")
     .remove_region_label()
     .remove_axis()
-    .add_track(track)
+    .add_track(track.untangle())
 ```
+
+`untangle` rotates free clades on both trees only when that strictly lowers the
+crossing count. `color_by` can instead spend hue on a shared terminal
+annotation; crossing ties remain dashed, and exact left/right values stay in
+their SVG tooltip.
 
 `remove_axis` suppresses the automatic ruler and only that. An axis put
 somewhere with `add_axis`, or handed over with `add_track`, stays where it was

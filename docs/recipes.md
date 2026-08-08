@@ -410,7 +410,12 @@ plot("taxa:1-4")?
     .remove_axis()
     .add_tanglegram(core, accessory)
     .label("4 isolates")
-    .adjust(|track| track.names("core genome", "accessory genome"))
+    .adjust(|track| {
+        track
+            .names("core genome", "accessory genome")
+            .color_by("ward")
+            .untangle()
+    })
     .save("tanglegram.svg")?;
 ```
 
@@ -421,9 +426,11 @@ not genomic.
 
 ![Two trees face to face over one collection of isolates, their shared tips joined across the middle and the crossings coloured](assets/figures/example-tanglegram.svg)
 
-From `cargo run --example shapes -- assets`. The crossing count the track
-reports describes this drawing rather than the two trees: a clade rotates
-freely without changing what the tree says, and the count moves when it does.
+From `cargo run --example shapes -- assets`. The header reports the crossing
+count before and after `untangle`, the linked taxa and unmatched tips. The
+heuristic rotates free clades but never changes their membership or branch
+lengths. Dashed ties still identify crossings when colour is being used for a
+terminal annotation such as hospital ward.
 
 ### One figure inside another document
 

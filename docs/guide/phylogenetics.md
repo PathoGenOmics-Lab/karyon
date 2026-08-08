@@ -1,10 +1,10 @@
 # Annotated phylogenetics
 
 Karyon can keep metadata inside a phylogeny, manipulate its topology and draw
-the result on evolutionary distance or calendar time. Rectangular and radial
-projections use the same topology and values. The same metadata can colour
-branches and form categorical or continuous columns, or rings, aligned to the
-terminal taxa.
+the result on evolutionary distance or calendar time. Rectangular, radial and
+unrooted projections use the same topology and values. The same metadata can
+colour branches and form colour strips, heatmaps, bars, binary marks or shaped
+categories aligned to the terminal taxa.
 
 ![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with two named clades collapsed](../assets/figures/example-phylogenetics.svg)
 
@@ -142,6 +142,62 @@ Radial layouts occupy a standalone square and therefore do not share rows with
 `SnpTrack`, `MatrixTrack` or `CladeTrack`. Use the rectangular projection when
 leaf-to-row alignment is the analytical claim.
 
+## Draw topology without privileging the Newick root
+
+![An unrooted tree with a layered metadata halo beside a circular cladogram carrying the same four annotation datasets](../assets/figures/example-phylo-annotations.svg)
+
+`unrooted()` treats every branch as an undirected edge, chooses a centre that
+minimises the largest terminal-bearing component and assigns equal angular
+space to terminal taxa. The root stored in the source tree is not moved or
+deleted. A phylogram keeps branch lengths; a cladogram gives every edge one
+unit.
+
+```rust
+use karyon::{TraitColumn, TreeShape, TreeTrack};
+
+let view = TreeTrack::new(tree)
+    .shape(TreeShape::Phylogram)
+    .unrooted()
+    .unrooted_start(-104.0)
+    .unrooted_size(560.0)
+    .color_by("country")
+    .show_nodes(true)
+    .trait_column(TraitColumn::categorical("country").label("Country"))
+    .trait_column(TraitColumn::bar("coverage").label("Depth"))
+    .trait_column(TraitColumn::binary("resistant").label("AMR"))
+    .trait_column(TraitColumn::symbol("host").label("Host"));
+```
+
+Terminal leaders connect unequal branch endpoints to one common annotation
+halo. They are guides, not extra evolutionary distance. Branch and ring
+colours share one categorical domain, so a country cannot change colour
+between the topology and its metadata.
+
+`unrooted_size` fixes the standalone height and `unrooted_start` rotates the
+equal-angle sectors. Time axes are rooted quantities and are therefore not
+drawn in this projection. Use rectangular or circular coordinates when root
+age, direction or calendar time is part of the claim.
+
+## Layer annotation rings like iTOL datasets
+
+`TraitColumn` uses the same dataset in rectangular columns, circular rings and
+the halo around an unrooted tree. The mark changes with the projection; the
+annotation key and its exact SVG tooltip do not.
+
+| Builder | Rectangular mark | Circular or unrooted mark | Accepted value |
+|:--|:--|:--|:--|
+| `categorical(key)` | colour strip | annular colour strip | any typed value |
+| `continuous(key)` | heatmap cell | annular heatmap sector | finite number |
+| `bar(key)` | horizontal bar | outward radial bar | finite number |
+| `binary(key)` | presence marker | ring marker | boolean or finite number; zero is absent |
+| `symbol(key)` | coloured shape | coloured ring shape | any typed value |
+
+Missing values remain outlined. Text is never guessed as binary, numeric
+values are scaled only across the visible dataset, and symbols repeat category
+identity with shape as well as colour. `ring_width` controls each annular
+dataset independently; `show_values(false)` removes in-cell text without
+removing tooltips.
+
 ### Requirements for a time tree
 
 Every tip must carry a finite numeric value for the key passed to `time`.
@@ -190,9 +246,43 @@ let track = TreeTrack::new(tree).collapse(outbreak);
 assert_eq!(track.tree().clade_size(outbreak), 4);
 ```
 
+## Make tree-to-tree disagreement traceable
+
+![Core and accessory genome trees with duplicated terminal labels, ward-coloured ties, dashed crossings and a before-to-after untangling summary](../assets/figures/example-tanglegram.svg)
+
+A tanglegram compares terminal order, not branch coordinates. `untangle`
+rotates free clades on both trees and accepts a rotation only when the crossing
+count strictly falls. It preserves every clade, annotation and branch length;
+the result is deterministic but is not presented as a global optimum.
+
+```rust
+use karyon::{TangleLabels, TangleTieStyle, TanglegramTrack};
+
+let comparison = TanglegramTrack::new(core, accessory)
+    .names("core genome", "accessory genome")
+    .labels(TangleLabels::Both)
+    .tie_style(TangleTieStyle::Curved)
+    .color_by("ward")
+    .untangle();
+
+assert!(comparison.crossings() <= comparison.initial_crossings());
+```
+
+The central summary reports initial and final crossings, linked taxa and tips
+present in only one tree. Crossing ties use a dashed pattern, so colour remains
+available for metadata. When the two trees give a matched taxon different
+values for the selected annotation, the endpoint marks retain both colours and
+the tooltip states the exact mismatch.
+
+`TangleLabels::Left`, `Right`, `Both` and `None` control repeated terminal
+names. `TangleTieStyle::Straight` is compact; `Curved` is easiest to trace; and
+`Ribbon` remains visible after reduction for print. `tie_widths`, `tree_width`,
+`label_width` and `row_height` control density without changing the comparison.
+
 ## Scope
 
-The renderer is for rooted rectangular, circular and fan trees. It does not
+The renderer is for rectangular, circular, fan and equal-angle unrooted trees.
+It does not
 infer trees, fit clocks, reconstruct ancestral states or claim epidemiological
 transmission. [`PhyloMap`](maps.md#put-a-phylogeny-around-the-map) can place
 terminal annotations at explicitly supplied coordinates, but it does not infer

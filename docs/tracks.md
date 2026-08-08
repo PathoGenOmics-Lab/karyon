@@ -673,15 +673,16 @@ to do with, and a figure of those is a figure of crossings.
 
 A phylogeny from a Newick string, drawn as a phylogram when the branch lengths
 mean something or a cladogram when they do not. The projection can be
-rectangular, a complete circle or a partial fan, with branches radiating outwards
-or inwards.
+rectangular, a complete circle, a partial fan or an equal-angle unrooted view,
+with branches radiating outwards or inwards where the root is meaningful.
 
 ![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](assets/figures/example-phylogenetics.svg)
 
 Annotated Newick, BEAST, NHX and the first tree in a Nexus trees block retain
 typed metadata. `time` places nodes on a numeric date or height, `color_by`
-maps inherited branch metadata, and `TraitColumn` aligns categorical or
-continuous sample values to the visible tips. `TreeTrack::collapse` replaces a
+maps inherited branch metadata, and `TraitColumn` aligns colour strips,
+heatmaps, bars, binary marks or shaped categories to the visible tips.
+`TreeTrack::collapse` replaces a
 visible clade with a triangle without changing the `Tree` it owns.
 
 ![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](assets/figures/example-phylo-layouts.svg)
@@ -690,6 +691,13 @@ In circular coordinates, time ticks are concentric guides, trait columns are
 annular rings and collapsed clades are wedges. `circular`, `fan`,
 `radial_start`, `radial_sweep`, `radial_direction` and `inner_radius` control
 the geometry without changing topology, branch values or terminal order.
+
+![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](assets/figures/example-phylo-annotations.svg)
+
+`unrooted` chooses a topology-balanced centre rather than the source Newick
+root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
+the circular and unrooted projections while preserving exact values in SVG
+tooltips.
 
 The [annotated phylogenetics guide](guide/phylogenetics.md) covers input
 semantics, time requirements, topology operations and the distinction between
@@ -716,19 +724,36 @@ the disagreement is the crossings, which are a thing you can point at.
 use karyon::tree::Tree;
 use karyon::TanglegramTrack;
 
-let core = Tree::parse_newick("((A:0.1,B:0.1):0.2,(C:0.1,D:0.1):0.2);")?;
-let accessory = Tree::parse_newick("((A:0.1,C:0.1):0.2,(B:0.1,D:0.1):0.2);")?;
+let core = Tree::parse_annotated_newick(
+    "((A[&ward=ICU]:0.1,B[&ward=ICU]:0.1):0.2,\
+       (C[&ward=Ward]:0.1,D[&ward=Ward]:0.1):0.2);",
+)?;
+let accessory = Tree::parse_annotated_newick(
+    "((A[&ward=ICU]:0.1,C[&ward=Ward]:0.1):0.2,\
+       (B[&ward=ICU]:0.1,D[&ward=Ward]:0.1):0.2);",
+)?;
 
-let track = TanglegramTrack::new(core, accessory).names("core", "accessory");
-assert!(track.crossings() > 0);
+let track = TanglegramTrack::new(core, accessory)
+    .names("core", "accessory")
+    .color_by("ward")
+    .untangle();
+
+assert!(track.crossings() <= track.initial_crossings());
 ```
 
 `crossings()` is worth putting in a caption, and it is not a statistic. The
 count depends on how each tree happened to rotate its clades, and a clade
-rotates freely without changing what the tree says, so two trees that agree
-completely can be drawn with a great many crossings by an unlucky rotation.
-Untangling is a separate problem this does not solve: the count is what the
-drawing shows, and the drawing is one of many.
+rotates freely without changing what the tree says. `untangle` alternates
+greedy rotations on both sides and retains only strict improvements. It never
+changes a clade or branch length and never increases the count, but it is a
+deterministic local heuristic rather than a global optimum.
+
+`labels` chooses left, right, both or tooltip-only terminal names;
+`tie_style` selects curves, straight lines or translucent ribbons; and
+`color_by` maps matching terminal annotations. When the two trees disagree on
+that annotation, endpoint marks retain each value and the tie becomes dashed.
+The header reports the before-and-after crossing count, linked taxa and taxa
+present in only one tree.
 
 A tip only one of the trees has is drawn on that tree and joined to nothing,
 because a taxon missing from one analysis is a fact about the analysis.
