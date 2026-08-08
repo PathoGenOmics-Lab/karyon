@@ -217,6 +217,7 @@ changes to it do not reach the sheet.
 |:-------|:--------|:-------------|
 | `gap(f64)` | `18.0` | Vertical gap between panels. |
 | `columns(usize)` | `1` | How many columns to lay the panels out in. |
+| `row_major()` | off | Fills a comparison grid left-to-right before starting the next row. |
 | `column_gap(f64)` | `26.0` | Horizontal gap between columns. |
 | `margin(f64)` | `14.0` | Whitespace around the whole sheet. |
 | `theme(Theme)` | `Theme::light()` | Used for the sheet's own title and letters, not for the panels, each of which keeps its own. |
@@ -235,6 +236,12 @@ columns break is chosen by weighing every possible cut rather than by giving
 each column an equal count of unequal panels: the tallest column is what the
 sheet is as tall as, so it is minimised first, and the sum of squares breaks the
 tie so the remaining columns come out level rather than ragged.
+
+For a dashboard-like comparison where A and B belong on the first row and C
+and D on the second, add `row_major()`. It keeps that left-to-right reading
+order and gives every row the height of its tallest panel. Use
+`align_plot_areas(false)` when the grid deliberately mixes unrelated coordinate
+systems, such as a rectangular tree, a radial tree and an alignment.
 
 The letters get a strip of their own on the left rather than being drawn over
 the panels. A letter on top of a panel is a letter on top of data, and on top of

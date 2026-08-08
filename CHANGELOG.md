@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Row-major `Panels` grids for balanced comparison sheets, plus quieter clade
+  fields, halo-separated node compositions, compact annotation legend chips,
+  aligned-tree dividers and washed domain architectures.
 - Node-attached bubbles, pies, donuts and stacked bars from exact numeric
   annotations; clade highlights that become rectangular bands, radial sectors
   or unrooted fields; tree-aligned MSA rows; and a new `DomainTrack` for domain,

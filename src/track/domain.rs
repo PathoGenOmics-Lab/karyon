@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::scale::Scale;
 use crate::svg::{fit_text, text_width, Anchor};
+use crate::theme::{contrast_ink, mix, wash};
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -236,6 +237,9 @@ impl Track for DomainTrack {
         let band = ctx.band;
         let categories = self.categories();
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
+        let tree_color = mix(&ctx.theme.foreground, &ctx.theme.muted, 0.45);
+        let backbone = mix(&ctx.theme.rule, &ctx.theme.foreground, 0.12);
+        let zebra = mix(ctx.theme.surface(), &ctx.theme.rule, 0.16);
 
         if let Some(tree) = &self.tree {
             draw_tree(
@@ -251,16 +255,27 @@ impl Track for DomainTrack {
                 band.y + self.row_height / 2.0,
                 TreeStyle {
                     shape: self.tree_shape,
-                    color: &ctx.theme.foreground,
-                    width: 1.1,
+                    color: &tree_color,
+                    width: ctx.theme.tokens.stroke.max(1.1),
                     mirror: false,
                 },
+            );
+            ctx.svg.line(
+                band.x - 2.0,
+                band.y + 1.0,
+                band.x - 2.0,
+                band.bottom() - 1.0,
+                &ctx.theme.rule,
+                ctx.theme.tokens.hairline.max(0.8),
             );
         }
 
         for (row_index, row) in self.rows.iter().enumerate() {
             let top = band.y + row_index as f64 * (self.row_height + self.row_gap);
             let centre = top + self.row_height / 2.0;
+            if row_index % 2 == 1 {
+                ctx.svg.rect(band.x, top, band.w, self.row_height, &zebra);
+            }
             let visible_end = row.length.min(ctx.region.end());
             if visible_end > ctx.region.start() {
                 ctx.svg.line(
@@ -268,8 +283,8 @@ impl Track for DomainTrack {
                     centre,
                     ctx.scale.x(visible_end),
                     centre,
-                    &ctx.theme.rule,
-                    ctx.theme.tokens.hairline.max(1.0),
+                    &backbone,
+                    ctx.theme.tokens.stroke.max(1.1),
                 );
             }
 
@@ -287,6 +302,11 @@ impl Track for DomainTrack {
                     .color
                     .clone()
                     .unwrap_or_else(|| ctx.theme.color(palette).to_string());
+                let face = if width >= 6.0 {
+                    wash(&color, ctx.theme)
+                } else {
+                    color.clone()
+                };
                 let label = feature.label.as_deref().unwrap_or("domain");
                 ctx.svg.begin_titled(&format!(
                     "{}; {label}; {} to {}",
@@ -300,8 +320,18 @@ impl Track for DomainTrack {
                     width,
                     (self.row_height - 2.0).max(1.0),
                     ctx.theme.corner_radius.min(3.0),
-                    &color,
+                    &face,
                 );
+                if width >= 6.0 && self.row_height >= 7.0 {
+                    ctx.svg.rect_rounded(
+                        x + 1.5,
+                        top + 3.0,
+                        2.5,
+                        (self.row_height - 6.0).max(1.0),
+                        1.25,
+                        &color,
+                    );
+                }
                 if self.show_labels {
                     let size = (name_size - 1.0).max(6.0);
                     let visible = fit_text(label, width - 4.0, size);
@@ -310,7 +340,7 @@ impl Track for DomainTrack {
                             x + width / 2.0,
                             centre + size * 0.34,
                             &visible,
-                            crate::theme::contrast_ink(&color),
+                            contrast_ink(&face),
                             size,
                             Anchor::Middle,
                         );
@@ -324,7 +354,7 @@ impl Track for DomainTrack {
                     ctx.axis.right() - 4.0,
                     centre + name_size * 0.35,
                     &row.name,
-                    &ctx.theme.muted,
+                    &ctx.theme.foreground,
                     name_size,
                     Anchor::End,
                 );

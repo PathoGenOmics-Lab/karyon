@@ -103,7 +103,7 @@ fn phylogenetic_faces() -> Panels {
     let focus = tree.node_named("outbreak").unwrap();
     let rectangular = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
         .title("Node abundance and clade context")
-        .width(690.0)
+        .width(640.0)
         .show_region_label(false)
         .push(
             TreeTrack::new(tree.clone())
@@ -111,13 +111,13 @@ fn phylogenetic_faces() -> Panels {
                 .scale_bar()
                 .node_glyph(
                     NodeGlyph::bubble("isolates")
-                        .label("Isolate count")
+                        .label("Isolates")
                         .target(NodeGlyphTarget::Internal)
                         .size(10.0),
                 )
                 .node_glyph(
                     NodeGlyph::stacked_bar(["human", "animal", "water"])
-                        .label("Tip host composition")
+                        .label("Host mix")
                         .target(NodeGlyphTarget::Leaves)
                         .size(7.0),
                 )
@@ -130,16 +130,16 @@ fn phylogenetic_faces() -> Panels {
 
     let radial = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
         .title("Ancestral composition")
-        .width(690.0)
+        .width(640.0)
         .show_region_label(false)
         .push(
             TreeTrack::new(tree.clone())
                 .circular()
                 .radial_start(-110.0)
-                .radial_size(500.0)
+                .radial_size(300.0)
                 .node_glyph(
                     NodeGlyph::donut(["human", "animal", "water"])
-                        .label("Host probability")
+                        .label("Ancestral host")
                         .target(NodeGlyphTarget::Internal)
                         .size(9.0),
                 )
@@ -159,14 +159,14 @@ fn phylogenetic_faces() -> Panels {
     ];
     let msa = Figure::new(Region::new("alignment", 0, 18).unwrap())
         .title("Tree-aligned multiple sequence alignment")
-        .width(690.0)
+        .width(640.0)
         .show_region_label(false)
         .push(
             MsaTrack::new(alignment)
                 .tree(tree.clone())
                 .tree_width(120.0)
-                .row_height(22.0)
-                .row_gap(3.0)
+                .row_height(25.0)
+                .row_gap(4.0)
                 .display(MsaDisplay::Bases)
                 .label("isolates"),
         );
@@ -189,21 +189,24 @@ fn phylogenetic_faces() -> Panels {
     ];
     let architecture = Figure::new(Region::new("protein", 0, 180).unwrap())
         .title("Tree-aligned domain architecture")
-        .width(690.0)
+        .width(640.0)
         .show_region_label(false)
         .push(
             DomainTrack::new(domains)
                 .tree(tree)
                 .tree_width(120.0)
-                .row_height(22.0)
-                .row_gap(3.0)
+                .row_height(25.0)
+                .row_gap(4.0)
                 .label("proteins"),
         );
 
     Panels::new()
         .title("Phylogenetic data faces (synthetic)")
         .columns(2)
-        .gap(22.0)
+        .row_major()
+        .align_plot_areas(false)
+        .gap(24.0)
+        .column_gap(32.0)
         .push_captioned(
             &rectangular,
             "A",

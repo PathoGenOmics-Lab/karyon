@@ -1168,7 +1168,7 @@ impl TreeTrack {
         if self.trait_columns.is_empty() && self.node_glyphs.is_empty() {
             0.0
         } else {
-            18.0
+            22.0
         }
     }
 
@@ -2691,19 +2691,28 @@ fn draw_rectangular_clade_highlights(
         let color = highlight_color(highlight, index, ctx.theme);
         ctx.svg
             .begin_titled(&highlight_title(&track.tree, highlight));
-        ctx.svg.rect_opacity(
+        ctx.svg.rect_rounded_opacity(
             x,
             y,
             (area.right() - x).max(1.0),
             (bottom - y).max(1.0),
+            ctx.theme.corner_radius * 1.6,
             &color,
             highlight.opacity,
+        );
+        ctx.svg.rect_rounded(
+            x + 1.5,
+            y + 3.0,
+            2.5,
+            (bottom - y - 6.0).max(1.0),
+            1.25,
+            &color,
         );
         draw_highlight_label(
             ctx,
             highlight,
-            (x + 4.0, y + (ctx.theme.font_size - 2.0).max(6.0) + 2.0),
-            area.right() - x - 8.0,
+            (x + 8.0, y + (ctx.theme.font_size - 2.0).max(6.0) + 2.0),
+            area.right() - x - 12.0,
         );
         ctx.svg.end_group();
     }
@@ -2761,9 +2770,16 @@ fn draw_radial_clade_highlights(
             end,
         );
         let color = highlight_color(highlight, index, ctx.theme);
+        let outline = mix(
+            ctx.theme.surface(),
+            &color,
+            (highlight.opacity * 3.0).min(0.5),
+        );
         ctx.svg
             .begin_titled(&highlight_title(&track.tree, highlight));
         ctx.svg.path(&path, &color, highlight.opacity);
+        ctx.svg
+            .path_stroked(&path, &outline, ctx.theme.tokens.hairline.max(0.8));
         let angle = (start + end) / 2.0;
         let radius = (inner + outer) / 2.0;
         let (x, y) = geometry.point(radius, angle);
@@ -2814,6 +2830,12 @@ fn draw_unrooted_clade_highlights(
             point.1 += dy / distance * 7.0;
         }
         let color = highlight_color(highlight, index, ctx.theme);
+        let fill = mix(ctx.theme.surface(), &color, highlight.opacity);
+        let outline = mix(
+            ctx.theme.surface(),
+            &color,
+            (highlight.opacity * 3.0).min(0.5),
+        );
         ctx.svg
             .begin_titled(&highlight_title(&track.tree, highlight));
         if hull.len() >= 3 {
@@ -2823,12 +2845,16 @@ fn draw_unrooted_clade_highlights(
             }
             path.push_str(" Z");
             ctx.svg.path(&path, &color, highlight.opacity);
+            ctx.svg
+                .path_stroked(&path, &outline, ctx.theme.tokens.hairline.max(0.8));
         } else {
-            ctx.svg.circle(
+            ctx.svg.circle_ringed(
                 centre.0,
                 centre.1,
                 8.0,
-                &mix(&ctx.theme.background, &color, highlight.opacity),
+                &fill,
+                &outline,
+                ctx.theme.tokens.hairline.max(0.8),
             );
         }
         let top = hull
@@ -2966,16 +2992,24 @@ fn draw_node_glyph(
                 at.1,
                 radius,
                 ctx.theme.color(glyph_index),
-                &ctx.theme.background,
-                ctx.theme.tokens.hairline.max(0.8),
+                ctx.theme.surface(),
+                ctx.theme.tokens.stroke.max(1.1),
             );
         }
         NodeGlyphStyle::Pie | NodeGlyphStyle::Donut => {
+            ctx.svg
+                .circle(at.0, at.1, glyph.size + 1.2, ctx.theme.surface());
             let positive = values.iter().filter(|value| **value > 0.0).count();
             if positive == 1 {
                 let index = values.iter().position(|value| *value > 0.0).unwrap_or(0);
-                ctx.svg
-                    .circle(at.0, at.1, glyph.size, ctx.theme.color(index));
+                ctx.svg.circle_ringed(
+                    at.0,
+                    at.1,
+                    glyph.size,
+                    ctx.theme.color(index),
+                    ctx.theme.surface(),
+                    0.7,
+                );
             } else {
                 let mut start = -std::f64::consts::FRAC_PI_2;
                 for (index, value) in values.iter().enumerate() {
@@ -2983,17 +3017,15 @@ fn draw_node_glyph(
                         continue;
                     }
                     let end = start + std::f64::consts::TAU * *value / total;
-                    ctx.svg.path(
-                        &pie_slice_path(at.0, at.1, glyph.size, start, end),
-                        ctx.theme.color(index),
-                        1.0,
-                    );
+                    let path = pie_slice_path(at.0, at.1, glyph.size, start, end);
+                    ctx.svg.path(&path, ctx.theme.color(index), 1.0);
+                    ctx.svg.path_stroked(&path, ctx.theme.surface(), 0.7);
                     start = end;
                 }
             }
             if glyph.style == NodeGlyphStyle::Donut {
                 ctx.svg
-                    .circle(at.0, at.1, glyph.size * 0.48, &ctx.theme.background);
+                    .circle(at.0, at.1, glyph.size * 0.48, ctx.theme.surface());
             }
         }
         NodeGlyphStyle::StackedBar => {
@@ -3017,6 +3049,16 @@ fn draw_node_glyph(
                         .rect(cursor, top, segment, height, ctx.theme.color(index));
                 }
                 cursor += segment;
+                if cursor < left + width - 0.5 {
+                    ctx.svg.line(
+                        cursor,
+                        top + 0.5,
+                        cursor,
+                        top + height - 0.5,
+                        ctx.theme.surface(),
+                        0.8,
+                    );
+                }
             }
         }
     }
@@ -3128,57 +3170,88 @@ fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);
     let mut x = ctx.band.x + 2.0;
-    let y = ctx.band.y + size + 1.0;
+    let top = ctx.band.y + 1.0;
+    let height = size + 7.0;
+    let y = top + height / 2.0 + size * 0.34;
+    let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         if x >= ctx.band.right() - 10.0 {
             break;
         }
         match glyph.style {
             NodeGlyphStyle::Bubble => {
-                ctx.svg
-                    .circle(x + 3.0, y - size * 0.35, 3.0, ctx.theme.color(glyph_index));
-                x += 8.0;
                 let available = (ctx.band.right() - x).min(110.0);
-                let label = fit_text(&glyph.label, available, size);
-                ctx.svg.text(
-                    x,
+                let label = fit_text(&glyph.label, (available - 20.0).max(0.0), size);
+                let width = (text_width(&label, size) + 24.0).min(available);
+                ctx.svg
+                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
+                ctx.svg.circle_ringed(
+                    x + 9.0,
+                    top + height / 2.0,
+                    3.0,
+                    ctx.theme.color(glyph_index),
+                    ctx.theme.surface(),
+                    0.7,
+                );
+                ctx.svg.text_bold(
+                    x + 16.0,
                     y,
                     &label,
                     &ctx.theme.muted,
                     size,
                     crate::svg::Anchor::Start,
                 );
-                x += text_width(&label, size) + 12.0;
+                x += width + 6.0;
             }
             _ => {
                 let label = fit_text(&glyph.label, 90.0, size);
-                ctx.svg.text(
-                    x,
+                let keys: Vec<String> = glyph
+                    .keys
+                    .iter()
+                    .map(|key| fit_text(key, 58.0, size))
+                    .collect();
+                let natural = 16.0
+                    + text_width(&label, size)
+                    + keys
+                        .iter()
+                        .map(|key| 16.0 + text_width(key, size))
+                        .sum::<f64>();
+                let width = natural.min(ctx.band.right() - x);
+                ctx.svg
+                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
+                let mut cursor = x + 8.0;
+                ctx.svg.text_bold(
+                    cursor,
                     y,
                     &label,
                     &ctx.theme.muted,
                     size,
                     crate::svg::Anchor::Start,
                 );
-                x += text_width(&label, size) + 6.0;
-                for (key_index, key) in glyph.keys.iter().enumerate() {
-                    if x >= ctx.band.right() - 12.0 {
+                cursor += text_width(&label, size) + 8.0;
+                for (key_index, key) in keys.iter().enumerate() {
+                    if cursor + 12.0 >= x + width {
                         break;
                     }
-                    ctx.svg
-                        .rect(x, y - size + 2.0, 6.0, 6.0, ctx.theme.color(key_index));
-                    x += 9.0;
-                    let key = fit_text(key, (ctx.band.right() - x).min(58.0), size);
+                    ctx.svg.circle(
+                        cursor + 3.0,
+                        top + height / 2.0,
+                        3.0,
+                        ctx.theme.color(key_index),
+                    );
+                    cursor += 9.0;
+                    let key = fit_text(key, (x + width - cursor - 5.0).max(0.0), size);
                     ctx.svg.text(
-                        x,
+                        cursor,
                         y,
                         &key,
                         &ctx.theme.muted,
                         size,
                         crate::svg::Anchor::Start,
                     );
-                    x += text_width(&key, size) + 7.0;
+                    cursor += text_width(&key, size) + 7.0;
                 }
+                x += width + 6.0;
             }
         }
     }
@@ -4394,7 +4467,7 @@ mod tests {
             .trait_column(TraitColumn::continuous("coverage").label("Depth"));
         assert_eq!(
             track.height(&Scale::new(&region(), 0.0, 100.0)),
-            3.0 * 15.0 + 18.0
+            3.0 * 15.0 + 22.0
         );
         let svg = Figure::new(region())
             .show_region_label(false)

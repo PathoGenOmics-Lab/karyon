@@ -497,6 +497,7 @@ impl Track for MsaTrack {
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
         let px_per_column = ctx.scale.px_per_bp();
         let draw_letters = self.show_letters && px_per_column >= self.letter_threshold;
+        let tree_color = mix(&ctx.theme.foreground, &ctx.theme.muted, 0.45);
 
         let first = ctx.region.start() as usize;
         let last = (ctx.region.end() as usize).min(self.columns());
@@ -516,10 +517,18 @@ impl Track for MsaTrack {
                 band.y + self.row_height / 2.0,
                 TreeStyle {
                     shape: self.tree_shape,
-                    color: &ctx.theme.foreground,
-                    width: 1.1,
+                    color: &tree_color,
+                    width: ctx.theme.tokens.stroke.max(1.1),
                     mirror: false,
                 },
+            );
+            ctx.svg.line(
+                band.x - 2.0,
+                band.y + 1.0,
+                band.x - 2.0,
+                band.bottom() - 1.0,
+                &ctx.theme.rule,
+                ctx.theme.tokens.hairline.max(0.8),
             );
         }
 
@@ -566,13 +575,21 @@ impl Track for MsaTrack {
                     ctx.axis.right() - 4.0,
                     top + self.row_height / 2.0 + name_size * 0.35,
                     &row.name,
-                    &ctx.theme.muted,
+                    &ctx.theme.foreground,
                     name_size,
                     Anchor::End,
                 );
             }
 
             ctx.svg.end_group();
+        }
+
+        if self.display == MsaDisplay::Bases && px_per_column >= 5.0 {
+            for column in first.saturating_add(1)..last {
+                let x = ctx.scale.x(column as u64);
+                ctx.svg
+                    .line(x, band.y, x, band.bottom(), ctx.theme.surface(), 0.65);
+            }
         }
 
         if hidden > 0 {
