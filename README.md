@@ -98,6 +98,39 @@ covers circular and fan geometry, trait rings, MRCA queries, rerooting,
 rotation, ladderising, subtree extraction and the input guarantees for time
 trees.
 
+### Geographic genomics
+
+`Map` draws supplied locations, counts and explicit flows under an
+equirectangular, Mercator or orthographic projection. `PhyloMap` composes the
+same offline world map with a circular tree, using one annotation such as
+`country` to match terminal taxa to a unique coordinate table. Neither type is
+a genomic track: both are complete drawings that can sit beside figures in a
+`Panels` sheet.
+
+```rust
+use karyon::{GeoLocation, GeoProjection, PhyloMap, Tree};
+
+let tree = Tree::parse_annotated_newick(
+    "(sample_A[&country=Peru]:1,sample_B[&country=Spain]:1);",
+)?;
+
+let map = PhyloMap::new(tree)
+    .location_by("country")
+    .projection(GeoProjection::orthographic(15.0, -18.0))
+    .coordinates([
+        GeoLocation::new("Peru", -9.19, -75.0152),
+        GeoLocation::new("Spain", 40.4637, -3.7492),
+    ]);
+```
+
+<img src="assets/example-phylo-map.svg" alt="Two circular views of one synthetic outbreak phylogeny: an inward calendar tree with one connector per location and a partial cladogram with one connector per sample" width="100%">
+
+Coordinates are never guessed or clamped. Duplicate place names, invalid
+coordinates, unmapped tips and points outside an orthographic hemisphere are
+counted visibly instead of disappearing. See the [geographic genomics
+guide](https://pathogenomics-lab.github.io/karyon/guide/maps/) for projections,
+flows, connector modes and the exact missing-data contract.
+
 ## Quick start
 
 Not on crates.io yet, so point Cargo at the repository:

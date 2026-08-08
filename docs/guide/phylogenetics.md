@@ -194,7 +194,9 @@ assert_eq!(track.tree().clade_size(outbreak), 4);
 
 The renderer is for rooted rectangular, circular and fan trees. It does not
 infer trees, fit clocks, reconstruct ancestral states or claim epidemiological
-transmission. It also does not place samples on a geographic map. Those
-analyses belong upstream; Karyon preserves their topology, lengths, support and
-annotations and makes the chosen encodings explicit. Nexus support is
-intentionally limited to the portable first-tree and translation-table subset.
+transmission. [`PhyloMap`](maps.md#put-a-phylogeny-around-the-map) can place
+terminal annotations at explicitly supplied coordinates, but it does not infer
+those locations or the movement between them. Those analyses belong upstream;
+Karyon preserves their topology, lengths, support and annotations and makes the
+chosen encodings explicit. Nexus support is intentionally limited to the
+portable first-tree and translation-table subset.

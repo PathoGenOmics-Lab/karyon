@@ -73,6 +73,11 @@ command, which takes the line based text a genomics shell already writes.
     BEAST, NHX and Nexus metadata; dated trees, topology operations, branch
     colours, collapsed clades and aligned sample traits.
 
+-   :material-map: **[Geographic genomics](guide/maps.md)**
+
+    Occurrence maps, explicit geographic links and circular phylogenies around
+    an offline, deterministic world map.
+
 -   :material-ruler: **[Coordinates](how-it-works/coordinates.md)**
 
     0-based and half-open everywhere, with two deliberate exceptions, both of
