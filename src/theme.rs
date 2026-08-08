@@ -31,6 +31,8 @@
 //! [`BaseColors::colorblind_safe`] ships beside it for the figures where that
 //! default costs too much.
 
+use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, VisualTokens};
+
 /// Visual settings applied to a whole [`Figure`](crate::Figure).
 ///
 /// Every field is public: start from [`Theme::light`] or [`Theme::dark`] and
@@ -39,11 +41,11 @@
 pub struct Theme {
     /// Page background. Set it to `"none"` for a transparent SVG.
     pub background: String,
-    /// Titles and tick labels.
+    /// Titles, primary axes and tick marks.
     pub foreground: String,
     /// Secondary text: coordinates, track labels, legends.
     pub muted: String,
-    /// Axis lines, baselines and tick marks.
+    /// Quiet rules: baselines, guides and secondary separators.
     pub rule: String,
     /// Default colour for a track that was not given one.
     pub accent: String,
@@ -71,9 +73,11 @@ pub struct Theme {
     ///
     /// A sequence logo stretches each letter to an exact box, which means
     /// working back from the box height to a font size. The default suits the
-    /// Helvetica and Arial metrics of [`Theme::font_family`]; change both
-    /// together or logo letters will sit slightly proud of their boxes.
+    /// Arial-compatible metrics of [`Theme::font_family`]; change both together
+    /// or logo letters will sit slightly proud of their boxes.
     pub cap_height_ratio: f64,
+    /// Shared measurements for marks, guides, legends and annotations.
+    pub tokens: VisualTokens,
 }
 
 impl Theme {
@@ -82,18 +86,23 @@ impl Theme {
         Theme {
             background: "#ffffff".into(),
             foreground: "#1b1f23".into(),
-            muted: "#6b7280".into(),
-            rule: "#c8ccd1".into(),
+            muted: "#4b5563".into(),
+            rule: "#d7dce2".into(),
             accent: "#0072b2".into(),
             palette: okabe_ito(),
             bases: BaseColors::default(),
             insertion: "#8e44ad".into(),
-            corner_radius: 2.0,
-            font_family: "Helvetica, Arial, sans-serif".into(),
-            font_size: 11.0,
-            label_font_size: 11.0,
-            title_font_size: 14.0,
+            corner_radius: 2.5,
+            // Liberation Sans is metrically compatible with Arial and is
+            // commonly present on Linux and HPC systems. Keeping those two
+            // first makes the text-width table agree with the renderer instead
+            // of relying on an unknown generic sans-serif fallback.
+            font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
+            font_size: 12.0,
+            label_font_size: 12.0,
+            title_font_size: 18.0,
             cap_height_ratio: 0.72,
+            tokens: VisualTokens::default(),
         }
     }
 
@@ -102,18 +111,19 @@ impl Theme {
         Theme {
             background: "#14181d".into(),
             foreground: "#e6edf3".into(),
-            muted: "#9aa4b0".into(),
+            muted: "#aab4c0".into(),
             rule: "#3a424c".into(),
             accent: "#3987e5".into(),
             palette: okabe_ito_dark(),
             bases: BaseColors::default(),
             insertion: "#8e44ad".into(),
-            corner_radius: 2.0,
-            font_family: "Helvetica, Arial, sans-serif".into(),
-            font_size: 11.0,
-            label_font_size: 11.0,
-            title_font_size: 14.0,
+            corner_radius: 2.5,
+            font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
+            font_size: 12.0,
+            label_font_size: 12.0,
+            title_font_size: 18.0,
             cap_height_ratio: 0.72,
+            tokens: VisualTokens::default(),
         }
     }
 
@@ -123,6 +133,79 @@ impl Theme {
             return &self.accent;
         }
         &self.palette[index % self.palette.len()]
+    }
+
+    /// Starts a theme from one of the named output profiles.
+    pub fn for_profile(profile: RenderProfile) -> Self {
+        let theme = if profile.is_dark() {
+            Theme::dark()
+        } else {
+            Theme::light()
+        };
+        theme.scaled(profile.visual_scale())
+    }
+
+    /// Resolves semantic prominence into measurable, colour-independent marks.
+    pub fn mark_style(&self, emphasis: Emphasis) -> MarkStyle {
+        match emphasis {
+            Emphasis::Muted => MarkStyle {
+                stroke_width: self.tokens.hairline,
+                marker_radius: self.tokens.marker_radius * 0.8,
+                opacity: 0.55,
+                pattern: LinePattern::Dotted,
+            },
+            Emphasis::Normal => MarkStyle {
+                stroke_width: self.tokens.stroke,
+                marker_radius: self.tokens.marker_radius,
+                opacity: 0.9,
+                pattern: LinePattern::Solid,
+            },
+            Emphasis::Primary => MarkStyle {
+                stroke_width: self.tokens.strong_stroke,
+                marker_radius: self.tokens.marker_radius * 1.15,
+                opacity: 1.0,
+                pattern: LinePattern::Solid,
+            },
+            Emphasis::Alert => MarkStyle {
+                stroke_width: self.tokens.strong_stroke * 1.15,
+                marker_radius: self.tokens.marker_radius * 1.25,
+                opacity: 1.0,
+                pattern: LinePattern::Dashed,
+            },
+        }
+    }
+
+    /// Returns a categorical point shape, wrapping in the same way as colours.
+    pub fn symbol(&self, index: usize) -> Symbol {
+        const SYMBOLS: [Symbol; 4] = [
+            Symbol::Circle,
+            Symbol::Square,
+            Symbol::Diamond,
+            Symbol::Triangle,
+        ];
+        SYMBOLS[index % SYMBOLS.len()]
+    }
+
+    /// Returns the same visual system with all typographic chrome scaled by
+    /// `factor`.
+    ///
+    /// Data coordinates and the canvas size do not change. This is intended
+    /// for a larger presentation or a compact multi-panel figure without
+    /// making callers adjust three font sizes and the corner radius by hand.
+    /// Non-finite factors are ignored and the lower bound prevents invisible
+    /// text and degenerate corners.
+    pub fn scaled(mut self, factor: f64) -> Self {
+        let factor = if factor.is_finite() {
+            factor.max(0.25)
+        } else {
+            1.0
+        };
+        self.corner_radius *= factor;
+        self.font_size *= factor;
+        self.label_font_size *= factor;
+        self.title_font_size *= factor;
+        self.tokens = self.tokens.scaled(factor);
+        self
     }
 
     /// A real colour standing in for the page, to blend a tint against.
@@ -505,5 +588,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn scaling_keeps_the_palette_and_moves_the_visual_sizes_together() {
+        let original = Theme::light();
+        let scaled = original.clone().scaled(1.5);
+
+        assert_eq!(scaled.palette, original.palette);
+        assert_eq!(scaled.font_size, original.font_size * 1.5);
+        assert_eq!(scaled.label_font_size, original.label_font_size * 1.5);
+        assert_eq!(scaled.title_font_size, original.title_font_size * 1.5);
+        assert_eq!(scaled.corner_radius, original.corner_radius * 1.5);
+        assert_eq!(scaled.tokens.stroke, original.tokens.stroke * 1.5);
+    }
+
+    #[test]
+    fn profiles_and_emphasis_are_resolved_in_one_place() {
+        assert_eq!(
+            Theme::for_profile(RenderProfile::Dark).background,
+            "#14181d"
+        );
+        assert!(
+            Theme::for_profile(RenderProfile::Presentation).font_size > Theme::light().font_size
+        );
+        assert!(
+            Theme::light().mark_style(Emphasis::Primary).stroke_width
+                > Theme::light().mark_style(Emphasis::Muted).stroke_width
+        );
+        assert_ne!(Theme::light().symbol(0), Theme::light().symbol(1));
+        assert_eq!(Theme::light().symbol(0), Theme::light().symbol(4));
+    }
+
+    #[test]
+    fn an_invalid_visual_scale_falls_back_to_the_original_sizes() {
+        let original = Theme::light();
+        assert_eq!(original.clone().scaled(f64::NAN), original);
+        assert_eq!(original.clone().scaled(f64::INFINITY), original);
+        assert_eq!(
+            original.clone().scaled(0.0).font_size,
+            original.font_size * 0.25
+        );
     }
 }

@@ -19,8 +19,6 @@ __and Mireia Coscolla<sup>1</sup>__
 
 📖 **Full documentation: <https://pathogenomics-lab.github.io/karyon/>**
 
-<img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="100%">
-
 General plotting libraries know about points and lines. They do not know that a
 position is a base, that a gene has a strand, that a pixel at genome scale
 covers two thousand bases, or that a figure is worthless if its tracks do not
@@ -36,6 +34,34 @@ Zoom in and the same tracks show individual bases. Nothing about the tracks
 changes, only the region:
 
 <img src="assets/example-zoom.svg" alt="The same locus at base resolution, with the reference sequence drawn as coloured letters" width="100%">
+
+<details>
+  <summary><strong>Explore the complete visual catalogue</strong></summary>
+  <img src="assets/gallery.svg" alt="Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="100%">
+</details>
+
+### One visual system
+
+Named output profiles keep type, marks and density together, quantitative
+tracks share one axis contract, and categories use shape or pattern as well as
+colour. Panel sheets align the data origins even when their label gutters
+differ.
+
+```rust
+use karyon::{QuantitativeAxis, ReferenceLine, RenderProfile};
+
+plot("chr1:1-10000")?
+    .profile(RenderProfile::Manuscript)
+    .add_coverage(depth)
+    .adjust(|track| track.axis(
+        QuantitativeAxis::new()
+            .range(0.0, 100.0)
+            .unit("x")
+            .reference(ReferenceLine::new(30.0).label("QC 30x")),
+    ));
+```
+
+<img src="assets/example-visual-system.svg" alt="Two aligned genomic panels using shared quantitative axes, reference lines, categorical point shapes and one type hierarchy" width="100%">
 
 ## Quick start
 

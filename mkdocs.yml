@@ -134,6 +134,7 @@ nav:
       - guide/cli.md
       - guide/formats.md
       - guide/theming.md
+      - guide/visual-system.md
   - How it works:
       - how-it-works/coordinates.md
       - how-it-works/scale.md

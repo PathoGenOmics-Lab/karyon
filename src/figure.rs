@@ -48,9 +48,14 @@ use std::path::Path;
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor, SvgWriter};
+use crate::style::{Density, RenderProfile};
+use crate::svg::{fit_text, text_width, Anchor, SvgWriter};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Rect, Track};
+
+const DEFAULT_LABEL_WIDTH: f64 = 84.0;
+const MIN_AUTO_LABEL_WIDTH: f64 = 48.0;
+const MAX_AUTO_LABEL_WIDTH: f64 = 160.0;
 
 /// Whitespace around the plotting area, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,10 +73,10 @@ pub struct Margin {
 impl Default for Margin {
     fn default() -> Self {
         Margin {
-            top: 10.0,
-            right: 16.0,
-            bottom: 10.0,
-            left: 12.0,
+            top: 14.0,
+            right: 18.0,
+            bottom: 14.0,
+            left: 16.0,
         }
     }
 }
@@ -106,8 +111,10 @@ pub struct Figure {
     theme: Theme,
     tracks: Vec<Box<dyn Track>>,
     margin: Margin,
-    label_width: f64,
+    label_width: Option<f64>,
     track_gap: f64,
+    visual_scale: f64,
+    density: Density,
     show_region_label: bool,
     description: Option<String>,
 }
@@ -122,8 +129,10 @@ impl Figure {
             theme: Theme::light(),
             tracks: Vec::new(),
             margin: Margin::default(),
-            label_width: 84.0,
-            track_gap: 10.0,
+            label_width: None,
+            track_gap: 12.0,
+            visual_scale: 1.0,
+            density: Density::Balanced,
             show_region_label: true,
             description: None,
         }
@@ -134,7 +143,10 @@ impl Figure {
     /// Widths that would leave no plotting area are raised to the smallest one
     /// that does, so a figure is always renderable.
     pub fn width(mut self, width: f64) -> Self {
-        let floor = self.margin.left + self.margin.right + self.label_width + 50.0;
+        let floor = self.margin.left
+            + self.margin.right
+            + self.label_width.unwrap_or(DEFAULT_LABEL_WIDTH)
+            + 50.0;
         self.width = if width.is_finite() {
             width.max(floor)
         } else {
@@ -179,6 +191,43 @@ impl Figure {
         self
     }
 
+    /// Applies a named output profile as one coherent starting point.
+    ///
+    /// Profiles select palette, type scale and track density together. Any
+    /// later [`Figure::theme`], [`Figure::visual_scale`] or [`Figure::density`]
+    /// call may still override the relevant part.
+    pub fn profile(mut self, profile: RenderProfile) -> Self {
+        self.theme = if profile.is_dark() {
+            Theme::dark()
+        } else {
+            Theme::light()
+        };
+        self.visual_scale = profile.visual_scale();
+        self.density = profile.density();
+        self
+    }
+
+    /// Scales the visual chrome without changing the canvas width or genomic
+    /// coordinates.
+    ///
+    /// Fonts, margins, the label gutter, gaps and rounded corners move together,
+    /// so a slide-sized figure can be made more assertive without retuning each
+    /// value independently. Data marks retain their meaning and coordinates.
+    pub fn visual_scale(mut self, factor: f64) -> Self {
+        self.visual_scale = if factor.is_finite() {
+            factor.max(0.25)
+        } else {
+            1.0
+        };
+        self
+    }
+
+    /// Sets the packing of repeated rows and track-internal marks.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
+        self
+    }
+
     /// Replaces the margins.
     ///
     /// A side that is negative or not a number is taken as zero, since the
@@ -205,8 +254,10 @@ impl Figure {
     ///
     /// The gutter is only reserved when at least one track returns a label, so
     /// a figure of unlabelled tracks uses the full width whatever this says.
+    /// Without this override the gutter is measured from the widest label and
+    /// capped so a single long sample name cannot consume the figure.
     pub fn label_width(mut self, width: f64) -> Self {
-        self.label_width = width.max(0.0);
+        self.label_width = Some(width.max(0.0));
         self
     }
 
@@ -308,7 +359,8 @@ impl Figure {
     /// its tracks to the wrong bands. [`Panels`](crate::Panels) does this for
     /// you; do it yourself if you assemble a sheet by hand.
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
-        let layout = self.layout();
+        let theme = self.theme.clone().scaled(self.visual_scale);
+        let layout = self.layout_with_theme(&theme);
         let mut svg = SvgWriter::with_id_prefix(prefix);
         // A prefix means this document is going inside another one, and a
         // nested document must not name itself. `<title>` resolves to the
@@ -322,27 +374,38 @@ impl Figure {
         }
 
         if let Some(title) = &self.title {
+            let room = if self.show_region_label {
+                let locus_width = text_width(&self.region.to_string(), theme.font_size);
+                self.width
+                    - layout.margin_right
+                    - locus_width
+                    - theme.tokens.label_gap
+                    - layout.margin_left
+            } else {
+                self.width - layout.margin_right - layout.margin_left
+            };
+            let visible_title = fit_text(title, room.max(0.0), theme.title_font_size);
             svg.text_bold(
-                self.margin.left,
+                layout.margin_left,
                 layout.header_baseline,
-                title,
-                &self.theme.foreground,
-                self.theme.title_font_size,
+                &visible_title,
+                &theme.foreground,
+                theme.title_font_size,
                 Anchor::Start,
             );
         }
         if self.show_region_label {
             svg.text(
-                self.width - self.margin.right,
+                self.width - layout.margin_right,
                 layout.header_baseline,
                 &self.region.to_string(),
-                &self.theme.muted,
-                self.theme.font_size,
+                &theme.muted,
+                theme.font_size,
                 Anchor::End,
             );
         }
 
-        let mut y = self.margin.top + layout.header_height;
+        let mut y = layout.margin_top + layout.header_height;
         for (track, height) in self.tracks.iter().zip(&layout.track_heights) {
             let band = Rect {
                 x: layout.plot_x,
@@ -355,7 +418,7 @@ impl Figure {
             // area, and not the widest strip in the figure: a track that asked
             // for no axis gets none, and is clipped to its band alone rather
             // than to a neighbour's room.
-            let axis_width = track.y_axis_width(&self.theme).max(0.0);
+            let axis_width = track.y_axis_width(&theme).max(0.0);
             let axis = Rect {
                 x: band.x - axis_width,
                 y,
@@ -369,14 +432,14 @@ impl Figure {
                 // they are cut down to the gutter, since a name wider than the
                 // room reserved for it would start off the left edge of the
                 // image and lose its first characters.
-                let right = band.x - layout.axis_width - 8.0;
-                let label = fit_label(label, right - self.margin.left, self.theme.label_font_size);
+                let right = band.x - layout.axis_width - 10.0 * self.visual_scale;
+                let visible = fit_text(label, right - layout.margin_left, theme.label_font_size);
                 svg.text(
                     right,
-                    band.mid_y() + self.theme.label_font_size * 0.35,
-                    &label,
-                    &self.theme.muted,
-                    self.theme.label_font_size,
+                    band.mid_y() + theme.label_font_size * 0.35,
+                    &visible,
+                    &theme.muted,
+                    theme.label_font_size,
                     Anchor::End,
                 );
             }
@@ -385,22 +448,23 @@ impl Figure {
             let mut ctx = DrawContext {
                 svg: &mut svg,
                 scale: &layout.scale,
-                theme: &self.theme,
+                theme: &theme,
                 band,
                 axis,
                 region: &self.region,
+                visual_scale: self.visual_scale * self.density.scale(),
             };
             track.draw(&mut ctx);
             svg.end_group();
 
-            y += height + self.track_gap;
+            y += height + layout.track_gap;
         }
 
         svg.finish(
             self.width,
             layout.total_height,
-            &self.theme.background,
-            &self.theme.font_family,
+            &theme.background,
+            &theme.font_family,
         )
     }
 
@@ -414,16 +478,30 @@ impl Figure {
     }
 
     fn layout(&self) -> Layout {
+        let theme = self.theme.clone().scaled(self.visual_scale);
+        self.layout_with_theme(&theme)
+    }
+
+    fn layout_with_theme(&self, theme: &Theme) -> Layout {
+        let spacing = self.visual_scale;
+        let margin_top = self.margin.top * spacing;
+        let margin_right = self.margin.right * spacing;
+        let margin_bottom = self.margin.bottom * spacing;
+        let margin_left = self.margin.left * spacing;
+        let track_gap = self.track_gap * spacing;
         let has_header = self.title.is_some() || self.show_region_label;
         let header_height = if has_header {
-            self.theme.title_font_size + 10.0
+            theme.title_font_size + 12.0 * spacing
         } else {
             0.0
         };
-        let header_baseline = self.margin.top + self.theme.title_font_size;
+        let header_baseline = margin_top + theme.title_font_size;
 
         let gutter = if self.tracks.iter().any(|t| t.label().is_some()) {
-            self.label_width
+            self.label_width.map_or_else(
+                || self.automatic_label_width(theme),
+                |width| width * spacing,
+            )
         } else {
             0.0
         };
@@ -432,20 +510,21 @@ impl Figure {
         let axis_width = self
             .tracks
             .iter()
-            .map(|t| t.y_axis_width(&self.theme).max(0.0))
+            .map(|t| t.y_axis_width(theme).max(0.0))
             .fold(0.0f64, f64::max);
-        let plot_x = self.margin.left + gutter + axis_width;
-        let plot_width = (self.width - plot_x - self.margin.right).max(1.0);
+        let plot_x = margin_left + gutter + axis_width;
+        let plot_width = (self.width - plot_x - margin_right).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
         // A height that is not a number is not a height. It would reach
         // `total_height`, which is written out as `height="0"`, and on a sheet
         // it would stack every later panel back at the top.
+        let content_scale = self.visual_scale * self.density.scale();
         let track_heights: Vec<f64> = self
             .tracks
             .iter()
             .map(|t| {
-                let height = t.height(&scale);
+                let height = t.height(&scale) * content_scale;
                 if height.is_finite() {
                     height.max(1.0)
                 } else {
@@ -454,7 +533,7 @@ impl Figure {
             })
             .collect();
         let content_height: f64 = track_heights.iter().sum::<f64>()
-            + self.track_gap * (self.tracks.len().saturating_sub(1)) as f64;
+            + track_gap * (self.tracks.len().saturating_sub(1)) as f64;
 
         Layout {
             scale,
@@ -463,9 +542,27 @@ impl Figure {
             plot_width,
             header_height,
             header_baseline,
+            margin_top,
+            margin_right,
+            margin_left,
+            track_gap,
             track_heights,
-            total_height: self.margin.top + header_height + content_height + self.margin.bottom,
+            total_height: margin_top + header_height + content_height + margin_bottom,
         }
+    }
+
+    /// Room for the widest label plus the quiet gap between labels and axes.
+    fn automatic_label_width(&self, theme: &Theme) -> f64 {
+        let widest = self
+            .tracks
+            .iter()
+            .filter_map(|track| track.label())
+            .map(|label| text_width(label, theme.label_font_size))
+            .fold(0.0f64, f64::max);
+        (widest + 14.0 * self.visual_scale).clamp(
+            MIN_AUTO_LABEL_WIDTH * self.visual_scale,
+            MAX_AUTO_LABEL_WIDTH * self.visual_scale,
+        )
     }
 }
 
@@ -477,37 +574,10 @@ impl crate::rings::Drawing for Figure {
     fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         Figure::to_svg_with_id_prefix(self, prefix)
     }
-}
 
-/// `label` cut down to whatever fits in `room` pixels at `font_size`.
-///
-/// Track labels are right aligned against the plotting area, so a label wider
-/// than the gutter reserved for it does not overflow to the right where it
-/// would be noticed: it runs off the left edge of the image and quietly loses
-/// its first characters, which leaves a plausible but wrong name on the figure.
-/// What does not fit is trimmed from the end instead and given an ellipsis, so
-/// what a reader sees is the start of the name and the mark that says there was
-/// more of it. A gutter of no room at all yields nothing, and
-/// [`SvgWriter`] draws no element for empty content.
-fn fit_label(label: &str, room: f64, font_size: f64) -> String {
-    if room <= 0.0 {
-        return String::new();
+    fn content_anchor(&self) -> Option<f64> {
+        Some(self.layout().plot_x)
     }
-    if text_width(label, font_size) <= room {
-        return label.to_string();
-    }
-    let mut kept = label.len();
-    while kept > 0 {
-        kept -= 1;
-        while kept > 0 && !label.is_char_boundary(kept) {
-            kept -= 1;
-        }
-        let shortened = format!("{}\u{2026}", &label[..kept]);
-        if text_width(&shortened, font_size) <= room {
-            return shortened;
-        }
-    }
-    String::new()
 }
 
 struct Layout {
@@ -517,6 +587,10 @@ struct Layout {
     plot_width: f64,
     header_height: f64,
     header_baseline: f64,
+    margin_top: f64,
+    margin_right: f64,
+    margin_left: f64,
+    track_gap: f64,
     track_heights: Vec<f64>,
     total_height: f64,
 }
@@ -546,15 +620,39 @@ mod tests {
             .push(AxisTrack::new().height(20.0));
         let (_, h1) = one.dimensions();
         let (_, h2) = two.dimensions();
-        assert_eq!(h2 - h1, 20.0 + 10.0);
+        assert_eq!(h2 - h1, 20.0 + 12.0);
+    }
+
+    #[test]
+    fn named_profiles_move_type_marks_and_density_as_one_system() {
+        let manuscript = Figure::new(region())
+            .title("profile")
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]));
+        let presentation = Figure::new(region())
+            .title("profile")
+            .profile(RenderProfile::Presentation)
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]));
+        assert!(presentation.dimensions().1 > manuscript.dimensions().1);
+        let svg = presentation.to_svg();
+        assert!(svg.contains(r#"font-size="24.3""#), "{svg}");
+    }
+
+    #[test]
+    fn a_long_header_keeps_its_exact_accessible_name_when_the_visible_line_is_fitted() {
+        let title = "A deliberately long title that would otherwise run through the locus label";
+        let svg = Figure::new(region()).width(260.0).title(title).to_svg();
+        assert!(svg.contains("\u{2026}</text>"), "{svg}");
+        assert!(svg.contains(&format!(
+            "<title id=\"karyon-title\">{title}, chr1:1-1000</title>"
+        )));
     }
 
     #[test]
     fn the_label_gutter_is_only_reserved_when_a_track_wants_it() {
         let bare = Figure::new(region()).push(AxisTrack::new());
         let labelled = Figure::new(region()).push(AxisTrack::new().label("pos"));
-        assert_eq!(bare.layout().plot_x, 12.0);
-        assert_eq!(labelled.layout().plot_x, 12.0 + 84.0);
+        assert_eq!(bare.layout().plot_x, 16.0);
+        assert_eq!(labelled.layout().plot_x, 16.0 + MIN_AUTO_LABEL_WIDTH);
         assert!(labelled.layout().plot_width < bare.layout().plot_width);
     }
 
@@ -577,7 +675,8 @@ mod tests {
         let layout = figure.layout();
         assert!(layout.axis_width > 0.0);
         // Both bands start at plot_x, because there is only one plot_x.
-        assert_eq!(layout.plot_x, 12.0 + figure.label_width + layout.axis_width);
+        let gutter = figure.automatic_label_width(&Theme::light());
+        assert_eq!(layout.plot_x, 16.0 + gutter + layout.axis_width);
     }
 
     #[test]
@@ -651,32 +750,27 @@ mod tests {
 
     #[test]
     fn a_label_wider_than_the_gutter_is_shortened_rather_than_run_off_the_canvas() {
-        // The default gutter is 84 px, and the 8 px of air before the axes
-        // leaves 76 px of room. This name is 123.52 px, and right aligned at
-        // x = 88 the whole of it would begin at x = -35.52, off an image whose
-        // left edge is x = 0, so its first five characters would not be drawn
-        // and "NC_000962.3 read depth" would read as "0962.3 read depth".
+        // An explicitly narrow gutter keeps long names from silently running
+        // off the canvas: they retain their recognisable start and an ellipsis.
         let name = "NC_000962.3 read depth";
-        assert!((text_width(name, 11.0) - 123.52).abs() < 0.01);
         let svg = Figure::new(region())
+            .label_width(DEFAULT_LABEL_WIDTH)
             .show_region_label(false)
             .push(CoverageTrack::new(0, vec![10.0; 1000]).label(name))
             .to_svg();
 
         let drawn = drawn_text(&svg);
         assert!(!drawn.contains(name), "the whole name was drawn: {drawn}");
-        assert!(drawn.contains("NC_000962.3\u{2026}"), "{drawn}");
-        // Right aligned at 88, so the ink starts inside the left margin.
-        assert!(88.0 - text_width("NC_000962.3\u{2026}", 11.0) >= 12.0);
+        assert!(drawn.contains("NC_000962\u{2026}"), "{drawn}");
+        // Right aligned at x = 90, so the ink starts inside the left margin.
+        assert!(90.0 - text_width("NC_000962\u{2026}", 12.0) >= 16.0);
     }
 
     #[test]
     fn a_label_that_fits_the_gutter_is_left_exactly_as_it_was() {
-        // 75.21 px against 76 px of room: the threshold is the gutter and
-        // nothing tighter, so a name that just fits is not shortened.
         let name = "enrich / deplete";
-        assert!(text_width(name, 11.0) <= 76.0);
         let svg = Figure::new(region())
+            .label_width(100.0)
             .show_region_label(false)
             .push(CoverageTrack::new(0, vec![10.0; 1000]).label(name))
             .to_svg();
@@ -685,8 +779,7 @@ mod tests {
 
     #[test]
     fn a_gutter_with_no_room_draws_no_label_rather_than_one_off_the_canvas() {
-        // With the gutter turned off a label is right aligned at x = 4, which
-        // is 8 px left of the margin: every one of them would be off the page.
+        // With the gutter turned off the label has no drawable room.
         let svg = Figure::new(region())
             .label_width(0.0)
             .show_region_label(false)
@@ -697,21 +790,16 @@ mod tests {
 
     #[test]
     fn a_track_that_asked_for_no_axis_is_clipped_to_its_band_alone() {
-        // The coverage track reserves 38.02 px for its tick labels, so every
-        // plotting area begins at x = 50.02. The feature track asks for no
-        // axis, and a gene overhanging the left of the window has to stop at
-        // the plot origin rather than 38.02 px, some 46 bases, before it.
+        // The feature track asks for no axis, and a gene overhanging the left
+        // of the window has to stop at the plot origin rather than inside the
+        // quantitative track's y-axis strip.
         let figure = Figure::new(Region::new("chr1", 1000, 2000).unwrap())
             .show_region_label(false)
             .push(CoverageTrack::new(1000, vec![40.0; 1000]))
             .push(FeatureTrack::new(vec![Feature::new(0, 1500)]));
         let layout = figure.layout();
-        assert!(
-            (layout.axis_width - 38.02).abs() < 0.01,
-            "{}",
-            layout.axis_width
-        );
-        assert!((layout.plot_x - 50.02).abs() < 0.01, "{}", layout.plot_x);
+        assert!(layout.axis_width > 0.0, "{}", layout.axis_width);
+        assert_eq!(layout.plot_x, 16.0 + layout.axis_width);
 
         let svg = figure.to_svg();
         let clips: Vec<f64> = svg
@@ -724,7 +812,7 @@ mod tests {
             .collect();
         assert_eq!(clips.len(), 2);
         assert!(
-            (clips[0] - 12.0).abs() < 1e-9,
+            (clips[0] - 16.0).abs() < 1e-9,
             "the strip this track asked for: {clips:?}"
         );
         assert!(
@@ -778,7 +866,7 @@ mod tests {
             .show_region_label(false)
             .push(AxisTrack::new().height(f64::INFINITY));
         let (_, height) = broken.dimensions();
-        assert_eq!(height, 21.0, "10 of margin, one pixel of band, 10 more");
+        assert_eq!(height, 29.0, "14 of margin, one pixel of band, 14 more");
         let svg = broken.to_svg();
         assert!(!svg.contains(r#"height="0""#), "{svg}");
         assert!(!svg.contains("inf"), "{svg}");
@@ -795,5 +883,33 @@ mod tests {
     fn the_dark_theme_paints_a_dark_page() {
         let svg = Figure::new(region()).theme(Theme::dark()).to_svg();
         assert!(svg.contains(&Theme::dark().background));
+    }
+
+    #[test]
+    fn automatic_label_width_tracks_content_and_has_a_cap() {
+        let short = Figure::new(region()).push(AxisTrack::new().label("pos"));
+        let medium = Figure::new(region()).push(AxisTrack::new().label("chromosome position"));
+        let huge = Figure::new(region()).push(AxisTrack::new().label("x".repeat(200)));
+
+        assert!(medium.layout().plot_x > short.layout().plot_x);
+        assert_eq!(
+            huge.layout().plot_x,
+            Margin::default().left + MAX_AUTO_LABEL_WIDTH
+        );
+    }
+
+    #[test]
+    fn visual_scale_moves_type_and_spacing_together() {
+        let normal = Figure::new(region())
+            .title("Scaled")
+            .push(AxisTrack::new().label("position"));
+        let scaled = Figure::new(region())
+            .title("Scaled")
+            .visual_scale(1.5)
+            .push(AxisTrack::new().label("position"));
+
+        assert!(scaled.layout().plot_x > normal.layout().plot_x);
+        assert!(scaled.dimensions().1 > normal.dimensions().1);
+        assert!(scaled.to_svg().contains(r#"font-size="27""#));
     }
 }

@@ -16,9 +16,9 @@
 //! Where a track label sits, whether a feature name fits inside its box and how
 //! much gutter to reserve are all settled before a single element is written,
 //! and there is no font engine here to ask. [`text_width`] answers from
-//! Helvetica's own advance widths, Helvetica being the first font in
-//! [`Theme::font_family`](crate::Theme::font_family) and metrically the same as
-//! Arial, so under the default theme the answer is exact rather than a guess.
+//! Arial-compatible advance widths. The default stack starts with Liberation
+//! Sans, then falls through Arial and Helvetica, so the answer stays exact on
+//! Linux, Windows and macOS rather than depending on a generic fallback.
 //! Nearly every track calls it, because a label that overruns the room reserved
 //! for it is a label that gets clipped.
 //!
@@ -33,6 +33,8 @@
 //! there is one way out of the crate and it is this one.
 
 use std::fmt::Write as _;
+
+use crate::style::{LinePattern, Symbol};
 
 /// Horizontal anchoring of a text label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,12 +176,27 @@ impl SvgWriter {
 
     /// A straight line.
     pub fn line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, stroke: &str, width: f64) {
+        self.line_pattern(x1, y1, x2, y2, stroke, width, LinePattern::Solid);
+    }
+
+    /// A straight line with a colour-independent stroke pattern.
+    #[allow(clippy::too_many_arguments)]
+    pub fn line_pattern(
+        &mut self,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        stroke: &str,
+        width: f64,
+        pattern: LinePattern,
+    ) {
         if !finite(&[x1, y1, x2, y2]) {
             return;
         }
         let _ = write!(
             self.body,
-            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}"/>"#,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}""#,
             num(x1),
             num(y1),
             num(x2),
@@ -187,6 +204,8 @@ impl SvgWriter {
             stroke,
             num(width)
         );
+        self.push_pattern(pattern);
+        self.body.push_str("/>");
     }
 
     /// A filled circle.
@@ -204,6 +223,47 @@ impl SvgWriter {
         );
     }
 
+    /// A categorical point, whose shape can carry identity alongside colour.
+    pub fn symbol(&mut self, cx: f64, cy: f64, r: f64, symbol: Symbol, fill: &str) {
+        if r <= 0.0 || !finite(&[cx, cy, r]) {
+            return;
+        }
+        match symbol {
+            Symbol::Circle => self.circle(cx, cy, r, fill),
+            Symbol::Square => self.rect(cx - r, cy - r, r * 2.0, r * 2.0, fill),
+            Symbol::Diamond => self.polygon(
+                &[(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
+                fill,
+            ),
+            Symbol::Triangle => self.polygon(
+                &[
+                    (cx, cy - r),
+                    (cx + r * 0.95, cy + r * 0.75),
+                    (cx - r * 0.95, cy + r * 0.75),
+                ],
+                fill,
+            ),
+        }
+    }
+
+    /// A categorical point separated from overlapping marks by a surface ring.
+    #[allow(clippy::too_many_arguments)]
+    pub fn symbol_ringed(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        r: f64,
+        symbol: Symbol,
+        fill: &str,
+        ring: &str,
+        width: f64,
+    ) {
+        if width > 0.0 && ring != "none" {
+            self.symbol(cx, cy, r + width, symbol, ring);
+        }
+        self.symbol(cx, cy, r, symbol, fill);
+    }
+
     /// A filled polygon through `points`.
     pub fn polygon(&mut self, points: &[(f64, f64)], fill: &str) {
         if points.len() < 3 {
@@ -217,6 +277,17 @@ impl SvgWriter {
 
     /// An open stroked polyline through `points`.
     pub fn polyline(&mut self, points: &[(f64, f64)], stroke: &str, width: f64) {
+        self.polyline_pattern(points, stroke, width, LinePattern::Solid);
+    }
+
+    /// An open stroked polyline with a colour-independent pattern.
+    pub fn polyline_pattern(
+        &mut self,
+        points: &[(f64, f64)],
+        stroke: &str,
+        width: f64,
+        pattern: LinePattern,
+    ) {
         if points.len() < 2 {
             return;
         }
@@ -225,11 +296,13 @@ impl SvgWriter {
         };
         let _ = write!(
             self.body,
-            r#"<polyline points="{}" fill="none" stroke="{}" stroke-width="{}" stroke-linejoin="round"/>"#,
+            r#"<polyline points="{}" fill="none" stroke="{}" stroke-width="{}" stroke-linejoin="round""#,
             list,
             stroke,
             num(width)
         );
+        self.push_pattern(pattern);
+        self.body.push_str("/>");
     }
 
     /// An outlined rectangle with no fill.
@@ -251,16 +324,29 @@ impl SvgWriter {
 
     /// An outlined path with no fill, for a shape that contains other shapes.
     pub fn path_stroked(&mut self, d: &str, stroke: &str, width: f64) {
+        self.path_stroked_pattern(d, stroke, width, LinePattern::Solid);
+    }
+
+    /// An outlined path with a colour-independent stroke pattern.
+    pub fn path_stroked_pattern(
+        &mut self,
+        d: &str,
+        stroke: &str,
+        width: f64,
+        pattern: LinePattern,
+    ) {
         if d.is_empty() {
             return;
         }
         let _ = write!(
             self.body,
-            r#"<path d="{}" fill="none" stroke="{}" stroke-width="{}"/>"#,
+            r#"<path d="{}" fill="none" stroke="{}" stroke-width="{}""#,
             d,
             stroke,
             num(width)
         );
+        self.push_pattern(pattern);
+        self.body.push_str("/>");
     }
 
     /// Opens a group clipped to an arbitrary path, for shapes a rectangle
@@ -590,6 +676,12 @@ impl SvgWriter {
             let _ = write!(self.body, r#" {}="{}""#, attr, num(opacity.max(0.0)));
         }
     }
+
+    fn push_pattern(&mut self, pattern: LinePattern) {
+        if let Some(dashes) = pattern.dasharray() {
+            let _ = write!(self.body, r#" stroke-dasharray="{dashes}""#);
+        }
+    }
 }
 
 /// Formats a coordinate compactly: at most three decimals, no trailing zeros.
@@ -651,9 +743,9 @@ pub fn escape(text: &str) -> String {
 /// Advance width of a string, used to reserve room and to decide whether a
 /// label fits where it is going.
 ///
-/// The widths are Helvetica's own, which is the first font in
-/// [`Theme::font_family`](crate::Theme::font_family) and metrically the same as
-/// Arial, so for the default theme this is exact rather than approximate. That
+/// The widths are shared by Liberation Sans, Arial and Helvetica, the first
+/// three faces in [`Theme::font_family`](crate::Theme::font_family), so for the
+/// default theme this is exact rather than approximate. That
 /// matters more than it sounds: one flat width per character under-reserves for
 /// a run of capitals by about a fifth, which is precisely what a column of
 /// sample accessions is, and a label that overruns the space reserved for it
@@ -675,6 +767,31 @@ pub fn text_width(text: &str, font_size: f64) -> f64 {
         })
         .sum();
     per_mille / 1000.0 * font_size
+}
+
+/// Fits visible text to `room`, using one ellipsis while preserving the full
+/// source string for callers to expose through a tooltip or accessible label.
+pub fn fit_text(text: &str, room: f64, font_size: f64) -> String {
+    if text.is_empty() || room <= 0.0 || font_size <= 0.0 {
+        return String::new();
+    }
+    if text_width(text, font_size) <= room {
+        return text.to_string();
+    }
+    let ellipsis = "\u{2026}";
+    if text_width(ellipsis, font_size) > room {
+        return String::new();
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let mut candidate: String = chars.iter().collect();
+        candidate.push_str(ellipsis);
+        if text_width(&candidate, font_size) <= room {
+            return candidate;
+        }
+    }
+    ellipsis.to_string()
 }
 
 /// Helvetica advance widths for printable ASCII, in thousandths of an em,
@@ -830,6 +947,33 @@ mod tests {
         svg.circle_ringed(10.0, 10.0, 4.0, "#111111", "none", 2.0);
         let out = svg.finish(20.0, 20.0, "none", "sans-serif");
         assert_eq!(out.matches("<circle").count(), 1);
+    }
+
+    #[test]
+    fn symbols_and_patterns_do_not_rely_on_colour_alone() {
+        let mut svg = SvgWriter::new();
+        svg.symbol(4.0, 4.0, 2.0, Symbol::Square, "#111111");
+        svg.line_pattern(0.0, 8.0, 8.0, 8.0, "#111111", 1.0, LinePattern::Dashed);
+        let out = svg.finish(10.0, 10.0, "none", "sans-serif");
+        assert!(out.contains("<rect"));
+        assert!(out.contains(r#"stroke-dasharray="6 4""#));
+    }
+
+    #[test]
+    fn fitted_text_keeps_whole_labels_and_ellipsizes_long_ones() {
+        assert_eq!(fit_text("rpoB", 100.0, 12.0), "rpoB");
+        assert!(fit_text("a long feature name", 40.0, 12.0).ends_with('\u{2026}'));
+        assert_eq!(fit_text("rpoB", 0.0, 12.0), "");
+    }
+
+    #[test]
+    fn titled_groups_expose_the_exact_label_to_assistive_technology() {
+        let mut svg = SvgWriter::new();
+        svg.begin_titled("gene <A&B>");
+        svg.circle(5.0, 5.0, 2.0, "#111111");
+        svg.end_group();
+        let out = svg.finish(10.0, 10.0, "none", "sans-serif");
+        assert!(out.contains("<title>gene &lt;A&amp;B&gt;</title>"));
     }
 
     #[test]

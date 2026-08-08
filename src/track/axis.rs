@@ -121,10 +121,17 @@ impl Track for AxisTrack {
         let band = ctx.band;
         let rule_y = band.y + 0.5;
         let font = ctx.theme.font_size;
-        let label_y = rule_y + self.tick_length + font;
+        let tick_length = self.tick_length * ctx.visual_scale;
+        let label_y = rule_y + tick_length + font;
 
-        ctx.svg
-            .line(band.x, rule_y, band.right(), rule_y, &ctx.theme.rule, 1.0);
+        ctx.svg.line(
+            band.x,
+            rule_y,
+            band.right(),
+            rule_y,
+            &ctx.theme.foreground,
+            ctx.theme.tokens.stroke,
+        );
 
         let ticks = self.ticks(ctx.region.display_start(), ctx.region.display_end(), band.w);
         // One unit for the whole ruler: an axis that switches from kb to Mb
@@ -142,9 +149,9 @@ impl Track for AxisTrack {
                 x,
                 rule_y,
                 x,
-                rule_y + self.tick_length,
-                &ctx.theme.rule,
-                1.0,
+                rule_y + tick_length,
+                &ctx.theme.foreground,
+                ctx.theme.tokens.stroke,
             );
 
             let text = unit.format(pos);
@@ -449,7 +456,7 @@ mod tests {
             rest[..rest.find('"').unwrap()].parse().unwrap()
         };
 
-        let half_base = (900.0 - 12.0 - 16.0) / 10.0 / 2.0;
+        let half_base = (900.0 - 16.0 - 18.0) / 10.0 / 2.0;
         assert!((first_tick(&centres) - first_tick(&edges) - half_base).abs() < 1e-6);
     }
 

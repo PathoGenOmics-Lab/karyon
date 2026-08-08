@@ -69,6 +69,80 @@
   overflow-x: auto;
 }
 
+/* A single atlas shrunk to the article width made every label illegible. The
+   catalogue is a set of previews at reading size; the full atlas remains one
+   click away for comparison and download. */
+.md-typeset .track-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.md-typeset .track-card {
+  display: grid;
+  grid-template-rows: 9rem auto;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-top: 3px solid #0072b2;
+  border-radius: 0.5rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.md-typeset .track-card:hover,
+.md-typeset .track-card:focus-visible {
+  color: inherit;
+  border-color: #0072b2;
+  box-shadow: 0 0.35rem 1rem hsl(205 100% 20% / 12%);
+  transform: translateY(-2px);
+}
+
+.md-typeset .track-card img {
+  width: 100%;
+  height: 9rem;
+  box-sizing: border-box;
+  padding: 0.45rem;
+  object-fit: contain;
+  object-position: center;
+  background: #ffffff;
+  border-radius: 0;
+}
+
+.md-typeset .track-card span {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.7rem 0.85rem 0.8rem;
+}
+
+.md-typeset .track-card strong {
+  font-size: 0.82rem;
+}
+
+.md-typeset .track-card small {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.68rem;
+}
+
+.md-typeset .track-overview {
+  margin: 1rem 0 1.5rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.35rem;
+}
+
+.md-typeset .track-overview summary {
+  cursor: pointer;
+  color: var(--md-accent-fg-color);
+  font-weight: 600;
+}
+
+.md-typeset .track-overview img {
+  margin-top: 0.85rem;
+}
+
 /* --------------------------------------------------------------------------
    Home page hero
    -------------------------------------------------------------------------- */

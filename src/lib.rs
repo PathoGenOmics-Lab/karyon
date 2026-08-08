@@ -115,6 +115,7 @@ pub mod plot;
 pub mod region;
 pub mod rings;
 pub mod scale;
+pub mod style;
 pub mod svg;
 pub mod theme;
 pub mod track;
@@ -130,7 +131,11 @@ pub use crate::rings::{
     AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,
 };
 pub use crate::scale::Scale;
-pub use crate::svg::{Anchor, SvgWriter};
+pub use crate::style::{
+    AxisFormat, Density, Emphasis, LinePattern, MarkStyle, QuantitativeAxis, ReferenceLine,
+    RenderProfile, Symbol, VisualTokens,
+};
+pub use crate::svg::{fit_text, Anchor, SvgWriter};
 pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, Aggregate, AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack,

@@ -23,6 +23,7 @@
 //! is showing.
 
 use crate::scale::Scale;
+use crate::style::{Emphasis, LinePattern, QuantitativeAxis, Symbol};
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
@@ -93,6 +94,7 @@ pub struct ManhattanTrack {
     unit: String,
     show_scale: bool,
     bands: Vec<u64>,
+    axis: QuantitativeAxis,
 }
 
 impl ManhattanTrack {
@@ -110,6 +112,7 @@ impl ManhattanTrack {
             unit: String::new(),
             show_scale: true,
             bands: Vec::new(),
+            axis: QuantitativeAxis::new(),
         }
     }
 
@@ -159,6 +162,16 @@ impl ManhattanTrack {
     /// Pins the top of the y axis.
     pub fn max(mut self, max: f64) -> Self {
         self.max = Some(max);
+        self.axis.max = Some(max);
+        self
+    }
+
+    /// Uses a shared quantitative-axis contract for range, ticks, units and
+    /// reference lines.
+    pub fn axis(mut self, axis: QuantitativeAxis) -> Self {
+        self.max = axis.max;
+        self.unit = axis.unit.clone();
+        self.axis = axis;
         self
     }
 
@@ -194,6 +207,7 @@ impl ManhattanTrack {
     /// Sets a unit suffix for the axis labels, such as `" -log10 p"`.
     pub fn unit(mut self, unit: impl Into<String>) -> Self {
         self.unit = unit.into();
+        self.axis.unit = self.unit.clone();
         self
     }
 
@@ -226,7 +240,7 @@ impl ManhattanTrack {
     /// Top of the axis: the pinned maximum, or the tallest point with a little
     /// headroom, or the threshold when every point is under it.
     fn ceiling(&self) -> f64 {
-        if let Some(max) = self.max {
+        if let Some(max) = self.axis.max.or(self.max) {
             return max.max(1e-9);
         }
         let tallest = self
@@ -253,8 +267,13 @@ impl Track for ManhattanTrack {
         if !self.show_scale || self.points.is_empty() {
             return 0.0;
         }
-        let widest = format!("{}{}", format_value(self.ceiling()), self.unit);
-        text_width(&widest, theme.font_size - 1.0) + 8.0
+        let (floor, ceiling) = self.axis.resolve(0.0, self.ceiling());
+        let labels = [self.axis.label(floor), self.axis.label(ceiling)];
+        labels
+            .iter()
+            .map(|label| text_width(label, theme.font_size - 1.0))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -266,14 +285,26 @@ impl Track for ManhattanTrack {
             band.right(),
             baseline - 0.5,
             &ctx.theme.rule,
-            1.0,
+            ctx.theme.tokens.hairline,
         );
 
         if self.points.is_empty() {
             return;
         }
-        let ceiling = self.ceiling();
-        let y_of = |value: f64| baseline - (value / ceiling).clamp(0.0, 1.0) * band.h;
+        let (floor, ceiling) = self.axis.resolve(0.0, self.ceiling());
+        let y_of =
+            |value: f64| baseline - ((value - floor) / (ceiling - floor)).clamp(0.0, 1.0) * band.h;
+
+        for value in self.axis.values(floor, ceiling).into_iter().skip(1) {
+            ctx.svg.line(
+                band.x,
+                y_of(value),
+                band.right(),
+                y_of(value),
+                &ctx.theme.rule,
+                ctx.theme.tokens.hairline,
+            );
+        }
 
         let plain = self
             .color
@@ -285,8 +316,40 @@ impl Track for ManhattanTrack {
             .unwrap_or_else(|| ctx.theme.color(1).to_string());
 
         if let Some(threshold) = self.threshold {
-            let y = y_of(threshold);
-            ctx.svg.line(band.x, y, band.right(), y, &significant, 1.0);
+            if threshold >= floor && threshold <= ceiling {
+                let y = y_of(threshold);
+                ctx.svg.line_pattern(
+                    band.x,
+                    y,
+                    band.right(),
+                    y,
+                    &significant,
+                    ctx.theme.tokens.stroke,
+                    LinePattern::Dashed,
+                );
+            }
+        }
+
+        for reference in &self.axis.references {
+            if !reference.value.is_finite() || reference.value < floor || reference.value > ceiling
+            {
+                continue;
+            }
+            let style = ctx.theme.mark_style(reference.emphasis);
+            let color = if reference.emphasis == Emphasis::Alert {
+                &significant
+            } else {
+                &ctx.theme.muted
+            };
+            ctx.svg.line_pattern(
+                band.x,
+                y_of(reference.value),
+                band.right(),
+                y_of(reference.value),
+                color,
+                style.stroke_width,
+                reference.pattern,
+            );
         }
 
         for point in &self.points {
@@ -304,49 +367,60 @@ impl Track for ManhattanTrack {
             let color = if above { &significant } else { &banded };
             let x = ctx.scale.x_center(point.pos);
             let y = y_of(point.value);
+            let radius = self.radius * ctx.visual_scale;
+            let symbol = if above {
+                Symbol::Diamond
+            } else {
+                ctx.theme.symbol(self.band_of(point.pos))
+            };
             if above {
                 // A hit is worth a ring, so it stays a point where the texture
                 // around it is densest.
-                ctx.svg
-                    .circle_ringed(x, y, self.radius + 0.8, color, &ctx.theme.background, 1.0);
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    radius + ctx.theme.tokens.hairline,
+                    symbol,
+                    color,
+                    ctx.theme.surface(),
+                    ctx.theme.tokens.hairline,
+                );
             } else {
-                ctx.svg.circle(x, y, self.radius, color);
+                ctx.svg.symbol(x, y, radius, symbol, color);
             }
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
             let right = ctx.axis.right() - 4.0;
-            ctx.svg.text(
-                right,
-                band.y + size,
-                &format!("{}{}", format_value(ceiling), self.unit),
-                &ctx.theme.muted,
-                size,
-                Anchor::End,
-            );
-            ctx.svg.text(
-                right,
-                baseline - size * 0.22,
-                "0",
-                &ctx.theme.muted,
-                size,
-                Anchor::End,
-            );
+            for value in self.axis.values(floor, ceiling) {
+                ctx.svg.text(
+                    right,
+                    (y_of(value) + size * 0.35)
+                        .max(band.y + size)
+                        .min(baseline - size * 0.22),
+                    &self.axis.label(value),
+                    &ctx.theme.muted,
+                    size,
+                    Anchor::End,
+                );
+            }
+            for reference in &self.axis.references {
+                let Some(label) = reference.label.as_deref() else {
+                    continue;
+                };
+                if reference.value >= floor && reference.value <= ceiling {
+                    ctx.svg.text(
+                        band.x + ctx.theme.tokens.label_gap,
+                        (y_of(reference.value) - ctx.theme.tokens.row_gap).max(band.y + size),
+                        label,
+                        &ctx.theme.foreground,
+                        size,
+                        Anchor::Start,
+                    );
+                }
+            }
         }
-    }
-}
-
-/// One decimal at most, and none when it would be a zero.
-fn format_value(value: f64) -> String {
-    if !value.is_finite() {
-        return "0".to_string();
-    }
-    let rounded = (value * 10.0).round() / 10.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
     }
 }
 

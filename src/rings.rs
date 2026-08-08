@@ -53,7 +53,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::svg::{num, Anchor, SvgWriter};
+use crate::style::{Density, LinePattern, RenderProfile};
+use crate::svg::{fit_text, num, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::feature::{feature_title, span_label, strand_color};
@@ -264,6 +265,8 @@ pub struct RingContext<'a> {
     pub outer: f64,
     /// Shared colours and fonts.
     pub theme: &'a Theme,
+    /// Scale applied to ring thickness, gaps and fixed pixel measurements.
+    pub visual_scale: f64,
 }
 
 impl RingContext<'_> {
@@ -275,6 +278,11 @@ impl RingContext<'_> {
     /// How thick the ring is.
     pub fn thickness(&self) -> f64 {
         self.outer - self.inner
+    }
+
+    /// Scales one fixed pixel measurement for the active profile and density.
+    pub fn px(&self, value: f64) -> f64 {
+        value * self.visual_scale
     }
 }
 
@@ -370,6 +378,8 @@ pub struct Rings {
     title: Option<String>,
     subtitle: Option<String>,
     description: Option<String>,
+    visual_scale: f64,
+    density: Density,
 }
 
 impl Rings {
@@ -386,6 +396,8 @@ impl Rings {
             title: None,
             subtitle: None,
             description: None,
+            visual_scale: 1.0,
+            density: Density::Balanced,
         }
     }
 
@@ -414,6 +426,34 @@ impl Rings {
     /// Replaces the theme.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    /// Applies a named palette, type scale and ring density together.
+    pub fn profile(mut self, profile: RenderProfile) -> Self {
+        self.theme = if profile.is_dark() {
+            Theme::dark()
+        } else {
+            Theme::light()
+        };
+        self.visual_scale = profile.visual_scale();
+        self.density = profile.density();
+        self
+    }
+
+    /// Scales typography, marks, margins and ring geometry together.
+    pub fn visual_scale(mut self, factor: f64) -> Self {
+        self.visual_scale = if factor.is_finite() {
+            factor.max(0.25)
+        } else {
+            1.0
+        };
+        self
+    }
+
+    /// Sets how tightly the concentric data bands are packed.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 
@@ -503,16 +543,17 @@ impl Rings {
 
     /// Width and height of the rendered image, which is square.
     pub fn dimensions(&self) -> (f64, f64) {
-        let side = self.diameter + self.margin * 2.0;
+        let side = self.diameter + self.margin * self.visual_scale * 2.0;
         (side, side)
     }
 
     /// Radius of the innermost edge of the last ring, where chords start.
     pub fn inner_radius(&self) -> f64 {
+        let scale = self.visual_scale * self.density.scale();
         let mut radius = self.diameter / 2.0;
         for ring in &self.rings {
-            radius -= ring.thickness().max(0.0);
-            radius -= ring.gap().max(0.0);
+            radius -= ring.thickness().max(0.0) * scale;
+            radius -= ring.gap().max(0.0) * scale;
         }
         radius.max(4.0)
     }
@@ -577,6 +618,8 @@ impl Rings {
         let (width, height) = self.dimensions();
         let centre = width / 2.0;
         let polar = Polar::new(self.length, centre, centre, self.gap_degrees);
+        let theme = self.theme.clone().scaled(self.visual_scale);
+        let content_scale = self.visual_scale * self.density.scale();
         let mut svg = SvgWriter::with_id_prefix(prefix);
         // A prefix means this plot is going inside another document, and a
         // nested document must not name itself: `<title>` resolves to the
@@ -592,10 +635,7 @@ impl Rings {
         // washed out by a dozen translucent ribbons crossing the middle.
         let inner = self.inner_radius();
         for chord in &self.chords {
-            let color = chord
-                .color
-                .clone()
-                .unwrap_or_else(|| self.theme.accent.clone());
+            let color = chord.color.clone().unwrap_or_else(|| theme.accent.clone());
             // One ribbon per link, always wide enough to point at, since the
             // middle of the circle is the one part of the plot with nothing
             // else in it.
@@ -610,50 +650,48 @@ impl Rings {
 
         let mut outer = self.diameter / 2.0;
         for ring in &self.rings {
-            let thickness = ring.thickness().max(0.0);
+            let thickness = ring.thickness().max(0.0) * content_scale;
             let mut ctx = RingContext {
                 svg: &mut svg,
                 polar: &polar,
                 inner: (outer - thickness).max(0.0),
                 outer,
-                theme: &self.theme,
+                theme: &theme,
+                visual_scale: content_scale,
             };
             ring.draw(&mut ctx);
-            outer -= thickness + ring.gap().max(0.0);
+            outer -= thickness + ring.gap().max(0.0) * content_scale;
         }
 
         if let Some(title) = &self.title {
             let baseline = if self.subtitle.is_some() {
                 centre
             } else {
-                centre + self.theme.title_font_size * 0.35
+                centre + theme.title_font_size * 0.35
             };
+            let title = fit_text(title, self.inner_radius() * 1.65, theme.title_font_size);
             svg.text_bold(
                 centre,
                 baseline,
-                title,
-                &self.theme.foreground,
-                self.theme.title_font_size,
+                &title,
+                &theme.foreground,
+                theme.title_font_size,
                 Anchor::Middle,
             );
         }
         if let Some(subtitle) = &self.subtitle {
+            let subtitle = fit_text(subtitle, self.inner_radius() * 1.65, theme.font_size);
             svg.text(
                 centre,
-                centre + self.theme.font_size + 4.0,
-                subtitle,
-                &self.theme.muted,
-                self.theme.font_size,
+                centre + theme.font_size + theme.tokens.row_gap,
+                &subtitle,
+                &theme.muted,
+                theme.font_size,
                 Anchor::Middle,
             );
         }
 
-        svg.finish(
-            width,
-            height,
-            &self.theme.background,
-            &self.theme.font_family,
-        )
+        svg.finish(width, height, &theme.background, &theme.font_family)
     }
 
     /// Renders the plot and writes it to `path`.
@@ -733,19 +771,26 @@ impl Ring for AxisRing {
         // lands on the ring below, over whatever that one is drawing. Below
         // the size a label can be read at there is no label, which is the rule
         // the rest of the crate uses when a band is too thin to say something.
-        let size = (ctx.theme.font_size - 1.0).min(ctx.thickness() - 12.0);
-        let label_radius = ctx.outer - 7.0 - size * 0.7;
+        let size = (ctx.theme.font_size - 1.0).min(ctx.thickness() - ctx.px(12.0));
+        let label_radius = ctx.outer - ctx.px(7.0) - size * 0.7;
         let show_labels = self.show_labels && size >= 4.0;
 
-        ctx.svg
-            .path_stroked(&polar.circle(ctx.outer), &ctx.theme.rule, 1.0);
+        ctx.svg.path_stroked(
+            &polar.circle(ctx.outer),
+            &ctx.theme.rule,
+            ctx.theme.tokens.stroke,
+        );
 
         let mut pos = 0u64;
         while pos < polar.length() {
             let angle = polar.angle(pos);
             let (x0, y0) = polar.at(angle, ctx.outer);
-            let (x1, y1) = polar.at(angle, (ctx.outer - 5.0).max(ctx.inner));
-            ctx.svg.line(x0, y0, x1, y1, &ctx.theme.rule, 1.0);
+            let (x1, y1) = polar.at(
+                angle,
+                (ctx.outer - ctx.theme.tokens.tick_length).max(ctx.inner),
+            );
+            ctx.svg
+                .line(x0, y0, x1, y1, &ctx.theme.rule, ctx.theme.tokens.stroke);
 
             if show_labels {
                 let (tx, ty) = polar.at(angle, label_radius);
@@ -857,6 +902,9 @@ impl Ring for FeatureRing {
         let middle = ctx.middle();
         let floor =
             (self.min_degrees.to_radians() / (2.0 * PI) * ctx.polar.length() as f64).round() as u64;
+        let mut left_labels: Vec<(f64, f64)> = Vec::new();
+        let mut right_labels: Vec<(f64, f64)> = Vec::new();
+        let mut centre_labels: Vec<(f64, f64)> = Vec::new();
 
         for feature in &self.features {
             let (lane_inner, lane_outer) = match (self.split_strands, feature.strand) {
@@ -869,7 +917,11 @@ impl Ring for FeatureRing {
             } else {
                 &forward
             };
-            let end = feature.end.max(feature.start.saturating_add(floor.max(1)));
+            let end = if feature.end < feature.start {
+                feature.end
+            } else {
+                feature.end.max(feature.start.saturating_add(floor.max(1)))
+            };
 
             // One arc per feature and nothing is binned, so a feature is named
             // when it is something a pointer can land on. The measure is the
@@ -878,7 +930,12 @@ impl Ring for FeatureRing {
             // radius, which is the whole difference between a circle and a
             // stack of bands.
             let lane = (lane_inner + lane_outer) / 2.0;
-            let pixels = (end - feature.start) as f64 / ctx.polar.bp_per_px(lane);
+            let span = if end < feature.start {
+                ctx.polar.length() - feature.start.min(ctx.polar.length()) + end
+            } else {
+                end - feature.start
+            };
+            let pixels = span as f64 / ctx.polar.bp_per_px(lane);
             let title = if pixels >= 1.0 {
                 feature_title(feature)
             } else {
@@ -902,24 +959,33 @@ impl Ring for FeatureRing {
                     // span that wraps through the origin has its end below its
                     // start, and `feature.end` here would take a u64 below
                     // zero.
-                    let mid = feature.start + (end - feature.start) / 2;
+                    let mid = feature.start.saturating_add(span / 2) % ctx.polar.length();
                     let angle = ctx.polar.angle(mid);
-                    let (x, y) = ctx.polar.at(angle, ctx.inner - 4.0);
-                    // Anchored away from the centre, so a name on the left of
-                    // the circle runs left and one on the right runs right.
-                    let anchor = if angle.sin() < 0.0 {
-                        Anchor::End
+                    let (x, y) = ctx.polar.at(angle, ctx.inner - ctx.px(4.0));
+                    let (cx, _) = ctx.polar.center();
+                    let font = ctx.theme.font_size - 1.0;
+                    let bounds = (y - font * 0.8, y + font * 0.35);
+                    let centred = (cx - x).abs() < ctx.theme.tokens.label_gap;
+                    let room = if centred {
+                        ctx.inner * 1.5
                     } else {
-                        Anchor::Start
+                        (cx - x).abs() - ctx.theme.tokens.label_gap
                     };
-                    ctx.svg.text(
-                        x,
-                        y,
-                        name,
-                        &ctx.theme.muted,
-                        ctx.theme.font_size - 1.0,
-                        anchor,
-                    );
+                    let visible = fit_text(name, room.max(0.0), font);
+                    let (anchor, occupied) = if centred {
+                        (Anchor::Middle, &mut centre_labels)
+                    } else if x < cx {
+                        (Anchor::Start, &mut left_labels)
+                    } else {
+                        (Anchor::End, &mut right_labels)
+                    };
+                    let collides = occupied
+                        .iter()
+                        .any(|(top, bottom)| bounds.0 < *bottom && bounds.1 > *top);
+                    if !visible.is_empty() && !collides {
+                        ctx.svg.text(x, y, &visible, &ctx.theme.muted, font, anchor);
+                        occupied.push(bounds);
+                    }
                 }
             }
 
@@ -1028,7 +1094,7 @@ impl Ring for SignalRing {
             ctx.svg.path_stroked(
                 &ctx.polar.circle(middle),
                 &mix(ctx.theme.surface(), &ctx.theme.rule, 0.8),
-                0.8,
+                ctx.theme.tokens.hairline,
             );
         }
 
@@ -1139,7 +1205,20 @@ impl Ring for MarkerRing {
             let angle = ctx.polar.angle(*pos);
             let (x0, y0) = ctx.polar.at(angle, ctx.inner);
             let (x1, y1) = ctx.polar.at(angle, ctx.outer);
-            ctx.svg.line(x0, y0, x1, y1, &color, self.width);
+            let pattern = match category % 3 {
+                1 => LinePattern::Dashed,
+                2 => LinePattern::Dotted,
+                _ => LinePattern::Solid,
+            };
+            ctx.svg.line_pattern(
+                x0,
+                y0,
+                x1,
+                y1,
+                &color,
+                self.width * ctx.visual_scale,
+                pattern,
+            );
         }
     }
 }
@@ -1198,6 +1277,12 @@ pub trait Drawing {
 
     /// Renders it, with every generated id carrying `prefix`.
     fn to_svg_with_id_prefix(&self, prefix: &str) -> String;
+
+    /// Horizontal origin of the data area, when drawings can be aligned on a
+    /// panel sheet. Circular and other free-form drawings return no anchor.
+    fn content_anchor(&self) -> Option<f64> {
+        None
+    }
 }
 
 impl Drawing for Rings {
@@ -1436,12 +1521,15 @@ mod tests {
         assert!(svg.contains(">dnaA</text>"), "{svg}");
         assert!(!svg.contains("NaN"));
 
-        // And it lands under the arc as drawn, a little anticlockwise of
-        // twelve o'clock on a plot whose centre is (334, 334), rather than at
-        // whatever angle the wrapped arithmetic happened to give.
+        // And it lands under the midpoint of the wrapped arc as drawn rather
+        // than at whichever end happened not to underflow.
         let (_, x, y) = &labels(&svg)[0];
+        let polar = Polar::new(4_411_532, 334.0, 334.0, 2.0);
+        let span = 4_411_532 - 4_400_000 + 1_000;
+        let midpoint = (4_400_000 + span / 2) % 4_411_532;
+        let (expected_x, expected_y) = polar.point(midpoint, 300.0);
         assert!(
-            (x - 324.178).abs() < 0.5 && (y - 34.161).abs() < 0.5,
+            (x - expected_x).abs() < 0.5 && (y - expected_y).abs() < 0.5,
             "{x} {y}"
         );
     }
@@ -1544,6 +1632,17 @@ mod tests {
             .to_svg();
         assert!(svg.contains(">H37Rv</text>"));
         assert!(svg.contains(">4.41 Mb</text>"));
+    }
+
+    #[test]
+    fn a_named_profile_scales_ring_geometry_and_typography_together() {
+        let base = Rings::new(1_000).push(AxisRing::new());
+        let large = Rings::new(1_000)
+            .profile(RenderProfile::Presentation)
+            .push(AxisRing::new());
+        assert!(large.dimensions().0 > base.dimensions().0);
+        assert!(large.inner_radius() < base.inner_radius());
+        assert!(large.to_svg().contains(r#"font-size=""#));
     }
 
     #[test]

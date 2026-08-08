@@ -389,7 +389,7 @@ impl Track for CodonTrack {
         // boundary cannot take half its width.
         let rule_y = cells_y + cells_h + 0.5;
         ctx.svg
-            .line(band.x, rule_y, band.right(), rule_y, &theme.rule, 1.0);
+            .line(band.x, rule_y, band.right(), rule_y, &theme.foreground, 1.0);
 
         let step = self.number_step(ctx.scale, theme);
         let mut codon = first.div_ceil(step) * step;
@@ -399,7 +399,8 @@ impl Track for CodonTrack {
         while codon <= last {
             if let Some((from, to)) = self.span_of(codon) {
                 let x = (ctx.scale.x(from) + ctx.scale.x(to)) / 2.0;
-                ctx.svg.line(x, rule_y, x, rule_y + 3.0, &theme.rule, 1.0);
+                ctx.svg
+                    .line(x, rule_y, x, rule_y + 3.0, &theme.foreground, 1.0);
                 let text = format!("{codon}");
                 let half = text_width(&text, font) / 2.0;
                 // A number half off the edge of the figure is a number that

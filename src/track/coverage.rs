@@ -32,6 +32,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
+use crate::style::{Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
@@ -91,6 +92,7 @@ pub struct CoverageTrack {
     log_scale: bool,
     fill_opacity: Option<f64>,
     show_max: bool,
+    axis: QuantitativeAxis,
 }
 
 impl CoverageTrack {
@@ -111,6 +113,7 @@ impl CoverageTrack {
             log_scale: false,
             fill_opacity: None,
             show_max: true,
+            axis: QuantitativeAxis::new(),
         }
     }
 
@@ -165,6 +168,15 @@ impl CoverageTrack {
     /// different scales as the same one.
     pub fn max(mut self, max: f64) -> Self {
         self.max = Some(max);
+        self.axis.max = Some(max);
+        self
+    }
+
+    /// Uses a shared quantitative-axis contract for range, ticks, units and
+    /// reference lines.
+    pub fn axis(mut self, axis: QuantitativeAxis) -> Self {
+        self.max = axis.max;
+        self.axis = axis;
         self
     }
 
@@ -296,11 +308,19 @@ impl Track for CoverageTrack {
         }
         // Room for the widest label this track could print, which is the
         // ceiling rather than the zero underneath it.
-        let widest = self
+        let mut labels = vec![self
+            .axis
             .max
-            .map(format_value)
-            .unwrap_or_else(|| "999.9k".to_string());
-        text_width(&widest, theme.font_size - 1.0) + 8.0
+            .map(|value| self.axis.label(value))
+            .unwrap_or_else(|| "999.9k".to_string())];
+        if let Some(min) = self.axis.min {
+            labels.push(self.axis.label(min));
+        }
+        labels
+            .iter()
+            .map(|label| text_width(label, theme.font_size - 1.0))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -321,24 +341,36 @@ impl Track for CoverageTrack {
             band.right(),
             baseline - 0.5,
             &ctx.theme.rule,
-            1.0,
+            ctx.theme.tokens.hairline,
         );
 
-        let ceiling = self
+        let data_ceiling = self
+            .axis
             .max
+            .or(self.max)
             .or_else(|| self.visible_max(ctx.region))
             .filter(|m| m.is_finite() && *m > 0.0);
-        let Some(ceiling) = ceiling else {
+        let Some(data_ceiling) = data_ceiling else {
             return;
         };
         // A little headroom, so the tallest point is a peak rather than
         // something that ran out of band. A pinned maximum is taken literally,
         // because that is the whole reason for pinning one.
-        let headroom = if self.max.is_some() { 1.0 } else { 1.06 };
-        let top = self.transform(ceiling) * headroom;
-        if top <= 0.0 {
+        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+        let pinned = self.axis.max.is_some() || self.max.is_some();
+        let visual_ceiling = if pinned {
+            ceiling
+        } else {
+            floor + (ceiling - floor) * 1.06
+        };
+        let transformed_floor = self.transform(floor);
+        let span = self.transform(visual_ceiling) - transformed_floor;
+        if span <= 0.0 {
             return;
         }
+        let y_of = |value: f64| {
+            baseline - ((self.transform(value) - transformed_floor) / span).clamp(0.0, 1.0) * band.h
+        };
 
         let (columns, step) = column_grid(band.w);
         let mut points: Vec<(f64, f64)> = Vec::with_capacity(columns);
@@ -349,8 +381,7 @@ impl Track for CoverageTrack {
             let Some(value) = self.sample(lo, hi) else {
                 continue;
             };
-            let scaled = (self.transform(value) / top).clamp(0.0, 1.0);
-            let y = baseline - scaled * band.h;
+            let y = y_of(value);
             match self.style {
                 CoverageStyle::Bars => {
                     ctx.svg.rect_opacity(
@@ -368,7 +399,10 @@ impl Track for CoverageTrack {
 
         match self.style {
             CoverageStyle::Bars => {}
-            CoverageStyle::Line => ctx.svg.polyline(&points, &color, 2.0),
+            CoverageStyle::Line => {
+                ctx.svg
+                    .polyline(&points, &color, ctx.theme.tokens.strong_stroke)
+            }
             CoverageStyle::Area => {
                 if points.len() >= 2 {
                     let mut d = String::with_capacity(points.len() * 14);
@@ -391,14 +425,19 @@ impl Track for CoverageTrack {
                     // A wash under a drawn line, rather than a saturated block.
                     // The line is what carries the shape; the fill only says
                     // which side of it is under the curve.
-                    ctx.svg.path(&d, &color, self.fill_opacity.unwrap_or(0.18));
-                    ctx.svg.polyline(&points, &color, 2.0);
+                    ctx.svg.path(
+                        &d,
+                        &color,
+                        self.fill_opacity.unwrap_or(ctx.theme.tokens.area_opacity),
+                    );
+                    ctx.svg
+                        .polyline(&points, &color, ctx.theme.tokens.strong_stroke);
                 }
             }
         }
 
         if self.show_max {
-            self.draw_axis(ctx, ceiling, top);
+            self.draw_axis(ctx, floor, ceiling);
         }
     }
 }
@@ -410,37 +449,90 @@ impl CoverageTrack {
     /// top of the scale. Two is enough: a coverage track is read for its shape
     /// and its order of magnitude, and a ladder of six gridlines would be more
     /// ink than the profile it is measuring.
-    fn draw_axis(&self, ctx: &mut DrawContext<'_>, ceiling: f64, top: f64) {
+    fn draw_axis(&self, ctx: &mut DrawContext<'_>, floor: f64, ceiling: f64) {
         let band = ctx.band;
         let size = ctx.theme.font_size - 1.0;
         let baseline = band.bottom();
         // Where the ceiling lands once the headroom is accounted for.
-        let ceiling_y = baseline - (self.transform(ceiling) / top) * band.h;
+        let pinned = self.axis.max.is_some() || self.max.is_some();
+        let visual_ceiling = if pinned {
+            ceiling
+        } else {
+            floor + (ceiling - floor) * 1.06
+        };
+        let transformed_floor = self.transform(floor);
+        let span = self.transform(visual_ceiling) - transformed_floor;
+        let y_of =
+            |value: f64| baseline - ((self.transform(value) - transformed_floor) / span) * band.h;
+        for value in self.axis.values(floor, ceiling) {
+            let y = y_of(value);
+            ctx.svg.line(
+                band.x,
+                y,
+                band.right(),
+                y,
+                &ctx.theme.rule,
+                ctx.theme.tokens.hairline,
+            );
+        }
 
-        ctx.svg.line(
-            band.x,
-            ceiling_y,
-            band.right(),
-            ceiling_y,
-            &ctx.theme.rule,
-            1.0,
-        );
+        for reference in &self.axis.references {
+            if !reference.value.is_finite() || reference.value < floor || reference.value > ceiling
+            {
+                continue;
+            }
+            let y = y_of(reference.value);
+            let style = ctx.theme.mark_style(reference.emphasis);
+            let ink = if reference.emphasis == Emphasis::Alert {
+                ctx.theme.color(1)
+            } else {
+                &ctx.theme.muted
+            };
+            ctx.svg.line_pattern(
+                band.x,
+                y,
+                band.right(),
+                y,
+                ink,
+                style.stroke_width,
+                reference.pattern,
+            );
+        }
 
         if ctx.axis.w <= 0.0 {
             return;
         }
         let right = ctx.axis.right() - 4.0;
-        let suffix = if self.log_scale { " log" } else { "" };
-        ctx.svg.text(
-            right,
-            (ceiling_y + size * 0.35).max(band.y + size * 0.78),
-            &format!("{}{}", format_value(ceiling), suffix),
-            &ctx.theme.muted,
-            size,
-            Anchor::End,
-        );
-        ctx.svg
-            .text(right, baseline, "0", &ctx.theme.muted, size, Anchor::End);
+        for value in self.axis.values(floor, ceiling) {
+            let y = y_of(value);
+            let mut label = self.axis.label(value);
+            if self.log_scale && (value - ceiling).abs() <= f64::EPSILON {
+                label.push_str(" log");
+            }
+            ctx.svg.text(
+                right,
+                (y + size * 0.35).max(band.y + size * 0.78).min(baseline),
+                &label,
+                &ctx.theme.muted,
+                size,
+                Anchor::End,
+            );
+        }
+        for reference in &self.axis.references {
+            let Some(label) = reference.label.as_deref() else {
+                continue;
+            };
+            if reference.value >= floor && reference.value <= ceiling {
+                ctx.svg.text(
+                    band.x + ctx.theme.tokens.label_gap,
+                    (y_of(reference.value) - ctx.theme.tokens.row_gap).max(band.y + size),
+                    label,
+                    &ctx.theme.foreground,
+                    size,
+                    Anchor::Start,
+                );
+            }
+        }
     }
 }
 
@@ -449,6 +541,7 @@ impl CoverageTrack {
 /// A depth of 72.04 is labelled `72`, not `72.0`: the extra digit is noise from
 /// however the values were computed, and it reads as precision the data does
 /// not have.
+#[cfg(test)]
 fn format_value(value: f64) -> String {
     if value >= 1_000_000.0 {
         format!("{}M", trim(value / 1e6))
@@ -460,6 +553,7 @@ fn format_value(value: f64) -> String {
 }
 
 /// One decimal at most, and none at all when it would be a zero.
+#[cfg(test)]
 fn trim(value: f64) -> String {
     let rounded = (value * 10.0).round() / 10.0;
     if rounded == rounded.trunc() {
@@ -558,6 +652,24 @@ mod tests {
             .to_svg();
         assert!(svg.contains(">86</text>"), "the ceiling should be labelled");
         assert!(svg.contains(">0</text>"), "and so should the floor");
+    }
+
+    #[test]
+    fn the_shared_axis_draws_formatted_ticks_and_labelled_reference_lines() {
+        use crate::style::{AxisFormat, ReferenceLine};
+        let axis = QuantitativeAxis::new()
+            .range(10.0, 30.0)
+            .ticks(3)
+            .unit("x")
+            .format(AxisFormat::Fixed(1))
+            .reference(ReferenceLine::new(20.0).label("target"));
+        let svg = crate::Figure::new(region())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![20.0; 100]).axis(axis))
+            .to_svg();
+        assert!(svg.contains(">10.0x</text>"), "{svg}");
+        assert!(svg.contains(">target</text>"), "{svg}");
+        assert!(svg.contains("stroke-dasharray"), "{svg}");
     }
 
     #[test]

@@ -52,7 +52,7 @@ jobs:
         run: |
           for example in association circular gallery genomewide ideogram \
                          locus logo msa niche pangenome pileup reading \
-                         selection shapes snps synteny; do
+                         selection shapes snps synteny visual_system; do
             cargo run --example "$example" -- assets
           done
       - name: Fail if the committed figures are stale
@@ -64,3 +64,19 @@ jobs:
         run: |
           cp assets/*.svg docs/assets/figures/
           git diff --exit-code -- docs/assets/figures
+      - name: Install SVG rasterizer
+        run: sudo apt-get update && sudo apt-get install -y librsvg2-bin
+      - name: Rasterize the visual regression gallery
+        run: |
+          mkdir -p visual-gallery
+          for figure in assets/*.svg; do
+            name="$(basename "$figure" .svg)"
+            rsvg-convert --keep-aspect-ratio --width 1800 \
+              --output "visual-gallery/${name}.png" "$figure"
+          done
+      - name: Upload visual gallery
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-gallery
+          path: visual-gallery/*.png
+          if-no-files-found: error

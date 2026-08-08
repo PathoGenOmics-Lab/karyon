@@ -39,6 +39,7 @@
 //! that.
 
 use crate::scale::Scale;
+use crate::style::Symbol;
 use crate::svg::{text_width, Anchor, SvgWriter};
 use crate::theme::{mix, wash, Theme};
 use crate::track::{DrawContext, Track};
@@ -50,6 +51,8 @@ pub enum Marker {
     Box,
     /// A filled circle, for anything drawn as a point.
     Dot,
+    /// A categorical point whose geometry carries identity with its colour.
+    Symbol(Symbol),
     /// A short stroke, for anything drawn as a line.
     Line,
     /// An empty square with an edge, for anything marked by being outlined
@@ -133,6 +136,16 @@ impl Legend {
     /// Adds a key drawn as a point, for a series plotted as points.
     pub fn dot(self, label: impl Into<String>, color: impl Into<String>) -> Self {
         self.marked(label, color, Marker::Dot)
+    }
+
+    /// Adds a key drawn with an explicit categorical point shape.
+    pub fn symbol(
+        self,
+        label: impl Into<String>,
+        color: impl Into<String>,
+        symbol: Symbol,
+    ) -> Self {
+        self.marked(label, color, Marker::Symbol(symbol))
     }
 
     /// Adds a key drawn as a stroke, for a series plotted as a line.
@@ -313,6 +326,13 @@ impl Legend {
                             Marker::Dot => {
                                 svg.circle(at + self.swatch / 2.0, middle, self.swatch / 2.5, color)
                             }
+                            Marker::Symbol(symbol) => svg.symbol(
+                                at + self.swatch / 2.0,
+                                middle,
+                                self.swatch / 2.5,
+                                *symbol,
+                                color,
+                            ),
                             Marker::Line => svg.line(
                                 at,
                                 middle,
@@ -336,7 +356,7 @@ impl Legend {
                                     self.swatch - 1.1,
                                     self.swatch - 1.1,
                                     color,
-                                    1.1,
+                                    theme.tokens.stroke,
                                 );
                             }
                             Marker::Outline => svg.rect_outline(
@@ -345,7 +365,7 @@ impl Legend {
                                 self.swatch - 1.5,
                                 self.swatch - 1.5,
                                 color,
-                                1.5,
+                                theme.tokens.strong_stroke,
                             ),
                         }
                         svg.text(

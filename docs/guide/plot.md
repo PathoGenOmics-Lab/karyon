@@ -319,9 +319,12 @@ sit anywhere in the chain.
 | `width(f64)` | `900.0` | image width in pixels |
 | `title(impl Into<String>)` | none | the title drawn above the tracks |
 | `theme(Theme)` | `Theme::light()` | colours and fonts |
-| `margin(Margin)` | `10 / 16 / 10 / 12` | whitespace top, right, bottom, left |
-| `label_width(f64)` | `84.0` | width of the left gutter holding track labels |
-| `track_gap(f64)` | `10.0` | vertical gap between tracks |
+| `profile(RenderProfile)` | manuscript geometry | selects palette, type scale and density together |
+| `visual_scale(f64)` | `1.0` | scales type, marks, bands and spacing without changing genomic coordinates |
+| `density(Density)` | `Balanced` | packs repeated data rows compactly or spaciously |
+| `margin(Margin)` | `14 / 18 / 14 / 16` | whitespace top, right, bottom, left |
+| `label_width(f64)` | automatic | explicit width of the left gutter holding track labels |
+| `track_gap(f64)` | `12.0` | vertical gap between tracks |
 | `remove_region_label()` | shown | drops the locus string at the top right |
 
 The height is not in the table because it is not configurable: it follows from
@@ -329,7 +332,8 @@ the tracks, each of which reports how tall it wants to be for the scale in
 force. A width too small to leave a plotting area is raised to the smallest one
 that does, so a figure always renders. The label gutter is only reserved when at
 least one track carries a label, so `label_width` on a figure of unlabelled
-tracks changes nothing.
+tracks changes nothing. Without an override, the gutter is measured from the
+widest label and capped between 48 and 160 pixels.
 
 `Theme::dark()` is the other theme that ships, and it is a selected set of
 colours rather than an inversion of the light one. See

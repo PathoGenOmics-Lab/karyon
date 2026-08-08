@@ -39,6 +39,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
+use crate::style::{Emphasis, LinePattern, QuantitativeAxis};
 use crate::svg::{text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
@@ -101,6 +102,7 @@ pub struct WindowTrack {
     symmetric: bool,
     show_scale: bool,
     unit: String,
+    axis: QuantitativeAxis,
 }
 
 impl WindowTrack {
@@ -118,6 +120,7 @@ impl WindowTrack {
             symmetric: true,
             show_scale: true,
             unit: String::new(),
+            axis: QuantitativeAxis::new(),
         }
     }
 
@@ -253,6 +256,15 @@ impl WindowTrack {
     /// Sets a suffix printed after each axis number, such as `" log2"`.
     pub fn unit(mut self, unit: impl Into<String>) -> Self {
         self.unit = unit.into();
+        self.axis.unit = self.unit.clone();
+        self
+    }
+
+    /// Uses a shared quantitative-axis contract for range, ticks, units and
+    /// reference lines.
+    pub fn axis(mut self, axis: QuantitativeAxis) -> Self {
+        self.unit = axis.unit.clone();
+        self.axis = axis;
         self
     }
 
@@ -276,28 +288,31 @@ impl WindowTrack {
     /// you. A statistic is read by comparing one stretch of sequence with
     /// another, and that comparison needs the axis to hold still.
     pub fn range(&self) -> (f64, f64) {
-        if let Some(extent) = self.extent {
-            return (self.baseline - extent, self.baseline + extent);
-        }
-        let mut lo = self.baseline;
-        let mut hi = self.baseline;
-        for window in &self.windows {
-            if window.value.is_finite() {
-                lo = lo.min(window.value);
-                hi = hi.max(window.value);
-            }
-        }
-        if self.symmetric {
-            let extent = (hi - self.baseline).max(self.baseline - lo) * 1.06;
-            let extent = if extent > 0.0 { extent } else { 1.0 };
-            return (self.baseline - extent, self.baseline + extent);
-        }
-        let pad = (hi - lo) * 0.06;
-        if hi - lo <= 0.0 {
-            (self.baseline - 1.0, self.baseline + 1.0)
+        let data_range = if let Some(extent) = self.extent {
+            (self.baseline - extent, self.baseline + extent)
         } else {
-            (lo - pad, hi + pad)
-        }
+            let mut lo = self.baseline;
+            let mut hi = self.baseline;
+            for window in &self.windows {
+                if window.value.is_finite() {
+                    lo = lo.min(window.value);
+                    hi = hi.max(window.value);
+                }
+            }
+            if self.symmetric {
+                let extent = (hi - self.baseline).max(self.baseline - lo) * 1.06;
+                let extent = if extent > 0.0 { extent } else { 1.0 };
+                (self.baseline - extent, self.baseline + extent)
+            } else {
+                let pad = (hi - lo) * 0.06;
+                if hi - lo <= 0.0 {
+                    (self.baseline - 1.0, self.baseline + 1.0)
+                } else {
+                    (lo - pad, hi + pad)
+                }
+            }
+        };
+        self.axis.resolve(data_range.0, data_range.1)
     }
 
     /// Per pixel column, the lowest and highest value in it.
@@ -384,12 +399,7 @@ impl Track for WindowTrack {
         let (lo, hi) = self.range();
         let widest = [lo, hi, self.baseline]
             .iter()
-            .map(|value| {
-                text_width(
-                    &format!("{}{}", trim(*value), self.unit),
-                    theme.font_size - 1.0,
-                )
-            })
+            .map(|value| text_width(&self.axis.label(*value), theme.font_size - 1.0))
             .fold(0.0f64, f64::max);
         widest + 8.0
     }
@@ -403,8 +413,49 @@ impl Track for WindowTrack {
         // The baseline is drawn first and always, even with no data, because it
         // is what the band means. An empty track that shows its line says "no
         // windows here"; an empty rectangle says nothing at all.
-        ctx.svg
-            .line(band.x, base_y, band.right(), base_y, &ctx.theme.rule, 1.0);
+        ctx.svg.line(
+            band.x,
+            base_y,
+            band.right(),
+            base_y,
+            &ctx.theme.rule,
+            ctx.theme.tokens.stroke,
+        );
+
+        for value in self.axis.values(lo, hi) {
+            let y = y_of(value);
+            if (y - base_y).abs() > 0.5 {
+                ctx.svg.line(
+                    band.x,
+                    y,
+                    band.right(),
+                    y,
+                    &ctx.theme.rule,
+                    ctx.theme.tokens.hairline,
+                );
+            }
+        }
+
+        for reference in &self.axis.references {
+            if !reference.value.is_finite() || reference.value < lo || reference.value > hi {
+                continue;
+            }
+            let style = ctx.theme.mark_style(reference.emphasis);
+            let ink = if reference.emphasis == Emphasis::Alert {
+                ctx.theme.color(1)
+            } else {
+                &ctx.theme.muted
+            };
+            ctx.svg.line_pattern(
+                band.x,
+                y_of(reference.value),
+                band.right(),
+                y_of(reference.value),
+                ink,
+                style.stroke_width,
+                reference.pattern,
+            );
+        }
 
         if self.show_scale && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
@@ -413,18 +464,35 @@ impl Track for WindowTrack {
                 ctx.svg.text(
                     right,
                     y,
-                    &format!("{}{}", trim(value), self.unit),
+                    &self.axis.label(value),
                     &ctx.theme.muted,
                     size,
                     Anchor::End,
                 );
             };
-            label(band.y + size, hi);
-            label(base_y + size * 0.35, self.baseline);
-            // Lifted by a descender's worth: the band is what the track is
-            // clipped to, and a baseline sitting exactly on it would have the
-            // tail of a "g" cut off by the clip.
-            label(band.bottom() - size * 0.22, lo);
+            for value in self.axis.values(lo, hi) {
+                label(
+                    (y_of(value) + size * 0.35)
+                        .max(band.y + size)
+                        .min(band.bottom() - size * 0.22),
+                    value,
+                );
+            }
+            for reference in &self.axis.references {
+                let Some(text) = reference.label.as_deref() else {
+                    continue;
+                };
+                if reference.value >= lo && reference.value <= hi {
+                    ctx.svg.text(
+                        band.x + ctx.theme.tokens.label_gap,
+                        (y_of(reference.value) - ctx.theme.tokens.row_gap).max(band.y + size),
+                        text,
+                        &ctx.theme.foreground,
+                        size,
+                        Anchor::Start,
+                    );
+                }
+            }
         }
 
         if self.windows.is_empty() {
@@ -500,16 +568,32 @@ impl Track for WindowTrack {
                 let mut side = points.first().map(|point| point.2).unwrap_or(true);
                 for (x, y, up) in &points {
                     if *up != side && run.len() > 1 {
-                        ctx.svg
-                            .polyline(&run, if side { &above } else { &below }, 1.6);
+                        ctx.svg.polyline_pattern(
+                            &run,
+                            if side { &above } else { &below },
+                            ctx.theme.tokens.strong_stroke,
+                            if side {
+                                LinePattern::Solid
+                            } else {
+                                LinePattern::Dashed
+                            },
+                        );
                         run = vec![*run.last().expect("the run is not empty")];
                     }
                     side = *up;
                     run.push((*x, *y));
                 }
                 if run.len() > 1 {
-                    ctx.svg
-                        .polyline(&run, if side { &above } else { &below }, 1.6);
+                    ctx.svg.polyline_pattern(
+                        &run,
+                        if side { &above } else { &below },
+                        ctx.theme.tokens.strong_stroke,
+                        if side {
+                            LinePattern::Solid
+                        } else {
+                            LinePattern::Dashed
+                        },
+                    );
                 }
             }
         }
@@ -552,19 +636,6 @@ fn scan(start: u64, seq: &[u8], window: u64, value: impl Fn(Counts) -> f64) -> V
             Window::new(from, from + chunk.len() as u64, value(counts_of(chunk)))
         })
         .collect()
-}
-
-/// Two decimals at most, and none when they would be zeros.
-fn trim(value: f64) -> String {
-    if !value.is_finite() {
-        return "0".to_string();
-    }
-    let rounded = (value * 100.0).round() / 100.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
-    }
 }
 
 #[cfg(test)]
