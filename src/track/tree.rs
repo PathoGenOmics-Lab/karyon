@@ -472,6 +472,7 @@ pub struct TreeTrack {
     support_style: SupportStyle,
     support_threshold: f64,
     branch_labels: Option<BranchLabels>,
+    scale_bar: Option<ScaleBar>,
     trait_columns: Vec<TraitColumn>,
 }
 
@@ -479,6 +480,12 @@ pub struct TreeTrack {
 struct BranchLabels {
     key: String,
     size: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScaleBar {
+    length: Option<f64>,
+    unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -538,6 +545,7 @@ impl TreeTrack {
             support_style: SupportStyle::None,
             support_threshold: 0.0,
             branch_labels: None,
+            scale_bar: None,
             trait_columns: Vec::new(),
         }
     }
@@ -766,6 +774,43 @@ impl TreeTrack {
         self
     }
 
+    /// Adds an automatically sized branch-length scale bar to a phylogram.
+    ///
+    /// Cladograms and explicitly time-scaled trees omit it because their axes
+    /// do not represent evolutionary branch length.
+    pub fn scale_bar(mut self) -> Self {
+        self.scale_bar.get_or_insert_with(ScaleBar::default);
+        self
+    }
+
+    /// Draws or removes the branch-length scale bar.
+    pub fn show_scale_bar(mut self, show: bool) -> Self {
+        if show {
+            self.scale_bar.get_or_insert_with(ScaleBar::default);
+        } else {
+            self.scale_bar = None;
+        }
+        self
+    }
+
+    /// Requests an exact scale-bar length in the tree's branch-length units.
+    ///
+    /// Values longer than the visible tree span are clamped to that span.
+    /// Invalid values fall back to automatic sizing.
+    pub fn scale_bar_length(mut self, length: f64) -> Self {
+        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
+        bar.length = (length.is_finite() && length > 0.0).then_some(length);
+        self
+    }
+
+    /// Adds a unit such as `substitutions/site` to the scale-bar label.
+    pub fn scale_bar_unit(mut self, unit: impl Into<String>) -> Self {
+        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
+        let unit = unit.into();
+        bar.unit = (!unit.is_empty()).then_some(unit);
+        self
+    }
+
     /// Adds one metadata strip aligned to the visible terminal taxa.
     pub fn trait_column(mut self, column: TraitColumn) -> Self {
         self.trait_columns.push(column);
@@ -802,6 +847,12 @@ impl TreeTrack {
         &self.tree
     }
 
+    fn branch_scale(&self) -> Option<&ScaleBar> {
+        self.scale_bar
+            .as_ref()
+            .filter(|_| self.shape == TreeShape::Phylogram && self.time.is_none())
+    }
+
     /// Width the tip names need.
     fn tip_width(&self, theme: &Theme, scene: &TreeScene) -> f64 {
         if !self.show_tips {
@@ -821,10 +872,15 @@ impl TreeTrack {
     }
 
     fn axis_room(&self, theme: &Theme) -> f64 {
-        self.time
+        let time = self
+            .time
             .as_ref()
             .filter(|time| time.show_axis)
-            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0)
+            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0);
+        let scale = self
+            .branch_scale()
+            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 7.0);
+        time + scale
     }
 
     fn trait_width(&self, theme: &Theme) -> f64 {
@@ -909,6 +965,9 @@ impl TreeTrack {
         if let Some(time) = self.time.as_ref().filter(|time| time.show_axis) {
             draw_time_axis(ctx, &scene, area, time);
         }
+        if let Some(bar) = self.branch_scale() {
+            draw_rectangular_scale_bar(ctx, &scene, area, bar);
+        }
     }
 }
 
@@ -918,11 +977,16 @@ impl Track for TreeTrack {
             TreeProjection::Rectangular => {
                 let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
                 rows * self.row_height
-                    + self
-                        .time
-                        .as_ref()
-                        .filter(|time| time.show_axis)
-                        .map_or(0.0, |_| 22.0)
+                    + if self.time.as_ref().is_some_and(|time| time.show_axis) {
+                        22.0
+                    } else {
+                        0.0
+                    }
+                    + if self.branch_scale().is_some() {
+                        22.0
+                    } else {
+                        0.0
+                    }
                     + self.trait_header_room()
             }
             TreeProjection::Circular => self.radial.size + self.trait_header_room(),
@@ -1119,6 +1183,9 @@ fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     draw_trait_rings(track, ctx, &scene, &geometry);
     draw_radial_labels(track, ctx, &scene, &geometry);
     draw_trait_ring_headings(track, ctx);
+    if let Some(bar) = track.branch_scale() {
+        draw_radial_scale_bar(ctx, &scene, &geometry, area, bar);
+    }
 }
 
 fn draw_radial_padding(
@@ -2115,6 +2182,9 @@ fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         }
     }
     draw_trait_ring_headings(track, ctx);
+    if let Some(bar) = track.branch_scale() {
+        draw_unrooted_scale_bar(ctx, &scene, &geometry, area, bar);
+    }
 }
 
 fn unrooted_branch_colors(
@@ -2875,6 +2945,138 @@ fn draw_trait_columns(
     }
 }
 
+fn nice_scale_length(span: f64) -> Option<f64> {
+    if !span.is_finite() || span <= 0.0 {
+        return None;
+    }
+    let target = span * 0.2;
+    let magnitude = 10.0f64.powf(target.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|step| step * magnitude)
+        .rfind(|value| *value <= target * (1.0 + 1e-12))
+        .or(Some(magnitude))
+}
+
+fn scale_bar_value(bar: &ScaleBar, span: f64) -> Option<f64> {
+    if !span.is_finite() || span <= 0.0 {
+        return None;
+    }
+    Some(bar.length.unwrap_or(nice_scale_length(span)?).min(span))
+}
+
+fn draw_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    start: (f64, f64),
+    pixels: f64,
+    value: f64,
+    bar: &ScaleBar,
+) {
+    if !pixels.is_finite() || pixels <= 0.0 {
+        return;
+    }
+    let label = match &bar.unit {
+        Some(unit) => format!("{} {unit}", num(value)),
+        None => num(value),
+    };
+    let title = format!("branch length scale {label}");
+    let tick = ctx.theme.tokens.tick_length.max(3.0);
+    let end = start.0 + pixels;
+    ctx.svg.begin_titled(&title);
+    ctx.svg.line(
+        start.0,
+        start.1,
+        end,
+        start.1,
+        &ctx.theme.foreground,
+        ctx.theme.tokens.hairline.max(1.0),
+    );
+    for x in [start.0, end] {
+        ctx.svg.line(
+            x,
+            start.1 - tick / 2.0,
+            x,
+            start.1 + tick / 2.0,
+            &ctx.theme.foreground,
+            ctx.theme.tokens.hairline.max(1.0),
+        );
+    }
+    ctx.svg.text(
+        start.0,
+        start.1 + tick / 2.0 + ctx.theme.font_size,
+        &label,
+        &ctx.theme.muted,
+        (ctx.theme.font_size - 1.0).max(6.0),
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+}
+
+fn draw_rectangular_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let span = scene.maximum - scene.minimum;
+    let Some(value) = scale_bar_value(bar, span) else {
+        return;
+    };
+    draw_scale_bar(
+        ctx,
+        (area.x, area.bottom() + 4.0),
+        area.w * value / span,
+        value,
+        bar,
+    );
+}
+
+fn draw_radial_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let span = scene.maximum - scene.minimum;
+    let Some(value) = scale_bar_value(bar, span) else {
+        return;
+    };
+    let radial_pixels = (geometry.tree_outer - geometry.tree_inner).abs();
+    draw_scale_bar(
+        ctx,
+        (
+            area.x + 8.0,
+            area.bottom() - ctx.theme.font_size - ctx.theme.tokens.tick_length - 9.0,
+        ),
+        radial_pixels * value / span,
+        value,
+        bar,
+    );
+}
+
+fn draw_unrooted_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let Some(value) = scale_bar_value(bar, scene.radius) else {
+        return;
+    };
+    draw_scale_bar(
+        ctx,
+        (
+            area.x + 8.0,
+            area.bottom() - ctx.theme.font_size - ctx.theme.tokens.tick_length - 9.0,
+        ),
+        geometry.scale * value,
+        value,
+        bar,
+    );
+}
+
 fn draw_time_axis(ctx: &mut DrawContext<'_>, scene: &TreeScene, area: Rect, time: &TimeAxis) {
     if !scene.temporal {
         return;
@@ -3060,6 +3262,41 @@ mod tests {
             }
             assert_eq!(svg.matches(">S_D614G</text>").count(), 1, "{svg}");
         }
+    }
+
+    #[test]
+    fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
+        for track in [
+            TreeTrack::new(tree()),
+            TreeTrack::new(tree()).circular(),
+            TreeTrack::new(tree()).unrooted(),
+        ] {
+            let svg = Figure::new(region())
+                .width(640.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .scale_bar()
+                        .scale_bar_length(0.1)
+                        .scale_bar_unit("substitutions/site"),
+                )
+                .to_svg();
+            assert!(
+                svg.contains("<title>branch length scale 0.1 substitutions/site</title>"),
+                "{svg}"
+            );
+            assert!(svg.contains(">0.1 substitutions/site</text>"), "{svg}");
+        }
+
+        let cladogram = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree())
+                    .shape(TreeShape::Cladogram)
+                    .scale_bar(),
+            )
+            .to_svg();
+        assert!(!cladogram.contains("branch length scale"), "{cladogram}");
     }
 
     #[test]
