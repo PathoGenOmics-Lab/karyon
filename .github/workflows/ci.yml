@@ -51,7 +51,7 @@ jobs:
       - name: Render every figure
         run: |
           for example in association circular gallery genomewide ideogram \
-                         locus logo msa niche pangenome pileup reading \
+                         locus logo maps msa niche pangenome pileup reading \
                          phylogenetics selection shapes snps synteny \
                          visual_system; do
             cargo run --example "$example" -- assets
