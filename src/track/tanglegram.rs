@@ -19,9 +19,11 @@
 //! That two taxa are in one order on the left and the other order on the right.
 //! [`TanglegramTrack::crossings`] counts them, which is worth putting in a
 //! caption and is not a statistic: the count belongs to this drawing rather
-//! than to the two trees, and the drawing is one of many. Untangling, which
-//! would go looking for the drawing that minimises it, is a separate problem
-//! this crate does not solve.
+//! than to the two trees, and the drawing is one of many.
+//! [`TanglegramTrack::untangle`] greedily rotates free clades on both sides and
+//! keeps only strict improvements. It never changes topology or makes the
+//! drawing worse, but it is a deterministic local heuristic rather than a
+//! claim to the global minimum.
 //!
 //! # Neither axis is the figure's
 //!
@@ -682,11 +684,12 @@ impl Track for TanglegramTrack {
                     width: 1.2,
                     mirror,
                 },
-                match (mirror, self.labels) {
-                    (_, TangleLabels::None) => true,
-                    (false, TangleLabels::Right) | (true, TangleLabels::Left) => true,
-                    _ => false,
-                },
+                matches!(
+                    (mirror, self.labels),
+                    (_, TangleLabels::None)
+                        | (false, TangleLabels::Right)
+                        | (true, TangleLabels::Left)
+                ),
             );
         }
 

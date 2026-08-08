@@ -20,9 +20,10 @@
 //! both halves of a tanglegram all go through it. What it draws is rectangular
 //! rather than diagonal, because a diagonal would imply the tree says something
 //! about the space between two rows, and it says nothing about it.
-//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`]. Its
-//! topology, branch lengths, time values and terminal order stay the same; only
-//! the coordinates change. Circular trees do not align to neighbouring rows.
+//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`] or
+//! [`TreeProjection::Unrooted`]. Circular coordinates retain the rooted depth;
+//! unrooted coordinates choose a topology-balanced centre and do not privilege
+//! the arbitrary root in the source Newick. Neither aligns to neighbouring rows.
 //!
 //! The tracks whose subject is the tree itself take the same drawing with its
 //! branches named, so a clade can be pointed at for its support. A tree
@@ -205,7 +206,7 @@ impl TraitColumn {
         self.scale
     }
 
-    /// The mark used in rectangular and radial projections.
+    /// The mark used in rectangular, radial and unrooted projections.
     pub fn trait_style(&self) -> TraitStyle {
         self.style
     }
@@ -1322,13 +1323,10 @@ struct TraitDomain {
 impl TraitDomain {
     fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
         let values: Vec<&AnnotationValue> = values.into_iter().collect();
-        let mut categories: BTreeMap<String, usize> = values
-            .iter()
-            .map(|value| value.to_string())
-            .map(|value| (value, 0usize))
-            .collect();
-        for (index, value) in categories.values_mut().enumerate() {
-            *value = index;
+        let mut categories = BTreeMap::new();
+        for value in &values {
+            let next = categories.len();
+            categories.entry(value.to_string()).or_insert(next);
         }
         let numeric: Vec<f64> = values
             .iter()
@@ -3195,6 +3193,16 @@ mod tests {
         assert!(svg.contains("clade support 0.9"), "{svg}");
         assert!(svg.contains("<title>A; country Peru</title>"), "{svg}");
         assert!(svg.contains(">country</text>"), "{svg}");
+        let branch = svg.find("<title>country Peru</title>").unwrap();
+        assert!(
+            svg[branch..(branch + 180).min(svg.len())].contains("stroke=\"#0072b2\""),
+            "{svg}"
+        );
+        let ring = svg.find("<title>A; country Peru</title>").unwrap();
+        assert!(
+            svg[ring..(ring + 260).min(svg.len())].contains("fill=\"#0072b2\""),
+            "branch and ring must share one category mapping: {svg}"
+        );
     }
 
     #[test]
