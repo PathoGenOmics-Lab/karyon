@@ -404,6 +404,7 @@ Figure::new(Region::new("phylogeny", 0, 1)?)
     .show_region_label(false)
     .push(
         TreeTrack::new(tree)
+            .reroot_outgroup(["outgroup_A", "outgroup_B"])
             .color_by("lineage")
             .support_style(SupportStyle::SymbolsAndLabels)
             .support_threshold(70.0)
@@ -421,7 +422,9 @@ a gain, loss or mutation is printed only on the edge whose node carries that
 annotation. Support stays exact in labels and tooltips even though symbol size
 uses a normalised 0–1 value. A scale bar is meaningful on a phylogram and is
 therefore omitted automatically after switching to `TreeShape::Cladogram` or a
-calendar-time layout.
+calendar-time layout. The outgroup call changes nothing unless both names exist
+as distinct leaves and form exactly one clade; use `reroot_midpoint` instead
+when the root should bisect a complete weighted tree.
 
 ![Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales](assets/figures/example-phylo-evidence.svg)
 

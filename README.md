@@ -101,10 +101,17 @@ branch-length scale in rectangular, circular and unrooted coordinates:
 
 <img src="assets/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms with visible support, branch event labels and evolutionary distance scale bars" width="100%">
 
+Rooting is explicit too: choose an internal node or name, validate a
+monophyletic outgroup, or bisect the weighted tip diameter. Successful choices
+can mark the selected root without changing pairwise tip distances.
+
+<img src="assets/example-phylo-reroot.svg" alt="One synthetic phylogram using its source root, a monophyletic outgroup root and a weighted midpoint root" width="100%">
+
 The [phylogenetics guide](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/)
 covers circular and fan geometry, unrooted trees, trait rings, visible support,
-branch events, scale bars, MRCA queries, rerooting, rotation, ladderising,
-subtree extraction and the input guarantees for time trees.
+branch events, scale bars, node, outgroup and midpoint rerooting, MRCA queries,
+rotation, ladderising, subtree extraction and the input guarantees for time
+trees.
 
 ### Geographic genomics
 
@@ -267,7 +274,7 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular, fan or unrooted phylograms and cladograms out. Support, branch events, scale bars and layered iTOL-style metadata remain independently readable |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, scale bars and layered iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |

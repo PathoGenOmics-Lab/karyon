@@ -258,6 +258,39 @@ let track = TreeTrack::new(tree)
 axis; validate with `time_layout` first when incomplete dates must be an error
 in an analysis pipeline.
 
+## Choose the root explicitly
+
+![The same synthetic phylogeny with its source root, a checked monophyletic outgroup root and a weighted midpoint root; a diamond identifies each selected root](../assets/figures/example-phylo-reroot.svg)
+
+Rerooting changes orientation, not the undirected tree. Karyon preserves every
+tip-to-tip distance, keeps support on the same split and appends a new root only
+when the chosen position lies inside an edge. A diamond marks the selected root
+in rectangular and circular projections.
+
+```rust
+use karyon::TreeTrack;
+
+let by_clade = TreeTrack::new(tree.clone()).reroot_named("lineage_4");
+let by_outgroup = TreeTrack::new(tree.clone())
+    .reroot_outgroup(["outgroup_A", "outgroup_B"]);
+let by_midpoint = TreeTrack::new(tree).reroot_midpoint();
+```
+
+| Builder | Validation and result |
+|:--|:--|
+| `reroot(node)` | Accepts an internal node index; a sampled tip or invalid index leaves the tree unchanged. |
+| `reroot_named(name)` | Finds one exact internal label and uses that node. |
+| `reroot_outgroup(names)` | Requires existing, distinct leaf names that are exactly one monophyletic clade; inserts a root halfway along its incoming edge. |
+| `reroot_midpoint()` | Requires every edge to have a finite, non-negative length; bisects the longest weighted tip-to-tip path. |
+| `show_root(false)` | Hides the diamond without undoing the reroot. |
+
+The builder API deliberately leaves an invalid request unchanged so it remains
+composable. Pipelines that must treat failure as an error should call
+`Tree::reroot`, `Tree::reroot_outgroup` or `Tree::reroot_midpoint` first and
+inspect their `bool` or `Option<usize>` result before constructing the track.
+An unrooted projection never draws the diamond because its geometry explicitly
+discards the source root.
+
 ## Work with clades and topology
 
 All operations are iterative, including deep trees.
@@ -268,7 +301,9 @@ All operations are iterative, including deep trees.
 | `mrca` | Find the most recent common ancestor of a non-empty node set. |
 | `rotate` | Reverse one split without changing its clades. |
 | `ladderize` | Order every split by descendant tip count. |
-| `reroot` | Reorient around an internal node while preserving tips and edge lengths. |
+| `reroot` | Reorient around an internal node while preserving tips, edge lengths and split support. |
+| `reroot_outgroup` | Validate a monophyletic leaf set and insert a root on its incoming edge. |
+| `reroot_midpoint` | Bisect the weighted diameter when every branch length is valid. |
 | `subtree` | Copy one clade into a compact standalone tree. |
 | `collapse` | Replace descendants in the data with one terminal node. |
 | `TreeTrack::collapse` | Draw a clade as a triangle without modifying the source tree. |

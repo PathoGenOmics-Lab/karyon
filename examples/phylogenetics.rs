@@ -79,6 +79,13 @@ fn main() -> std::io::Result<()> {
     println!(
         "example-phylo-evidence.svg {width:.0} x {height:.0}, support plus branch events and distance scales"
     );
+
+    let rerooted = reroot_layouts(evidence_tree());
+    rerooted.save_svg(out.join("example-phylo-reroot.svg"))?;
+    let (width, height) = rerooted.dimensions();
+    println!(
+        "example-phylo-reroot.svg {width:.0} x {height:.0}, source plus outgroup and midpoint roots"
+    );
     Ok(())
 }
 
@@ -325,6 +332,57 @@ fn evidence_layouts(tree: Tree) -> Panels {
             &unrooted,
             "C",
             "The scale still measures edge length after removing the arbitrary source root",
+        )
+}
+
+fn reroot_track(tree: Tree) -> TreeTrack {
+    TreeTrack::new(tree)
+        .color_by("lineage")
+        .support_style(SupportStyle::Symbols)
+        .support_threshold(0.70)
+        .scale_bar()
+        .scale_bar_length(0.1)
+        .scale_bar_unit("substitutions/site")
+        .row_height(26.0)
+}
+
+fn reroot_layouts(tree: Tree) -> Panels {
+    let source = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Source root")
+        .width(530.0)
+        .show_region_label(false)
+        .push(reroot_track(tree.clone()).show_root(true));
+
+    let outgroup = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Monophyletic outgroup")
+        .width(530.0)
+        .show_region_label(false)
+        .push(reroot_track(tree.clone()).reroot_outgroup(["B03", "B04"]));
+
+    let midpoint = Figure::new(Region::new("phylogeny", 0, 1).unwrap())
+        .title("Weighted midpoint")
+        .width(530.0)
+        .show_region_label(false)
+        .push(reroot_track(tree).reroot_midpoint());
+
+    Panels::new()
+        .title("Explicit rerooting choices (synthetic)")
+        .columns(3)
+        .gap(18.0)
+        .push_captioned(
+            &source,
+            "A",
+            "The diamond identifies the root supplied by the input tree",
+        )
+        .push_captioned(
+            &outgroup,
+            "B",
+            "B03 and B04 define a checked monophyletic outgroup",
+        )
+        .push_captioned(
+            &midpoint,
+            "C",
+            "The longest weighted tip path is split at equal distance",
         )
 }
 

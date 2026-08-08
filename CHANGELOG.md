@@ -15,6 +15,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branch-specific annotations can follow their edge without ancestral
   inheritance; and automatic or exact scale bars retain evolutionary units in
   rectangular, circular and unrooted coordinates.
+- Validated rerooting around an internal node, a strictly monophyletic outgroup
+  or the weighted midpoint. Tip distances and edge support are preserved,
+  invalid requests do not mutate the tree, and rooted projections can mark the
+  selected root explicitly without leaking that marker into unrooted views.
 - A visual plot catalogue for the documentation, separating discovery from the
   exhaustive track reference. Seven category pages group all twenty-nine
   tracks and the three standalone drawings by biological question, data shape

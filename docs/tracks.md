@@ -708,6 +708,14 @@ it deliberately does not inherit ancestral values. `scale_bar` adds an
 automatic or exact branch-length ruler to any phylogram projection and refuses
 to imply those units on a cladogram or explicit time tree.
 
+![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](assets/figures/example-phylo-reroot.svg)
+
+`reroot`, `reroot_named`, `reroot_outgroup` and `reroot_midpoint` expose the
+common rooting choices without changing tip-to-tip distances. Outgroup rooting
+checks exact monophyly; midpoint rooting refuses missing or invalid lengths.
+Successful builders show a root diamond by default, controlled with
+`show_root`, and unrooted coordinates omit it by definition.
+
 The [annotated phylogenetics guide](guide/phylogenetics.md) covers input
 semantics, time requirements, topology operations and the distinction between
 visual and destructive collapse.
