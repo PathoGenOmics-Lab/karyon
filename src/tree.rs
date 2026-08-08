@@ -20,9 +20,10 @@
 //! The format writes support values and internal names in the same place, so
 //! the parser decides: a label that reads as a number becomes
 //! [`Clade::support`], anything else becomes [`Clade::name`], and there is no
-//! switch to ask for the other reading. Everything in square brackets is
-//! dropped, and that is not tidiness: a `[&R]` rootedness marker read as a name
-//! is a second root, and one of those fails the whole file.
+//! switch to ask for the other reading. [`Tree::parse_newick`] discards square
+//! bracket comments for compatibility, while [`Tree::parse_annotated_newick`]
+//! preserves BEAST and NHX values as typed annotations. A `[&R]` or `[&U]`
+//! prefix is stored as rootedness rather than mistaken for another node.
 //!
 //! # One layout, two ways of measuring depth
 //!
@@ -138,6 +139,16 @@ pub struct Placement {
     pub row: f64,
 }
 
+/// Direction in which calendar or height values run from root to tips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeDirection {
+    /// Dates increase towards the tips, as decimal calendar years do.
+    #[default]
+    Increasing,
+    /// Values decrease towards the tips, as heights before present do.
+    Decreasing,
+}
+
 /// A rooted phylogeny.
 ///
 /// Nodes live in one flat list and refer to each other by index, so a tree can
@@ -220,6 +231,11 @@ impl Tree {
         self.annotations.get(node)
     }
 
+    /// Mutable annotations for `node`, for metadata assembled in Rust.
+    pub fn annotations_mut(&mut self, node: usize) -> Option<&mut Annotations> {
+        self.annotations.get_mut(node)
+    }
+
     /// One annotation attached to `node`.
     pub fn annotation(&self, node: usize, key: &str) -> Option<&AnnotationValue> {
         self.annotations(node)?.get(key)
@@ -228,6 +244,11 @@ impl Tree {
     /// Annotations carried by the tree rather than by one node.
     pub fn tree_annotations(&self) -> &Annotations {
         &self.tree_annotations
+    }
+
+    /// Mutable annotations carried by the whole tree.
+    pub fn tree_annotations_mut(&mut self) -> &mut Annotations {
+        &mut self.tree_annotations
     }
 
     /// Whether the source explicitly marked the tree as rooted or unrooted.
@@ -499,6 +520,60 @@ impl Tree {
                 row: rows[node].unwrap_or(0.0),
             })
             .collect()
+    }
+
+    /// Places nodes by a numeric annotation such as `date` or `height`.
+    ///
+    /// Every tip must carry `key`. An unannotated internal node is inferred
+    /// from its children and their branch lengths, subtracting lengths for
+    /// [`TimeDirection::Increasing`] and adding them for `Decreasing`.
+    /// Returns `None` when a tip is missing a finite value.
+    pub fn time_layout(&self, key: &str, direction: TimeDirection) -> Option<Vec<Placement>> {
+        let rows = self.layout(false);
+        let mut values: Vec<Option<f64>> = (0..self.nodes.len())
+            .map(|node| {
+                self.annotation(node, key)
+                    .and_then(AnnotationValue::as_number)
+            })
+            .collect();
+        if self
+            .leaves()
+            .iter()
+            .any(|node| values[*node].map_or(true, |value| !value.is_finite()))
+        {
+            return None;
+        }
+        for node in self.postorder() {
+            if values[node].is_some() || self.nodes[node].is_leaf() {
+                continue;
+            }
+            let estimates: Vec<f64> = self.nodes[node]
+                .children
+                .iter()
+                .filter_map(|child| {
+                    let value = values[*child]?;
+                    let branch = self.nodes[*child].branch_length.unwrap_or(0.0).max(0.0);
+                    Some(match direction {
+                        TimeDirection::Increasing => value - branch,
+                        TimeDirection::Decreasing => value + branch,
+                    })
+                })
+                .collect();
+            if !estimates.is_empty() {
+                values[node] = Some(estimates.iter().sum::<f64>() / estimates.len() as f64);
+            }
+        }
+        if values.iter().any(Option::is_none) {
+            return None;
+        }
+        Some(
+            rows.into_iter()
+                .map(|placement| Placement {
+                    depth: values[placement.node].unwrap_or(0.0),
+                    ..placement
+                })
+                .collect(),
+        )
     }
 
     /// The deepest leaf, in whatever units the layout used.
@@ -1110,6 +1185,29 @@ mod tests {
     }
 
     #[test]
+    fn annotations_can_be_added_after_parsing() {
+        let mut tree = Tree::parse_newick("(A,B);").unwrap();
+        let a = tree.node_named("A").unwrap();
+        tree.annotations_mut(a)
+            .unwrap()
+            .insert("country".into(), AnnotationValue::Text("Peru".into()));
+        tree.tree_annotations_mut()
+            .insert("clock".into(), AnnotationValue::Boolean(true));
+        assert_eq!(
+            tree.annotation(a, "country")
+                .and_then(AnnotationValue::as_text),
+            Some("Peru")
+        );
+        assert_eq!(
+            tree.tree_annotations()
+                .get("clock")
+                .and_then(AnnotationValue::as_bool),
+            Some(true)
+        );
+        assert!(tree.annotations_mut(99).is_none());
+    }
+
+    #[test]
     fn nhx_annotations_are_typed_too() {
         let tree = Tree::parse_annotated_newick("(A[&&NHX:S=human:B=95],B);").unwrap();
         let a = tree.node_named("A").unwrap();
@@ -1189,6 +1287,30 @@ mod tests {
         assert!((depth_of("A") - 0.4).abs() < 1e-12, "0.3 then 0.1");
         assert!((depth_of("B") - 0.5).abs() < 1e-12);
         assert!((depth_of("C") - 0.05).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_time_layout_uses_tip_dates_and_infers_internal_dates() {
+        let tree = Tree::parse_annotated_newick(
+            "((A[&date=2024.0]:2,B[&date=2025.0]:3)AB:1,C[&date=2023.0]:4);",
+        )
+        .unwrap();
+        let layout = tree.time_layout("date", TimeDirection::Increasing).unwrap();
+        let value = |name: &str| {
+            let node = tree.node_named(name).unwrap();
+            layout[node].depth
+        };
+        assert_eq!(value("A"), 2024.0);
+        assert_eq!(value("B"), 2025.0);
+        assert_eq!(value("AB"), 2022.0, "mean of 2024-2 and 2025-3");
+    }
+
+    #[test]
+    fn a_time_layout_refuses_a_tip_without_the_requested_value() {
+        let tree = Tree::parse_annotated_newick("(A[&date=2024]:1,B:1);").unwrap();
+        assert!(tree
+            .time_layout("date", TimeDirection::Increasing)
+            .is_none());
     }
 
     #[test]
