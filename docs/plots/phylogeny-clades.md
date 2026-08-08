@@ -13,14 +13,18 @@ These views preserve terminal order, branch length, support and typed metadata.
 They render an existing analysis; they do not infer a tree, clock, ancestral
 state, migration event or transmission chain.
 
-<div class="plot-stats"><span><strong>3</strong> tracks</span><span><strong>1</strong> standalone drawing</span></div>
+<div class="plot-stats"><span><strong>3</strong> tree tracks</span><span><strong>4</strong> node-glyph styles</span></div>
 
 </div>
 
 <div class="plot-card-grid">
+  <a class="plot-card" href="../../guide/phylogenetics/#attach-data-graphics-to-nodes-and-clades">
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Node bubbles, ancestral composition donuts, clade fields, an aligned MSA and aligned domain architectures" loading="lazy"></span>
+    <span class="plot-card__body"><small>Tree × node and row data</small><strong>Phylogenetic data faces</strong><span>Attach abundance, composition and clade context to nodes, then align sequences or domains by descent.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
+  </a>
   <a class="plot-card" href="../../tracks/#treetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-layouts.svg" alt="Circular, fan, inward and cladogram views of one tree" loading="lazy"></span>
-    <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Rectangular, circular or fan phylograms, cladograms and time trees with branch metadata and trait columns.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted trees with support, branch events and evolutionary scale bars" loading="lazy"></span>
+    <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Root by node, outgroup or midpoint; then draw rectangular, radial or unrooted with support, events, scales and iTOL-style metadata.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" id="tree-to-tree-comparison" href="../../tracks/#tanglegramtrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Two trees joined through their matching terminal taxa" loading="lazy"></span>
@@ -41,6 +45,8 @@ state, migration event or transmission chain.
 | Analytical structure | Start with |
 |:--|:--|
 | one tree and terminal metadata | `TreeTrack` |
+| abundance or composition on internal nodes | `TreeTrack` with `NodeGlyph` |
+| aligned residues or domains ordered by descent | `MsaTrack::tree` or `DomainTrack::tree` |
 | two trees over matching terminal names | `TanglegramTrack` |
 | genomic intervals carried by named taxa | `CladeTrack` |
 | terminal annotations matched to supplied coordinates | `PhyloMap` |

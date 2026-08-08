@@ -37,7 +37,9 @@
 //! and a sheet that packs well by rearranging them has broken the one thing a
 //! reader navigates it by. Where a column ends is the only decision left, and
 //! it is settled by comparing whole arrangements rather than by filling columns
-//! as the panels arrive.
+//! as the panels arrive. [`Panels::row_major`] switches to a regular dashboard
+//! grid when reading left-to-right across equal conceptual rows matters more
+//! than balancing unequal column heights.
 
 use std::fs;
 use std::io;
@@ -79,6 +81,7 @@ pub struct Panels {
     gap: f64,
     column_gap: f64,
     columns: usize,
+    row_major: bool,
     margin: f64,
     theme: Theme,
     title: Option<String>,
@@ -107,6 +110,7 @@ impl Panels {
             gap: 18.0,
             column_gap: 26.0,
             columns: 1,
+            row_major: false,
             margin: 14.0,
             theme: Theme::light(),
             title: None,
@@ -133,6 +137,16 @@ impl Panels {
     /// level rather than giving each an equal count of unequal panels.
     pub fn columns(mut self, columns: usize) -> Self {
         self.columns = columns.max(1);
+        self
+    }
+
+    /// Fills a multi-column sheet left-to-right before starting the next row.
+    ///
+    /// The default column-major flow is better for long paper figures because
+    /// it minimises total height. Row-major flow is better for a comparison
+    /// grid whose top row and bottom row are meaningful pairs.
+    pub fn row_major(mut self) -> Self {
+        self.row_major = true;
         self
     }
 
@@ -413,24 +427,53 @@ impl Panels {
             .map(|panel| self.panel_height(panel))
             .collect();
         let columns = self.columns.max(1).min(self.panels.len().max(1));
-        let assignment = share_out(&heights, gap, columns);
-
-        let mut places = Vec::with_capacity(self.panels.len());
-        let mut y = top;
-        let mut filled = 0.0f64;
-        let mut tallest = 0.0f64;
-        let mut current = 0usize;
-        for (height, &column) in heights.iter().zip(&assignment) {
-            if column != current {
-                current = column;
-                y = top;
-                filled = 0.0;
+        let (places, tallest) = if self.row_major {
+            let rows = heights.len().div_ceil(columns);
+            let mut row_heights = vec![0.0f64; rows];
+            for (index, height) in heights.iter().enumerate() {
+                row_heights[index / columns] = row_heights[index / columns].max(*height);
             }
-            places.push((margin + column as f64 * (column_width + column_gap), y));
-            y += height + gap;
-            filled += height + gap;
-            tallest = tallest.max(filled - gap);
-        }
+            let mut row_tops = Vec::with_capacity(rows);
+            let mut y = top;
+            for height in &row_heights {
+                row_tops.push(y);
+                y += *height + gap;
+            }
+            let places = heights
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    let column = index % columns;
+                    let row = index / columns;
+                    (
+                        margin + column as f64 * (column_width + column_gap),
+                        row_tops[row],
+                    )
+                })
+                .collect();
+            let tallest =
+                row_heights.iter().sum::<f64>() + gap * row_heights.len().saturating_sub(1) as f64;
+            (places, tallest)
+        } else {
+            let assignment = share_out(&heights, gap, columns);
+            let mut places = Vec::with_capacity(self.panels.len());
+            let mut y = top;
+            let mut filled = 0.0f64;
+            let mut tallest = 0.0f64;
+            let mut current = 0usize;
+            for (height, &column) in heights.iter().zip(&assignment) {
+                if column != current {
+                    current = column;
+                    y = top;
+                    filled = 0.0;
+                }
+                places.push((margin + column as f64 * (column_width + column_gap), y));
+                y += height + gap;
+                filled += height + gap;
+                tallest = tallest.max(filled - gap);
+            }
+            (places, tallest)
+        };
 
         // The title runs across the top from the left margin, so a sheet
         // narrower than its own title is a sheet with the end of the title cut
@@ -867,6 +910,29 @@ mod tests {
         assert!(places[1].1 > places[0].1, "and B is under A");
         assert!(places[2].0 > places[0].0, "C starts the next one");
         assert_eq!(places[2].1, places[0].1, "back at the top");
+    }
+
+    #[test]
+    fn row_major_flow_makes_a_reading_order_grid() {
+        let sheet = Panels::new()
+            .columns(2)
+            .row_major()
+            .push(&figure(), "A")
+            .push(&figure(), "B")
+            .push(&figure(), "C")
+            .push(&figure(), "D");
+        let places = sheet.layout().places;
+        assert_eq!(places[0].1, places[1].1, "A and B share the top row");
+        assert_eq!(places[2].1, places[3].1, "C and D share the bottom row");
+        assert!(
+            places[0].0 < places[1].0,
+            "the first row reads left to right"
+        );
+        assert!(
+            places[2].1 > places[0].1,
+            "the second row is below the first"
+        );
+        assert_eq!(places[0].0, places[2].0, "the grid columns align");
     }
 
     /// The height of each column under `assignment`, gaps included.

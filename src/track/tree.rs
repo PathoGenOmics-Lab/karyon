@@ -20,9 +20,10 @@
 //! both halves of a tanglegram all go through it. What it draws is rectangular
 //! rather than diagonal, because a diagonal would imply the tree says something
 //! about the space between two rows, and it says nothing about it.
-//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`]. Its
-//! topology, branch lengths, time values and terminal order stay the same; only
-//! the coordinates change. Circular trees do not align to neighbouring rows.
+//! A standalone [`TreeTrack`] can instead use [`TreeProjection::Circular`] or
+//! [`TreeProjection::Unrooted`]. Circular coordinates retain the rooted depth;
+//! unrooted coordinates choose a topology-balanced centre and do not privilege
+//! the arbitrary root in the source Newick. Neither aligns to neighbouring rows.
 //!
 //! The tracks whose subject is the tree itself take the same drawing with its
 //! branches named, so a clade can be pointed at for its support. A tree
@@ -57,6 +58,8 @@ pub enum TreeProjection {
     Rectangular,
     /// Root and tips arranged on concentric radii.
     Circular,
+    /// Topology drawn without assigning the source root a privileged position.
+    Unrooted,
 }
 
 /// Direction in which branches radiate in a circular tree.
@@ -78,12 +81,231 @@ pub enum TraitScale {
     Continuous,
 }
 
+/// Mark used for one metadata dataset beside or around a tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TraitStyle {
+    /// One filled cell or annular sector per terminal taxon.
+    #[default]
+    Strip,
+    /// Numeric value encoded by bar length or radial height.
+    Bar,
+    /// Boolean or zero/non-zero value encoded by presence of a marker.
+    Binary,
+    /// Category encoded redundantly by both colour and marker shape.
+    Symbol,
+}
+
+/// Visible encoding used for internal-node support values.
+///
+/// Support always remains available in exact SVG tooltips. This setting adds
+/// marks or text when the values need to be readable without hovering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SupportStyle {
+    /// Keep support in tooltips only.
+    #[default]
+    None,
+    /// Scale an internal-node marker by support.
+    Symbols,
+    /// Print the original support value beside the node.
+    Labels,
+    /// Draw both the scaled marker and its value.
+    SymbolsAndLabels,
+}
+
+/// Graphic attached directly to an annotated phylogenetic node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeGlyphStyle {
+    /// One circle whose area follows a numeric annotation.
+    Bubble,
+    /// A composition drawn as sectors of a filled circle.
+    Pie,
+    /// A composition drawn as an annulus with a quiet centre.
+    Donut,
+    /// A composition drawn as one compact horizontal stacked bar.
+    StackedBar,
+}
+
+/// Which annotated nodes receive a [`NodeGlyph`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NodeGlyphTarget {
+    /// Draw every node carrying the requested numeric annotation data.
+    #[default]
+    All,
+    /// Draw internal nodes only, including the root.
+    Internal,
+    /// Draw terminal taxa only.
+    Leaves,
+}
+
+/// A data glyph placed on every matching annotated node.
+///
+/// Bubble glyphs read one numeric annotation. Pie, donut and stacked-bar
+/// glyphs read one numeric annotation per supplied key, preserve key order and
+/// normalise only the visible geometry; exact values remain in SVG tooltips.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeGlyph {
+    keys: Vec<String>,
+    label: String,
+    style: NodeGlyphStyle,
+    target: NodeGlyphTarget,
+    size: f64,
+    minimum_size: f64,
+}
+
+impl NodeGlyph {
+    /// Scales circle area by numeric annotation `key`.
+    pub fn bubble(key: impl Into<String>) -> Self {
+        let key = key.into();
+        NodeGlyph {
+            label: key.clone(),
+            keys: vec![key],
+            style: NodeGlyphStyle::Bubble,
+            target: NodeGlyphTarget::All,
+            size: 9.0,
+            minimum_size: 2.5,
+        }
+    }
+
+    /// Draws a compositional pie from numeric annotation `keys`.
+    pub fn pie<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::composition(keys, NodeGlyphStyle::Pie)
+    }
+
+    /// Draws a compositional donut from numeric annotation `keys`.
+    pub fn donut<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::composition(keys, NodeGlyphStyle::Donut)
+    }
+
+    /// Draws a compact stacked bar from numeric annotation `keys`.
+    pub fn stacked_bar<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::composition(keys, NodeGlyphStyle::StackedBar)
+    }
+
+    fn composition<I, S>(keys: I, style: NodeGlyphStyle) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+        NodeGlyph {
+            label: keys.join(" / "),
+            keys,
+            style,
+            target: NodeGlyphTarget::All,
+            size: 9.0,
+            minimum_size: 2.5,
+        }
+    }
+
+    /// Replaces the visible legend label without changing annotation keys.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Restricts the glyph to all nodes, internal nodes or leaves.
+    pub fn target(mut self, target: NodeGlyphTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    /// Sets the largest bubble radius or the nominal composition radius.
+    pub fn size(mut self, pixels: f64) -> Self {
+        self.size = finite_between(pixels, 2.0, 30.0, 9.0);
+        self.minimum_size = self.minimum_size.min(self.size);
+        self
+    }
+
+    /// Sets the smallest positive bubble radius.
+    pub fn minimum_size(mut self, pixels: f64) -> Self {
+        self.minimum_size = finite_between(pixels, 0.8, self.size, 2.5);
+        self
+    }
+
+    /// Annotation keys read by this glyph, in visual order.
+    pub fn keys(&self) -> &[String] {
+        &self.keys
+    }
+
+    /// Visual form of this glyph.
+    pub fn glyph_style(&self) -> NodeGlyphStyle {
+        self.style
+    }
+}
+
+/// A translucent field identifying one named or indexed clade.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CladeHighlight {
+    node: usize,
+    label: Option<String>,
+    color: Option<String>,
+    opacity: f64,
+}
+
+impl CladeHighlight {
+    /// Highlights the descendants of `node` without changing the tree.
+    pub fn new(node: usize) -> Self {
+        CladeHighlight {
+            node,
+            label: None,
+            color: None,
+            opacity: 0.12,
+        }
+    }
+
+    /// Adds visible text to the highlighted field.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Sets the field colour, defaulting to the categorical theme palette.
+    pub fn color(mut self, color: impl Into<String>) -> Self {
+        self.color = Some(color.into());
+        self
+    }
+
+    /// Sets fill opacity between 0.03 and 0.35.
+    pub fn opacity(mut self, opacity: f64) -> Self {
+        self.opacity = finite_between(opacity, 0.03, 0.35, 0.12);
+        self
+    }
+
+    /// Index of the clade root.
+    pub fn node(&self) -> usize {
+        self.node
+    }
+}
+
+impl SupportStyle {
+    fn symbols(self) -> bool {
+        matches!(self, Self::Symbols | Self::SymbolsAndLabels)
+    }
+
+    fn labels(self) -> bool {
+        matches!(self, Self::Labels | Self::SymbolsAndLabels)
+    }
+}
+
 /// One metadata column drawn beside the terminal taxa of a tree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitColumn {
     key: String,
     label: String,
     scale: TraitScale,
+    style: TraitStyle,
     width: f64,
     ring_width: f64,
     show_values: bool,
@@ -97,6 +319,7 @@ impl TraitColumn {
             label: key.clone(),
             key,
             scale: TraitScale::Categorical,
+            style: TraitStyle::Strip,
             width: 56.0,
             ring_width: 10.0,
             show_values: true,
@@ -107,6 +330,35 @@ impl TraitColumn {
     pub fn continuous(key: impl Into<String>) -> Self {
         let mut column = Self::categorical(key);
         column.scale = TraitScale::Continuous;
+        column
+    }
+
+    /// Builds a numeric bar column or radial bar ring.
+    pub fn bar(key: impl Into<String>) -> Self {
+        let mut column = Self::continuous(key);
+        column.style = TraitStyle::Bar;
+        column.show_values = false;
+        column
+    }
+
+    /// Builds a boolean presence/absence marker dataset.
+    ///
+    /// Boolean values and finite numbers are accepted; zero is absent and a
+    /// non-zero number is present. Text is left missing rather than guessed.
+    pub fn binary(key: impl Into<String>) -> Self {
+        let mut column = Self::categorical(key);
+        column.style = TraitStyle::Binary;
+        column.width = 28.0;
+        column.show_values = false;
+        column
+    }
+
+    /// Builds a categorical dataset encoded by colour and marker shape.
+    pub fn symbol(key: impl Into<String>) -> Self {
+        let mut column = Self::categorical(key);
+        column.style = TraitStyle::Symbol;
+        column.width = 32.0;
+        column.show_values = false;
         column
     }
 
@@ -142,6 +394,12 @@ impl TraitColumn {
         self
     }
 
+    /// Replaces the visual mark while retaining the column's value mapping.
+    pub fn style(mut self, style: TraitStyle) -> Self {
+        self.style = style;
+        self
+    }
+
     /// The annotation key read from each terminal taxon.
     pub fn key(&self) -> &str {
         &self.key
@@ -150,6 +408,11 @@ impl TraitColumn {
     /// The colour mapping used by this column.
     pub fn scale(&self) -> TraitScale {
         self.scale
+    }
+
+    /// The mark used in rectangular, radial and unrooted projections.
+    pub fn trait_style(&self) -> TraitStyle {
+        self.style
     }
 }
 
@@ -383,7 +646,26 @@ pub struct TreeTrack {
     color_by: Option<String>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
+    show_root: bool,
+    support_style: SupportStyle,
+    support_threshold: f64,
+    branch_labels: Option<BranchLabels>,
+    scale_bar: Option<ScaleBar>,
     trait_columns: Vec<TraitColumn>,
+    node_glyphs: Vec<NodeGlyph>,
+    clade_highlights: Vec<CladeHighlight>,
+}
+
+#[derive(Debug, Clone)]
+struct BranchLabels {
+    key: String,
+    size: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScaleBar {
+    length: Option<f64>,
+    unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -440,7 +722,14 @@ impl TreeTrack {
             color_by: None,
             collapsed: BTreeSet::new(),
             show_nodes: false,
+            show_root: false,
+            support_style: SupportStyle::None,
+            support_threshold: 0.0,
+            branch_labels: None,
+            scale_bar: None,
             trait_columns: Vec::new(),
+            node_glyphs: Vec::new(),
+            clade_highlights: Vec::new(),
         }
     }
 
@@ -462,7 +751,7 @@ impl TreeTrack {
         self
     }
 
-    /// Chooses rectangular or circular coordinates.
+    /// Chooses rectangular, circular or unrooted coordinates.
     pub fn projection(mut self, projection: TreeProjection) -> Self {
         self.projection = projection;
         self
@@ -472,6 +761,15 @@ impl TreeTrack {
     pub fn circular(mut self) -> Self {
         self.projection = TreeProjection::Circular;
         self.radial.sweep_degrees = 360.0;
+        self
+    }
+
+    /// Draws an equal-angle tree around a topology-balanced central node.
+    ///
+    /// The source root is not used as the centre. Branch lengths are retained
+    /// for a phylogram and topology alone is used for a cladogram.
+    pub fn unrooted(mut self) -> Self {
+        self.projection = TreeProjection::Unrooted;
         self
     }
 
@@ -521,6 +819,81 @@ impl TreeTrack {
         } else {
             440.0
         };
+        self
+    }
+
+    /// Sets the requested height of an unrooted drawing in pixels.
+    pub fn unrooted_size(self, size: f64) -> Self {
+        self.radial_size(size)
+    }
+
+    /// Rotates the first equal-angle sector of an unrooted tree.
+    pub fn unrooted_start(mut self, degrees: f64) -> Self {
+        self.projection = TreeProjection::Unrooted;
+        if degrees.is_finite() {
+            self.radial.start_degrees = degrees;
+        }
+        self
+    }
+
+    /// Reorients the owned tree around internal `node` and marks the new root.
+    ///
+    /// An invalid index or sampled tip leaves the tree unchanged. Use
+    /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
+    /// handled rather than represented as an unchanged builder.
+    pub fn reroot(mut self, node: usize) -> Self {
+        if self.tree.reroot(node) {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Reorients the owned tree around an internal node with this exact name.
+    pub fn reroot_named(mut self, name: &str) -> Self {
+        if let Some(node) = self.tree.node_named(name) {
+            if self.tree.reroot(node) {
+                self.show_root = true;
+            }
+        }
+        self
+    }
+
+    /// Roots halfway along the edge leading to a monophyletic named outgroup.
+    ///
+    /// Missing, duplicate, internal or non-monophyletic names leave the tree
+    /// unchanged. The new root is inserted without converting an outgroup tip
+    /// into an internal node.
+    pub fn reroot_outgroup<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut nodes = Vec::new();
+        for name in names {
+            let Some(node) = self.tree.node_named(name.as_ref()) else {
+                return self;
+            };
+            nodes.push(node);
+        }
+        if self.tree.reroot_outgroup(&nodes).is_some() {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Roots the owned phylogram at the midpoint of its weighted tip diameter.
+    ///
+    /// Missing, negative or non-finite branch lengths leave the tree unchanged.
+    pub fn reroot_midpoint(mut self) -> Self {
+        if self.tree.reroot_midpoint().is_some() {
+            self.show_root = true;
+        }
+        self
+    }
+
+    /// Draws or hides the selected root marker in rooted projections.
+    pub fn show_root(mut self, show: bool) -> Self {
+        self.show_root = show;
         self
     }
 
@@ -605,6 +978,83 @@ impl TreeTrack {
         self
     }
 
+    /// Chooses how internal-node support is made visible.
+    ///
+    /// Values in either the `0..=1` or `0..=100` convention are recognised.
+    /// Their original representation is retained in labels and tooltips.
+    pub fn support_style(mut self, style: SupportStyle) -> Self {
+        self.support_style = style;
+        self
+    }
+
+    /// Hides visible support below `minimum`.
+    ///
+    /// `0.8` and `80.0` both mean eighty percent. Non-finite values reset the
+    /// threshold to zero.
+    pub fn support_threshold(mut self, minimum: f64) -> Self {
+        self.support_threshold = support_fraction(minimum).unwrap_or(0.0);
+        self
+    }
+
+    /// Labels each incoming branch with its own annotation `key`.
+    ///
+    /// Unlike [`TreeTrack::color_by`], values are not inherited from ancestor
+    /// nodes. This makes the method suitable for mutations, gains, losses and
+    /// other events that belong to one branch. Long text is fitted to the
+    /// available segment while the complete value remains in its tooltip.
+    pub fn branch_labels(mut self, key: impl Into<String>) -> Self {
+        self.branch_labels = Some(BranchLabels {
+            key: key.into(),
+            size: 8.0,
+        });
+        self
+    }
+
+    /// Sets the font size of labels created by [`TreeTrack::branch_labels`].
+    pub fn branch_label_size(mut self, size: f64) -> Self {
+        if let Some(labels) = &mut self.branch_labels {
+            labels.size = finite_between(size, 5.0, 18.0, 8.0);
+        }
+        self
+    }
+
+    /// Adds an automatically sized branch-length scale bar to a phylogram.
+    ///
+    /// Cladograms and explicitly time-scaled trees omit it because their axes
+    /// do not represent evolutionary branch length.
+    pub fn scale_bar(mut self) -> Self {
+        self.scale_bar.get_or_insert_with(ScaleBar::default);
+        self
+    }
+
+    /// Draws or removes the branch-length scale bar.
+    pub fn show_scale_bar(mut self, show: bool) -> Self {
+        if show {
+            self.scale_bar.get_or_insert_with(ScaleBar::default);
+        } else {
+            self.scale_bar = None;
+        }
+        self
+    }
+
+    /// Requests an exact scale-bar length in the tree's branch-length units.
+    ///
+    /// Values longer than the visible tree span are clamped to that span.
+    /// Invalid values fall back to automatic sizing.
+    pub fn scale_bar_length(mut self, length: f64) -> Self {
+        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
+        bar.length = (length.is_finite() && length > 0.0).then_some(length);
+        self
+    }
+
+    /// Adds a unit such as `substitutions/site` to the scale-bar label.
+    pub fn scale_bar_unit(mut self, unit: impl Into<String>) -> Self {
+        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
+        let unit = unit.into();
+        bar.unit = (!unit.is_empty()).then_some(unit);
+        self
+    }
+
     /// Adds one metadata strip aligned to the visible terminal taxa.
     pub fn trait_column(mut self, column: TraitColumn) -> Self {
         self.trait_columns.push(column);
@@ -621,9 +1071,54 @@ impl TreeTrack {
         self.trait_column(TraitColumn::continuous(key))
     }
 
+    /// Adds a numeric bar column or radial bar ring.
+    pub fn trait_bar(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::bar(key))
+    }
+
+    /// Adds a boolean presence/absence dataset.
+    pub fn trait_binary(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::binary(key))
+    }
+
+    /// Adds a categorical colour-and-shape dataset.
+    pub fn trait_symbol(self, key: impl Into<String>) -> Self {
+        self.trait_column(TraitColumn::symbol(key))
+    }
+
+    /// Adds a node-attached bubble, composition or compact stacked bar.
+    pub fn node_glyph(mut self, glyph: NodeGlyph) -> Self {
+        if !glyph.keys.is_empty() {
+            self.node_glyphs.push(glyph);
+        }
+        self
+    }
+
+    /// Adds a translucent clade field behind branches and node graphics.
+    pub fn clade_highlight(mut self, highlight: CladeHighlight) -> Self {
+        if self.tree.nodes().get(highlight.node).is_some() {
+            self.clade_highlights.push(highlight);
+        }
+        self
+    }
+
+    /// Highlights a clade by its exact internal or terminal name.
+    pub fn highlight_named(mut self, name: &str) -> Self {
+        if let Some(node) = self.tree.node_named(name) {
+            self.clade_highlights.push(CladeHighlight::new(node));
+        }
+        self
+    }
+
     /// The tree.
     pub fn tree(&self) -> &Tree {
         &self.tree
+    }
+
+    fn branch_scale(&self) -> Option<&ScaleBar> {
+        self.scale_bar
+            .as_ref()
+            .filter(|_| self.shape == TreeShape::Phylogram && self.time.is_none())
     }
 
     /// Width the tip names need.
@@ -645,10 +1140,15 @@ impl TreeTrack {
     }
 
     fn axis_room(&self, theme: &Theme) -> f64 {
-        self.time
+        let time = self
+            .time
             .as_ref()
             .filter(|time| time.show_axis)
-            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0)
+            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0);
+        let scale = self
+            .branch_scale()
+            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 7.0);
+        time + scale
     }
 
     fn trait_width(&self, theme: &Theme) -> f64 {
@@ -664,12 +1164,38 @@ impl TreeTrack {
         }
     }
 
-    fn trait_header_room(&self) -> f64 {
-        if self.trait_columns.is_empty() {
+    fn annotation_header_room(&self) -> f64 {
+        if self.trait_columns.is_empty() && self.node_glyphs.is_empty() {
             0.0
         } else {
-            18.0
+            22.0
         }
+    }
+
+    fn rectangular_glyph_padding(&self) -> (f64, f64) {
+        let (horizontal, vertical) =
+            self.node_glyphs
+                .iter()
+                .fold(
+                    (0.0f64, 0.0f64),
+                    |(horizontal, vertical), glyph| match glyph.style {
+                        NodeGlyphStyle::Bubble | NodeGlyphStyle::Pie | NodeGlyphStyle::Donut => {
+                            (horizontal.max(glyph.size), vertical.max(glyph.size))
+                        }
+                        NodeGlyphStyle::StackedBar => (
+                            horizontal.max(glyph.size * 1.5),
+                            vertical.max(glyph.size * 0.39),
+                        ),
+                    },
+                );
+        (
+            if horizontal > 0.0 {
+                horizontal + 2.0
+            } else {
+                0.0
+            },
+            (vertical - self.row_height / 2.0).max(0.0),
+        )
     }
 
     fn draw_rectangular(&self, ctx: &mut DrawContext<'_>) {
@@ -682,14 +1208,16 @@ impl TreeTrack {
         let tips = self.tip_width(ctx.theme, &scene);
         let axis_room = self.axis_room(ctx.theme);
         let traits = self.trait_width(ctx.theme);
-        let header_room = self.trait_header_room();
+        let header_room = self.annotation_header_room();
+        let (glyph_x, glyph_y) = self.rectangular_glyph_padding();
         let area = Rect {
-            x: band.x,
-            y: band.y + header_room,
-            w: (band.w - tips - traits).max(1.0),
-            h: (band.h - axis_room - header_room).max(1.0),
+            x: band.x + glyph_x,
+            y: band.y + header_room + glyph_y,
+            w: (band.w - tips - traits - glyph_x * 2.0).max(1.0),
+            h: (band.h - axis_room - header_room - glyph_y * 2.0).max(1.0),
         };
 
+        draw_rectangular_clade_highlights(self, ctx, &scene, area);
         draw_tree_scene(
             ctx,
             &self.tree,
@@ -700,15 +1228,28 @@ impl TreeTrack {
             self.line_width,
             self.color_by.as_deref(),
             self.show_nodes,
+            self.support_style,
+            self.support_threshold,
+            self.branch_labels.as_ref(),
             !self.show_tips,
         );
+        draw_rectangular_node_glyphs(self, ctx, &scene, area);
+        if self.show_root {
+            if let Some(root) = scene.placements[self.tree.root()] {
+                draw_root_marker(
+                    ctx,
+                    scene.x(area, root.depth) + ctx.theme.tokens.marker_radius * 1.4,
+                    area.y + self.row_height / 2.0 + root.row * self.row_height,
+                );
+            }
+        }
 
         if self.show_tips {
             let size = ctx.theme.font_size - 1.0;
             for (row, node) in scene.terminals.iter().enumerate() {
                 let name = terminal_label(&self.tree, *node, &self.collapsed);
                 ctx.svg.text(
-                    area.right() + 4.0,
+                    area.right() + glyph_x + 4.0,
                     area.y + self.row_height / 2.0 + row as f64 * self.row_height + size * 0.35,
                     &name,
                     &ctx.theme.muted,
@@ -723,13 +1264,17 @@ impl TreeTrack {
             &scene,
             &self.collapsed,
             area,
-            tips,
+            tips + glyph_x,
             &self.trait_columns,
             self.row_height,
         );
         if let Some(time) = self.time.as_ref().filter(|time| time.show_axis) {
             draw_time_axis(ctx, &scene, area, time);
         }
+        if let Some(bar) = self.branch_scale() {
+            draw_rectangular_scale_bar(ctx, &scene, area, bar);
+        }
+        draw_annotation_legend(self, ctx);
     }
 }
 
@@ -738,15 +1283,23 @@ impl Track for TreeTrack {
         match self.projection {
             TreeProjection::Rectangular => {
                 let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
+                let (_, glyph_y) = self.rectangular_glyph_padding();
                 rows * self.row_height
-                    + self
-                        .time
-                        .as_ref()
-                        .filter(|time| time.show_axis)
-                        .map_or(0.0, |_| 22.0)
-                    + self.trait_header_room()
+                    + glyph_y * 2.0
+                    + if self.time.as_ref().is_some_and(|time| time.show_axis) {
+                        22.0
+                    } else {
+                        0.0
+                    }
+                    + if self.branch_scale().is_some() {
+                        22.0
+                    } else {
+                        0.0
+                    }
+                    + self.annotation_header_room()
             }
-            TreeProjection::Circular => self.radial.size + self.trait_header_room(),
+            TreeProjection::Circular => self.radial.size + self.annotation_header_room(),
+            TreeProjection::Unrooted => self.radial.size + self.annotation_header_room(),
         }
     }
 
@@ -760,6 +1313,7 @@ impl Track for TreeTrack {
             TreeProjection::Circular => {
                 draw_radial_track(self, ctx);
             }
+            TreeProjection::Unrooted => draw_unrooted_track(self, ctx),
         }
     }
 }
@@ -913,7 +1467,7 @@ fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         track.time.as_ref(),
         &track.collapsed,
     );
-    let header_room = track.trait_header_room();
+    let header_room = track.annotation_header_room();
     let area = Rect {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
@@ -929,15 +1483,30 @@ fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         &color,
     );
 
+    draw_radial_clade_highlights(track, ctx, &scene, &geometry);
     if let Some(time) = track.time.as_ref().filter(|time| time.show_axis) {
         draw_radial_time_axis(ctx, &scene, &geometry, time);
     }
     draw_radial_padding(track, ctx, &scene, &geometry);
     draw_radial_branches(track, ctx, &scene, &geometry, &colors);
+    draw_radial_node_glyphs(track, ctx, &scene, &geometry);
+    if track.show_root {
+        if let Some(root) = scene.placements[track.tree.root()] {
+            let (x, y) = geometry.point(
+                geometry.radius(&scene, root.depth),
+                geometry.angle(root.row),
+            );
+            draw_root_marker(ctx, x, y);
+        }
+    }
     draw_radial_collapsed(track, ctx, &scene, &geometry, &colors);
     draw_trait_rings(track, ctx, &scene, &geometry);
     draw_radial_labels(track, ctx, &scene, &geometry);
     draw_trait_ring_headings(track, ctx);
+    if let Some(bar) = track.branch_scale() {
+        draw_radial_scale_bar(ctx, &scene, &geometry, area, bar);
+    }
+    draw_annotation_legend(track, ctx);
 }
 
 fn draw_radial_padding(
@@ -989,6 +1558,10 @@ fn draw_radial_branches(
             &track.tree,
             placement.node,
             track.color_by.as_deref(),
+            track
+                .branch_labels
+                .as_ref()
+                .map(|labels| labels.key.as_str()),
             !track.show_tips,
             false,
         );
@@ -999,6 +1572,9 @@ fn draw_radial_branches(
             .line(x0, y0, x1, y1, &colors[placement.node], track.line_width);
         if title.is_some() {
             ctx.svg.end_group();
+        }
+        if let Some(labels) = &track.branch_labels {
+            draw_branch_annotation(ctx, &track.tree, placement.node, labels, (x0, y0), (x1, y1));
         }
     }
 
@@ -1022,6 +1598,7 @@ fn draw_radial_branches(
                 &track.tree,
                 placement.node,
                 track.color_by.as_deref(),
+                None,
                 false,
                 true,
             );
@@ -1037,9 +1614,21 @@ fn draw_radial_branches(
                 ctx.svg.end_group();
             }
         }
-        if track.show_nodes {
-            let angle = geometry.angle(placement.row);
-            let (x, y) = geometry.point(radius, angle);
+        let angle = geometry.angle(placement.row);
+        let (x, y) = geometry.point(radius, angle);
+        if let Some(support) = node.support.filter(|value| {
+            track.support_style != SupportStyle::None
+                && support_fraction(*value).is_some_and(|value| value >= track.support_threshold)
+        }) {
+            draw_support(
+                ctx,
+                x,
+                y,
+                support,
+                &colors[placement.node],
+                track.support_style,
+            );
+        } else if track.show_nodes {
             ctx.svg.circle_ringed(
                 x,
                 y,
@@ -1214,6 +1803,179 @@ fn draw_radial_collapsed(
     }
 }
 
+#[derive(Debug, Clone)]
+struct TraitDomain {
+    categories: BTreeMap<String, usize>,
+    minimum: f64,
+    maximum: f64,
+}
+
+impl TraitDomain {
+    fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
+        let values: Vec<&AnnotationValue> = values.into_iter().collect();
+        let mut categories = BTreeMap::new();
+        for value in &values {
+            let next = categories.len();
+            categories.entry(value.to_string()).or_insert(next);
+        }
+        let numeric: Vec<f64> = values
+            .iter()
+            .filter_map(|value| value.as_number())
+            .filter(|value| value.is_finite())
+            .collect();
+        TraitDomain {
+            categories,
+            minimum: numeric.iter().copied().fold(f64::MAX, f64::min),
+            maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
+        }
+    }
+
+    fn fraction(&self, value: Option<&AnnotationValue>) -> Option<f64> {
+        let value = value?.as_number()?;
+        if !value.is_finite() {
+            return None;
+        }
+        Some(if self.maximum <= self.minimum {
+            1.0
+        } else {
+            ((value - self.minimum) / (self.maximum - self.minimum)).clamp(0.0, 1.0)
+        })
+    }
+
+    fn category(&self, value: Option<&AnnotationValue>) -> Option<usize> {
+        self.categories.get(&value?.to_string()).copied()
+    }
+
+    fn color(
+        &self,
+        column: &TraitColumn,
+        value: Option<&AnnotationValue>,
+        theme: &Theme,
+    ) -> Option<String> {
+        match column.scale {
+            TraitScale::Categorical => self
+                .category(value)
+                .map(|index| theme.color(index).to_string()),
+            TraitScale::Continuous => self
+                .fraction(value)
+                .map(|fraction| mix(&theme.muted, &theme.accent, fraction)),
+        }
+    }
+}
+
+fn binary_state(value: Option<&AnnotationValue>) -> Option<bool> {
+    match value? {
+        AnnotationValue::Boolean(value) => Some(*value),
+        AnnotationValue::Number(value) if value.is_finite() => Some(*value != 0.0),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_trait_sector(
+    ctx: &mut DrawContext<'_>,
+    column: &TraitColumn,
+    value: Option<&AnnotationValue>,
+    domain: &TraitDomain,
+    title: &str,
+    centre: (f64, f64),
+    inner: f64,
+    outer: f64,
+    start: f64,
+    end: f64,
+    angle: f64,
+) {
+    let path = annular_sector_path(centre.0, centre.1, inner, outer, start, end);
+    let fill = domain.color(column, value, ctx.theme);
+    let middle_radius = (inner + outer) / 2.0;
+    let (x, y) = (
+        centre.0 + angle.cos() * middle_radius,
+        centre.1 + angle.sin() * middle_radius,
+    );
+    let thickness = (outer - inner).max(0.0);
+    let arc_room = middle_radius * (end - start).abs();
+    let marker_radius = (thickness.min(arc_room) * 0.28).clamp(1.4, 5.5);
+    ctx.svg.begin_titled(title);
+    match column.style {
+        TraitStyle::Strip => {
+            if let Some(fill) = &fill {
+                ctx.svg.path(&path, fill, 1.0);
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+        }
+        TraitStyle::Bar => {
+            ctx.svg
+                .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            if let Some(fraction) = domain.fraction(value) {
+                let bar_outer = inner + thickness * fraction;
+                if bar_outer > inner + 0.1 {
+                    let bar = annular_sector_path(centre.0, centre.1, inner, bar_outer, start, end);
+                    ctx.svg
+                        .path(&bar, fill.as_deref().unwrap_or(&ctx.theme.accent), 0.92);
+                }
+            }
+        }
+        TraitStyle::Binary => match binary_state(value) {
+            Some(true) => ctx.svg.circle_ringed(
+                x,
+                y,
+                marker_radius,
+                &ctx.theme.accent,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            Some(false) => ctx.svg.circle_ringed(
+                x,
+                y,
+                (marker_radius * 0.42).max(1.0),
+                &ctx.theme.rule,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            None => ctx
+                .svg
+                .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline),
+        },
+        TraitStyle::Symbol => {
+            if let Some(index) = domain.category(value) {
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    marker_radius,
+                    ctx.theme.symbol(index),
+                    fill.as_deref().unwrap_or(&ctx.theme.accent),
+                    &ctx.theme.background,
+                    ctx.theme.tokens.hairline,
+                );
+            } else {
+                ctx.svg
+                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
+            }
+        }
+    }
+    if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+        let text = value.map(ToString::to_string).unwrap_or_else(|| "—".into());
+        let size = (ctx.theme.font_size - 3.0).max(6.0);
+        if thickness >= size + 1.0 && arc_room >= text_width(&text, size) + 4.0 {
+            let ink = fill
+                .as_deref()
+                .map(contrast_ink)
+                .unwrap_or(ctx.theme.muted.as_str());
+            ctx.svg.text_rotated(
+                (x, y + size * 0.3),
+                upright_tangent(angle),
+                &text,
+                ink,
+                size,
+                crate::svg::Anchor::Middle,
+            );
+        }
+    }
+    ctx.svg.end_group();
+}
+
 fn draw_trait_rings(
     track: &TreeTrack,
     ctx: &mut DrawContext<'_>,
@@ -1232,27 +1994,9 @@ fn draw_trait_rings(
             .iter()
             .map(|node| inherited_annotation(&track.tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
-            .map(ToString::to_string)
-            .fold(BTreeMap::new(), |mut categories, value| {
-                let next = categories.len();
-                categories.entry(value).or_insert(next);
-                categories
-            });
-        let numeric: Vec<f64> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(&track.tree, placement.node, &column.key))
-            .filter_map(AnnotationValue::as_number)
-            .filter(|value| value.is_finite())
-            .collect();
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        let domain = TraitDomain::new(scene.placements.iter().flatten().filter_map(|placement| {
+            inherited_annotation(&track.tree, placement.node, &column.key)
+        }));
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
@@ -1270,77 +2014,36 @@ fn draw_trait_rings(
                 (angle + half).min(geometry.start + geometry.sweep)
             };
             let value = values[row];
-            let fill = match (column.scale, value) {
-                (TraitScale::Categorical, Some(value)) => {
-                    let value = value.to_string();
-                    categories
-                        .get(&value)
-                        .map(|index| ctx.theme.color(*index).to_string())
-                }
-                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
-                    value.is_finite().then(|| {
-                        let fraction = if maximum <= minimum {
-                            1.0
-                        } else {
-                            (value - minimum) / (maximum - minimum)
-                        };
-                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
-                    })
-                }),
-                _ => None,
-            };
             let displayed = value.map(ToString::to_string);
             let name = terminal_label(&track.tree, *node, &track.collapsed);
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
             };
-            let path = radial_sector_path(geometry, inner, outer, start, end);
-            ctx.svg.begin_titled(&title);
-            if let Some(fill) = &fill {
-                ctx.svg.path(&path, fill, 1.0);
-            } else {
-                ctx.svg
-                    .path_stroked(&path, &ctx.theme.rule, ctx.theme.tokens.hairline);
-            }
-            if column.show_values {
-                let text = displayed.as_deref().unwrap_or("—");
-                let size = (ctx.theme.font_size - 3.0).max(6.0);
-                let middle_radius = (inner + outer) / 2.0;
-                let arc_room = middle_radius * (end - start).abs();
-                if column.ring_width >= size + 1.0 && arc_room >= text_width(text, size) + 4.0 {
-                    let (x, y) = geometry.point(middle_radius, angle);
-                    let ink = match &fill {
-                        Some(fill) => contrast_ink(fill),
-                        None => ctx.theme.muted.as_str(),
-                    };
-                    ctx.svg.text_rotated(
-                        (x, y + size * 0.3),
-                        upright_tangent(angle),
-                        text,
-                        ink,
-                        size,
-                        crate::svg::Anchor::Middle,
-                    );
-                }
-            }
-            ctx.svg.end_group();
+            draw_trait_sector(
+                ctx,
+                column,
+                value,
+                &domain,
+                &title,
+                (geometry.cx, geometry.cy),
+                inner,
+                outer,
+                start,
+                end,
+                angle,
+            );
         }
         inner = outer + gap;
     }
 }
 
-fn radial_sector_path(
-    geometry: &RadialGeometry,
-    inner: f64,
-    outer: f64,
-    start: f64,
-    end: f64,
-) -> String {
-    let (x0, y0) = geometry.point(outer, start);
-    let (x1, y1) = geometry.point(outer, end);
-    let (x2, y2) = geometry.point(inner, end);
-    let (x3, y3) = geometry.point(inner, start);
+fn annular_sector_path(cx: f64, cy: f64, inner: f64, outer: f64, start: f64, end: f64) -> String {
+    let point = |radius: f64, angle: f64| (cx + angle.cos() * radius, cy + angle.sin() * radius);
+    let (x0, y0) = point(outer, start);
+    let (x1, y1) = point(outer, end);
+    let (x2, y2) = point(inner, end);
+    let (x3, y3) = point(inner, start);
     let large = usize::from((end - start).abs() > std::f64::consts::PI);
     format!(
         "M {} {} A {} {} 0 {} 1 {} {} L {} {} A {} {} 0 {} 0 {} {} Z",
@@ -1373,14 +2076,41 @@ fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         if visible != column.label {
             ctx.svg.begin_titled(&column.label);
         }
-        ctx.svg.circle_ringed(
-            x + 7.0,
-            ctx.band.y + 7.0,
-            4.0,
-            &ctx.theme.background,
-            &ctx.theme.rule,
-            ctx.theme.tokens.hairline,
-        );
+        match column.style {
+            TraitStyle::Strip => {
+                ctx.svg
+                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, &ctx.theme.accent)
+            }
+            TraitStyle::Bar => {
+                ctx.svg.rect_outline(
+                    x + 2.0,
+                    ctx.band.y + 3.0,
+                    10.0,
+                    8.0,
+                    &ctx.theme.rule,
+                    ctx.theme.tokens.hairline,
+                );
+                ctx.svg
+                    .rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, &ctx.theme.accent);
+            }
+            TraitStyle::Binary => ctx.svg.circle_ringed(
+                x + 7.0,
+                ctx.band.y + 7.0,
+                3.6,
+                &ctx.theme.accent,
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+            TraitStyle::Symbol => ctx.svg.symbol_ringed(
+                x + 7.0,
+                ctx.band.y + 7.0,
+                3.8,
+                ctx.theme.symbol(index),
+                ctx.theme.color(index),
+                &ctx.theme.background,
+                ctx.theme.tokens.hairline,
+            ),
+        }
         ctx.svg.text(
             x + 16.0,
             ctx.band.y + size + 2.0,
@@ -1401,6 +2131,1130 @@ fn upright_tangent(angle: f64) -> f64 {
         degrees += 180.0;
     }
     degrees
+}
+
+#[derive(Debug, Clone)]
+struct UnrootedScene {
+    positions: Vec<Option<(f64, f64)>>,
+    parents: Vec<Option<usize>>,
+    angles: Vec<Option<f64>>,
+    terminals: Vec<usize>,
+    visible: Vec<usize>,
+    radius: f64,
+}
+
+impl UnrootedScene {
+    fn new(tree: &Tree, shape: TreeShape, collapsed: &BTreeSet<usize>, start_degrees: f64) -> Self {
+        let visibility = visible_nodes(tree, collapsed);
+        let visible: Vec<usize> = visibility
+            .iter()
+            .enumerate()
+            .filter_map(|(node, visible)| visible.then_some(node))
+            .collect();
+        let terminal_set: BTreeSet<usize> =
+            visible_terminals(tree, collapsed).into_iter().collect();
+        let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); tree.nodes().len()];
+        for (node, clade) in tree.nodes().iter().enumerate() {
+            let Some(parent) = clade.parent else {
+                continue;
+            };
+            if !visibility[node] || !visibility[parent] {
+                continue;
+            }
+            let length = if shape == TreeShape::Cladogram {
+                1.0
+            } else {
+                clade
+                    .branch_length
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(1.0)
+                    .max(0.0)
+            };
+            adjacency[parent].push((node, length));
+            adjacency[node].push((parent, length));
+        }
+
+        let candidates: Vec<usize> = visible
+            .iter()
+            .copied()
+            .filter(|node| adjacency[*node].len() > 1)
+            .collect();
+        let centre = candidates
+            .into_iter()
+            .min_by_key(|candidate| {
+                let largest = adjacency[*candidate]
+                    .iter()
+                    .map(|(next, _)| {
+                        component_terminal_count(*next, *candidate, &adjacency, &terminal_set)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                (
+                    largest,
+                    std::cmp::Reverse(adjacency[*candidate].len()),
+                    *candidate,
+                )
+            })
+            .or_else(|| visible.first().copied())
+            .unwrap_or(tree.root());
+
+        let mut positions = vec![None; tree.nodes().len()];
+        let mut parents = vec![None; tree.nodes().len()];
+        let mut angles = vec![None; tree.nodes().len()];
+        positions[centre] = Some((0.0, 0.0));
+        let start = start_degrees.to_radians();
+        if terminal_set.contains(&centre) {
+            angles[centre] = Some(start);
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        struct Task {
+            node: usize,
+            parent: Option<usize>,
+            start: f64,
+            end: f64,
+        }
+
+        let mut stack = vec![Task {
+            node: centre,
+            parent: None,
+            start,
+            end: start + std::f64::consts::TAU,
+        }];
+        while let Some(task) = stack.pop() {
+            let children: Vec<(usize, f64, usize)> = adjacency[task.node]
+                .iter()
+                .filter(|(next, _)| Some(*next) != task.parent)
+                .map(|(next, length)| {
+                    (
+                        *next,
+                        *length,
+                        component_terminal_count(*next, task.node, &adjacency, &terminal_set)
+                            .max(1),
+                    )
+                })
+                .collect();
+            let total: usize = children.iter().map(|(_, _, count)| *count).sum();
+            if total == 0 {
+                continue;
+            }
+            let parent_position = positions[task.node].unwrap_or((0.0, 0.0));
+            let mut cursor = task.start;
+            let mut pending = Vec::with_capacity(children.len());
+            for (child, length, count) in children {
+                let span = (task.end - task.start) * count as f64 / total as f64;
+                let end = cursor + span;
+                let angle = cursor + span / 2.0;
+                positions[child] = Some((
+                    parent_position.0 + angle.cos() * length,
+                    parent_position.1 + angle.sin() * length,
+                ));
+                parents[child] = Some(task.node);
+                angles[child] = Some(angle);
+                pending.push(Task {
+                    node: child,
+                    parent: Some(task.node),
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            stack.extend(pending.into_iter().rev());
+        }
+
+        let mut terminals: Vec<usize> = terminal_set.into_iter().collect();
+        terminals.sort_by(|left, right| {
+            angles[*left]
+                .unwrap_or(start)
+                .total_cmp(&angles[*right].unwrap_or(start))
+        });
+        let radius = positions
+            .iter()
+            .flatten()
+            .map(|(x, y)| x.hypot(*y))
+            .fold(0.0f64, f64::max)
+            .max(1e-9);
+        UnrootedScene {
+            positions,
+            parents,
+            angles,
+            terminals,
+            visible,
+            radius,
+        }
+    }
+}
+
+fn component_terminal_count(
+    start: usize,
+    blocked: usize,
+    adjacency: &[Vec<(usize, f64)>],
+    terminals: &BTreeSet<usize>,
+) -> usize {
+    let mut count = 0usize;
+    let mut stack = vec![(start, blocked)];
+    while let Some((node, parent)) = stack.pop() {
+        count += usize::from(terminals.contains(&node));
+        for (next, _) in &adjacency[node] {
+            if *next != parent {
+                stack.push((*next, node));
+            }
+        }
+    }
+    count
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UnrootedGeometry {
+    cx: f64,
+    cy: f64,
+    scale: f64,
+    branch_radius: f64,
+    ring_outer: f64,
+    label_radius: f64,
+}
+
+impl UnrootedGeometry {
+    fn new(track: &TreeTrack, theme: &Theme, scene: &UnrootedScene, area: Rect) -> Self {
+        let label_extent = if track.show_tips {
+            scene
+                .terminals
+                .iter()
+                .map(|node| {
+                    text_width(
+                        &terminal_label(&track.tree, *node, &track.collapsed),
+                        theme.font_size - 1.0,
+                    )
+                })
+                .fold(0.0f64, f64::max)
+                + 6.0
+        } else {
+            4.0
+        };
+        let gap = theme.tokens.legend_gap.clamp(1.0, 4.0);
+        let ring_room = if track.trait_columns.is_empty() {
+            0.0
+        } else {
+            track
+                .trait_columns
+                .iter()
+                .map(|column| column.ring_width)
+                .sum::<f64>()
+                + gap * track.trait_columns.len() as f64
+        };
+        let half = (area.w.min(area.h) / 2.0 - 4.0).max(2.0);
+        let ring_outer = (half - label_extent).max(4.0);
+        let branch_radius = (ring_outer - ring_room).max(2.0);
+        UnrootedGeometry {
+            cx: area.x + area.w / 2.0,
+            cy: area.y + area.h / 2.0,
+            scale: branch_radius * 0.88 / scene.radius,
+            branch_radius,
+            ring_outer,
+            label_radius: ring_outer + 4.0,
+        }
+    }
+
+    fn node(&self, point: (f64, f64)) -> (f64, f64) {
+        (
+            self.cx + point.0 * self.scale,
+            self.cy + point.1 * self.scale,
+        )
+    }
+
+    fn point(&self, radius: f64, angle: f64) -> (f64, f64) {
+        (
+            self.cx + angle.cos() * radius,
+            self.cy + angle.sin() * radius,
+        )
+    }
+}
+
+fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
+    let color = track
+        .color
+        .clone()
+        .unwrap_or_else(|| ctx.theme.foreground.clone());
+    let scene = UnrootedScene::new(
+        &track.tree,
+        track.shape,
+        &track.collapsed,
+        track.radial.start_degrees,
+    );
+    let header_room = track.annotation_header_room();
+    let area = Rect {
+        x: ctx.band.x,
+        y: ctx.band.y + header_room,
+        w: ctx.band.w,
+        h: (ctx.band.h - header_room).max(1.0),
+    };
+    let geometry = UnrootedGeometry::new(track, ctx.theme, &scene, area);
+    let colors = unrooted_branch_colors(
+        &track.tree,
+        &scene,
+        track.color_by.as_deref(),
+        ctx.theme,
+        &color,
+    );
+
+    draw_unrooted_clade_highlights(track, ctx, &scene, &geometry);
+
+    // Terminal leaders align labels and annotation rings without pretending
+    // unequal branch lengths all end at the same evolutionary distance.
+    for node in &scene.terminals {
+        let Some(raw) = scene.positions[*node] else {
+            continue;
+        };
+        let angle = scene.angles[*node].unwrap_or(track.radial.start_degrees.to_radians());
+        let (x0, y0) = geometry.node(raw);
+        let (x1, y1) = geometry.point(geometry.branch_radius, angle);
+        ctx.svg
+            .line(x0, y0, x1, y1, &ctx.theme.rule, ctx.theme.tokens.hairline);
+    }
+
+    for node in &scene.visible {
+        let Some(parent) = scene.parents[*node] else {
+            continue;
+        };
+        let (Some(from), Some(to)) = (scene.positions[parent], scene.positions[*node]) else {
+            continue;
+        };
+        let owner = if track.tree.nodes()[*node].parent == Some(parent) {
+            *node
+        } else {
+            parent
+        };
+        let title = branch_title(
+            &track.tree,
+            owner,
+            track.color_by.as_deref(),
+            track
+                .branch_labels
+                .as_ref()
+                .map(|labels| labels.key.as_str()),
+            !track.show_tips && scene.terminals.contains(node),
+            true,
+        );
+        if let Some(title) = &title {
+            ctx.svg.begin_titled(title);
+        }
+        let (x0, y0) = geometry.node(from);
+        let (x1, y1) = geometry.node(to);
+        ctx.svg
+            .line(x0, y0, x1, y1, &colors[owner], track.line_width);
+        if title.is_some() {
+            ctx.svg.end_group();
+        }
+        if let Some(labels) = &track.branch_labels {
+            draw_branch_annotation(ctx, &track.tree, owner, labels, (x0, y0), (x1, y1));
+        }
+    }
+
+    if track.show_nodes || track.support_style != SupportStyle::None {
+        for node in &scene.visible {
+            if scene.terminals.contains(node) {
+                continue;
+            }
+            let Some(raw) = scene.positions[*node] else {
+                continue;
+            };
+            let (x, y) = geometry.node(raw);
+            if let Some(support) = track.tree.nodes()[*node].support.filter(|value| {
+                track.support_style != SupportStyle::None
+                    && support_fraction(*value)
+                        .is_some_and(|value| value >= track.support_threshold)
+            }) {
+                draw_support(ctx, x, y, support, &colors[*node], track.support_style);
+            } else if track.show_nodes {
+                ctx.svg.circle_ringed(
+                    x,
+                    y,
+                    ctx.theme.tokens.marker_radius * 0.65,
+                    &colors[*node],
+                    &ctx.theme.background,
+                    ctx.theme.tokens.hairline,
+                );
+            }
+        }
+    }
+
+    draw_unrooted_node_glyphs(track, ctx, &scene, &geometry);
+
+    draw_unrooted_trait_rings(track, ctx, &scene, &geometry);
+
+    if track.show_tips {
+        let size = ctx.theme.font_size - 1.0;
+        for node in &scene.terminals {
+            let angle = scene.angles[*node].unwrap_or(track.radial.start_degrees.to_radians());
+            let (x, y) = geometry.point(geometry.label_radius, angle);
+            let right = angle.cos() >= 0.0;
+            ctx.svg.text_rotated(
+                (x, y + size * 0.32),
+                if right {
+                    angle.to_degrees()
+                } else {
+                    angle.to_degrees() + 180.0
+                },
+                &terminal_label(&track.tree, *node, &track.collapsed),
+                &ctx.theme.muted,
+                size,
+                if right {
+                    crate::svg::Anchor::Start
+                } else {
+                    crate::svg::Anchor::End
+                },
+            );
+        }
+    }
+    draw_trait_ring_headings(track, ctx);
+    if let Some(bar) = track.branch_scale() {
+        draw_unrooted_scale_bar(ctx, &scene, &geometry, area, bar);
+    }
+    draw_annotation_legend(track, ctx);
+}
+
+fn unrooted_branch_colors(
+    tree: &Tree,
+    scene: &UnrootedScene,
+    key: Option<&str>,
+    theme: &Theme,
+    default_color: &str,
+) -> Vec<String> {
+    let mut colors = vec![default_color.to_string(); tree.nodes().len()];
+    let Some(key) = key else {
+        return colors;
+    };
+    let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
+        .map(|node| inherited_annotation(tree, node, key))
+        .collect();
+    let numeric: Vec<f64> = scene
+        .visible
+        .iter()
+        .filter_map(|node| values[*node].and_then(AnnotationValue::as_number))
+        .collect();
+    let present = scene
+        .visible
+        .iter()
+        .filter(|node| values[**node].is_some())
+        .count();
+    if !numeric.is_empty() && numeric.len() == present {
+        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
+        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        for node in &scene.visible {
+            if let Some(value) = values[*node].and_then(AnnotationValue::as_number) {
+                let fraction = if maximum <= minimum {
+                    1.0
+                } else {
+                    (value - minimum) / (maximum - minimum)
+                };
+                colors[*node] = mix(&theme.muted, &theme.accent, fraction);
+            }
+        }
+    } else {
+        let mut categories = BTreeMap::new();
+        for node in &scene.visible {
+            let Some(value) = values[*node] else {
+                continue;
+            };
+            let value = value.to_string();
+            let next = categories.len();
+            let index = *categories.entry(value).or_insert(next);
+            colors[*node] = theme.color(index).to_string();
+        }
+    }
+    colors
+}
+
+fn draw_unrooted_trait_rings(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+) {
+    if track.trait_columns.is_empty() || scene.terminals.is_empty() {
+        return;
+    }
+    let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
+    let mut inner = geometry.branch_radius + gap;
+    let step = std::f64::consts::TAU / scene.terminals.len() as f64;
+    for column in &track.trait_columns {
+        let outer = (inner + column.ring_width).min(geometry.ring_outer);
+        let values: Vec<Option<&AnnotationValue>> = scene
+            .terminals
+            .iter()
+            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .collect();
+        let domain = TraitDomain::new(
+            scene
+                .visible
+                .iter()
+                .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key)),
+        );
+        for (row, node) in scene.terminals.iter().enumerate() {
+            let angle = scene.angles[*node]
+                .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);
+            let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
+            let half = (step / 2.0 - gap_angle).max(step * 0.12);
+            let value = values[row];
+            let name = terminal_label(&track.tree, *node, &track.collapsed);
+            let title = match value {
+                Some(value) => format!("{name}; {} {value}", column.key),
+                None => format!("{name}; {} missing", column.key),
+            };
+            draw_trait_sector(
+                ctx,
+                column,
+                value,
+                &domain,
+                &title,
+                (geometry.cx, geometry.cy),
+                inner,
+                outer,
+                angle - half,
+                angle + half,
+                angle,
+            );
+        }
+        inner = outer + gap;
+    }
+}
+
+fn node_in_clade(tree: &Tree, node: usize, clade: usize) -> bool {
+    node == clade || tree.ancestors(node).contains(&clade)
+}
+
+fn highlight_title(tree: &Tree, highlight: &CladeHighlight) -> String {
+    let name = highlight
+        .label
+        .as_deref()
+        .or_else(|| tree.nodes()[highlight.node].name.as_deref())
+        .unwrap_or("clade");
+    format!("{name}; {} tips", tree.clade_size(highlight.node))
+}
+
+fn highlight_color(highlight: &CladeHighlight, index: usize, theme: &Theme) -> String {
+    highlight
+        .color
+        .clone()
+        .unwrap_or_else(|| theme.color(index).to_string())
+}
+
+fn draw_highlight_label(
+    ctx: &mut DrawContext<'_>,
+    highlight: &CladeHighlight,
+    at: (f64, f64),
+    available: f64,
+) {
+    let Some(label) = &highlight.label else {
+        return;
+    };
+    let size = (ctx.theme.font_size - 2.0).max(6.0);
+    let visible = fit_text(label, available.max(0.0), size);
+    ctx.svg.text_bold(
+        at.0,
+        at.1,
+        &visible,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+}
+
+fn draw_rectangular_clade_highlights(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    area: Rect,
+) {
+    for (index, highlight) in track.clade_highlights.iter().enumerate() {
+        let Some(placement) = scene
+            .placements
+            .get(highlight.node)
+            .and_then(|placement| *placement)
+        else {
+            continue;
+        };
+        let rows: Vec<usize> = scene
+            .terminals
+            .iter()
+            .enumerate()
+            .filter_map(|(row, node)| {
+                node_in_clade(&track.tree, *node, highlight.node).then_some(row)
+            })
+            .collect();
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+            continue;
+        };
+        let x = (scene.x(area, placement.depth) - 3.0).max(area.x);
+        let y = area.y + *first as f64 * track.row_height + 1.0;
+        let bottom = area.y + (*last + 1) as f64 * track.row_height - 1.0;
+        let color = highlight_color(highlight, index, ctx.theme);
+        ctx.svg
+            .begin_titled(&highlight_title(&track.tree, highlight));
+        ctx.svg.rect_rounded_opacity(
+            x,
+            y,
+            (area.right() - x).max(1.0),
+            (bottom - y).max(1.0),
+            ctx.theme.corner_radius * 1.6,
+            &color,
+            highlight.opacity,
+        );
+        ctx.svg.rect_rounded(
+            x + 1.5,
+            y + 3.0,
+            2.5,
+            (bottom - y - 6.0).max(1.0),
+            1.25,
+            &color,
+        );
+        draw_highlight_label(
+            ctx,
+            highlight,
+            (x + 8.0, y + (ctx.theme.font_size - 2.0).max(6.0) + 2.0),
+            area.right() - x - 12.0,
+        );
+        ctx.svg.end_group();
+    }
+}
+
+fn draw_radial_clade_highlights(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+) {
+    for (index, highlight) in track.clade_highlights.iter().enumerate() {
+        let Some(placement) = scene
+            .placements
+            .get(highlight.node)
+            .and_then(|placement| *placement)
+        else {
+            continue;
+        };
+        let rows: Vec<usize> = scene
+            .terminals
+            .iter()
+            .enumerate()
+            .filter_map(|(row, node)| {
+                node_in_clade(&track.tree, *node, highlight.node).then_some(row)
+            })
+            .collect();
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+            continue;
+        };
+        let half = geometry.angular_step() * 0.48;
+        let start = if geometry.full_circle() && rows.len() == scene.terminals.len() {
+            geometry.start
+        } else {
+            (geometry.angle(*first as f64) - half).max(geometry.start)
+        };
+        let mut end = if geometry.full_circle() && rows.len() == scene.terminals.len() {
+            geometry.start + geometry.sweep - 1e-5
+        } else {
+            (geometry.angle(*last as f64) + half).min(geometry.start + geometry.sweep)
+        };
+        if end <= start {
+            end = start + 1e-5;
+        }
+        let root_radius = geometry.radius(scene, placement.depth);
+        let terminal = geometry.terminal_boundary();
+        let inner = root_radius.min(terminal).max(0.5);
+        let outer = root_radius.max(terminal).max(inner + 0.5);
+        let path = annular_sector_path(
+            geometry.cx,
+            geometry.cy,
+            (inner - 3.0).max(0.5),
+            outer + 3.0,
+            start,
+            end,
+        );
+        let color = highlight_color(highlight, index, ctx.theme);
+        let outline = mix(
+            ctx.theme.surface(),
+            &color,
+            (highlight.opacity * 3.0).min(0.5),
+        );
+        ctx.svg
+            .begin_titled(&highlight_title(&track.tree, highlight));
+        ctx.svg.path(&path, &color, highlight.opacity);
+        ctx.svg
+            .path_stroked(&path, &outline, ctx.theme.tokens.hairline.max(0.8));
+        let angle = (start + end) / 2.0;
+        let radius = (inner + outer) / 2.0;
+        let (x, y) = geometry.point(radius, angle);
+        if let Some(label) = &highlight.label {
+            let size = (ctx.theme.font_size - 2.0).max(6.0);
+            ctx.svg.text_rotated(
+                (x, y),
+                upright_tangent(angle),
+                label,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Middle,
+            );
+        }
+        ctx.svg.end_group();
+    }
+}
+
+fn draw_unrooted_clade_highlights(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+) {
+    for (index, highlight) in track.clade_highlights.iter().enumerate() {
+        if !scene.visible.contains(&highlight.node) {
+            continue;
+        }
+        let points: Vec<(f64, f64)> = scene
+            .visible
+            .iter()
+            .filter(|node| node_in_clade(&track.tree, **node, highlight.node))
+            .filter_map(|node| scene.positions[*node].map(|point| geometry.node(point)))
+            .collect();
+        if points.is_empty() {
+            continue;
+        }
+        let mut hull = convex_hull(points);
+        let centre = hull
+            .iter()
+            .fold((0.0, 0.0), |sum, point| (sum.0 + point.0, sum.1 + point.1));
+        let centre = (centre.0 / hull.len() as f64, centre.1 / hull.len() as f64);
+        for point in &mut hull {
+            let dx = point.0 - centre.0;
+            let dy = point.1 - centre.1;
+            let distance = dx.hypot(dy).max(1.0);
+            point.0 += dx / distance * 7.0;
+            point.1 += dy / distance * 7.0;
+        }
+        let color = highlight_color(highlight, index, ctx.theme);
+        let fill = mix(ctx.theme.surface(), &color, highlight.opacity);
+        let outline = mix(
+            ctx.theme.surface(),
+            &color,
+            (highlight.opacity * 3.0).min(0.5),
+        );
+        ctx.svg
+            .begin_titled(&highlight_title(&track.tree, highlight));
+        if hull.len() >= 3 {
+            let mut path = format!("M {} {}", num(hull[0].0), num(hull[0].1));
+            for point in hull.iter().skip(1) {
+                path.push_str(&format!(" L {} {}", num(point.0), num(point.1)));
+            }
+            path.push_str(" Z");
+            ctx.svg.path(&path, &color, highlight.opacity);
+            ctx.svg
+                .path_stroked(&path, &outline, ctx.theme.tokens.hairline.max(0.8));
+        } else {
+            ctx.svg.circle_ringed(
+                centre.0,
+                centre.1,
+                8.0,
+                &fill,
+                &outline,
+                ctx.theme.tokens.hairline.max(0.8),
+            );
+        }
+        let top = hull
+            .iter()
+            .min_by(|left, right| left.1.total_cmp(&right.1))
+            .copied()
+            .unwrap_or(centre);
+        draw_highlight_label(ctx, highlight, (top.0 + 3.0, top.1 + 10.0), 90.0);
+        ctx.svg.end_group();
+    }
+}
+
+fn convex_hull(mut points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    points.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then_with(|| left.1.total_cmp(&right.1))
+    });
+    points.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
+    if points.len() <= 2 {
+        return points;
+    }
+    let cross = |origin: (f64, f64), a: (f64, f64), b: (f64, f64)| {
+        (a.0 - origin.0) * (b.1 - origin.1) - (a.1 - origin.1) * (b.0 - origin.0)
+    };
+    let mut lower = Vec::new();
+    for point in &points {
+        while lower.len() >= 2
+            && cross(lower[lower.len() - 2], lower[lower.len() - 1], *point) <= 0.0
+        {
+            lower.pop();
+        }
+        lower.push(*point);
+    }
+    let mut upper = Vec::new();
+    for point in points.iter().rev() {
+        while upper.len() >= 2
+            && cross(upper[upper.len() - 2], upper[upper.len() - 1], *point) <= 0.0
+        {
+            upper.pop();
+        }
+        upper.push(*point);
+    }
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    lower
+}
+
+fn glyph_matches(tree: &Tree, node: usize, target: NodeGlyphTarget) -> bool {
+    match target {
+        NodeGlyphTarget::All => true,
+        NodeGlyphTarget::Internal => !tree.nodes()[node].is_leaf(),
+        NodeGlyphTarget::Leaves => tree.nodes()[node].is_leaf(),
+    }
+}
+
+fn glyph_values(tree: &Tree, node: usize, glyph: &NodeGlyph) -> Option<Vec<f64>> {
+    glyph
+        .keys
+        .iter()
+        .map(|key| {
+            tree.annotation(node, key)
+                .and_then(AnnotationValue::as_number)
+                .filter(|value| value.is_finite() && *value >= 0.0)
+        })
+        .collect()
+}
+
+fn node_title(tree: &Tree, node: usize) -> String {
+    tree.nodes()[node].name.clone().unwrap_or_else(|| {
+        if node == tree.root() {
+            "root".to_string()
+        } else {
+            format!("node {node}")
+        }
+    })
+}
+
+fn glyph_title(tree: &Tree, node: usize, glyph: &NodeGlyph, values: &[f64]) -> String {
+    let values = glyph
+        .keys
+        .iter()
+        .zip(values)
+        .map(|(key, value)| format!("{key} {}", num(*value)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("{}; {values}", node_title(tree, node))
+}
+
+fn bubble_max<'a>(
+    tree: &Tree,
+    nodes: impl IntoIterator<Item = &'a usize>,
+    glyph: &NodeGlyph,
+) -> f64 {
+    nodes
+        .into_iter()
+        .filter(|node| glyph_matches(tree, **node, glyph.target))
+        .filter_map(|node| glyph_values(tree, *node, glyph))
+        .filter_map(|values| values.first().copied())
+        .fold(0.0f64, f64::max)
+}
+
+fn draw_node_glyph(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    glyph: &NodeGlyph,
+    glyph_index: usize,
+    at: (f64, f64),
+    maximum: f64,
+) {
+    if !glyph_matches(tree, node, glyph.target) {
+        return;
+    }
+    let Some(values) = glyph_values(tree, node, glyph) else {
+        return;
+    };
+    let total: f64 = values.iter().sum();
+    if glyph.style != NodeGlyphStyle::Bubble && total <= 0.0 {
+        return;
+    }
+    ctx.svg
+        .begin_titled(&glyph_title(tree, node, glyph, &values));
+    match glyph.style {
+        NodeGlyphStyle::Bubble => {
+            let value = values[0];
+            let radius = if value <= 0.0 || maximum <= 0.0 {
+                glyph.minimum_size * 0.45
+            } else {
+                glyph.minimum_size + (value / maximum).sqrt() * (glyph.size - glyph.minimum_size)
+            };
+            ctx.svg.circle_ringed(
+                at.0,
+                at.1,
+                radius,
+                ctx.theme.color(glyph_index),
+                ctx.theme.surface(),
+                ctx.theme.tokens.stroke.max(1.1),
+            );
+        }
+        NodeGlyphStyle::Pie | NodeGlyphStyle::Donut => {
+            ctx.svg
+                .circle(at.0, at.1, glyph.size + 1.2, ctx.theme.surface());
+            let positive = values.iter().filter(|value| **value > 0.0).count();
+            if positive == 1 {
+                let index = values.iter().position(|value| *value > 0.0).unwrap_or(0);
+                ctx.svg.circle_ringed(
+                    at.0,
+                    at.1,
+                    glyph.size,
+                    ctx.theme.color(index),
+                    ctx.theme.surface(),
+                    0.7,
+                );
+            } else {
+                let mut start = -std::f64::consts::FRAC_PI_2;
+                for (index, value) in values.iter().enumerate() {
+                    if *value <= 0.0 {
+                        continue;
+                    }
+                    let end = start + std::f64::consts::TAU * *value / total;
+                    let path = pie_slice_path(at.0, at.1, glyph.size, start, end);
+                    ctx.svg.path(&path, ctx.theme.color(index), 1.0);
+                    ctx.svg.path_stroked(&path, ctx.theme.surface(), 0.7);
+                    start = end;
+                }
+            }
+            if glyph.style == NodeGlyphStyle::Donut {
+                ctx.svg
+                    .circle(at.0, at.1, glyph.size * 0.48, ctx.theme.surface());
+            }
+        }
+        NodeGlyphStyle::StackedBar => {
+            let width = glyph.size * 3.0;
+            let height = (glyph.size * 0.78).max(3.0);
+            let left = at.0 - width / 2.0;
+            let top = at.1 - height / 2.0;
+            ctx.svg.rect_rounded(
+                left - 1.0,
+                top - 1.0,
+                width + 2.0,
+                height + 2.0,
+                2.0,
+                &ctx.theme.background,
+            );
+            let mut cursor = left;
+            for (index, value) in values.iter().enumerate() {
+                let segment = width * *value / total;
+                if segment > 0.0 {
+                    ctx.svg
+                        .rect(cursor, top, segment, height, ctx.theme.color(index));
+                }
+                cursor += segment;
+                if cursor < left + width - 0.5 {
+                    ctx.svg.line(
+                        cursor,
+                        top + 0.5,
+                        cursor,
+                        top + height - 0.5,
+                        ctx.theme.surface(),
+                        0.8,
+                    );
+                }
+            }
+        }
+    }
+    ctx.svg.end_group();
+}
+
+fn pie_slice_path(cx: f64, cy: f64, radius: f64, start: f64, end: f64) -> String {
+    let (x0, y0) = (cx + start.cos() * radius, cy + start.sin() * radius);
+    let (x1, y1) = (cx + end.cos() * radius, cy + end.sin() * radius);
+    format!(
+        "M {} {} L {} {} A {} {} 0 {} 1 {} {} Z",
+        num(cx),
+        num(cy),
+        num(x0),
+        num(y0),
+        num(radius),
+        num(radius),
+        usize::from((end - start).abs() > std::f64::consts::PI),
+        num(x1),
+        num(y1)
+    )
+}
+
+fn draw_rectangular_node_glyphs(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    area: Rect,
+) {
+    let visible: Vec<usize> = scene
+        .placements
+        .iter()
+        .flatten()
+        .map(|placement| placement.node)
+        .collect();
+    for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
+        let maximum = bubble_max(&track.tree, &visible, glyph);
+        for node in &visible {
+            let placement = scene.placements[*node].unwrap();
+            draw_node_glyph(
+                ctx,
+                &track.tree,
+                *node,
+                glyph,
+                glyph_index,
+                (
+                    scene.x(area, placement.depth),
+                    area.y + track.row_height / 2.0 + placement.row * track.row_height,
+                ),
+                maximum,
+            );
+        }
+    }
+}
+
+fn draw_radial_node_glyphs(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+) {
+    let visible: Vec<usize> = scene
+        .placements
+        .iter()
+        .flatten()
+        .map(|placement| placement.node)
+        .collect();
+    for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
+        let maximum = bubble_max(&track.tree, &visible, glyph);
+        for node in &visible {
+            let placement = scene.placements[*node].unwrap();
+            let at = geometry.point(
+                geometry.radius(scene, placement.depth),
+                geometry.angle(placement.row),
+            );
+            draw_node_glyph(ctx, &track.tree, *node, glyph, glyph_index, at, maximum);
+        }
+    }
+}
+
+fn draw_unrooted_node_glyphs(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+) {
+    for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
+        let maximum = bubble_max(&track.tree, &scene.visible, glyph);
+        for node in &scene.visible {
+            let Some(point) = scene.positions[*node] else {
+                continue;
+            };
+            draw_node_glyph(
+                ctx,
+                &track.tree,
+                *node,
+                glyph,
+                glyph_index,
+                geometry.node(point),
+                maximum,
+            );
+        }
+    }
+}
+
+fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
+    if track.node_glyphs.is_empty() {
+        return;
+    }
+    let size = (ctx.theme.font_size - 2.0).max(6.0);
+    let mut x = ctx.band.x + 2.0;
+    let top = ctx.band.y + 1.0;
+    let height = size + 7.0;
+    let y = top + height / 2.0 + size * 0.34;
+    let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
+    for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
+        if x >= ctx.band.right() - 10.0 {
+            break;
+        }
+        match glyph.style {
+            NodeGlyphStyle::Bubble => {
+                let available = (ctx.band.right() - x).min(110.0);
+                let label = fit_text(&glyph.label, (available - 20.0).max(0.0), size);
+                let width = (text_width(&label, size) + 24.0).min(available);
+                ctx.svg
+                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
+                ctx.svg.circle_ringed(
+                    x + 9.0,
+                    top + height / 2.0,
+                    3.0,
+                    ctx.theme.color(glyph_index),
+                    ctx.theme.surface(),
+                    0.7,
+                );
+                ctx.svg.text_bold(
+                    x + 16.0,
+                    y,
+                    &label,
+                    &ctx.theme.muted,
+                    size,
+                    crate::svg::Anchor::Start,
+                );
+                x += width + 6.0;
+            }
+            _ => {
+                let label = fit_text(&glyph.label, 90.0, size);
+                let keys: Vec<String> = glyph
+                    .keys
+                    .iter()
+                    .map(|key| fit_text(key, 58.0, size))
+                    .collect();
+                let natural = 16.0
+                    + text_width(&label, size)
+                    + keys
+                        .iter()
+                        .map(|key| 16.0 + text_width(key, size))
+                        .sum::<f64>();
+                let width = natural.min(ctx.band.right() - x);
+                ctx.svg
+                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
+                let mut cursor = x + 8.0;
+                ctx.svg.text_bold(
+                    cursor,
+                    y,
+                    &label,
+                    &ctx.theme.muted,
+                    size,
+                    crate::svg::Anchor::Start,
+                );
+                cursor += text_width(&label, size) + 8.0;
+                for (key_index, key) in keys.iter().enumerate() {
+                    if cursor + 12.0 >= x + width {
+                        break;
+                    }
+                    ctx.svg.circle(
+                        cursor + 3.0,
+                        top + height / 2.0,
+                        3.0,
+                        ctx.theme.color(key_index),
+                    );
+                    cursor += 9.0;
+                    let key = fit_text(key, (x + width - cursor - 5.0).max(0.0), size);
+                    ctx.svg.text(
+                        cursor,
+                        y,
+                        &key,
+                        &ctx.theme.muted,
+                        size,
+                        crate::svg::Anchor::Start,
+                    );
+                    cursor += text_width(&key, size) + 7.0;
+                }
+                x += width + 6.0;
+            }
+        }
+    }
 }
 
 struct TreeScene {
@@ -1545,6 +3399,115 @@ fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> Stri
     }
 }
 
+fn support_fraction(value: f64) -> Option<f64> {
+    if !value.is_finite() {
+        return None;
+    }
+    let fraction = if value > 1.0 { value / 100.0 } else { value };
+    Some(fraction.clamp(0.0, 1.0))
+}
+
+fn draw_root_marker(ctx: &mut DrawContext<'_>, x: f64, y: f64) {
+    ctx.svg.begin_titled("selected root");
+    ctx.svg.symbol_ringed(
+        x,
+        y,
+        ctx.theme.tokens.marker_radius * 1.15,
+        crate::style::Symbol::Diamond,
+        &ctx.theme.accent,
+        &ctx.theme.background,
+        ctx.theme.tokens.hairline.max(1.0),
+    );
+    ctx.svg.end_group();
+}
+
+fn draw_support(
+    ctx: &mut DrawContext<'_>,
+    x: f64,
+    y: f64,
+    support: f64,
+    color: &str,
+    style: SupportStyle,
+) {
+    let fraction = support_fraction(support).unwrap_or(0.0);
+    let radius = ctx.theme.tokens.marker_radius * (0.45 + fraction * 0.55);
+    if style.symbols() {
+        ctx.svg.circle_ringed(
+            x,
+            y,
+            radius,
+            color,
+            &ctx.theme.background,
+            ctx.theme.tokens.hairline,
+        );
+    }
+    if style.labels() {
+        let label = num(support);
+        let size = (ctx.theme.font_size - 3.0).max(6.0);
+        let offset = if style.symbols() { radius + 2.5 } else { 3.0 };
+        let width = text_width(&label, size) + 4.0;
+        ctx.svg.rect_rounded(
+            x + offset - 2.0,
+            y - size - 1.0,
+            width,
+            size + 3.0,
+            2.0,
+            &ctx.theme.background,
+        );
+        ctx.svg.text(
+            x + offset,
+            y - 1.5,
+            &label,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+    }
+}
+
+fn draw_branch_annotation(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    labels: &BranchLabels,
+    start: (f64, f64),
+    end: (f64, f64),
+) {
+    let Some(value) = tree.annotation(node, &labels.key) else {
+        return;
+    };
+    let exact = value.to_string();
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let length = dx.hypot(dy);
+    let visible = fit_text(&exact, (length - 6.0).max(0.0), labels.size);
+    if visible.is_empty() {
+        return;
+    }
+    let angle = dy.atan2(dx);
+    let mut rotation = angle.to_degrees().rem_euclid(360.0);
+    if rotation > 90.0 && rotation < 270.0 {
+        rotation += 180.0;
+    }
+    let offset = labels.size * 0.55 + 1.0;
+    let x = (start.0 + end.0) / 2.0 + angle.sin() * offset;
+    let y = (start.1 + end.1) / 2.0 - angle.cos() * offset;
+    if visible != exact {
+        ctx.svg.begin_titled(&format!("{} {exact}", labels.key));
+    }
+    ctx.svg.text_rotated(
+        (x, y),
+        rotation,
+        &visible,
+        &ctx.theme.muted,
+        labels.size,
+        crate::svg::Anchor::Middle,
+    );
+    if visible != exact {
+        ctx.svg.end_group();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_tree_scene(
     ctx: &mut DrawContext<'_>,
@@ -1556,6 +3519,9 @@ fn draw_tree_scene(
     width: f64,
     color_by: Option<&str>,
     show_nodes: bool,
+    support_style: SupportStyle,
+    support_threshold: f64,
+    branch_labels: Option<&BranchLabels>,
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
@@ -1572,13 +3538,23 @@ fn draw_tree_scene(
         let x0 = scene.x(area, parent_placement.depth);
         let x1 = scene.x(area, placement.depth);
         let y = y_of(placement.row);
-        let title = branch_title(tree, placement.node, color_by, name_leaves, false);
+        let title = branch_title(
+            tree,
+            placement.node,
+            color_by,
+            branch_labels.map(|labels| labels.key.as_str()),
+            name_leaves,
+            false,
+        );
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
         ctx.svg.line(x0, y, x1, y, &colors[placement.node], width);
         if title.is_some() {
             ctx.svg.end_group();
+        }
+        if let Some(labels) = branch_labels {
+            draw_branch_annotation(ctx, tree, placement.node, labels, (x0, y), (x1, y));
         }
     }
 
@@ -1599,7 +3575,7 @@ fn draw_tree_scene(
             (lo.min(*row), hi.max(*row))
         });
         let x = scene.x(area, placement.depth);
-        let title = branch_title(tree, placement.node, color_by, false, true);
+        let title = branch_title(tree, placement.node, color_by, None, false, true);
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
@@ -1614,7 +3590,19 @@ fn draw_tree_scene(
         if title.is_some() {
             ctx.svg.end_group();
         }
-        if show_nodes {
+        if let Some(support) = node.support.filter(|value| {
+            support_style != SupportStyle::None
+                && support_fraction(*value).is_some_and(|value| value >= support_threshold)
+        }) {
+            draw_support(
+                ctx,
+                x,
+                y_of(placement.row),
+                support,
+                &colors[placement.node],
+                support_style,
+            );
+        } else if show_nodes {
             ctx.svg.circle_ringed(
                 x,
                 y_of(placement.row),
@@ -1738,6 +3726,7 @@ fn branch_title(
     tree: &Tree,
     node: usize,
     color_by: Option<&str>,
+    branch_label: Option<&str>,
     name_leaf: bool,
     include_support: bool,
 ) -> Option<String> {
@@ -1757,6 +3746,11 @@ fn branch_title(
     }
     if let Some(key) = color_by {
         if let Some(value) = inherited_annotation(tree, node, key) {
+            parts.push(format!("{key} {value}"));
+        }
+    }
+    if let Some(key) = branch_label.filter(|key| Some(*key) != color_by) {
+        if let Some(value) = tree.annotation(node, key) {
             parts.push(format!("{key} {value}"));
         }
     }
@@ -1786,27 +3780,12 @@ fn draw_trait_columns(
             .iter()
             .map(|node| inherited_annotation(tree, *node, &column.key))
             .collect();
-        let categories: BTreeMap<String, usize> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
-            .map(ToString::to_string)
-            .fold(BTreeMap::new(), |mut categories, value| {
-                let next = categories.len();
-                categories.entry(value).or_insert(next);
-                categories
-            });
-        let numeric: Vec<f64> = scene
-            .placements
-            .iter()
-            .flatten()
-            .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
-            .filter_map(AnnotationValue::as_number)
-            .filter(|value| value.is_finite())
-            .collect();
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
+        let domain =
+            TraitDomain::new(
+                scene.placements.iter().flatten().filter_map(|placement| {
+                    inherited_annotation(tree, placement.node, &column.key)
+                }),
+            );
 
         let heading = fit_text(&column.label, column.width, size);
         ctx.svg.text(
@@ -1823,77 +3802,257 @@ fn draw_trait_columns(
             let height = (row_pitch - 2.0).max(1.0);
             let name = terminal_label(tree, *node, collapsed);
             let value = values[row];
-            let fill = match (column.scale, value) {
-                (TraitScale::Categorical, Some(value)) => {
-                    let value = value.to_string();
-                    categories
-                        .get(&value)
-                        .map(|index| ctx.theme.color(*index).to_string())
-                }
-                (TraitScale::Continuous, Some(value)) => value.as_number().and_then(|value| {
-                    value.is_finite().then(|| {
-                        let fraction = if maximum <= minimum {
-                            1.0
-                        } else {
-                            (value - minimum) / (maximum - minimum)
-                        };
-                        mix(&ctx.theme.muted, &ctx.theme.accent, fraction)
-                    })
-                }),
-                _ => None,
-            };
+            let fill = domain.color(column, value, ctx.theme);
             let displayed = value.map(ToString::to_string);
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
             };
             ctx.svg.begin_titled(&title);
-            if let Some(fill) = &fill {
-                ctx.svg.rect_rounded(
-                    x,
-                    y,
-                    column.width,
-                    height,
-                    ctx.theme.corner_radius.min(2.0),
-                    fill,
-                );
-                if column.show_values {
-                    if let Some(value) = &displayed {
-                        let value = fit_text(value, column.width - 4.0, size);
-                        ctx.svg.text(
-                            x + column.width / 2.0,
-                            y + height / 2.0 + size * 0.35,
-                            &value,
-                            contrast_ink(fill),
-                            size,
-                            crate::svg::Anchor::Middle,
+            match column.style {
+                TraitStyle::Strip => {
+                    if let Some(fill) = &fill {
+                        ctx.svg.rect_rounded(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            ctx.theme.corner_radius.min(2.0),
+                            fill,
+                        );
+                    } else {
+                        ctx.svg.rect_outline(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
                         );
                     }
                 }
-            } else {
-                ctx.svg.rect_outline(
-                    x,
-                    y,
-                    column.width,
-                    height,
-                    &ctx.theme.rule,
-                    ctx.theme.tokens.hairline,
-                );
-                if column.show_values {
-                    ctx.svg.text(
-                        x + column.width / 2.0,
-                        y + height / 2.0 + size * 0.35,
-                        "—",
-                        &ctx.theme.muted,
-                        size,
-                        crate::svg::Anchor::Middle,
+                TraitStyle::Bar => {
+                    ctx.svg.rect_outline(
+                        x,
+                        y,
+                        column.width,
+                        height,
+                        &ctx.theme.rule,
+                        ctx.theme.tokens.hairline,
                     );
+                    if let Some(fraction) = domain.fraction(value) {
+                        ctx.svg.rect_rounded(
+                            x,
+                            y,
+                            column.width * fraction,
+                            height,
+                            ctx.theme.corner_radius.min(2.0),
+                            fill.as_deref().unwrap_or(&ctx.theme.accent),
+                        );
+                    }
                 }
+                TraitStyle::Binary => match binary_state(value) {
+                    Some(true) => ctx.svg.circle_ringed(
+                        x + column.width / 2.0,
+                        y + height / 2.0,
+                        (height * 0.28).clamp(1.4, 5.0),
+                        &ctx.theme.accent,
+                        &ctx.theme.background,
+                        ctx.theme.tokens.hairline,
+                    ),
+                    Some(false) => ctx.svg.circle_ringed(
+                        x + column.width / 2.0,
+                        y + height / 2.0,
+                        (height * 0.12).clamp(0.8, 2.0),
+                        &ctx.theme.rule,
+                        &ctx.theme.background,
+                        ctx.theme.tokens.hairline,
+                    ),
+                    None => ctx.svg.rect_outline(
+                        x,
+                        y,
+                        column.width,
+                        height,
+                        &ctx.theme.rule,
+                        ctx.theme.tokens.hairline,
+                    ),
+                },
+                TraitStyle::Symbol => {
+                    if let Some(index) = domain.category(value) {
+                        ctx.svg.symbol_ringed(
+                            x + column.width / 2.0,
+                            y + height / 2.0,
+                            (height * 0.28).clamp(1.4, 5.0),
+                            ctx.theme.symbol(index),
+                            fill.as_deref().unwrap_or(&ctx.theme.accent),
+                            &ctx.theme.background,
+                            ctx.theme.tokens.hairline,
+                        );
+                    } else {
+                        ctx.svg.rect_outline(
+                            x,
+                            y,
+                            column.width,
+                            height,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
+                        );
+                    }
+                }
+            }
+            if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+                let text = displayed.as_deref().unwrap_or("—");
+                let visible = fit_text(text, column.width - 4.0, size);
+                let ink = fill
+                    .as_deref()
+                    .filter(|_| column.style == TraitStyle::Strip)
+                    .map(contrast_ink)
+                    .unwrap_or(ctx.theme.muted.as_str());
+                ctx.svg.text(
+                    x + column.width / 2.0,
+                    y + height / 2.0 + size * 0.35,
+                    &visible,
+                    ink,
+                    size,
+                    crate::svg::Anchor::Middle,
+                );
             }
             ctx.svg.end_group();
         }
         x += column.width + ctx.theme.tokens.legend_gap;
     }
+}
+
+fn nice_scale_length(span: f64) -> Option<f64> {
+    if !span.is_finite() || span <= 0.0 {
+        return None;
+    }
+    let target = span * 0.2;
+    let magnitude = 10.0f64.powf(target.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|step| step * magnitude)
+        .rfind(|value| *value <= target * (1.0 + 1e-12))
+        .or(Some(magnitude))
+}
+
+fn scale_bar_value(bar: &ScaleBar, span: f64) -> Option<f64> {
+    if !span.is_finite() || span <= 0.0 {
+        return None;
+    }
+    Some(bar.length.unwrap_or(nice_scale_length(span)?).min(span))
+}
+
+fn draw_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    start: (f64, f64),
+    pixels: f64,
+    value: f64,
+    bar: &ScaleBar,
+) {
+    if !pixels.is_finite() || pixels <= 0.0 {
+        return;
+    }
+    let label = match &bar.unit {
+        Some(unit) => format!("{} {unit}", num(value)),
+        None => num(value),
+    };
+    let title = format!("branch length scale {label}");
+    let tick = ctx.theme.tokens.tick_length.max(3.0);
+    let end = start.0 + pixels;
+    ctx.svg.begin_titled(&title);
+    ctx.svg.line(
+        start.0,
+        start.1,
+        end,
+        start.1,
+        &ctx.theme.foreground,
+        ctx.theme.tokens.hairline.max(1.0),
+    );
+    for x in [start.0, end] {
+        ctx.svg.line(
+            x,
+            start.1 - tick / 2.0,
+            x,
+            start.1 + tick / 2.0,
+            &ctx.theme.foreground,
+            ctx.theme.tokens.hairline.max(1.0),
+        );
+    }
+    ctx.svg.text(
+        start.0,
+        start.1 + tick / 2.0 + ctx.theme.font_size,
+        &label,
+        &ctx.theme.muted,
+        (ctx.theme.font_size - 1.0).max(6.0),
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+}
+
+fn draw_rectangular_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let span = scene.maximum - scene.minimum;
+    let Some(value) = scale_bar_value(bar, span) else {
+        return;
+    };
+    draw_scale_bar(
+        ctx,
+        (area.x, area.bottom() + 4.0),
+        area.w * value / span,
+        value,
+        bar,
+    );
+}
+
+fn draw_radial_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &TreeScene,
+    geometry: &RadialGeometry,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let span = scene.maximum - scene.minimum;
+    let Some(value) = scale_bar_value(bar, span) else {
+        return;
+    };
+    let radial_pixels = (geometry.tree_outer - geometry.tree_inner).abs();
+    draw_scale_bar(
+        ctx,
+        (
+            area.x + 8.0,
+            area.bottom() - ctx.theme.font_size - ctx.theme.tokens.tick_length - 9.0,
+        ),
+        radial_pixels * value / span,
+        value,
+        bar,
+    );
+}
+
+fn draw_unrooted_scale_bar(
+    ctx: &mut DrawContext<'_>,
+    scene: &UnrootedScene,
+    geometry: &UnrootedGeometry,
+    area: Rect,
+    bar: &ScaleBar,
+) {
+    let Some(value) = scale_bar_value(bar, scene.radius) else {
+        return;
+    };
+    draw_scale_bar(
+        ctx,
+        (
+            area.x + 8.0,
+            area.bottom() - ctx.theme.font_size - ctx.theme.tokens.tick_length - 9.0,
+        ),
+        geometry.scale * value,
+        value,
+        bar,
+    );
 }
 
 fn draw_time_axis(ctx: &mut DrawContext<'_>, scene: &TreeScene, area: Rect, time: &TimeAxis) {
@@ -2023,6 +4182,152 @@ mod tests {
         // The clade support is the one thing no label carries, so it stays.
         assert!(svg.contains("<title>clade support 0.9</title>"), "{svg}");
         assert_eq!(svg.matches("<title>").count(), 1);
+    }
+
+    #[test]
+    fn support_can_be_encoded_visibly_and_filtered_without_losing_tooltips() {
+        for track in [
+            TreeTrack::new(tree()),
+            TreeTrack::new(tree()).circular(),
+            TreeTrack::new(tree()).unrooted(),
+        ] {
+            let visible = Figure::new(region())
+                .width(540.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .clone()
+                        .support_style(SupportStyle::SymbolsAndLabels)
+                        .support_threshold(80.0),
+                )
+                .to_svg();
+            assert!(visible.contains(">0.9</text>"), "{visible}");
+            assert!(visible.contains("clade support 0.9"), "{visible}");
+
+            let filtered = Figure::new(region())
+                .width(540.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .support_style(SupportStyle::SymbolsAndLabels)
+                        .support_threshold(0.95),
+                )
+                .to_svg();
+            assert!(!filtered.contains(">0.9</text>"), "{filtered}");
+            assert!(filtered.contains("clade support 0.9"), "{filtered}");
+        }
+    }
+
+    #[test]
+    fn branch_event_labels_are_direct_exact_and_projection_independent() {
+        let event_tree = Tree::parse_annotated_newick(
+            "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",
+        )
+        .unwrap();
+        for track in [
+            TreeTrack::new(event_tree.clone()),
+            TreeTrack::new(event_tree.clone()).circular(),
+            TreeTrack::new(event_tree.clone()).unrooted(),
+        ] {
+            let svg = Figure::new(region())
+                .width(640.0)
+                .show_region_label(false)
+                .push(track.branch_labels("event").branch_label_size(6.0))
+                .to_svg();
+            for event in ["S_D614G", "N_R203K"] {
+                assert!(svg.contains(&format!(">{event}</text>")), "{svg}");
+                assert!(svg.contains(&format!("event {event}")), "{svg}");
+            }
+            assert_eq!(svg.matches(">S_D614G</text>").count(), 1, "{svg}");
+        }
+    }
+
+    #[test]
+    fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
+        for track in [
+            TreeTrack::new(tree()),
+            TreeTrack::new(tree()).circular(),
+            TreeTrack::new(tree()).unrooted(),
+        ] {
+            let svg = Figure::new(region())
+                .width(640.0)
+                .show_region_label(false)
+                .push(
+                    track
+                        .scale_bar()
+                        .scale_bar_length(0.1)
+                        .scale_bar_unit("substitutions/site"),
+                )
+                .to_svg();
+            assert!(
+                svg.contains("<title>branch length scale 0.1 substitutions/site</title>"),
+                "{svg}"
+            );
+            assert!(svg.contains(">0.1 substitutions/site</text>"), "{svg}");
+        }
+
+        let cladogram = Figure::new(region())
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree())
+                    .shape(TreeShape::Cladogram)
+                    .scale_bar(),
+            )
+            .to_svg();
+        assert!(!cladogram.contains("branch length scale"), "{cladogram}");
+    }
+
+    #[test]
+    fn track_builders_reroot_by_node_name_outgroup_and_midpoint() {
+        let named_tree = Tree::parse_newick("((A:1,B:1)AB:2,(C:1,D:1)CD:2);").unwrap();
+        let ab = named_tree.node_named("AB").unwrap();
+        let by_node = TreeTrack::new(named_tree.clone()).reroot(ab);
+        assert_eq!(by_node.tree().root(), ab);
+        assert!(by_node.show_root);
+
+        let by_name = TreeTrack::new(named_tree).reroot_named("CD");
+        assert_eq!(
+            by_name.tree().nodes()[by_name.tree().root()]
+                .name
+                .as_deref(),
+            Some("CD")
+        );
+
+        let outgroup_tree =
+            Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+        let by_outgroup = TreeTrack::new(outgroup_tree).reroot_outgroup(["O1", "O2"]);
+        assert!(by_outgroup.show_root);
+        assert_eq!(by_outgroup.tree().leaf_count(), 5);
+
+        let midpoint_tree = Tree::parse_newick("((A:1,B:1)AB:1,C:4);").unwrap();
+        let old_nodes = midpoint_tree.nodes().len();
+        let by_midpoint = TreeTrack::new(midpoint_tree).reroot_midpoint();
+        assert_eq!(by_midpoint.tree().root(), old_nodes);
+        assert!(by_midpoint.show_root);
+    }
+
+    #[test]
+    fn selected_root_markers_are_explicit_and_only_belong_to_rooted_projections() {
+        let tree = Tree::parse_newick("((A:1,B:1)AB:2,(C:1,D:1)CD:2);").unwrap();
+        let rooted = TreeTrack::new(tree.clone()).reroot_named("AB");
+        for track in [rooted.clone(), rooted.clone().circular()] {
+            let svg = Figure::new(region())
+                .width(560.0)
+                .show_region_label(false)
+                .push(track)
+                .to_svg();
+            assert!(svg.contains("<title>selected root</title>"), "{svg}");
+        }
+
+        let unrooted = Figure::new(region())
+            .width(560.0)
+            .show_region_label(false)
+            .push(rooted.unrooted())
+            .to_svg();
+        assert!(!unrooted.contains("selected root"), "{unrooted}");
+
+        let unchanged = TreeTrack::new(tree).reroot_named("missing");
+        assert!(!unchanged.show_root);
     }
 
     #[test]
@@ -2162,7 +4467,7 @@ mod tests {
             .trait_column(TraitColumn::continuous("coverage").label("Depth"));
         assert_eq!(
             track.height(&Scale::new(&region(), 0.0, 100.0)),
-            3.0 * 15.0 + 18.0
+            3.0 * 15.0 + 22.0
         );
         let svg = Figure::new(region())
             .show_region_label(false)
@@ -2194,10 +4499,17 @@ mod tests {
     fn trait_column_builders_expose_their_mapping() {
         let categorical = TraitColumn::categorical("lineage");
         let continuous = TraitColumn::continuous("clock_rate");
+        let bar = TraitColumn::bar("coverage");
+        let binary = TraitColumn::binary("resistant");
+        let symbol = TraitColumn::symbol("host");
         assert_eq!(categorical.key(), "lineage");
         assert_eq!(categorical.scale(), TraitScale::Categorical);
+        assert_eq!(categorical.trait_style(), TraitStyle::Strip);
         assert_eq!(continuous.key(), "clock_rate");
         assert_eq!(continuous.scale(), TraitScale::Continuous);
+        assert_eq!(bar.trait_style(), TraitStyle::Bar);
+        assert_eq!(binary.trait_style(), TraitStyle::Binary);
+        assert_eq!(symbol.trait_style(), TraitStyle::Symbol);
     }
 
     #[test]
@@ -2336,6 +4648,40 @@ mod tests {
     }
 
     #[test]
+    fn itol_style_bars_binary_marks_and_symbols_keep_exact_values() {
+        let tree = Tree::parse_annotated_newick(
+            "(A[&coverage=18,resistant=true,host=human]:1,B[&coverage=30,resistant=false,host=animal]:1,C[&coverage=42,resistant=true,host=water]:1);",
+        )
+        .unwrap();
+        let svg = Figure::new(region())
+            .width(620.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .circular()
+                    .trait_column(TraitColumn::bar("coverage").label("Depth"))
+                    .trait_column(TraitColumn::binary("resistant").label("AMR"))
+                    .trait_column(TraitColumn::symbol("host").label("Host")),
+            )
+            .to_svg();
+        for title in ["A; coverage 18", "B; resistant false", "C; host water"] {
+            assert!(svg.contains(&format!("<title>{title}</title>")), "{svg}");
+        }
+        for heading in [">Depth</text>", ">AMR</text>", ">Host</text>"] {
+            assert!(svg.contains(heading), "{svg}");
+        }
+        assert!(
+            svg.contains("fill-opacity=\"0.92\""),
+            "numeric radial bars: {svg}"
+        );
+        assert!(
+            svg.contains("<polygon"),
+            "shape must reinforce colour: {svg}"
+        );
+        assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
     fn circular_collapse_is_a_non_destructive_wedge() {
         let tree = Tree::parse_newick("((A:1,B:1)outbreak:1,C:2);").unwrap();
         let outbreak = tree.node_named("outbreak").unwrap();
@@ -2365,6 +4711,80 @@ mod tests {
     }
 
     #[test]
+    fn unrooted_height_is_explicit_and_the_source_root_is_not_the_centre() {
+        let scale = Scale::new(&region(), 0.0, 100.0);
+        let tree = Tree::parse_annotated_newick("[&U] (((((A:1,B:1):1,C:1):1,D:1):1,E:1):1,F:1);")
+            .unwrap();
+        let scene = UnrootedScene::new(&tree, TreeShape::Phylogram, &BTreeSet::new(), -90.0);
+        let centre = scene
+            .visible
+            .iter()
+            .copied()
+            .find(|node| scene.parents[*node].is_none())
+            .unwrap();
+        assert_ne!(
+            centre,
+            tree.root(),
+            "the Newick root must not anchor the view"
+        );
+        assert_eq!(
+            TreeTrack::new(tree)
+                .unrooted()
+                .unrooted_size(360.0)
+                .height(&scale),
+            360.0
+        );
+    }
+
+    #[test]
+    fn an_unrooted_tree_keeps_branches_labels_support_and_annotation_rings() {
+        let tree = Tree::parse_annotated_newick(
+            "[&U] ((A[&country=Peru]:0.1,B[&country=Chile]:0.2)0.9:0.3,(C[&country=Peru]:0.15,D[&country=Chile]:0.05):0.2);",
+        )
+        .unwrap();
+        let branches = tree.nodes().len() - 1;
+        let svg = Figure::new(region())
+            .width(560.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .unrooted()
+                    .show_nodes(true)
+                    .color_by("country")
+                    .trait_categorical("country"),
+            )
+            .to_svg();
+        assert!(!svg.contains("NaN"), "{svg}");
+        assert!(svg.matches("<line").count() >= branches + 4, "{svg}");
+        for label in [">A</text>", ">B</text>", ">C</text>", ">D</text>"] {
+            assert!(svg.contains(label), "{svg}");
+        }
+        assert!(svg.contains("clade support 0.9"), "{svg}");
+        assert!(svg.contains("<title>A; country Peru</title>"), "{svg}");
+        assert!(svg.contains(">country</text>"), "{svg}");
+        let branch = svg.find("<title>country Peru</title>").unwrap();
+        assert!(
+            svg[branch..(branch + 180).min(svg.len())].contains("stroke=\"#0072b2\""),
+            "{svg}"
+        );
+        let ring = svg.find("<title>A; country Peru</title>").unwrap();
+        assert!(
+            svg[ring..(ring + 260).min(svg.len())].contains("fill=\"#0072b2\""),
+            "branch and ring must share one category mapping: {svg}"
+        );
+    }
+
+    #[test]
+    fn a_single_unrooted_tip_is_finite() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(TreeTrack::new(Tree::parse_newick("A;").unwrap()).unrooted())
+            .to_svg();
+        assert!(!svg.contains("NaN"));
+        assert!(svg.contains(">A</text>"));
+    }
+
+    #[test]
     fn a_tree_with_no_lengths_still_draws_as_a_phylogram() {
         let flat = Tree::parse_newick("((A,B),(C,D));").unwrap();
         let svg = Figure::new(region())
@@ -2383,5 +4803,82 @@ mod tests {
             .to_svg();
         assert!(!svg.contains("NaN"));
         assert!(svg.contains(">A</text>"));
+    }
+
+    #[test]
+    fn node_glyphs_keep_exact_values_and_clade_fields_keep_tip_counts() {
+        let tree = Tree::parse_annotated_newick(concat!(
+            "((A[&load=4,human=3,animal=1]:1,B[&load=9,human=2,animal=2]:1)",
+            "outbreak[&load=16,human=6,animal=2]:1,",
+            "C[&load=1,human=1,animal=0]:2)root[&load=25,human=7,animal=3];"
+        ))
+        .unwrap();
+        let outbreak = tree.node_named("outbreak").unwrap();
+        let svg = Figure::new(region())
+            .width(620.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(tree)
+                    .row_height(28.0)
+                    .node_glyph(
+                        NodeGlyph::bubble("load")
+                            .label("Isolates")
+                            .target(NodeGlyphTarget::Internal),
+                    )
+                    .node_glyph(
+                        NodeGlyph::donut(["human", "animal"])
+                            .label("Host composition")
+                            .target(NodeGlyphTarget::Leaves),
+                    )
+                    .clade_highlight(
+                        CladeHighlight::new(outbreak)
+                            .label("Transmission cluster")
+                            .opacity(0.16),
+                    ),
+            )
+            .to_svg();
+        assert!(svg.contains("outbreak; load 16"), "{svg}");
+        assert!(svg.contains("A; human 3; animal 1"), "{svg}");
+        assert!(svg.contains("Transmission cluster; 2 tips"), "{svg}");
+        assert!(svg.contains("fill-opacity=\"0.16\""), "{svg}");
+        assert!(svg.contains(">Isolates</text>"), "{svg}");
+        assert!(svg.contains(">human</text>"), "{svg}");
+        assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn every_node_glyph_and_highlight_projects_without_losing_data() {
+        let source = concat!(
+            "((A[&load=4,x=3,y=1]:1,B[&load=9,x=2,y=2]:1)",
+            "group[&load=16,x=6,y=2]:1,C[&load=1,x=1,y=0]:2)",
+            "root[&load=25,x=7,y=3];"
+        );
+        for projection in [
+            TreeProjection::Rectangular,
+            TreeProjection::Circular,
+            TreeProjection::Unrooted,
+        ] {
+            let tree = Tree::parse_annotated_newick(source).unwrap();
+            let group = tree.node_named("group").unwrap();
+            let mut track = TreeTrack::new(tree)
+                .projection(projection)
+                .radial_size(420.0)
+                .node_glyph(NodeGlyph::bubble("load").target(NodeGlyphTarget::Internal))
+                .node_glyph(NodeGlyph::pie(["x", "y"]).target(NodeGlyphTarget::Leaves))
+                .node_glyph(NodeGlyph::stacked_bar(["x", "y"]).target(NodeGlyphTarget::Internal))
+                .clade_highlight(CladeHighlight::new(group).label("group"));
+            if projection == TreeProjection::Unrooted {
+                track = track.unrooted();
+            }
+            let svg = Figure::new(region())
+                .width(600.0)
+                .show_region_label(false)
+                .push(track)
+                .to_svg();
+            assert!(svg.contains("group; load 16"), "{projection:?}: {svg}");
+            assert!(svg.contains("A; x 3; y 1"), "{projection:?}: {svg}");
+            assert!(svg.contains("group; 2 tips"), "{projection:?}: {svg}");
+            assert!(!svg.contains("NaN"), "{projection:?}: {svg}");
+        }
     }
 }

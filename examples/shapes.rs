@@ -156,21 +156,28 @@ fn tanglegram(out: &Path) -> std::io::Result<()> {
     // around. The species matters here: in a clonal organism with a closed
     // pangenome the two trees would agree by construction and the figure would
     // have nothing to show.
-    let core = Tree::parse_newick(
-        "(((ERR5001:0.004,ERR5002:0.004):0.010,(ERR5003:0.003,ERR5004:0.005):0.009):0.020,\
-          ((ERR5005:0.004,ERR5006:0.003):0.011,(ERR5007:0.005,ERR5008:0.004):0.008):0.018);",
+    let core = Tree::parse_annotated_newick(
+        "(((ERR5001[&ward=ICU]:0.004,ERR5002[&ward=ICU]:0.004):0.010,\
+          (ERR5003[&ward=Surgery]:0.003,ERR5004[&ward=Surgery]:0.005):0.009):0.020,\
+          ((ERR5005[&ward=Medicine]:0.004,ERR5006[&ward=Medicine]:0.003):0.011,\
+          (ERR5007[&ward=Community]:0.005,ERR5008[&ward=Community]:0.004):0.008):0.018);",
     )
     .expect("the tree in this example is well formed");
     // The accessory genome tells a different story: two isolates have swapped
     // sides, which is what horizontal transfer looks like in a tanglegram.
-    let accessory = Tree::parse_newick(
-        "(((ERR5001:0.030,ERR5006:0.028):0.040,(ERR5003:0.031,ERR5004:0.029):0.038):0.050,\
-          ((ERR5005:0.030,ERR5002:0.032):0.041,(ERR5007:0.028,ERR5008:0.030):0.039):0.048);",
+    let accessory = Tree::parse_annotated_newick(
+        "(((ERR5001[&ward=ICU]:0.030,ERR5006[&ward=Medicine]:0.028):0.040,\
+          (ERR5003[&ward=Surgery]:0.031,ERR5004[&ward=Surgery]:0.029):0.038):0.050,\
+          ((ERR5005[&ward=Medicine]:0.030,ERR5002[&ward=ICU]:0.032):0.041,\
+          (ERR5007[&ward=Community]:0.028,ERR5008[&ward=Community]:0.030):0.039):0.048);",
     )
     .expect("the tree in this example is well formed");
 
     let track = TanglegramTrack::new(core, accessory)
         .names("core genome", "accessory genome")
+        .color_by("ward")
+        .untangle()
+        .tie_widths(1.0, 1.7)
         .row_height(20.0)
         .label("8 isolates");
     let crossings = track.crossings();

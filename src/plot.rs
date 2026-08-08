@@ -105,13 +105,13 @@ use crate::style::{Density, RenderProfile};
 use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
-    CodonTrack, CoverageTrack, DotplotTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack,
-    Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, MatrixRow,
-    MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack,
-    PileupTrack, Read, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack,
-    Strand, StructuralTrack, StructuralVariant, SyntenyTrack, TanglegramTrack, Track,
-    TranscriptionUnit, TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window,
-    WindowTrack,
+    CodonTrack, CoverageTrack, DomainArchitecture, DomainTrack, DotplotTrack, Feature,
+    FeatureTrack, GenomeTrack, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
+    LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
+    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Read, SequenceTrack, SnpSite, SnpTrack,
+    SplitRead, SplitReadTrack, SquiggleTrack, Strand, StructuralTrack, StructuralVariant,
+    SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack,
+    Variant, VariantTrack, Window, WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -225,6 +225,7 @@ tracks![
     CladeTrack,
     CodonTrack,
     CoverageTrack,
+    DomainTrack,
     DotplotTrack,
     FeatureTrack,
     GenomeTrack,
@@ -543,6 +544,11 @@ impl<T: Slot> Plot<T> {
     /// Alignment blocks as a dotplot, query against target.
     pub fn add_dotplot(self, blocks: impl Into<Vec<AlignmentBlock>>) -> Plot<DotplotTrack> {
         self.settle().park(DotplotTrack::new(blocks))
+    }
+
+    /// Domains, motifs or other interval architectures, one sequence per row.
+    pub fn add_domains(self, rows: impl Into<Vec<DomainArchitecture>>) -> Plot<DomainTrack> {
+        self.settle().park(DomainTrack::new(rows))
     }
 
     /// Gene models and other intervals, packed into as few rows as they need.
@@ -988,6 +994,7 @@ mod tests {
             .add_dotplot(vec![AlignmentBlock::new(
                 761_000, 761_100, 761_000, 761_100,
             )])
+            .add_domains(vec![DomainArchitecture::new("s1", 1_000)])
             .add_features(vec![Feature::new(761_100, 761_400)])
             .add_genome(Genome::new([("chr1", 1_000u64)]))
             .add_ideogram(1_000_000, vec![Band::new(0, 1_000, Stain::Gneg)])
@@ -1035,7 +1042,7 @@ mod tests {
             .add_track(AxisTrack::new())
             .add_axis()
             .into_figure();
-        assert_eq!(figure.track_count(), 35);
+        assert_eq!(figure.track_count(), 36);
     }
 
     #[test]

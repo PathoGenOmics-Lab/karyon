@@ -34,6 +34,7 @@ pub mod bisulfite;
 pub mod clade;
 pub mod codon;
 pub mod coverage;
+pub mod domain;
 pub mod feature;
 pub mod genome;
 pub mod ideogram;
@@ -63,6 +64,7 @@ pub use bisulfite::{BisulfiteTrack, Molecule};
 pub use clade::{CladeBlock, CladeTrack};
 pub use codon::CodonTrack;
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
+pub use domain::{DomainArchitecture, DomainFeature, DomainTrack};
 pub use feature::{strand_color, Feature, FeatureTrack, Strand};
 pub use genome::GenomeTrack;
 pub use ideogram::{Band, IdeogramTrack, Stain};
@@ -81,9 +83,12 @@ pub use split::{SplitRead, SplitReadTrack, SplitSegment};
 pub use squiggle::{Move, SquiggleTrack};
 pub use structural::{StructuralTrack, StructuralVariant, SvKind};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
-pub use tanglegram::TanglegramTrack;
+pub use tanglegram::{TangleLabels, TangleTieStyle, TanglegramTrack};
 pub use transcript::{Terminator, TranscriptionUnit, TranscriptionUnitTrack};
-pub use tree::{RadialDirection, TraitColumn, TraitScale, TreeProjection, TreeShape, TreeTrack};
+pub use tree::{
+    CladeHighlight, NodeGlyph, NodeGlyphStyle, NodeGlyphTarget, RadialDirection, SupportStyle,
+    TraitColumn, TraitScale, TraitStyle, TreeProjection, TreeShape, TreeTrack,
+};
 pub use variant::{Variant, VariantStyle, VariantTrack};
 pub use window::{Window, WindowStyle, WindowTrack};
 

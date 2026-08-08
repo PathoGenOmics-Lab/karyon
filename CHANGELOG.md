@@ -8,8 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Row-major `Panels` grids for balanced comparison sheets, plus quieter clade
+  fields, halo-separated node compositions, compact annotation legend chips,
+  aligned-tree dividers and washed domain architectures.
+- Node-attached bubbles, pies, donuts and stacked bars from exact numeric
+  annotations; clade highlights that become rectangular bands, radial sectors
+  or unrooted fields; tree-aligned MSA rows; and a new `DomainTrack` for domain,
+  motif, exon or repeat architectures ordered by phylogenetic descent.
+- Crossing-aware tanglegram untangling, equal-angle unrooted trees and layered
+  iTOL-style annotation strips, bars, binary markers and symbols.
+- Projection-independent branch evidence for phylograms: support can use scaled
+  symbols, exact labels and a threshold in either common convention;
+  branch-specific annotations can follow their edge without ancestral
+  inheritance; and automatic or exact scale bars retain evolutionary units in
+  rectangular, circular and unrooted coordinates.
+- Validated rerooting around an internal node, a strictly monophyletic outgroup
+  or the weighted midpoint. Tip distances and edge support are preserved,
+  invalid requests do not mutate the tree, and rooted projections can mark the
+  selected root explicitly without leaking that marker into unrooted views.
 - A visual plot catalogue for the documentation, separating discovery from the
-  exhaustive track reference. Seven category pages group all twenty-nine
+  exhaustive track reference. Seven category pages group all thirty
   tracks and the three standalone drawings by biological question, data shape
   and coordinate system, with responsive image-led cards, shorter section-only
   tables of contents and direct routes to the exact API contract.
@@ -154,7 +172,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   different label.
 - `examples/reading.rs` and four assets, plus gallery panels S to V. The sheet is
   twenty-two panels.
-- The README track table now lists all twenty-nine track types. It had stopped at
+- The README track table now lists all thirty track types. It had stopped at
   `AxisTrack` and was fourteen tracks out of date.
 
 ### Added

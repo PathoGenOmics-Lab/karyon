@@ -139,16 +139,31 @@ impl SvgWriter {
     /// The radius is clamped to half the smaller side, so a short bar becomes a
     /// lozenge rather than losing its geometry to an oversized corner.
     pub fn rect_rounded(&mut self, x: f64, y: f64, w: f64, h: f64, radius: f64, fill: &str) {
+        self.rect_rounded_opacity(x, y, w, h, radius, fill, 1.0);
+    }
+
+    /// A filled rounded rectangle with explicit fill opacity.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rect_rounded_opacity(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        radius: f64,
+        fill: &str,
+        opacity: f64,
+    ) {
         if w <= 0.0 || h <= 0.0 || !finite(&[x, y, w, h, radius]) {
             return;
         }
         let radius = radius.min(w / 2.0).min(h / 2.0).max(0.0);
         if radius <= 0.05 {
-            return self.rect(x, y, w, h, fill);
+            return self.rect_opacity(x, y, w, h, fill, opacity);
         }
         let _ = write!(
             self.body,
-            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}"/>"#,
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}""#,
             num(x),
             num(y),
             num(w),
@@ -156,6 +171,8 @@ impl SvgWriter {
             num(radius),
             fill
         );
+        self.push_opacity("fill-opacity", opacity);
+        self.body.push_str("/>");
     }
 
     /// A filled circle with a ring in the surface colour around it.

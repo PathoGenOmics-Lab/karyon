@@ -109,6 +109,10 @@ Panels::new()
 `Panels::visual_scale` scales nested drawings that were already added, together
 with letters, captions, gaps and margins.
 
+`Panels::row_major` makes a regular comparison grid when rows carry meaning;
+the default column-major flow remains the more compact choice for a long paper
+figure with unequal panel heights.
+
 ## Accessibility and exact content
 
 The SVG root is named and described for assistive technology, and pointable

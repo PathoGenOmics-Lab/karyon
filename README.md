@@ -67,21 +67,24 @@ plot("chr1:1-10000")?
 
 Annotated Newick, BEAST, NHX and Nexus trees retain typed metadata. A tree can
 be placed on calendar time, coloured by inherited branch annotations and
-aligned to categorical or continuous sample traits. The same data can be drawn
-as a rectangular tree, complete circle or partial fan, outwards or inwards;
-named clades can collapse visually without changing the source topology.
+aligned to colour strips, heatmaps, bars, binary marks or shaped categories.
+The same data can be drawn as a rectangular tree, complete circle, partial fan
+or equal-angle unrooted view; named clades can collapse visually without
+changing the source topology.
 
 ```rust
-use karyon::{TraitColumn, Tree, TreeTrack};
+use karyon::{SupportStyle, TraitColumn, Tree, TreeTrack};
 
 let tree = Tree::parse_annotated_newick(
-    "(sample_A[&date=2024.25,country=Peru,coverage=48]:0.2,\
+    "(sample_A[&date=2024.25,country=Peru,coverage=48,mutation=rpoB-S450L]:0.2,\
       sample_B[&date=2024.50,country=Spain,coverage=73]:0.3);",
 )?;
 let track = TreeTrack::new(tree)
     .time("date")
     .time_unit("year")
     .color_by("country")
+    .support_style(SupportStyle::SymbolsAndLabels)
+    .branch_labels("mutation")
     .trait_column(
         TraitColumn::categorical("country")
             .label("Country")
@@ -93,8 +96,20 @@ let track = TreeTrack::new(tree)
 
 <img src="assets/example-phylo-layouts.svg" alt="Four views of the same synthetic outbreak phylogeny: an outward circular time tree with trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram" width="100%">
 
+Phylograms can also expose support, branch-specific events and a true
+branch-length scale in rectangular, circular and unrooted coordinates:
+
+<img src="assets/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms with visible support, branch event labels and evolutionary distance scale bars" width="100%">
+
+Rooting is explicit too: choose an internal node or name, validate a
+monophyletic outgroup, or bisect the weighted tip diameter. Successful choices
+can mark the selected root without changing pairwise tip distances.
+
+<img src="assets/example-phylo-reroot.svg" alt="One synthetic phylogram using its source root, a monophyletic outgroup root and a weighted midpoint root" width="100%">
+
 The [phylogenetics guide](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/)
-covers circular and fan geometry, trait rings, MRCA queries, rerooting,
+covers circular and fan geometry, unrooted trees, trait rings, visible support,
+branch events, scale bars, node, outgroup and midpoint rerooting, MRCA queries,
 rotation, ladderising, subtree extraction and the input guarantees for time
 trees.
 
@@ -238,7 +253,7 @@ samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
   | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 ```
 
-Twelve of the twenty-nine tracks have a standard text format to read, and those
+Twelve of the thirty tracks have a standard text format to read, and those
 are the ones the command has: `--coverage`, `--sequence`, `--features`,
 `--variants`, `--windows`, `--manhattan`, `--tree`, `--msa`, `--snps`,
 `--ideogram`, `--matrix` and `--pileup`, plus `--axis` for the ruler when it
@@ -259,9 +274,10 @@ base through the conversion.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; rectangular, circular or fan phylograms, cladograms and time trees out. Metadata can colour branches and form aligned trait columns or rings |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, scale bars, node glyphs, clade fields and layered iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
-| `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring |
+| `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring, optionally ordered by an adjacent tree |
+| `DomainTrack` | Domains and motifs along sequences | Labelled interval architectures, optionally ordered by an adjacent tree so gains and losses form clade blocks |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
 | `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
 | `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |

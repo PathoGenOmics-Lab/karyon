@@ -395,6 +395,39 @@ Twelve contigs over 3.27 Mb, from `cargo run --example genomewide -- assets`.
     else. A shorter genome, or stronger linkage between neighbouring sites,
     leaves far fewer than a million. Use `threshold` when you know yours.
 
+### Put support, mutations and distance on one phylogram
+
+```rust
+use karyon::{Figure, Region, SupportStyle, TreeTrack};
+
+Figure::new(Region::new("phylogeny", 0, 1)?)
+    .show_region_label(false)
+    .push(
+        TreeTrack::new(tree)
+            .reroot_outgroup(["outgroup_A", "outgroup_B"])
+            .color_by("lineage")
+            .support_style(SupportStyle::SymbolsAndLabels)
+            .support_threshold(70.0)
+            .branch_labels("mutation")
+            .branch_label_size(7.0)
+            .scale_bar()
+            .scale_bar_length(0.1)
+            .scale_bar_unit("substitutions/site"),
+    )
+    .save_svg("branch-evidence.svg")?;
+```
+
+`color_by` may inherit a lineage from an ancestor. `branch_labels` never does:
+a gain, loss or mutation is printed only on the edge whose node carries that
+annotation. Support stays exact in labels and tooltips even though symbol size
+uses a normalised 0–1 value. A scale bar is meaningful on a phylogram and is
+therefore omitted automatically after switching to `TreeShape::Cladogram` or a
+calendar-time layout. The outgroup call changes nothing unless both names exist
+as distinct leaves and form exactly one clade; use `reroot_midpoint` instead
+when the root should bisect a complete weighted tree.
+
+![Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales](assets/figures/example-phylo-evidence.svg)
+
 ### A figure with no coordinate ruler
 
 A plot appends an axis at the bottom because a figure without coordinates along
@@ -410,7 +443,12 @@ plot("taxa:1-4")?
     .remove_axis()
     .add_tanglegram(core, accessory)
     .label("4 isolates")
-    .adjust(|track| track.names("core genome", "accessory genome"))
+    .adjust(|track| {
+        track
+            .names("core genome", "accessory genome")
+            .color_by("ward")
+            .untangle()
+    })
     .save("tanglegram.svg")?;
 ```
 
@@ -421,9 +459,11 @@ not genomic.
 
 ![Two trees face to face over one collection of isolates, their shared tips joined across the middle and the crossings coloured](assets/figures/example-tanglegram.svg)
 
-From `cargo run --example shapes -- assets`. The crossing count the track
-reports describes this drawing rather than the two trees: a clade rotates
-freely without changing what the tree says, and the count moves when it does.
+From `cargo run --example shapes -- assets`. The header reports the crossing
+count before and after `untangle`, the linked taxa and unmatched tips. The
+heuristic rotates free clades but never changes their membership or branch
+lengths. Dashed ties still identify crossings when colour is being used for a
+terminal annotation such as hospital ward.
 
 ### One figure inside another document
 

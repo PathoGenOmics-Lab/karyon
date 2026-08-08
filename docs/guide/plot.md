@@ -186,6 +186,7 @@ One per track type the crate ships. Each returns a plot holding that track.
 | `add_codons(start, end, strand)` | `CodonTrack` | `u64`, `u64`, `Strand` |
 | `add_coverage(values)` | `CoverageTrack` | `Vec<f64>`, one per base |
 | `add_dotplot(blocks)` | `DotplotTrack` | `Vec<AlignmentBlock>` |
+| `add_domains(rows)` | `DomainTrack` | `Vec<DomainArchitecture>` |
 | `add_features(features)` | `FeatureTrack` | `Vec<Feature>` |
 | `add_genome(genome)` | `GenomeTrack` | `Genome` |
 | `add_ideogram(length, bands)` | `IdeogramTrack` | `u64`, `Vec<Band>` |
@@ -251,8 +252,13 @@ plot("taxa:1-8")?
     .title("K. pneumoniae: core and accessory genome trees over one collection")
     .remove_region_label()
     .remove_axis()
-    .add_track(track)
+    .add_track(track.untangle())
 ```
+
+`untangle` rotates free clades on both trees only when that strictly lowers the
+crossing count. `color_by` can instead spend hue on a shared terminal
+annotation; crossing ties remain dashed, and exact left/right values stay in
+their SVG tooltip.
 
 `remove_axis` suppresses the automatic ruler and only that. An axis put
 somewhere with `add_axis`, or handed over with `add_track`, stays where it was
