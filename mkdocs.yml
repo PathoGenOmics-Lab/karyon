@@ -49,6 +49,7 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
+    - navigation.path
     - navigation.top
     - navigation.footer
     - navigation.indexes
@@ -83,7 +84,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      toc_depth: 3
+      toc_depth: 2
   - pymdownx.betterem
   - pymdownx.caret
   - pymdownx.keys
@@ -127,7 +128,16 @@ nav:
   - Getting started:
       - getting-started/installation.md
       - getting-started/quickstart.md
-  - Tracks: tracks.md
+  - Plot catalogue:
+      - Overview: plots/index.md
+      - Signal and sequence: plots/signal-sequence.md
+      - Annotation and coordinates: plots/annotation-coordinates.md
+      - Variation and association: plots/variation-association.md
+      - Reads and molecules: plots/reads-molecules.md
+      - Comparisons and alignments: plots/comparisons-alignments.md
+      - Phylogeny and clades: plots/phylogeny-clades.md
+      - Whole genomes and geography: plots/whole-genomes-geography.md
+      - Track API reference: tracks.md
   - User guide:
       - guide/plot.md
       - guide/figure.md

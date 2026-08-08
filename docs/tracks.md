@@ -1,4 +1,9 @@
-# Tracks
+---
+title: Track API reference
+description: Exhaustive behaviour and data contracts for every Karyon track type.
+---
+
+# Track API reference
 
 Twenty-nine track types ship with the crate, one source file each. Every one of
 them is an implementation of the same small trait, `Track`, and none of them has
@@ -11,6 +16,12 @@ This page says, for each of them, what it draws, when to reach for it, and what
 it refuses to do. The refusals are the interesting part. Several of these tracks
 encode a claim rather than a picture, and the way they behave when the data does
 not support the claim is what makes them worth having.
+
+!!! tip "Looking for the right plot?"
+    Start with the [visual plot catalogue](plots/index.md). It groups tracks and
+    standalone drawings by biological question, data shape and coordinate
+    system. Return here once you know the component whose complete behaviour
+    you need.
 
 <div class="track-gallery">
   <a class="track-card" href="#coveragetrack">
