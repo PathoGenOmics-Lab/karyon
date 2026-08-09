@@ -171,13 +171,13 @@ impl PhyloMap {
 
     /// Sets the diameter of the tree-bearing circle in pixels.
     pub fn diameter(mut self, diameter: f64) -> Self {
-        self.diameter = finite_at_least(diameter, 320.0, 760.0);
+        self.diameter = finite_within(diameter, 320.0, f64::INFINITY, 760.0);
         self
     }
 
     /// Sets whitespace around the drawing.
     pub fn margin(mut self, margin: f64) -> Self {
-        self.margin = finite_at_least(margin, 0.0, 18.0);
+        self.margin = finite_within(margin, 0.0, f64::INFINITY, 18.0);
         self
     }
 
@@ -218,7 +218,7 @@ impl PhyloMap {
 
     /// Scales typography and marks without changing the tree diameter.
     pub fn visual_scale(mut self, scale: f64) -> Self {
-        self.visual_scale = finite_at_least(scale, 0.25, 1.0);
+        self.visual_scale = finite_within(scale, 0.25, f64::INFINITY, 1.0);
         self
     }
 

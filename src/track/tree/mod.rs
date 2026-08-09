@@ -35,7 +35,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scale::Scale;
-use crate::svg::{fit_text, num, text_number, text_width};
+use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
@@ -240,14 +240,14 @@ impl NodeGlyph {
 
     /// Sets the largest bubble radius or the nominal composition radius.
     pub fn size(mut self, pixels: f64) -> Self {
-        self.size = finite_between(pixels, 2.0, 30.0, 9.0);
+        self.size = finite_within(pixels, 2.0, 30.0, 9.0);
         self.minimum_size = self.minimum_size.min(self.size);
         self
     }
 
     /// Sets the smallest positive bubble radius.
     pub fn minimum_size(mut self, pixels: f64) -> Self {
-        self.minimum_size = finite_between(pixels, 0.8, self.size, 2.5);
+        self.minimum_size = finite_within(pixels, 0.8, self.size, 2.5);
         self
     }
 
@@ -296,7 +296,7 @@ impl CladeHighlight {
 
     /// Sets fill opacity between 0.03 and 0.35.
     pub fn opacity(mut self, opacity: f64) -> Self {
-        self.opacity = finite_between(opacity, 0.03, 0.35, 0.12);
+        self.opacity = finite_within(opacity, 0.03, 0.35, 0.12);
         self
     }
 
@@ -622,7 +622,7 @@ fn draw(
         // rather than an empty one.
         let support = match (titles.nodes, node.support) {
             (true, Some(support)) if support.is_finite() => {
-                Some(format!("clade support {}", text_number(support)))
+                Some(format!("clade support {}", text_rounded(support, 3)))
             }
             _ => None,
         };
@@ -706,14 +706,6 @@ impl Default for RadialLayout {
     }
 }
 
-fn finite_between(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
-    if value.is_finite() {
-        value.clamp(minimum, maximum)
-    } else {
-        fallback
-    }
-}
-
 #[derive(Debug, Clone)]
 struct TimeAxis {
     key: String,
@@ -793,7 +785,7 @@ impl TreeTrack {
     /// Draws a circular fan covering `sweep_degrees` clockwise.
     pub fn fan(mut self, sweep_degrees: f64) -> Self {
         self.projection = TreeProjection::Circular;
-        self.radial.sweep_degrees = finite_between(sweep_degrees, 10.0, 359.0, 240.0);
+        self.radial.sweep_degrees = finite_within(sweep_degrees, 10.0, 359.0, 240.0);
         self
     }
 
@@ -811,7 +803,7 @@ impl TreeTrack {
     /// Sets the clockwise angular span of a circular tree in degrees.
     pub fn radial_sweep(mut self, degrees: f64) -> Self {
         self.projection = TreeProjection::Circular;
-        self.radial.sweep_degrees = finite_between(degrees, 10.0, 360.0, 360.0);
+        self.radial.sweep_degrees = finite_within(degrees, 10.0, 360.0, 360.0);
         self
     }
 
@@ -825,7 +817,7 @@ impl TreeTrack {
     /// Sets the central gap as a fraction of the tree radius.
     pub fn inner_radius(mut self, fraction: f64) -> Self {
         self.projection = TreeProjection::Circular;
-        self.radial.inner_radius = finite_between(fraction, 0.0, 0.85, 0.08);
+        self.radial.inner_radius = finite_within(fraction, 0.0, 0.85, 0.08);
         self
     }
 
@@ -1030,7 +1022,7 @@ impl TreeTrack {
     /// Sets the font size of labels created by [`TreeTrack::branch_labels`].
     pub fn branch_label_size(mut self, size: f64) -> Self {
         if let Some(labels) = &mut self.branch_labels {
-            labels.size = finite_between(size, 5.0, 18.0, 8.0);
+            labels.size = finite_within(size, 5.0, 18.0, 8.0);
         }
         self
     }

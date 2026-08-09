@@ -544,25 +544,16 @@ impl CoverageTrack {
 #[cfg(test)]
 fn format_value(value: f64) -> String {
     if value >= 1_000_000.0 {
-        format!("{}M", trim(value / 1e6))
+        format!("{}M", crate::svg::text_rounded(value / 1e6, 1))
     } else if value >= 1_000.0 {
-        format!("{}k", trim(value / 1e3))
+        format!("{}k", crate::svg::text_rounded(value / 1e3, 1))
     } else {
-        trim(value)
+        crate::svg::text_rounded(value, 1)
     }
 }
 
 /// One decimal at most, and none at all when it would be a zero.
 #[cfg(test)]
-fn trim(value: f64) -> String {
-    let rounded = (value * 10.0).round() / 10.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded:.1}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

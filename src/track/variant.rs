@@ -565,29 +565,19 @@ fn format_value(value: f64) -> String {
         return "0".to_string();
     }
     if value >= 1_000_000.0 {
-        return format!("{}M", trim(value / 1e6, 1));
+        return format!("{}M", crate::svg::text_rounded(value / 1e6, 1));
     }
     if value >= 1_000.0 {
-        return format!("{}k", trim(value / 1e3, 1));
+        return format!("{}k", crate::svg::text_rounded(value / 1e3, 1));
     }
     if value >= 1.0 {
-        return trim(value, 1);
+        return crate::svg::text_rounded(value, 1);
     }
-    trim(value, 2)
+    crate::svg::text_rounded(value, 2)
 }
 
 /// Rounds to `decimals` places and drops the point when nothing is left of it.
 #[cfg(test)]
-fn trim(value: f64, decimals: usize) -> String {
-    let factor = 10f64.powi(decimals as i32);
-    let rounded = (value * factor).round() / factor;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

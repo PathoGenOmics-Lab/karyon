@@ -29,7 +29,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{text_rounded, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
 
@@ -293,7 +293,7 @@ impl Track for SquiggleTrack {
             .iter()
             .map(|value| {
                 text_width(
-                    &format!("{}{}", trim(*value), self.unit),
+                    &format!("{}{}", text_rounded(*value, 2), self.unit),
                     theme.font_size - 1.0,
                 )
             })
@@ -385,7 +385,7 @@ impl Track for SquiggleTrack {
             ctx.svg.text(
                 right,
                 band.y + size,
-                &format!("{}{}", trim(high), self.unit),
+                &format!("{}{}", text_rounded(high, 2), self.unit),
                 &ctx.theme.muted,
                 size,
                 Anchor::End,
@@ -393,7 +393,7 @@ impl Track for SquiggleTrack {
             ctx.svg.text(
                 right,
                 band.bottom() - size * 0.22,
-                &format!("{}{}", trim(low), self.unit),
+                &format!("{}{}", text_rounded(low, 2), self.unit),
                 &ctx.theme.muted,
                 size,
                 Anchor::End,
@@ -480,18 +480,6 @@ fn median_of(values: &[f64]) -> f64 {
 }
 
 /// Two decimals at most, and none when they would be zeros.
-fn trim(value: f64) -> String {
-    if !value.is_finite() {
-        return "0".to_string();
-    }
-    let rounded = (value * 100.0).round() / 100.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

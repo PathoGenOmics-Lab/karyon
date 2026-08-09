@@ -8,6 +8,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Release builds now check arithmetic for overflow. A wrapped add is a figure
+  that is quietly wrong, which is the one thing this crate is not allowed to
+  be: `Genome` added lengths without saturating, and a release build turned
+  that into boundaries running backwards and every point drawn on the wrong
+  sequence, with nothing said. A branch per arithmetic operation is nothing in
+  a crate whose work is string formatting, and it converts the whole class from
+  silent to loud. A hundred and fifty thousand generated figures and every
+  example render clean under it.
+- Nine functions turned an `f64` into text; there are now three, and the two
+  that remain outside `svg` are four-line wrappers over them. Two of the copies
+  were literally identical and a third was the same plus a check for `NaN` that
+  the others never received, which is what a copy costs: a fix reaches the copy
+  the bug was found in and stops there. The same mistake had by then appeared
+  three times in three modules. `svg::text_rounded` and `svg::text_exact` are
+  the two ways a number reaches a reader, and both carry the guards; `svg::num`
+  is unchanged and remains the way a number reaches an attribute.
+  `svg::text_number`, added earlier in this same unreleased version, is gone in
+  favour of `text_rounded`.
+- `svg::finite_within` replaces the two private helpers, one in the tree track
+  and one in the map, that differed only in whether the upper end was named.
+  Almost every setting a drawing takes is a length, an angle or a fraction and
+  none of them has a reading for `NaN`, so there is now one answer to what
+  happens then. Four pixel thresholds that had no answer at all, in
+  `LogoTrack`, `PileupTrack` and `SequenceTrack`, use it.
 - The three largest files became directory modules, split along what they
   actually do rather than at a line count. `src/track/tree.rs` was 4,884 lines,
   two and a half times the next largest, and is now seven files: the three

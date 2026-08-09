@@ -245,7 +245,7 @@ pub(super) fn branch_title(
     }
     if include_support {
         if let Some(support) = clade.support.filter(|value| value.is_finite()) {
-            parts.push(format!("clade support {}", text_number(support)));
+            parts.push(format!("clade support {}", text_rounded(support, 3)));
         }
     }
     if let Some(key) = color_by {

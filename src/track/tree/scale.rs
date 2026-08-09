@@ -39,8 +39,8 @@ pub(super) fn draw_scale_bar(
         return;
     }
     let label = match &bar.unit {
-        Some(unit) => format!("{} {unit}", text_number(value)),
-        None => text_number(value),
+        Some(unit) => format!("{} {unit}", text_rounded(value, 3)),
+        None => text_rounded(value, 3),
     };
     let title = format!("branch length scale {label}");
     let tick = ctx.theme.tokens.tick_length.max(3.0);
@@ -172,8 +172,8 @@ pub(super) fn draw_time_axis(
             ctx.theme.tokens.hairline,
         );
         let label = match &time.unit {
-            Some(unit) => format!("{} {unit}", text_number(value)),
-            None => text_number(value),
+            Some(unit) => format!("{} {unit}", text_rounded(value, 3)),
+            None => text_rounded(value, 3),
         };
         ctx.svg.text(
             x,

@@ -31,7 +31,7 @@ use std::sync::OnceLock;
 
 use crate::rings::Drawing;
 use crate::style::{RenderProfile, Symbol};
-use crate::svg::{fit_text, num, Anchor, SvgWriter};
+use crate::svg::{finite_within, fit_text, num, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
 use crate::track::TreeShape;
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
@@ -353,19 +353,19 @@ impl Map {
 
     /// Sets the output width in pixels.
     pub fn width(mut self, width: f64) -> Self {
-        self.width = finite_at_least(width, 180.0, 760.0);
+        self.width = finite_within(width, 180.0, f64::INFINITY, 760.0);
         self
     }
 
     /// Sets the output height in pixels.
     pub fn height(mut self, height: f64) -> Self {
-        self.height = finite_at_least(height, 160.0, 480.0);
+        self.height = finite_within(height, 160.0, f64::INFINITY, 480.0);
         self
     }
 
     /// Sets whitespace around the drawing.
     pub fn margin(mut self, margin: f64) -> Self {
-        self.margin = finite_at_least(margin, 0.0, 18.0);
+        self.margin = finite_within(margin, 0.0, f64::INFINITY, 18.0);
         self
     }
 
@@ -388,7 +388,7 @@ impl Map {
 
     /// Scales typography and marks without changing the map extent.
     pub fn visual_scale(mut self, scale: f64) -> Self {
-        self.visual_scale = finite_at_least(scale, 0.25, 1.0);
+        self.visual_scale = finite_within(scale, 0.25, f64::INFINITY, 1.0);
         self
     }
 

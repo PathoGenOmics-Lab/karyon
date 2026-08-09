@@ -34,7 +34,7 @@
 use crate::dash::{Dash, DashFit};
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{finite_within, text_rounded, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Rect, Track};
@@ -581,7 +581,7 @@ impl LogoTrack {
     /// Below this the column becomes a stacked bar, which still carries the
     /// heights when a letter would be an illegible sliver.
     pub fn min_letter_width(mut self, pixels: f64) -> Self {
-        self.min_letter_width = pixels;
+        self.min_letter_width = finite_within(pixels, 0.0, 200.0, 5.0);
         self
     }
 
@@ -887,10 +887,10 @@ impl Track for LogoTrack {
             self.chip(
                 ctx,
                 band.y + size + 1.0,
-                &format!("{}{}", trim(max_up), unit),
+                &format!("{}{}", text_rounded(max_up, 2), unit),
             );
             if max_down > 0.0 {
-                let text = format!("-{}{}", trim(max_down), unit);
+                let text = format!("-{}{}", text_rounded(max_down, 2), unit);
                 self.chip(ctx, band.bottom() - 2.0, &text);
             }
         }
@@ -919,8 +919,8 @@ impl LogoTrack {
     fn column_title(&self, stack: &LogoStack) -> String {
         let at = group_thousands(stack.pos.saturating_add(1));
         let unit = self.score.unit();
-        let up = trim(stack.up_total());
-        let down = trim(stack.down_total());
+        let up = text_rounded(stack.up_total(), 2);
+        let down = text_rounded(stack.down_total(), 2);
         let mut sides: Vec<String> = Vec::with_capacity(2);
         // A column that scored nothing at all still says which side the zero is
         // on, so the slot never comes back empty.
@@ -1122,15 +1122,6 @@ fn quantity(score: LogoScore) -> &'static str {
 }
 
 /// Two decimals at most, and none at all when they would be zeros.
-fn trim(value: f64) -> String {
-    let rounded = (value * 100.0).round() / 100.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

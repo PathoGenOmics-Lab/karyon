@@ -428,8 +428,8 @@ pub(super) fn draw_radial_time_axis(
             );
         }
         let label = match &time.unit {
-            Some(unit) => format!("{} {unit}", text_number(value)),
-            None => text_number(value),
+            Some(unit) => format!("{} {unit}", text_rounded(value, 3)),
+            None => text_rounded(value, 3),
         };
         let (x, y) = geometry.point((radius - 4.0).max(0.0), geometry.start);
         let rotation = upright_tangent(geometry.start);

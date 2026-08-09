@@ -7,6 +7,7 @@
 //! change to the projection cannot restyle one.
 
 use super::*;
+use crate::svg::text_exact;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MapRect {
@@ -37,34 +38,17 @@ pub(super) struct FlowState {
     pub(super) hidden: usize,
 }
 
-pub(super) fn finite_at_least(value: f64, minimum: f64, fallback: f64) -> f64 {
-    if value.is_finite() {
-        value.max(minimum)
-    } else {
-        fallback
-    }
-}
-
-/// A measured value as tooltip text, without letting the notation run away.
+/// A measured value as map tooltip text.
 ///
-/// `f64::MAX` written out in full is three hundred and nine digits, and an f64
-/// stops holding consecutive integers at two to the fifty-third, so all but
-/// the first sixteen of them are the formatter's invention rather than
-/// anything anybody measured. The same happens at the other end, where a
-/// thousandth of a thousandth arrives as a run of zeros. Outside the range
-/// where a decimal is shorter than an exponent, the exponent says the same
-/// number and says how much of it is known.
+/// The formatting is [`text_exact`](crate::svg::text_exact); the wording is
+/// this module's. A map tooltip reads as a sentence, and "value not finite"
+/// belongs in one where "value NaN" does not. Sharing the arithmetic and
+/// keeping the phrasing local is the whole of what this is for.
 pub(super) fn data_number(value: f64) -> String {
     if !value.is_finite() {
         return "not finite".to_string();
     }
-    const EXACT_INTEGERS: f64 = (1u64 << 53) as f64;
-    const READABLE_FLOOR: f64 = 1e-3;
-    let magnitude = value.abs();
-    if magnitude != 0.0 && !(READABLE_FLOOR..EXACT_INTEGERS).contains(&magnitude) {
-        return format!("{value:e}");
-    }
-    value.to_string()
+    text_exact(value)
 }
 
 pub(super) fn location_names(locations: &[GeoLocation]) -> BTreeMap<&str, Vec<usize>> {
