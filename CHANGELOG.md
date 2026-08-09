@@ -8,6 +8,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The three largest files became directory modules, split along what they
+  actually do rather than at a line count. `src/track/tree.rs` was 4,884 lines,
+  two and a half times the next largest, and is now seven files: the three
+  projections apart (`rectangular`, `radial`, `unrooted`), the layout they all
+  read (`scene`), what is drawn on top of any of them (`decorate`), the two
+  ways a branch length is given a unit (`scale`), and the type and its
+  vocabulary in `mod.rs`. `src/map.rs` became the plain map, `phylo`, the
+  marks both compositions share (`draw`) and the projection maths (`project`),
+  which is worth its own file because every function in it can answer that it
+  will not place a point. `src/tree.rs` gave up its Newick, annotated Newick
+  and NEXUS parsing to `tree::parse`, which is where all the format's ambiguity
+  lives. Nothing else moved: the remaining files are one subject each, and
+  splitting a coherent module into thirds makes it harder to read, not easier.
+  Every public path is unchanged, and all forty-one committed figures render
+  byte for byte the same, which is what makes this a move rather than an edit.
 - The format readers moved from the command line binary into the library, as
   `karyon::read`. Four thousand lines that parse BED, bedGraph, GFF3, VCF, SAM,
   cytoBand, `samtools depth`, FASTA and Newick were reachable only by running
