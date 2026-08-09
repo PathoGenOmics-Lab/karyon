@@ -29,7 +29,7 @@ use karyon::{
 };
 
 use crate::args::{Invocation, Kind, Palette, Source, TrackSpec};
-use crate::read;
+use karyon::read;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]

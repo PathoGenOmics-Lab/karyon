@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The format readers moved from the command line binary into the library, as
+  `karyon::read`. Four thousand lines that parse BED, bedGraph, GFF3, VCF, SAM,
+  cytoBand, `samtools depth`, FASTA and Newick were reachable only by running
+  the command, so writing Rust against this crate meant writing a VCF parser
+  first, which is the opposite of what a crate that ships twelve file-backed
+  tracks should ask for. The rule that made them live there is unchanged and
+  now says something sharper: every reader takes a `&str`, so nothing in the
+  library opens a path, and the binary keeps the one part that is genuinely
+  the command line's. `Format` moved with them, since it names file formats
+  rather than flags.
+
 ### Fixed
 
 - A map tooltip printed `f64::MAX` as three hundred and nine digits. The same
@@ -27,6 +40,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A property over every reader at once: the same interval written as BED,
+  GFF3, cytoBand, SAM, bedGraph, `samtools depth`, VCF, an association table
+  and a genotype matrix has to come back as the same two 0-based numbers. The
+  audit beside the readers already pins every format to one known base; this
+  asks the same question without picking the base, because a reader can be
+  right at position 100 and wrong at 0, and because two readers disagreeing is
+  what an off-by-one becomes once a figure stacks them. Every one of the six
+  places the crate converts from 1-based was shifted on purpose to confirm the
+  property notices. It also checks that naming a format and letting the reader
+  work it out give the same answer, which is where these readers went wrong in
+  practice rather than in the arithmetic.
 - Twelve properties over phylogenies and maps, the two subsystems the suite
   had never covered, and each one checked by breaking the library on purpose
   to confirm it notices. Trees: every node placed exactly once with the tips

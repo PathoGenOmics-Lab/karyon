@@ -18,7 +18,7 @@
 
 #![cfg(test)]
 
-use karyon::{Region, Strand};
+use crate::{Region, Strand};
 
 use super::{align, interval, point, signal, table};
 
@@ -357,7 +357,7 @@ fn samtools_depth_over_two_bams_is_not_guessed_at_as_a_bedgraph() {
     let pairs = signal::dense(
         &amplicon,
         &region("amplicon:1-1500"),
-        Some(crate::args::Format::Depth),
+        Some(super::Format::Depth),
     )
     .unwrap();
     assert_eq!(

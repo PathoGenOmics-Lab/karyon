@@ -143,10 +143,11 @@ is a column you can see rather than a fraction of a pixel.
 
 ## What a file's numbers become
 
-The library reads no files. [`karyon` the command](../guide/cli.md) does, and it
-is the one place in the project where the convention is not uniform, because
-each format defines its own. Every reader states which it is reading, and every
-one has a test that pins a known base through the conversion. What each format
+`karyon::read` is the one place in the project where the convention is not
+uniform, because each format defines its own. Every reader states which it is
+reading, every one has a test that pins a known base through the conversion,
+and a property checks that all nine formats agree about an interval whichever
+base it starts on. What each format
 is otherwise expected to look like is on the
 [file formats](../guide/formats.md) page.
 

@@ -15,6 +15,18 @@
 //! are printed in that same 1-based form. A VCF `POS` or a GFF `start` is
 //! therefore `pos - 1` on the way in.
 //!
+//! [`read`] does that subtraction so nobody has to remember which formats need
+//! it, and `tests/properties.rs` checks that the same interval written in a
+//! 0-based format and a 1-based one comes back as the same pair of numbers.
+//!
+//! # Files are text, and text is somebody else's problem
+//!
+//! [`read`] turns BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`,
+//! FASTA and Newick into the vectors the tracks take. Every one of those
+//! functions takes a `&str`: nothing in this crate opens a path to read one,
+//! so where the text came from stays the caller's decision, and the dependency
+//! count stays at zero because all nine formats are lines of text.
+//!
 //! # Four tracks, one region, one call each
 //!
 //! ```
@@ -113,6 +125,7 @@ pub mod genome;
 pub mod map;
 pub mod panels;
 pub mod plot;
+pub mod read;
 pub mod region;
 pub mod rings;
 pub mod scale;
@@ -130,6 +143,7 @@ pub use crate::map::{
 };
 pub use crate::panels::Panels;
 pub use crate::plot::{plot, Plot};
+pub use crate::read::{Format, ReadError};
 pub use crate::region::Region;
 pub use crate::rings::{
     AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,

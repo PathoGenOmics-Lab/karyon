@@ -19,12 +19,12 @@
 use std::collections::BTreeMap;
 
 use karyon::{
-    AnnotationValue, Association, AxisTrack, Band, CigarOp, CodonTrack, CoverageTrack, Feature,
-    FeatureTrack, Figure, GeoFlow, GeoLocation, GeoProjection, IdeogramTrack, ManhattanTrack, Map,
-    MatrixRow, MatrixTrack, MethylSite, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
-    PhyloConnector, PhyloMap, PileupTrack, Read, Region, RenderProfile, Scale, SequenceTrack,
-    SnpSite, SnpTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, Theme,
-    TimeDirection, Track, Tree, TreeShape, Variant, VariantTrack, Window, WindowTrack,
+    read, AnnotationValue, Association, AxisTrack, Band, CigarOp, CodonTrack, CoverageTrack,
+    Feature, FeatureTrack, Figure, Format, GeoFlow, GeoLocation, GeoProjection, IdeogramTrack,
+    ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, MsaSequence,
+    MsaTrack, OrfTrack, PhyloConnector, PhyloMap, PileupTrack, Read, Region, RenderProfile, Scale,
+    SequenceTrack, SnpSite, SnpTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind,
+    Theme, TimeDirection, Track, Tree, TreeShape, Variant, VariantTrack, Window, WindowTrack,
 };
 
 /// How many figures each property is given before it is believed.
@@ -1593,6 +1593,143 @@ fn a_projection_stays_on_the_page() {
             assert!(
                 number.abs() <= bound,
                 "phylo seed {seed}: something is drawn at {number} on a {width} by {height} map"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The properties: readers
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_format_puts_the_same_interval_on_the_same_bases() {
+    // The audit beside the readers aims every format at one known base. This
+    // asks the same question without picking the base, which is the half that
+    // a fixed fixture cannot answer: a reader can be right at position 100 and
+    // wrong at position 0, or at the last base of the window, or wherever the
+    // arithmetic happens to carry.
+    //
+    // Two claims. Each reader inverts its own specification, so a span written
+    // out and read back is the span again. And every reader agrees with every
+    // other, which needs no specification at all: if one of them is a base out,
+    // the figure that stacks it on another is a base out, and nothing says so.
+    let region = Region::new("chr1", 0, 200_000).expect("a fixed window");
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let start = match rng.below(8) {
+            0 => 0,
+            1 => 1,
+            2 => 199_000,
+            _ => rng.below(150_000),
+        };
+        let length = 1 + rng.below(40);
+        let end = start + length;
+        // 1-based inclusive is the same span counted from one, and the end
+        // does not move because inclusive-of-the-end and half-open-past-it
+        // land on the same number.
+        let first = start + 1;
+
+        // Whole spans, in every format that can carry one.
+        let bed = format!("chr1\t{start}\t{end}\tg\t0\t+\n");
+        let gff3 = format!("chr1\t.\tgene\t{first}\t{end}\t.\t+\t.\tID=g\n");
+        let cytoband = format!("chr1\t{start}\t{end}\tp1\tgneg\n");
+        let sam = format!(
+            "r1\t0\tchr1\t{first}\t60\t{length}M\t*\t0\t0\t{}\t*\n",
+            "A".repeat(length as usize)
+        );
+
+        let from_bed = read::interval::features(&bed, &region, None)
+            .unwrap_or_else(|e| panic!("seed {seed}: bed {bed:?}: {e}"));
+        let from_gff3 = read::interval::features(&gff3, &region, None)
+            .unwrap_or_else(|e| panic!("seed {seed}: gff3 {gff3:?}: {e}"));
+        let (_, bands) = read::interval::cytoband(&cytoband, "chr1")
+            .unwrap_or_else(|e| panic!("seed {seed}: cytoband {cytoband:?}: {e}"));
+        let reads = read::align::sam(&sam, &region)
+            .unwrap_or_else(|e| panic!("seed {seed}: sam {sam:?}: {e}"));
+
+        let spans = [
+            ("bed", from_bed[0].start, from_bed[0].end),
+            ("gff3", from_gff3[0].start, from_gff3[0].end),
+            ("cytoband", bands[0].start, bands[0].end),
+            ("sam", reads[0].start, reads[0].end()),
+        ];
+        for (format, read_start, read_end) in spans {
+            assert_eq!(
+                (read_start, read_end),
+                (start, end),
+                "seed {seed}: {format} put {start}..{end} at {read_start}..{read_end}"
+            );
+        }
+
+        // Signals, where the same span is one row in one format and one row
+        // per base in the other.
+        let bedgraph = format!("chr1\t{start}\t{end}\t7\n");
+        let depth: String = (first..=end).map(|at| format!("chr1\t{at}\t7\n")).collect();
+        let covered = |pairs: Vec<(u64, f64)>| -> (u64, u64, usize) {
+            let low = pairs.iter().map(|(at, _)| *at).min().unwrap_or(u64::MAX);
+            let high = pairs.iter().map(|(at, _)| *at).max().unwrap_or(0);
+            (low, high, pairs.len())
+        };
+        let from_bedgraph = covered(
+            read::signal::dense(&bedgraph, &region, None)
+                .unwrap_or_else(|e| panic!("seed {seed}: bedgraph: {e}")),
+        );
+        let from_depth = covered(
+            read::signal::dense(&depth, &region, None)
+                .unwrap_or_else(|e| panic!("seed {seed}: depth: {e}")),
+        );
+        assert_eq!(
+            from_bedgraph, from_depth,
+            "seed {seed}: bedGraph and samtools depth disagree about {start}..{end}"
+        );
+        assert_eq!(
+            (from_bedgraph.0, from_bedgraph.1),
+            (start, end - 1),
+            "seed {seed}: a signal over {start}..{end} covers {}..={}",
+            from_bedgraph.0,
+            from_bedgraph.1
+        );
+
+        // Being told the format and being left to work it out are the same
+        // answer. The module says format identification, not the arithmetic,
+        // is where these readers went wrong in practice.
+        for (text, format) in [(&bedgraph, Format::BedGraph), (&depth, Format::Depth)] {
+            assert_eq!(
+                read::signal::dense(text, &region, None).ok(),
+                read::signal::dense(text, &region, Some(format)).ok(),
+                "seed {seed}: {format:?} reads differently when it is named"
+            );
+        }
+        assert_eq!(
+            read::interval::features(&bed, &region, None).ok(),
+            read::interval::features(&bed, &region, Some(Format::Bed)).ok(),
+            "seed {seed}: bed reads differently when it is named"
+        );
+        assert_eq!(
+            read::interval::features(&gff3, &region, None).ok(),
+            read::interval::features(&gff3, &region, Some(Format::Gff3)).ok(),
+            "seed {seed}: gff3 reads differently when it is named"
+        );
+
+        // Single points, where three more formats count from one.
+        let vcf = format!("chr1\t{first}\t.\tC\tT\t.\t.\t.\n");
+        let association = format!("{first}\t1e-9\n");
+        let matrix = format!("sample\t{first}\nS1\t1\n");
+        let calls = read::point::variants(&vcf, &region)
+            .unwrap_or_else(|e| panic!("seed {seed}: vcf: {e}"));
+        let points = read::point::associations(&association, &region)
+            .unwrap_or_else(|e| panic!("seed {seed}: association: {e}"));
+        let (sites, _) = read::table::matrix(&matrix, &region)
+            .unwrap_or_else(|e| panic!("seed {seed}: matrix: {e}"));
+        for (format, at) in [
+            ("vcf", calls[0].pos),
+            ("association", points[0].pos),
+            ("matrix", sites[0]),
+        ] {
+            assert_eq!(
+                at, start,
+                "seed {seed}: {format} put 1-based {first} at 0-based {at}, not {start}"
             );
         }
     }

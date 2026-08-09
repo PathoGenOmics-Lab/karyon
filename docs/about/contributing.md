@@ -169,9 +169,10 @@ What a new track shipped by the crate then needs:
 - **A row in the README table** and a line in `CHANGELOG.md` saying why the
   track exists, not just that it was added.
 
-A reader for it belongs in the command line front end only if the format is
-line-based text. The library reads no files and has no dependencies, and both
-of those are on purpose.
+A reader for it belongs in `src/read/` only if the format is line-based text,
+and it takes a `&str` rather than a path. The library opens no files and has no
+dependencies, and both of those are on purpose. It also wants a fixture in
+`src/read/audit.rs` on the same base as every other format.
 
 ## Conventions the code follows
 

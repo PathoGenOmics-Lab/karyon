@@ -5,6 +5,26 @@
 //! in through a pipe, as `samtools depth`, `samtools view` or `bcftools view`
 //! already write exactly what these readers take.
 //!
+//! # Text in, values out, and no path anywhere
+//!
+//! Every function here takes a `&str` and returns the vector a track is built
+//! from. None of them opens a file, which is deliberate: the caller decides
+//! where the text came from, so a path, standard input, an HTTP response and a
+//! string in a test are all the same to a reader, and nothing in this crate
+//! needs permission to read a disk.
+//!
+//! ```
+//! use karyon::{plot, read};
+//!
+//! let bed = "chr1\t1000\t1500\tgeneA\t0\t+\n";
+//! let region = karyon::Region::parse("chr1:1-2,000")?;
+//! let features = read::interval::features(bed, &region, None)?;
+//!
+//! let svg = plot("chr1:1-2,000")?.add_features(features).to_svg();
+//! assert!(svg.contains("geneA"));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
 //! # The one place the convention is not uniform
 //!
 //! Everywhere else in the project a position is 0-based and half-open. Here it
@@ -12,6 +32,10 @@
 //! for the other one is out by a base and quiet about it, so every reader
 //! states which convention it is reading and every one has a test in `audit`
 //! that pins a known position.
+//!
+//! That is also what `tests/properties.rs` checks without picking the
+//! position: the same interval written as BED and as GFF3 has to come back as
+//! the same pair of numbers, whichever base it starts on.
 //!
 //! # Which formats count from one
 //!
@@ -39,6 +63,45 @@ pub mod signal;
 pub mod table;
 
 use std::fmt;
+
+/// How a file should be read, when the shape of it is not enough to tell.
+///
+/// Several of these formats are four columns of text that differ only in what
+/// the columns mean, and two of them count from different places. Guessing
+/// between them is how a signal ends up drawn one base to the left of where it
+/// was measured, so where the shape is ambiguous the reader is told rather
+/// than left to work it out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// `chrom start end value`, 0-based half-open.
+    BedGraph,
+    /// `chrom pos depth`, the 1-based output of `samtools depth`.
+    Depth,
+    /// One value per line, starting at the left edge of the region.
+    Values,
+    /// `chrom start end [name] [score] [strand]`, 0-based half-open.
+    Bed,
+    /// Nine columns, 1-based inclusive, attributes in the ninth.
+    Gff3,
+}
+
+impl Format {
+    /// Parses a format name, as `--format` spells it.
+    ///
+    /// The aliases are the ones the files themselves come labelled with: `bg`
+    /// for bedGraph, and `gtf` for GFF3, which is close enough in the columns
+    /// these readers use.
+    pub fn parse(word: &str) -> Option<Format> {
+        Some(match word {
+            "bedgraph" | "bg" => Format::BedGraph,
+            "depth" => Format::Depth,
+            "values" => Format::Values,
+            "bed" => Format::Bed,
+            "gff3" | "gff" | "gtf" => Format::Gff3,
+            _ => return None,
+        })
+    }
+}
 
 /// What went wrong while reading, and where.
 #[derive(Debug)]

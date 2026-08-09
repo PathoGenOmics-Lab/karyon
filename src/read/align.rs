@@ -33,7 +33,7 @@
 //! the alternative to stopping is a pileup quietly missing the reads that would
 //! have answered the question.
 
-use karyon::{CigarOp, Read, Region, Strand};
+use crate::{CigarOp, Read, Region, Strand};
 
 use super::{columns, lines, number, ReadError};
 
@@ -52,7 +52,7 @@ const NO_QUALITY: u32 = 255;
 /// Reads aligned records.
 ///
 /// Column four is `POS`, 1-based, so the read starts at `POS - 1`. Column six
-/// is the CIGAR, whose operations map to `karyon::CigarOp`: `M`, `=` and `X`
+/// is the CIGAR, whose operations map to [`CigarOp`]: `M`, `=` and `X`
 /// are all matches, since the track compares the sequences itself; `I`, `D`,
 /// `N`, `S` and `H` are themselves; `P` is padding and is dropped.
 ///
