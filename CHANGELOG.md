@@ -6,8 +6,132 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Release builds now check arithmetic for overflow. A wrapped add is a figure
+  that is quietly wrong, which is the one thing this crate is not allowed to
+  be: `Genome` added lengths without saturating, and a release build turned
+  that into boundaries running backwards and every point drawn on the wrong
+  sequence, with nothing said. A branch per arithmetic operation is nothing in
+  a crate whose work is string formatting, and it converts the whole class from
+  silent to loud. A hundred and fifty thousand generated figures and every
+  example render clean under it.
+- Nine functions turned an `f64` into text; there are now three, and the two
+  that remain outside `svg` are four-line wrappers over them. Two of the copies
+  were literally identical and a third was the same plus a check for `NaN` that
+  the others never received, which is what a copy costs: a fix reaches the copy
+  the bug was found in and stops there. The same mistake had by then appeared
+  three times in three modules. `svg::text_rounded` and `svg::text_exact` are
+  the two ways a number reaches a reader, and both carry the guards; `svg::num`
+  is unchanged and remains the way a number reaches an attribute.
+  `svg::text_number`, added earlier in this same unreleased version, is gone in
+  favour of `text_rounded`.
+- `svg::finite_within` replaces the two private helpers, one in the tree track
+  and one in the map, that differed only in whether the upper end was named.
+  Almost every setting a drawing takes is a length, an angle or a fraction and
+  none of them has a reading for `NaN`, so there is now one answer to what
+  happens then. Four pixel thresholds that had no answer at all, in
+  `LogoTrack`, `PileupTrack` and `SequenceTrack`, use it.
+- The three largest files became directory modules, split along what they
+  actually do rather than at a line count. `src/track/tree.rs` was 4,884 lines,
+  two and a half times the next largest, and is now seven files: the three
+  projections apart (`rectangular`, `radial`, `unrooted`), the layout they all
+  read (`scene`), what is drawn on top of any of them (`decorate`), the two
+  ways a branch length is given a unit (`scale`), and the type and its
+  vocabulary in `mod.rs`. `src/map.rs` became the plain map, `phylo`, the
+  marks both compositions share (`draw`) and the projection maths (`project`),
+  which is worth its own file because every function in it can answer that it
+  will not place a point. `src/tree.rs` gave up its Newick, annotated Newick
+  and NEXUS parsing to `tree::parse`, which is where all the format's ambiguity
+  lives. Nothing else moved: the remaining files are one subject each, and
+  splitting a coherent module into thirds makes it harder to read, not easier.
+  Every public path is unchanged, and all forty-one committed figures render
+  byte for byte the same, which is what makes this a move rather than an edit.
+- The format readers moved from the command line binary into the library, as
+  `karyon::read`. Four thousand lines that parse BED, bedGraph, GFF3, VCF, SAM,
+  cytoBand, `samtools depth`, FASTA and Newick were reachable only by running
+  the command, so writing Rust against this crate meant writing a VCF parser
+  first, which is the opposite of what a crate that ships twelve file-backed
+  tracks should ask for. The rule that made them live there is unchanged and
+  now says something sharper: every reader takes a `&str`, so nothing in the
+  library opens a path, and the binary keeps the one part that is genuinely
+  the command line's. `Format` moved with them, since it names file formats
+  rather than flags.
+
+### Fixed
+
+- `SquiggleTrack` never finished drawing over a wide region. The envelope
+  branch walked the axis positions a pixel column covers rather than the
+  samples in it, so over a chromosome each column asked thousands of bases
+  whether they happened to be a sample, and over the whole coordinate range it
+  asked billions and the figure never came back. The walk is now cut down to
+  where samples can be before it starts.
+- `Genome` added lengths and gaps without saturating, in all seven places it
+  accumulates. A debug build panicked; a release build wrapped, which is worse,
+  because `boundaries` then came back decreasing and every point in a
+  genome-wide plot landed on the wrong sequence with nothing said.
+- A figure whose tracks each reported a height that was a number could still
+  report a total that was not. The height check reads one track at a time, so
+  two finite heights adding to infinity passed it, and the document then said
+  `height="0"` while `Figure::dimensions` said infinity: the file and the API
+  disagreed about the same figure. The total now has a ceiling at the largest
+  integer an f64 holds exactly.
+- Tree scale bars, support labels and clade support tooltips printed a large
+  value as three hundred digits. They were using `num`, which writes a
+  coordinate and stays plain on purpose. `svg::text_number` is the sibling of
+  it for numbers a person reads, agreeing with `num` to the byte below two to
+  the fifty-third and switching to an exponent above it. This was the third
+  place the same mistake appeared, after `VariantTrack` and `Map`, which is why
+  it now has a function of its own rather than a third patch.
+- A map tooltip printed `f64::MAX` as three hundred and nine digits. The same
+  bug as the one fixed in `VariantTrack`, in the other writer, found because
+  the properties had never been pointed at a map: `data_number` handed the
+  value straight to a formatter, which expands it in full. An f64 stops
+  holding consecutive integers at two to the fifty-third, so past that all but
+  the first sixteen digits are the formatter filling in a gap rather than
+  anything measured, and the same happens under a thousandth as a run of
+  zeros. Outside that range the value is now written as an exponent, which
+  says the same number and says how much of it is known.
+- Six committed figures disagreed with the code that draws them: the MSA row
+  labels had moved to full ink, four phylogenetic figures had shifted
+  geometry, and the gallery had grown. A seventh, the node faces figure,
+  reached the documentation without its `assets/` original ever being added.
+  The staleness gate could not have caught that last one, because `git diff`
+  compares against the index and a file that was never added is not stale to
+  it, it is invisible; the gate now stages the renders first.
+
 ### Added
 
+- The generated figures now reach all thirty track types, not sixteen, and
+  build the tree ones through their whole builder rather than their
+  constructor. Fourteen kinds had never been given a hostile input and eleven
+  numeric setters had never been given a hostile number; four bugs came out of
+  it, each one now pinned by a test that was watched failing first.
+- A property over every reader at once: the same interval written as BED,
+  GFF3, cytoBand, SAM, bedGraph, `samtools depth`, VCF, an association table
+  and a genotype matrix has to come back as the same two 0-based numbers. The
+  audit beside the readers already pins every format to one known base; this
+  asks the same question without picking the base, because a reader can be
+  right at position 100 and wrong at 0, and because two readers disagreeing is
+  what an off-by-one becomes once a figure stacks them. Every one of the six
+  places the crate converts from 1-based was shifted on purpose to confirm the
+  property notices. It also checks that naming a format and letting the reader
+  work it out give the same answer, which is where these readers went wrong in
+  practice rather than in the arithmetic.
+- Twelve properties over phylogenies and maps, the two subsystems the suite
+  had never covered, and each one checked by breaking the library on purpose
+  to confirm it notices. Trees: every node placed exactly once with the tips
+  filling the rows, a parent between its children, the rows identical whether
+  depth is measured or counted, a cladogram depth equal to the number of
+  branches, and a parser that decides rather than panics on a file that is not
+  a tree. Rerooting is held to the only thing it must not do, by an oracle
+  that walks the undirected edges itself: every tip-to-tip distance survives
+  rooting on an internal node, on an outgroup and at the midpoint, and a
+  refused rerooting leaves the tree untouched. Maps: a valid document, the
+  same document twice, no location dropped without the notice saying how many,
+  coordinates kept rather than clamped, and nothing projected off the page.
+  The last of those covers path data as well as attributes, since that is
+  where a projection actually lands.
 - Row-major `Panels` grids for balanced comparison sheets, plus quieter clade
   fields, halo-separated node compositions, compact annotation legend chips,
   aligned-tree dividers and washed domain architectures.

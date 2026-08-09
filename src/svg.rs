@@ -726,6 +726,58 @@ pub fn num(v: f64) -> String {
     }
 }
 
+/// A number rounded to `decimals` places, written for a person to read.
+///
+/// This existed five times over, once per module that wanted it, and exactly
+/// one of the five had learnt that a value can be `NaN`. That is what a copy
+/// costs: a fix reaches the copy the bug was found in and stops there.
+///
+/// It differs from [`num`] in three ways, and each is the difference between
+/// an attribute and a sentence. The rounding is the caller's rather than the
+/// page's. A value past two to the fifty-third is written as an exponent,
+/// because `format!` spelling one out in full produces three hundred digits of
+/// which sixteen were measured. And a value that is not a number says so
+/// rather than becoming nought: an attribute has no way to write `NaN` and a
+/// shape has to go somewhere, but a label has a reader, and telling them
+/// nothing was measured is different from telling them nought was.
+pub fn text_rounded(value: f64, decimals: u32) -> String {
+    if !value.is_finite() {
+        return format!("{value}");
+    }
+    const EXACT_INTEGERS: f64 = (1u64 << 53) as f64;
+    if value.abs() >= EXACT_INTEGERS {
+        return format!("{value:e}");
+    }
+    let factor = 10f64.powi(decimals as i32);
+    let rounded = (value * factor).round() / factor;
+    if rounded == rounded.trunc() {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded}")
+    }
+}
+
+/// A number at whatever precision it has, written for a person to read.
+///
+/// The sibling of [`text_rounded`] for the case where rounding would be a lie:
+/// a latitude the caller supplied is theirs to however many places they gave
+/// it, and quietly dropping the fourth would move the sample. The two guards
+/// are the same, and the reason for the upper one is sharper here, since
+/// nothing rounds first: `f64::MAX` reaches the page as three hundred and nine
+/// digits unless something stops it.
+pub fn text_exact(value: f64) -> String {
+    if !value.is_finite() {
+        return format!("{value}");
+    }
+    const EXACT_INTEGERS: f64 = (1u64 << 53) as f64;
+    const READABLE_FLOOR: f64 = 1e-3;
+    let magnitude = value.abs();
+    if magnitude != 0.0 && !(READABLE_FLOOR..EXACT_INTEGERS).contains(&magnitude) {
+        return format!("{value:e}");
+    }
+    value.to_string()
+}
+
 /// Escapes the five XML metacharacters, and drops the characters XML has no
 /// way to write at all.
 ///
@@ -827,6 +879,29 @@ const HELVETICA_WIDTHS: [u16; 95] = [
     556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, // 'p' to '~'
 ];
 
+/// A number inside a range, or a fallback when it is not a number at all.
+///
+/// Two of these existed, one in the tree track and one in the map, differing
+/// only in whether the upper end was named. Almost every setting a drawing
+/// takes is a length, an angle or a fraction, and none of those has a sensible
+/// reading for `NaN`: this is the one answer to what happens then, so a setter
+/// says what it accepts in one line rather than deciding it privately.
+///
+/// ```
+/// use karyon::svg::finite_within;
+///
+/// assert_eq!(finite_within(0.5, 0.0, 1.0, 0.25), 0.5);
+/// assert_eq!(finite_within(9.0, 0.0, 1.0, 0.25), 1.0);
+/// assert_eq!(finite_within(f64::NAN, 0.0, 1.0, 0.25), 0.25);
+/// ```
+pub fn finite_within(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(minimum, maximum)
+    } else {
+        fallback
+    }
+}
+
 fn finite(values: &[f64]) -> bool {
     values.iter().all(|v| v.is_finite())
 }
@@ -848,6 +923,36 @@ fn point_list(points: &[(f64, f64)]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_a_reader_sees_does_not_run_to_three_hundred_digits() {
+        // `num` writes a coordinate and stays plain on purpose. The same
+        // function was writing scale bar and support labels, where a value
+        // past 2^53 came out as the formatter's full expansion. Below that the
+        // two have to agree to the byte, or every committed figure moves.
+        for ordinary in [0.0, -0.0, 0.1, 1.0, -12.3456, 1e14, 9.007e15_f64 - 1e9] {
+            assert_eq!(text_rounded(ordinary, 3), num(ordinary), "at {ordinary}");
+        }
+        for extreme in [f64::MAX, f64::MIN, 1e300, -1e300] {
+            let text = text_rounded(extreme, 3);
+            let longest = text
+                .split(|c: char| !c.is_ascii_digit())
+                .map(str::len)
+                .max()
+                .unwrap_or(0);
+            assert!(longest <= 20, "{extreme} came out as {text}");
+        }
+        // A label says what it got. `num` writes "0" because an attribute
+        // cannot spell NaN; a reader can be told.
+        assert_eq!(text_rounded(f64::NAN, 2), "NaN");
+        assert_eq!(text_exact(f64::NAN), "NaN");
+        // The four copies this replaced all rounded the same way.
+        // 1.005 is not 1.005 in binary, it is a shade under, so it rounds down.
+        assert_eq!(text_rounded(1.005, 2), "1");
+        assert_eq!(text_rounded(1.006, 2), "1.01");
+        assert_eq!(text_rounded(3.0, 2), "3");
+        assert_eq!(text_exact(40.4168), "40.4168");
+    }
 
     #[test]
     fn numbers_lose_their_trailing_zeros() {

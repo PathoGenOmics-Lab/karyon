@@ -12,6 +12,14 @@ keywords = ["genomics", "bioinformatics", "plot", "svg", "sequence"]
 categories = ["science", "visualization"]
 exclude = ["assets/*", ".github/*"]
 
+# A wrapped add is a figure that is quietly wrong: Genome added lengths without
+# saturating, and a release build turned that into boundaries running backwards
+# and every point drawn on the wrong sequence, with nothing said. Checking here
+# costs a branch per arithmetic operation in a crate whose work is string
+# formatting, and turns the whole class from silent into loud.
+[profile.release]
+overflow-checks = true
+
 [dependencies]
 
 [dev-dependencies]

@@ -54,7 +54,7 @@ use std::io;
 use std::path::Path;
 
 use crate::style::{Density, LinePattern, RenderProfile};
-use crate::svg::{fit_text, num, Anchor, SvgWriter};
+use crate::svg::{fit_text, num, text_rounded, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::feature::{feature_title, span_label, strand_color};
@@ -1230,21 +1230,12 @@ fn megabases(pos: u64) -> String {
     }
     if pos >= 1_000_000 {
         let mb = pos as f64 / 1e6;
-        return format!("{}{}", trim(mb), " Mb");
+        return format!("{}{}", text_rounded(mb, 2), " Mb");
     }
     if pos >= 1_000 {
-        return format!("{}{}", trim(pos as f64 / 1e3), " kb");
+        return format!("{}{}", text_rounded(pos as f64 / 1e3, 2), " kb");
     }
     format!("{pos}")
-}
-
-fn trim(value: f64) -> String {
-    let rounded = (value * 100.0).round() / 100.0;
-    if rounded == rounded.trunc() {
-        format!("{}", rounded as i64)
-    } else {
-        format!("{rounded}")
-    }
 }
 
 /// Rounds a raw tick interval to 1, 2 or 5 times a power of ten.

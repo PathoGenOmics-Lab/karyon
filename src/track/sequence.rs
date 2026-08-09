@@ -28,7 +28,7 @@
 //! the top if it is to be visible.
 
 use crate::scale::Scale;
-use crate::svg::Anchor;
+use crate::svg::{finite_within, Anchor};
 use crate::track::{DrawContext, Track};
 
 /// Nucleotides drawn as coloured blocks, with letters once there is room.
@@ -84,7 +84,7 @@ impl SequenceTrack {
 
     /// Sets how many pixels a base needs before its letter is drawn.
     pub fn letter_threshold(mut self, pixels: f64) -> Self {
-        self.letter_threshold = pixels;
+        self.letter_threshold = finite_within(pixels, 0.0, 200.0, 7.0);
         self
     }
 
@@ -93,7 +93,7 @@ impl SequenceTrack {
     /// Below this the track prints a hint instead. Raise it to keep dense
     /// figures light, lower it to force blocks at a wider zoom.
     pub fn block_threshold(mut self, pixels: f64) -> Self {
-        self.block_threshold = pixels;
+        self.block_threshold = finite_within(pixels, 0.0, 200.0, 1.5);
         self
     }
 

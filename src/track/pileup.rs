@@ -38,7 +38,7 @@ use std::fmt::Write as _;
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{finite_within, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
 use crate::track::feature::{span_label, strand_color, strand_label, Strand};
@@ -434,7 +434,7 @@ impl PileupTrack {
     /// would still mean walking every base of every read, so the search is
     /// skipped entirely.
     pub fn mismatch_threshold(mut self, pixels: f64) -> Self {
-        self.mismatch_threshold = pixels;
+        self.mismatch_threshold = finite_within(pixels, 0.0, 200.0, 0.35);
         self
     }
 

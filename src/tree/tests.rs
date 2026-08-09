@@ -1,0 +1,481 @@
+use super::*;
+
+#[test]
+fn a_flat_tree_parses() {
+    let tree = Tree::parse_newick("(A,B,C);").unwrap();
+    assert_eq!(tree.leaf_names(), ["A", "B", "C"]);
+    assert_eq!(tree.leaf_count(), 3);
+    assert_eq!(tree.nodes().len(), 4, "three leaves and a root");
+}
+
+#[test]
+fn nesting_and_branch_lengths_parse() {
+    let tree = Tree::parse_newick("((A:0.1,B:0.2):0.3,C:0.4);").unwrap();
+    assert_eq!(tree.leaf_names(), ["A", "B", "C"]);
+    let a = tree
+        .nodes()
+        .iter()
+        .find(|node| node.name.as_deref() == Some("A"))
+        .unwrap();
+    assert_eq!(a.branch_length, Some(0.1));
+}
+
+#[test]
+fn an_internal_number_is_support_and_a_word_is_a_name() {
+    let tree = Tree::parse_newick("((A:0.1,B:0.2)0.98:0.3,C:0.4);").unwrap();
+    let internal = tree
+        .nodes()
+        .iter()
+        .find(|node| !node.is_leaf() && node.support.is_some())
+        .unwrap();
+    assert_eq!(internal.support, Some(0.98));
+    assert_eq!(internal.branch_length, Some(0.3));
+
+    let named = Tree::parse_newick("((A,B)clade_one,C);").unwrap();
+    assert!(named
+        .nodes()
+        .iter()
+        .any(|node| node.name.as_deref() == Some("clade_one") && !node.is_leaf()));
+}
+
+#[test]
+fn quoted_names_keep_their_punctuation() {
+    let tree = Tree::parse_newick("('ERR (one)':0.1,'B,C':0.2);").unwrap();
+    assert_eq!(tree.leaf_names(), ["ERR (one)", "B,C"]);
+}
+
+#[test]
+fn a_doubled_quote_is_one_literal_quote_and_not_a_second_taxon() {
+    let tree = Tree::parse_newick("('O''Brien':0.1,B:0.2);").unwrap();
+    assert_eq!(tree.leaf_names(), ["O'Brien", "B"]);
+    assert_eq!(tree.leaf_count(), 2);
+    let named = tree.leaves();
+    assert_eq!(tree.nodes()[named[0]].branch_length, Some(0.1));
+}
+
+#[test]
+fn an_empty_label_is_an_unnamed_leaf_rather_than_a_dropped_tip() {
+    // The canonical example of the format is four unnamed leaves.
+    let tree = Tree::parse_newick("(,,(,));").unwrap();
+    assert_eq!(tree.leaf_count(), 4);
+    assert_eq!(tree.nodes().len(), 6, "four leaves, two clades");
+    assert_eq!(tree.leaf_names(), ["", "", "", ""]);
+
+    assert_eq!(Tree::parse_newick("((,),(,));").unwrap().leaf_count(), 4);
+    assert_eq!(Tree::parse_newick("(A,B,);").unwrap().leaf_count(), 3);
+    assert_eq!(Tree::parse_newick("(A,B,);").unwrap().nodes().len(), 4);
+}
+
+#[test]
+fn a_branch_length_on_an_empty_label_lands_on_that_leaf() {
+    let tree = Tree::parse_newick("(:0.1,:0.2,(:0.3,:0.4):0.5);").unwrap();
+    assert_eq!(tree.nodes().len(), 6);
+    assert_eq!(tree.leaf_count(), 4);
+    // Root first, then the five branches in the order the file wrote them.
+    let lengths: Vec<Option<f64>> = tree.nodes().iter().map(|node| node.branch_length).collect();
+    assert_eq!(
+        lengths,
+        vec![None, Some(0.1), Some(0.2), Some(0.5), Some(0.3), Some(0.4)]
+    );
+    // The clade keeps its own 0.5 and its children keep theirs.
+    assert_eq!(tree.nodes()[3].children, vec![4, 5]);
+    assert!((tree.max_depth(false) - 0.9).abs() < 1e-12, "0.5 then 0.4");
+}
+
+#[test]
+fn scientific_notation_in_a_branch_length_parses() {
+    let tree = Tree::parse_newick("(A:1.5e-4,B:2E-3);").unwrap();
+    let lengths: Vec<Option<f64>> = tree
+        .leaves()
+        .iter()
+        .map(|index| tree.nodes()[*index].branch_length)
+        .collect();
+    assert_eq!(lengths, vec![Some(1.5e-4), Some(2e-3)]);
+}
+
+#[test]
+fn comments_are_skipped_wherever_a_real_file_puts_them() {
+    // RAxML and BEAST write a rootedness marker before the tree and
+    // annotations inside it. Read as names, the first one alone makes the
+    // whole file fail with "more than one root".
+    let plain = Tree::parse_newick("((A:0.1,B:0.2)0.98:0.3,C:0.4);").unwrap();
+    let annotated =
+        Tree::parse_newick("[&R] ((A[&rate=1.2]:0.1,B:0.2)0.98:0.3[&height=0.4],C:0.4);").unwrap();
+    assert_eq!(annotated.leaf_names(), plain.leaf_names());
+    assert_eq!(annotated.max_depth(false), plain.max_depth(false));
+
+    // An unclosed comment runs out rather than eating the tree.
+    assert_eq!(Tree::parse_newick("(A,B)[oops;").unwrap().leaf_count(), 2);
+}
+
+#[test]
+fn annotated_newick_keeps_beast_values_and_rootedness() {
+    let tree = Tree::parse_annotated_newick(
+        "[&R] (A[&date=2024.5,location='Lima',flags={1,2},selected=true]:0.1,B:0.2);",
+    )
+    .unwrap();
+    let a = tree.node_named("A").unwrap();
+    assert_eq!(tree.rooted(), Some(true));
+    assert_eq!(
+        tree.annotation(a, "date")
+            .and_then(AnnotationValue::as_number),
+        Some(2024.5)
+    );
+    assert_eq!(
+        tree.annotation(a, "location")
+            .and_then(AnnotationValue::as_text),
+        Some("Lima")
+    );
+    assert_eq!(
+        tree.annotation(a, "selected")
+            .and_then(AnnotationValue::as_bool),
+        Some(true)
+    );
+    assert!(matches!(
+        tree.annotation(a, "flags"),
+        Some(AnnotationValue::List(values)) if values.len() == 2
+    ));
+}
+
+#[test]
+fn annotations_can_be_added_after_parsing() {
+    let mut tree = Tree::parse_newick("(A,B);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    tree.annotations_mut(a)
+        .unwrap()
+        .insert("country".into(), AnnotationValue::Text("Peru".into()));
+    tree.tree_annotations_mut()
+        .insert("clock".into(), AnnotationValue::Boolean(true));
+    assert_eq!(
+        tree.annotation(a, "country")
+            .and_then(AnnotationValue::as_text),
+        Some("Peru")
+    );
+    assert_eq!(
+        tree.tree_annotations()
+            .get("clock")
+            .and_then(AnnotationValue::as_bool),
+        Some(true)
+    );
+    assert!(tree.annotations_mut(99).is_none());
+}
+
+#[test]
+fn nhx_annotations_are_typed_too() {
+    let tree = Tree::parse_annotated_newick("(A[&&NHX:S=human:B=95],B);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    assert_eq!(
+        tree.annotation(a, "S").and_then(AnnotationValue::as_text),
+        Some("human")
+    );
+    assert_eq!(
+        tree.annotation(a, "B").and_then(AnnotationValue::as_number),
+        Some(95.0)
+    );
+}
+
+#[test]
+fn compatibility_newick_still_discards_annotations() {
+    let tree = Tree::parse_newick("[&R] (A[&date=2024.5],B);").unwrap();
+    assert_eq!(tree.rooted(), None);
+    assert!(tree
+        .annotations(tree.node_named("A").unwrap())
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn nexus_translation_and_annotations_reach_the_tree() {
+    let nexus = "#NEXUS\nBegin trees;\nTranslate 1 'sample A', 2 sample_B;\n\
+                     Tree outbreak = [&R] (1[&country=Peru]:0.1,2:0.2);\nEnd;";
+    let tree = Tree::parse_nexus(nexus).unwrap();
+    assert_eq!(tree.leaf_names(), ["sample A", "sample_B"]);
+    assert_eq!(tree.rooted(), Some(true));
+    let a = tree.node_named("sample A").unwrap();
+    assert_eq!(tree.annotation(a, "country").unwrap().to_string(), "Peru");
+}
+
+#[test]
+fn nexus_without_a_tree_says_what_is_missing() {
+    assert!(matches!(
+        Tree::parse_nexus("#NEXUS\nBegin taxa; End;"),
+        Err(Error::InvalidNexus {
+            reason: "no tree statement"
+        })
+    ));
+}
+
+#[test]
+fn a_semicolon_is_optional_and_whitespace_is_ignored() {
+    let with = Tree::parse_newick("(A:0.1,B:0.2);").unwrap();
+    let without = Tree::parse_newick("  (A:0.1,\n B:0.2)  ").unwrap();
+    assert_eq!(with, without);
+}
+
+#[test]
+fn malformed_newick_is_rejected_rather_than_guessed() {
+    for bad in ["", ";", "((A,B)", "(A,B))", ",A", "(A:x,B);"] {
+        assert!(Tree::parse_newick(bad).is_err(), "{bad:?} should not parse");
+    }
+}
+
+#[test]
+fn leaves_come_back_in_the_order_the_file_meant() {
+    let tree = Tree::parse_newick("((D,C),(B,A));").unwrap();
+    assert_eq!(tree.leaf_names(), ["D", "C", "B", "A"]);
+}
+
+#[test]
+fn a_phylogram_places_leaves_at_their_distance_from_the_root() {
+    let tree = Tree::parse_newick("((A:0.1,B:0.2):0.3,C:0.05);").unwrap();
+    let layout = tree.layout(false);
+    let depth_of = |name: &str| {
+        let index = tree
+            .nodes()
+            .iter()
+            .position(|node| node.name.as_deref() == Some(name))
+            .unwrap();
+        layout.iter().find(|p| p.node == index).unwrap().depth
+    };
+    assert!((depth_of("A") - 0.4).abs() < 1e-12, "0.3 then 0.1");
+    assert!((depth_of("B") - 0.5).abs() < 1e-12);
+    assert!((depth_of("C") - 0.05).abs() < 1e-12);
+}
+
+#[test]
+fn a_time_layout_uses_tip_dates_and_infers_internal_dates() {
+    let tree = Tree::parse_annotated_newick(
+        "((A[&date=2024.0]:2,B[&date=2025.0]:3)AB:1,C[&date=2023.0]:4);",
+    )
+    .unwrap();
+    let layout = tree.time_layout("date", TimeDirection::Increasing).unwrap();
+    let value = |name: &str| {
+        let node = tree.node_named(name).unwrap();
+        layout[node].depth
+    };
+    assert_eq!(value("A"), 2024.0);
+    assert_eq!(value("B"), 2025.0);
+    assert_eq!(value("AB"), 2022.0, "mean of 2024-2 and 2025-3");
+}
+
+#[test]
+fn a_time_layout_refuses_a_tip_without_the_requested_value() {
+    let tree = Tree::parse_annotated_newick("(A[&date=2024]:1,B:1);").unwrap();
+    assert!(tree
+        .time_layout("date", TimeDirection::Increasing)
+        .is_none());
+}
+
+#[test]
+fn a_cladogram_counts_branches_instead_of_measuring_them() {
+    let tree = Tree::parse_newick("((A:0.1,B:0.2):0.3,C:99.0);").unwrap();
+    let layout = tree.layout(true);
+    let depth_of = |name: &str| {
+        let index = tree
+            .nodes()
+            .iter()
+            .position(|node| node.name.as_deref() == Some(name))
+            .unwrap();
+        layout.iter().find(|p| p.node == index).unwrap().depth
+    };
+    assert_eq!(depth_of("A"), 2.0);
+    assert_eq!(depth_of("C"), 1.0, "one branch, however long it is");
+}
+
+#[test]
+fn a_parent_sits_between_its_children() {
+    let tree = Tree::parse_newick("((A,B),C);").unwrap();
+    let layout = tree.layout(true);
+    let row_of = |index: usize| layout.iter().find(|p| p.node == index).unwrap().row;
+    let leaves = tree.leaves();
+    // A and B are rows 0 and 1, so their parent is at 0.5.
+    assert_eq!(row_of(leaves[0]), 0.0);
+    assert_eq!(row_of(leaves[1]), 1.0);
+    let parent = tree.nodes()[leaves[0]].parent.unwrap();
+    assert_eq!(row_of(parent), 0.5);
+}
+
+#[test]
+fn a_missing_branch_length_counts_as_zero_rather_than_breaking() {
+    let tree = Tree::parse_newick("((A,B):0.3,C:0.1);").unwrap();
+    let layout = tree.layout(false);
+    assert!(layout.iter().all(|p| p.depth.is_finite()));
+    assert!((tree.max_depth(false) - 0.3).abs() < 1e-12);
+}
+
+#[test]
+fn a_single_leaf_is_a_tree() {
+    let tree = Tree::parse_newick("A;").unwrap();
+    assert_eq!(tree.leaf_names(), ["A"]);
+    assert_eq!(tree.max_depth(true), 0.0);
+}
+
+#[test]
+fn ancestors_descendants_and_mrca_agree() {
+    let tree = Tree::parse_newick("(((A,B)AB,C)ABC,D);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    let b = tree.node_named("B").unwrap();
+    let c = tree.node_named("C").unwrap();
+    let ab = tree.node_named("AB").unwrap();
+    let abc = tree.node_named("ABC").unwrap();
+    assert_eq!(tree.mrca(&[a, b]), Some(ab));
+    assert_eq!(tree.mrca(&[a, c]), Some(abc));
+    assert!(tree.ancestors(a).contains(&ab));
+    assert!(tree.descendants(abc).contains(&c));
+    assert_eq!(tree.clade_size(abc), 3);
+    assert_eq!(tree.mrca(&[]), None);
+}
+
+#[test]
+fn rotating_and_ladderizing_change_only_leaf_order() {
+    let mut tree = Tree::parse_newick("((A,B,C)large,D);").unwrap();
+    let large = tree.node_named("large").unwrap();
+    assert!(tree.rotate(large));
+    assert_eq!(tree.leaf_names(), ["C", "B", "A", "D"]);
+    tree.ladderize(false);
+    assert_eq!(tree.leaf_names()[0], "D");
+    let mut sorted = tree.leaf_names();
+    sorted.sort();
+    assert_eq!(sorted, ["A", "B", "C", "D"]);
+}
+
+#[test]
+fn rerooting_preserves_tips_and_pairwise_distance() {
+    let mut tree = Tree::parse_newick("((A:1,B:2)AB:3,(C:4,D:5)CD:6);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    let c = tree.node_named("C").unwrap();
+    let before = pair_distance(&tree, a, c);
+    let ab = tree.node_named("AB").unwrap();
+    assert!(tree.reroot(ab));
+    assert_eq!(tree.root(), ab);
+    assert_eq!(tree.rooted(), Some(true));
+    assert_eq!(pair_distance(&tree, a, c), before);
+    let mut leaves = tree.leaf_names();
+    leaves.sort();
+    assert_eq!(leaves, ["A", "B", "C", "D"]);
+    assert!(!tree.reroot(a), "a sampled tip stays a sampled tip");
+}
+
+#[test]
+fn rerooting_keeps_support_on_its_undirected_edge() {
+    let mut tree = Tree::parse_newick("((A:1,B:1)0.99:2,C:3);").unwrap();
+    let supported = tree
+        .nodes()
+        .iter()
+        .position(|node| node.support == Some(0.99))
+        .unwrap();
+    assert!(tree.reroot(supported));
+    assert_eq!(tree.nodes()[tree.root()].support, None);
+    assert_eq!(
+        tree.nodes()
+            .iter()
+            .filter(|node| node.support == Some(0.99))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_monophyletic_outgroup_gets_a_new_root_without_changing_distances() {
+    let mut tree = Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    let o1 = tree.node_named("O1").unwrap();
+    let o2 = tree.node_named("O2").unwrap();
+    let out = tree.node_named("OUT").unwrap();
+    let before = pair_distance(&tree, a, o1);
+    let root = tree.reroot_outgroup(&[o1, o2]).unwrap();
+    assert_eq!(tree.root(), root);
+    assert_eq!(tree.rooted(), Some(true));
+    assert!(tree.nodes()[root].children.contains(&out));
+    assert_eq!(pair_distance(&tree, a, o1), before);
+    assert_eq!(tree.leaf_count(), 5);
+}
+
+#[test]
+fn a_non_monophyletic_outgroup_is_refused_without_mutation() {
+    let mut tree = Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
+    let before = tree.clone();
+    let a = tree.node_named("A").unwrap();
+    let o1 = tree.node_named("O1").unwrap();
+    assert_eq!(tree.reroot_outgroup(&[a, o1]), None);
+    assert_eq!(tree, before);
+}
+
+#[test]
+fn midpoint_rooting_splits_the_diameter_edge_exactly() {
+    let mut tree = Tree::parse_newick("((A:1,B:1)AB:1,C:4);").unwrap();
+    let a = tree.node_named("A").unwrap();
+    let b = tree.node_named("B").unwrap();
+    let c = tree.node_named("C").unwrap();
+    let ac = pair_distance(&tree, a, c);
+    let bc = pair_distance(&tree, b, c);
+    let old_nodes = tree.nodes().len();
+    let root = tree.reroot_midpoint().unwrap();
+    assert_eq!(root, old_nodes, "the midpoint lies inside the C edge");
+    let layout = tree.layout(false);
+    let depth = |node: usize| layout.iter().find(|p| p.node == node).unwrap().depth;
+    assert!((depth(a) - 3.0).abs() < 1e-12);
+    assert!((depth(c) - 3.0).abs() < 1e-12);
+    assert_eq!(pair_distance(&tree, a, c), ac);
+    assert_eq!(pair_distance(&tree, b, c), bc);
+}
+
+#[test]
+fn midpoint_rooting_requires_complete_non_negative_lengths() {
+    for input in ["((A:1,B)AB:1,C:4);", "((A:1,B:-1)AB:1,C:4);"] {
+        let mut tree = Tree::parse_newick(input).unwrap();
+        let before = tree.clone();
+        assert_eq!(tree.reroot_midpoint(), None);
+        assert_eq!(tree, before);
+    }
+}
+
+#[test]
+fn a_subtree_remaps_nodes_and_keeps_annotations() {
+    let tree = Tree::parse_annotated_newick("((A[&country=Peru]:1,B[&country=Chile]:1)AB:2,C:3);")
+        .unwrap();
+    let ab = tree.node_named("AB").unwrap();
+    let subtree = tree.subtree(ab).unwrap();
+    assert_eq!(subtree.root(), 0);
+    assert_eq!(subtree.leaf_names(), ["A", "B"]);
+    assert_eq!(subtree.nodes()[0].branch_length, None);
+    let a = subtree.node_named("A").unwrap();
+    assert_eq!(
+        subtree.annotation(a, "country").unwrap().to_string(),
+        "Peru"
+    );
+}
+
+#[test]
+fn collapsing_a_clade_removes_only_its_descendants() {
+    let mut tree = Tree::parse_newick("((A,B)AB,C);").unwrap();
+    let ab = tree.node_named("AB").unwrap();
+    assert!(tree.collapse(ab));
+    assert_eq!(tree.leaf_names(), ["AB", "C"]);
+    assert_eq!(tree.nodes().len(), 3, "root and two terminal clades");
+    assert!(!tree.collapse(tree.node_named("AB").unwrap()));
+}
+
+fn pair_distance(tree: &Tree, left: usize, right: usize) -> f64 {
+    let layout = tree.layout(false);
+    let depth = |node: usize| layout.iter().find(|p| p.node == node).unwrap().depth;
+    let ancestor = tree.mrca(&[left, right]).unwrap();
+    depth(left) + depth(right) - 2.0 * depth(ancestor)
+}
+
+#[test]
+fn a_deep_ladder_does_not_overflow_the_stack() {
+    // Ten thousand nested clades, which a recursive walk would not survive.
+    let mut newick = String::new();
+    for _ in 0..10_000 {
+        newick.push('(');
+    }
+    newick.push('A');
+    for index in 0..10_000 {
+        newick.push_str(&format!(",L{index})"));
+    }
+    newick.push(';');
+    let tree = Tree::parse_newick(&newick).unwrap();
+    assert_eq!(tree.leaf_count(), 10_001);
+    assert_eq!(tree.layout(true).len(), tree.nodes().len());
+}

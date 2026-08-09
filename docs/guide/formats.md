@@ -1,11 +1,23 @@
 # File formats
 
-The library reads no files. `karyon` the crate takes vectors of numbers and
-structs; `karyon` the command is where the reading lives, and every format below
-is line based text, which is what keeps the dependency count at zero. There is
-one section per format, each saying which columns are read, which coordinate
-convention the file counts in, and what stops the figure rather than being
-skipped.
+The parsing is in the library, as `karyon::read`, and every reader takes a
+`&str` rather than a path. Nothing in the crate opens a file to read one, so
+where the text came from stays your decision, and the dependency count stays at
+zero because every format below is line based text. There is one section per
+format, each saying which columns are read, which coordinate convention the
+file counts in, and what stops the figure rather than being skipped.
+
+```rust
+use karyon::{plot, read, Region};
+
+let region = Region::parse("chr1:1-2,000")?;
+let features = read::interval::features(&std::fs::read_to_string("genes.bed")?, &region, None)?;
+let svg = plot("chr1:1-2,000")?.add_features(features).to_svg();
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`karyon` the command does the same thing, and the only part it keeps to itself
+is opening the path.
 
 ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
 

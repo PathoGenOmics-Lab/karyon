@@ -43,7 +43,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use karyon::{Aggregate, CoverageStyle, Region, WindowStyle};
+use karyon::{Aggregate, CoverageStyle, Format, Region, WindowStyle};
 
 /// What went wrong before anything was read.
 #[derive(Debug)]
@@ -217,35 +217,6 @@ impl Kind {
                 | Kind::Ideogram
                 | Kind::Axis
         )
-    }
-}
-
-/// How a file should be read, when the shape of it is not enough to tell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Format {
-    /// `chrom start end value`, 0-based half-open.
-    BedGraph,
-    /// `chrom pos depth`, the 1-based output of `samtools depth`.
-    Depth,
-    /// One value per line, starting at the left edge of the region.
-    Values,
-    /// `chrom start end [name] [score] [strand]`, 0-based half-open.
-    Bed,
-    /// Nine columns, 1-based inclusive, attributes in the ninth.
-    Gff3,
-}
-
-impl Format {
-    /// Parses the word given to `--format`.
-    fn parse(word: &str) -> Option<Format> {
-        Some(match word {
-            "bedgraph" | "bg" => Format::BedGraph,
-            "depth" => Format::Depth,
-            "values" => Format::Values,
-            "bed" => Format::Bed,
-            "gff3" | "gff" | "gtf" => Format::Gff3,
-            _ => return None,
-        })
     }
 }
 

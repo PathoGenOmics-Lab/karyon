@@ -31,10 +31,11 @@ is about thirty lines.
 
 What comes out is plain SVG 1.1: no scripts, no external references, nothing to
 fetch, and every element still selectable when a reviewer asks for the gene
-labels to be bigger. The crate has no runtime dependencies and reads no files,
-which is what keeps that true: it takes vectors of numbers and structs, not
-paths. Reading formats happens in a separate binary target, `karyon` the
-command, which takes the line based text a genomics shell already writes.
+labels to be bigger. The crate has no runtime dependencies and opens no
+files, which is what keeps that true: it takes vectors, structs and text, not
+paths. Parsing the formats a genomics shell already writes is in the library,
+as `karyon::read`, and every reader there takes a `&str`, so where the text
+came from stays your decision.
 
 <div class="grid cards" markdown>
 

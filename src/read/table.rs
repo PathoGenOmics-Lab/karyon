@@ -28,7 +28,7 @@
 //! measurement, and the figure would then carry a claim nobody made. Anything
 //! else that is not a number stops the read on its line and names the column.
 
-use karyon::{MatrixRow, Region};
+use crate::{MatrixRow, Region};
 
 use super::{columns, lines, number, ReadError};
 

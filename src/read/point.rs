@@ -40,7 +40,7 @@
 
 use std::cmp::Ordering;
 
-use karyon::{Association, Region, Variant};
+use crate::{Association, Region, Variant};
 
 use super::{columns, lines, number, ReadError};
 

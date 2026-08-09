@@ -35,10 +35,10 @@
 //! interval from where either coordinate put it, or a band would vanish while
 //! its end still set the length of the chromosome.
 
-use karyon::{Band, Feature, Region, Stain, Strand};
+use crate::{Band, Feature, Region, Stain, Strand};
 
+use super::Format;
 use super::{columns, lines, number, ReadError};
-use crate::args::Format;
 
 /// Which of the two interval formats a file turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

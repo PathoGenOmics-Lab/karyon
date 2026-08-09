@@ -260,11 +260,28 @@ are the ones the command has: `--coverage`, `--sequence`, `--features`,
 should not sit at the bottom. The rest have no file to read from, so they stay
 in the library. `karyon --help` is the whole grammar.
 
+The readers are in the library too, as `karyon::read`, so writing Rust against
+this crate does not mean writing a VCF parser first:
+
+```rust
+use karyon::{plot, read, Region};
+
+let region = Region::parse("chr1:1-2,000")?;
+let features = read::interval::features(&bed_text, &region, None)?;
+let svg = plot("chr1:1-2,000")?.add_features(features).to_svg();
+```
+
+Every one of them takes a `&str`, not a path. Nothing in the crate opens a
+file to read one, so the text may come from disk, a pipe, a socket or a test,
+and `cargo add karyon` still brings in no dependencies.
+
 **Coordinates are read as each format defines them**, which is the one thing
 here that would fail silently. BED, bedGraph and cytoBand are 0-based and
 half-open. GFF3, VCF, SAM and `samtools depth` are 1-based. Both come out at
-the same place in the figure, and every reader has a test that pins a known
-base through the conversion.
+the same place in the figure. Every reader has a test that pins a known base
+through the conversion, and a property in `tests/properties.rs` asks the same
+question without picking the base: the same interval written in every format
+has to come back as the same two numbers.
 
 ## Tracks
 

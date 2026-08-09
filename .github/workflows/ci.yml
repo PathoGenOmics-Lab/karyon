@@ -56,8 +56,14 @@ jobs:
                          visual_system; do
             cargo run --example "$example" -- assets
           done
-      - name: Fail if the committed figures are stale
-        run: git diff --exit-code -- assets
+      # `git diff` compares against the index, so a figure that was never
+      # added is not stale to it, it is invisible. One arrived that way: the
+      # documentation copy was committed and the assets/ original was not.
+      # Staging the renders first makes an uncommitted figure a difference.
+      - name: Fail if the committed figures are stale or missing
+        run: |
+          git add --intent-to-add assets
+          git diff --exit-code -- assets
       # The documentation site serves its own copies, because MkDocs only
       # serves what is under docs/. They are the same files and drift the
       # same way.

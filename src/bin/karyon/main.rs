@@ -1,12 +1,15 @@
 //! `karyon`, the command line front end.
 //!
-//! The library takes vectors of numbers and structs and reads no files. This
-//! binary is where the reading lives, so that stays true: nothing in
-//! `src/lib.rs` opens a path, and `cargo add karyon` still brings in no
-//! dependencies, because every format read here is line based text.
+//! The parsing lives in the library, as [`karyon::read`], because a Rust
+//! caller wanting a VCF has the same problem this binary does and should not
+//! have to write the reader twice. What stays here is the part that is
+//! genuinely the command line's: opening the path. Every reader takes a
+//! `&str`, so nothing in `src/lib.rs` touches a disk to read, and `cargo add
+//! karyon` still brings in no dependencies, because all nine formats are lines
+//! of text.
 //!
-//! The grammar is in [`args`], the readers in [`read`], and the walk from one
-//! to a figure in [`stack`].
+//! The grammar is in [`args`] and the walk from it to a figure in [`stack`],
+//! which is also the only place a file is opened.
 //!
 //! Errors stay values until `main`, which is the only place that prints one and
 //! the only place that picks an exit code. Everything under it returns a
@@ -19,7 +22,6 @@
 //! same is true on the way in: any track may read `-`, and one of them may.
 
 mod args;
-mod read;
 mod stack;
 
 use std::fs;

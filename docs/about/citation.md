@@ -62,8 +62,9 @@ threshold you actually used.
 
 ## Formats
 
-karyon the crate reads no files. karyon the command reads the line-based text
-formats a genomics shell already writes, and those are defined elsewhere:
+karyon opens no files: `karyon::read` parses the line-based text formats a
+genomics shell already writes, and the caller decides where the text came from.
+Those formats are defined elsewhere:
 
 > Li H, Handsaker B, Wysoker A, Fennell T, Ruan J, Homer N, Marth G, Abecasis
 > G, Durbin R. *The Sequence Alignment/Map format and SAMtools.*

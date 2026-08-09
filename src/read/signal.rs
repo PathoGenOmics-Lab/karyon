@@ -37,15 +37,15 @@
 //! draw a figure with data missing from it and say nothing, so it stops on the
 //! line and names the field that would not read.
 
-use karyon::{Region, Window};
+use crate::{Region, Window};
 
+use super::Format;
 use super::{columns, lines, number, ReadError};
-use crate::args::Format;
 
 /// Reads a value per position, as 0-based `(position, value)` pairs.
 ///
 /// Pairs rather than a dense array, because
-/// [`CoverageTrack::from_pairs`](karyon::CoverageTrack::from_pairs) already
+/// [`CoverageTrack::from_pairs`](crate::CoverageTrack::from_pairs) already
 /// lays them over the region and a sparse file should not have to be widened
 /// on the way in. A position the file says nothing about stays at zero, which
 /// is what a depth of zero means and what a bedGraph leaves out.
