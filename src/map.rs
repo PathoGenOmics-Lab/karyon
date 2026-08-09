@@ -1779,12 +1779,26 @@ fn finite_at_least(value: f64, minimum: f64, fallback: f64) -> f64 {
     }
 }
 
+/// A measured value as tooltip text, without letting the notation run away.
+///
+/// `f64::MAX` written out in full is three hundred and nine digits, and an f64
+/// stops holding consecutive integers at two to the fifty-third, so all but
+/// the first sixteen of them are the formatter's invention rather than
+/// anything anybody measured. The same happens at the other end, where a
+/// thousandth of a thousandth arrives as a run of zeros. Outside the range
+/// where a decimal is shorter than an exponent, the exponent says the same
+/// number and says how much of it is known.
 fn data_number(value: f64) -> String {
-    if value.is_finite() {
-        value.to_string()
-    } else {
-        "not finite".to_string()
+    if !value.is_finite() {
+        return "not finite".to_string();
     }
+    const EXACT_INTEGERS: f64 = (1u64 << 53) as f64;
+    const READABLE_FLOOR: f64 = 1e-3;
+    let magnitude = value.abs();
+    if magnitude != 0.0 && !(READABLE_FLOOR..EXACT_INTEGERS).contains(&magnitude) {
+        return format!("{value:e}");
+    }
+    value.to_string()
 }
 
 fn location_names(locations: &[GeoLocation]) -> BTreeMap<&str, Vec<usize>> {
@@ -2640,6 +2654,28 @@ mod tests {
             .push(GeoLocation::new("B", 2.0, 2.0))
             .push_flow(GeoFlow::new("A", "B"));
         assert_eq!(ambiguous.unresolved_flow_count(), 1);
+    }
+
+    #[test]
+    fn a_tooltip_value_does_not_run_off_into_three_hundred_digits() {
+        // `f64::MAX` printed in full is three hundred and nine digits, of
+        // which sixteen were measured and the rest are the formatter filling
+        // in the gap between what an f64 holds and what a decimal can write.
+        for extreme in [f64::MAX, f64::MIN, f64::MIN_POSITIVE, 1e308, -1e-308] {
+            let text = data_number(extreme);
+            let longest = text
+                .split(|c: char| !c.is_ascii_digit())
+                .map(str::len)
+                .max()
+                .unwrap_or(0);
+            assert!(longest <= 20, "{extreme} came out as {text}");
+        }
+        // Everything a map is actually likely to carry stays plain.
+        assert_eq!(data_number(40.417), "40.417");
+        assert_eq!(data_number(-3.704), "-3.704");
+        assert_eq!(data_number(0.0), "0");
+        assert_eq!(data_number(1234.5), "1234.5");
+        assert_eq!(data_number(f64::NAN), "not finite");
     }
 
     #[test]
