@@ -6,8 +6,41 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A map tooltip printed `f64::MAX` as three hundred and nine digits. The same
+  bug as the one fixed in `VariantTrack`, in the other writer, found because
+  the properties had never been pointed at a map: `data_number` handed the
+  value straight to a formatter, which expands it in full. An f64 stops
+  holding consecutive integers at two to the fifty-third, so past that all but
+  the first sixteen digits are the formatter filling in a gap rather than
+  anything measured, and the same happens under a thousandth as a run of
+  zeros. Outside that range the value is now written as an exponent, which
+  says the same number and says how much of it is known.
+- Six committed figures disagreed with the code that draws them: the MSA row
+  labels had moved to full ink, four phylogenetic figures had shifted
+  geometry, and the gallery had grown. A seventh, the node faces figure,
+  reached the documentation without its `assets/` original ever being added.
+  The staleness gate could not have caught that last one, because `git diff`
+  compares against the index and a file that was never added is not stale to
+  it, it is invisible; the gate now stages the renders first.
+
 ### Added
 
+- Twelve properties over phylogenies and maps, the two subsystems the suite
+  had never covered, and each one checked by breaking the library on purpose
+  to confirm it notices. Trees: every node placed exactly once with the tips
+  filling the rows, a parent between its children, the rows identical whether
+  depth is measured or counted, a cladogram depth equal to the number of
+  branches, and a parser that decides rather than panics on a file that is not
+  a tree. Rerooting is held to the only thing it must not do, by an oracle
+  that walks the undirected edges itself: every tip-to-tip distance survives
+  rooting on an internal node, on an outgroup and at the midpoint, and a
+  refused rerooting leaves the tree untouched. Maps: a valid document, the
+  same document twice, no location dropped without the notice saying how many,
+  coordinates kept rather than clamped, and nothing projected off the page.
+  The last of those covers path data as well as attributes, since that is
+  where a projection actually lands.
 - Row-major `Panels` grids for balanced comparison sheets, plus quieter clade
   fields, halo-separated node compositions, compact annotation legend chips,
   aligned-tree dividers and washed domain architectures.

@@ -16,16 +16,26 @@
 //! suite is worth no more than the hostility of what it feeds in: not plausible
 //! data, but `NaN`, `u64::MAX`, empty vectors and one-base regions.
 
+use std::collections::BTreeMap;
+
 use karyon::{
-    Association, AxisTrack, Band, CigarOp, CodonTrack, CoverageTrack, Feature, FeatureTrack,
-    Figure, IdeogramTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite, MethylationTrack,
-    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Read, Region, Scale, SequenceTrack, SnpSite,
-    SnpTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, Theme, Track, Variant,
-    VariantTrack, Window, WindowTrack,
+    AnnotationValue, Association, AxisTrack, Band, CigarOp, CodonTrack, CoverageTrack, Feature,
+    FeatureTrack, Figure, GeoFlow, GeoLocation, GeoProjection, IdeogramTrack, ManhattanTrack, Map,
+    MatrixRow, MatrixTrack, MethylSite, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
+    PhyloConnector, PhyloMap, PileupTrack, Read, Region, RenderProfile, Scale, SequenceTrack,
+    SnpSite, SnpTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind, Theme,
+    TimeDirection, Track, Tree, TreeShape, Variant, VariantTrack, Window, WindowTrack,
 };
 
 /// How many figures each property is given before it is believed.
 const ROUNDS: u64 = 10_000;
+
+/// How many drawings each map property is given.
+///
+/// Fewer, because a map carries the world outline and costs more to render
+/// than a stack of tracks does. Enough that the hostile coordinates all come
+/// up: every projection, every kind of unplaceable latitude.
+const MAP_ROUNDS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // Generation
@@ -496,28 +506,52 @@ fn every_figure_renders_a_valid_document() {
     }
 }
 
+/// The longest run of digits in any tooltip in the document.
+fn longest_digit_run(svg: &str) -> (usize, String) {
+    let mut worst = (0usize, String::new());
+    for piece in svg.split("<title>").skip(1) {
+        let Some(text) = piece.split("</title>").next() else {
+            continue;
+        };
+        let mut run = 0usize;
+        for byte in text.bytes() {
+            run = if byte.is_ascii_digit() { run + 1 } else { 0 };
+            if run > worst.0 {
+                worst = (run, text.to_string());
+            }
+        }
+    }
+    worst
+}
+
 #[test]
 fn no_tooltip_prints_more_digits_than_a_number_has() {
     // `u64::MAX` is twenty digits, and every number the crate groups breaks
     // into runs of three, so nothing legitimate reaches twenty-one in a row.
-    // `f64::MAX` written to two decimal places is three hundred and ten, which
-    // is what a formatter does when nobody has told it that an f64 stops
-    // holding consecutive integers at 2^53.
+    // `f64::MAX` written out in full is three hundred and nine, which is what
+    // a formatter does when nobody has told it that an f64 stops holding
+    // consecutive integers at 2^53.
+    //
+    // Both kinds of drawing, because they have separate writers over separate
+    // arithmetic and the second one had this wrong while the first was fixed.
     for seed in 0..ROUNDS {
-        let svg = figure(seed).to_svg();
-        for piece in svg.split("<title>").skip(1) {
-            let Some(text) = piece.split("</title>").next() else {
-                continue;
-            };
-            let mut run = 0usize;
-            for byte in text.bytes() {
-                run = if byte.is_ascii_digit() { run + 1 } else { 0 };
-                assert!(
-                    run <= 20,
-                    "seed {seed}: a tooltip carries {run} digits in a row: {text:?}"
-                );
-            }
-        }
+        let (run, text) = longest_digit_run(&figure(seed).to_svg());
+        assert!(
+            run <= 20,
+            "seed {seed}: a tooltip carries {run} digits in a row: {text:?}"
+        );
+    }
+    for seed in 0..MAP_ROUNDS {
+        let (run, text) = longest_digit_run(&map(seed).to_svg());
+        assert!(
+            run <= 20,
+            "map seed {seed}: a tooltip carries {run} digits in a row: {text:?}"
+        );
+        let (run, text) = longest_digit_run(&phylo_map(seed).to_svg());
+        assert!(
+            run <= 20,
+            "phylo seed {seed}: a tooltip carries {run} digits in a row: {text:?}"
+        );
     }
 }
 
@@ -661,5 +695,905 @@ fn a_track_is_drawn_the_same_whatever_is_stacked_under_it() {
             with_company.1 >= alone.1,
             "seed {seed}: adding a track under made the figure shorter, {alone:?} then {with_company:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trees
+// ---------------------------------------------------------------------------
+
+/// A branch length, tame when the property needs arithmetic to mean something.
+///
+/// The hostile ones are not decoration. A negative length is what a rate
+/// smoothing program writes when it overshoots, and a zero length is what a
+/// polytomy resolved into a bifurcation looks like.
+fn branch_length(rng: &mut Lcg, tame: bool) -> String {
+    if tame {
+        match rng.below(8) {
+            0 => "0".to_string(),
+            1 => "0.0".to_string(),
+            2 => "0.000000001".to_string(),
+            3 => format!("{}", rng.below(1_000_000)),
+            _ => format!("{}", rng.below(100_000) as f64 / 1_000.0),
+        }
+    } else {
+        // A length the parser rejects throws the whole tree away, so the two
+        // that do are rare on purpose. Left common, they cost the layout
+        // properties most of their cases and nothing says so.
+        match rng.below(60) {
+            0 => "NaN".to_string(),
+            1 => "inf".to_string(),
+            2..=10 => "-1".to_string(),
+            11..=19 => "1e308".to_string(),
+            20..=28 => "-0.0".to_string(),
+            29..=37 => "1e-308".to_string(),
+            38..=46 => "0".to_string(),
+            _ => format!("{}", rng.below(100_000) as f64 / 1_000.0),
+        }
+    }
+}
+
+/// A Newick string with a random topology and tip names that are all different.
+///
+/// All different because every property below keys a tip by its name. Rerooting
+/// renumbers the nodes, so an index means nothing across it, and a duplicate
+/// name would make two tips indistinguishable in exactly the comparison the
+/// property exists to make.
+fn newick(rng: &mut Lcg, tame: bool) -> String {
+    let mut tips = 0usize;
+    format!("{};", newick_clade(rng, tame, 0, &mut tips))
+}
+
+fn newick_clade(rng: &mut Lcg, tame: bool, depth: usize, tips: &mut usize) -> String {
+    let leaf = depth > 0 && (depth >= 4 || rng.chance(3));
+    let mut out = if leaf {
+        *tips += 1;
+        format!("t{tips}")
+    } else {
+        let children = 2 + rng.below(2) as usize;
+        let parts: Vec<String> = (0..children)
+            .map(|_| newick_clade(rng, tame, depth + 1, tips))
+            .collect();
+        let mut inner = format!("({})", parts.join(","));
+        // The format writes support values and internal names in the same
+        // place, so both readings have to be generated.
+        match rng.below(6) {
+            0 => inner.push_str(&format!("{}", rng.below(101))),
+            1 => inner.push_str(&format!("node{}", rng.below(100))),
+            _ => {}
+        }
+        inner
+    };
+    // The root has no incoming branch. A tame tree gives every other node one,
+    // because a missing length is an undefined distance.
+    if depth > 0 && (tame || !rng.chance(4)) {
+        out.push_str(&format!(":{}", branch_length(rng, tame)));
+    }
+    out
+}
+
+/// Every tip-to-tip distance, worked out from the undirected edges alone.
+///
+/// Rerooting changes which end of an edge is the parent, and nothing else, so
+/// this is the number that has to survive it. It is computed here by walking
+/// the graph rather than by asking the tree, because a helper shared with the
+/// code under test would agree with a mistake in it. `None` when some branch
+/// has no length, since then there is no distance to preserve.
+fn tip_distances(tree: &Tree) -> Option<BTreeMap<(String, String), f64>> {
+    let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); tree.nodes().len()];
+    for (child, clade) in tree.nodes().iter().enumerate() {
+        let Some(parent) = clade.parent else {
+            continue;
+        };
+        let length = clade.branch_length?;
+        if !length.is_finite() || length < 0.0 {
+            return None;
+        }
+        adjacency[parent].push((child, length));
+        adjacency[child].push((parent, length));
+    }
+
+    let mut out = BTreeMap::new();
+    for start in tree.leaves() {
+        let from = tree.nodes()[start].name.clone()?;
+        let mut distance = vec![0.0f64; adjacency.len()];
+        let mut seen = vec![false; adjacency.len()];
+        seen[start] = true;
+        let mut stack = vec![start];
+        while let Some(node) = stack.pop() {
+            for (next, length) in &adjacency[node] {
+                if !seen[*next] {
+                    seen[*next] = true;
+                    distance[*next] = distance[node] + length;
+                    stack.push(*next);
+                }
+            }
+        }
+        for end in tree.leaves() {
+            let to = tree.nodes()[end].name.clone()?;
+            if from < to {
+                out.insert((from.clone(), to), distance[end]);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Whether two distances agree, allowing for the arithmetic that got them here.
+///
+/// Rooting on an edge splits it in two, and the halves do not have to add back
+/// up to the original bit for bit.
+fn same_distance(before: f64, after: f64) -> bool {
+    if before == after {
+        return true;
+    }
+    (before - after).abs() <= 1e-9 * before.abs().max(after.abs()).max(1.0)
+}
+
+// ---------------------------------------------------------------------------
+// Maps
+// ---------------------------------------------------------------------------
+
+/// A latitude and longitude, on Earth most of the time and off it the rest.
+///
+/// The exact poles and antimeridian are generated deliberately: they are the
+/// values a projection divides by zero at, and the ones a bounds check written
+/// with `<` instead of `<=` rejects.
+/// Both coordinates have to be ordinary for a location to be drawn at all, so
+/// the odds here are per coordinate and the drawable share is their square.
+/// Hostile more often than this and the properties about drawing something
+/// stop having much of anything to draw.
+fn geo_position(rng: &mut Lcg) -> (f64, f64) {
+    let latitude = match rng.below(24) {
+        0 => f64::NAN,
+        1 => f64::INFINITY,
+        2 => f64::NEG_INFINITY,
+        3 => 90.0,
+        4 => -90.0,
+        5 => 90.000_001,
+        6 => -1e9,
+        _ => (rng.below(18_001) as f64) / 100.0 - 90.0,
+    };
+    let longitude = match rng.below(24) {
+        0 => f64::NAN,
+        1 => f64::NEG_INFINITY,
+        2 => f64::INFINITY,
+        3 => 180.0,
+        4 => -180.0,
+        5 => 180.000_001,
+        6 => 1e9,
+        _ => (rng.below(36_001) as f64) / 100.0 - 180.0,
+    };
+    (latitude, longitude)
+}
+
+/// A place name, never one that could be mistaken for part of a tooltip.
+///
+/// The properties below count locations by their tooltips, so a name is
+/// allowed to be hostile to the escaping but not to the counting.
+fn place(rng: &mut Lcg) -> String {
+    match rng.below(8) {
+        0 => String::new(),
+        1 => "a<b&c\"d'e".to_string(),
+        2 => "\u{1f30d} \u{202e}".to_string(),
+        3 => "x".repeat(120),
+        _ => format!("p{}", rng.below(30)),
+    }
+}
+
+/// A whole map, with a random projection, locations and flows between them.
+fn map(seed: u64) -> Map {
+    let mut rng = Lcg::new(seed);
+    let mut drawing = Map::new();
+
+    drawing = drawing.projection(match rng.below(5) {
+        0 => GeoProjection::Equirectangular,
+        1 => GeoProjection::Mercator,
+        2 => GeoProjection::orthographic(0.0, 0.0),
+        3 => GeoProjection::orthographic(90.0, 180.0),
+        _ => {
+            let (latitude, longitude) = geo_position(&mut rng);
+            GeoProjection::orthographic(latitude, longitude)
+        }
+    });
+
+    if rng.chance(3) {
+        drawing = drawing.width(match rng.below(4) {
+            0 => 1.0,
+            1 => 40.0,
+            2 => 4_000.0,
+            _ => 300.0 + rng.below(900) as f64,
+        });
+    }
+    if rng.chance(3) {
+        drawing = drawing.height(60.0 + rng.below(900) as f64);
+    }
+    if rng.chance(4) {
+        drawing = drawing.margin(rng.below(200) as f64);
+    }
+    if rng.chance(3) {
+        drawing = drawing.theme(Theme::dark());
+    }
+    if rng.chance(3) {
+        drawing = drawing.profile(match rng.below(5) {
+            0 => RenderProfile::Compact,
+            1 => RenderProfile::Presentation,
+            2 => RenderProfile::Web,
+            3 => RenderProfile::Dark,
+            _ => RenderProfile::Manuscript,
+        });
+    }
+    if rng.chance(3) {
+        drawing = drawing.title(place(&mut rng));
+    }
+    if rng.chance(4) {
+        drawing = drawing.subtitle(place(&mut rng));
+    }
+    drawing = drawing
+        .show_graticule(!rng.chance(3))
+        .show_labels(!rng.chance(3))
+        .show_legend(!rng.chance(3));
+
+    let mut names = Vec::new();
+    for _ in 0..rng.count() {
+        let (latitude, longitude) = geo_position(&mut rng);
+        let name = place(&mut rng);
+        let mut location = GeoLocation::new(name.clone(), latitude, longitude);
+        if rng.chance(2) {
+            location = location.category(place(&mut rng));
+        }
+        if rng.chance(2) {
+            location = location.value(rng.value());
+        }
+        if rng.chance(3) {
+            location = location.count(rng.below(1_000));
+        }
+        names.push(name);
+        drawing = drawing.push(location);
+    }
+
+    for _ in 0..rng.below(6) {
+        // An endpoint that names nothing, and one that names two places at
+        // once, are both things a real table of flows contains.
+        let pick = |rng: &mut Lcg, names: &[String]| -> String {
+            if names.is_empty() || rng.chance(4) {
+                place(rng)
+            } else {
+                names[rng.below(names.len() as u64) as usize].clone()
+            }
+        };
+        let from = pick(&mut rng, &names);
+        let to = pick(&mut rng, &names);
+        let mut flow = GeoFlow::new(from, to).weight(rng.value());
+        if rng.chance(2) {
+            flow = flow.undirected();
+        }
+        if rng.chance(3) {
+            flow = flow.category(place(&mut rng));
+        }
+        drawing = drawing.push_flow(flow);
+    }
+
+    drawing
+}
+
+/// A whole phylogeographic composition: a tree, an annotation naming where
+/// each tip came from, and a table of coordinates for those names.
+///
+/// The two drawings share a module and a writer but not a code path, and a
+/// tooltip bug lived in one of them while the other was clean.
+fn phylo_map(seed: u64) -> PhyloMap {
+    let mut rng = Lcg::new(seed);
+    let tame = rng.chance(2);
+    let text = newick(&mut rng, tame);
+    let mut tree = Tree::parse_newick(&text).unwrap_or_else(|_| {
+        Tree::parse_newick("((a:1,b:1):1,(c:1,d:1):1);").expect("a fixed tree parses")
+    });
+
+    // Where each tip came from, and how far the table of coordinates agrees.
+    // A tip whose place is not in the table is the ordinary case, not an edge
+    // one: a sample sheet is never complete.
+    let places: Vec<String> = (0..1 + rng.below(5)).map(|_| place(&mut rng)).collect();
+    for leaf in tree.leaves() {
+        if rng.chance(6) {
+            continue;
+        }
+        let where_from = places[rng.below(places.len() as u64) as usize].clone();
+        if let Some(annotations) = tree.annotations_mut(leaf) {
+            annotations.insert("location".to_string(), AnnotationValue::Text(where_from));
+            if rng.chance(2) {
+                annotations.insert("date".to_string(), AnnotationValue::Number(rng.value()));
+            }
+        }
+    }
+
+    let mut coordinates: Vec<GeoLocation> = Vec::new();
+    for name in &places {
+        // A place with no row in the coordinate table is the ordinary case.
+        if rng.chance(4) {
+            continue;
+        }
+        let (latitude, longitude) = geo_position(&mut rng);
+        let mut location = GeoLocation::new(name.clone(), latitude, longitude);
+        if rng.chance(2) {
+            location = location.value(rng.value());
+        }
+        if rng.chance(3) {
+            location = location.count(rng.below(500));
+        }
+        coordinates.push(location);
+    }
+
+    let mut drawing = PhyloMap::new(tree)
+        .location_by("location")
+        .coordinates(coordinates)
+        .connector(match rng.below(3) {
+            0 => PhyloConnector::Aggregated,
+            1 => PhyloConnector::Individual,
+            _ => PhyloConnector::None,
+        })
+        .shape(if rng.chance(2) {
+            TreeShape::Phylogram
+        } else {
+            TreeShape::Cladogram
+        })
+        .projection(match rng.below(3) {
+            0 => GeoProjection::Equirectangular,
+            1 => GeoProjection::Mercator,
+            _ => {
+                let (latitude, longitude) = geo_position(&mut rng);
+                GeoProjection::orthographic(latitude, longitude)
+            }
+        });
+
+    if rng.chance(2) {
+        drawing = drawing.time("date").time_direction(if rng.chance(2) {
+            TimeDirection::Increasing
+        } else {
+            TimeDirection::Decreasing
+        });
+    }
+    if rng.chance(3) {
+        drawing = drawing.diameter(match rng.below(4) {
+            0 => 1.0,
+            1 => 50.0,
+            2 => 3_000.0,
+            _ => 300.0 + rng.below(700) as f64,
+        });
+    }
+    if rng.chance(3) {
+        drawing = drawing.margin(rng.below(150) as f64);
+    }
+    if rng.chance(3) {
+        drawing = drawing.radial_start(rng.below(1_000) as f64 - 500.0);
+    }
+    if rng.chance(3) {
+        drawing = drawing.radial_sweep(rng.below(800) as f64 - 100.0);
+    }
+    if rng.chance(3) {
+        drawing = drawing.theme(Theme::dark());
+    }
+    if rng.chance(3) {
+        drawing = drawing.title(place(&mut rng));
+    }
+    drawing
+}
+
+/// Every number the document positions something with, path data included.
+///
+/// The attribute walk on its own would miss the projection entirely: the land
+/// outlines are a `d` string, so that is where a latitude that came out as ten
+/// to the fifteenth would land.
+fn geometry_numbers(svg: &str) -> Vec<f64> {
+    let mut out = Vec::new();
+    for (name, value) in attributes(svg) {
+        if matches!(
+            name,
+            "x" | "y" | "x1" | "y1" | "x2" | "y2" | "cx" | "cy" | "r" | "width" | "height"
+        ) {
+            if let Ok(number) = value.parse::<f64>() {
+                out.push(number);
+            }
+        }
+        if name == "d" || name == "points" {
+            for piece in value.split([' ', ',']) {
+                if let Ok(number) = piece.parse::<f64>() {
+                    out.push(number);
+                }
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// The properties: trees
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_layout_places_every_node_exactly_once() {
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(2);
+        let text = newick(&mut rng, tame);
+        let Ok(tree) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        for cladogram in [false, true] {
+            let places = tree.layout(cladogram);
+            assert_eq!(
+                places.len(),
+                tree.nodes().len(),
+                "seed {seed}: {} nodes placed of {}",
+                places.len(),
+                tree.nodes().len()
+            );
+            let mut seen = vec![false; tree.nodes().len()];
+            for place in &places {
+                assert!(
+                    !std::mem::replace(&mut seen[place.node], true),
+                    "seed {seed}: node {} placed twice",
+                    place.node
+                );
+                assert!(
+                    place.row.is_finite(),
+                    "seed {seed}: node {} sits at row {}",
+                    place.node,
+                    place.row
+                );
+            }
+            // A leaf takes its own row, so the tips fill nought upwards with
+            // nothing shared and nothing skipped. Two tips on one row is two
+            // samples drawn on top of each other.
+            let mut rows: Vec<f64> = tree
+                .leaves()
+                .into_iter()
+                .map(|leaf| places[leaf].row)
+                .collect();
+            rows.sort_by(|a, b| a.partial_cmp(b).expect("leaf rows are finite"));
+            for (expected, row) in rows.iter().enumerate() {
+                assert_eq!(
+                    *row, expected as f64,
+                    "seed {seed}: the tips do not fill the rows, {rows:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_parent_sits_between_its_children() {
+    // The module says so, and a panel sorted by the leaf order lines up only
+    // if it holds. A parent outside its children's rows draws a branch that
+    // crosses the clade it belongs to.
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(2);
+        let text = newick(&mut rng, tame);
+        let Ok(tree) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        for cladogram in [false, true] {
+            let places = tree.layout(cladogram);
+            for (index, clade) in tree.nodes().iter().enumerate() {
+                if clade.children.is_empty() {
+                    continue;
+                }
+                let rows: Vec<f64> = clade
+                    .children
+                    .iter()
+                    .map(|child| places[*child].row)
+                    .collect();
+                let low = rows.iter().copied().fold(f64::INFINITY, f64::min);
+                let high = rows.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let row = places[index].row;
+                assert!(
+                    row >= low && row <= high,
+                    "seed {seed}: node {index} sits at {row}, outside its children {rows:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn counting_branches_and_adding_them_up_agree_on_the_rows() {
+    // A metamorphic property. What the depths should be is a matter of which
+    // measure was asked for, but the rows are not: the module promises they do
+    // not move between a phylogram and a cladogram, which is what lets a panel
+    // beside the tree be sorted once and stay aligned in both.
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(2);
+        let text = newick(&mut rng, tame);
+        let Ok(tree) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        let lengths = tree.layout(false);
+        let branches = tree.layout(true);
+        for (with, without) in lengths.iter().zip(branches.iter()) {
+            assert_eq!(with.node, without.node, "seed {seed}: the node order moved");
+            assert_eq!(
+                with.row, without.row,
+                "seed {seed}: node {} sits at row {} counted and {} added up",
+                with.node, without.row, with.row
+            );
+        }
+    }
+}
+
+#[test]
+fn a_cladogram_depth_is_the_number_of_branches() {
+    // Countable without the tree's help, which is the point: the oracle here
+    // is the definition, not another call into the code being checked.
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(2);
+        let text = newick(&mut rng, tame);
+        let Ok(tree) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        let places = tree.layout(true);
+        for (index, clade) in tree.nodes().iter().enumerate() {
+            let expected = tree.ancestors(index).len() as f64;
+            assert_eq!(
+                places[index].depth, expected,
+                "seed {seed}: node {index} is {} branches from the root and drawn at {}",
+                expected, places[index].depth
+            );
+            if let Some(parent) = clade.parent {
+                assert_eq!(
+                    places[index].depth,
+                    places[parent].depth + 1.0,
+                    "seed {seed}: node {index} is not one branch past its parent"
+                );
+            }
+        }
+    }
+}
+
+/// One way of asking for a new root, applied and reporting whether it took.
+type Reroot = Box<dyn Fn(&mut Tree) -> bool>;
+
+#[test]
+fn rerooting_moves_the_root_and_nothing_else() {
+    // The one thing rerooting must not do. Every tip-to-tip distance is a
+    // property of the undirected edges, and reorienting them cannot change a
+    // distance, so a changed one means a branch length was dropped, doubled or
+    // left behind on the old root. The tip set must survive too: rooting on a
+    // leaf would quietly turn a sample into an internal node.
+    let mut checked = 0u64;
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let text = newick(&mut rng, true);
+        let Ok(source) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        let Some(before) = tip_distances(&source) else {
+            continue;
+        };
+        if source.leaf_count() < 3 {
+            continue;
+        }
+        let mut names_before = source.leaf_names();
+        names_before.sort();
+
+        // Every way in: an internal node, a monophyletic outgroup, and the
+        // midpoint of the longest path.
+        let internal: Vec<usize> = (0..source.nodes().len())
+            .filter(|node| !source.nodes()[*node].children.is_empty())
+            .collect();
+        let mut ways: Vec<(&str, Reroot)> = vec![(
+            "midpoint",
+            Box::new(|tree: &mut Tree| tree.reroot_midpoint().is_some()),
+        )];
+        let pick = internal[rng.below(internal.len() as u64) as usize];
+        ways.push((
+            "internal",
+            Box::new(move |tree: &mut Tree| tree.reroot(pick)),
+        ));
+        let leaf = source.leaves()[rng.below(source.leaf_count() as u64) as usize];
+        ways.push((
+            "outgroup",
+            Box::new(move |tree: &mut Tree| tree.reroot_outgroup(&[leaf]).is_some()),
+        ));
+
+        for (how, reroot) in ways {
+            let mut tree = source.clone();
+            if !reroot(&mut tree) {
+                continue;
+            }
+            checked += 1;
+
+            let mut names_after = tree.leaf_names();
+            names_after.sort();
+            assert_eq!(
+                names_before, names_after,
+                "seed {seed}: rerooting on the {how} changed which tips there are"
+            );
+            assert!(
+                tree.nodes()[tree.root()].parent.is_none(),
+                "seed {seed}: the {how} root still has a parent"
+            );
+
+            let after = tip_distances(&tree)
+                .unwrap_or_else(|| panic!("seed {seed}: the {how} root lost a branch length"));
+            assert_eq!(
+                before.len(),
+                after.len(),
+                "seed {seed}: the {how} root left {} tip pairs of {}",
+                after.len(),
+                before.len()
+            );
+            for (pair, distance) in &before {
+                let now = after.get(pair).unwrap_or_else(|| {
+                    panic!("seed {seed}: {pair:?} is gone after the {how} root")
+                });
+                assert!(
+                    same_distance(*distance, *now),
+                    "seed {seed}: the {how} root moved {pair:?} from {distance} to {now}"
+                );
+            }
+        }
+    }
+    assert!(
+        checked > 1_000,
+        "only {checked} reroots actually happened, so this proves little"
+    );
+}
+
+#[test]
+fn a_refused_reroot_leaves_the_tree_alone() {
+    // Returning false is a promise about what did not happen. A half-applied
+    // rerooting is worse than a refused one, because nothing downstream is
+    // told about it.
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(3);
+        let text = newick(&mut rng, tame);
+        let Ok(source) = Tree::parse_newick(&text) else {
+            continue;
+        };
+        let before = source.nodes().to_vec();
+
+        let mut tree = source.clone();
+        // A leaf, an index that is not a node, and an outgroup that is neither
+        // monophyletic nor made only of tips.
+        let leaf = source.leaves()[rng.below(source.leaf_count() as u64) as usize];
+        if !tree.reroot(leaf) {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: a refused leaf root moved something"
+            );
+        }
+        let mut tree = source.clone();
+        if !tree.reroot(source.nodes().len() + 7) {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: a root on nothing moved something"
+            );
+        }
+        let mut tree = source.clone();
+        if tree.reroot_outgroup(&[]).is_none() {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: an empty outgroup moved something"
+            );
+        }
+        let mut tree = source.clone();
+        let everything: Vec<usize> = source.leaves();
+        if tree.reroot_outgroup(&everything).is_none() {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: a whole-tree outgroup moved something"
+            );
+        }
+        let mut tree = source.clone();
+        let internal: Vec<usize> = (0..source.nodes().len())
+            .filter(|node| !source.nodes()[*node].children.is_empty())
+            .collect();
+        if tree.reroot_outgroup(&internal).is_none() {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: an internal outgroup moved something"
+            );
+        }
+        let mut tree = source.clone();
+        if tree.reroot_midpoint().is_none() {
+            assert_eq!(
+                tree.nodes(),
+                before,
+                "seed {seed}: a refused midpoint moved something"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_string_that_is_not_a_tree_comes_back_as_an_error() {
+    // Not that it rejects them: that it decides. A parser that panics on a
+    // truncated file takes the caller down with it, and every one of these is
+    // something a real Newick file has been found to contain.
+    let fixed = [
+        "",
+        ";",
+        "(",
+        ")",
+        "()",
+        "(,)",
+        "(();",
+        "((a,b),c",
+        "a:b;",
+        "(a:1,b:2):;",
+        "[&R]",
+        "(a,b);extra",
+        "(:1,:2);",
+        "((((((((((a))))))))));",
+        "(a,(b,(c,(d,(e)))));",
+    ];
+    for text in fixed {
+        let _ = Tree::parse_newick(text);
+        let _ = Tree::parse_annotated_newick(text);
+        let _ = Tree::parse_nexus(text);
+    }
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let tame = rng.chance(2);
+        let good = newick(&mut rng, tame);
+        let bytes = good.as_bytes();
+        let text = match rng.below(6) {
+            0 => good[..rng.below(good.len() as u64 + 1) as usize].to_string(),
+            1 => good.replace('(', ""),
+            2 => good.replace(')', "("),
+            3 => good.replace(':', ":x"),
+            4 => {
+                let at = rng.below(bytes.len() as u64) as usize;
+                format!("{}{}{}", &good[..at], "\u{0}\u{1f9ec},();:", &good[at..])
+            }
+            _ => good.repeat(2),
+        };
+        // No assertion on the verdict, only on getting one. A panic here fails
+        // the test on its own.
+        let _ = Tree::parse_newick(&text);
+        let _ = Tree::parse_annotated_newick(&text);
+        let _ = Tree::parse_nexus(&text);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The properties: maps
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_map_renders_a_valid_document() {
+    // The same rules the figures are held to. A map is a separate writer over
+    // separate arithmetic, so it can fail all of them separately: a latitude
+    // that came through as NaN reaches the page as `cy="NaN"`.
+    for seed in 0..MAP_ROUNDS {
+        let svg = map(seed).to_svg();
+        let bad = complaints(&svg);
+        assert!(bad.is_empty(), "seed {seed}: {bad:?}");
+    }
+    for seed in 0..MAP_ROUNDS {
+        let svg = phylo_map(seed).to_svg();
+        let bad = complaints(&svg);
+        assert!(bad.is_empty(), "phylo seed {seed}: {bad:?}");
+    }
+}
+
+#[test]
+fn a_map_renders_the_same_way_twice() {
+    for seed in 0..MAP_ROUNDS {
+        assert_eq!(
+            map(seed).to_svg(),
+            map(seed).to_svg(),
+            "seed {seed} rendered differently the second time"
+        );
+        assert_eq!(
+            phylo_map(seed).to_svg(),
+            phylo_map(seed).to_svg(),
+            "phylo seed {seed} rendered differently the second time"
+        );
+    }
+}
+
+#[test]
+fn no_location_is_dropped_without_saying_so() {
+    // The failure this exists for is silent: a sample given to the map, not
+    // drawn, and not mentioned. Nobody counts the dots on a map against the
+    // rows of their table. Every location is drawn, counted as invalid, or
+    // named in the notice, and the notice says how many.
+    for seed in 0..MAP_ROUNDS {
+        let drawing = map(seed);
+        let total = drawing.locations().len();
+        let invalid = drawing.invalid_location_count();
+        let svg = drawing.to_svg();
+
+        // One tooltip per drawn location, and its shape is the contract: the
+        // name, then the latitude, then the longitude.
+        let drawn = svg.matches("; latitude ").count();
+        assert!(
+            drawn + invalid <= total,
+            "seed {seed}: {drawn} drawn plus {invalid} invalid, of {total} given"
+        );
+        let hidden = total - drawn - invalid;
+        if hidden > 0 {
+            assert!(
+                svg.contains("outside projection"),
+                "seed {seed}: {hidden} of {total} locations vanished without a word"
+            );
+            assert!(
+                svg.contains(&format!("{hidden} location")),
+                "seed {seed}: {hidden} locations went missing and the notice does not say {hidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_map_keeps_the_coordinates_it_was_given() {
+    // Clamping an out-of-range coordinate would put a sample somewhere it was
+    // never sampled, and the map would look right. The module's answer is to
+    // keep the number and refuse to draw it, which only holds if the number
+    // comes back unchanged.
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let (latitude, longitude) = geo_position(&mut rng);
+        let location = GeoLocation::new(place(&mut rng), latitude, longitude);
+        let position = location.position();
+        let same = |given: f64, kept: f64| given == kept || (given.is_nan() && kept.is_nan());
+        assert!(
+            same(latitude, position.latitude()) && same(longitude, position.longitude()),
+            "seed {seed}: {latitude},{longitude} came back as {},{}",
+            position.latitude(),
+            position.longitude()
+        );
+        // And a coordinate off the Earth is not drawable, whatever else it is.
+        let plausible = (-90.0..=90.0).contains(&latitude)
+            && (-180.0..=180.0).contains(&longitude)
+            && latitude.is_finite()
+            && longitude.is_finite();
+        assert_eq!(
+            position.is_valid(),
+            plausible,
+            "seed {seed}: {latitude},{longitude} is called {}",
+            position.is_valid()
+        );
+    }
+}
+
+#[test]
+fn a_projection_stays_on_the_page() {
+    // A finite number can still be nonsense. Mercator sends a latitude of
+    // ninety to infinity, and the near miss is worse than the hit: a tangent
+    // taken at 89.999 degrees is finite, passes every check for a number, and
+    // puts a coastline several million pixels off the canvas, where it drags
+    // the bounding box of the file with it.
+    for seed in 0..MAP_ROUNDS {
+        let drawing = map(seed);
+        let (width, height) = drawing.dimensions();
+        let svg = drawing.to_svg();
+        let bound = 10.0 * width.max(height).max(1.0);
+        for number in geometry_numbers(&svg) {
+            assert!(
+                number.abs() <= bound,
+                "seed {seed}: something is drawn at {number} on a {width} by {height} map"
+            );
+        }
+        let drawing = phylo_map(seed);
+        let (width, height) = drawing.dimensions();
+        let svg = drawing.to_svg();
+        let bound = 10.0 * width.max(height).max(1.0);
+        for number in geometry_numbers(&svg) {
+            assert!(
+                number.abs() <= bound,
+                "phylo seed {seed}: something is drawn at {number} on a {width} by {height} map"
+            );
+        }
     }
 }
