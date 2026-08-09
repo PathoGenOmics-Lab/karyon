@@ -534,6 +534,13 @@ impl Figure {
             .collect();
         let content_height: f64 = track_heights.iter().sum::<f64>()
             + track_gap * (self.tracks.len().saturating_sub(1)) as f64;
+        // Checking each height on its own is not enough: two of them can each
+        // be a number and still add to one that is not, and then the total
+        // goes out as `height="0"` while `dimensions` keeps saying infinity.
+        // The ceiling is where an f64 stops holding consecutive integers, so a
+        // figure taller than this could not state its own height exactly even
+        // if something were willing to draw it.
+        const TALLEST: f64 = (1u64 << 53) as f64;
 
         Layout {
             scale,
@@ -547,7 +554,8 @@ impl Figure {
             margin_left,
             track_gap,
             track_heights,
-            total_height: margin_top + header_height + content_height + margin_bottom,
+            total_height: (margin_top + header_height + content_height + margin_bottom)
+                .min(TALLEST),
         }
     }
 
@@ -599,6 +607,47 @@ struct Layout {
 mod tests {
     use super::*;
     use crate::track::{AxisTrack, CoverageTrack, Feature, FeatureTrack};
+
+    /// A track that answers with whatever height it was built with.
+    struct Tall(f64);
+
+    impl Track for Tall {
+        fn height(&self, _scale: &Scale) -> f64 {
+            self.0
+        }
+        fn draw(&self, ctx: &mut DrawContext<'_>) {
+            let _ = ctx.scale;
+        }
+    }
+
+    #[test]
+    fn two_heights_that_are_numbers_cannot_add_to_one_that_is_not() {
+        // Every height is checked for being a number on its own, and that is
+        // one track at a time. Two of them can each pass and still overflow
+        // the sum, and then the total went out as `height="0"` while
+        // `dimensions` reported infinity: the file and the API disagreed about
+        // the same figure.
+        let figure = Figure::new(region())
+            .show_region_label(false)
+            .push(Tall(1e300))
+            .push(Tall(f64::MAX));
+        let (width, height) = figure.dimensions();
+        assert!(
+            width.is_finite() && height.is_finite() && height > 0.0,
+            "dimensions {width} x {height}"
+        );
+        let svg = figure.to_svg();
+        let stated: f64 = svg
+            .split("height=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .and_then(|value| value.parse().ok())
+            .expect("the document states a height");
+        assert!(
+            (stated - height).abs() < 0.01,
+            "the document says {stated} and dimensions says {height}"
+        );
+    }
 
     fn region() -> Region {
         Region::parse("chr1:1-1000").unwrap()

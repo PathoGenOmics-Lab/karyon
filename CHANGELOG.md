@@ -36,6 +36,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `SquiggleTrack` never finished drawing over a wide region. The envelope
+  branch walked the axis positions a pixel column covers rather than the
+  samples in it, so over a chromosome each column asked thousands of bases
+  whether they happened to be a sample, and over the whole coordinate range it
+  asked billions and the figure never came back. The walk is now cut down to
+  where samples can be before it starts.
+- `Genome` added lengths and gaps without saturating, in all seven places it
+  accumulates. A debug build panicked; a release build wrapped, which is worse,
+  because `boundaries` then came back decreasing and every point in a
+  genome-wide plot landed on the wrong sequence with nothing said.
+- A figure whose tracks each reported a height that was a number could still
+  report a total that was not. The height check reads one track at a time, so
+  two finite heights adding to infinity passed it, and the document then said
+  `height="0"` while `Figure::dimensions` said infinity: the file and the API
+  disagreed about the same figure. The total now has a ceiling at the largest
+  integer an f64 holds exactly.
+- Tree scale bars, support labels and clade support tooltips printed a large
+  value as three hundred digits. They were using `num`, which writes a
+  coordinate and stays plain on purpose. `svg::text_number` is the sibling of
+  it for numbers a person reads, agreeing with `num` to the byte below two to
+  the fifty-third and switching to an exponent above it. This was the third
+  place the same mistake appeared, after `VariantTrack` and `Map`, which is why
+  it now has a function of its own rather than a third patch.
 - A map tooltip printed `f64::MAX` as three hundred and nine digits. The same
   bug as the one fixed in `VariantTrack`, in the other writer, found because
   the properties had never been pointed at a map: `data_number` handed the
@@ -55,6 +78,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The generated figures now reach all thirty track types, not sixteen, and
+  build the tree ones through their whole builder rather than their
+  constructor. Fourteen kinds had never been given a hostile input and eleven
+  numeric setters had never been given a hostile number; four bugs came out of
+  it, each one now pinned by a test that was watched failing first.
 - A property over every reader at once: the same interval written as BED,
   GFF3, cytoBand, SAM, bedGraph, `samtools depth`, VCF, an association table
   and a genotype matrix has to come back as the same two 0-based numbers. The

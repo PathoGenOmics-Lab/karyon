@@ -125,8 +125,17 @@ impl Genome {
 
     /// Length of the whole axis, gaps included.
     pub fn total(&self) -> u64 {
-        let bases: u64 = self.sequences.iter().map(|seq| seq.length).sum();
-        bases + self.gap * self.sequences.len().saturating_sub(1) as u64
+        // Saturating throughout. A length is whatever a file said it was, and
+        // a release build wraps rather than panicking, which would put a point
+        // on the wrong sequence and say nothing.
+        let bases = self
+            .sequences
+            .iter()
+            .fold(0u64, |total, seq| total.saturating_add(seq.length));
+        let gaps = self
+            .gap
+            .saturating_mul(self.sequences.len().saturating_sub(1) as u64);
+        bases.saturating_add(gaps)
     }
 
     /// The region covering every sequence, for the figure to be built over.
@@ -141,7 +150,7 @@ impl Genome {
             if sequence.name == name {
                 return Some(at);
             }
-            at += sequence.length + self.gap;
+            at = at.saturating_add(sequence.length).saturating_add(self.gap);
         }
         None
     }
@@ -162,9 +171,11 @@ impl Genome {
         let mut offset = 0u64;
         for sequence in &self.sequences {
             if sequence.name == name {
-                return (position < sequence.length).then_some(offset + position);
+                return (position < sequence.length).then_some(offset.saturating_add(position));
             }
-            offset += sequence.length + self.gap;
+            offset = offset
+                .saturating_add(sequence.length)
+                .saturating_add(self.gap);
         }
         None
     }
@@ -175,14 +186,14 @@ impl Genome {
     pub fn locate(&self, position: u64) -> Option<(&str, u64)> {
         let mut at = 0u64;
         for sequence in &self.sequences {
-            if position < at + sequence.length {
+            if position < at.saturating_add(sequence.length) {
                 return Some((&sequence.name, position - at));
             }
-            at += sequence.length;
-            if position < at + self.gap {
+            at = at.saturating_add(sequence.length);
+            if position < at.saturating_add(self.gap) {
                 return None;
             }
-            at += self.gap;
+            at = at.saturating_add(self.gap);
         }
         None
     }
@@ -196,7 +207,7 @@ impl Genome {
         let mut starts = Vec::with_capacity(self.sequences.len());
         for sequence in &self.sequences {
             starts.push(at);
-            at += sequence.length + self.gap;
+            at = at.saturating_add(sequence.length).saturating_add(self.gap);
         }
         starts
     }
@@ -206,8 +217,12 @@ impl Genome {
         let mut at = 0u64;
         let mut out = Vec::with_capacity(self.sequences.len());
         for sequence in &self.sequences {
-            out.push((sequence.name.as_str(), at, at + sequence.length));
-            at += sequence.length + self.gap;
+            out.push((
+                sequence.name.as_str(),
+                at,
+                at.saturating_add(sequence.length),
+            ));
+            at = at.saturating_add(sequence.length).saturating_add(self.gap);
         }
         out
     }
@@ -264,6 +279,27 @@ mod tests {
 
     fn genome() -> Genome {
         Genome::new([("chr1", 1_000u64), ("chr2", 600), ("chr3", 400)])
+    }
+
+    #[test]
+    fn an_axis_longer_than_the_coordinate_space_stops_at_its_end() {
+        // A length is whatever a file said it was, and two of them can sum past
+        // what a u64 holds. A debug build used to panic here and a release
+        // build used to wrap, which is worse: the boundaries came back
+        // decreasing and every point landed on the wrong sequence.
+        let genome = Genome::new([("a", u64::MAX), ("b", u64::MAX), ("c", 10u64)]).gap(u64::MAX);
+        assert_eq!(genome.total(), u64::MAX);
+        let starts = genome.boundaries();
+        assert!(
+            starts.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the sequences do not run forwards: {starts:?}"
+        );
+        for (_, start, end) in genome.spans() {
+            assert!(start <= end, "a sequence spans {start}..{end}");
+        }
+        assert_eq!(genome.at("a", 0), Some(0));
+        assert_eq!(genome.at("a", u64::MAX), None);
+        assert_eq!(genome.locate(0).map(|(name, _)| name), Some("a"));
     }
 
     #[test]

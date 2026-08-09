@@ -726,6 +726,27 @@ pub fn num(v: f64) -> String {
     }
 }
 
+/// A number written for a person to read rather than for a coordinate.
+///
+/// [`num`] puts a number in an attribute, where the resolution is the page's
+/// and exponent notation is avoided because a coordinate is not read as prose.
+/// A label and a tooltip are the other case, and they differ in exactly one
+/// place: past two to the fifty-third an f64 stops holding consecutive
+/// integers, so `format!` writing such a value out in full produces three
+/// hundred digits, of which sixteen were measured and the rest are the
+/// formatter filling the gap between what a float holds and what a decimal can
+/// spell. Below that the two agree to the byte.
+///
+/// A number a reader sees needs this. A number the renderer places does not,
+/// because a coordinate that large is already off any page.
+pub fn text_number(value: f64) -> String {
+    const EXACT_INTEGERS: f64 = (1u64 << 53) as f64;
+    if value.is_finite() && value.abs() >= EXACT_INTEGERS {
+        return format!("{value:e}");
+    }
+    num(value)
+}
+
 /// Escapes the five XML metacharacters, and drops the characters XML has no
 /// way to write at all.
 ///
@@ -848,6 +869,27 @@ fn point_list(points: &[(f64, f64)]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_a_reader_sees_does_not_run_to_three_hundred_digits() {
+        // `num` writes a coordinate and stays plain on purpose. The same
+        // function was writing scale bar and support labels, where a value
+        // past 2^53 came out as the formatter's full expansion. Below that the
+        // two have to agree to the byte, or every committed figure moves.
+        for ordinary in [0.0, -0.0, 0.1, 1.0, -12.3456, 1e14, 9.007e15_f64 - 1e9] {
+            assert_eq!(text_number(ordinary), num(ordinary), "at {ordinary}");
+        }
+        for extreme in [f64::MAX, f64::MIN, 1e300, -1e300] {
+            let text = text_number(extreme);
+            let longest = text
+                .split(|c: char| !c.is_ascii_digit())
+                .map(str::len)
+                .max()
+                .unwrap_or(0);
+            assert!(longest <= 20, "{extreme} came out as {text}");
+        }
+        assert_eq!(text_number(f64::NAN), "0");
+    }
 
     #[test]
     fn numbers_lose_their_trailing_zeros() {

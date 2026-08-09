@@ -192,7 +192,7 @@ pub(super) fn draw_support(
         );
     }
     if style.labels() {
-        let label = num(support);
+        let label = text_number(support);
         let size = (ctx.theme.font_size - 3.0).max(6.0);
         let offset = if style.symbols() { radius + 2.5 } else { 3.0 };
         let width = text_width(&label, size) + 4.0;

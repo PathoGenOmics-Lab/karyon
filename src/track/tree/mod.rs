@@ -35,7 +35,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scale::Scale;
-use crate::svg::{fit_text, num, text_width};
+use crate::svg::{fit_text, num, text_number, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
@@ -622,7 +622,7 @@ fn draw(
         // rather than an empty one.
         let support = match (titles.nodes, node.support) {
             (true, Some(support)) if support.is_finite() => {
-                Some(format!("clade support {}", num(support)))
+                Some(format!("clade support {}", text_number(support)))
             }
             _ => None,
         };

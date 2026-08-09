@@ -19,12 +19,17 @@
 use std::collections::BTreeMap;
 
 use karyon::{
-    read, AnnotationValue, Association, AxisTrack, Band, CigarOp, CodonTrack, CoverageTrack,
-    Feature, FeatureTrack, Figure, Format, GeoFlow, GeoLocation, GeoProjection, IdeogramTrack,
-    ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, MsaSequence,
-    MsaTrack, OrfTrack, PhyloConnector, PhyloMap, PileupTrack, Read, Region, RenderProfile, Scale,
-    SequenceTrack, SnpSite, SnpTrack, Stain, Strand, StructuralTrack, StructuralVariant, SvKind,
-    Theme, TimeDirection, Track, Tree, TreeShape, Variant, VariantTrack, Window, WindowTrack,
+    read, AlignmentBlock, AnnotationValue, Association, AxisTrack, Band, BisulfiteTrack, CigarOp,
+    CladeBlock, CladeTrack, CodonTrack, CoverageTrack, DomainArchitecture, DomainFeature,
+    DomainTrack, DotplotTrack, Feature, FeatureTrack, Figure, Format, Genome, GenomeTrack, GeoFlow,
+    GeoLocation, GeoProjection, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
+    LogoTrack, ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
+    MsaSequence, MsaTrack, OrfTrack, PhyloConnector, PhyloMap, PileupTrack, Read, Region,
+    RenderProfile, Scale, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack,
+    SplitSegment, SquiggleTrack, Stain, Strand, StructuralTrack, StructuralVariant, SupportStyle,
+    SvKind, SyntenyTrack, TanglegramTrack, Theme, TimeDirection, Track, TranscriptionUnit,
+    TranscriptionUnitTrack, Tree, TreeProjection, TreeShape, TreeTrack, Variant, VariantTrack,
+    Window, WindowTrack,
 };
 
 /// How many figures each property is given before it is believed.
@@ -164,7 +169,7 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
     let width = span.min(4_000);
     let count = rng.count();
 
-    match rng.below(16) {
+    match rng.below(30) {
         0 => {
             let values: Vec<f64> = (0..count).map(|_| rng.value()).collect();
             Box::new(CoverageTrack::new(rng.position(span), values))
@@ -315,8 +320,217 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
                 .collect();
             Box::new(IdeogramTrack::new(width.max(1), bands))
         }
+        15 => {
+            let calls: Vec<Option<bool>> = (0..count)
+                .map(|_| match rng.below(3) {
+                    0 => None,
+                    1 => Some(true),
+                    _ => Some(false),
+                })
+                .collect();
+            let sites: Vec<u64> = (0..calls.len()).map(|_| rng.position(span)).collect();
+            let molecules: Vec<Molecule> = (0..rng.count())
+                .map(|_| Molecule::new(rng.name(), calls.clone()))
+                .collect();
+            Box::new(BisulfiteTrack::new(sites, molecules))
+        }
+        16 => {
+            let blocks: Vec<CladeBlock> = (0..count)
+                .map(|_| {
+                    let a = rng.position(span);
+                    let b = rng.position(span);
+                    let taxa: Vec<String> = (0..rng.count()).map(|_| rng.name()).collect();
+                    CladeBlock::new(a.min(b), a.max(b), taxa).name(rng.name())
+                })
+                .collect();
+            Box::new(CladeTrack::new(tree(rng), blocks))
+        }
+        17 => {
+            let rows: Vec<DomainArchitecture> = (0..count)
+                .map(|_| {
+                    let mut row = DomainArchitecture::new(rng.name(), rng.position(span));
+                    for _ in 0..rng.count() {
+                        let a = rng.position(span);
+                        let b = rng.position(span);
+                        row = row.feature(DomainFeature::new(a.min(b), a.max(b)).label(rng.name()));
+                    }
+                    row
+                })
+                .collect();
+            Box::new(DomainTrack::new(rows))
+        }
+        18 => {
+            let sequences: Vec<(String, u64)> = (0..count)
+                .map(|_| (rng.name(), rng.position(span)))
+                .collect();
+            Box::new(GenomeTrack::new(Genome::new(sequences)))
+        }
+        19 => {
+            let mut legend = Legend::new();
+            for _ in 0..count {
+                legend = match rng.below(4) {
+                    0 => legend.key(rng.name(), rng.name()),
+                    1 => legend.dot(rng.name(), rng.name()),
+                    2 => legend.line(rng.name(), rng.name()),
+                    _ => legend.area(rng.name(), rng.name()),
+                };
+            }
+            Box::new(LegendTrack::new(legend))
+        }
+        20 => {
+            let loci: Vec<Locus> = (0..count)
+                .map(|_| {
+                    let genes: Vec<Feature> = (0..rng.count())
+                        .map(|_| {
+                            let a = rng.position(span);
+                            let b = rng.position(span);
+                            Feature::new(a.min(b), a.max(b)).strand(rng.strand())
+                        })
+                        .collect();
+                    Locus::new(rng.name(), genes)
+                })
+                .collect();
+            Box::new(LocusTrack::new(loci))
+        }
+        21 => {
+            let columns: Vec<LogoColumn> = (0..count)
+                .map(|_| LogoColumn::acgt(rng.value(), rng.value(), rng.value(), rng.value()))
+                .collect();
+            Box::new(LogoTrack::new(rng.position(span), columns))
+        }
+        22 => {
+            let reads: Vec<SplitRead> = (0..count)
+                .map(|_| {
+                    let segments: Vec<SplitSegment> = (0..rng.count())
+                        .map(|_| {
+                            let a = rng.position(span);
+                            let b = rng.position(span);
+                            SplitSegment::new(a.min(b), a.max(b), rng.strand())
+                        })
+                        .collect();
+                    SplitRead::new(segments)
+                })
+                .collect();
+            Box::new(SplitReadTrack::new(reads))
+        }
+        23 => {
+            let signal: Vec<f64> = (0..count).map(|_| rng.value()).collect();
+            Box::new(SquiggleTrack::new(rng.count(), signal))
+        }
+        24 | 25 => {
+            let blocks: Vec<AlignmentBlock> = (0..count)
+                .map(|_| {
+                    let a = rng.position(span);
+                    let b = rng.position(span);
+                    let c = rng.position(span);
+                    let d = rng.position(span);
+                    AlignmentBlock::new(a.min(b), a.max(b), c.min(d), c.max(d))
+                })
+                .collect();
+            if rng.chance(2) {
+                Box::new(SyntenyTrack::new(blocks))
+            } else {
+                Box::new(DotplotTrack::new(blocks))
+            }
+        }
+        26 => Box::new(TanglegramTrack::new(tree(rng), tree(rng))),
+        27 => {
+            let units: Vec<TranscriptionUnit> = (0..count)
+                .map(|_| {
+                    let a = rng.position(span);
+                    let b = rng.position(span);
+                    TranscriptionUnit::new(a.min(b), a.max(b), rng.strand())
+                })
+                .collect();
+            Box::new(TranscriptionUnitTrack::new(units))
+        }
+        28 => {
+            // The builders, not just the constructor. Every one of these takes
+            // a number nobody checks on the way in, and a figure has to survive
+            // a caller who passes the wrong one.
+            let mut track = TreeTrack::new(tree(rng));
+            if rng.chance(2) {
+                track = track.projection(match rng.below(3) {
+                    0 => TreeProjection::Rectangular,
+                    1 => TreeProjection::Circular,
+                    _ => TreeProjection::Unrooted,
+                });
+            }
+            if rng.chance(2) {
+                track = track.shape(if rng.chance(2) {
+                    TreeShape::Phylogram
+                } else {
+                    TreeShape::Cladogram
+                });
+            }
+            if rng.chance(2) {
+                track = track.row_height(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.fan(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.radial_start(rng.value()).radial_sweep(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.inner_radius(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.radial_size(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.unrooted_start(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.line_width(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.support_threshold(rng.value());
+            }
+            if rng.chance(2) {
+                track = track.branch_label_size(rng.value());
+            }
+            if rng.chance(3) {
+                track = track.scale_bar_length(rng.value());
+            }
+            if rng.chance(3) {
+                track = track.reroot(rng.count());
+            }
+            if rng.chance(3) {
+                track = track.collapse(rng.count());
+            }
+            if rng.chance(3) {
+                track = track.reroot_midpoint();
+            }
+            if rng.chance(2) {
+                track = track.support_style(match rng.below(3) {
+                    0 => SupportStyle::Symbols,
+                    1 => SupportStyle::Labels,
+                    _ => SupportStyle::None,
+                });
+            }
+            if rng.chance(2) {
+                track = track.time(rng.name()).show_time_axis(true);
+            }
+            if rng.chance(2) {
+                track = track.color_by(rng.name());
+            }
+            if rng.chance(2) {
+                track = track.scale_bar();
+            }
+            Box::new(track)
+        }
         _ => Box::new(AxisTrack::new()),
     }
+}
+
+/// A tree for the tracks that take one, falling back when the text will not
+/// parse, since a track wants a tree rather than an opinion about Newick.
+fn tree(rng: &mut Lcg) -> Tree {
+    let tame = rng.chance(2);
+    let text = newick(rng, tame);
+    Tree::parse_newick(&text)
+        .unwrap_or_else(|_| Tree::parse_newick("((a:1,b:1):1,(c:1,d:1):1);").expect("a fixed tree"))
 }
 
 /// A whole figure, with a random region, theme, size and stack.

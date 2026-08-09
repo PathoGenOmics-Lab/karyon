@@ -341,13 +341,24 @@ impl Track for SquiggleTrack {
             // which is the envelope an oscilloscope draws and the only honest
             // summary of a column holding a hundred measurements.
             let columns = band.w.max(1.0).ceil() as usize;
+            // The column covers a range of axis positions, and the loop walks
+            // the samples in it, so the range has to be cut down to where
+            // samples can be before it is walked and not after. Over a whole
+            // chromosome one pixel is thousands of positions and over the
+            // whole coordinate range it is billions, against a signal holding
+            // a few thousand: the walk was asking every base of a genome
+            // whether it happened to be a sample.
+            let first = self.start;
+            let last = self.start.saturating_add(self.signal.len());
             for column in 0..columns {
                 let x = band.x + column as f64;
-                let from = ctx.scale.pos_at_x(x).floor().max(0.0) as usize;
-                let to = ctx.scale.pos_at_x(x + 1.0).ceil().max(0.0) as usize;
+                let from = (ctx.scale.pos_at_x(x).floor().max(0.0) as usize).clamp(first, last);
+                let to = (ctx.scale.pos_at_x(x + 1.0).ceil().max(0.0) as usize)
+                    .max(from.saturating_add(1))
+                    .min(last);
                 let mut lo = f64::INFINITY;
                 let mut hi = f64::NEG_INFINITY;
-                for index in from..to.max(from + 1) {
+                for index in from..to {
                     if let Some(value) = self.sample(index) {
                         lo = lo.min(value);
                         hi = hi.max(value);
@@ -395,7 +406,7 @@ impl SquiggleTrack {
     /// Sample indices inside the region, and inside the read.
     fn visible(&self, region: &Region) -> impl Iterator<Item = usize> + '_ {
         let first = (region.start() as usize).max(self.start);
-        let last = (region.end() as usize).min(self.start + self.signal.len());
+        let last = (region.end() as usize).min(self.start.saturating_add(self.signal.len()));
         (first..last.max(first)).collect::<Vec<_>>().into_iter()
     }
 
@@ -484,6 +495,21 @@ fn trim(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_wide_region_does_not_walk_every_base_looking_for_samples() {
+        // The envelope branch used to loop over the axis positions a pixel
+        // column covers rather than over the samples in it. Across the whole
+        // coordinate space that is billions of indices per column against a
+        // signal holding a few hundred, and the figure never finished. This
+        // test hung before the fix rather than failing.
+        let signal: Vec<f64> = (0..500).map(|i| (i as f64 / 40.0).sin()).collect();
+        let region = Region::new("chr1", 0, u64::MAX).unwrap();
+        let svg = Figure::new(region)
+            .push(SquiggleTrack::new(0, signal))
+            .to_svg();
+        assert!(svg.starts_with("<svg "), "{}", &svg[..svg.len().min(80)]);
+    }
+
     use crate::figure::Figure;
     use crate::region::Region;
 
