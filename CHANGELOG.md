@@ -102,6 +102,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A branch-wise dN/dS visual grammar for `TreeTrack`. `dnds` uses a
+  colour-vision-safe logarithmic scale centred on ω = 1 instead of stretching
+  the observed minimum and maximum across a generic ramp. Values are direct
+  branch annotations and never inherited; missing or invalid fits are dotted.
+  `dnds_significance` can use a p- or q-value to carry evidence through stroke
+  weight while colour continues to carry effect size. Rectangular, circular,
+  unrooted and cladogram examples share one explicit legend and exact SVG
+  tooltips.
 - The generated figures now reach all thirty track types, not sixteen, and
   build the tree ones through their whole builder rather than their
   constructor. Fourteen kinds had never been given a hostile input and eleven

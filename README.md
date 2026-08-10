@@ -101,6 +101,19 @@ branch-length scale in rectangular, circular and unrooted coordinates:
 
 <img src="assets/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms with visible support, branch event labels and evolutionary distance scale bars" width="100%">
 
+Branch-wise dN/dS gets a scale of its own: cool below ω = 1, neutral near one
+and warm above it. Missing fits stay dotted, while a direct p- or q-value can
+emphasise evidence through branch weight without changing the effect colour.
+
+```rust
+let selection = TreeTrack::new(tree)
+    .dnds("omega")
+    .dnds_neutral_band(0.9, 1.1)
+    .dnds_significance("q", 0.05);
+```
+
+<img src="assets/example-phylo-dnds.svg" alt="A synthetic branch-wise dN/dS tree shown as a phylogram, circular tree with metadata rings, unrooted tree and cladogram" width="100%">
+
 Rooting is explicit too: choose an internal node or name, validate a
 monophyletic outgroup, or bisect the weighted tip diameter. Successful choices
 can mark the selected root without changing pairwise tip distances.
@@ -109,9 +122,9 @@ can mark the selected root without changing pairwise tip distances.
 
 The [phylogenetics guide](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/)
 covers circular and fan geometry, unrooted trees, trait rings, visible support,
-branch events, scale bars, node, outgroup and midpoint rerooting, MRCA queries,
-rotation, ladderising, subtree extraction and the input guarantees for time
-trees.
+branch events, dN/dS, scale bars, node, outgroup and midpoint rerooting, MRCA
+queries, rotation, ladderising, subtree extraction and the input guarantees for
+time trees.
 
 ### Geographic genomics
 
@@ -291,7 +304,7 @@ has to come back as the same two numbers.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, scale bars, node glyphs, clade fields and layered iTOL-style metadata remain independently readable |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, branch-wise dN/dS, scale bars, node glyphs, clade fields and layered iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring, optionally ordered by an adjacent tree |
 | `DomainTrack` | Domains and motifs along sequences | Labelled interval architectures, optionally ordered by an adjacent tree so gains and losses form clade blocks |

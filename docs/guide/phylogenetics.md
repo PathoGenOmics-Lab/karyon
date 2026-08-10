@@ -217,6 +217,50 @@ the complete key and value remain in the SVG tooltip.
 cladograms and explicitly time-scaled trees, where a branch-length ruler would
 make the wrong claim.
 
+## Show branch-wise dN/dS without moving the neutral point
+
+![Four views of one synthetic codon-model tree: a phylogram, a circular tree with genomic metadata rings, an unrooted tree and a cladogram, all with branch-wise dN/dS](../assets/figures/example-phylo-dnds.svg)
+
+`dnds` is a dedicated branch encoding for the nonsynonymous-to-synonymous rate
+ratio, ω. It differs from a generic continuous `color_by` in two important
+ways: the diverging scale is fixed around the biologically meaningful value
+ω = 1, and an estimate belongs only to its incoming branch. It is never
+inherited by descendants.
+
+```rust
+use karyon::TreeTrack;
+
+let view = TreeTrack::new(tree)
+    .dnds("omega")
+    .dnds_label("Branch dN/dS (ω)")
+    .dnds_neutral_band(0.9, 1.1)
+    .dnds_saturation(4.0)
+    .dnds_significance("q", 0.05)
+    .branch_labels("amino_acid_change");
+```
+
+The cool side represents ω below the neutral band, grey represents values near
+one and the warm side represents ω above it. Colour strength follows
+`abs(log2(ω))` and saturates symmetrically: with `dnds_saturation(4.0)`, ω ≤
+0.25 and ω ≥ 4 use the strongest colours. Zero is retained as the strongest
+purifying value; negative, non-finite and missing estimates are drawn as quiet
+dotted edges rather than converted to zero.
+
+`dnds_significance(key, maximum)` adds an independent evidence channel. A
+branch whose direct numeric `p`, `q` or other test value is at most the chosen
+threshold becomes thicker, while its colour continues to describe effect
+size. Exact ω and test values, the selected regime and the threshold comparison
+remain in the SVG tooltip in rectangular, circular and unrooted projections.
+
+The renderer visualises estimates fitted upstream; it does not calculate dN,
+dS, likelihood-ratio tests or multiple-testing corrections. In particular,
+ω > 1 alone is shown as a diversifying regime, not presented as proof of
+positive selection. Generate the synthetic gallery above with:
+
+```bash
+cargo run --example phylo_dnds -- assets
+```
+
 ## Layer annotation rings like iTOL datasets
 
 `TraitColumn` uses the same dataset in rectangular columns, circular rings and

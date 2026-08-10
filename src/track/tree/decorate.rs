@@ -671,11 +671,11 @@ fn draw_dnds_legend(
             .iter()
             .map(|label| 15.0 + text_width(label, size))
             .sum::<f64>()
-        + 14.0
+        + 20.0
         + text_width("missing", size)
         + significance
             .as_ref()
-            .map_or(0.0, |label| 18.0 + text_width(label, size));
+            .map_or(0.0, |label| 48.0 + text_width(label, size));
     let available = (ctx.band.right() - x).max(0.0);
     let width = natural.min(available);
     if width <= 12.0 {
