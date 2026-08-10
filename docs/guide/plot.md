@@ -198,12 +198,15 @@ One per track type the crate ships. Each returns a plot holding that track.
 | `add_methylation(sites)` | `MethylationTrack` | `Vec<MethylSite>` |
 | `add_msa(sequences)` | `MsaTrack` | `Vec<MsaSequence>` |
 | `add_orfs(seq)` | `OrfTrack` | `Vec<u8>` |
+| `add_phylodynamics(points)` | `PhylodynamicTrack` | `Vec<PhylodynamicPoint>` |
 | `add_pileup(reads)` | `PileupTrack` | `Vec<Read>` |
+| `add_selection(sites)` | `SelectionTrack` | `Vec<SelectionSite>` |
 | `add_sequence(seq)` | `SequenceTrack` | `Vec<u8>` |
 | `add_snps(names, sites)` | `SnpTrack` | anything iterable of names, `Vec<SnpSite>` |
 | `add_split_reads(reads)` | `SplitReadTrack` | `Vec<SplitRead>` |
 | `add_squiggle(signal)` | `SquiggleTrack` | `Vec<f64>`, one per sample |
 | `add_structural(variants)` | `StructuralTrack` | `Vec<StructuralVariant>` |
+| `add_surveillance(observations)` | `SurveillanceTrack` | `Vec<SurveillanceObservation>` |
 | `add_synteny(blocks)` | `SyntenyTrack` | `Vec<AlignmentBlock>` |
 | `add_tanglegram(left, right)` | `TanglegramTrack` | `Tree`, `Tree` |
 | `add_transcription_units(units)` | `TranscriptionUnitTrack` | `Vec<TranscriptionUnit>` |

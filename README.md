@@ -138,6 +138,39 @@ let site_view = SelectionTrack::new(sites)
 
 <img src="assets/example-selection-atlas.svg" alt="A synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event links, circular dN/dS and site-wise evidence and effects" width="100%">
 
+The wider evolutionary atlas adds orthogonal, diagonal and curved rectangular
+branches; circular, fan and topology-balanced unrooted views; ancestral-state
+posteriors, direct branch events and uncertainty intervals; genomic selection
+layers; tree comparison; phylodynamic trajectories and sampling-aware lineage
+surveillance.
+
+```rust
+use karyon::{
+    AncestralStateLayer, BranchEventLayer, BranchGeometry, BranchIntervalLayer,
+    PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack,
+    SurveillanceObservation, SurveillanceTrack, TreeTrack,
+};
+
+let annotated_tree = TreeTrack::new(tree)
+    .branch_geometry(BranchGeometry::Curved)
+    .ancestral_states(AncestralStateLayer::new(["state_a", "state_b"]))
+    .branch_event_layer(BranchEventLayer::new("mutations"))
+    .branch_interval(BranchIntervalLayer::new("gcf", "gcf_low", "gcf_high"));
+
+let skyline = PhylodynamicTrack::new(vec![
+    PhylodynamicPoint::new(2024, 310.0).interval(180.0, 520.0),
+])
+.scale(PhylodynamicScale::Log10);
+
+let lineages = SurveillanceTrack::new(vec![
+    SurveillanceObservation::new(2024, "L1", 73, 120),
+])
+.minimum_total(20)
+.frequency_alert(0.50);
+```
+
+<img src="assets/example-evolutionary-surveillance.svg" alt="Eight synthetic views of tree geometry, ancestral reconstruction, molecular evolution, comparison, genomic selection, phylodynamics and lineage surveillance" width="100%">
+
 Rooting is explicit too: choose an internal node or name, validate a
 monophyletic outgroup, or bisect the weighted tip diameter. Successful choices
 can mark the selected root without changing pairwise tip distances.
@@ -290,7 +323,7 @@ samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
   | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 ```
 
-Twelve of the thirty tracks have a standard text format to read, and those
+Twelve of the thirty-three tracks have a standard text format to read, and those
 are the ones the command has: `--coverage`, `--sequence`, `--features`,
 `--variants`, `--windows`, `--manhattan`, `--tree`, `--msa`, `--snps`,
 `--ideogram`, `--matrix` and `--pileup`, plus `--axis` for the ruler when it
@@ -328,13 +361,14 @@ has to come back as the same two numbers.
 | `SequenceTrack` | The reference bases | Letters when zoomed in, coloured blocks when not, a hint when the bases are thinner than a pixel |
 | `FeatureTrack` | Genes, exons, repeats, primers | Strand arrows, automatic packing into rows so nothing overlaps, labels inside or beside |
 | `VariantTrack` | SNPs, indels, any point event | Lollipops scaled by value, or ticks when dense. Coloured and legended by category |
-| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; rectangular, circular, fan or unrooted output. Support, events, branch-wise dN/dS, scale bars, node glyphs, clade fields and layered iTOL-style metadata remain independently readable |
+| `TreeTrack` | A phylogeny | Newick, BEAST, NHX or Nexus in; node, outgroup or midpoint rooting; orthogonal, diagonal, curved, circular, fan or unrooted output. Support, ancestral states, events, branch uncertainty, dN/dS, scale bars, node glyphs, clade fields and iTOL-style metadata remain independently readable |
 | `SnpTrack` | Variable sites only | Invariant columns dropped and the rest spaced evenly, each carrying its own position |
 | `MsaTrack` | A multiple sequence alignment | Differences against a reference row or a consensus, nucleotide or residue class colouring, optionally ordered by an adjacent tree |
 | `DomainTrack` | Domains and motifs along sequences | Labelled interval architectures, optionally ordered by an adjacent tree so gains and losses form clade blocks |
 | `DotplotTrack` | Two sequences on two axes | Alignment blocks as diagonals, anti-diagonals for inversions |
 | `SyntenyTrack` | Two sequences on two bars | The same blocks as ribbons, which cross where the alignment does |
 | `ManhattanTrack` | Association statistics | Points by significance, a threshold line, and hits coloured and ringed above it |
+| `SelectionTrack` | Site-wise molecular selection | Statistical evidence above a neutral-centred signed ω effect, with optional episodic rate mixtures and exact source values |
 | `MatrixTrack` | Samples against sites | A genotype or presence matrix, one row per sample, names in the axis strip |
 | `IdeogramTrack` | The whole chromosome | Cytogenetic bands, a pinched centromere, and a marker showing where the window is. The one track that does not share the x axis |
 | `PileupTrack` | Aligned reads | Real CIGARs, packed into rows, mismatches painted against the reference, strand arrows, gaps and insertions |
@@ -352,6 +386,8 @@ has to come back as the same two numbers.
 | `SquiggleTrack` | Raw nanopore current | Min to max envelope per pixel column, resolving into the trace when zoomed in, with the basecaller move table |
 | `LocusTrack` | One locus across several genomes | Gene arrows joined by identity ribbons, genes with no homolog outlined |
 | `WindowTrack` | Windowed signed statistics | pN/pS, GC skew, Tajima's D: coloured by which side of the baseline they fall |
+| `PhylodynamicTrack` | An inferred trajectory through time | Linear or log skyline, effective-size, reproductive-number or growth estimates with uncertainty ribbons and optional reference guides |
+| `SurveillanceTrack` | Observed lineage change through time | Frequencies or counts as stacked composition or lines, retaining denominators, sampling floors and explicit alert reasons |
 | `GenomeTrack` | Several sequences end to end | Alternating blocks with names, so a whole assembly can share one axis |
 | `LegendTrack` | A legend | Wraps onto extra rows rather than dropping a key |
 

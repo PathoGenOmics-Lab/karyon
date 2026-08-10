@@ -178,7 +178,7 @@ The layout will not: the code on this page renders at the same 900 by 284 and
 
 ## Next
 
-- [Tracks](../tracks.md), for the thirty track types and what each one
+- [Tracks](../tracks.md), for the thirty-three track types and what each one
   draws.
 - [Plot API](../guide/plot.md), for what `label`, `adjust` and `done` do and
   where the short form stops.

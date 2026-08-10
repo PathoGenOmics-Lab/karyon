@@ -139,4 +139,4 @@ against optimised code, which is what CI does after the debug run, along with
 - [Quickstart](quickstart.md), for a first figure from Rust and the same kind of
   figure from the shell.
 - [Command line](../guide/cli.md), for the grammar the installed binary takes.
-- [Tracks](../tracks.md), for what each of the thirty track types draws.
+- [Tracks](../tracks.md), for what each of the thirty-three track types draws.

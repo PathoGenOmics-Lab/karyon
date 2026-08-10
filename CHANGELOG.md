@@ -8,6 +8,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- An integrated evolutionary-genomics and surveillance vocabulary. Rectangular
+  `TreeTrack` branches can now be orthogonal, diagonal or curved without
+  changing topology; `AncestralStateLayer`, `BranchEventLayer` and
+  `BranchIntervalLayer` keep state posteriors, direct events and uncertainty
+  on their correct nodes or edges in rectangular, circular and unrooted
+  projections. `PhylodynamicTrack` adds linear or log trajectories with
+  uncertainty ribbons, while `SurveillanceTrack` adds observed lineage counts,
+  denominators, stacked or line views, sampling floors and explicit frequency
+  or growth alerts. The `evolutionary_surveillance` example joins these with
+  molecular selection, genomic layers and a core-versus-accessory tanglegram
+  on one eight-panel sheet.
 - Molecular-selection figures can now preserve the structure of branch-site
   and site-wise results rather than compressing every analysis into one branch
   colour. `BranchRateMixture` draws weighted ω-class capsules on rectangular,
@@ -123,9 +134,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   weight while colour continues to carry effect size. Rectangular, circular,
   unrooted and cladogram examples share one explicit legend and exact SVG
   tooltips.
-- The generated figures now reach all thirty track types, not sixteen, and
+- The generated figures now reach all thirty-three track types, not sixteen, and
   build the tree ones through their whole builder rather than their
-  constructor. Fourteen kinds had never been given a hostile input and eleven
+  constructor. The fourteen original gaps had never been given a hostile input and eleven
   numeric setters had never been given a hostile number; four bugs came out of
   it, each one now pinned by a test that was watched failing first.
 - A property over every reader at once: the same interval written as BED,
@@ -172,7 +183,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   invalid requests do not mutate the tree, and rooted projections can mark the
   selected root explicitly without leaking that marker into unrooted views.
 - A visual plot catalogue for the documentation, separating discovery from the
-  exhaustive track reference. Seven category pages group all thirty
+  exhaustive track reference. Eight category pages group all thirty-three
   tracks and the three standalone drawings by biological question, data shape
   and coordinate system, with responsive image-led cards, shorter section-only
   tables of contents and direct routes to the exact API contract.
@@ -317,8 +328,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   different label.
 - `examples/reading.rs` and four assets, plus gallery panels S to V. The sheet is
   twenty-two panels.
-- The README track table now lists all thirty track types. It had stopped at
-  `AxisTrack` and was fourteen tracks out of date.
+- The README track table now lists all thirty-three track types. It had stopped
+  at `AxisTrack`.
 
 ### Added
 
