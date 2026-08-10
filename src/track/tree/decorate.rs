@@ -576,6 +576,18 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
         }
         x = draw_rate_mixture_legend(ctx, mixture, x, top, height, size, &chip);
     }
+    for layer in &track.branch_event_layers {
+        if x >= ctx.band.right() - 10.0 {
+            break;
+        }
+        x = draw_branch_event_legend(ctx, layer, x, top, height, size, &chip);
+    }
+    for layer in &track.branch_interval_layers {
+        if x >= ctx.band.right() - 10.0 {
+            break;
+        }
+        x = draw_branch_interval_legend(ctx, layer, x, top, height, size, &chip);
+    }
     for layer in &track.homoplasy_layers {
         if x >= ctx.band.right() - 10.0 {
             break;
@@ -663,6 +675,96 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
             }
         }
     }
+}
+
+fn draw_branch_event_legend(
+    ctx: &mut DrawContext<'_>,
+    layer: &BranchEventLayer,
+    x: f64,
+    top: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) -> f64 {
+    let label = fit_text(&layer.label, 88.0, size);
+    let width = (text_width(&label, size) + 51.0).min((ctx.band.right() - x).max(0.0));
+    if width <= 14.0 {
+        return x;
+    }
+    let y = top + height / 2.0;
+    ctx.svg.begin_titled(&format!(
+        "{}; ordered direct branch events use colour and shape",
+        layer.label
+    ));
+    ctx.svg
+        .rect_rounded(x, top, width, height, height / 2.0, chip);
+    for (index, symbol) in [
+        crate::style::Symbol::Diamond,
+        crate::style::Symbol::Circle,
+        crate::style::Symbol::Square,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        ctx.svg.symbol(
+            x + 9.0 + index as f64 * 9.0,
+            y,
+            2.8,
+            symbol,
+            ctx.theme.color(index),
+        );
+    }
+    ctx.svg.text_bold(
+        x + 38.0,
+        y + size * 0.34,
+        &label,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+    x + width + 6.0
+}
+
+fn draw_branch_interval_legend(
+    ctx: &mut DrawContext<'_>,
+    layer: &BranchIntervalLayer,
+    x: f64,
+    top: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) -> f64 {
+    let label = fit_text(&layer.label, 88.0, size);
+    let width = (text_width(&label, size) + 49.0).min((ctx.band.right() - x).max(0.0));
+    if width <= 14.0 {
+        return x;
+    }
+    let y = top + height / 2.0;
+    ctx.svg.begin_titled(&format!(
+        "{}; point estimate with lower and upper bounds",
+        layer.label
+    ));
+    ctx.svg
+        .rect_rounded(x, top, width, height, height / 2.0, chip);
+    ctx.svg
+        .line(x + 8.0, y, x + 29.0, y, ctx.theme.color(0), 2.4);
+    for at in [x + 8.0, x + 29.0] {
+        ctx.svg
+            .line(at, y - 2.5, at, y + 2.5, ctx.theme.color(0), 1.0);
+    }
+    ctx.svg
+        .circle_ringed(x + 22.0, y, 2.4, ctx.theme.color(0), chip, 0.7);
+    ctx.svg.text_bold(
+        x + 37.0,
+        y + size * 0.34,
+        &label,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+    x + width + 6.0
 }
 
 fn draw_rate_mixture_legend(

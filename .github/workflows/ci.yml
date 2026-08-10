@@ -50,9 +50,10 @@ jobs:
       # how a committed figure came to disagree with the code that draws it.
       - name: Render every figure
         run: |
-          for example in association circular gallery genomewide ideogram \
-                         locus logo maps msa niche pangenome phylo_map pileup \
-                         reading phylogenetics selection shapes snps synteny \
+          for example in association circular evolutionary_surveillance \
+                         gallery genomewide ideogram locus logo maps msa niche \
+                         pangenome phylo_dnds phylo_map phylogenetics pileup \
+                         reading selection selection_atlas shapes snps synteny \
                          visual_system; do
             cargo run --example "$example" -- assets
           done

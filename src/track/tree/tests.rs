@@ -269,6 +269,101 @@ fn recurrent_events_connect_branches_without_inheriting_singletons() {
 }
 
 #[test]
+fn branch_geometry_changes_connections_without_changing_the_owned_tree() {
+    let source = "((A:1,B:1)AB:1,C:2)root;";
+    let orthogonal = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Orthogonal),
+        )
+        .to_svg();
+    let diagonal = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Diagonal),
+        )
+        .to_svg();
+    let curved = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Curved),
+        )
+        .to_svg();
+    assert!(orthogonal.matches("<line").count() > diagonal.matches("<line").count());
+    assert!(curved.contains(" C "), "{curved}");
+    for svg in [orthogonal, diagonal, curved] {
+        for tip in ["A", "B", "C"] {
+            assert!(svg.contains(&format!(">{tip}</text>")), "{svg}");
+        }
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn ancestral_events_and_intervals_project_together_without_inheritance() {
+    let source = concat!(
+        "((A[&p_A=0.1,p_B=0.9,events={S45N,E88K},cf=0.82,cf_lo=0.71,cf_hi=0.91]:1,",
+        "B[&p_A=0.85,p_B=0.15,events={private},cf=0.44,cf_lo=0.31,cf_hi=0.58]:1)",
+        "AB[&p_A=0.9,p_B=0.1,cf=0.91,cf_lo=0.84,cf_hi=0.96]:1,",
+        "C[&p_A=0.08,p_B=0.92,events={S45N},cf=0.77,cf_lo=0.62,cf_hi=0.86]:2)",
+        "root[&p_A=0.95,p_B=0.05];"
+    );
+    let states = AncestralStateLayer::new(["p_A", "p_B"])
+        .label("ancestral host")
+        .confidence(0.70);
+    let events = BranchEventLayer::new("events").label("ancestral mutations");
+    let concordance = BranchIntervalLayer::new("cf", "cf_lo", "cf_hi")
+        .label("gene concordance")
+        .threshold(0.70);
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(740.0)
+            .show_region_label(false)
+            .push(
+                track
+                    .ancestral_states(states.clone())
+                    .branch_event_layer(events.clone())
+                    .branch_interval(concordance.clone()),
+            )
+            .to_svg();
+        assert!(svg.contains("ancestral mutations | events = S45N"), "{svg}");
+        assert!(svg.contains("ancestral mutations | events = E88K"), "{svg}");
+        assert!(
+            svg.contains("gene concordance | estimate 0.82 | interval 0.71 to 0.91"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("ancestral host transition p_A (0.9) to p_B (0.9)"),
+            "{svg}"
+        );
+        assert!(svg.contains("AB; p_A 0.9; p_B 0.1"), "{svg}");
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn negative_ancestral_probabilities_do_not_create_transition_claims() {
+    let source = "(A[&p_A=-0.2,p_B=1.2]:1)root[&p_A=0.9,p_B=0.1];";
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_annotated_newick(source).unwrap())
+                .ancestral_states(AncestralStateLayer::new(["p_A", "p_B"])),
+        )
+        .to_svg();
+    assert!(!svg.contains("transition p_A (0.9) to p_B"), "{svg}");
+    assert!(!svg.contains("A; p_A -0.2; p_B 1.2"), "{svg}");
+    assert!(!svg.contains("NaN"), "{svg}");
+}
+
+#[test]
 fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
     for track in [
         TreeTrack::new(tree()),

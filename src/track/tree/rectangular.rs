@@ -32,6 +32,10 @@ pub(super) fn draw_tree_scene(
     branch_labels: Option<&BranchLabels>,
     rate_mixtures: &[BranchRateMixture],
     homoplasy_layers: &[HomoplasyLayer],
+    branch_event_layers: &[BranchEventLayer],
+    branch_interval_layers: &[BranchIntervalLayer],
+    ancestral_state_layers: &[AncestralStateLayer],
+    branch_geometry: BranchGeometry,
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
@@ -48,7 +52,17 @@ pub(super) fn draw_tree_scene(
                 let parent_placement = scene.placements[parent]?;
                 let x0 = scene.x(area, parent_placement.depth);
                 let x1 = scene.x(area, placement.depth);
-                Some((placement.node, ((x0 + x1) / 2.0, y_of(placement.row))))
+                let (start, end) = rectangular_branch_endpoints(
+                    branch_geometry,
+                    x0,
+                    y_of(parent_placement.row),
+                    x1,
+                    y_of(placement.row),
+                );
+                Some((
+                    placement.node,
+                    ((start.0 + end.0) / 2.0, (start.1 + end.1) / 2.0),
+                ))
             })
             .collect();
         draw_homoplasy_links(
@@ -72,7 +86,13 @@ pub(super) fn draw_tree_scene(
         };
         let x0 = scene.x(area, parent_placement.depth);
         let x1 = scene.x(area, placement.depth);
-        let y = y_of(placement.row);
+        let (start, end) = rectangular_branch_endpoints(
+            branch_geometry,
+            x0,
+            y_of(parent_placement.row),
+            x1,
+            y_of(placement.row),
+        );
         let title = branch_title(
             tree,
             placement.node,
@@ -86,15 +106,47 @@ pub(super) fn draw_tree_scene(
             ctx.svg.begin_titled(title);
         }
         let style = &styles[placement.node];
-        ctx.svg
-            .line_pattern(x0, y, x1, y, &style.color, style.width, style.pattern);
+        match branch_geometry {
+            BranchGeometry::Curved => ctx.svg.path_stroked_pattern(
+                &rectangular_curve_path(start, end),
+                &style.color,
+                style.width,
+                style.pattern,
+            ),
+            _ => ctx.svg.line_pattern(
+                start.0,
+                start.1,
+                end.0,
+                end.1,
+                &style.color,
+                style.width,
+                style.pattern,
+            ),
+        }
         if title.is_some() {
             ctx.svg.end_group();
         }
         if let Some(labels) = branch_labels {
-            draw_branch_annotation(ctx, tree, placement.node, labels, (x0, y), (x1, y));
+            draw_branch_annotation(ctx, tree, placement.node, labels, start, end);
         }
-        draw_branch_rate_mixtures(ctx, tree, placement.node, rate_mixtures, (x0, y), (x1, y));
+        draw_branch_rate_mixtures(ctx, tree, placement.node, rate_mixtures, start, end);
+        draw_branch_event_layers(ctx, tree, placement.node, branch_event_layers, start, end);
+        draw_branch_intervals(
+            ctx,
+            tree,
+            placement.node,
+            branch_interval_layers,
+            start,
+            end,
+        );
+        draw_ancestral_transitions(
+            ctx,
+            tree,
+            placement.node,
+            ancestral_state_layers,
+            start,
+            end,
+        );
     }
 
     for placement in scene.placements.iter().flatten() {
@@ -114,27 +166,31 @@ pub(super) fn draw_tree_scene(
             (lo.min(*row), hi.max(*row))
         });
         let x = scene.x(area, placement.depth);
-        let title = branch_title(tree, placement.node, color_by, None, None, false, true);
-        if let Some(title) = &title {
-            ctx.svg.begin_titled(title);
-        }
-        let connector = connector_style(dnds, ctx.theme, &colors[placement.node], width);
-        ctx.svg.line_pattern(
-            x,
-            y_of(top),
-            x,
-            y_of(bottom),
-            &connector.color,
-            connector.width,
-            connector.pattern,
-        );
-        if title.is_some() {
-            ctx.svg.end_group();
+        if branch_geometry == BranchGeometry::Orthogonal {
+            let title = branch_title(tree, placement.node, color_by, None, None, false, true);
+            if let Some(title) = &title {
+                ctx.svg.begin_titled(title);
+            }
+            let connector = connector_style(dnds, ctx.theme, &colors[placement.node], width);
+            ctx.svg.line_pattern(
+                x,
+                y_of(top),
+                x,
+                y_of(bottom),
+                &connector.color,
+                connector.width,
+                connector.pattern,
+            );
+            if title.is_some() {
+                ctx.svg.end_group();
+            }
         }
         if let Some(support) = node.support.filter(|value| {
             support_style != SupportStyle::None
                 && support_fraction(*value).is_some_and(|value| value >= support_threshold)
         }) {
+            let title = format!("clade support {}", text_rounded(support, 3));
+            ctx.svg.begin_titled(&title);
             draw_support(
                 ctx,
                 x,
@@ -143,6 +199,7 @@ pub(super) fn draw_tree_scene(
                 &styles[placement.node].color,
                 support_style,
             );
+            ctx.svg.end_group();
         } else if show_nodes {
             ctx.svg.circle_ringed(
                 x,
@@ -185,6 +242,36 @@ pub(super) fn draw_tree_scene(
             ctx.svg.end_group();
         }
     }
+}
+
+fn rectangular_branch_endpoints(
+    geometry: BranchGeometry,
+    parent_x: f64,
+    parent_y: f64,
+    child_x: f64,
+    child_y: f64,
+) -> ((f64, f64), (f64, f64)) {
+    match geometry {
+        BranchGeometry::Orthogonal => ((parent_x, child_y), (child_x, child_y)),
+        BranchGeometry::Diagonal | BranchGeometry::Curved => {
+            ((parent_x, parent_y), (child_x, child_y))
+        }
+    }
+}
+
+fn rectangular_curve_path(start: (f64, f64), end: (f64, f64)) -> String {
+    let middle_x = (start.0 + end.0) / 2.0;
+    format!(
+        "M {} {} C {} {} {} {} {} {}",
+        num(start.0),
+        num(start.1),
+        num(middle_x),
+        num(start.1),
+        num(middle_x),
+        num(end.1),
+        num(end.0),
+        num(end.1)
+    )
 }
 
 pub(super) fn branch_styles(

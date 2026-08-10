@@ -82,6 +82,18 @@ pub enum TreeProjection {
     Unrooted,
 }
 
+/// Shape of branches in the rectangular projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BranchGeometry {
+    /// Horizontal child branches joined by vertical parent risers.
+    #[default]
+    Orthogonal,
+    /// One straight segment from each parent node to each child node.
+    Diagonal,
+    /// Smooth parent-to-child curves with horizontal tangents at both ends.
+    Curved,
+}
+
 /// Direction in which branches radiate in a circular tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RadialDirection {
@@ -287,6 +299,173 @@ impl HomoplasyLayer {
         if width.is_finite() {
             self.width = width.clamp(0.4, 5.0);
         }
+        self
+    }
+}
+
+/// One or more genomic or amino-acid events marked on their owning branch.
+///
+/// Text, numbers and booleans become one event. A brace-delimited annotated
+/// Newick list becomes several ordered event symbols. Values are direct branch
+/// data and are never inherited.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchEventLayer {
+    key: String,
+    label: String,
+    maximum_events: usize,
+    size: f64,
+}
+
+impl BranchEventLayer {
+    /// Reads direct events stored under annotation `key`.
+    pub fn new(key: impl Into<String>) -> Self {
+        let key = key.into();
+        BranchEventLayer {
+            label: key.clone(),
+            key,
+            maximum_events: 8,
+            size: 3.0,
+        }
+    }
+
+    /// Replaces the visible legend label.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Caps the number of event marks on one branch.
+    pub fn maximum_events(mut self, maximum: usize) -> Self {
+        self.maximum_events = maximum.max(1);
+        self
+    }
+
+    /// Sets the event-symbol radius in pixels.
+    pub fn size(mut self, pixels: f64) -> Self {
+        self.size = finite_within(pixels, 1.4, 8.0, 3.0);
+        self
+    }
+}
+
+/// A branch estimate with lower and upper bounds.
+///
+/// The estimate is a point on a compact branch-aligned axis and the interval
+/// is a whisker. This can carry concordance factors, ancestral transition
+/// support, rate uncertainty or any upstream statistic with a meaningful
+/// fixed domain.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchIntervalLayer {
+    estimate_key: String,
+    lower_key: String,
+    upper_key: String,
+    label: String,
+    minimum: f64,
+    maximum: f64,
+    threshold: Option<f64>,
+    width: f64,
+}
+
+impl BranchIntervalLayer {
+    /// Reads a point estimate and its lower and upper bounds.
+    pub fn new(
+        estimate_key: impl Into<String>,
+        lower_key: impl Into<String>,
+        upper_key: impl Into<String>,
+    ) -> Self {
+        let estimate_key = estimate_key.into();
+        BranchIntervalLayer {
+            label: estimate_key.clone(),
+            estimate_key,
+            lower_key: lower_key.into(),
+            upper_key: upper_key.into(),
+            minimum: 0.0,
+            maximum: 1.0,
+            threshold: None,
+            width: 27.0,
+        }
+    }
+
+    /// Replaces the visible legend label.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Sets the fixed numeric domain used by every interval in the layer.
+    pub fn range(mut self, minimum: f64, maximum: f64) -> Self {
+        if minimum.is_finite() && maximum.is_finite() && maximum > minimum {
+            self.minimum = minimum;
+            self.maximum = maximum;
+        }
+        self
+    }
+
+    /// Emphasises point estimates at or above `threshold`.
+    pub fn threshold(mut self, threshold: f64) -> Self {
+        self.threshold = threshold.is_finite().then_some(threshold);
+        self
+    }
+
+    /// Sets the preferred compact-axis length in pixels.
+    pub fn width(mut self, pixels: f64) -> Self {
+        self.width = finite_within(pixels, 8.0, 80.0, 27.0);
+        self
+    }
+}
+
+/// Posterior probabilities for alternative ancestral states.
+///
+/// One probability key is supplied per state. Internal nodes receive donut
+/// glyphs and, optionally, a branch marker when the maximum-posterior state
+/// changes between a parent and child above the confidence threshold.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AncestralStateLayer {
+    keys: Vec<String>,
+    label: String,
+    confidence: f64,
+    size: f64,
+    show_transitions: bool,
+}
+
+impl AncestralStateLayer {
+    /// Uses numeric annotation `keys` as an ordered state composition.
+    pub fn new<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        AncestralStateLayer {
+            keys: keys.into_iter().map(Into::into).collect(),
+            label: "ancestral state posterior".into(),
+            confidence: 0.70,
+            size: 8.0,
+            show_transitions: true,
+        }
+    }
+
+    /// Replaces the visible legend label.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Requires both endpoints to exceed this posterior for a transition mark.
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        if confidence.is_finite() {
+            self.confidence = confidence.clamp(0.0, 1.0);
+        }
+        self
+    }
+
+    /// Sets the internal-node donut radius in pixels.
+    pub fn size(mut self, pixels: f64) -> Self {
+        self.size = finite_within(pixels, 2.0, 30.0, 8.0);
+        self
+    }
+
+    /// Shows or hides parent-to-child maximum-posterior state changes.
+    pub fn show_transitions(mut self, show: bool) -> Self {
+        self.show_transitions = show;
         self
     }
 }
@@ -792,6 +971,7 @@ pub struct TreeTrack {
     row_height: f64,
     shape: TreeShape,
     projection: TreeProjection,
+    branch_geometry: BranchGeometry,
     radial: RadialLayout,
     color: Option<String>,
     line_width: f64,
@@ -801,6 +981,9 @@ pub struct TreeTrack {
     dnds: Option<DnDsLayer>,
     rate_mixtures: Vec<BranchRateMixture>,
     homoplasy_layers: Vec<HomoplasyLayer>,
+    branch_event_layers: Vec<BranchEventLayer>,
+    branch_interval_layers: Vec<BranchIntervalLayer>,
+    ancestral_state_layers: Vec<AncestralStateLayer>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
     show_root: bool,
@@ -894,6 +1077,7 @@ impl TreeTrack {
             row_height: 15.0,
             shape: TreeShape::Phylogram,
             projection: TreeProjection::Rectangular,
+            branch_geometry: BranchGeometry::Orthogonal,
             radial: RadialLayout::default(),
             color: None,
             line_width: 1.2,
@@ -903,6 +1087,9 @@ impl TreeTrack {
             dnds: None,
             rate_mixtures: Vec::new(),
             homoplasy_layers: Vec::new(),
+            branch_event_layers: Vec::new(),
+            branch_interval_layers: Vec::new(),
+            ancestral_state_layers: Vec::new(),
             collapsed: BTreeSet::new(),
             show_nodes: false,
             show_root: false,
@@ -937,6 +1124,14 @@ impl TreeTrack {
     /// Chooses rectangular, circular or unrooted coordinates.
     pub fn projection(mut self, projection: TreeProjection) -> Self {
         self.projection = projection;
+        self
+    }
+
+    /// Chooses orthogonal, diagonal or curved rectangular branches.
+    ///
+    /// Circular and unrooted projections retain their own geometry.
+    pub fn branch_geometry(mut self, geometry: BranchGeometry) -> Self {
+        self.branch_geometry = geometry;
         self
     }
 
@@ -1234,6 +1429,37 @@ impl TreeTrack {
         self.homoplasy_layer(HomoplasyLayer::new(key))
     }
 
+    /// Adds ordered genomic or amino-acid event symbols to matching branches.
+    pub fn branch_event_layer(mut self, layer: BranchEventLayer) -> Self {
+        self.branch_event_layers.push(layer);
+        self
+    }
+
+    /// Convenience form of [`TreeTrack::branch_event_layer`].
+    pub fn branch_events(self, key: impl Into<String>) -> Self {
+        self.branch_event_layer(BranchEventLayer::new(key))
+    }
+
+    /// Adds a branch-aligned point estimate and uncertainty interval.
+    pub fn branch_interval(mut self, layer: BranchIntervalLayer) -> Self {
+        self.branch_interval_layers.push(layer);
+        self
+    }
+
+    /// Adds internal ancestral-state posteriors and optional transitions.
+    pub fn ancestral_states(mut self, layer: AncestralStateLayer) -> Self {
+        if !layer.keys.is_empty() {
+            self.node_glyphs.push(
+                NodeGlyph::donut(layer.keys.clone())
+                    .label(layer.label.clone())
+                    .target(NodeGlyphTarget::Internal)
+                    .size(layer.size),
+            );
+            self.ancestral_state_layers.push(layer);
+        }
+        self
+    }
+
     /// Collapses one internal node visually while preserving the source tree.
     pub fn collapse(mut self, node: usize) -> Self {
         if self
@@ -1445,6 +1671,9 @@ impl TreeTrack {
             && self.dnds.is_none()
             && self.rate_mixtures.is_empty()
             && self.homoplasy_layers.is_empty()
+            && self.branch_event_layers.is_empty()
+            && self.branch_interval_layers.is_empty()
+            && self.ancestral_state_layers.is_empty()
         {
             0.0
         } else {
@@ -1514,6 +1743,10 @@ impl TreeTrack {
             self.branch_labels.as_ref(),
             &self.rate_mixtures,
             &self.homoplasy_layers,
+            &self.branch_event_layers,
+            &self.branch_interval_layers,
+            &self.ancestral_state_layers,
+            self.branch_geometry,
             !self.show_tips,
         );
         draw_rectangular_node_glyphs(self, ctx, &scene, area);

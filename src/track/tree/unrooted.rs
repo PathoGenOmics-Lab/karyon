@@ -372,6 +372,30 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
             (x0, y0),
             (x1, y1),
         );
+        draw_branch_event_layers(
+            ctx,
+            &track.tree,
+            owner,
+            &track.branch_event_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_branch_intervals(
+            ctx,
+            &track.tree,
+            owner,
+            &track.branch_interval_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_ancestral_transitions(
+            ctx,
+            &track.tree,
+            owner,
+            &track.ancestral_state_layers,
+            (x0, y0),
+            (x1, y1),
+        );
     }
 
     if track.show_nodes || track.support_style != SupportStyle::None {

@@ -311,6 +311,30 @@ pub(super) fn draw_radial_branches(
             (x0, y0),
             (x1, y1),
         );
+        draw_branch_event_layers(
+            ctx,
+            &track.tree,
+            placement.node,
+            &track.branch_event_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_branch_intervals(
+            ctx,
+            &track.tree,
+            placement.node,
+            &track.branch_interval_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_ancestral_transitions(
+            ctx,
+            &track.tree,
+            placement.node,
+            &track.ancestral_state_layers,
+            (x0, y0),
+            (x1, y1),
+        );
     }
 
     for placement in scene.placements.iter().flatten() {

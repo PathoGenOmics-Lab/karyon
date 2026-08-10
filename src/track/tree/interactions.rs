@@ -168,6 +168,308 @@ fn mixture_title(mixture: &BranchRateMixture, classes: &[MixtureClass]) -> Strin
     format!("{} | {details}", mixture.label)
 }
 
+pub(super) fn draw_branch_event_layers(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    layers: &[BranchEventLayer],
+    start: Point,
+    end: Point,
+) {
+    let Some((direction, normal, branch_length)) = branch_vectors(start, end) else {
+        return;
+    };
+    if branch_length < 6.0 {
+        return;
+    }
+    for (layer_index, layer) in layers.iter().enumerate() {
+        let Some(annotation) = tree.annotation(node, &layer.key) else {
+            continue;
+        };
+        let events = event_values(annotation);
+        if events.is_empty() {
+            continue;
+        }
+        let visible = events.len().min(layer.maximum_events);
+        let hidden = events.len() - visible;
+        let offset = -(layer.size + 4.0 + layer_index as f64 * (layer.size * 2.0 + 2.0));
+        for (index, event) in events.iter().take(visible).enumerate() {
+            let fraction = (index + 1) as f64 / (visible + 1) as f64;
+            let at = (
+                start.0 + direction.0 * branch_length * fraction + normal.0 * offset,
+                start.1 + direction.1 * branch_length * fraction + normal.1 * offset,
+            );
+            let category = event_category(layer, event);
+            let symbol = match category % 4 {
+                0 => crate::style::Symbol::Diamond,
+                1 => crate::style::Symbol::Circle,
+                2 => crate::style::Symbol::Square,
+                _ => crate::style::Symbol::Triangle,
+            };
+            let mut title = format!("{} | {} = {}", layer.label, layer.key, event);
+            if hidden > 0 && index + 1 == visible {
+                title.push_str(&format!(" | {hidden} additional events not drawn"));
+            }
+            ctx.svg.begin_titled(&title);
+            ctx.svg.symbol_ringed(
+                at.0,
+                at.1,
+                layer.size,
+                symbol,
+                ctx.theme.color(category),
+                ctx.theme.surface(),
+                0.9,
+            );
+            ctx.svg.end_group();
+        }
+    }
+}
+
+fn event_values(value: &AnnotationValue) -> Vec<String> {
+    match value {
+        AnnotationValue::List(values) => values
+            .iter()
+            .map(ToString::to_string)
+            .filter(|value| !value.is_empty())
+            .collect(),
+        _ => {
+            let value = value.to_string();
+            (!value.is_empty()).then_some(value).into_iter().collect()
+        }
+    }
+}
+
+fn event_category(layer: &BranchEventLayer, event: &str) -> usize {
+    // An explicit hash keeps event identity stable when taxa or other events
+    // are appended, and avoids rescanning the whole tree for every mark.
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in layer.key.bytes().chain([0]).chain(event.bytes()) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash as usize
+}
+
+pub(super) fn draw_branch_intervals(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    layers: &[BranchIntervalLayer],
+    start: Point,
+    end: Point,
+) {
+    let Some((direction, normal, branch_length)) = branch_vectors(start, end) else {
+        return;
+    };
+    for (index, layer) in layers.iter().enumerate() {
+        let Some(estimate) = direct_number(tree, node, &layer.estimate_key) else {
+            continue;
+        };
+        let Some(lower) = direct_number(tree, node, &layer.lower_key) else {
+            continue;
+        };
+        let Some(upper) = direct_number(tree, node, &layer.upper_key) else {
+            continue;
+        };
+        if upper < lower {
+            continue;
+        }
+        let width = layer.width.min(branch_length * 0.82);
+        if width < 7.0 {
+            continue;
+        }
+        let offset = 7.0 + index as f64 * 7.0;
+        let centre = (
+            (start.0 + end.0) / 2.0 + normal.0 * offset,
+            (start.1 + end.1) / 2.0 + normal.1 * offset,
+        );
+        let origin = (
+            centre.0 - direction.0 * width / 2.0,
+            centre.1 - direction.1 * width / 2.0,
+        );
+        let point = |value: f64| {
+            let fraction =
+                ((value - layer.minimum) / (layer.maximum - layer.minimum)).clamp(0.0, 1.0);
+            (
+                origin.0 + direction.0 * width * fraction,
+                origin.1 + direction.1 * width * fraction,
+            )
+        };
+        let lower_at = point(lower);
+        let upper_at = point(upper);
+        let estimate_at = point(estimate);
+        let highlighted = layer
+            .threshold
+            .is_some_and(|threshold| estimate >= threshold);
+        let color = if highlighted {
+            ctx.theme.color(1)
+        } else {
+            ctx.theme.color(0)
+        };
+        let title = format!(
+            "{} | estimate {} | interval {} to {}{}",
+            layer.label,
+            text_rounded(estimate, 5),
+            text_rounded(lower, 5),
+            text_rounded(upper, 5),
+            layer
+                .threshold
+                .map_or_else(String::new, |threshold| format!(
+                    " | threshold {} ({})",
+                    text_rounded(threshold, 5),
+                    if highlighted {
+                        "reached"
+                    } else {
+                        "not reached"
+                    }
+                ))
+        );
+        ctx.svg.begin_titled(&title);
+        ctx.svg.line(
+            origin.0,
+            origin.1,
+            origin.0 + direction.0 * width,
+            origin.1 + direction.1 * width,
+            ctx.theme.surface(),
+            5.2,
+        );
+        ctx.svg.line(
+            origin.0,
+            origin.1,
+            origin.0 + direction.0 * width,
+            origin.1 + direction.1 * width,
+            &ctx.theme.rule,
+            1.0,
+        );
+        ctx.svg
+            .line(lower_at.0, lower_at.1, upper_at.0, upper_at.1, color, 2.6);
+        for at in [lower_at, upper_at] {
+            ctx.svg.line(
+                at.0 - normal.0 * 2.4,
+                at.1 - normal.1 * 2.4,
+                at.0 + normal.0 * 2.4,
+                at.1 + normal.1 * 2.4,
+                color,
+                1.0,
+            );
+        }
+        ctx.svg.circle_ringed(
+            estimate_at.0,
+            estimate_at.1,
+            2.5,
+            color,
+            ctx.theme.surface(),
+            0.8,
+        );
+        ctx.svg.end_group();
+    }
+}
+
+pub(super) fn draw_ancestral_transitions(
+    ctx: &mut DrawContext<'_>,
+    tree: &Tree,
+    node: usize,
+    layers: &[AncestralStateLayer],
+    start: Point,
+    end: Point,
+) {
+    let Some(parent) = tree.nodes()[node].parent else {
+        return;
+    };
+    let Some((direction, normal, _)) = branch_vectors(start, end) else {
+        return;
+    };
+    for (layer_index, layer) in layers.iter().enumerate() {
+        if !layer.show_transitions {
+            continue;
+        }
+        let Some((parent_state, parent_probability)) = maximum_state(tree, parent, layer) else {
+            continue;
+        };
+        let Some((child_state, child_probability)) = maximum_state(tree, node, layer) else {
+            continue;
+        };
+        if parent_state == child_state
+            || parent_probability < layer.confidence
+            || child_probability < layer.confidence
+        {
+            continue;
+        }
+        let offset = -(14.0 + layer_index as f64 * 7.0);
+        let middle = (
+            (start.0 + end.0) / 2.0 + normal.0 * offset,
+            (start.1 + end.1) / 2.0 + normal.1 * offset,
+        );
+        let from = (middle.0 - direction.0 * 3.0, middle.1 - direction.1 * 3.0);
+        let to = (middle.0 + direction.0 * 3.0, middle.1 + direction.1 * 3.0);
+        let title = format!(
+            "{} transition {} ({}) to {} ({})",
+            layer.label,
+            layer.keys[parent_state],
+            text_rounded(parent_probability, 4),
+            layer.keys[child_state],
+            text_rounded(child_probability, 4)
+        );
+        ctx.svg.begin_titled(&title);
+        ctx.svg
+            .line(from.0, from.1, to.0, to.1, ctx.theme.surface(), 5.2);
+        ctx.svg
+            .line(from.0, from.1, to.0, to.1, &ctx.theme.muted, 1.0);
+        ctx.svg.circle_ringed(
+            from.0,
+            from.1,
+            2.2,
+            ctx.theme.color(parent_state),
+            ctx.theme.surface(),
+            0.7,
+        );
+        ctx.svg.symbol_ringed(
+            to.0,
+            to.1,
+            2.8,
+            crate::style::Symbol::Diamond,
+            ctx.theme.color(child_state),
+            ctx.theme.surface(),
+            0.7,
+        );
+        ctx.svg.end_group();
+    }
+}
+
+fn maximum_state(tree: &Tree, node: usize, layer: &AncestralStateLayer) -> Option<(usize, f64)> {
+    let values: Vec<f64> = layer
+        .keys
+        .iter()
+        .map(|key| direct_number(tree, node, key).filter(|value| *value >= 0.0))
+        .collect::<Option<Vec<_>>>()?;
+    let total: f64 = values.iter().sum();
+    if total <= 0.0 || !total.is_finite() {
+        return None;
+    }
+    values
+        .iter()
+        .enumerate()
+        .max_by(|left, right| left.1.total_cmp(right.1))
+        .map(|(index, value)| (index, *value / total))
+}
+
+fn direct_number(tree: &Tree, node: usize, key: &str) -> Option<f64> {
+    tree.annotation(node, key)
+        .and_then(AnnotationValue::as_number)
+        .filter(|value| value.is_finite())
+}
+
+fn branch_vectors(start: Point, end: Point) -> Option<(Point, Point, f64)> {
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let length = dx.hypot(dy);
+    if !length.is_finite() || length <= f64::EPSILON {
+        return None;
+    }
+    let direction = (dx / length, dy / length);
+    Some((direction, (-direction.1, direction.0), length))
+}
+
 pub(super) fn draw_homoplasy_links(
     ctx: &mut DrawContext<'_>,
     tree: &Tree,

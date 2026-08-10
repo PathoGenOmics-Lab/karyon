@@ -46,6 +46,7 @@ pub mod matrix;
 pub mod methylation;
 pub mod msa;
 pub mod orf;
+pub mod phylodynamics;
 pub mod pileup;
 pub mod selection;
 pub mod sequence;
@@ -53,6 +54,7 @@ pub mod snp;
 pub mod split;
 pub mod squiggle;
 pub mod structural;
+pub mod surveillance;
 pub mod synteny;
 pub mod tanglegram;
 pub mod transcript;
@@ -77,6 +79,7 @@ pub use matrix::{CellScale, MatrixRow, MatrixTrack};
 pub use methylation::{MethylSite, MethylationTrack};
 pub use msa::{MsaColoring, MsaDisplay, MsaSequence, MsaTrack, ResidueClass};
 pub use orf::{Orf, OrfTrack};
+pub use phylodynamics::{PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack};
 pub use pileup::{CigarOp, PileupLayout, PileupTrack, Read, ReadColoring, Segment};
 pub use selection::{SelectionEvidence, SelectionSite, SelectionTrack};
 pub use sequence::SequenceTrack;
@@ -84,13 +87,16 @@ pub use snp::{SnpSite, SnpTrack};
 pub use split::{SplitRead, SplitReadTrack, SplitSegment};
 pub use squiggle::{Move, SquiggleTrack};
 pub use structural::{StructuralTrack, StructuralVariant, SvKind};
+pub use surveillance::{
+    SurveillanceMetric, SurveillanceObservation, SurveillanceStyle, SurveillanceTrack,
+};
 pub use synteny::{AlignmentBlock, DotplotTrack, SyntenyTrack};
 pub use tanglegram::{TangleLabels, TangleTieStyle, TanglegramTrack};
 pub use transcript::{Terminator, TranscriptionUnit, TranscriptionUnitTrack};
 pub use tree::{
-    BranchRateMixture, CladeHighlight, HomoplasyLayer, NodeGlyph, NodeGlyphStyle, NodeGlyphTarget,
-    RadialDirection, SupportStyle, TraitColumn, TraitScale, TraitStyle, TreeProjection, TreeShape,
-    TreeTrack,
+    AncestralStateLayer, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
+    CladeHighlight, HomoplasyLayer, NodeGlyph, NodeGlyphStyle, NodeGlyphTarget, RadialDirection,
+    SupportStyle, TraitColumn, TraitScale, TraitStyle, TreeProjection, TreeShape, TreeTrack,
 };
 pub use variant::{Variant, VariantStyle, VariantTrack};
 pub use window::{Window, WindowStyle, WindowTrack};
