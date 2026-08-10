@@ -84,7 +84,8 @@ not support the claim is what makes them worth having.
 [StructuralTrack](#structuraltrack) &middot;
 [SnpTrack](#snptrack) &middot;
 [MatrixTrack](#matrixtrack) &middot;
-[ManhattanTrack](#manhattantrack)
+[ManhattanTrack](#manhattantrack) &middot;
+[SelectionTrack](#selectiontrack)
 
 **Reads and molecules**
 [PileupTrack](#pileuptrack) &middot;
@@ -488,6 +489,47 @@ system and the crate does not pretend otherwise: build it with `Genome`, hand
 `Genome::boundaries` to `ManhattanTrack::bands` so the alternating shading falls
 on the sequence edges, and put a [GenomeTrack](#genometrack) underneath.
 
+### SelectionTrack
+
+One tested coding position can carry two different results: evidence against a
+null model and a synonymous-to-nonsynonymous rate effect. `SelectionTrack`
+draws them in aligned tiers rather than letting one colour stand for both. The
+upper tier is either `-log10(p)` or posterior probability; the lower tier is a
+signed `log2(ω)` effect centred on ω = 1.
+
+![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](assets/figures/example-selection-atlas.svg)
+
+```rust
+use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
+
+let sites = vec![
+    SelectionSite::new(44)
+        .rates(0.18, 1.52)
+        .p_value(0.0014)
+        .episodic_rates(0.05, 3.8, 0.18),
+    SelectionSite::new(103).rates(0.50, 0.07).p_value(0.008),
+];
+
+let track = SelectionTrack::new(sites)
+    .evidence(SelectionEvidence::PValue)
+    .p_threshold(0.05)
+    .neutral_band(0.85, 1.15)
+    .saturation(8.0);
+```
+
+`SelectionEvidence::Posterior` and `posterior_threshold` switch the evidence
+axis without changing the effect grammar. Threshold-crossing sites use a
+diamond as well as stronger emphasis. Cool and warm colours still encode rate
+direction, so a significant purifying site remains cool. Missing evidence or
+rates are omitted, exact supplied values remain in tooltips, and an infinite
+ratio caused by `dS = 0` is capped only in visible geometry.
+
+`SelectionSite::episodic_rates` stores the two nonsynonymous rate classes and
+their positive-class weight used by an episodic site model. The evidence point
+gets a compact two-part capsule, while the tooltip retains both rates and the
+weight. The track accepts already fitted results; it does not perform a codon
+model or decide a multiple-testing correction.
+
 ## Reads and molecules
 
 ### PileupTrack
@@ -723,6 +765,17 @@ the geometry without changing topology, branch values or terminal order.
 root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
 the circular and unrooted projections while preserving exact values in SVG
 tooltips.
+
+![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](assets/figures/example-selection-atlas.svg)
+
+`BranchRateMixture` preserves several fitted ω classes on the same branch:
+capsule segment width follows class weight and colour follows the neutral-
+centred ω scale. `branch_rate_mixture` reads the paired rate and weight keys
+directly from the branch-owning node. `HomoplasyLayer` and the `homoplasy`
+convenience builder connect equal direct event annotations with dashed curves
+across rectangular, circular and unrooted projections. They visualise
+recurrence without claiming that an upstream ancestral reconstruction proved
+convergence.
 
 ![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](assets/figures/example-phylo-faces.svg)
 

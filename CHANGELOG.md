@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Molecular-selection figures can now preserve the structure of branch-site
+  and site-wise results rather than compressing every analysis into one branch
+  colour. `BranchRateMixture` draws weighted ω-class capsules on rectangular,
+  circular and unrooted trees; `HomoplasyLayer` connects equal direct branch
+  events as recurrence candidates; and `SelectionTrack` aligns p-value or
+  posterior evidence above a signed, neutral-centred site effect. Missing
+  estimates remain missing, source weights and rates stay exact in SVG
+  tooltips, and evidence is never allowed to impersonate effect size. The
+  `selection_atlas` example combines all three with protein architecture and
+  iTOL-style terminal metadata.
+
 ### Changed
 
 - Release builds now check arithmetic for overflow. A wrapped add is a figure

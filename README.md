@@ -114,6 +114,30 @@ let selection = TreeTrack::new(tree)
 
 <img src="assets/example-phylo-dnds.svg" alt="A synthetic branch-wise dN/dS tree shown as a phylogram, circular tree with metadata rings, unrooted tree and cladogram" width="100%">
 
+Branch-site mixtures, recurrent changes and site-wise selection can be kept in
+one visual system. Weighted ω classes stay visible on their branches;
+recurrent direct events become restrained links; site evidence is separated
+from signed rate effect for both p-values and posterior probabilities.
+
+```rust
+use karyon::{
+    BranchRateMixture, HomoplasyLayer, SelectionEvidence, SelectionTrack, TreeTrack,
+};
+
+let tree_view = TreeTrack::new(tree)
+    .branch_rate_mixture(BranchRateMixture::new(
+        ["omega_1", "omega_2"],
+        ["weight_1", "weight_2"],
+    ))
+    .homoplasy_layer(HomoplasyLayer::new("amino_acid_change"));
+
+let site_view = SelectionTrack::new(sites)
+    .evidence(SelectionEvidence::PValue)
+    .p_threshold(0.05);
+```
+
+<img src="assets/example-selection-atlas.svg" alt="A synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event links, circular dN/dS and site-wise evidence and effects" width="100%">
+
 Rooting is explicit too: choose an internal node or name, validate a
 monophyletic outgroup, or bisect the weighted tip diameter. Successful choices
 can mark the selected root without changing pairwise tip distances.

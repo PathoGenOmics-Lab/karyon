@@ -261,6 +261,111 @@ positive selection. Generate the synthetic gallery above with:
 cargo run --example phylo_dnds -- assets
 ```
 
+## Build a branch-to-codon selection atlas
+
+![A four-panel synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event connections, a circular dN/dS tree, a frequentist site scan and a posterior site scan](../assets/figures/example-selection-atlas.svg)
+
+A single mean ω is sometimes the result, and sometimes the summary that hides
+the result. Branch-site models can fit several rate classes to one branch,
+while site models report evidence and effect at coding positions. Karyon keeps
+those quantities in separate visual channels and lets them meet only through
+their shared biological interpretation.
+
+### Preserve fitted rate classes on branches
+
+`BranchRateMixture` pairs any number of direct rate annotations with their
+weight annotations. Segment length is the fitted class weight; segment colour
+is the class ω on the same neutral-centred logarithmic scale as `dnds`. Weights
+are normalised only to fill the capsule. Their original values remain exact in
+the SVG tooltip.
+
+```rust
+use karyon::{BranchRateMixture, HomoplasyLayer, TreeTrack};
+
+let rates = BranchRateMixture::new(
+    ["omega_1", "omega_2", "omega_3"],
+    ["weight_1", "weight_2", "weight_3"],
+)
+.label("aBSREL ω classes")
+.neutral_band(0.9, 1.1)
+.saturation(6.0);
+
+let view = TreeTrack::new(tree)
+    .branch_rate_mixture(rates)
+    .homoplasy_layer(
+        HomoplasyLayer::new("amino_acid_change")
+            .label("recurrent amino-acid change"),
+    );
+```
+
+The rate and weight keys are paired in iterator order. A class with a missing,
+negative or non-finite rate, or with a non-positive weight, is omitted. A
+branch with no valid class is left untouched rather than receiving a zero-rate
+capsule. Values are read from the node that owns the incoming edge and are
+never inherited.
+
+`HomoplasyLayer` groups equal direct branch annotations. Events appearing on
+at least two branches are joined with dashed curves: contained arcs in the
+rectangular tree and centre-seeking chords in circular and unrooted trees.
+`minimum_occurrences` raises the recurrence threshold and
+`maximum_connections` prevents a common event from turning a dense tree into
+an all-to-all web. The renderer calls these *recurrent events*, not proven
+homoplasies: convergence, reversal and ancestral-state uncertainty have to be
+settled by the upstream analysis.
+
+### Separate site evidence from rate direction
+
+`SelectionTrack` uses genomic x coordinates, so it can sit under protein
+domains, codons, variants or an axis. Its upper tier draws p-values as
+`-log10(p)` or posterior probability on `0..1`; its lower tier draws signed
+`log2(ω)` around the explicit neutral baseline. A diamond means the chosen
+evidence threshold was crossed. Colour still means purifying, near-neutral or
+diversifying rate, so a strongly supported purifying site is not painted as a
+positive-selection hit.
+
+```rust
+use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
+
+let sites = vec![
+    SelectionSite::new(44)
+        .rates(0.18, 1.52)
+        .p_value(0.0014)
+        .episodic_rates(0.05, 3.8, 0.18)
+        .label("surface loop"),
+    SelectionSite::new(103)
+        .rates(0.50, 0.07)
+        .p_value(0.008),
+];
+
+let scan = SelectionTrack::new(sites)
+    .evidence(SelectionEvidence::PValue)
+    .p_threshold(0.05)
+    .neutral_band(0.85, 1.15)
+    .saturation(8.0)
+    .label("FEL / MEME");
+```
+
+Switch to `SelectionEvidence::Posterior` and set
+`posterior_threshold` for FUBAR-like posterior scans. A site can carry both
+forms of evidence; the track-level mode decides which one is drawn, preventing
+p-values and posterior probabilities from sharing a false common axis.
+`episodic_rates(beta_minus, beta_plus, positive_weight)` adds a compact
+two-class capsule above the point while preserving every supplied value in its
+tooltip.
+
+Positions are 0-based coordinates, consistent with every genomic track in the
+crate. `dS = 0, dN > 0` remains an infinite ratio in the tooltip and saturates
+safely in geometry; a missing rate pair remains missing. The renderer does not
+run FEL, MEME, FUBAR, aBSREL, ancestral reconstruction or multiple-testing
+correction. It renders their supplied results without silently converting one
+statistical quantity into another.
+
+Generate the complete synthetic atlas with:
+
+```bash
+cargo run --example selection_atlas -- assets
+```
+
 ## Layer annotation rings like iTOL datasets
 
 `TraitColumn` uses the same dataset in rectangular columns, circular rings and
