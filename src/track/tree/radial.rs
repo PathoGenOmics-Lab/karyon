@@ -172,13 +172,21 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         ctx.theme,
         &color,
     );
+    let styles = branch_styles(
+        &track.tree,
+        &colors,
+        track.dnds.as_ref(),
+        ctx.theme,
+        track.line_width,
+    );
+    let styled_colors: Vec<String> = styles.iter().map(|style| style.color.clone()).collect();
 
     draw_radial_clade_highlights(track, ctx, &scene, &geometry);
     if let Some(time) = track.time.as_ref().filter(|time| time.show_axis) {
         draw_radial_time_axis(ctx, &scene, &geometry, time);
     }
     draw_radial_padding(track, ctx, &scene, &geometry);
-    draw_radial_branches(track, ctx, &scene, &geometry, &colors);
+    draw_radial_branches(track, ctx, &scene, &geometry, &styles, &colors);
     draw_radial_node_glyphs(track, ctx, &scene, &geometry);
     if track.show_root {
         if let Some(root) = scene.placements[track.tree.root()] {
@@ -189,7 +197,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
             draw_root_marker(ctx, x, y);
         }
     }
-    draw_radial_collapsed(track, ctx, &scene, &geometry, &colors);
+    draw_radial_collapsed(track, ctx, &scene, &geometry, &styled_colors);
     draw_trait_rings(track, ctx, &scene, &geometry);
     draw_radial_labels(track, ctx, &scene, &geometry);
     draw_trait_ring_headings(track, ctx);
@@ -231,6 +239,7 @@ pub(super) fn draw_radial_branches(
     ctx: &mut DrawContext<'_>,
     scene: &TreeScene,
     geometry: &RadialGeometry,
+    styles: &[BranchStyle],
     colors: &[String],
 ) {
     for placement in scene.placements.iter().flatten() {
@@ -248,6 +257,7 @@ pub(super) fn draw_radial_branches(
             &track.tree,
             placement.node,
             track.color_by.as_deref(),
+            track.dnds.as_ref(),
             track
                 .branch_labels
                 .as_ref()
@@ -258,8 +268,9 @@ pub(super) fn draw_radial_branches(
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
+        let style = &styles[placement.node];
         ctx.svg
-            .line(x0, y0, x1, y1, &colors[placement.node], track.line_width);
+            .line_pattern(x0, y0, x1, y1, &style.color, style.width, style.pattern);
         if title.is_some() {
             ctx.svg.end_group();
         }
@@ -289,16 +300,24 @@ pub(super) fn draw_radial_branches(
                 placement.node,
                 track.color_by.as_deref(),
                 None,
+                None,
                 false,
                 true,
             );
             if let Some(title) = &title {
                 ctx.svg.begin_titled(title);
             }
-            ctx.svg.path_stroked(
-                &radial_arc_path(geometry, radius, *start, *end),
+            let connector = connector_style(
+                track.dnds.as_ref(),
+                ctx.theme,
                 &colors[placement.node],
                 track.line_width,
+            );
+            ctx.svg.path_stroked_pattern(
+                &radial_arc_path(geometry, radius, *start, *end),
+                &connector.color,
+                connector.width,
+                connector.pattern,
             );
             if title.is_some() {
                 ctx.svg.end_group();
@@ -315,7 +334,7 @@ pub(super) fn draw_radial_branches(
                 x,
                 y,
                 support,
-                &colors[placement.node],
+                &styles[placement.node].color,
                 track.support_style,
             );
         } else if track.show_nodes {
@@ -323,7 +342,7 @@ pub(super) fn draw_radial_branches(
                 x,
                 y,
                 ctx.theme.tokens.marker_radius * 0.65,
-                &colors[placement.node],
+                &styles[placement.node].color,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             );

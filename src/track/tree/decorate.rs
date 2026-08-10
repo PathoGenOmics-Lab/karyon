@@ -554,7 +554,7 @@ pub(super) fn draw_unrooted_node_glyphs(
 }
 
 pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
-    if track.node_glyphs.is_empty() {
+    if track.node_glyphs.is_empty() && track.dnds.is_none() {
         return;
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);
@@ -563,6 +563,9 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
     let height = size + 7.0;
     let y = top + height / 2.0 + size * 0.34;
     let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
+    if let Some(dnds) = &track.dnds {
+        x = draw_dnds_legend(ctx, dnds, x, top, height, size, &chip);
+    }
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         if x >= ctx.band.right() - 10.0 {
             break;
@@ -644,4 +647,129 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
             }
         }
     }
+}
+
+fn draw_dnds_legend(
+    ctx: &mut DrawContext<'_>,
+    dnds: &DnDsLayer,
+    x: f64,
+    top: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) -> f64 {
+    let label = fit_text(&dnds.label, 86.0, size);
+    let labels = ["purifying", "near neutral", "diversifying"];
+    let values = [1.0 / dnds.saturation, 1.0, dnds.saturation];
+    let significance = dnds
+        .significance
+        .as_ref()
+        .map(|test| format!("{} ≤ {}", test.key, text_rounded(test.maximum, 3)));
+    let natural = 16.0
+        + text_width(&label, size)
+        + labels
+            .iter()
+            .map(|label| 15.0 + text_width(label, size))
+            .sum::<f64>()
+        + 14.0
+        + text_width("missing", size)
+        + significance
+            .as_ref()
+            .map_or(0.0, |label| 18.0 + text_width(label, size));
+    let available = (ctx.band.right() - x).max(0.0);
+    let width = natural.min(available);
+    if width <= 12.0 {
+        return x;
+    }
+    let y = top + height / 2.0 + size * 0.34;
+    ctx.svg.begin_titled(&format!(
+        "{}; cool branches ω < {}; neutral {}–{}; warm branches ω > {}",
+        dnds.label,
+        text_rounded(dnds.neutral_lower, 3),
+        text_rounded(dnds.neutral_lower, 3),
+        text_rounded(dnds.neutral_upper, 3),
+        text_rounded(dnds.neutral_upper, 3)
+    ));
+    ctx.svg
+        .rect_rounded(x, top, width, height, height / 2.0, chip);
+    let mut cursor = x + 8.0;
+    ctx.svg.text_bold(
+        cursor,
+        y,
+        &label,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+    cursor += text_width(&label, size) + 9.0;
+    for (label, value) in labels.into_iter().zip(values) {
+        if cursor + 15.0 >= x + width {
+            break;
+        }
+        ctx.svg.line(
+            cursor,
+            top + height / 2.0,
+            cursor + 9.0,
+            top + height / 2.0,
+            &dnds_color(dnds, ctx.theme, value),
+            3.0,
+        );
+        cursor += 13.0;
+        let visible = fit_text(label, (x + width - cursor - 4.0).max(0.0), size);
+        ctx.svg.text(
+            cursor,
+            y,
+            &visible,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+        cursor += text_width(&visible, size) + 7.0;
+    }
+    if cursor + 25.0 < x + width {
+        ctx.svg.line_pattern(
+            cursor,
+            top + height / 2.0,
+            cursor + 9.0,
+            top + height / 2.0,
+            &ctx.theme.rule,
+            1.2,
+            LinePattern::Dotted,
+        );
+        cursor += 13.0;
+        let visible = fit_text("missing", (x + width - cursor - 4.0).max(0.0), size);
+        ctx.svg.text(
+            cursor,
+            y,
+            &visible,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+        cursor += text_width(&visible, size) + 7.0;
+    }
+    if let Some(significance) = significance {
+        if cursor + 20.0 < x + width {
+            ctx.svg.line(
+                cursor,
+                top + height / 2.0,
+                cursor + 9.0,
+                top + height / 2.0,
+                &ctx.theme.muted,
+                2.4,
+            );
+            cursor += 13.0;
+            let visible = fit_text(&significance, (x + width - cursor - 4.0).max(0.0), size);
+            ctx.svg.text(
+                cursor,
+                y,
+                &visible,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Start,
+            );
+        }
+    }
+    ctx.svg.end_group();
+    x + width + 6.0
 }

@@ -35,6 +35,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scale::Scale;
+use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
@@ -661,6 +662,7 @@ pub struct TreeTrack {
     show_tips: bool,
     time: Option<TimeAxis>,
     color_by: Option<String>,
+    dnds: Option<DnDsLayer>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
     show_root: bool,
@@ -677,6 +679,37 @@ pub struct TreeTrack {
 struct BranchLabels {
     key: String,
     size: f64,
+}
+
+/// A branch-wise dN/dS encoding centred on the biologically meaningful
+/// neutral ratio rather than on the observed minimum and maximum.
+#[derive(Debug, Clone)]
+struct DnDsLayer {
+    key: String,
+    label: String,
+    neutral_lower: f64,
+    neutral_upper: f64,
+    saturation: f64,
+    significance: Option<DnDsSignificance>,
+}
+
+#[derive(Debug, Clone)]
+struct DnDsSignificance {
+    key: String,
+    maximum: f64,
+}
+
+impl DnDsLayer {
+    fn new(key: impl Into<String>) -> Self {
+        DnDsLayer {
+            key: key.into(),
+            label: "dN/dS (ω)".to_string(),
+            neutral_lower: 0.95,
+            neutral_upper: 1.05,
+            saturation: 4.0,
+            significance: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -729,6 +762,7 @@ impl TreeTrack {
             show_tips: true,
             time: None,
             color_by: None,
+            dnds: None,
             collapsed: BTreeSet::new(),
             show_nodes: false,
             show_root: false,
@@ -965,6 +999,75 @@ impl TreeTrack {
     /// Colours each incoming branch by one node annotation.
     pub fn color_by(mut self, key: impl Into<String>) -> Self {
         self.color_by = Some(key.into());
+        self.dnds = None;
+        self
+    }
+
+    /// Colours incoming branches by a direct dN/dS (ω) annotation.
+    ///
+    /// Values below one use the cool side of a colour-vision-safe diverging
+    /// scale, values near one are neutral and values above one use the warm
+    /// side. Unlike [`TreeTrack::color_by`], the annotation is never inherited:
+    /// a missing branch estimate stays visibly missing. The legend and exact
+    /// SVG tooltips describe the biological regimes without treating ω > 1 as
+    /// proof of selection by itself.
+    pub fn dnds(mut self, key: impl Into<String>) -> Self {
+        self.dnds = Some(DnDsLayer::new(key));
+        self.color_by = None;
+        self
+    }
+
+    /// Replaces the visible label of the dN/dS legend.
+    ///
+    /// This has no effect until [`TreeTrack::dnds`] has selected an annotation.
+    pub fn dnds_label(mut self, label: impl Into<String>) -> Self {
+        if let Some(dnds) = &mut self.dnds {
+            dnds.label = label.into();
+        }
+        self
+    }
+
+    /// Sets the inclusive interval treated as approximately neutral.
+    ///
+    /// Invalid, negative or reversed bounds leave the current interval
+    /// unchanged. The default is `0.95..=1.05`.
+    pub fn dnds_neutral_band(mut self, lower: f64, upper: f64) -> Self {
+        if lower.is_finite() && upper.is_finite() && lower >= 0.0 && lower <= 1.0 && upper >= 1.0 {
+            if let Some(dnds) = &mut self.dnds {
+                dnds.neutral_lower = lower;
+                dnds.neutral_upper = upper;
+            }
+        }
+        self
+    }
+
+    /// Sets where each side of the logarithmic dN/dS colour scale saturates.
+    ///
+    /// `4.0`, the default, makes ω ≥ 4 and ω ≤ 1/4 use the strongest warm and
+    /// cool colours. Values between them retain continuous differences.
+    pub fn dnds_saturation(mut self, fold: f64) -> Self {
+        if fold.is_finite() && fold > 1.0 {
+            if let Some(dnds) = &mut self.dnds {
+                dnds.saturation = fold;
+            }
+        }
+        self
+    }
+
+    /// Emphasises branches whose direct test annotation is at most `maximum`.
+    ///
+    /// This is commonly a p-value or an adjusted p-value. It changes branch
+    /// weight, not colour, so effect size (dN/dS) and evidence remain separate
+    /// visual channels. Missing or non-numeric test values are not emphasised.
+    pub fn dnds_significance(mut self, key: impl Into<String>, maximum: f64) -> Self {
+        if maximum.is_finite() && maximum >= 0.0 {
+            if let Some(dnds) = &mut self.dnds {
+                dnds.significance = Some(DnDsSignificance {
+                    key: key.into(),
+                    maximum,
+                });
+            }
+        }
         self
     }
 
@@ -1174,7 +1277,7 @@ impl TreeTrack {
     }
 
     fn annotation_header_room(&self) -> f64 {
-        if self.trait_columns.is_empty() && self.node_glyphs.is_empty() {
+        if self.trait_columns.is_empty() && self.node_glyphs.is_empty() && self.dnds.is_none() {
             0.0
         } else {
             22.0
@@ -1236,6 +1339,7 @@ impl TreeTrack {
             &color,
             self.line_width,
             self.color_by.as_deref(),
+            self.dnds.as_ref(),
             self.show_nodes,
             self.support_style,
             self.support_threshold,

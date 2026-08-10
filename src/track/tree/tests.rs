@@ -139,6 +139,72 @@ fn branch_event_labels_are_direct_exact_and_projection_independent() {
 }
 
 #[test]
+fn dnds_is_direct_diverging_and_projection_independent() {
+    let source = concat!(
+        "((A[&omega=0.2,p=0.01]:0.8,B:0.8)",
+        "AB[&omega=5,p=0.03]:0.6,",
+        "C[&omega=1,p=0.4]:1.4);"
+    );
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(720.0)
+            .show_region_label(false)
+            .push(
+                track
+                    .show_tips(false)
+                    .dnds("omega")
+                    .dnds_significance("p", 0.05),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("dN/dS ω 0.2 (purifying); p 0.01 (≤ 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("dN/dS ω 5 (diversifying); p 0.03 (≤ 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("dN/dS ω 1 (approximately neutral); p 0.4 (&gt; 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>B; dN/dS missing</title>"),
+            "an ancestor's omega must not be copied onto B: {svg}"
+        );
+        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
+        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(svg.contains("stroke-width=\"2.22\""), "{svg}");
+        assert!(svg.contains("stroke-dasharray=\"1.5 3\""), "{svg}");
+        for label in ["purifying", "near neutral", "diversifying", "missing"] {
+            assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
+        }
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn the_last_branch_colour_encoding_wins() {
+    let tree = Tree::parse_newick("(A:1,B:1);").unwrap();
+    let dnds = TreeTrack::new(tree.clone())
+        .color_by("country")
+        .dnds("omega");
+    assert!(dnds.color_by.is_none());
+    assert_eq!(
+        dnds.dnds.as_ref().map(|layer| layer.key.as_str()),
+        Some("omega")
+    );
+
+    let categorical = TreeTrack::new(tree).dnds("omega").color_by("country");
+    assert_eq!(categorical.color_by.as_deref(), Some("country"));
+    assert!(categorical.dnds.is_none());
+}
+
+#[test]
 fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
     for track in [
         TreeTrack::new(tree()),

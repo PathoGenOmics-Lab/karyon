@@ -8,6 +8,13 @@
 
 use super::*;
 
+#[derive(Debug, Clone)]
+pub(super) struct BranchStyle {
+    pub(super) color: String,
+    pub(super) width: f64,
+    pub(super) pattern: LinePattern,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_tree_scene(
     ctx: &mut DrawContext<'_>,
@@ -18,6 +25,7 @@ pub(super) fn draw_tree_scene(
     default_color: &str,
     width: f64,
     color_by: Option<&str>,
+    dnds: Option<&DnDsLayer>,
     show_nodes: bool,
     support_style: SupportStyle,
     support_threshold: f64,
@@ -25,6 +33,7 @@ pub(super) fn draw_tree_scene(
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
+    let styles = branch_styles(tree, &colors, dnds, ctx.theme, width);
     let y_of = |row: f64| area.y + row_pitch / 2.0 + row * row_pitch;
 
     for placement in scene.placements.iter().flatten() {
@@ -42,6 +51,7 @@ pub(super) fn draw_tree_scene(
             tree,
             placement.node,
             color_by,
+            dnds,
             branch_labels.map(|labels| labels.key.as_str()),
             name_leaves,
             false,
@@ -49,7 +59,9 @@ pub(super) fn draw_tree_scene(
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
-        ctx.svg.line(x0, y, x1, y, &colors[placement.node], width);
+        let style = &styles[placement.node];
+        ctx.svg
+            .line_pattern(x0, y, x1, y, &style.color, style.width, style.pattern);
         if title.is_some() {
             ctx.svg.end_group();
         }
@@ -75,17 +87,19 @@ pub(super) fn draw_tree_scene(
             (lo.min(*row), hi.max(*row))
         });
         let x = scene.x(area, placement.depth);
-        let title = branch_title(tree, placement.node, color_by, None, false, true);
+        let title = branch_title(tree, placement.node, color_by, None, None, false, true);
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
-        ctx.svg.line(
+        let connector = connector_style(dnds, ctx.theme, &colors[placement.node], width);
+        ctx.svg.line_pattern(
             x,
             y_of(top),
             x,
             y_of(bottom),
-            &colors[placement.node],
-            width,
+            &connector.color,
+            connector.width,
+            connector.pattern,
         );
         if title.is_some() {
             ctx.svg.end_group();
@@ -99,7 +113,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 support,
-                &colors[placement.node],
+                &styles[placement.node].color,
                 support_style,
             );
         } else if show_nodes {
@@ -107,7 +121,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 ctx.theme.tokens.marker_radius * 0.65,
-                &colors[placement.node],
+                &styles[placement.node].color,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             );
@@ -140,9 +154,111 @@ pub(super) fn draw_tree_scene(
                 tree.clade_size(*node)
             );
             ctx.svg.begin_titled(&title);
-            ctx.svg.path(&d, &colors[*node], 0.28);
+            ctx.svg.path(&d, &styles[*node].color, 0.28);
             ctx.svg.end_group();
         }
+    }
+}
+
+pub(super) fn branch_styles(
+    tree: &Tree,
+    colors: &[String],
+    dnds: Option<&DnDsLayer>,
+    theme: &Theme,
+    width: f64,
+) -> Vec<BranchStyle> {
+    (0..tree.nodes().len())
+        .map(|node| match dnds {
+            Some(dnds) => dnds_branch_style(tree, node, dnds, theme, width),
+            None => BranchStyle {
+                color: colors
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| theme.foreground.clone()),
+                width,
+                pattern: LinePattern::Solid,
+            },
+        })
+        .collect()
+}
+
+pub(super) fn connector_style(
+    dnds: Option<&DnDsLayer>,
+    theme: &Theme,
+    default_color: &str,
+    width: f64,
+) -> BranchStyle {
+    BranchStyle {
+        color: if dnds.is_some() {
+            mix(theme.surface(), &theme.muted, 0.58)
+        } else {
+            default_color.to_string()
+        },
+        width,
+        pattern: LinePattern::Solid,
+    }
+}
+
+pub(super) fn dnds_branch_style(
+    tree: &Tree,
+    node: usize,
+    dnds: &DnDsLayer,
+    theme: &Theme,
+    width: f64,
+) -> BranchStyle {
+    let Some(value) = tree
+        .annotation(node, &dnds.key)
+        .and_then(AnnotationValue::as_number)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+    else {
+        return BranchStyle {
+            color: mix(theme.surface(), &theme.rule, 0.88),
+            width: (width * 0.9).max(theme.tokens.hairline),
+            pattern: LinePattern::Dotted,
+        };
+    };
+    let significant = dnds.significance.as_ref().is_some_and(|test| {
+        tree.annotation(node, &test.key)
+            .and_then(AnnotationValue::as_number)
+            .is_some_and(|score| score.is_finite() && score >= 0.0 && score <= test.maximum)
+    });
+    BranchStyle {
+        color: dnds_color(dnds, theme, value),
+        width: if significant {
+            (width * 1.85).max(width + 0.9)
+        } else {
+            width
+        },
+        pattern: LinePattern::Solid,
+    }
+}
+
+pub(super) fn dnds_color(dnds: &DnDsLayer, theme: &Theme, value: f64) -> String {
+    let neutral = mix(theme.surface(), &theme.muted, 0.58);
+    if value >= dnds.neutral_lower && value <= dnds.neutral_upper {
+        return neutral;
+    }
+    let logarithmic_span = dnds.saturation.log2().max(f64::EPSILON);
+    if value < dnds.neutral_lower {
+        let strength = if value <= 0.0 {
+            1.0
+        } else {
+            (-value.log2() / logarithmic_span).clamp(0.0, 1.0)
+        };
+        mix(&neutral, theme.color(0), 0.25 + strength * 0.75)
+    } else {
+        let strength = (value.log2() / logarithmic_span).clamp(0.0, 1.0);
+        mix(&neutral, theme.color(1), 0.25 + strength * 0.75)
+    }
+}
+
+pub(super) fn dnds_regime(dnds: &DnDsLayer, value: f64) -> &'static str {
+    if value < dnds.neutral_lower {
+        "purifying"
+    } else if value > dnds.neutral_upper {
+        "diversifying"
+    } else {
+        "approximately neutral"
     }
 }
 
@@ -230,6 +346,7 @@ pub(super) fn branch_title(
     tree: &Tree,
     node: usize,
     color_by: Option<&str>,
+    dnds: Option<&DnDsLayer>,
     branch_label: Option<&str>,
     name_leaf: bool,
     include_support: bool,
@@ -253,7 +370,38 @@ pub(super) fn branch_title(
             parts.push(format!("{key} {value}"));
         }
     }
-    if let Some(key) = branch_label.filter(|key| Some(*key) != color_by) {
+    if let Some(dnds) = dnds {
+        match tree
+            .annotation(node, &dnds.key)
+            .and_then(AnnotationValue::as_number)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+        {
+            Some(value) => parts.push(format!(
+                "dN/dS ω {} ({})",
+                text_rounded(value, 3),
+                dnds_regime(dnds, value)
+            )),
+            None => parts.push("dN/dS missing".to_string()),
+        }
+        if let Some(test) = &dnds.significance {
+            if let Some(value) = tree
+                .annotation(node, &test.key)
+                .and_then(AnnotationValue::as_number)
+                .filter(|value| value.is_finite() && *value >= 0.0)
+            {
+                let relation = if value <= test.maximum { "≤" } else { ">" };
+                parts.push(format!(
+                    "{} {} ({relation} {})",
+                    test.key,
+                    text_rounded(value, 3),
+                    text_rounded(test.maximum, 3)
+                ));
+            }
+        }
+    }
+    if let Some(key) = branch_label
+        .filter(|key| Some(*key) != color_by && dnds.map_or(true, |dnds| *key != dnds.key))
+    {
         if let Some(value) = tree.annotation(node, key) {
             parts.push(format!("{key} {value}"));
         }

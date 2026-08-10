@@ -275,6 +275,13 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         ctx.theme,
         &color,
     );
+    let styles = branch_styles(
+        &track.tree,
+        &colors,
+        track.dnds.as_ref(),
+        ctx.theme,
+        track.line_width,
+    );
 
     draw_unrooted_clade_highlights(track, ctx, &scene, &geometry);
 
@@ -307,6 +314,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
             &track.tree,
             owner,
             track.color_by.as_deref(),
+            track.dnds.as_ref(),
             track
                 .branch_labels
                 .as_ref()
@@ -319,8 +327,9 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         }
         let (x0, y0) = geometry.node(from);
         let (x1, y1) = geometry.node(to);
+        let style = &styles[owner];
         ctx.svg
-            .line(x0, y0, x1, y1, &colors[owner], track.line_width);
+            .line_pattern(x0, y0, x1, y1, &style.color, style.width, style.pattern);
         if title.is_some() {
             ctx.svg.end_group();
         }
@@ -343,13 +352,20 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                     && support_fraction(*value)
                         .is_some_and(|value| value >= track.support_threshold)
             }) {
-                draw_support(ctx, x, y, support, &colors[*node], track.support_style);
+                draw_support(
+                    ctx,
+                    x,
+                    y,
+                    support,
+                    &styles[*node].color,
+                    track.support_style,
+                );
             } else if track.show_nodes {
                 ctx.svg.circle_ringed(
                     x,
                     y,
                     ctx.theme.tokens.marker_radius * 0.65,
-                    &colors[*node],
+                    &styles[*node].color,
                     &ctx.theme.background,
                     ctx.theme.tokens.hairline,
                 );
