@@ -182,6 +182,32 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     let styled_colors: Vec<String> = styles.iter().map(|style| style.color.clone()).collect();
 
     draw_radial_clade_highlights(track, ctx, &scene, &geometry);
+    if !track.homoplasy_layers.is_empty() {
+        let points: Vec<(usize, (f64, f64))> = scene
+            .placements
+            .iter()
+            .flatten()
+            .filter_map(|placement| {
+                let parent = track.tree.nodes()[placement.node].parent?;
+                let parent_placement = scene.placements[parent]?;
+                let angle = geometry.angle(placement.row);
+                let middle_depth = (parent_placement.depth + placement.depth) / 2.0;
+                Some((
+                    placement.node,
+                    geometry.point(geometry.radius(&scene, middle_depth), angle),
+                ))
+            })
+            .collect();
+        draw_homoplasy_links(
+            ctx,
+            &track.tree,
+            &track.homoplasy_layers,
+            &points,
+            LinkGeometry::Centred {
+                centre: (geometry.cx, geometry.cy),
+            },
+        );
+    }
     if let Some(time) = track.time.as_ref().filter(|time| time.show_axis) {
         draw_radial_time_axis(ctx, &scene, &geometry, time);
     }
@@ -277,6 +303,14 @@ pub(super) fn draw_radial_branches(
         if let Some(labels) = &track.branch_labels {
             draw_branch_annotation(ctx, &track.tree, placement.node, labels, (x0, y0), (x1, y1));
         }
+        draw_branch_rate_mixtures(
+            ctx,
+            &track.tree,
+            placement.node,
+            &track.rate_mixtures,
+            (x0, y0),
+            (x1, y1),
+        );
     }
 
     for placement in scene.placements.iter().flatten() {

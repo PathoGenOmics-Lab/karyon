@@ -42,6 +42,7 @@ use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
 
 mod decorate;
+mod interactions;
 mod radial;
 mod rectangular;
 mod scale;
@@ -52,6 +53,7 @@ mod unrooted;
 mod tests;
 
 use self::decorate::*;
+use self::interactions::*;
 use self::radial::*;
 use self::rectangular::*;
 use self::scale::*;
@@ -153,6 +155,140 @@ pub enum NodeGlyphTarget {
     Internal,
     /// Draw terminal taxa only.
     Leaves,
+}
+
+/// A branch-wise mixture of fitted omega rate classes and their weights.
+///
+/// Each rate key is paired with the weight key at the same index.  Values are
+/// read directly from the child node that owns the incoming branch and are not
+/// inherited.  The visible capsule normalises weights only for geometry; exact
+/// supplied weights remain in the tooltip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchRateMixture {
+    rate_keys: Vec<String>,
+    weight_keys: Vec<String>,
+    label: String,
+    width: f64,
+    thickness: f64,
+    neutral_lower: f64,
+    neutral_upper: f64,
+    saturation: f64,
+}
+
+impl BranchRateMixture {
+    /// Pairs `rate_keys` and `weight_keys` in iterator order.
+    pub fn new<R, W, RS, WS>(rate_keys: R, weight_keys: W) -> Self
+    where
+        R: IntoIterator<Item = RS>,
+        W: IntoIterator<Item = WS>,
+        RS: Into<String>,
+        WS: Into<String>,
+    {
+        BranchRateMixture {
+            rate_keys: rate_keys.into_iter().map(Into::into).collect(),
+            weight_keys: weight_keys.into_iter().map(Into::into).collect(),
+            label: "branch omega mixture".into(),
+            width: 24.0,
+            thickness: 5.2,
+            neutral_lower: 0.95,
+            neutral_upper: 1.05,
+            saturation: 4.0,
+        }
+    }
+
+    /// Replaces the visible legend label.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Sets the preferred capsule length in pixels.
+    pub fn width(mut self, width: f64) -> Self {
+        if width.is_finite() {
+            self.width = width.max(6.0);
+        }
+        self
+    }
+
+    /// Sets the capsule thickness in pixels.
+    pub fn thickness(mut self, thickness: f64) -> Self {
+        if thickness.is_finite() {
+            self.thickness = thickness.clamp(2.0, 14.0);
+        }
+        self
+    }
+
+    /// Sets the inclusive rate interval rendered as approximately neutral.
+    pub fn neutral_band(mut self, lower: f64, upper: f64) -> Self {
+        if lower.is_finite() && upper.is_finite() && (0.0..=1.0).contains(&lower) && upper >= 1.0 {
+            self.neutral_lower = lower;
+            self.neutral_upper = upper;
+        }
+        self
+    }
+
+    /// Sets the positive omega value at which colours saturate.
+    pub fn saturation(mut self, omega: f64) -> Self {
+        if omega.is_finite() && omega > 1.0 {
+            self.saturation = omega;
+        }
+        self
+    }
+}
+
+/// Connections between branches carrying the same direct event annotation.
+///
+/// This is deliberately named for a visual hypothesis rather than a proof:
+/// repeated ancestral-state reconstructions can represent convergence,
+/// reversal or uncertainty.  The tooltip calls them recurrent events and
+/// leaves that interpretation with the analysis.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomoplasyLayer {
+    key: String,
+    label: String,
+    minimum_occurrences: usize,
+    maximum_connections: usize,
+    width: f64,
+}
+
+impl HomoplasyLayer {
+    /// Groups direct branch annotations stored under `key`.
+    pub fn new(key: impl Into<String>) -> Self {
+        let key = key.into();
+        HomoplasyLayer {
+            label: key.clone(),
+            key,
+            minimum_occurrences: 2,
+            maximum_connections: 96,
+            width: 1.15,
+        }
+    }
+
+    /// Replaces the visible legend label.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// Requires at least this many branches before connecting an event.
+    pub fn minimum_occurrences(mut self, minimum: usize) -> Self {
+        self.minimum_occurrences = minimum.max(2);
+        self
+    }
+
+    /// Caps the number of curves emitted by this layer.
+    pub fn maximum_connections(mut self, maximum: usize) -> Self {
+        self.maximum_connections = maximum.max(1);
+        self
+    }
+
+    /// Sets the connection width in pixels.
+    pub fn width(mut self, width: f64) -> Self {
+        if width.is_finite() {
+            self.width = width.clamp(0.4, 5.0);
+        }
+        self
+    }
 }
 
 /// A data glyph placed on every matching annotated node.
@@ -663,6 +799,8 @@ pub struct TreeTrack {
     time: Option<TimeAxis>,
     color_by: Option<String>,
     dnds: Option<DnDsLayer>,
+    rate_mixtures: Vec<BranchRateMixture>,
+    homoplasy_layers: Vec<HomoplasyLayer>,
     collapsed: BTreeSet<usize>,
     show_nodes: bool,
     show_root: bool,
@@ -763,6 +901,8 @@ impl TreeTrack {
             time: None,
             color_by: None,
             dnds: None,
+            rate_mixtures: Vec::new(),
+            homoplasy_layers: Vec::new(),
             collapsed: BTreeSet::new(),
             show_nodes: false,
             show_root: false,
@@ -1032,7 +1172,7 @@ impl TreeTrack {
     /// Invalid, negative or reversed bounds leave the current interval
     /// unchanged. The default is `0.95..=1.05`.
     pub fn dnds_neutral_band(mut self, lower: f64, upper: f64) -> Self {
-        if lower.is_finite() && upper.is_finite() && lower >= 0.0 && lower <= 1.0 && upper >= 1.0 {
+        if lower.is_finite() && upper.is_finite() && (0.0..=1.0).contains(&lower) && upper >= 1.0 {
             if let Some(dnds) = &mut self.dnds {
                 dnds.neutral_lower = lower;
                 dnds.neutral_upper = upper;
@@ -1069,6 +1209,29 @@ impl TreeTrack {
             }
         }
         self
+    }
+
+    /// Adds a compact, weighted omega-class capsule to matching branches.
+    ///
+    /// This is useful for branch-site models such as aBSREL where one mean
+    /// omega would erase the fitted episodic class. Missing or invalid class
+    /// pairs are omitted and weights are normalised only in visible geometry.
+    pub fn branch_rate_mixture(mut self, mixture: BranchRateMixture) -> Self {
+        if !mixture.rate_keys.is_empty() && mixture.rate_keys.len() == mixture.weight_keys.len() {
+            self.rate_mixtures.push(mixture);
+        }
+        self
+    }
+
+    /// Connects branches carrying the same direct event annotation.
+    pub fn homoplasy_layer(mut self, layer: HomoplasyLayer) -> Self {
+        self.homoplasy_layers.push(layer);
+        self
+    }
+
+    /// Convenience form of [`TreeTrack::homoplasy_layer`].
+    pub fn homoplasy(self, key: impl Into<String>) -> Self {
+        self.homoplasy_layer(HomoplasyLayer::new(key))
     }
 
     /// Collapses one internal node visually while preserving the source tree.
@@ -1277,7 +1440,12 @@ impl TreeTrack {
     }
 
     fn annotation_header_room(&self) -> f64 {
-        if self.trait_columns.is_empty() && self.node_glyphs.is_empty() && self.dnds.is_none() {
+        if self.trait_columns.is_empty()
+            && self.node_glyphs.is_empty()
+            && self.dnds.is_none()
+            && self.rate_mixtures.is_empty()
+            && self.homoplasy_layers.is_empty()
+        {
             0.0
         } else {
             22.0
@@ -1344,6 +1512,8 @@ impl TreeTrack {
             self.support_style,
             self.support_threshold,
             self.branch_labels.as_ref(),
+            &self.rate_mixtures,
+            &self.homoplasy_layers,
             !self.show_tips,
         );
         draw_rectangular_node_glyphs(self, ctx, &scene, area);

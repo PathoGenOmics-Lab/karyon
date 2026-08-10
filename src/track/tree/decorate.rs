@@ -554,7 +554,11 @@ pub(super) fn draw_unrooted_node_glyphs(
 }
 
 pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
-    if track.node_glyphs.is_empty() && track.dnds.is_none() {
+    if track.node_glyphs.is_empty()
+        && track.dnds.is_none()
+        && track.rate_mixtures.is_empty()
+        && track.homoplasy_layers.is_empty()
+    {
         return;
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);
@@ -565,6 +569,18 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
     let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
     if let Some(dnds) = &track.dnds {
         x = draw_dnds_legend(ctx, dnds, x, top, height, size, &chip);
+    }
+    for mixture in &track.rate_mixtures {
+        if x >= ctx.band.right() - 10.0 {
+            break;
+        }
+        x = draw_rate_mixture_legend(ctx, mixture, x, top, height, size, &chip);
+    }
+    for layer in &track.homoplasy_layers {
+        if x >= ctx.band.right() - 10.0 {
+            break;
+        }
+        x = draw_homoplasy_legend(ctx, layer, x, top, height, size, &chip);
     }
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         if x >= ctx.band.right() - 10.0 {
@@ -647,6 +663,107 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
             }
         }
     }
+}
+
+fn draw_rate_mixture_legend(
+    ctx: &mut DrawContext<'_>,
+    mixture: &BranchRateMixture,
+    x: f64,
+    top: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) -> f64 {
+    let label = fit_text(&mixture.label, 92.0, size);
+    let width = (text_width(&label, size) + 43.0).min((ctx.band.right() - x).max(0.0));
+    if width <= 14.0 {
+        return x;
+    }
+    ctx.svg.begin_titled(&format!(
+        "{}; segment width is fitted class weight and colour is omega",
+        mixture.label
+    ));
+    ctx.svg
+        .rect_rounded(x, top, width, height, height / 2.0, chip);
+    let y = top + height / 2.0;
+    let left = x + 8.0;
+    let segment_widths = [5.0, 7.0, 10.0];
+    let values = [0.25, 1.0, mixture.saturation];
+    let mut cursor = left;
+    ctx.svg
+        .line(left, y, left + 22.0, y, ctx.theme.surface(), 6.2);
+    for (segment_width, value) in segment_widths.into_iter().zip(values) {
+        ctx.svg.line(
+            cursor,
+            y,
+            cursor + segment_width,
+            y,
+            &omega_color(
+                ctx.theme,
+                value,
+                mixture.neutral_lower,
+                mixture.neutral_upper,
+                mixture.saturation,
+            ),
+            4.3,
+        );
+        cursor += segment_width;
+    }
+    ctx.svg.text_bold(
+        x + 35.0,
+        y + size * 0.34,
+        &label,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+    x + width + 6.0
+}
+
+fn draw_homoplasy_legend(
+    ctx: &mut DrawContext<'_>,
+    layer: &HomoplasyLayer,
+    x: f64,
+    top: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) -> f64 {
+    let label = fit_text(&layer.label, 92.0, size);
+    let width = (text_width(&label, size) + 42.0).min((ctx.band.right() - x).max(0.0));
+    if width <= 14.0 {
+        return x;
+    }
+    let y = top + height / 2.0;
+    let color = mix(ctx.theme.surface(), ctx.theme.color(2), 0.72);
+    ctx.svg.begin_titled(&format!(
+        "{}; dashed curves connect recurrent direct branch events",
+        layer.label
+    ));
+    ctx.svg
+        .rect_rounded(x, top, width, height, height / 2.0, chip);
+    ctx.svg.line_pattern(
+        x + 8.0,
+        y,
+        x + 28.0,
+        y,
+        &color,
+        layer.width,
+        LinePattern::Dashed,
+    );
+    ctx.svg.circle(x + 8.0, y, 2.1, &color);
+    ctx.svg.circle(x + 28.0, y, 2.1, &color);
+    ctx.svg.text_bold(
+        x + 34.0,
+        y + size * 0.34,
+        &label,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::Start,
+    );
+    ctx.svg.end_group();
+    x + width + 6.0
 }
 
 fn draw_dnds_legend(

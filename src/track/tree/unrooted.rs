@@ -285,6 +285,34 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
 
     draw_unrooted_clade_highlights(track, ctx, &scene, &geometry);
 
+    if !track.homoplasy_layers.is_empty() {
+        let points: Vec<(usize, (f64, f64))> = scene
+            .visible
+            .iter()
+            .filter_map(|node| {
+                let parent = scene.parents[*node]?;
+                let (from, to) = (scene.positions[parent]?, scene.positions[*node]?);
+                let owner = if track.tree.nodes()[*node].parent == Some(parent) {
+                    *node
+                } else {
+                    parent
+                };
+                let (x0, y0) = geometry.node(from);
+                let (x1, y1) = geometry.node(to);
+                Some((owner, ((x0 + x1) / 2.0, (y0 + y1) / 2.0)))
+            })
+            .collect();
+        draw_homoplasy_links(
+            ctx,
+            &track.tree,
+            &track.homoplasy_layers,
+            &points,
+            LinkGeometry::Centred {
+                centre: (geometry.cx, geometry.cy),
+            },
+        );
+    }
+
     // Terminal leaders align labels and annotation rings without pretending
     // unequal branch lengths all end at the same evolutionary distance.
     for node in &scene.terminals {
@@ -336,6 +364,14 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         if let Some(labels) = &track.branch_labels {
             draw_branch_annotation(ctx, &track.tree, owner, labels, (x0, y0), (x1, y1));
         }
+        draw_branch_rate_mixtures(
+            ctx,
+            &track.tree,
+            owner,
+            &track.rate_mixtures,
+            (x0, y0),
+            (x1, y1),
+        );
     }
 
     if track.show_nodes || track.support_style != SupportStyle::None {

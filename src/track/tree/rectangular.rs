@@ -30,11 +30,37 @@ pub(super) fn draw_tree_scene(
     support_style: SupportStyle,
     support_threshold: f64,
     branch_labels: Option<&BranchLabels>,
+    rate_mixtures: &[BranchRateMixture],
+    homoplasy_layers: &[HomoplasyLayer],
     name_leaves: bool,
 ) {
     let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
     let styles = branch_styles(tree, &colors, dnds, ctx.theme, width);
     let y_of = |row: f64| area.y + row_pitch / 2.0 + row * row_pitch;
+
+    if !homoplasy_layers.is_empty() {
+        let points: Vec<(usize, (f64, f64))> = scene
+            .placements
+            .iter()
+            .flatten()
+            .filter_map(|placement| {
+                let parent = tree.nodes()[placement.node].parent?;
+                let parent_placement = scene.placements[parent]?;
+                let x0 = scene.x(area, parent_placement.depth);
+                let x1 = scene.x(area, placement.depth);
+                Some((placement.node, ((x0 + x1) / 2.0, y_of(placement.row))))
+            })
+            .collect();
+        draw_homoplasy_links(
+            ctx,
+            tree,
+            homoplasy_layers,
+            &points,
+            LinkGeometry::Rectangular {
+                right: area.right(),
+            },
+        );
+    }
 
     for placement in scene.placements.iter().flatten() {
         let node = &tree.nodes()[placement.node];
@@ -68,6 +94,7 @@ pub(super) fn draw_tree_scene(
         if let Some(labels) = branch_labels {
             draw_branch_annotation(ctx, tree, placement.node, labels, (x0, y), (x1, y));
         }
+        draw_branch_rate_mixtures(ctx, tree, placement.node, rate_mixtures, (x0, y), (x1, y));
     }
 
     for placement in scene.placements.iter().flatten() {
@@ -234,12 +261,28 @@ pub(super) fn dnds_branch_style(
 }
 
 pub(super) fn dnds_color(dnds: &DnDsLayer, theme: &Theme, value: f64) -> String {
+    omega_color(
+        theme,
+        value,
+        dnds.neutral_lower,
+        dnds.neutral_upper,
+        dnds.saturation,
+    )
+}
+
+pub(super) fn omega_color(
+    theme: &Theme,
+    value: f64,
+    neutral_lower: f64,
+    neutral_upper: f64,
+    saturation: f64,
+) -> String {
     let neutral = mix(theme.surface(), &theme.muted, 0.58);
-    if value >= dnds.neutral_lower && value <= dnds.neutral_upper {
+    if value >= neutral_lower && value <= neutral_upper {
         return neutral;
     }
-    let logarithmic_span = dnds.saturation.log2().max(f64::EPSILON);
-    if value < dnds.neutral_lower {
+    let logarithmic_span = saturation.log2().max(f64::EPSILON);
+    if value < neutral_lower {
         let strength = if value <= 0.0 {
             1.0
         } else {

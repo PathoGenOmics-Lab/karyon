@@ -205,6 +205,70 @@ fn the_last_branch_colour_encoding_wins() {
 }
 
 #[test]
+fn weighted_rate_classes_remain_visible_in_every_projection() {
+    let source = concat!(
+        "((A[&omega1=0.15,w1=0.72,omega2=4.8,w2=0.28]:0.8,B:0.8):0.6,",
+        "C[&omega1=0.7,w1=2,omega2=1.4,w2=1]:1.4);"
+    );
+    let mixture =
+        BranchRateMixture::new(["omega1", "omega2"], ["w1", "w2"]).label("aBSREL classes");
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(track.branch_rate_mixture(mixture.clone()))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "aBSREL classes | class 1 omega 0.15 weight 0.72; class 2 omega 4.8 weight 0.28"
+            ),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("class 1 omega 0.7 weight 2; class 2 omega 1.4 weight 1"),
+            "source weights must remain exact even when geometry is normalised: {svg}"
+        );
+        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
+        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn recurrent_events_connect_branches_without_inheriting_singletons() {
+    let source = concat!(
+        "((A[&event=S45N]:0.8,B[&event=private]:0.8):0.6,",
+        "C[&event=S45N]:1.4);"
+    );
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(track.homoplasy_layer(HomoplasyLayer::new("event").label("homoplasy candidates")))
+            .to_svg();
+        assert!(
+            svg.contains("recurrent event event = S45N; 2 branches"),
+            "{svg}"
+        );
+        assert!(!svg.contains("recurrent event event = private"), "{svg}");
+        assert!(svg.contains("stroke-dasharray=\"6 4\""), "{svg}");
+        assert!(
+            svg.contains("homoplasy candidates; dashed curves connect"),
+            "{svg}"
+        );
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
 fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
     for track in [
         TreeTrack::new(tree()),
