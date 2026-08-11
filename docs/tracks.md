@@ -5,7 +5,7 @@ description: Exhaustive behaviour and data contracts for every Karyon track type
 
 # Track API reference
 
-Thirty track types ship with the crate, one source file each. Every one of
+Thirty-three track types ship across thirty-two focused modules. Every one of
 them is an implementation of the same small trait, `Track`, and none of them has
 privileged access to the figure: a track reports how tall it wants to be, then
 draws inside the band it is handed, already clipped. A track type the crate does
@@ -60,6 +60,10 @@ not support the claim is what makes them worth having.
     <img src="../assets/figures/example-bisulfite.svg" alt="Single-molecule bisulfite methylation calls">
     <span><strong>Methylation</strong><small>Reads and molecules</small></span>
   </a>
+  <a class="track-card" href="#phylodynamictrack">
+    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometry, ancestral reconstruction, molecular selection, phylodynamics and lineage surveillance">
+    <span><strong>Evolution</strong><small>Inference and surveillance through time</small></span>
+  </a>
 </div>
 
 <details class="track-overview">
@@ -84,7 +88,8 @@ not support the claim is what makes them worth having.
 [StructuralTrack](#structuraltrack) &middot;
 [SnpTrack](#snptrack) &middot;
 [MatrixTrack](#matrixtrack) &middot;
-[ManhattanTrack](#manhattantrack)
+[ManhattanTrack](#manhattantrack) &middot;
+[SelectionTrack](#selectiontrack)
 
 **Reads and molecules**
 [PileupTrack](#pileuptrack) &middot;
@@ -104,6 +109,10 @@ not support the claim is what makes them worth having.
 [TanglegramTrack](#tanglegramtrack) &middot;
 [CladeTrack](#cladetrack)
 
+**Evolution and surveillance**
+[PhylodynamicTrack](#phylodynamictrack) &middot;
+[SurveillanceTrack](#surveillancetrack)
+
 **Whole genome**
 [IdeogramTrack](#ideogramtrack) &middot;
 [GenomeTrack](#genometrack)
@@ -115,12 +124,14 @@ not support the claim is what makes them worth having.
 
 ## The entry test
 
-A track has to live on the genomic coordinate axis. In code that reads: its
-`draw` has to use `ctx.scale`, the shared mapping from position to pixel that
-every band in the figure is drawn through. That is the whole reason this crate
-exists rather than a general plotting library. A track whose x is a list of
-samples or a count of genomes is a bar chart, a line chart or a heatmap that
-happens to have been handed genomic data, and matplotlib draws those better.
+A track has to live on the figure's shared integer coordinate axis. Usually
+that is a genomic position; `PhylodynamicTrack` and `SurveillanceTrack`
+deliberately use it for aligned time pivots. In code that reads: its `draw` has
+to use `ctx.scale`, the shared mapping from position to pixel that every band
+in the figure is drawn through. That is the whole reason this crate exists
+rather than a general plotting library. A track whose x is a list of samples
+or a count of genomes is a bar chart, a line chart or a heatmap that happens to
+have been handed genomic data, and matplotlib draws those better.
 
 Three track types were in the crate and are not any more. `AccumulationTrack`,
 `DistanceTrack` and `FrequencyTrack` all failed this test: their x axes were a
@@ -131,7 +142,7 @@ being honest about it. The analyses they carried are still worth having: a
 rarefaction over a presence matrix is a statistic rather than a plot type, and
 it does not need a `Track` to compute it.
 
-Twenty-five of the thirty draw through `ctx.scale`. The five that do not
+Twenty-eight of the thirty-three draw through `ctx.scale`. The five that do not
 each answer for it, and each says so in its own module:
 
 - [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
@@ -488,6 +499,47 @@ system and the crate does not pretend otherwise: build it with `Genome`, hand
 `Genome::boundaries` to `ManhattanTrack::bands` so the alternating shading falls
 on the sequence edges, and put a [GenomeTrack](#genometrack) underneath.
 
+### SelectionTrack
+
+One tested coding position can carry two different results: evidence against a
+null model and a synonymous-to-nonsynonymous rate effect. `SelectionTrack`
+draws them in aligned tiers rather than letting one colour stand for both. The
+upper tier is either `-log10(p)` or posterior probability; the lower tier is a
+signed `log2(ω)` effect centred on ω = 1.
+
+![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](assets/figures/example-selection-atlas.svg)
+
+```rust
+use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
+
+let sites = vec![
+    SelectionSite::new(44)
+        .rates(0.18, 1.52)
+        .p_value(0.0014)
+        .episodic_rates(0.05, 3.8, 0.18),
+    SelectionSite::new(103).rates(0.50, 0.07).p_value(0.008),
+];
+
+let track = SelectionTrack::new(sites)
+    .evidence(SelectionEvidence::PValue)
+    .p_threshold(0.05)
+    .neutral_band(0.85, 1.15)
+    .saturation(8.0);
+```
+
+`SelectionEvidence::Posterior` and `posterior_threshold` switch the evidence
+axis without changing the effect grammar. Threshold-crossing sites use a
+diamond as well as stronger emphasis. Cool and warm colours still encode rate
+direction, so a significant purifying site remains cool. Missing evidence or
+rates are omitted, exact supplied values remain in tooltips, and an infinite
+ratio caused by `dS = 0` is capped only in visible geometry.
+
+`SelectionSite::episodic_rates` stores the two nonsynonymous rate classes and
+their positive-class weight used by an episodic site model. The evidence point
+gets a compact two-part capsule, while the tooltip retains both rates and the
+weight. The track accepts already fitted results; it does not perform a codon
+model or decide a multiple-testing correction.
+
 ## Reads and molecules
 
 ### PileupTrack
@@ -717,12 +769,37 @@ annular rings and collapsed clades are wedges. `circular`, `fan`,
 `radial_start`, `radial_sweep`, `radial_direction` and `inner_radius` control
 the geometry without changing topology, branch values or terminal order.
 
+In rectangular coordinates, `branch_geometry` chooses orthogonal, diagonal or
+curved parent-to-child connections. The choice changes only the SVG path:
+topology, branch length, terminal order and metadata ownership remain
+identical. Circular, fan and unrooted projections retain their own geometry.
+
 ![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](assets/figures/example-phylo-annotations.svg)
 
 `unrooted` chooses a topology-balanced centre rather than the source Newick
 root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
 the circular and unrooted projections while preserving exact values in SVG
 tooltips.
+
+![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](assets/figures/example-selection-atlas.svg)
+
+`BranchRateMixture` preserves several fitted ω classes on the same branch:
+capsule segment width follows class weight and colour follows the neutral-
+centred ω scale. `branch_rate_mixture` reads the paired rate and weight keys
+directly from the branch-owning node. `HomoplasyLayer` and the `homoplasy`
+convenience builder connect equal direct event annotations with dashed curves
+across rectangular, circular and unrooted projections. They visualise
+recurrence without claiming that an upstream ancestral reconstruction proved
+convergence.
+
+`AncestralStateLayer` reads one direct probability per supplied state, draws
+their composition as an internal-node donut and can mark a parent-to-child
+maximum-posterior state change when both endpoints cross its confidence floor.
+`BranchEventLayer` places ordered mutation or amino-acid event symbols on the
+owning edge, while `BranchIntervalLayer` adds a compact estimate-and-whisker
+axis for concordance, rate uncertainty or transition support. All three work
+in rectangular, circular and unrooted projections, preserve exact source
+values in tooltips and never inherit missing branch annotations.
 
 ![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](assets/figures/example-phylo-faces.svg)
 
@@ -857,6 +934,80 @@ endpoint, does the deletion stop where a repeat element sits. `unmatched()` and
 `unplaced()` report the taxa the tree does not have and the blocks that
 therefore could not be placed.
 
+## Evolution and surveillance
+
+![Eight synthetic evolutionary views including a coalescent trajectory and stacked lineage surveillance](assets/figures/example-evolutionary-surveillance.svg)
+
+These two tracks use the shared integer x axis for time. That lets an inferred
+population trajectory, observed lineage composition, sampling annotations and
+an ordinary `AxisTrack` share exact pivots without pretending they are the same
+kind of evidence. Encode calendar years, days since an epoch or another
+project-wide integer time unit consistently in the surrounding `Region`.
+
+### PhylodynamicTrack
+
+A time-varying point estimate with an optional uncertainty interval. Reach for
+it for an effective population size skyline, reproductive number or lineage
+growth result fitted upstream.
+
+```rust
+use karyon::{PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack};
+
+let skyline = PhylodynamicTrack::new(vec![
+    PhylodynamicPoint::new(2020, 120.0).interval(70.0, 210.0),
+    PhylodynamicPoint::new(2021, 430.0).interval(250.0, 760.0),
+    PhylodynamicPoint::new(2022, 260.0).interval(150.0, 480.0),
+])
+.label("effective population size")
+.unit("Ne")
+.scale(PhylodynamicScale::Log10)
+.show_points(true);
+```
+
+The estimate is a line, bounds form a quiet ribbon and `reference` adds an
+independent guide such as `R = 1`. Linear and base-ten logarithmic scales are
+explicit. Log mode omits non-positive estimates instead of manufacturing a
+small positive value. Reversed, missing or non-finite bounds do not produce a
+ribbon, while every accepted source estimate and interval remains exact in its
+SVG tooltip. The track does not fit a clock, skyline, coalescent or birth-death
+model.
+
+### SurveillanceTrack
+
+Observed lineage, clade, genotype or mutation counts through time, drawn as
+stacked composition or independent trajectories.
+
+```rust
+use karyon::{
+    SurveillanceMetric, SurveillanceObservation, SurveillanceStyle,
+    SurveillanceTrack,
+};
+
+let composition = SurveillanceTrack::new(vec![
+    SurveillanceObservation::new(2021, "L1", 34, 100),
+    SurveillanceObservation::new(2021, "L2", 66, 100),
+    SurveillanceObservation::new(2022, "L1", 72, 120),
+    SurveillanceObservation::new(2022, "L2", 48, 120),
+])
+.label("lineage frequency")
+.metric(SurveillanceMetric::Frequency)
+.style(SurveillanceStyle::Stacked)
+.minimum_total(20)
+.frequency_alert(0.50)
+.growth_alert(0.15);
+```
+
+`Frequency` divides each supplied count by its supplied denominator; `Count`
+keeps the raw observation. `minimum_total` is a visible sampling floor rather
+than a pseudocount. Frequency and stepwise-growth alerts use small symbols and
+state their exact reason in the tooltip; they never replace the underlying
+count and denominator. Supply an explicit zero count when absence was
+observed: a missing lineage/time pair is not converted to zero. Stacked views
+omit an incomplete time pivot and line views break at gaps; duplicate
+lineage/time observations receive an ambiguity mark rather than being summed
+or silently joined. The track deliberately performs no smoothing,
+interpolation, forecasting or anomaly test.
+
 ## Whole genome
 
 ### IdeogramTrack
@@ -973,7 +1124,7 @@ two rows tall.
 
 ## From the command line
 
-Twelve of the thirty tracks have a standard text format to read, and those
+Twelve of the thirty-three tracks have a standard text format to read, and those
 are the ones `karyon` the command can build. Each flag starts a track and the
 flags after it describe that one, so the order of the flags is the order of the
 stack.

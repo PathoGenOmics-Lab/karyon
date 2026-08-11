@@ -275,8 +275,43 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         ctx.theme,
         &color,
     );
+    let styles = branch_styles(
+        &track.tree,
+        &colors,
+        track.dnds.as_ref(),
+        ctx.theme,
+        track.line_width,
+    );
 
     draw_unrooted_clade_highlights(track, ctx, &scene, &geometry);
+
+    if !track.homoplasy_layers.is_empty() {
+        let points: Vec<(usize, (f64, f64))> = scene
+            .visible
+            .iter()
+            .filter_map(|node| {
+                let parent = scene.parents[*node]?;
+                let (from, to) = (scene.positions[parent]?, scene.positions[*node]?);
+                let owner = if track.tree.nodes()[*node].parent == Some(parent) {
+                    *node
+                } else {
+                    parent
+                };
+                let (x0, y0) = geometry.node(from);
+                let (x1, y1) = geometry.node(to);
+                Some((owner, ((x0 + x1) / 2.0, (y0 + y1) / 2.0)))
+            })
+            .collect();
+        draw_homoplasy_links(
+            ctx,
+            &track.tree,
+            &track.homoplasy_layers,
+            &points,
+            LinkGeometry::Centred {
+                centre: (geometry.cx, geometry.cy),
+            },
+        );
+    }
 
     // Terminal leaders align labels and annotation rings without pretending
     // unequal branch lengths all end at the same evolutionary distance.
@@ -307,6 +342,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
             &track.tree,
             owner,
             track.color_by.as_deref(),
+            track.dnds.as_ref(),
             track
                 .branch_labels
                 .as_ref()
@@ -319,14 +355,47 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         }
         let (x0, y0) = geometry.node(from);
         let (x1, y1) = geometry.node(to);
+        let style = &styles[owner];
         ctx.svg
-            .line(x0, y0, x1, y1, &colors[owner], track.line_width);
+            .line_pattern(x0, y0, x1, y1, &style.color, style.width, style.pattern);
         if title.is_some() {
             ctx.svg.end_group();
         }
         if let Some(labels) = &track.branch_labels {
             draw_branch_annotation(ctx, &track.tree, owner, labels, (x0, y0), (x1, y1));
         }
+        draw_branch_rate_mixtures(
+            ctx,
+            &track.tree,
+            owner,
+            &track.rate_mixtures,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_branch_event_layers(
+            ctx,
+            &track.tree,
+            owner,
+            &track.branch_event_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_branch_intervals(
+            ctx,
+            &track.tree,
+            owner,
+            &track.branch_interval_layers,
+            (x0, y0),
+            (x1, y1),
+        );
+        draw_ancestral_transitions(
+            ctx,
+            &track.tree,
+            owner,
+            &track.ancestral_state_layers,
+            (x0, y0),
+            (x1, y1),
+        );
     }
 
     if track.show_nodes || track.support_style != SupportStyle::None {
@@ -343,13 +412,20 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                     && support_fraction(*value)
                         .is_some_and(|value| value >= track.support_threshold)
             }) {
-                draw_support(ctx, x, y, support, &colors[*node], track.support_style);
+                draw_support(
+                    ctx,
+                    x,
+                    y,
+                    support,
+                    &styles[*node].color,
+                    track.support_style,
+                );
             } else if track.show_nodes {
                 ctx.svg.circle_ringed(
                     x,
                     y,
                     ctx.theme.tokens.marker_radius * 0.65,
-                    &colors[*node],
+                    &styles[*node].color,
                     &ctx.theme.background,
                     ctx.theme.tokens.hairline,
                 );

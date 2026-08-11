@@ -1,6 +1,6 @@
 # Writing a track
 
-The [thirty track types](../tracks.md) the crate ships are implementations
+The [thirty-three track types](../tracks.md) the crate ships are implementations
 of one trait with no privileged access to the figure. `CoverageTrack` and
 `PileupTrack` see exactly what a track written outside the crate sees, so a
 track type the crate does not have is not a fork of it, it is one more file in
@@ -20,7 +20,7 @@ all.
 That is the rule the crate holds itself to, and three tracks were removed under
 it rather than kept for the sake of a longer list.
 
-Five of the thirty do not read `ctx.scale`, and each of them answers for it
+Five of the thirty-three do not read `ctx.scale`, and each of them answers for it
 in its own module doc: `IdeogramTrack` draws the whole sequence so that it can
 say where the region is, `TreeTrack` and `TanglegramTrack` measure evolutionary
 distance across and share the other axis instead, `SnpTrack` lays out its own
@@ -319,7 +319,7 @@ both: state your dimensions, and render yourself with these ids.
 
 ## Next
 
-- [Tracks](../tracks.md), for the thirty already written to this trait.
+- [Tracks](../tracks.md), for the thirty-three already written to this trait.
 - [Scale](scale.md), for the binning a new track has to do for itself.
 - [Contributing](../about/contributing.md), for what a track shipped by the
   crate needs on top of the trait.

@@ -142,6 +142,39 @@ Radial layouts occupy a standalone square and therefore do not share rows with
 `SnpTrack`, `MatrixTrack` or `CladeTrack`. Use the rectangular projection when
 leaf-to-row alignment is the analytical claim.
 
+## Choose a tree geometry for the reading task
+
+![Eight synthetic evolutionary views beginning with orthogonal, diagonal, curved, circular and unrooted tree geometries](../assets/figures/example-evolutionary-surveillance.svg)
+
+Geometry is a reading aid, not a transformation of the owned tree. The three
+rectangular branch shapes keep the same node coordinates and terminal order;
+the radial and unrooted projections change the coordinate system while
+retaining topology, branch values and annotation ownership.
+
+```rust
+use karyon::{BranchGeometry, TreeTrack};
+
+let aligned = TreeTrack::new(tree.clone())
+    .branch_geometry(BranchGeometry::Orthogonal);
+let topology_forward = TreeTrack::new(tree.clone())
+    .branch_geometry(BranchGeometry::Diagonal);
+let presentation = TreeTrack::new(tree)
+    .branch_geometry(BranchGeometry::Curved);
+```
+
+| Geometry | Best reading | Constraint |
+|:--|:--|:--|
+| orthogonal rectangular | aligned tip rows, events and dense metadata columns | parent risers can dominate very unbalanced trees |
+| diagonal rectangular | topology and branch-length direction | weaker visual alignment between a node and its descendants |
+| curved rectangular | annotated internal nodes and presentation figures | use restrained node glyph sizes to avoid crossings |
+| circular | many terminal taxa plus metadata rings | root and terminal order remain meaningful |
+| fan | radial context with a quiet sector for annotation | partial sweep gives taxa unequal screen directions, not unequal evolutionary weight |
+| unrooted | split structure without privileging the source root | cannot show rooted time direction |
+
+`branch_geometry` is intentionally ignored outside rectangular coordinates.
+Rerooting, ladderising and rotating are separate topology operations; choosing
+a path shape never performs one of them implicitly.
+
 ## Draw topology without privileging the Newick root
 
 ![An unrooted tree with a layered metadata halo beside a circular cladogram carrying the same four annotation datasets](../assets/figures/example-phylo-annotations.svg)
@@ -216,6 +249,202 @@ the complete key and value remain in the SVG tooltip.
 `scale_bar_unit` prints its unit exactly. Scale bars are omitted from
 cladograms and explicitly time-scaled trees, where a branch-length ruler would
 make the wrong claim.
+
+## Render ancestral states, events and branch uncertainty
+
+Ancestral reconstruction usually contains at least three different objects:
+a probability distribution at a node, an inferred event on an edge and an
+uncertainty measure for an estimate. Combining them into one branch colour
+loses both ownership and uncertainty. These layers keep them separate in every
+tree projection.
+
+```rust
+use karyon::{
+    AncestralStateLayer, BranchEventLayer, BranchGeometry,
+    BranchIntervalLayer, TreeTrack,
+};
+
+let reconstruction = TreeTrack::new(tree)
+    .branch_geometry(BranchGeometry::Curved)
+    .ancestral_states(
+        AncestralStateLayer::new(["state_human", "state_animal", "state_water"])
+            .label("ancestral host posterior")
+            .confidence(0.72),
+    )
+    .branch_event_layer(
+        BranchEventLayer::new("mutations")
+            .label("ancestral mutations")
+            .maximum_events(6),
+    )
+    .branch_interval(
+        BranchIntervalLayer::new("gcf", "gcf_low", "gcf_high")
+            .label("gene concordance")
+            .range(0.0, 1.0)
+            .threshold(0.70),
+    );
+```
+
+The ancestral layer normalises non-negative supplied probabilities only for
+donut geometry. Exact values remain in its tooltip. A transition cue appears
+only when the maximum-posterior state changes and both endpoint maxima reach
+the confidence floor. It is a visualisation of the supplied reconstruction,
+not a newly inferred transition.
+
+Text, numbers and booleans under a `BranchEventLayer` key become one direct
+event; an annotated-Newick list becomes ordered marks, capped per branch by
+`maximum_events`. `BranchIntervalLayer` draws the supplied estimate and valid
+lower/upper bounds on a fixed compact scale. Reversed or non-finite intervals
+are omitted rather than repaired. None of these layers inherits an ancestor's
+value onto descendants.
+
+## Show branch-wise dN/dS without moving the neutral point
+
+![Four views of one synthetic codon-model tree: a phylogram, a circular tree with genomic metadata rings, an unrooted tree and a cladogram, all with branch-wise dN/dS](../assets/figures/example-phylo-dnds.svg)
+
+`dnds` is a dedicated branch encoding for the nonsynonymous-to-synonymous rate
+ratio, ω. It differs from a generic continuous `color_by` in two important
+ways: the diverging scale is fixed around the biologically meaningful value
+ω = 1, and an estimate belongs only to its incoming branch. It is never
+inherited by descendants.
+
+```rust
+use karyon::TreeTrack;
+
+let view = TreeTrack::new(tree)
+    .dnds("omega")
+    .dnds_label("Branch dN/dS (ω)")
+    .dnds_neutral_band(0.9, 1.1)
+    .dnds_saturation(4.0)
+    .dnds_significance("q", 0.05)
+    .branch_labels("amino_acid_change");
+```
+
+The cool side represents ω below the neutral band, grey represents values near
+one and the warm side represents ω above it. Colour strength follows
+`abs(log2(ω))` and saturates symmetrically: with `dnds_saturation(4.0)`, ω ≤
+0.25 and ω ≥ 4 use the strongest colours. Zero is retained as the strongest
+purifying value; negative, non-finite and missing estimates are drawn as quiet
+dotted edges rather than converted to zero.
+
+`dnds_significance(key, maximum)` adds an independent evidence channel. A
+branch whose direct numeric `p`, `q` or other test value is at most the chosen
+threshold becomes thicker, while its colour continues to describe effect
+size. Exact ω and test values, the selected regime and the threshold comparison
+remain in the SVG tooltip in rectangular, circular and unrooted projections.
+
+The renderer visualises estimates fitted upstream; it does not calculate dN,
+dS, likelihood-ratio tests or multiple-testing corrections. In particular,
+ω > 1 alone is shown as a diversifying regime, not presented as proof of
+positive selection. Generate the synthetic gallery above with:
+
+```bash
+cargo run --example phylo_dnds -- assets
+```
+
+## Build a branch-to-codon selection atlas
+
+![A four-panel synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event connections, a circular dN/dS tree, a frequentist site scan and a posterior site scan](../assets/figures/example-selection-atlas.svg)
+
+A single mean ω is sometimes the result, and sometimes the summary that hides
+the result. Branch-site models can fit several rate classes to one branch,
+while site models report evidence and effect at coding positions. Karyon keeps
+those quantities in separate visual channels and lets them meet only through
+their shared biological interpretation.
+
+### Preserve fitted rate classes on branches
+
+`BranchRateMixture` pairs any number of direct rate annotations with their
+weight annotations. Segment length is the fitted class weight; segment colour
+is the class ω on the same neutral-centred logarithmic scale as `dnds`. Weights
+are normalised only to fill the capsule. Their original values remain exact in
+the SVG tooltip.
+
+```rust
+use karyon::{BranchRateMixture, HomoplasyLayer, TreeTrack};
+
+let rates = BranchRateMixture::new(
+    ["omega_1", "omega_2", "omega_3"],
+    ["weight_1", "weight_2", "weight_3"],
+)
+.label("aBSREL ω classes")
+.neutral_band(0.9, 1.1)
+.saturation(6.0);
+
+let view = TreeTrack::new(tree)
+    .branch_rate_mixture(rates)
+    .homoplasy_layer(
+        HomoplasyLayer::new("amino_acid_change")
+            .label("recurrent amino-acid change"),
+    );
+```
+
+The rate and weight keys are paired in iterator order. A class with a missing,
+negative or non-finite rate, or with a non-positive weight, is omitted. A
+branch with no valid class is left untouched rather than receiving a zero-rate
+capsule. Values are read from the node that owns the incoming edge and are
+never inherited.
+
+`HomoplasyLayer` groups equal direct branch annotations. Events appearing on
+at least two branches are joined with dashed curves: contained arcs in the
+rectangular tree and centre-seeking chords in circular and unrooted trees.
+`minimum_occurrences` raises the recurrence threshold and
+`maximum_connections` prevents a common event from turning a dense tree into
+an all-to-all web. The renderer calls these *recurrent events*, not proven
+homoplasies: convergence, reversal and ancestral-state uncertainty have to be
+settled by the upstream analysis.
+
+### Separate site evidence from rate direction
+
+`SelectionTrack` uses genomic x coordinates, so it can sit under protein
+domains, codons, variants or an axis. Its upper tier draws p-values as
+`-log10(p)` or posterior probability on `0..1`; its lower tier draws signed
+`log2(ω)` around the explicit neutral baseline. A diamond means the chosen
+evidence threshold was crossed. Colour still means purifying, near-neutral or
+diversifying rate, so a strongly supported purifying site is not painted as a
+positive-selection hit.
+
+```rust
+use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
+
+let sites = vec![
+    SelectionSite::new(44)
+        .rates(0.18, 1.52)
+        .p_value(0.0014)
+        .episodic_rates(0.05, 3.8, 0.18)
+        .label("surface loop"),
+    SelectionSite::new(103)
+        .rates(0.50, 0.07)
+        .p_value(0.008),
+];
+
+let scan = SelectionTrack::new(sites)
+    .evidence(SelectionEvidence::PValue)
+    .p_threshold(0.05)
+    .neutral_band(0.85, 1.15)
+    .saturation(8.0)
+    .label("FEL / MEME");
+```
+
+Switch to `SelectionEvidence::Posterior` and set
+`posterior_threshold` for FUBAR-like posterior scans. A site can carry both
+forms of evidence; the track-level mode decides which one is drawn, preventing
+p-values and posterior probabilities from sharing a false common axis.
+`episodic_rates(beta_minus, beta_plus, positive_weight)` adds a compact
+two-class capsule above the point while preserving every supplied value in its
+tooltip.
+
+Positions are 0-based coordinates, consistent with every genomic track in the
+crate. `dS = 0, dN > 0` remains an infinite ratio in the tooltip and saturates
+safely in geometry; a missing rate pair remains missing. The renderer does not
+run FEL, MEME, FUBAR, aBSREL, ancestral reconstruction or multiple-testing
+correction. It renders their supplied results without silently converting one
+statistical quantity into another.
+
+Generate the complete synthetic atlas with:
+
+```bash
+cargo run --example selection_atlas -- assets
+```
 
 ## Layer annotation rings like iTOL datasets
 
@@ -427,14 +656,71 @@ names. `TangleTieStyle::Straight` is compact; `Curved` is easiest to trace; and
 `Ribbon` remains visible after reduction for print. `tie_widths`, `tree_width`,
 `label_width` and `row_height` control density without changing the comparison.
 
+## Align phylodynamics and surveillance over time
+
+The bottom of the evolutionary-surveillance atlas deliberately places an
+inferred process above observed composition. Their x pivots agree; their y
+quantities, uncertainty and evidential status do not.
+
+```rust
+use karyon::{
+    AxisTrack, Figure, PhylodynamicPoint, PhylodynamicScale,
+    PhylodynamicTrack, Region, SurveillanceObservation, SurveillanceTrack,
+};
+
+let skyline = PhylodynamicTrack::new(vec![
+    PhylodynamicPoint::new(2020, 120.0).interval(70.0, 210.0),
+    PhylodynamicPoint::new(2021, 430.0).interval(250.0, 760.0),
+])
+.scale(PhylodynamicScale::Log10)
+.unit("Ne");
+
+let observed = SurveillanceTrack::new(vec![
+    SurveillanceObservation::new(2020, "L1", 38, 100),
+    SurveillanceObservation::new(2020, "L2", 62, 100),
+    SurveillanceObservation::new(2021, "L1", 73, 120),
+    SurveillanceObservation::new(2021, "L2", 47, 120),
+])
+.minimum_total(20)
+.frequency_alert(0.50)
+.growth_alert(0.15);
+
+Figure::new(Region::new("year", 2020, 2022)?)
+    .push(skyline)
+    .push(observed)
+    .push(AxisTrack::new())
+    .save_svg("evolution-through-time.svg")?;
+```
+
+`PhylodynamicTrack` retains point intervals as a ribbon and supports linear or
+base-ten logarithmic y geometry. Non-positive estimates are absent in log mode
+instead of being nudged above zero. `SurveillanceTrack` retains each count and
+denominator, can switch between frequencies and raw counts, and draws stacked
+composition or independent lines. A sampling floor omits underpowered
+observations explicitly; alert markers report whether frequency, stepwise
+growth or both crossed the chosen rule. Missing lineage/time pairs break a
+line and make a stacked pivot explicitly incomplete; zero must be supplied as
+an observed zero. Duplicate pairs are marked as ambiguous rather than summed.
+
+Neither track performs inference, smoothing, interpolation, forecasting or
+outbreak detection. Their purpose is to align already computed results while
+keeping their provenance inspectable in the SVG.
+
+Generate the integrated sheet with:
+
+```bash
+cargo run --example evolutionary_surveillance -- assets
+```
+
 ## Scope
 
-The renderer is for rectangular, circular, fan and equal-angle unrooted trees.
-It does not
-infer trees, fit clocks, reconstruct ancestral states or claim epidemiological
+The renderer is for orthogonal, diagonal and curved rectangular trees,
+circular and fan layouts, and equal-angle unrooted trees. It does not infer
+trees, fit clocks or population models, reconstruct ancestral states, estimate
+selection, smooth surveillance observations or claim epidemiological
 transmission. [`PhyloMap`](maps.md#put-a-phylogeny-around-the-map) can place
 terminal annotations at explicitly supplied coordinates, but it does not infer
 those locations or the movement between them. Those analyses belong upstream;
-Karyon preserves their topology, lengths, support and annotations and makes the
-chosen encodings explicit. Nexus support is intentionally limited to the
-portable first-tree and translation-table subset.
+Karyon preserves their topology, lengths, support, intervals and annotations
+and makes the chosen encodings explicit. Nexus support is intentionally
+limited to the portable first-tree and translation-table subset.

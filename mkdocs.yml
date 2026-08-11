@@ -136,6 +136,7 @@ nav:
       - Reads and molecules: plots/reads-molecules.md
       - Comparisons and alignments: plots/comparisons-alignments.md
       - Phylogeny and clades: plots/phylogeny-clades.md
+      - Evolution and surveillance: plots/evolution-surveillance.md
       - Whole genomes and geography: plots/whole-genomes-geography.md
       - Track API reference: tracks.md
   - User guide:

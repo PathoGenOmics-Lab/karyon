@@ -13,11 +13,19 @@ These views preserve terminal order, branch length, support and typed metadata.
 They render an existing analysis; they do not infer a tree, clock, ancestral
 state, migration event or transmission chain.
 
-<div class="plot-stats"><span><strong>3</strong> tree tracks</span><span><strong>4</strong> node-glyph styles</span></div>
+<div class="plot-stats"><span><strong>3</strong> tree tracks</span><span><strong>4</strong> selection views</span></div>
 
 </div>
 
 <div class="plot-card-grid">
+  <a class="plot-card" href="../evolution-surveillance/">
+    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometries, ancestral reconstruction, molecular evolution, comparison, phylodynamics and lineage surveillance" loading="lazy"></span>
+    <span class="plot-card__body"><small>Topology × genome × time</small><strong>Evolutionary surveillance atlas</strong><span>Move from tree geometry through ancestral evidence and molecular selection to phylodynamic estimates and observed lineage change.</span><b>Open catalogue <span aria-hidden="true">→</span></b></span>
+  </a>
+  <a class="plot-card" href="../../guide/phylogenetics/#build-a-branch-to-codon-selection-atlas">
+    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="A molecular-selection atlas with branch rate mixtures, recurrent-event links and site-wise frequentist and posterior scans" loading="lazy"></span>
+    <span class="plot-card__body"><small>Tree × codon model</small><strong>Molecular selection atlas</strong><span>Keep weighted branch rate classes, recurrence, statistical evidence and signed site effects in separate visual channels.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
+  </a>
   <a class="plot-card" href="../../guide/phylogenetics/#attach-data-graphics-to-nodes-and-clades">
     <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Node bubbles, ancestral composition donuts, clade fields, an aligned MSA and aligned domain architectures" loading="lazy"></span>
     <span class="plot-card__body"><small>Tree × node and row data</small><strong>Phylogenetic data faces</strong><span>Attach abundance, composition and clade context to nodes, then align sequences or domains by descent.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
@@ -45,11 +53,14 @@ state, migration event or transmission chain.
 | Analytical structure | Start with |
 |:--|:--|
 | one tree and terminal metadata | `TreeTrack` |
+| ancestral probabilities, direct events or branch uncertainty | `TreeTrack` with `AncestralStateLayer`, `BranchEventLayer` or `BranchIntervalLayer` |
 | abundance or composition on internal nodes | `TreeTrack` with `NodeGlyph` |
 | aligned residues or domains ordered by descent | `MsaTrack::tree` or `DomainTrack::tree` |
 | two trees over matching terminal names | `TanglegramTrack` |
 | genomic intervals carried by named taxa | `CladeTrack` |
 | terminal annotations matched to supplied coordinates | `PhyloMap` |
+| inferred population trajectory through time | `PhylodynamicTrack` |
+| observed lineage counts and denominators through time | `SurveillanceTrack` |
 
 ## Related guides
 

@@ -107,7 +107,7 @@ standard input.
 | `--pileup <FILE>` | Aligned reads | SAM text, as `samtools view` writes it |
 | `--axis` | The coordinate ruler | nothing |
 
-Twelve of the thirty track types have a standard text format to read, and
+Twelve of the thirty-three track types have a standard text format to read, and
 those are the ones the command has. The rest have no file to read from, so they
 stay in the library. What each reader accepts, column by column, is in
 [Formats](formats.md).

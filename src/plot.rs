@@ -108,10 +108,11 @@ use crate::track::{
     CodonTrack, CoverageTrack, DomainArchitecture, DomainTrack, DotplotTrack, Feature,
     FeatureTrack, GenomeTrack, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
     LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
-    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Read, SequenceTrack, SnpSite, SnpTrack,
-    SplitRead, SplitReadTrack, SquiggleTrack, Strand, StructuralTrack, StructuralVariant,
-    SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack,
-    Variant, VariantTrack, Window, WindowTrack,
+    MsaSequence, MsaTrack, OrfTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read,
+    SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack,
+    SquiggleTrack, Strand, StructuralTrack, StructuralVariant, SurveillanceObservation,
+    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit,
+    TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -238,12 +239,15 @@ tracks![
     MethylationTrack,
     MsaTrack,
     OrfTrack,
+    PhylodynamicTrack,
     PileupTrack,
+    SelectionTrack,
     SequenceTrack,
     SnpTrack,
     SplitReadTrack,
     SquiggleTrack,
     StructuralTrack,
+    SurveillanceTrack,
     SyntenyTrack,
     TanglegramTrack,
     TranscriptionUnitTrack,
@@ -629,6 +633,20 @@ impl<T: Slot> Plot<T> {
         self.settle().park(PileupTrack::new(reads))
     }
 
+    /// A fitted population, reproductive-number or growth trajectory through
+    /// time, with optional uncertainty intervals.
+    pub fn add_phylodynamics(
+        self,
+        points: impl Into<Vec<PhylodynamicPoint>>,
+    ) -> Plot<PhylodynamicTrack> {
+        self.settle().park(PhylodynamicTrack::new(points))
+    }
+
+    /// Site-wise molecular-selection estimates and their independent evidence.
+    pub fn add_selection(self, sites: impl Into<Vec<SelectionSite>>) -> Plot<SelectionTrack> {
+        self.settle().park(SelectionTrack::new(sites))
+    }
+
     /// Reference bases, starting at the left edge of the region.
     pub fn add_sequence(self, seq: impl Into<Vec<u8>>) -> Plot<SequenceTrack> {
         let start = self.figure.region().start();
@@ -673,6 +691,14 @@ impl<T: Slot> Plot<T> {
         variants: impl Into<Vec<StructuralVariant>>,
     ) -> Plot<StructuralTrack> {
         self.settle().park(StructuralTrack::new(variants))
+    }
+
+    /// Observed lineage counts and denominators through time.
+    pub fn add_surveillance(
+        self,
+        observations: impl Into<Vec<SurveillanceObservation>>,
+    ) -> Plot<SurveillanceTrack> {
+        self.settle().park(SurveillanceTrack::new(observations))
     }
 
     /// Alignment blocks as ribbons between two sequences.
@@ -1008,7 +1034,9 @@ mod tests {
             .add_msa(vec![MsaSequence::new("s1", b"ACGT".to_vec())])
             .add_orfs(vec![b'A'; 1000])
             .add_orfs_at(761_100, vec![b'A'; 100])
+            .add_phylodynamics(vec![PhylodynamicPoint::new(761_100, 240.0)])
             .add_pileup(vec![Read::new(761_100, vec![CigarOp::Match(100)])])
+            .add_selection(vec![SelectionSite::new(761_100).rates(0.4, 0.2)])
             .add_sequence(vec![b'A'; 1000])
             .add_sequence_at(761_100, vec![b'C'; 100])
             .add_snps(
@@ -1027,6 +1055,7 @@ mod tests {
                 761_200,
                 SvKind::Deletion,
             )])
+            .add_surveillance(vec![SurveillanceObservation::new(761_100, "L1", 42, 100)])
             .add_synteny(vec![AlignmentBlock::new(
                 761_000, 761_100, 761_000, 761_100,
             )])
@@ -1042,7 +1071,7 @@ mod tests {
             .add_track(AxisTrack::new())
             .add_axis()
             .into_figure();
-        assert_eq!(figure.track_count(), 36);
+        assert_eq!(figure.track_count(), 39);
     }
 
     #[test]

@@ -14,9 +14,9 @@ Each route below leads to a small family of plots, a visual example and the
 exact reference entry for every component.
 
 <div class="plot-stats" aria-label="Catalogue summary">
-  <span><strong>30</strong> genomic tracks</span>
+  <span><strong>33</strong> genomic tracks</span>
   <span><strong>3</strong> standalone drawings</span>
-  <span><strong>7</strong> biological routes</span>
+  <span><strong>8</strong> biological routes</span>
 </div>
 
 </div>
@@ -78,6 +78,15 @@ exact reference entry for every component.
       <b>Explore phylogeny plots <span aria-hidden="true">→</span></b>
     </span>
   </a>
+  <a class="plot-category-card plot-category-card--variation" href="evolution-surveillance/">
+    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="An atlas of phylogenetic geometry, ancestral reconstruction, molecular selection, genomic layers, phylodynamics and lineage surveillance" loading="lazy">
+    <span class="plot-category-card__body">
+      <small>2 temporal tracks + tree layers</small>
+      <strong>Evolution and surveillance</strong>
+      <span>Ancestral states, branch events, uncertainty, selection, skyline trajectories and lineage alerts.</span>
+      <b>Explore evolutionary plots <span aria-hidden="true">→</span></b>
+    </span>
+  </a>
   <a class="plot-category-card plot-category-card--world" href="whole-genomes-geography/">
     <img src="../assets/figures/example-maps.svg" alt="World maps under three geographic projections" loading="lazy">
     <span class="plot-category-card__body">
@@ -95,6 +104,7 @@ exact reference entry for every component.
   <a href="reads-molecules/"><strong>I have SAM alignments or molecules</strong><span>Start with pileups, split reads or per-molecule calls.</span></a>
   <a href="variation-association/"><strong>I have VCF calls, sites or genotypes</strong><span>Start with variants, variable sites, matrices or association statistics.</span></a>
   <a href="phylogeny-clades/"><strong>I have Newick, BEAST, NHX or Nexus</strong><span>Start with a tree, aligned clade blocks or circular phylogeography.</span></a>
+  <a href="evolution-surveillance/"><strong>I have ancestral, codon-model or time-series results</strong><span>Start with branch layers, a site scan, a phylodynamic interval or lineage composition.</span></a>
   <a href="comparisons-alignments/"><strong>I have two or more sequences</strong><span>Start with an MSA, dotplot, synteny view or homologous locus.</span></a>
   <a href="signal-sequence/"><strong>I have a value for every base or window</strong><span>Start with coverage, a signed window track or per-site methylation.</span></a>
   <a href="whole-genomes-geography/"><strong>I need global context</strong><span>Start with an assembly track, ideogram, circular genome or map.</span></a>

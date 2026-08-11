@@ -139,6 +139,231 @@ fn branch_event_labels_are_direct_exact_and_projection_independent() {
 }
 
 #[test]
+fn dnds_is_direct_diverging_and_projection_independent() {
+    let source = concat!(
+        "((A[&omega=0.2,p=0.01]:0.8,B:0.8)",
+        "AB[&omega=5,p=0.03]:0.6,",
+        "C[&omega=1,p=0.4]:1.4);"
+    );
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(720.0)
+            .show_region_label(false)
+            .push(
+                track
+                    .show_tips(false)
+                    .dnds("omega")
+                    .dnds_significance("p", 0.05),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("dN/dS ω 0.2 (purifying); p 0.01 (≤ 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("dN/dS ω 5 (diversifying); p 0.03 (≤ 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("dN/dS ω 1 (approximately neutral); p 0.4 (&gt; 0.05)"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>B; dN/dS missing</title>"),
+            "an ancestor's omega must not be copied onto B: {svg}"
+        );
+        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
+        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(svg.contains("stroke-width=\"2.22\""), "{svg}");
+        assert!(svg.contains("stroke-dasharray=\"1.5 3\""), "{svg}");
+        for label in ["purifying", "near neutral", "diversifying", "missing"] {
+            assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
+        }
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn the_last_branch_colour_encoding_wins() {
+    let tree = Tree::parse_newick("(A:1,B:1);").unwrap();
+    let dnds = TreeTrack::new(tree.clone())
+        .color_by("country")
+        .dnds("omega");
+    assert!(dnds.color_by.is_none());
+    assert_eq!(
+        dnds.dnds.as_ref().map(|layer| layer.key.as_str()),
+        Some("omega")
+    );
+
+    let categorical = TreeTrack::new(tree).dnds("omega").color_by("country");
+    assert_eq!(categorical.color_by.as_deref(), Some("country"));
+    assert!(categorical.dnds.is_none());
+}
+
+#[test]
+fn weighted_rate_classes_remain_visible_in_every_projection() {
+    let source = concat!(
+        "((A[&omega1=0.15,w1=0.72,omega2=4.8,w2=0.28]:0.8,B:0.8):0.6,",
+        "C[&omega1=0.7,w1=2,omega2=1.4,w2=1]:1.4);"
+    );
+    let mixture =
+        BranchRateMixture::new(["omega1", "omega2"], ["w1", "w2"]).label("aBSREL classes");
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(track.branch_rate_mixture(mixture.clone()))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "aBSREL classes | class 1 omega 0.15 weight 0.72; class 2 omega 4.8 weight 0.28"
+            ),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("class 1 omega 0.7 weight 2; class 2 omega 1.4 weight 1"),
+            "source weights must remain exact even when geometry is normalised: {svg}"
+        );
+        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
+        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn recurrent_events_connect_branches_without_inheriting_singletons() {
+    let source = concat!(
+        "((A[&event=S45N]:0.8,B[&event=private]:0.8):0.6,",
+        "C[&event=S45N]:1.4);"
+    );
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(track.homoplasy_layer(HomoplasyLayer::new("event").label("homoplasy candidates")))
+            .to_svg();
+        assert!(
+            svg.contains("recurrent event event = S45N; 2 branches"),
+            "{svg}"
+        );
+        assert!(!svg.contains("recurrent event event = private"), "{svg}");
+        assert!(svg.contains("stroke-dasharray=\"6 4\""), "{svg}");
+        assert!(
+            svg.contains("homoplasy candidates; dashed curves connect"),
+            "{svg}"
+        );
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn branch_geometry_changes_connections_without_changing_the_owned_tree() {
+    let source = "((A:1,B:1)AB:1,C:2)root;";
+    let orthogonal = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Orthogonal),
+        )
+        .to_svg();
+    let diagonal = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Diagonal),
+        )
+        .to_svg();
+    let curved = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_newick(source).unwrap())
+                .branch_geometry(BranchGeometry::Curved),
+        )
+        .to_svg();
+    assert!(orthogonal.matches("<line").count() > diagonal.matches("<line").count());
+    assert!(curved.contains(" C "), "{curved}");
+    for svg in [orthogonal, diagonal, curved] {
+        for tip in ["A", "B", "C"] {
+            assert!(svg.contains(&format!(">{tip}</text>")), "{svg}");
+        }
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn ancestral_events_and_intervals_project_together_without_inheritance() {
+    let source = concat!(
+        "((A[&p_A=0.1,p_B=0.9,events={S45N,E88K},cf=0.82,cf_lo=0.71,cf_hi=0.91]:1,",
+        "B[&p_A=0.85,p_B=0.15,events={private},cf=0.44,cf_lo=0.31,cf_hi=0.58]:1)",
+        "AB[&p_A=0.9,p_B=0.1,cf=0.91,cf_lo=0.84,cf_hi=0.96]:1,",
+        "C[&p_A=0.08,p_B=0.92,events={S45N},cf=0.77,cf_lo=0.62,cf_hi=0.86]:2)",
+        "root[&p_A=0.95,p_B=0.05];"
+    );
+    let states = AncestralStateLayer::new(["p_A", "p_B"])
+        .label("ancestral host")
+        .confidence(0.70);
+    let events = BranchEventLayer::new("events").label("ancestral mutations");
+    let concordance = BranchIntervalLayer::new("cf", "cf_lo", "cf_hi")
+        .label("gene concordance")
+        .threshold(0.70);
+    for track in [
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).circular(),
+        TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).unrooted(),
+    ] {
+        let svg = Figure::new(region())
+            .width(740.0)
+            .show_region_label(false)
+            .push(
+                track
+                    .ancestral_states(states.clone())
+                    .branch_event_layer(events.clone())
+                    .branch_interval(concordance.clone()),
+            )
+            .to_svg();
+        assert!(svg.contains("ancestral mutations | events = S45N"), "{svg}");
+        assert!(svg.contains("ancestral mutations | events = E88K"), "{svg}");
+        assert!(
+            svg.contains("gene concordance | estimate 0.82 | interval 0.71 to 0.91"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("ancestral host transition p_A (0.9) to p_B (0.9)"),
+            "{svg}"
+        );
+        assert!(svg.contains("AB; p_A 0.9; p_B 0.1"), "{svg}");
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+}
+
+#[test]
+fn negative_ancestral_probabilities_do_not_create_transition_claims() {
+    let source = "(A[&p_A=-0.2,p_B=1.2]:1)root[&p_A=0.9,p_B=0.1];";
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(Tree::parse_annotated_newick(source).unwrap())
+                .ancestral_states(AncestralStateLayer::new(["p_A", "p_B"])),
+        )
+        .to_svg();
+    assert!(!svg.contains("transition p_A (0.9) to p_B"), "{svg}");
+    assert!(!svg.contains("A; p_A -0.2; p_B 1.2"), "{svg}");
+    assert!(!svg.contains("NaN"), "{svg}");
+}
+
+#[test]
 fn branch_length_scale_bars_are_exact_across_phylogram_projections() {
     for track in [
         TreeTrack::new(tree()),
