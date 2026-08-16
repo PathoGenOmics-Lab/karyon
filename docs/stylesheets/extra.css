@@ -28,6 +28,20 @@
   --md-accent-fg-color: #e8833a;
 }
 
+/* The dark scheme needs its own blue, for the same reason it needs its own
+   accent. `#0072b2` is chosen to sit on white, and on the dark page it comes
+   to 3.38 against the background, under the 4.5 that body text needs: links
+   were the hardest thing on the page to read, which is the wrong thing for
+   them to be. This is the same hue lifted until it clears, measured rather
+   than guessed, and it clears by a margin so it stays legible against the
+   code blocks too, which are lighter than the page. */
+[data-md-color-scheme="slate"][data-md-color-primary="custom"] {
+  --md-primary-fg-color:        #068ddb;
+  --md-primary-fg-color--light: #38b3fa;
+  --md-primary-fg-color--dark:  #0072b2;
+  --md-typeset-a-color:         #38b3fa;
+}
+
 /* The logo is square and carries the wordmark inside it, so it needs a little
    more height than the default to stay readable beside the site name. */
 .md-header__button.md-logo img {
@@ -520,3 +534,61 @@
     transition: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   The reading measure
+
+   Text was running to two hundred characters a line on any page without a
+   left-hand navigation, which is the home page and the one everybody lands on.
+   Comfortable is somewhere between forty-five and seventy-five: past that the
+   eye loses its place on the way back to the start of the next line, and a
+   page of prose becomes work to read for a reason the reader cannot name.
+
+   The measure is capped on the things made of words and nothing else. Figures
+   are the point of this site and several of them are two thousand pixels of
+   genome browser, so they keep the whole column, as do tables, code blocks and
+   the catalogue's own components. That is why this is a list of elements
+   rather than a width on the container: a container narrow enough for prose
+   would be too narrow for a gallery sheet.
+   -------------------------------------------------------------------------- */
+
+.md-typeset > p,
+.md-typeset > ul,
+.md-typeset > ol,
+.md-typeset > blockquote,
+.md-typeset > h1,
+.md-typeset > h2,
+.md-typeset > h3,
+.md-typeset > h4,
+.md-typeset > .admonition,
+.md-typeset > details {
+  max-width: 33rem;
+  margin-inline: auto;
+}
+
+/* A paragraph that is only an image is not prose. The site's figures are
+   written that way, so the cap has to let them out again, and they have to
+   share the same centre line as the text or the page has two axes and looks
+   as though one of them slipped. */
+.md-typeset > p:has(> img),
+.md-typeset > p:has(> a > img) {
+  max-width: none;
+  text-align: center;
+}
+
+
+/* --------------------------------------------------------------------------
+   Balance on a page with no left navigation
+
+   The home page has no section list under its tab, so Material hides that
+   column entirely and the content column becomes the full width of the page.
+   The prose then sat hard against the left edge with five hundred pixels of
+   nothing between it and the table of contents, which reads as a mistake
+   rather than as a choice.
+
+   Centring each capped block rather than the container is what makes this
+   work on both kinds of page. Where there is a navigation the column is barely
+   wider than the measure, so nothing appears to move; where there is not, the
+   text finds the middle. It also needs no `:has()` and no guess about which
+   page is which: the same rule is correct either way.
+   -------------------------------------------------------------------------- */
