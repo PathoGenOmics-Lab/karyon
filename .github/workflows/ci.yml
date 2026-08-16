@@ -131,7 +131,7 @@ jobs:
       # read out of the manifest and has to be written here as well. Two copies
       # of one number is precisely the arrangement that drifts, and the step
       # below exists because of that, not in spite of it.
-      - uses: dtolnay/rust-toolchain@1.74
+      - uses: dtolnay/rust-toolchain@1.100
       - name: This job's toolchain still matches Cargo.toml
         run: |
           declared="$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)"
