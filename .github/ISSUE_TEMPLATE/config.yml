@@ -1,0 +1,25 @@
+# Blank issues stay available. The two forms cover the reports that arrive most
+# often, but a library with thirty-three track types gets requests that fit no
+# form, and having nowhere to put them is worse than an unstructured issue.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Ask a question
+    url: https://github.com/PathoGenOmics-Lab/karyon/discussions/categories/q-a
+    about: >-
+      Questions about how to build a figure, or about why something came out of
+      the drawing the way it did. Answers there get marked as answers, so the
+      next person finds them.
+  - name: Documentation
+    url: https://pathogenomics-lab.github.io/karyon/
+    about: The guide, the track reference, the file formats and how the coordinates work.
+  # get_MNV points its third link at a FAQ page. There is none under docs/ here
+  # and inventing the URL would publish a dead link on the issue chooser, so the
+  # slot goes to the plot catalogue, which answers the same question this
+  # tracker is asked most: whether karyon already draws that.
+  - name: Plot catalogue
+    url: https://pathogenomics-lab.github.io/karyon/plots/
+    about: Worth a look first, particularly before asking for a plot type that may already be there.
+  - name: Report a security vulnerability
+    url: https://github.com/PathoGenOmics-Lab/karyon/security/advisories/new
+    about: Please report vulnerabilities privately rather than in a public issue.

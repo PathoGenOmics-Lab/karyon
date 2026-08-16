@@ -1,0 +1,143 @@
+# Which part of the project a pull request touches, worked out from the files it
+# changes. The labels exist so that "which track types changed", "is this the
+# renderer or a reader" and "has anyone touched the maps lately" are questions
+# the pull request list can answer; applying them by hand is how they stop being
+# applied.
+#
+# The issue forms label their own issues, so this only has to cover pull
+# requests.
+#
+# Format is actions/labeler v5, which is not v4's: a bare list of globs under the
+# label name silently matches nothing.
+#
+# There is also no precedence between the rules below. Every label is matched
+# independently against the same list of changed files, so a broader glob does
+# not lose to a narrower one and putting a rule first buys it nothing. Where two
+# areas overlap, the narrowing has to be written into the globs themselves, which
+# is why `tracks` matches `src/track/*.rs` and not `src/track/**`: the second
+# would take `src/track/tree/` with it, and a change to how a phylogeny is
+# projected onto a circle is not a change to a track type.
+
+# The binary is the whole of the front end. The library parses no arguments,
+# reads no paths and prints nothing, so nothing outside src/bin/ can be a
+# command line change, and a command line change is always in there.
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/bin/**"
+
+# The track modules that sit directly under src/track/, one file per track type.
+# `*.rs` rather than `**` on purpose, per the note about precedence above.
+#
+# src/dash.rs is listed here even though it lives at the top level with the
+# rendering machinery, because it exists for exactly one track: it decides how
+# much of a sequence logo column to believe, and nothing else reads it. It ends
+# up carrying both labels, which is the true answer rather than a mistake.
+tracks:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/track/*.rs"
+          - "src/dash.rs"
+
+# Everything about trees, which is three places rather than one. src/tree/ is the
+# Newick and NEXUS parser and the layout that decides where every branch goes;
+# src/track/tree/ is the drawing of it, the rectangular, circular and unrooted
+# projections, the decorations and the scale bars; and two of the track modules
+# have a phylogeny for a subject rather than a coordinate axis. Those two match
+# the `tracks` rule as well and are meant to: a tanglegram is a track by
+# construction and a phylogeny by subject, and the phylogenetics label says
+# tanglegrams and clades on the tin.
+#
+# src/tree/parse.rs reads a file format and is still not `readers`. That label
+# says karyon::read and means it: the readers are the line based genomic formats,
+# every one of them takes a &str and hands back the vector a track is built from,
+# and Newick is neither shaped like that nor reachable through that module.
+# Someone filtering for a tree that came out of a file wrong wants this label,
+# not the one covering BED and VCF.
+phylogenetics:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/tree/**"
+          - "src/track/tree/**"
+          - "src/track/clade.rs"
+          - "src/track/tanglegram.rs"
+
+# The plain sample map and the phylogeographic one both live here, and so does
+# src/map/data/, which is the world coastline table. That table is data rather
+# than code and is still the thing that changes when a map comes out wrong, so
+# the glob covers the directory instead of the two Rust files in it.
+maps:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/map/**"
+
+# All nine text formats in one module, so one glob is the whole of it. That
+# includes src/read/audit.rs, which is the file of pinned known positions that
+# catches an off by one on the way in. It is a test by shape and a reader change
+# by consequence, and it is here rather than under `tests` because a wrong
+# coordinate convention is a reader bug wherever it is noticed.
+readers:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/read/**"
+
+# The top level of src, swept rather than listed by name, for the same reason the
+# .github rule at the bottom is swept: a list of filenames stops matching the day
+# somebody adds a file to it. What is up there is the machinery every drawing
+# goes through, the SVG writer, the theme and style vocabulary, the layout passes
+# in figure.rs, panels.rs and rings.rs, and the coordinate model in region.rs,
+# genome.rs and scale.rs. The coordinate model is not rendering by any strict
+# reading, but the label set has nothing closer and six files do not deserve a
+# label of their own, so it is filed with the layout it feeds.
+rendering:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/*.rs"
+
+# examples/ and assets/ are here rather than anywhere else because neither is
+# code the crate ships. Every example writes one of the committed SVG figures,
+# CI re-renders all of them and fails if a committed figure disagrees with the
+# code that draws it, and docs/assets/figures is a second copy of assets/ because
+# MkDocs only serves what is under docs/. A change to any of the three is a
+# change to what the project shows rather than to what it does.
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "mkdocs.yml"
+          - "requirements-docs.txt"
+          - "README.md"
+          - "CHANGELOG.md"
+          - "examples/**"
+          - "assets/**"
+
+# Cargo.toml carries the version, the metadata a crates.io publish is built from
+# and the two empty dependency sections that are the crate's headline claim, so a
+# diff there is a packaging diff even when it reads as a one line bump. The
+# release workflow picks up the `ci` label too from the sweep below, which is
+# correct for it: it is both.
+packaging:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - ".github/workflows/release.yml"
+
+# The integration suites only, and deliberately not more than that. The unit
+# tests are inline `mod tests` blocks inside the file they test, in more than
+# fifty files, so no glob can find them and this rule does not pretend it can. A
+# pull request that only touches an inline test gets the label of the area that
+# test is in, which is the more useful of the two answers anyway.
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+
+# Everything under .github, not a list of the files there. Naming them one by
+# one left `.github/labeler.yml` itself uncovered, so the pull request adding a
+# rule to this file arrived with no label, which is a small thing that says
+# exactly how the list would have aged.
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"

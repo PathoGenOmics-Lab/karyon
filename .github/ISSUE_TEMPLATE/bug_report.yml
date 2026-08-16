@@ -1,0 +1,222 @@
+name: Bug report
+description: karyon crashed, refused to run, or drew something that is plainly wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > **Is this a defect rather than a question?**
+        >
+        > The test is not how serious it is, it is what you are saying. If you can
+        > show the figure is wrong, this is the right form. If you are asking
+        > *whether* it is wrong, or why it was drawn that way, that is a question
+        > and it belongs in [Q&A](https://github.com/PathoGenOmics-Lab/karyon/discussions/categories/q-a), where the answer gets marked as the answer and
+        > the next person finds it.
+        >
+        > A question filed here gets an answer that only you ever see.
+
+        Thanks for taking the time to report this.
+
+        A plotting library fails differently from a program that prints numbers:
+        the figure still renders. A variant one base to the left, a gene numbered
+        from the wrong end, a track clipped into somebody else's band, every one
+        of those comes out as a perfectly valid SVG that is wrong. That is why
+        the fields below ask for the drawing itself and not only for a
+        description of it.
+
+        One thing to rule out first, because it is the most common report that
+        turns out to be intended behaviour: a row on another sequence, or outside
+        the region on display, is skipped without a word. An empty track is
+        usually that rather than a defect. The rule is in
+        [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/).
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The output of `karyon --version`. For the library, the `version` in
+        `Cargo.toml`, or the commit your `Cargo.lock` resolved the git
+        dependency to.
+      placeholder: karyon 0.14.0
+    validations:
+      required: true
+
+  # There is no crates.io release and no packaged build, so every route here is
+  # from the repository. The options are worth listing anyway: a figure that is
+  # right from a clone and wrong from an installed binary is almost always a
+  # stale `~/.cargo/bin/karyon`, and that is answered in one line if we know.
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you are running it
+      description: >-
+        karyon is not on crates.io yet, so everything below builds from the
+        repository.
+      options:
+        - The karyon command, installed with cargo install --git
+        - The karyon command, built from a clone (cargo build --release)
+        - The library, as a git dependency in another crate
+        - An example from examples/, run with cargo run --example
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  # Thirty-three track types, a phylogenetics layer, the maps and the readers
+  # are far enough apart that the first question on any report is which of them
+  # it is. A guess costs the reporter nothing and it is what the area labels get
+  # applied from, so "Not sure" is a real option rather than a way out.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part it is in
+      description: A guess is fine. It decides who looks at it first.
+      options:
+        - Track types and how they draw
+        - Trees, tanglegrams, clades and branch layers
+        - Geographic and phylogeographic drawings
+        - The file format readers in karyon::read
+        - The SVG writer, themes, layout and the visual system
+        - The command line front end
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: The smallest code or command that draws it
+      description: >-
+        Complete, with every flag or every `add_` call. A `fn main` that someone
+        else can drop into `examples/` and run is the fastest route to a fix. If
+        you used the command line, paste the whole command here instead; the box
+        highlights Rust, which does a shell line no harm.
+
+
+        If the data cannot be shared, synthetic input of the same shape almost
+        always reproduces the problem. The positions, the lengths, the strand and
+        the CIGAR are what the drawing depends on; the bases themselves rarely
+        are. Every example in `examples/` builds its own data from a fixed seed
+        for exactly this reason, so there is a pattern to copy.
+      render: rust
+      placeholder: |
+        use karyon::{plot, Variant};
+
+        fn main() -> std::io::Result<()> {
+            plot("NC_000962.3:761000-762999")?
+                .add_variants(vec![Variant::new(761_155).category("synonymous")])
+                .label("variants")
+                .save("bug.svg")
+        }
+
+        // Or the command, if that is how you ran it:
+        // karyon NC_000962.3:761,000-763,000 --variants calls.vcf --label variants -o bug.svg
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-was-drawn
+    attributes:
+      label: What was drawn
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected instead
+      description: >-
+        Where the difference is, in coordinates or in pixels if you can measure
+        it. "The lollipop for S450L sits one base to the left of the codon the
+        ruler numbers 450" is a report; "the codon track is broken" is not.
+    validations:
+      required: true
+
+  # No `render:` on this field on purpose. A rendered textarea is a code block,
+  # and a file dropped into a code block becomes literal text instead of an
+  # attachment, which is the opposite of what this field is for.
+  - type: textarea
+    id: svg
+    attributes:
+      label: The SVG, or the part of it that is wrong
+      description: >-
+        Drag the file in. An SVG is text, so it attaches to an issue as it is,
+        with nothing converted and nothing lost. If it is large, the few elements
+        that are wrong plus the figure's width and height are usually enough.
+
+
+        A screenshot is welcome on top of the file because it shows what caught
+        your eye, but it cannot replace it: the coordinates that came out wrong
+        are only in the SVG. Leave this empty if nothing was drawn.
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error message or output
+      description: >-
+        Everything that was printed, including any warnings before the failure: a
+        reader error naming the line it stopped on, a compiler error, or a panic
+        with `RUST_BACKTRACE=1` set. Leave it empty if it rendered and said
+        nothing, which is the usual way this fails.
+      render: shell
+
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Your input files
+      description: >-
+        What produced them matters more than their size. Name the tool behind
+        each file, the format the flag was given if it was not obvious from the
+        file, and the region string you asked for.
+
+
+        Say which format each file is in, because that is what decides the base:
+        BED, bedGraph and cytoBand are read 0-based and half-open, while GFF3,
+        VCF, SAM and `samtools depth` are read 1-based and inclusive.
+      placeholder: |
+        Region: NC_000962.3:761,000-763,000
+        Coverage: samtools depth -a, from a BAM aligned with bwa mem
+        Features: GFF3 from the NCBI assembly of NC_000962.3
+        Variants: VCF called with bcftools 1.19, single sample
+    validations:
+      required: true
+
+  - type: textarea
+    id: records
+    attributes:
+      label: The rows involved, if you can share them
+      description: >-
+        A few lines of each file, tabs and all, are usually enough to reproduce a
+        figure that is out by a base. Leave this empty if the data cannot be
+        shared and describe the shape of it above instead.
+      render: text
+      placeholder: |
+        NC_000962.3	761155	.	C	T	.	PASS	.
+        NC_000962.3	RefSeq	CDS	761140	762000	.	+	0	ID=cds-x;Name=rpoB
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      description: >-
+        There is no tagged release yet, so `main` is what everything is compared
+        against.
+      options:
+        - label: I searched the existing issues and did not find this one.
+          required: true
+        - label: I checked that this still happens on the current `main`.
+          required: false

@@ -1,82 +1,95 @@
-name: Documentation
+name: Docs
 
-# Builds the MkDocs Material site and publishes it to GitHub Pages (the
-# gh-pages branch). After the first successful run, set Settings -> Pages ->
-# Source to "Deploy from a branch" and pick gh-pages (root).
+# Build the Material for MkDocs site and hand it to GitHub Pages.
 #
-# Deliberately manual: this repository runs nothing on push. Press "Run
-# workflow" to publish. To have it track main instead, uncomment the push and
-# pull_request blocks below, which is what the other tools in the lab do.
+# This used to run `mkdocs gh-deploy --force`, which builds the site and
+# force-pushes it onto a `gh-pages` branch that Pages then serves. It never ran
+# once, so nothing was ever published and the "Full documentation" link in the
+# README has been a 404 for as long as it has existed. Rather than start that
+# way, the site is uploaded as an artifact and deployed by GitHub's own action,
+# which is what a Pages source of "GitHub Actions" expects.
+#
+# Three things come with that: no `gh-pages` branch and no force-push, no git
+# identity to configure, and a real deployment in the `github-pages`
+# environment, which records what was published and can be rolled back.
+#
+# The trap the old way sets is worth naming, because it is silent. If the
+# repository's Pages source is ever switched to "GitHub Actions" while the
+# workflow still runs `gh-deploy`, the branch goes on receiving the site, Pages
+# stops looking at it, and the workflow goes on passing while the published
+# pages quietly stay as they were. A green deploy that publishes nothing is
+# worse than a failing one.
+#
+# Triggers:
+#   - push to main touching docs/, mkdocs.yml or the requirements
+#   - manual run, so a publish can be made and watched deliberately
+#
+# To publish from a laptop without CI, `mkdocs build` and upload the `site/`
+# directory. `mkdocs gh-deploy` no longer reaches the published site.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "requirements-docs.txt"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main
-  #   paths:
-  #     - "docs/**"
-  #     - "mkdocs.yml"
-  #     - "CHANGELOG.md"
-  #     - "requirements-docs.txt"
-  #     - ".github/workflows/docs.yml"
-  # pull_request:
-  #   paths:
-  #     - "docs/**"
-  #     - "mkdocs.yml"
-  #     - "CHANGELOG.md"
-  #     - "requirements-docs.txt"
-  #     - ".github/workflows/docs.yml"
 
+# Read the repository to build it. The deploy job asks for what it needs on its
+# own, rather than every step in the file holding the right to publish.
 permissions:
-  contents: write
+  contents: read
 
+# One deployment at a time, and never cancel one halfway: an interrupted
+# publish leaves the site in whatever state it reached.
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build
+    name: Build the site
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-
-      - name: Install dependencies
+      - name: Install build dependencies
         run: pip install -r requirements-docs.txt
-
-      # --strict turns a broken internal link or a page missing from the nav
-      # into a failed build, so a dead link fails here instead of shipping.
-      - name: Build
+      # The figures this site serves are copies of the ones under assets/, and
+      # they drift. That gate lives in CI, which runs on every pull request and
+      # on every push to main, which is the only branch this file publishes
+      # from, so it has already had its say by the time anything gets here. A
+      # second copy of it here would be a second thing to keep right without a
+      # second thing being caught.
+      #
+      # --strict turns a link to a page or a heading that does not exist into a
+      # failure, so a renamed section is caught here rather than by a reader.
+      - name: Build, strictly
         run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
 
   deploy:
-    name: Deploy
+    name: Publish to GitHub Pages
     needs: build
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Only this job can publish, and only it holds the rights to do so.
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Cache MkDocs build
-        uses: actions/cache@v4
-        with:
-          key: mkdocs-material-${{ github.sha }}
-          path: .cache
-          restore-keys: |
-            mkdocs-material-
-
-      - name: Install dependencies
-        run: pip install -r requirements-docs.txt
-
-      - name: Build and deploy
-        run: mkdocs gh-deploy --force --strict
+      - id: deployment
+        uses: actions/deploy-pages@v4

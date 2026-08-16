@@ -1,0 +1,96 @@
+name: CodeQL
+
+# Static analysis over everything this repository is written in. Nothing here
+# looked at the code this way before: clippy checks the shape of a line, and the
+# test suites check the answer for the inputs somebody thought of, while these
+# queries follow a value across functions and files and ask where an unchecked
+# one arrives somewhere it matters.
+#
+# Two languages, which is all of them:
+#
+#   rust     the crate, the readers and the command line front end
+#   actions  the workflows themselves, including this one
+#
+# On Rust, plainly, because it is the whole point of running this here and it
+# has not always been true: CodeQL analyses Rust and lists it with the rest of
+# the supported languages, with no preview or beta marker against it, covering
+# editions 2021 and 2024. This crate is edition 2021. `rust` is in the bundle's
+# own builtin language list, which is where that was checked rather than in a
+# blog post. The extractor wants rustup and cargo on the runner, which the
+# ubuntu-latest image ships, and karyon has no dependencies to resolve, so
+# nothing is fetched before it can start.
+#
+# The second language is not a curiosity. These queries know about unsafe uses
+# of `pull_request_target`, which is the trigger `labeler.yml` runs on, and
+# about script injection through untrusted context values. A workflow is the
+# only code in this repository that runs holding a token, and reasoning that one
+# is safe is exactly the kind of reasoning worth having checked by something
+# that is not the person who wrote it.
+#
+# The workflow this is modelled on also analyses javascript-typescript and
+# python, for a desktop app and a set of test runners. Neither exists here:
+# `git ls-files` returns no .js, .ts or .py at all, and the documentation is
+# MkDocs configuration plus a requirements file, which is not code that runs.
+# A language with no files is not free, it is a job that reports on nothing, so
+# both are dropped rather than carried across.
+#
+# `build-mode: none` reads the source without compiling it, which is the mode
+# Rust supports and the reason this takes a couple of minutes rather than a full
+# build of a crate this size.
+#
+# The pinned major is v4 and not the v3 the workflow this copies uses. v3 is
+# deprecated in December 2026 and already logs a warning at every run for
+# repositories that could be on v4, and a warning nobody can act on is a warning
+# everybody learns to scroll past.
+#
+# On pushes to main and on pull requests, and on nothing else. GitHub's own
+# default setup for CodeQL adds a weekly run; this does not, in keeping with
+# every workflow here except the issue sweep, which has nothing but time to hang
+# off. An analysis is worth having on the change that introduces the problem,
+# not on a Tuesday, and the run on main is what keeps the alert list true after
+# a merge rather than only during review.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push makes an older analysis irrelevant.
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyse ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One language failing to extract says nothing about the other, and the
+      # half that worked is still worth uploading.
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build-mode: none
+          - language: actions
+            build-mode: none
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

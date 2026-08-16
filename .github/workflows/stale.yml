@@ -1,0 +1,82 @@
+name: Close abandoned issues
+
+# Marks issues nobody has touched in three months, and closes them a month after
+# that if still nothing. The point is not tidiness: an issue list where half the
+# entries are questions somebody stopped caring about is a list nobody reads,
+# and then the real reports get missed along with them.
+#
+# This is the only scheduled workflow in this repository, and it is deliberate.
+# Everything else runs on a push, on a pull request or by hand, because a
+# workflow that fires on a timer is one nobody is watching when it goes wrong. A
+# stale sweep is the one job with nothing to hang off except time, so it gets
+# the exception rather than the rule getting quietly dropped for convenience.
+#
+# It is set up so that being wrong is cheap:
+#
+#   * Three months of silence, then another month before anything closes. Nobody
+#     who is waiting on a reply has their report closed underneath them.
+#   * Anything labelled `bug`, `security` or `pinned` is never touched. A
+#     confirmed defect does not stop existing because nobody commented on it,
+#     and `pinned` exists precisely to say "leave this open on purpose".
+#   * `good first issue` and `help wanted` are exempt too. Those two go quiet by
+#     definition, since nobody has picked them up yet, and sweeping them away
+#     would delete the on-ramp for the first person who wants to help.
+#   * Pull requests are left alone entirely.
+#   * A closed issue reopens on a comment from anyone, and the message says so.
+#
+# `workflow_dispatch` is here as well, so the sweep can be run and watched on
+# purpose rather than only ever being met after the fact.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC. Weekly is far more often than this repository needs;
+    # it is the cheapest way to keep each batch small enough to read.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  stale:
+    name: Sweep issues nobody has touched
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # v11 rather than the v9 this is modelled on: v10 moved the action off
+      # Node 20, which is out of support, and v9 is the last release still on
+      # it. None of the options set below changed across those majors. The one
+      # thing v10 does ask for is a runner newer than 2.327.1, which the hosted
+      # ones have been since July 2025; a self-hosted runner would need
+      # checking, and this repository has none.
+      - uses: actions/stale@v11
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          days-before-issue-stale: 90
+          days-before-issue-close: 30
+          stale-issue-label: stale
+          exempt-issue-labels: "bug,security,pinned,good first issue,help wanted"
+
+          # Pull requests are out of scope. There are few of them, they are
+          # merged or closed within days, and a sweep would only ever catch one
+          # somebody is still working on.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+
+          stale-issue-message: >
+            No activity here for three months, so this is marked stale. If it is
+            still relevant, a comment is enough to keep it open, and it will be
+            closed in a month otherwise. Nothing labelled bug, security or
+            pinned is ever marked this way, so if this is a defect that was
+            never labelled as one, say so and it will be.
+
+          close-issue-message: >
+            Closed after four months without activity. This is housekeeping and
+            not a judgement: comment and it reopens, and the history stays here
+            either way.
+
+          # The default. Small enough that a bad configuration cannot sweep the
+          # whole tracker before anybody notices it running.
+          operations-per-run: 30

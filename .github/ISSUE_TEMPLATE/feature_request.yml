@@ -1,0 +1,76 @@
+name: Feature request
+description: Suggest something karyon should be able to draw or do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!TIP]
+        > If you are not sure whether karyon already does this, ask in
+        > [Q&A](https://github.com/PathoGenOmics-Lab/karyon/discussions/categories/q-a) first, or look through the
+        > [plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/). There are thirty-three track types and
+        > most of them take more options than the examples use, so this is a
+        > shorter path to an answer than a feature request for something that
+        > turns out to be one call.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >-
+        The figure you are trying to make, and where karyon stops being able to
+        help. Describing the figure rather than the API usually leads somewhere
+        better, because the same picture can often be reached by a track that
+        already exists.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part this concerns
+      options:
+        - A track type, or an option on one
+        - Trees, tanglegrams, clades and branch layers
+        - Geographic and phylogeographic drawings
+        - A file format reader in karyon::read
+        - The SVG output, themes, layout or the visual system
+        - The command line front end
+        - Documentation
+        - Packaging and installation
+        - Something else
+    validations:
+      required: true
+
+  # The entry test for a new track, asked here rather than after someone has
+  # written one. Three track types were removed under this rule, which is a
+  # cheaper conversation to have on an issue than on a pull request.
+  - type: textarea
+    id: axis
+    attributes:
+      label: If this is a new kind of track, what does its x axis mean
+      description: >-
+        Every track in karyon lives on the genomic coordinate axis, and that is
+        the reason the crate exists rather than being a general plotting
+        library. If the x of your track is a sample list, a category or time,
+        the picture is a bar chart, a line chart or a heatmap that happened to be
+        handed genomic data, and matplotlib or ggplot already draw it better.
+        Say what one pixel of horizontal distance would mean in bases. Leave this
+        empty if the request is not a new track.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: >-
+        Any workaround you use now, another tool that draws this, or a published
+        figure of the kind you are after. All three help judge how it should
+        behave, and a picture settles arguments about a picture faster than
+        prose does.

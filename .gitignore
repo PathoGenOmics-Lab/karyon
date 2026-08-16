@@ -9,3 +9,8 @@
 # `cargo run --example locus` with no argument writes its figures here. The
 # committed copies live in assets/ and docs/assets/figures/ and nowhere else.
 /*.svg
+
+# cargo-mutants writes its report here when the advisory workflow is run
+# locally. It is an artifact of a run, not part of the repository.
+/mutants.out
+/mutants.out.old

@@ -1,0 +1,106 @@
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions about how to build a figure with karyon, or about why one came
+        out the way it did, belong here rather than in the issue tracker. An
+        answer here can be marked as the answer, which is what makes the next
+        person find it.
+
+        Three things worth checking first, because they account for most
+        questions:
+
+        - A row **on another sequence, or outside the region on display, is
+          skipped without a word**. Handing over a whole genome file and drawing
+          one window of it is the ordinary way to use this, so an empty track is
+          nearly always that rather than a reader dropping data. A row that will
+          not parse does the opposite: it stops the figure and names the line it
+          stopped on.
+        - **The base a file counts from is the file's, not karyon's.** BED,
+          bedGraph and cytoBand are read 0-based and half-open; GFF3, VCF, SAM
+          and `samtools depth` are read 1-based and inclusive; the locus string
+          you type is 1-based and inclusive too. Both conventions come out at the
+          same place in the figure, so a feature that looks shifted by one base
+          is worth checking against the table in
+          [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/) before anything else.
+        - **BAM, CRAM and BCF are not read at all**, and that is on purpose
+          rather than missing. `samtools` and `bcftools` already write exactly
+          what these readers take, so they come in through a pipe:
+          `samtools depth -a -r chr1:1-1000 aln.bam | karyon chr1:1-1,000 --coverage -`.
+
+        If it crashed, refused to run, or drew something you can show is wrong,
+        that is a
+        [bug report](https://github.com/PathoGenOmics-Lab/karyon/issues/new/choose)
+        instead.
+
+  - type: input
+    attributes:
+      label: Version
+      description: >-
+        The output of `karyon --version`, or the commit your `Cargo.lock`
+        resolved the git dependency to.
+      placeholder: karyon 0.14.0
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What are you trying to find out
+      description: >-
+        The figure you are trying to make, not only the symptom. Knowing what
+        picture you are after usually changes what the answer should be, since
+        another track often reaches it in fewer calls.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: The code or the command you ran
+      description: >-
+        The whole thing, with every flag or every `add_` call. If you used the
+        command line, paste it here as it is; the box highlights Rust, which
+        does a shell line no harm.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What was drawn, and what you expected instead
+      description: >-
+        Attach the SVG if there is one. It is text, so it goes into a discussion
+        as it is, with nothing converted, and a question about where something
+        landed can rarely be settled from a description of where it landed. A
+        screenshot on top of it is welcome, but the coordinates only exist in the
+        file.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: The rows, if the question is about specific data
+      description: >-
+        The lines in question, tabs and all. Optional, because plenty of
+        questions here are not about one row. But when yours is, this is the
+        difference between an answer and a conversation: with a few lines and the
+        region string, the figure can usually be reproduced in one run.
+      render: text
+      placeholder: |
+        NC_000962.3	761155	.	C	T	.	PASS	.
+        NC_000962.3	RefSeq	CDS	761140	762000	.	+	0	ID=cds-x;Name=rpoB
+
+  - type: textarea
+    attributes:
+      label: Where your inputs came from
+      description: >-
+        The tool behind each file, which format it is in, and the region string
+        you asked for. The format is the part that decides the base a position is
+        counted from, so it matters even when the file looks obvious.
+      placeholder: |
+        Region: NC_000962.3:761,000-763,000
+        Coverage: samtools depth -a, from a BAM aligned with bwa mem
+        Features: GFF3 from the NCBI assembly of NC_000962.3
+        Variants: VCF called with bcftools 1.19, single sample
+    validations:
+      required: true

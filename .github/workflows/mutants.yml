@@ -1,0 +1,181 @@
+name: Mutation testing (advisory)
+
+# `cargo mutants` changes the source (flips a comparison, replaces a function
+# body with a default) and reports whether the test suite notices. A surviving
+# mutant is a piece of logic no test distinguishes: either a test is missing, or
+# the logic does nothing, and both are worth knowing.
+#
+# It is run by hand rather than on every push, because it builds and tests once
+# per mutant. It never fails the build: a surviving mutant is a question to look
+# at, not a defect.
+#
+# # Why the property suite is what this is really pointed at
+#
+# The suite is 1052 tests: 989 unit tests in the library, 27 more in the binary,
+# the 15 in `tests/render.rs` and the 21 in `tests/properties.rs`. All but the
+# last group are examples, an input somebody chose and the output they expected,
+# which inherits the blind spot of whoever wrote it. The 21 are not. Each one
+# generates figures from a seeded sequence and asserts an invariant over every
+# one of them, ten thousand figures a property and six hundred for the map ones,
+# and their whole claim is that they catch what nobody thought of.
+#
+# That makes them the interesting half of this run. A mutant the unit tests miss
+# and the properties kill is a gap in the examples, which is ordinary. A mutant
+# that survives the properties as well is a hole in the net: an invariant that
+# does not constrain the code it was written to constrain, and the net is only
+# worth what it catches.
+#
+# # What is examined, and why not all of it
+#
+# The whole crate generates 11330 mutants. At the pace measured below that is
+# most of a day before the first report, which is not a run anybody will
+# dispatch twice, so this examines the part where a mutant changes a number
+# rather than a colour:
+#
+#   src/scale.rs, src/region.rs, src/genome.rs   coordinates into pixels
+#   src/tree/                                    Newick in, node placement out
+#   src/map/project.rs                           a latitude into a point, or None
+#   src/read/                                    text from outside into values
+#
+# That is 914 mutants over thirteen files, and the rule behind the list is that
+# none of this code draws anything: it decides where something goes and what it
+# says, which is what a figure is wrong about when it is wrong. The tracks and
+# the SVG writer are not excluded because mutating them is uninteresting. They
+# are a second pass that has not been paid for yet, and widening the globs below
+# is how it gets taken.
+#
+# The scope and the test selection are flags here rather than a
+# `.cargo/mutants.toml`, because this repository has none. Reproducing a shard
+# locally means repeating the line below with the shard index changed, and if a
+# config file is ever added it has to say the same thing or the two runs stop
+# being comparable.
+#
+# # The arithmetic, written down on purpose
+#
+# Measured on a laptop with cargo-mutants 27.1.0: a mutant the unit tests kill
+# costs about 3.5 seconds, since the crate rebuilds in 2 seconds and the 989
+# unit tests take 0.05 of one. A mutant they do not kill costs about 35, because
+# only then does `cargo test` reach the property target, which takes 31 seconds
+# on its own. In the sample used to measure this, 47 of 50 mutants were caught
+# by the unit tests, so a shard should land nearer the first number.
+#
+# The limit is 90 minutes rather than the 45 the workflow this is modelled on
+# uses, and the reason is the worst case rather than the expected one: if every
+# one of the 115 mutants in a shard reached the property run it would take an
+# hour at the laptop's pace, and a runner is slower and starts cold. That other
+# workflow had a single job which needed 63 minutes against its own 60 minute
+# limit and nobody knew, because it had never been dispatched. A shard that runs
+# out of clock reports nothing at all, which is the one outcome worth paying for
+# in minutes to avoid.
+
+on:
+  workflow_dispatch:
+
+# It reads the repository, mutates a copy of the source in a scratch directory
+# and uploads a report as an artifact. It writes nothing back here.
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: Shard ${{ matrix.shard }} of 0 to 7
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # Zero-indexed, which the flag's own help does not say: it gives `1/4`
+        # as its example. Numbering these 1 to 8 skips shard 0 silently and then
+        # fails on `8/8` with "shard k must be less than n", which is a whole
+        # matrix leg lost to a fencepost. The split was checked by listing each
+        # shard and adding them up: 115 in each of the first seven and 109 in
+        # the last, which is 914, the same as the unsharded list.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # `shared-key` rather than the default, which is per job: karyon has no
+      # dependencies to cache, so the only thing worth keeping between runs is
+      # cargo-mutants itself, and the action caches `$CARGO_HOME/bin`. Without a
+      # shared key the eight shards each build it from source and each store
+      # their own copy of the result.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mutants
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      - name: Run mutation testing
+        # Surviving mutants exit non-zero; that is a report, not a failure.
+        continue-on-error: true
+        # `--no-shuffle` keeps a mutant in the same shard between runs, so a
+        # shard that reported something can be re-run on its own.
+        #
+        # The test selection is deliberate and it is what makes this affordable:
+        # `cargo test` stops at the first target that fails, so a mutant the
+        # unit tests catch never reaches the properties and never pays for them.
+        # Doc tests are left out because they are 62 more examples and 18
+        # seconds, per mutant. The binary's own tests are left out because
+        # nothing under `src/bin` is examined, so they can only cost time.
+        run: |
+          cargo mutants --no-shuffle --shard ${{ matrix.shard }}/8 \
+            -f src/scale.rs -f src/region.rs -f src/genome.rs \
+            -f 'src/tree/**/*.rs' -f src/map/project.rs -f 'src/read/**/*.rs' \
+            -- --lib --test render --test properties
+      - name: Upload this shard's report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-report-${{ matrix.shard }}
+          path: mutants.out/
+          retention-days: 30
+
+  summary:
+    name: Surviving mutants, all shards
+    needs: mutants
+    # The shards are advisory and one may fail on its own; the report is still
+    # worth assembling from the ones that finished, and it says which did not.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Collect the shard reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: mutants-report-*
+          path: shards
+      - name: Write the summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## Surviving mutants"
+            echo
+            arrived=$(find shards -maxdepth 1 -type d -name 'mutants-report-*' | wc -l)
+            echo "Reports from ${arrived} of 8 shards."
+            echo
+            # Sorted so the same set of survivors reads the same way between
+            # runs: the shards finish in whatever order they finish.
+            if find shards -name missed.txt -size +0 | read -r _; then
+              echo "Logic no test distinguishes, the property suite included."
+              echo "Each line is a question: is a test missing, or does the code"
+              echo "not do anything?"
+              echo
+              echo '```'
+              find shards -name missed.txt -exec cat {} + | LC_ALL=C sort
+              echo '```'
+            else
+              echo "None: every mutant in the examined code was caught."
+            fi
+            # A mutant that ran out of time is neither caught nor missed, and
+            # without this it appears in the report as neither. It usually means
+            # the mutation made the code loop rather than that the properties
+            # are slow, since cargo-mutants derives the limit from the unmutated
+            # baseline and that baseline already includes them.
+            if find shards -name timeout.txt -size +0 | read -r _; then
+              echo
+              echo "### Timed out"
+              echo
+              echo '```'
+              find shards -name timeout.txt -exec cat {} + | LC_ALL=C sort
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
