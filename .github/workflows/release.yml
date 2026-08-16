@@ -1,0 +1,518 @@
+name: Build & Release
+
+# Cuts a release of karyon. It builds the `karyon` binary for five targets,
+# packages each one, and attaches the archives, a checksums file and a signed
+# statement of where they came from to a draft release that a person then
+# publishes.
+#
+# The crate has no dependencies, and that changes this workflow more than it
+# looks. There is no dependency tree to resolve, so `--locked` has nothing to
+# hold still except karyon itself and a release build takes seconds rather than
+# minutes. There is nothing worth carrying between runs, so there is no cache
+# step here and a cold runner is the only kind there is. Most of all, the bytes
+# in every archive come from this repository and from rustc, with no
+# third-party code compiled in: when the checksums and the attestation below
+# say these binaries came from this commit, that statement covers the whole of
+# what is inside them, not the part of it we wrote.
+#
+# No schedule, on purpose. A release happens when a tag says it does, and
+# `workflow_dispatch` is there so the build and the packaging can be exercised
+# on a branch without spending a version number to find out they still work.
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+
+# Read by default, and each job below widens it to exactly what that job needs.
+# Only two of the three need to write anything, and the one that publishes to a
+# registry needs no write access to this repository at all. Without this block
+# every job would run with whatever the repository default grants, which is
+# more than any of them uses and grows silently if the default is ever widened.
+permissions:
+  contents: read
+
+jobs:
+  # The matrix. Five targets, chosen rather than inherited:
+  #
+  # Both macOS architectures, because a lab has both. The runner is arm64, so
+  # `aarch64-apple-darwin` is native and `x86_64-apple-darwin` is a cross build
+  # that cannot be executed where it was built, which is what `native` below is
+  # for.
+  #
+  # Linux glibc on ubuntu-22.04 rather than on the newest image, because the
+  # glibc a binary asks for is the one it was linked against, and 22.04 is the
+  # oldest image GitHub still offers. Building on the newest image would raise
+  # that floor for everyone with no benefit to anyone.
+  #
+  # Linux musl as well, and this one is karyon specific. A tool like this gets
+  # run on a cluster whose glibc is older than any runner here, and inside
+  # containers built from whatever base image was to hand. karyon links no C
+  # libraries whatsoever, so libc was the single thing still tying the binary
+  # to its host; the static build removes that too, and the result runs on
+  # anything with a Linux kernel. It ships as `linux-x86_64-static` alongside
+  # the ordinary build rather than instead of it.
+  #
+  # Windows on MSVC.
+  #
+  # Not built: Linux on aarch64. It would need either an ARM runner in this
+  # matrix or a cross linker, which means installing a C toolchain for a crate
+  # that otherwise never needs one. Until someone asks for it, `cargo install
+  # --git` covers that case and needs nothing from us.
+  build:
+    name: Build (${{ matrix.asset_suffix }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            rust_target: aarch64-apple-darwin
+            asset_suffix: macos-aarch64
+            native: true
+          - platform: macos-15
+            rust_target: x86_64-apple-darwin
+            asset_suffix: macos-x86_64
+            native: false
+          - platform: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            asset_suffix: linux-x86_64
+            native: true
+          - platform: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-musl
+            asset_suffix: linux-x86_64-static
+            native: true
+          - platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            asset_suffix: windows-x86_64
+            native: true
+
+    runs-on: ${{ matrix.platform }}
+    # A release build of a crate with no dependencies is a minute of work. The
+    # limit is not a budget, it is the answer to how long a stuck job takes to
+    # say so, and the default answer is six hours.
+    timeout-minutes: 20
+
+    # Creating the draft release and uploading into it is a write to this
+    # repository. Nothing else in this job needs one.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      # Insurance for the musl link step. Rust ships self-contained CRT objects
+      # for this target, so a crate with no C code usually links without
+      # musl-tools present, but "usually" is a poor thing to discover on the
+      # run that cuts a release. The package is small and installing it costs
+      # less than the failure it prevents.
+      - name: Install the musl linker
+        if: matrix.rust_target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build karyon
+        run: cargo build --release --locked --target ${{ matrix.rust_target }} --bin karyon
+
+      # A binary that does not start is still a file, and a file uploads
+      # perfectly well, so nothing downstream would notice. This asks it to
+      # run before it is packaged.
+      #
+      # On a tag it also asks the binary what version it is. The tag and
+      # Cargo.toml are one fact written twice, and this reads the answer out of
+      # the artifact itself rather than out of a manifest that the artifact
+      # might not have been built from. It runs only where `native` is true,
+      # because an x86_64 binary cannot be executed on the arm64 macOS runner
+      # that cross-built it.
+      #
+      # `shell: bash` on Windows too, which is Git Bash there, only so the same
+      # six lines are not written twice in two languages.
+      - name: The binary runs, and says what the tag says
+        if: matrix.native
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.rust_target }}/release/karyon${{ runner.os == 'Windows' && '.exe' || '' }}"
+          "$binary" --help > /dev/null
+          reported="$("$binary" --version)"
+          echo "the binary reports: $reported"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            if [ "$reported" != "karyon ${GITHUB_REF_NAME#v}" ]; then
+              echo "the tag says ${GITHUB_REF_NAME#v} and the binary says '$reported'" >&2
+              exit 1
+            fi
+          fi
+
+      # One archive per target, holding the binary and the three files a person
+      # needs to know what they have: what it does, what changed and what they
+      # are allowed to do with it.
+      #
+      # `github.ref_name` is the tag on a tag push and the branch name on a
+      # manual run, so a dispatch from main produces `karyon_main_*`. That is
+      # deliberate: those archives are a dry run, they are kept as build
+      # artifacts rather than attached to anything, and their name should not
+      # look like a version that exists.
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="dist/karyon_${{ github.ref_name }}_${{ matrix.asset_suffix }}"
+          mkdir -p "$package_dir"
+          cp "target/${{ matrix.rust_target }}/release/karyon" "$package_dir/karyon"
+          cp README.md CHANGELOG.md LICENSE "$package_dir/"
+          tar -C dist -czf "${package_dir}.tar.gz" "$(basename "$package_dir")"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $packageDir = "dist/karyon_${{ github.ref_name }}_${{ matrix.asset_suffix }}"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item "target/${{ matrix.rust_target }}/release/karyon.exe" "$packageDir/karyon.exe"
+          Copy-Item README.md, CHANGELOG.md, LICENSE -Destination $packageDir
+          Compress-Archive -Path $packageDir -DestinationPath "$packageDir.zip" -Force
+
+      # All five jobs point at the same tag. The action creates the release the
+      # first time and uploads into the existing one after that, so they do not
+      # need ordering between them.
+      #
+      # It stays a draft. The job below writes the notes onto it and the last
+      # step of a release is a person looking at the asset list and pressing
+      # publish. `fail-fast: false` above means a platform that failed leaves
+      # the other four attached, and the draft is where you see which one is
+      # missing.
+      - name: Attach the archive to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "karyon ${{ github.ref_name }}"
+          draft: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      # Without this, a manual run built five binaries, packaged them and threw
+      # them away, which makes `workflow_dispatch` a test of the build and not
+      # of the release. Keeping the archives makes the dry run a dry run: you
+      # can download one and check that the thing inside it works.
+      - name: Keep the archive when there is no release to attach it to
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: karyon-${{ matrix.asset_suffix }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  # crates.io, from the tag, so the registry cannot fall behind the repository.
+  #
+  # karyon is not on crates.io yet, and this job is written so that the fact is
+  # not an obstacle in either direction. Everything that can be checked without
+  # an account runs on every tagged release: that the tag and Cargo.toml agree,
+  # and that the crate actually packages and builds from the packaged copy. The
+  # publish itself is the only step that needs the token, and without one it is
+  # skipped with a note rather than failed. A repository that is not published
+  # anywhere should not have a red release for the entirely normal reason that
+  # it is not published anywhere.
+  #
+  # Set CARGO_REGISTRY_TOKEN under Settings -> Secrets -> Actions and the same
+  # workflow starts publishing, with no edit here.
+  #
+  # It waits for the whole build matrix. If a platform failed then the release
+  # is not a release, and a crates.io version is permanent: `cargo yank` hides
+  # it from resolution and nothing at all deletes it. That asymmetry is why
+  # this job comes after the builds and refuses more readily than they do.
+  crates:
+    name: Publish to crates.io
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # It writes to a registry, not to this repository.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The version in Cargo.toml and the tag are one fact written twice, and
+      # crates.io cannot be corrected afterwards: publishing 0.14.0 under a tag
+      # that says 0.14.1 is permanent. Compared here rather than trusted.
+      - name: The tag and Cargo.toml agree on the version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          manifest=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='karyon'))")
+          if [ "${TAG#v}" != "$manifest" ]; then
+            echo "tag says ${TAG#v} and Cargo.toml says $manifest; refusing to publish" >&2
+            exit 1
+          fi
+          echo "both say $manifest"
+
+      # Cargo.toml excludes assets/ and .github/ from the package, so what a
+      # user of the crate gets is not the working tree, and the difference is
+      # invisible from inside a normal build. A dry run packages the crate and
+      # builds that copy, so anything that only compiles because of a file left
+      # out of the package fails here, where the version has not been claimed
+      # yet. This runs whether or not there is a token: it is the one check
+      # that says the crate is publishable at all.
+      - name: The crate packages and builds from the package
+        run: cargo publish --dry-run --locked
+
+      # `secrets` is not available in a job level `if`, so the decision is made
+      # in a step and the publish reads it.
+      - name: Is there a token to publish with?
+        id: token
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TOKEN}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CARGO_REGISTRY_TOKEN is set, so this release is not going to crates.io. The package check above still ran."
+          fi
+
+      - name: Publish
+        if: steps.token.outputs.present == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p karyon --locked
+
+  # Everything above uploads archives and nothing says what they should
+  # contain. Someone who downloads one has no way to tell a good download from
+  # a truncated one, and no way to tell either from a substituted one. This
+  # publishes one SHA256SUMS file covering every asset, in the format
+  # `sha256sum -c` reads, so checking is one command.
+  #
+  # It waits on the whole matrix, so the file covers all five targets or is not
+  # written at all: `needs` skips this job if any platform failed, and a
+  # checksums file that silently covered four platforms out of five would be
+  # worse than none.
+  finalize:
+    name: Publish checksums, provenance and the release notes
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: write
+      # Provenance is signed with the workflow's own short-lived identity,
+      # which is what makes the attestation say something a person could not
+      # forge by uploading a file.
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checksum every asset on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          # The release is still a draft at this point. Draft assets are
+          # downloadable by an authenticated token, which is what makes this
+          # possible before the release is published.
+          gh release download "$TAG" --repo "$REPO" --dir release-assets --pattern '*' --clobber
+
+          # On a rerun the previous SHA256SUMS is itself an asset, and would be
+          # checksummed into its own successor.
+          rm -f release-assets/SHA256SUMS
+
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "the release carries no assets: refusing to publish an empty checksums file" >&2
+            exit 1
+          fi
+
+          # LC_ALL=C so the order of the lines does not depend on the runner's
+          # locale, and `--` so a name beginning with a dash stays a name.
+          (cd release-assets && LC_ALL=C sha256sum -- * > ../SHA256SUMS)
+
+          # Read the file back and check it against the bytes on disk, rather
+          # than trusting that writing it worked.
+          (cd release-assets && sha256sum -c ../SHA256SUMS)
+
+          echo "checksummed $count assets"
+          cat SHA256SUMS
+
+          gh release upload "$TAG" SHA256SUMS --repo "$REPO" --clobber
+
+      # The checksums say a download arrived intact. They cannot say where the
+      # file came from: a checksums file and the file it describes can both be
+      # replaced by whoever can write to the release. This signs a statement,
+      # with the workflow's own short-lived identity rather than a stored key,
+      # that these exact bytes were built by this workflow from this commit.
+      #
+      # A reader checks it with the asset in hand and nothing else:
+      #
+      #     gh attestation verify karyon_0.14.0_linux-x86_64.tar.gz \
+      #       --repo PathoGenOmics-Lab/karyon
+      #
+      # karyon compiles no third-party code, so what that statement covers is
+      # the whole binary and not the fraction of it this repository wrote.
+      - name: Attest that these binaries came from this commit
+        uses: actions/attest-build-provenance@v4
+        with:
+          # The same set the checksums cover: the step above leaves them in
+          # release-assets/, with the previous SHA256SUMS already removed.
+          subject-path: "release-assets/*"
+
+      # Notes written here rather than typed into this file. A fixed paragraph
+      # describes the release it was written for and then quietly describes
+      # every later one wrongly, so what follows says only what is true of any
+      # release of karyon and takes the rest from the tag.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          # Cutting a release with nothing written about it in the changelog is
+          # a mistake rather than a decision, and the notes below link to that
+          # entry. Fail here, where the draft is still unpublished and the
+          # entry can be added, rather than link a reader to a version the
+          # changelog never mentions.
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no '## [${version}]' entry: refusing to announce a release the changelog does not describe" >&2
+            exit 1
+          fi
+
+          # Quoted heredoc: the body is written literally, backticks and all,
+          # and the two placeholders are filled afterwards. An unquoted one
+          # would run the fenced commands instead of printing them.
+          cat > NOTES.template <<'MARKDOWN'
+          ## karyon @TAG@
+
+          Everything that changed in this version is listed in the
+          [changelog](https://github.com/@REPO@/blob/@TAG@/CHANGELOG.md), pinned to
+          this release. Full documentation lives at
+          <https://pathogenomics-lab.github.io/karyon/>.
+
+          ### Install
+
+          karyon is not on crates.io yet, so Cargo takes the command line tool
+          straight from this tag:
+
+          ```bash
+          cargo install --git https://github.com/@REPO@ --tag @TAG@ karyon
+          ```
+
+          As a library, in your `Cargo.toml`:
+
+          ```toml
+          [dependencies]
+          karyon = { git = "https://github.com/@REPO@", tag = "@TAG@" }
+          ```
+
+          Or take an archive below. Each one holds the `karyon` binary, the
+          README, the changelog and the license, and needs nothing installed
+          alongside it:
+
+          - `linux-x86_64` on an ordinary Linux machine.
+          - `linux-x86_64-static` on a cluster or inside a container. It is
+            linked against musl and asks the host for no libraries at all, so
+            a glibc older than the one that built it cannot refuse it.
+          - `macos-aarch64` on Apple silicon, `macos-x86_64` on an Intel Mac.
+          - `windows-x86_64` on Windows.
+
+          On macOS the binary is not signed with an Apple Developer
+          certificate, so the first run is refused. Clear the quarantine flag
+          your browser put on it:
+
+          ```bash
+          xattr -d com.apple.quarantine ./karyon
+          ```
+
+          ### Check what you downloaded
+
+          `SHA256SUMS` below covers every asset in this release. Download it
+          next to the file you took and check the two together:
+
+          ```bash
+          sha256sum --ignore-missing -c SHA256SUMS
+          ```
+
+          Each file it finds prints `OK`. On macOS, `shasum -a 256
+          --ignore-missing -c SHA256SUMS` does the same.
+
+          ### Check where it came from
+
+          That tells you the download arrived intact. This tells you what it
+          is:
+
+          ```bash
+          gh attestation verify <the file you downloaded> --repo @REPO@
+          ```
+
+          Every archive here is signed with a statement that this workflow
+          built it from this repository, at the commit this release was cut
+          from. It needs no key of ours and no trust in this page.
+
+          ### Or build it yourself
+
+          karyon has no dependencies, so there is nothing between the source
+          you can read and the binary you get:
+
+          ```bash
+          git clone --branch @TAG@ https://github.com/@REPO@
+          cd karyon && cargo build --release --locked
+          ```
+
+          Nothing is downloaded except this repository, no third-party code is
+          compiled in, and the result is the same program these archives hold,
+          built from the same commit by a toolchain you chose.
+          MARKDOWN
+
+          # YAML strips the block's own indentation, so the heredoc arrives at
+          # column zero and nothing needs dedenting here. Only the placeholders
+          # are left to fill. Plain `sed` into a second file rather than `sed
+          # -i`, whose spelling differs between GNU and BSD: this way the step
+          # can be run and checked on a laptop, not only on the runner.
+          sed "s|@TAG@|${TAG}|g; s|@REPO@|${REPO}|g" NOTES.template > NOTES.md
+
+          if grep -q '@TAG@\|@REPO@' NOTES.md; then
+            echo "a placeholder survived into the notes" >&2
+            exit 1
+          fi
+
+          echo "--- notes ---"
+          cat NOTES.md
+          echo "-------------"
+
+          # Overwrites whatever the draft was created with, so there is one
+          # source for the notes and not two.
+          #
+          # `--discussion-category` takes effect when the draft is published: a
+          # release announces itself in Announcements and has somewhere for
+          # people to reply. Releases carry no comments of their own, so
+          # without it a version goes out and starts no conversation anywhere.
+          gh release edit "$TAG" --repo "$REPO" \
+            --notes-file NOTES.md \
+            --discussion-category Announcements

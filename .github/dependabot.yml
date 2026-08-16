@@ -1,0 +1,138 @@
+# Dependency updates.
+#
+# karyon has no dependencies. `[dependencies]` and `[dev-dependencies]` in
+# Cargo.toml are empty sections, and Cargo.lock holds exactly one package,
+# karyon itself. That is a headline claim of the crate rather than an accident
+# of its youth, so the cargo entry below has nothing to find out of date and
+# will open nothing for as long as that stays true. It is kept anyway, for the
+# reason written where it is.
+#
+# What does move here is everything that is not Rust: the actions the workflows
+# pin, which go stale silently, and the pip requirement that builds the
+# documentation site.
+#
+# The shape of this file is the one that survived in the repository it was
+# copied from, where a per-dependency configuration opened one pull request per
+# dependency and led with the majors. Five arrived in a single day and all five
+# were closed unread. Nothing about those updates was wrong except the shape of
+# them, so this keeps the updates and drops the noise:
+#
+#   * monthly, not weekly
+#   * grouped, so one pull request carries a whole ecosystem's routine bumps
+#   * majors kept apart, in their own single pull request, because those are the
+#     ones that change APIs and want a person
+#
+# The minor and patch group is merged automatically once the checks pass; see
+# .github/workflows/dependabot-auto-merge.yml. The major group never is. That
+# workflow decides by matching the `-routine` suffix on the group names below,
+# so those suffixes are load bearing: renaming a group to something tidier stops
+# it from ever merging itself, and stops it quietly.
+#
+# `schedule` here is Dependabot's own timer and not a cron in GitHub Actions.
+# Nothing in this file causes a workflow to run on a schedule. The stale sweep
+# is the only workflow in this repository allowed a cron, and it carries its own
+# justification for being the exception.
+#
+# Security updates are a separate mechanism, enabled in the repository settings,
+# and are unaffected by any of this: a vulnerable dependency still gets its own
+# pull request the day the advisory lands, major or not.
+
+version: 2
+
+updates:
+  # The crate. This opens nothing today, on purpose.
+  #
+  # With both dependency sections empty there is no version for Dependabot to
+  # compare against anything, so this entry is silent rather than idle-noisy.
+  # It is worth being precise about what keeping it does and does not buy: it is
+  # not a tripwire on the first dependency arriving, because Dependabot only
+  # speaks when something it can see is behind, and a crate added at its newest
+  # version is not behind. What it buys is that the configuration is already
+  # correct on the day the first dependency ages, with the grouping and the
+  # labels decided here and now, instead of depending on whoever adds that crate
+  # also remembering to come back and write this entry.
+  #
+  # The alternative was to delete it and let the file say what the crate is. It
+  # is kept because the cost of being wrong runs one way only: an entry that
+  # matches nothing costs nothing, while a missing entry costs a dependency that
+  # silently never updates.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "rust"]
+    commit-message:
+      prefix: "cargo"
+    groups:
+      cargo-routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      cargo-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
+  # The documentation site's build dependencies.
+  #
+  # `directory: "/"` and not "/docs", where the configuration this was copied
+  # from puts it, because requirements-docs.txt lives at the repository root:
+  # that is where .github/workflows/docs.yml installs it from, and where the
+  # `pip install -r requirements-docs.txt` in the file's own header expects to
+  # be run. Pointing Dependabot at a directory with no manifest is not an error
+  # it reports as one. It finds nothing, opens nothing and says nothing, which
+  # is exactly the silence this whole file exists to prevent.
+  #
+  # The name not being requirements.txt is fine: the pip ecosystem reads the
+  # .txt and .in files in the directory it is given rather than one fixed
+  # filename. That is worth checking rather than believing, and it is visible in
+  # Insights -> Dependency graph -> Dependabot, which lists the files each run
+  # actually parsed. If requirements-docs.txt is not in that list, this entry is
+  # doing nothing.
+  #
+  # One requirement lives there today, mkdocs-material, pinned `>=9.6,<10`. The
+  # upper bound means a 10.x release cannot arrive as a routine bump: it comes
+  # through the major group with the bound moving alongside it, which is the
+  # right amount of friction for a theme release that can change the site's
+  # markup under every page at once.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "documentation"]
+    commit-message:
+      prefix: "docs"
+    groups:
+      docs-routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      docs-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
+  # The actions the workflows themselves pin, and the only thing here that goes
+  # stale on its own. A deprecated runner image, or a Node version dropped from
+  # an action, is noticed when a job starts warning or fails outright, and this
+  # repository triggers its workflows by hand, so "when a job fails" can be
+  # months after the version that broke it shipped. A monthly pull request is
+  # cheaper than finding out during a release.
+  #
+  # `directory: "/"` is correct even though the files are under
+  # .github/workflows: the github-actions ecosystem is pointed at the repository
+  # root and locates the workflow files itself. Giving it the workflows
+  # directory is the common way to get an entry that watches nothing.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "actions"
+    groups:
+      actions-routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      actions-major:
+        patterns: ["*"]
+        update-types: ["major"]

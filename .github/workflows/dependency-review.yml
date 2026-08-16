@@ -1,0 +1,60 @@
+name: Dependency review
+
+# Stops a pull request that would bring in a dependency with a known
+# vulnerability, which is the half of the problem Dependabot does not cover.
+# Dependabot tells you about a vulnerable dependency you already have; this
+# refuses the one you are about to add, while refusing it is still free.
+#
+# karyon having no dependencies is the reason to run this, not a reason to skip
+# it. Zero runtime and zero dev dependencies is a claim the crate makes in its
+# own description, and the day it stops being true will be one pull request
+# adding one crate, which arrives with a tree of transitive crates nobody chose
+# and nobody reads. This check reads it. On every pull request that adds
+# nothing, which is nearly all of them, it costs a checkout and finishes with
+# nothing to say.
+#
+# It compares the dependency graph of the base against the head, so it only ever
+# has an opinion about what the pull request itself introduces. What the graph
+# sees here today is the actions pinned in .github/workflows and the
+# documentation site's pip requirement, plus whatever Cargo.lock grows.
+#
+# `moderate` rather than the default `low`: a low severity advisory on a
+# transitive build dependency is worth reading and is not worth blocking a merge
+# on, and a gate that blocks for things nobody acts on stops being read.
+#
+# # This fails until the dependency graph is switched on
+#
+# The first run of this workflow ended with "Dependency review is not supported
+# on this repository. Please ensure that Dependency graph is enabled". The graph
+# is on by default for a public repository and is off for this one, so somebody
+# turned it off or it was inherited off from when the repository was private.
+# One switch fixes it, at Settings, Code security and analysis, Dependency
+# graph, and the error message links straight to it.
+#
+# It is left failing on purpose rather than made to pass. The alternative is a
+# preflight that skips the check when the graph is missing, and that is a green
+# tick reporting that nothing was inspected, which is the worse of the two: a
+# red check announces the thing that has to be done and a green one hides it.
+# The same reasoning is why the docs workflow no longer uses `gh-deploy`.
+
+on:
+  pull_request
+
+permissions:
+  contents: read
+  # For the summary comment it leaves when it refuses one.
+  pull-requests: write
+
+jobs:
+  review:
+    name: No new dependency with a known vulnerability
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          # Only when it has something to say. A summary on every pull request
+          # is a summary nobody reads by the third one.
+          comment-summary-in-pr: on-failure

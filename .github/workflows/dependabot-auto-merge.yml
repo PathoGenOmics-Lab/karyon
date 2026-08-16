@@ -1,0 +1,105 @@
+name: Dependabot auto-merge
+
+# Merges Dependabot's routine updates, and never touches a major one.
+#
+# The split is the whole idea: a patch or minor bump is the kind of change that
+# is read once, agreed with, and merged, and doing that by hand thirty times a
+# year turns into doing it without reading. A major bump changes APIs, so it
+# waits for a person.
+#
+# What "checked" means here is narrower than the sentence above suggests, and it
+# is better written down than assumed. karyon has no Rust dependencies, so
+# nothing Dependabot opens touches a line of code that `cargo test` runs: the
+# pull requests it can open are workflow pins and the documentation site's pip
+# requirement. A pin bump is only really exercised by the workflows running with
+# the new version, and a requirements bump by the documentation site building
+# with it, and both of those are manual triggers in this repository today.
+#
+# Which leads to the part to fix before trusting this. `gh pr merge --auto`
+# merges as soon as the branch's protection rules are satisfied, and a branch
+# with no required status check is satisfied the moment the pull request opens.
+# For "merged once the checks pass" to be true, main needs at least one required
+# check; without one, this merges routine groups that nothing ever ran. The
+# other misconfiguration is harmless by comparison: if auto-merge is not enabled
+# in the repository settings at all, the merge step fails loudly and the pull
+# request just sits there.
+#
+# Triggered by the pull request itself, not by a schedule.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Merge routine updates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Read what this pull request updates
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The rule, decided once.
+      #
+      # In the repository this was copied from it was written twice, once
+      # negated for the step that explains itself, and the two halves drifted
+      # the moment the first was edited: a grouped patch matched the merge step
+      # and the "left alone" step at the same time, so it would have merged and
+      # announced that it had not. Here one step decides and the other two read
+      # the answer.
+      #
+      # Named rather than excluded: merge when the pull request says in so many
+      # words that it is a patch or a minor, or when it is a `-routine` group,
+      # which .github/dependabot.yml already restricts to those two.
+      #
+      # Asking instead whether the update was "not major" let one through there.
+      # A pip requirement bump, `pillow ~=11.0` to `~=12.3`, reports no update
+      # type at all, and an empty string is not equal to major, so the rule said
+      # yes to a major on its first day. karyon has a pip ecosystem of its own
+      # in dependabot.yml, so that is not a borrowed worry. Anything this cannot
+      # positively identify waits for a person.
+      #
+      # A grouped pull request reports "the highest semver change being made by
+      # this PR", so a group carrying one major is a major here. That is what
+      # makes the `-routine` groups safe to trust: the group name and the update
+      # type have to agree before anything merges.
+      - name: Decide whether this one may merge itself
+        id: decide
+        env:
+          GROUP: ${{ steps.metadata.outputs.dependency-group }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          set -euo pipefail
+          may_merge=false
+          case "$GROUP" in
+            *-routine) may_merge=true ;;
+          esac
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor) may_merge=true ;;
+          esac
+          # Printed because a decision nobody can read is a decision nobody can
+          # correct: this line is what a later surprise gets diagnosed from.
+          echo "group='${GROUP}' update-type='${UPDATE_TYPE}' -> may-merge=${may_merge}"
+          echo "may-merge=${may_merge}" >> "$GITHUB_OUTPUT"
+
+      - name: Queue the merge
+        if: steps.decide.outputs.may-merge == 'true'
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Say why this one was left alone
+        if: steps.decide.outputs.may-merge != 'true'
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "Left for review. Only a \`-routine\` group, or an update that identifies itself as patch or minor, merges on its own. This one is a major update or does not say which it is."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

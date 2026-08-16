@@ -1,14 +1,90 @@
 name: CI
 
-# Manual only. Pushing does not spend Actions minutes; run this when you want
-# it, from the Actions tab or with:
+# The quality gate for karyon. It runs once on a pull request, and again on main
+# after the merge.
 #
-#     gh workflow run ci.yml --repo PathoGenOmics-Lab/karyon --ref main
+# This file spent most of its life switched off, and the reason is worth writing
+# down because the failure mode is a quiet one. It ran eight times, all of them
+# on 31 July 2026. The last five were red, every one of them on Clippy and
+# nothing else: a function with eight arguments where the lint allows seven, a
+# range loop whose variable existed only to index a slice, byte string literals
+# written the long way, and a push_str of a single character. The response was
+# to replace the push and pull_request triggers with workflow_dispatch. That did
+# not fix one lint, it only stopped anyone being told about them, and the file
+# then sat unrun through the 79 commits that followed, which is most of the
+# crate: the tree and map modules, the readers, and the examples that draw them.
+# All four lints have since been fixed and the suite is green, so the triggers go
+# back. A gate that is turned off the first time it says no is not a gate.
 #
-# To go back to running on every push, put the push and pull_request triggers
-# back where workflow_dispatch is.
+# push is restricted to main rather than every branch. A branch with a pull
+# request open would otherwise run the whole suite twice against the same
+# commit, which is two answers to one question, at twice the cost, and two
+# notifications for one result.
+#
+# The price of that restriction is that a branch pushed without a pull request
+# is not checked, and it is worth being exact about what that does and does not
+# leave uncovered here. main is not a protected branch on this repository, so a
+# commit can arrive on it by a direct push and not only through review. That
+# case is exactly what `push: branches: [main]` covers: everything that lands on
+# main is checked, whichever way it got there. What goes unchecked is a side
+# branch nobody has opened a pull request for, and that is deliberate.
+#
+# workflow_dispatch stays because the visual gallery this file uploads is worth
+# rebuilding on demand after a change to the renderer, and asking for it should
+# not require an empty commit.
+
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+
+# When a pull request gets a second push, the run already in flight is answering
+# a question about a commit nobody is going to merge, so it is stopped rather
+# than paid for. Runs on main are deliberately exempt: their job is to record
+# whether a commit that has already landed is sound, and a cancelled run records
+# nothing at all.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Nothing in this file writes to the repository. It builds, tests, renders the
+# figures and uploads them as an artifact, and an artifact upload needs no scope
+# beyond the run's own token. Saying so here means these jobs stop inheriting
+# whatever the repository default happens to grant, which is wider than read and
+# can be widened again later by someone who never opens this file. No job below
+# needs more than this, so none of them carries a permissions block of its own.
+permissions:
+  contents: read
+
+# Every job carries a timeout-minutes, because the default is six hours, and the
+# thing that matters is not how long a job takes but how long a stuck one takes
+# to admit it.
+#
+# The numbers cannot come from this workflow's own history the way they should,
+# because it has almost none: eight runs, the longest 37 seconds, all from
+# before most of the crate existed. They come from local timings instead, where
+# a cold check on the oldest supported compiler is about three seconds, the test
+# suite is under a minute, and rendering every example is a couple of minutes.
+# The limits then sit far above those, so that a cold runner or a slow macOS
+# image is never mistaken for a hang.
+#
+# There is no cargo-audit job in this file, and no lockfile job, which is a
+# deliberate absence rather than an oversight. Both [dependencies] and
+# [dev-dependencies] in Cargo.toml are empty and Cargo.lock holds a single
+# entry, karyon itself. `cargo audit` would have nothing to advise on, so it
+# would contribute a green tick that means nothing, and a tick that means
+# nothing is worse than no tick at all, because it reads like coverage. The one
+# dependency surface this repository does have is the actions these workflows
+# pin and the pip requirement that builds the documentation site, and those are
+# watched by .github/dependabot.yml and .github/workflows/dependency-review.yml
+# rather than from here. If the crate itself ever takes a dependency, this is
+# the file an audit job belongs in.
+#
+# There is no Swatinem/rust-cache step for the same reason. What that action
+# buys is not rebuilding a dependency graph on every run, and there is no
+# dependency graph. The only artifacts it could restore are karyon's own, and
+# those are invalidated by the very commit under test.
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,6 +93,7 @@ jobs:
   check:
     name: Check & Test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -39,22 +116,80 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  msrv:
+    name: Oldest supported compiler
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the version Cargo.toml advertises. That number is 1.74 because
+      # this manifest configures missing_docs through the [lints] table, and
+      # 1.74 is the release whose Cargo learned to read it; on anything older
+      # the table is an unknown key and the lint silently does nothing.
+      #
+      # GitHub does not allow an expression in `uses`, so the version cannot be
+      # read out of the manifest and has to be written here as well. Two copies
+      # of one number is precisely the arrangement that drifts, and the step
+      # below exists because of that, not in spite of it.
+      - uses: dtolnay/rust-toolchain@1.74
+      - name: This job's toolchain still matches Cargo.toml
+        run: |
+          declared="$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)"
+          if [ "$declared" != "1.74" ]; then
+            echo "Cargo.toml advertises rust-version = \"$declared\", but this job installs 1.74." >&2
+            echo "Raising the MSRV means editing the dtolnay/rust-toolchain ref above and this" >&2
+            echo "comparison together, or the job goes on testing a version nobody promises." >&2
+            exit 1
+          fi
+      # `check`, not `clippy`, and on purpose without -D warnings. 1.74 still had
+      # illegal_floating_point_literal_pattern, which fires on the Some(0.0)
+      # pattern in src/track/selection.rs and has since been removed from the
+      # compiler entirely. Denying warnings here would fail the build over a lint
+      # that no longer exists, and the only way to satisfy it would be to
+      # contort code that stable is perfectly happy with. Lints are the stable
+      # matrix's job; this job answers one question, which is whether the
+      # version the crate advertises still compiles it.
+      #
+      # --locked is here rather than in the stable jobs because this is where a
+      # stale Cargo.lock surfaces most cheaply. Bump the version in Cargo.toml
+      # without regenerating the lock and this step fails, instead of the
+      # mismatch being discovered while packaging a release.
+      - name: Check on the advertised MSRV
+        run: cargo check --all-targets --locked
+
   example:
     name: Example renders
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       # Every example, not a selection of them. Six were missing from this
       # list, so six figures could drift without the gate noticing, which is
       # how a committed figure came to disagree with the code that draws it.
+      #
+      # The guard in front of the loop is the lasting fix for that. The list is
+      # a second copy of the contents of examples/, and a second copy is a thing
+      # that falls behind, so the two are compared before anything is rendered:
+      # an example nobody added here now fails the job by name, rather than
+      # going quietly unrendered the way those six did.
       - name: Render every figure
         run: |
-          for example in association circular evolutionary_surveillance \
-                         gallery genomewide ideogram locus logo maps msa niche \
-                         pangenome phylo_dnds phylo_map phylogenetics pileup \
-                         reading selection selection_atlas shapes snps synteny \
-                         visual_system; do
+          examples="association circular evolutionary_surveillance gallery
+                    genomewide ideogram locus logo maps msa niche pangenome
+                    phylo_dnds phylo_map phylogenetics pileup reading selection
+                    selection_atlas shapes snps synteny visual_system"
+
+          listed="$(printf '%s\n' $examples | sort)"
+          present="$(ls examples/*.rs | xargs -n1 basename | sed 's/\.rs$//' | sort)"
+          if [ "$listed" != "$present" ]; then
+            echo "The list in .github/workflows/ci.yml disagrees with examples/." >&2
+            echo "A '<' is named here but has no file; a '>' is a file nobody listed:" >&2
+            diff <(printf '%s\n' "$listed") <(printf '%s\n' "$present") >&2 || true
+            exit 1
+          fi
+
+          for example in $examples; do
             cargo run --example "$example" -- assets
           done
       # `git diff` compares against the index, so a figure that was never
