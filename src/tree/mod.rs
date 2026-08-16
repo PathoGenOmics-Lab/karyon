@@ -102,7 +102,14 @@ impl fmt::Display for AnnotationValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AnnotationValue::Text(value) => f.write_str(value),
-            AnnotationValue::Number(value) => write!(f, "{value}"),
+            // Through `text_exact` rather than straight to the formatter. An
+            // annotation is written wherever one is shown, and a BEAST or NHX
+            // file carries whatever its sampler wrote: a rate of 1e-300 came
+            // out of `write!` as three hundred and twenty four digits in a
+            // branch event tooltip. This is the fifth place in the crate the
+            // same mistake has been found, so it is fixed at the one point
+            // that turns an annotation into text rather than at each reader.
+            AnnotationValue::Number(value) => f.write_str(&crate::svg::text_exact(*value)),
             AnnotationValue::Boolean(value) => write!(f, "{value}"),
             AnnotationValue::List(values) => {
                 f.write_str("{")?;

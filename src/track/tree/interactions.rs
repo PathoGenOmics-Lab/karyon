@@ -1,6 +1,7 @@
 //! Branch-local rate mixtures and cross-branch recurrent-event links.
 
 use super::*;
+use crate::svg::text_exact;
 
 type Point = (f64, f64);
 type BranchPoint = (usize, Point);
@@ -151,6 +152,19 @@ fn mixture_values(
     )
 }
 
+/// Names every class the capsule drew, with the two numbers it was drawn from.
+///
+/// Both numbers are written exactly, and the two lines below are one decision
+/// rather than two, because the capsule keeps neither of them. It normalises the
+/// weights for its geometry, so weights of 0.00001 and 0.00001 paint the picture
+/// that 0.5 and 0.5 paint and this string is the only place a mixture that does
+/// not sum to one can be seen at all; it paints the rate as a colour on a band
+/// around neutral, so this string is likewise the only place a rate of 0.00001
+/// differs from a rate of nought. Rounded to four decimals, both of those
+/// printed `0`: a class described by the one number `mixture_values` refuses to
+/// draw, under a capsule split precisely in half. `text_exact` is the crate's
+/// answer to a value whose precision belongs to the caller, and the type's own
+/// documentation already promised the supplied weights survive into the tooltip.
 fn mixture_title(mixture: &BranchRateMixture, classes: &[MixtureClass]) -> String {
     let details = classes
         .iter()
@@ -159,8 +173,8 @@ fn mixture_title(mixture: &BranchRateMixture, classes: &[MixtureClass]) -> Strin
             format!(
                 "class {} omega {} weight {}",
                 index + 1,
-                text_rounded(class.rate, 4),
-                text_rounded(class.source_weight, 4)
+                text_exact(class.rate),
+                text_exact(class.source_weight)
             )
         })
         .collect::<Vec<_>>()
@@ -288,8 +302,7 @@ pub(super) fn draw_branch_intervals(
             centre.1 - direction.1 * width / 2.0,
         );
         let point = |value: f64| {
-            let fraction =
-                ((value - layer.minimum) / (layer.maximum - layer.minimum)).clamp(0.0, 1.0);
+            let fraction = interval_fraction(value, layer.minimum, layer.maximum);
             (
                 origin.0 + direction.0 * width * fraction,
                 origin.1 + direction.1 * width * fraction,
@@ -306,17 +319,23 @@ pub(super) fn draw_branch_intervals(
         } else {
             ctx.theme.color(0)
         };
+        // Exactly, not to five decimals. The tooltip is the last surviving copy
+        // of the number the caller handed over: the drawing keeps only where it
+        // fell on the axis. An estimate of 2.2e-308 rounded to five decimals is
+        // the string "0", and then the mark sitting correctly at the top of its
+        // own domain reads as a nought drawn at the ceiling. The same mistake
+        // was found in the selection tooltips, and this is the same answer.
         let title = format!(
             "{} | estimate {} | interval {} to {}{}",
             layer.label,
-            text_rounded(estimate, 5),
-            text_rounded(lower, 5),
-            text_rounded(upper, 5),
+            text_exact(estimate),
+            text_exact(lower),
+            text_exact(upper),
             layer
                 .threshold
                 .map_or_else(String::new, |threshold| format!(
                     " | threshold {} ({})",
-                    text_rounded(threshold, 5),
+                    text_exact(threshold),
                     if highlighted {
                         "reached"
                     } else {
@@ -363,6 +382,36 @@ pub(super) fn draw_branch_intervals(
         );
         ctx.svg.end_group();
     }
+}
+
+/// How far along the layer's domain `value` sits, as a fraction of the way.
+///
+/// The halving is the whole function, and it has a name of its own because the
+/// width of a domain is the same arithmetic `mixture_values` and `maximum_state`
+/// already guard a few lines apart: a total that can leave the range a fraction
+/// can be taken from. `BranchIntervalLayer::range` takes any finite pair, so
+/// `range(f64::MIN, f64::MAX)` is what somebody writes when they mean "any
+/// number at all", and `maximum - minimum` is then infinity. Divided by that, an
+/// ordinary estimate came back nought and was drawn on the left end of its own
+/// axis while the tooltip beside it still read the number it was drawn from, and
+/// an estimate near the end of the domain came back infinity over infinity,
+/// which is NaN, which the clamp keeps and the writer then refuses: a caption
+/// over the blank paper where the mark should be. Halving both ends first cannot
+/// overflow for any finite pair, and it runs only when the plain span was not a
+/// number an axis can divide by, so no mark that was already placed correctly
+/// moves by so much as an ulp.
+///
+/// The numerator needs no such care. It overflows only when the value is
+/// further from the domain than the domain is wide, which is a value off the
+/// end of the axis, and the clamp puts it on the end it ran off.
+fn interval_fraction(value: f64, minimum: f64, maximum: f64) -> f64 {
+    let span = maximum - minimum;
+    let fraction = if span.is_finite() {
+        (value - minimum) / span
+    } else {
+        (value * 0.5 - minimum * 0.5) / (maximum * 0.5 - minimum * 0.5)
+    };
+    fraction.clamp(0.0, 1.0)
 }
 
 pub(super) fn draw_ancestral_transitions(
@@ -577,5 +626,122 @@ fn link_path(from: (f64, f64), to: (f64, f64), geometry: LinkGeometry, index: us
                 num(to.1)
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::figure::Figure;
+    use crate::region::Region;
+
+    fn region() -> Region {
+        Region::new("tree", 0, 1_000).unwrap()
+    }
+
+    /// The value of `name` in the fragment, which the drawing wrote itself.
+    fn attribute(fragment: &str, name: &str) -> f64 {
+        let at = fragment
+            .find(name)
+            .unwrap_or_else(|| panic!("no {name} in {fragment}"));
+        let rest = &fragment[at + name.len()..];
+        let end = rest.find('"').unwrap_or_else(|| panic!("{fragment}"));
+        rest[..end].parse().unwrap_or_else(|_| panic!("{fragment}"))
+    }
+
+    /// The one titled group whose tooltip starts with `opening`.
+    fn group<'a>(svg: &'a str, opening: &str) -> &'a str {
+        let at = svg
+            .find(opening)
+            .unwrap_or_else(|| panic!("no group opening {opening:?} in {svg}"));
+        let rest = &svg[at..];
+        &rest[..rest.find("</g>").unwrap_or_else(|| panic!("{rest}"))]
+    }
+
+    fn interval(source: &str, minimum: f64, maximum: f64) -> String {
+        Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).branch_interval(
+                    BranchIntervalLayer::new("cf", "cf_lo", "cf_hi").range(minimum, maximum),
+                ),
+            )
+            .to_svg()
+    }
+
+    #[test]
+    fn an_interval_is_placed_on_a_domain_wider_than_f64_can_subtract() {
+        // `range(f64::MIN, f64::MAX)` is what a caller writes for "any number at
+        // all", and its width is the one span the subtraction cannot return. The
+        // estimate used to be divided by that infinity: an ordinary value came
+        // back nought and was drawn on the left end of its own axis under a
+        // tooltip reading 0.5, and a value near the end of the domain came back
+        // NaN and was not drawn at all, leaving the tooltip over blank paper.
+        let source = "((A[&cf=0.5,cf_lo=0.25,cf_hi=0.75]:1,B:1):1,C:2);";
+        let wide = interval(source, f64::MIN, f64::MAX);
+        let marks = group(&wide, "<title>cf | estimate 0.5");
+        let axis = attribute(marks, "x1=\"");
+        let far_end = attribute(marks, "x2=\"");
+        let estimate = attribute(marks, "<circle cx=\"");
+        assert!(
+            (estimate - (axis + far_end) / 2.0).abs() < 0.001,
+            "half way along a domain symmetric about nought is half way along \
+             the axis, not {estimate} on an axis of {axis} to {far_end}: {marks}"
+        );
+
+        // The same numbers on a domain the subtraction can hold, to show that
+        // the repair is in the arithmetic and not in the picture: an estimate
+        // half way up nought to one is drawn where an estimate half way up the
+        // whole of f64 is.
+        let readable = interval(source, 0.0, 1.0);
+        let ordinary = group(&readable, "<title>cf | estimate 0.5");
+        assert_eq!(
+            attribute(ordinary, "<circle cx=\""),
+            estimate,
+            "{ordinary}\n{marks}"
+        );
+
+        // And the case that drew nothing: infinity over infinity is NaN, the
+        // clamp of a NaN is a NaN, and the writer refuses a shape it cannot
+        // place. The tooltip promised an estimate, so there has to be one.
+        let enormous = interval(
+            "((A[&cf=1e308,cf_lo=0,cf_hi=1e308]:1,B:1):1,C:2);",
+            f64::MIN,
+            f64::MAX,
+        );
+        let marks = group(&enormous, "<title>cf | estimate 1e308");
+        let estimate = attribute(marks, "<circle cx=\"");
+        let axis = attribute(marks, "x1=\"");
+        let far_end = attribute(marks, "x2=\"");
+        assert!(
+            estimate > (axis + far_end) / 2.0 && estimate <= far_end,
+            "an estimate past the middle of its domain belongs past the middle \
+             of its axis, not at {estimate} on an axis of {axis} to {far_end}: {marks}"
+        );
+        assert!(!enormous.contains("NaN"), "{enormous}");
+    }
+
+    #[test]
+    fn a_class_too_small_to_round_keeps_the_numbers_it_was_drawn_from() {
+        // The capsule normalises the weights for its geometry, so 0.00001 and
+        // 0.00001 paint exactly the picture 0.5 and 0.5 paint, and the tooltip
+        // is the only place the difference survives. Rounded to four decimals it
+        // did not survive either: both classes printed `weight 0`, which is a
+        // weight the drawing had already refused to draw, beside a capsule split
+        // in half. The rate on the line above rounded away the same way.
+        let source = "((A[&o1=0.00001,w1=0.00001,o2=6,w2=0.00001]:1,B:1):1,C:2);";
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(
+                TreeTrack::new(Tree::parse_annotated_newick(source).unwrap())
+                    .branch_rate_mixture(BranchRateMixture::new(["o1", "o2"], ["w1", "w2"])),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("class 1 omega 1e-5 weight 1e-5; class 2 omega 6 weight 1e-5"),
+            "{svg}"
+        );
     }
 }

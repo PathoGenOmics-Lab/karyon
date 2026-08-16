@@ -12,7 +12,7 @@
 
 use crate::scale::Scale;
 use crate::style::{LinePattern, Symbol};
-use crate::svg::{text_rounded, Anchor};
+use crate::svg::{text_exact, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
@@ -121,10 +121,23 @@ impl SelectionSite {
     /// Returns `dN/dS`, preserving an infinite estimate when `dS = 0`.
     pub fn omega(&self) -> Option<f64> {
         match (self.synonymous, self.nonsynonymous) {
-            (Some(ds), Some(dn)) if ds > 0.0 => Some(dn / ds),
-            (Some(0.0), Some(dn)) if dn > 0.0 => Some(f64::INFINITY),
+            (Some(ds), Some(dn)) => rate_ratio(ds, dn),
             _ => None,
         }
+    }
+
+    /// The omega of each episodic rate class, answered the way
+    /// [`omega`](SelectionSite::omega) answers it.
+    ///
+    /// `None` is a class that cannot be placed on the omega scale at all: a
+    /// site that kept no synonymous rate has no denominator to divide by, and
+    /// a synonymous rate of nought under a nonsynonymous rate of nought is a
+    /// ratio nobody can form.  The capsule used to stand a missing `dS` in as
+    /// 1 and paint the classes as though the site had been measured, which is
+    /// a value given for the absence of a value.
+    fn class_omegas(&self, rates: EpisodicRates) -> (Option<f64>, Option<f64>) {
+        let ratio = |beta| self.synonymous.and_then(|alpha| rate_ratio(alpha, beta));
+        (ratio(rates.beta_minus), ratio(rates.beta_plus))
     }
 
     /// Returns the stored p-value, when supplied.
@@ -255,6 +268,23 @@ impl SelectionTrack {
         &self.sites
     }
 
+    /// Number of episodic rate classes that have no omega, and so are counted
+    /// rather than drawn.
+    ///
+    /// A class is undrawable when its site kept no synonymous rate to divide
+    /// by, or when both of its rates are nought.  The rates themselves stay in
+    /// the tooltip; what is missing is the ratio the capsule paints, and a
+    /// capsule painted from an assumed denominator is a measurement nobody
+    /// made.  Sites outside the drawn region are not in here: those are a
+    /// choice about what to show, this is data that cannot be shown.
+    pub fn undrawable_rate_class_count(&self) -> usize {
+        self.sites
+            .iter()
+            .filter_map(|site| site.episodic.map(|rates| site.class_omegas(rates)))
+            .map(|(minus, plus)| usize::from(minus.is_none()) + usize::from(plus.is_none()))
+            .sum()
+    }
+
     /// Returns sites that cross the selected evidence threshold.
     pub fn selected_sites(&self) -> Vec<&SelectionSite> {
         self.sites
@@ -274,17 +304,16 @@ impl SelectionTrack {
 
     fn evidence_value(&self, site: &SelectionSite) -> Option<f64> {
         match self.evidence {
-            SelectionEvidence::PValue => site
-                .p_value
-                .map(|p| -p.max(1e-16).log10())
-                .filter(|v| v.is_finite()),
+            SelectionEvidence::PValue => {
+                site.p_value.map(evidence_height).filter(|v| v.is_finite())
+            }
             SelectionEvidence::Posterior => site.posterior,
         }
     }
 
     fn evidence_threshold(&self) -> f64 {
         match self.evidence {
-            SelectionEvidence::PValue => -self.p_threshold.log10(),
+            SelectionEvidence::PValue => evidence_height(self.p_threshold),
             SelectionEvidence::Posterior => self.posterior_threshold,
         }
     }
@@ -368,10 +397,14 @@ impl SelectionTrack {
             x += ctx.px(if label == "omega<1" { 49.0 } else { 30.0 });
         }
 
+        // The legend states the rule the track selects sites by, so it prints
+        // the threshold and not a rounding of it: three decimals turn a
+        // genome-wide 5e-8 into `p<=0`, a claim no site can satisfy, and two
+        // turn a posterior threshold of 0.995 into `PP>=1`.
         let evidence = match self.evidence {
-            SelectionEvidence::PValue => format!("p<={}", text_rounded(self.p_threshold, 3)),
+            SelectionEvidence::PValue => format!("p<={}", text_exact(self.p_threshold)),
             SelectionEvidence::Posterior => {
-                format!("PP>={}", text_rounded(self.posterior_threshold, 2))
+                format!("PP>={}", text_exact(self.posterior_threshold))
             }
         };
         ctx.svg.symbol(
@@ -484,7 +517,7 @@ impl SelectionTrack {
                 ctx.px(1.15),
             );
             if let Some(episodic) = site.episodic {
-                draw_episodic_capsule(ctx, x, y - ctx.px(7.0), episodic, site.synonymous, self);
+                draw_episodic_capsule(ctx, x, y - ctx.px(7.0), site, episodic, self);
             }
             ctx.svg.end_group();
         }
@@ -586,6 +619,39 @@ fn finite_nonnegative(value: f64) -> Option<f64> {
     (value.is_finite() && value >= 0.0).then_some(value)
 }
 
+/// The three answers a rate ratio has, in the one place that knows them.
+///
+/// A denominator of nought is not a small denominator: `beta / 0` is either the
+/// largest ratio there is or no ratio at all, and which of the two it is depends
+/// on the numerator.  The capsule used to answer this in two adjacent lines,
+/// once with nought and once with infinity, so a site whose two rate classes
+/// held the same number was painted deepest purifying beside strongest
+/// positive.  Everything that divides a nonsynonymous rate by a synonymous one
+/// now gets the same answer.
+fn rate_ratio(alpha: f64, beta: f64) -> Option<f64> {
+    if alpha > 0.0 {
+        Some(beta / alpha)
+    } else if beta > 0.0 {
+        Some(f64::INFINITY)
+    } else {
+        None
+    }
+}
+
+/// The smallest p-value the evidence axis can tell apart from nought.
+const EVIDENCE_FLOOR: f64 = 1e-16;
+
+/// The height a p-value reaches on the evidence axis.
+///
+/// `-log10 0` is not a height, so every p-value is read against the floor
+/// before it becomes one.  The significance rule is read against it too: it
+/// used to be taken raw, so a threshold below the floor drew its rule above
+/// every mark the axis can reach and put every significant site on the wrong
+/// side of its own significance line.
+fn evidence_height(p: f64) -> f64 {
+    -p.max(EVIDENCE_FLOOR).log10()
+}
+
 fn omega_y(omega: f64, mid: f64, half: f64, log_cap: f64) -> f64 {
     let signed = if omega.is_infinite() {
         log_cap
@@ -630,39 +696,34 @@ fn draw_episodic_capsule(
     ctx: &mut DrawContext<'_>,
     x: f64,
     y: f64,
+    site: &SelectionSite,
     rates: EpisodicRates,
-    synonymous: Option<f64>,
     track: &SelectionTrack,
 ) {
+    let colour = |omega: Option<f64>| {
+        omega.map(|omega| {
+            selection_color(
+                ctx.theme,
+                omega,
+                track.neutral_lower,
+                track.neutral_upper,
+                track.saturation,
+            )
+        })
+    };
+    let (minus_omega, plus_omega) = site.class_omegas(rates);
+    let (minus, plus) = (colour(minus_omega), colour(plus_omega));
+    if minus.is_none() && plus.is_none() {
+        // Neither class has a denominator, so there is no colour here that
+        // would not be invented.  The rates stay in the tooltip and the site
+        // keeps its marker; the capsule is what cannot be drawn, and
+        // `undrawable_rate_class_count` is where the reader is told how many.
+        return;
+    }
     let width = ctx.px(11.0);
     let height = ctx.px(4.2);
     let left_width = width * (1.0 - rates.positive_weight);
     let right_width = width - left_width;
-    let alpha = synonymous.unwrap_or(1.0);
-    let minus_omega = if alpha > 0.0 {
-        rates.beta_minus / alpha
-    } else {
-        0.0
-    };
-    let plus_omega = if alpha > 0.0 && rates.beta_plus.is_finite() {
-        rates.beta_plus / alpha
-    } else {
-        f64::INFINITY
-    };
-    let minus = selection_color(
-        ctx.theme,
-        minus_omega,
-        track.neutral_lower,
-        track.neutral_upper,
-        track.saturation,
-    );
-    let plus = selection_color(
-        ctx.theme,
-        plus_omega,
-        track.neutral_lower,
-        track.neutral_upper,
-        track.saturation,
-    );
     ctx.svg.rect_rounded(
         x - width / 2.0 - ctx.px(0.8),
         y - height / 2.0 - ctx.px(0.8),
@@ -671,22 +732,19 @@ fn draw_episodic_capsule(
         height / 2.0,
         ctx.theme.surface(),
     );
-    if left_width > 0.0 {
-        ctx.svg.rect(
-            x - width / 2.0,
-            y - height / 2.0,
-            left_width,
-            height,
-            &minus,
-        );
+    // A class with no omega and a class with no width are both left out; the
+    // rectangle writer drops a width of nought on its own.
+    if let Some(fill) = &minus {
+        ctx.svg
+            .rect(x - width / 2.0, y - height / 2.0, left_width, height, fill);
     }
-    if right_width > 0.0 {
+    if let Some(fill) = &plus {
         ctx.svg.rect(
             x - width / 2.0 + left_width,
             y - height / 2.0,
             right_width,
             height,
-            &plus,
+            fill,
         );
     }
 }
@@ -697,8 +755,13 @@ fn site_title(site: &SelectionSite) -> String {
         parts.push(label.clone());
     }
     if let (Some(ds), Some(dn)) = (site.synonymous, site.nonsynonymous) {
-        parts.push(format!("dS {}", text_rounded(ds, 5)));
-        parts.push(format!("dN {}", text_rounded(dn, 5)));
+        // Exact, because this is the only place the rates survive and a rounded
+        // rate contradicts the ratio printed beside it: a dN of 1e-7 written as
+        // `0` over a dS of `0` asks a reader to believe that nought divided by
+        // nought is infinity.  The ratio itself stays rounded, since both of
+        // its inputs are here for anyone who wants it to the last bit.
+        parts.push(format!("dS {}", text_exact(ds)));
+        parts.push(format!("dN {}", text_exact(dn)));
         let omega = match site.omega() {
             Some(value) if value.is_infinite() => "infinity".into(),
             Some(value) => text_rounded(value, 4),
@@ -707,17 +770,21 @@ fn site_title(site: &SelectionSite) -> String {
         parts.push(format!("omega {omega}"));
     }
     if let Some(p) = site.p_value {
-        parts.push(format!("p {}", text_rounded(p, 6)));
+        // Exact for the same reason, and one the skyline makes visible: the
+        // mark is placed on a log scale, so p 1e-8 and p 1e-12 stand at
+        // different heights while six decimals print both of them as `0`, and
+        // a reader who hovers to find out why is told they are one number.
+        parts.push(format!("p {}", text_exact(p)));
     }
     if let Some(posterior) = site.posterior {
-        parts.push(format!("posterior {}", text_rounded(posterior, 4)));
+        parts.push(format!("posterior {}", text_exact(posterior)));
     }
     if let Some(rates) = site.episodic {
         parts.push(format!(
             "beta- {}; beta+ {}; positive class weight {}",
-            text_rounded(rates.beta_minus, 4),
-            text_rounded(rates.beta_plus, 4),
-            text_rounded(rates.positive_weight, 4)
+            text_exact(rates.beta_minus),
+            text_exact(rates.beta_plus),
+            text_exact(rates.positive_weight)
         ));
     }
     parts.join(" | ")
@@ -732,9 +799,16 @@ fn evidence_axis_top(evidence: SelectionEvidence, max: f64) -> String {
 
 fn evidence_axis_threshold(track: &SelectionTrack) -> String {
     match track.evidence {
-        SelectionEvidence::PValue => format!("p {}", text_rounded(track.p_threshold, 3)),
+        // This one labels a height rather than the rule the legend states, so
+        // it reports the p-value the dashed line is drawn at: a threshold below
+        // the axis floor is drawn at the floor, and printing the asked for
+        // number there would label a height with a p-value no mark on the axis
+        // can reach.  Exact, for the reason the legend is.
+        SelectionEvidence::PValue => {
+            format!("p {}", text_exact(track.p_threshold.max(EVIDENCE_FLOOR)))
+        }
         SelectionEvidence::Posterior => {
-            format!("PP {}", text_rounded(track.posterior_threshold, 2))
+            format!("PP {}", text_exact(track.posterior_threshold))
         }
     }
 }
@@ -787,6 +861,142 @@ mod tests {
         assert!(svg.contains("omega infinity"));
         assert!(!svg.contains("NaN"));
         assert!(!svg.contains("Infinity"));
+    }
+
+    /// Fills of the rectangles inside one site's tooltipped group: the capsule
+    /// surround, then one rectangle per rate class the drawing could place.
+    fn capsule_fills<'a>(svg: &'a str, site: &str) -> Vec<&'a str> {
+        svg.split("<g><title>")
+            .find(|group| group.starts_with(site))
+            .and_then(|group| group.split("</g>").next())
+            .unwrap_or_default()
+            .split("<rect ")
+            .skip(1)
+            .filter_map(|piece| piece.split("fill=\"").nth(1))
+            .filter_map(|piece| piece.split('"').next())
+            .collect()
+    }
+
+    #[test]
+    fn two_equal_rate_classes_over_a_zero_synonymous_rate_share_one_colour() {
+        // Both halves of the capsule put the same question to the same number,
+        // so they cannot come back with opposite answers. A dS of nought used
+        // to make the negative class nought and the positive class infinity in
+        // adjacent lines, and one site was painted deepest purifying beside
+        // strongest positive from a single pair of identical rates.
+        let svg = Figure::new(Region::new("gene", 0, 10).unwrap())
+            .push(SelectionTrack::new(vec![SelectionSite::new(4)
+                .rates(0.0, 1.0)
+                .p_value(0.01)
+                .episodic_rates(2.0, 2.0, 0.5)]))
+            .to_svg();
+        let fills = capsule_fills(&svg, "position 5");
+        assert_eq!(fills.len(), 3, "a surround and two classes: {fills:?}");
+        assert_eq!(
+            fills[1], fills[2],
+            "two rate classes of 2 are painted {} and {}",
+            fills[1], fills[2]
+        );
+    }
+
+    #[test]
+    fn rate_classes_with_no_denominator_are_counted_rather_than_drawn() {
+        // A site with no synonymous rate has no ratio, and the capsule used to
+        // divide by 1 and paint it as though the site had been measured. The
+        // rates stay in the tooltip, the colours are not invented, and the
+        // count says how many classes were left out.
+        let track = SelectionTrack::new(vec![
+            SelectionSite::new(4)
+                .p_value(0.01)
+                .episodic_rates(0.05, 2.8, 0.3),
+            SelectionSite::new(6)
+                .rates(0.0, 0.0)
+                .p_value(0.01)
+                .episodic_rates(0.0, 3.0, 0.3),
+        ]);
+        assert_eq!(track.undrawable_rate_class_count(), 3);
+        let svg = Figure::new(Region::new("gene", 0, 10).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            capsule_fills(&svg, "position 5").is_empty(),
+            "a capsule drawn from an assumed dS"
+        );
+        assert!(svg.contains("beta- 0.05"), "the rates are still reported");
+        assert_eq!(
+            capsule_fills(&svg, "position 7").len(),
+            2,
+            "the class with a ratio is still drawn"
+        );
+    }
+
+    #[test]
+    fn a_threshold_below_the_axis_floor_keeps_its_sites_on_their_own_side() {
+        // The marks and the rule are two readings of one axis, so they are
+        // floored alike. Taken raw, a threshold of 1e-300 drew its rule at 300
+        // where no mark can reach, and every significant site landed below its
+        // own significance line.
+        let track = SelectionTrack::new(vec![
+            SelectionSite::new(3).p_value(0.0),
+            SelectionSite::new(5).p_value(1e-20),
+        ])
+        .p_threshold(1e-300);
+        let rule = track.evidence_threshold();
+        assert!(rule.is_finite(), "the rule is drawn at {rule}");
+        // A mark on the rule makes no claim either way, which is where a site
+        // whose p-value the axis cannot separate from the threshold belongs.
+        for site in track.sites() {
+            let value = track.evidence_value(site).expect("a p-value has a height");
+            if track.is_selected(site) {
+                assert!(
+                    value >= rule,
+                    "a selected site sits at {value}, under a rule at {rule}"
+                );
+            } else {
+                assert!(
+                    value <= rule,
+                    "an unselected site sits at {value}, over a rule at {rule}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tooltip_keeps_the_numbers_the_drawing_was_given() {
+        // Rounding loses the one thing the tooltip is for. Two p-values four
+        // orders of magnitude apart both printed `p 0` while the skyline drew
+        // them at different heights, and a dN of 1e-7 printed as `0` sat beside
+        // the `omega infinity` it had produced.
+        let svg = Figure::new(Region::new("gene", 0, 30).unwrap())
+            .push(SelectionTrack::new(vec![
+                SelectionSite::new(4).rates(0.0, 1e-7).p_value(1e-8),
+                SelectionSite::new(9)
+                    .rates(2.0, 1.0)
+                    .p_value(1e-12)
+                    .posterior(1e-9),
+            ]))
+            .to_svg();
+        assert!(svg.contains("dN 1e-7"), "a rate rounded into a nought");
+        assert!(svg.contains("omega infinity"));
+        assert!(svg.contains("p 1e-8") && svg.contains("p 1e-12"));
+        assert!(svg.contains("posterior 1e-9"));
+        assert!(!svg.contains("p 0<") && !svg.contains("p 0 "));
+    }
+
+    #[test]
+    fn a_genome_wide_threshold_is_printed_rather_than_rounded_away() {
+        // Three decimals turn 5e-8 into a rule reading `p<=0`, which nothing
+        // can satisfy, on a legend that is the only statement of which sites
+        // the track picked out.
+        let svg = Figure::new(Region::new("gene", 0, 30).unwrap())
+            .push(
+                SelectionTrack::new(vec![SelectionSite::new(4).rates(0.2, 1.4).p_value(1e-9)])
+                    .p_threshold(5e-8),
+            )
+            .to_svg();
+        assert!(svg.contains("p&lt;=5e-8") || svg.contains("p<=5e-8"));
+        assert!(svg.contains("p 5e-8"), "the axis labels the rule's height");
+        assert!(!svg.contains("p&lt;=0") && !svg.contains("p<=0"));
     }
 
     #[test]

@@ -7,6 +7,7 @@
 //! when one of the three drifts from the other two.
 
 use super::*;
+use crate::svg::text_exact;
 
 pub(super) fn node_in_clade(tree: &Tree, node: usize, clade: usize) -> bool {
     node == clade || tree.ancestors(node).contains(&clade)
@@ -328,7 +329,9 @@ pub(super) fn glyph_title(tree: &Tree, node: usize, glyph: &NodeGlyph, values: &
         .keys
         .iter()
         .zip(values)
-        .map(|(key, value)| format!("{key} {}", num(*value)))
+        // `num` writes a coordinate, and a tooltip is not one. A posterior a
+        // sampler wrote as 1e-300 came out of it as three hundred digits.
+        .map(|(key, value)| format!("{key} {}", text_exact(*value)))
         .collect::<Vec<_>>()
         .join("; ");
     format!("{}; {values}", node_title(tree, node))

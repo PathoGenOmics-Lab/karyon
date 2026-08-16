@@ -236,6 +236,44 @@ impl Track for SurveillanceTrack {
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
+        let header = ctx.px(21.0).min(ctx.band.h * 0.25);
+        let top = ctx.band.y + header;
+
+        // An observation that cannot be read as a frequency never reaches the
+        // trajectories below, because `valid_observations` drops it. Dropping it
+        // quietly is the part that was wrong: it used to be drawn at a
+        // frequency above one, which on an axis that stops at one put it above
+        // the top of the figure, where this track's own clip hid it. Nobody
+        // counts the dots on a plot against the rows of their table.
+        //
+        // It is named here, before the panel decides whether it has anything to
+        // plot, because the panel used to return on an empty trajectory list
+        // without a word. A table whose every row is unreadable is the table
+        // most in need of being told so, and it was the one table that was told
+        // nothing at all: the count was available to a caller who thought to
+        // ask, and the document said the panel simply had no data.
+        //
+        // The muted diamond is the same one the unjoinable and unstackable rows
+        // get, at the time it was observed, carrying its own numbers. That is
+        // this file's existing way of saying "here is something I did not
+        // draw", and a second way of saying it would be one more thing to keep
+        // right.
+        if self.metric == SurveillanceMetric::Frequency {
+            for observation in self
+                .observations
+                .iter()
+                .filter(|observation| ctx.region.contains(observation.time))
+                .filter(|observation| !observation.is_drawable())
+            {
+                let reason = if observation.total == 0 {
+                    "no denominator, so there is no frequency"
+                } else {
+                    "a count above its total is not a frequency"
+                };
+                name_undrawn(ctx, reason, observation, top, 0);
+            }
+        }
+
         let observations = self.valid_observations(ctx);
         if observations.is_empty() {
             return;
@@ -256,23 +294,34 @@ impl Track for SurveillanceTrack {
             return;
         }
 
-        let matrix: Vec<Vec<Option<f64>>> = lineages
+        // The single observation of a lineage at a time, where there is one.
+        // Two rows for one lineage at one time are two answers to one question
+        // and the panel joins neither, so this is `None` there. The row is kept
+        // rather than only its value because the growth baseline further down
+        // needs to know which rows the panel actually joined.
+        let joined: Vec<Vec<Option<&SurveillanceObservation>>> = lineages
             .iter()
             .map(|lineage| {
                 times
                     .iter()
                     .map(|time| {
-                        let matching: Vec<&SurveillanceObservation> = observations
-                            .iter()
-                            .filter(|observation| {
-                                observation.time == *time && observation.lineage == *lineage
-                            })
-                            .copied()
-                            .collect();
-                        (matching.len() == 1)
-                            .then(|| self.value(matching[0]))
-                            .flatten()
+                        let mut matching = observations.iter().filter(|observation| {
+                            observation.time == *time && observation.lineage == *lineage
+                        });
+                        match (matching.next(), matching.next()) {
+                            (Some(only), None) => Some(*only),
+                            _ => None,
+                        }
                     })
+                    .collect()
+            })
+            .collect();
+        let matrix: Vec<Vec<Option<f64>>> = joined
+            .iter()
+            .map(|series| {
+                series
+                    .iter()
+                    .map(|observation| observation.and_then(|row| self.value(row)))
                     .collect()
             })
             .collect();
@@ -300,8 +349,6 @@ impl Track for SurveillanceTrack {
                     .fold(1.0f64, f64::max),
             },
         };
-        let header = ctx.px(21.0).min(ctx.band.h * 0.25);
-        let top = ctx.band.y + header;
         let bottom = ctx.band.bottom() - ctx.px(6.0);
         let height = (bottom - top).max(2.0);
         let y_of = |value: f64| bottom - value / maximum * height;
@@ -397,47 +444,6 @@ impl Track for SurveillanceTrack {
             }
         }
 
-        // An observation that cannot be read as a frequency never reaches the
-        // loop below, because `valid_observations` drops it. Dropping it
-        // quietly is the part that was wrong: it used to be drawn at a
-        // frequency above one, which on an axis that stops at one put it above
-        // the top of the figure, where this track's own clip hid it. Nobody
-        // counts the dots on a plot against the rows of their table.
-        //
-        // It gets the same muted diamond the unjoinable and unstackable ones
-        // get, at the time it was observed, carrying its own numbers. That is
-        // this file's existing way of saying "here is something I did not
-        // draw", and a second way of saying it would be one more thing to
-        // keep right.
-        if self.metric == SurveillanceMetric::Frequency {
-            for observation in self
-                .observations
-                .iter()
-                .filter(|observation| ctx.region.contains(observation.time))
-                .filter(|observation| !observation.is_drawable())
-            {
-                let reason = if observation.total == 0 {
-                    "no denominator, so there is no frequency"
-                } else {
-                    "a count above its total is not a frequency"
-                };
-                ctx.svg.begin_titled(&format!(
-                    "{reason} | {}",
-                    observation_title(observation, None, None, None)
-                ));
-                ctx.svg.symbol_ringed(
-                    ctx.scale.x_center(observation.time),
-                    top + ctx.px(5.0),
-                    ctx.px(2.7),
-                    Symbol::Diamond,
-                    &ctx.theme.muted,
-                    ctx.theme.surface(),
-                    ctx.px(0.8),
-                );
-                ctx.svg.end_group();
-            }
-        }
-
         for (lineage_index, lineage) in lineages.iter().enumerate() {
             let mut history: Vec<&SurveillanceObservation> = observations
                 .iter()
@@ -445,7 +451,7 @@ impl Track for SurveillanceTrack {
                 .copied()
                 .collect();
             history.sort_by_key(|observation| observation.time);
-            for (history_index, observation) in history.iter().enumerate() {
+            for observation in &history {
                 let value = self.value(observation).unwrap_or(0.0);
                 let time_index = times.binary_search(&observation.time).unwrap_or_default();
                 let unique = matrix[lineage_index][time_index].is_some();
@@ -456,20 +462,7 @@ impl Track for SurveillanceTrack {
                     } else {
                         "incomplete lineage composition is not stacked"
                     };
-                    ctx.svg.begin_titled(&format!(
-                        "{reason} | {}",
-                        observation_title(observation, None, None, None)
-                    ));
-                    ctx.svg.symbol_ringed(
-                        ctx.scale.x_center(observation.time),
-                        top + ctx.px(5.0 + lineage_index as f64 * 1.7),
-                        ctx.px(2.7),
-                        Symbol::Diamond,
-                        &ctx.theme.muted,
-                        ctx.theme.surface(),
-                        ctx.px(0.8),
-                    );
-                    ctx.svg.end_group();
+                    name_undrawn(ctx, reason, observation, top, lineage_index);
                     continue;
                 }
                 let plotted = match self.style {
@@ -480,9 +473,18 @@ impl Track for SurveillanceTrack {
                         .filter_map(|series| series[time_index])
                         .sum(),
                 };
-                let previous_frequency = history_index
-                    .checked_sub(1)
-                    .and_then(|index| history[index].frequency());
+                // The baseline is the last value this lineage has, not the last
+                // row it has. Where two rows share a lineage and a time the
+                // panel joins neither and says so, yet the change used to be
+                // measured against whichever of the two the file happened to
+                // list second: the same four rows sorted the other way reported
+                // a rise of three quarters instead of a twentieth, and raised a
+                // growth alert for it. A row the panel would not join is not a
+                // number that came before.
+                let previous_frequency = (0..time_index)
+                    .rev()
+                    .find_map(|earlier| joined[lineage_index][earlier])
+                    .and_then(|previous| previous.frequency());
                 let frequency = observation.frequency();
                 let growth = frequency
                     .zip(previous_frequency)
@@ -530,6 +532,50 @@ impl Track for SurveillanceTrack {
             }
         }
     }
+}
+
+/// Radius of the muted diamond that names a row the panel did not draw.
+const NOTICE_RADIUS: f64 = 2.7;
+
+/// Width of that diamond's ring, which is drawn outside the radius.
+const NOTICE_RING: f64 = 0.8;
+
+/// Names one observation the panel did not draw, and the reason it gives.
+///
+/// Every refusal goes through here so that the mark, its ring and the row it
+/// is kept on cannot drift apart from one another.
+///
+/// `step` separates several refusals at one time, one row per lineage, and it
+/// stops at the last row that still holds the whole mark. It used to step on
+/// without a stop: twenty lineages on the shortest band put diamonds below the
+/// band, and thirty put every one of them there, where the track's own clip
+/// removed them. A notice that is itself undrawn is exactly the loss the
+/// notice exists to prevent, so it stops for the same reason the legend beside
+/// it stops when it runs out of width.
+fn name_undrawn(
+    ctx: &mut DrawContext<'_>,
+    reason: &str,
+    observation: &SurveillanceObservation,
+    top: f64,
+    step: usize,
+) {
+    let radius = ctx.px(NOTICE_RADIUS);
+    let ring = ctx.px(NOTICE_RING);
+    let row = (top + ctx.px(5.0 + step as f64 * 1.7)).min(ctx.band.bottom() - radius - ring);
+    ctx.svg.begin_titled(&format!(
+        "{reason} | {}",
+        observation_title(observation, None, None, None)
+    ));
+    ctx.svg.symbol_ringed(
+        ctx.scale.x_center(observation.time),
+        row,
+        radius,
+        Symbol::Diamond,
+        &ctx.theme.muted,
+        ctx.theme.surface(),
+        ring,
+    );
+    ctx.svg.end_group();
 }
 
 fn contiguous_true_ranges(values: &[bool]) -> Vec<std::ops::Range<usize>> {
@@ -690,6 +736,134 @@ mod tests {
             svg.contains("no denominator, so there is no frequency"),
             "{svg}"
         );
+    }
+
+    #[test]
+    fn a_panel_that_can_draw_none_of_its_rows_still_names_every_one_of_them() {
+        // The table most in need of being told it could not be read is the one
+        // where every row is unreadable, and that was the one table told
+        // nothing: with no trajectory left to plot, the panel returned before it
+        // reached its own notices, and the document came out looking exactly
+        // like a panel that had been handed no data at all. The count was there
+        // for a caller who thought to ask, which is not the same as saying it.
+        let track = SurveillanceTrack::new(vec![
+            SurveillanceObservation::new(1, "A", 250, 100),
+            SurveillanceObservation::new(2, "B", 4, 0),
+        ]);
+        assert_eq!(track.undrawable_observation_count(), 2);
+
+        let svg = Figure::new(Region::new("week", 0, 4).unwrap())
+            .push(track)
+            .to_svg();
+        assert!(
+            svg.contains(
+                "a count above its total is not a frequency | A | time 1 | count 250 of 100"
+            ),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("no denominator, so there is no frequency | B | time 2 | count 4 of 0"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn the_diamond_that_names_an_undrawn_row_stays_inside_the_band() {
+        // The notices step down one row per lineage so that several at one time
+        // do not land on each other, and the step used to run on without a stop.
+        // Twenty lineages on the shortest band put the last of them below the
+        // band, where the figure's own clip removes them: a notice about
+        // something that was not drawn, itself not drawn.
+        let observations: Vec<SurveillanceObservation> = (0..20u64)
+            .map(|lineage| SurveillanceObservation::new(lineage + 1, format!("L{lineage}"), 1, 2))
+            .collect();
+        let svg = Figure::new(Region::new("week", 0, 40).unwrap())
+            .push(SurveillanceTrack::new(observations).height(48.0))
+            .to_svg();
+        assert!(
+            svg.contains("incomplete lineage composition is not stacked"),
+            "{svg}"
+        );
+
+        // Measured against the clip the document itself carries, since that is
+        // what a renderer crops to, rather than a rectangle worked out here.
+        let clip = svg
+            .split("<clipPath")
+            .nth(1)
+            .and_then(|inside| inside.split("/>").next())
+            .expect("one clip for one track");
+        let read = |name: &str| -> f64 {
+            clip.split(&format!("{name}=\""))
+                .nth(1)
+                .and_then(|piece| piece.split('"').next())
+                .and_then(|value| value.parse().ok())
+                .expect("a number on the clipping rectangle")
+        };
+        let top = read("y");
+        let bottom = top + read("height");
+        for piece in svg.split("<polygon points=\"").skip(1) {
+            let list = piece.split('"').next().expect("a point list");
+            for point in list.split_whitespace() {
+                let row: f64 = point
+                    .split(',')
+                    .nth(1)
+                    .and_then(|value| value.parse().ok())
+                    .expect("every vertex is a pair of numbers");
+                // The slack is the rounding the writer applies to a coordinate,
+                // not room for a mark to sit outside its band.
+                assert!(
+                    row >= top - 0.001 && row <= bottom + 0.001,
+                    "a diamond vertex sits at {row} on a band running {top} to {bottom}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_change_is_not_measured_against_a_row_the_panel_will_not_join() {
+        // Two rows for one lineage at one time are two answers to one question,
+        // and the panel says beside both that it joins neither. The change on
+        // the next observation was still measured against whichever of the two
+        // the file listed second, so the same four rows sorted the other way
+        // reported a different rise and raised a growth alert for it. A time
+        // the panel has no single value for is a gap, and a gap is measured
+        // across, exactly as it already was for a lineage simply missing a row.
+        let panel = |second: u64, third: u64| {
+            Figure::new(Region::new("week", 0, 5).unwrap())
+                .push(
+                    SurveillanceTrack::new(vec![
+                        SurveillanceObservation::new(1, "A", 90, 100),
+                        SurveillanceObservation::new(2, "A", second, 100),
+                        SurveillanceObservation::new(2, "A", third, 100),
+                        SurveillanceObservation::new(3, "A", 95, 100),
+                    ])
+                    .style(SurveillanceStyle::Lines)
+                    .growth_alert(0.5),
+                )
+                .to_svg()
+        };
+        let one = panel(10, 20);
+        let other = panel(20, 10);
+        // The two rows keep the order they were given, since each is named with
+        // its own numbers. Only the observation after them is read here.
+        let change = |svg: &str| -> String {
+            svg.split("<title>")
+                .find(|piece| piece.starts_with("A | time 3"))
+                .and_then(|piece| piece.split("</title>").next())
+                .expect("the last observation is named")
+                .to_string()
+        };
+        assert_eq!(
+            change(&one),
+            change(&other),
+            "swapping two rows the panel will not join changed the change after them"
+        );
+        assert_eq!(
+            change(&one),
+            "A | time 3 | count 95 of 100 | frequency 0.95 | change +0.05"
+        );
+        assert!(!one.contains("growth alert"), "{one}");
+        assert!(!other.contains("growth alert"), "{other}");
     }
 
     #[test]
