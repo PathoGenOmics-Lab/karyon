@@ -1,6 +1,7 @@
 ---
 hide:
   - navigation
+  - toc
 ---
 
 <div class="hero" markdown>
@@ -14,28 +15,13 @@ axis, rendered to standalone SVG.
 
 </div>
 
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+
 A general plotting library knows about points and lines. It does not know that a
-position is a base, that a gene has a strand, that at genome scale a single
-pixel covers two thousand bases and something has to decide which of them it
-shows, or that a figure stops being worth anything the moment its tracks stop
-lining up. Drawing a genomic figure with one means teaching it all of that
-again, in every script.
-
-`karyon` is the small amount of code that already knows it. It draws what a
-genome browser draws: a stack of tracks over one coordinate axis, so a depth
-profile, the reference bases, the gene models and the variant calls all agree on
-where position 761,410 is. Thirty-three track types ship with it, from a coverage
-profile to a read pileup to a sequence logo, and each one is an implementation
-of the same small trait with no privileged access to the figure, so another one
-is about thirty lines.
-
-What comes out is plain SVG 1.1: no scripts, no external references, nothing to
-fetch, and every element still selectable when a reviewer asks for the gene
-labels to be bigger. The crate has no runtime dependencies and opens no
-files, which is what keeps that true: it takes vectors, structs and text, not
-paths. Parsing the formats a genomics shell already writes is in the library,
-as `karyon::read`, and every reader there takes a `&str`, so where the text
-came from stays your decision.
+position is a base, that a gene has a strand, or that a figure stops being worth
+anything the moment its tracks stop lining up. `karyon` is the small amount of
+code that does. Thirty-three track types, one shared coordinate axis, plain SVG
+1.1, and no dependencies at all.
 
 <div class="grid cards" markdown>
 
@@ -96,9 +82,7 @@ came from stays your decision.
 
 </div>
 
-## In one figure
-
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+## The figure above, in full
 
 ```rust
 use karyon::{plot, Aggregate, Feature, Strand, Variant};
