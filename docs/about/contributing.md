@@ -93,10 +93,20 @@ cargo run --example selection -- assets
 cargo run --example shapes -- assets
 cargo run --example reading -- assets
 cargo run --example niche -- assets
+cargo run --example visual_system -- assets
+cargo run --example maps -- assets
+cargo run --example phylogenetics -- assets
+cargo run --example phylo_dnds -- assets
+cargo run --example phylo_map -- assets
+cargo run --example selection_atlas -- assets
+cargo run --example evolutionary_surveillance -- assets
 ```
 
-That is every example there is, and between them they produce every file in
-`assets/`, byte for byte.
+That is every example there is, twenty-three of them, and between them they
+produce every file in `assets/`, byte for byte. The list is worth keeping
+whole: CI renders each one and fails when a committed figure disagrees with the
+code that drew it, and it also fails when this list and `examples/` stop
+matching, which is how seven of them came to be missing from this page.
 
 The documentation site reads its figures from `docs/assets/figures/`, which is
 a copy. Refresh it after re-rendering, or the site keeps showing the old

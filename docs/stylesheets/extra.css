@@ -682,3 +682,24 @@
 .md-header__button:hover {
   opacity: 0.7;
 }
+
+/* --------------------------------------------------------------------------
+   Margins on a page that has no columns beside it
+
+   A page that hides both the navigation and the table of contents gets the
+   whole grid, and Material's own gutter is sixteen pixels, which on a wide
+   screen is not a margin, it is the absence of one. The prose was already
+   capped and centred, so what ran edge to edge was everything else: the card
+   grid, the code blocks, the admonitions.
+
+   The cap here is on the column rather than on the text, because these are the
+   pages where the column is the only thing between the content and the bezel.
+   It is wide enough for a two-column card grid and for the widest committed
+   figure at its natural size, and no wider.
+   -------------------------------------------------------------------------- */
+
+.md-sidebar--secondary[hidden] ~ .md-content .md-content__inner,
+.md-content__inner:has(> .md-typeset > .grid.cards) {
+  max-width: 60rem;
+  margin-inline: auto;
+}

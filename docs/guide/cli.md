@@ -1,8 +1,14 @@
 # Command line
 
-`karyon` is a second front end onto the same library. The library itself reads
-no files, which is what keeps its dependency count at zero, so all the reading
-lives in the binary and every format it reads is line based text. This page is
+`karyon` is a second front end onto the same library, and it reaches thirteen
+of the thirty-three track types: the ones that have a file to read. Trees drawn
+with metadata, maps and the selection views are library only.
+
+The parsing is not in this binary. It lives in the library as
+[`karyon::read`](formats.md), and every reader there takes a `&str` rather than
+a path, so nothing in the crate opens a file to read one and the dependency
+count stays at zero. What the binary keeps is opening the path. Every format is
+line based text. This page is
 the grammar: which flags start a track, which describe the one before them, and
 what the command says when one of them is wrong.
 

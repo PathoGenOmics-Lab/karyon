@@ -1,5 +1,16 @@
 # Installation
 
+!!! tip "No Rust toolchain yet?"
+    That is the only thing karyon needs, and the reader most likely to want
+    just the command is the one least likely to have one. Either of these
+    installs it, and then the lines below work:
+
+    ```bash
+    curl https://sh.rustup.rs -sSf | sh     # rustup, the usual way
+    conda install -c conda-forge rust       # if you already live in conda
+    ```
+
+
 `karyon` is a Rust library with a command line front end in the same package.
 A Rust toolchain is the only thing it needs. There is no build script, nothing
 links against a C library, and there are no crates to fetch, so an install is a
@@ -119,15 +130,16 @@ that already has a dependency tree adds nothing to it.
 
 ## What `cargo test` runs
 
-One command runs four groups, and the fourth is why no snippet in the API
+One command runs five groups, and the last is why no snippet in the API
 documentation can quietly stop compiling:
 
 | Group | Tests | What it covers |
 |:------|------:|:---------------|
-| Library unit tests | 566 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the shrinkage fitter |
-| Command line unit tests | 174 | the flag grammar and the readers, including the coordinate conversion each format needs |
+| Library unit tests | 1003 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the readers, the shrinkage fitter |
+| Command line unit tests | 27 | the flag grammar and the walk from a command line to a figure |
+| `tests/properties.rs` | 43 | what is true of every figure rather than of one: generated stacks checked against invariants, ten thousand seeds each |
 | `tests/render.rs` | 15 | the document a user gets: well formed, deterministic, free of non-finite numbers, and correct about where a base lands on the page |
-| Doc tests | 59 | every example in the API documentation, compiled and run |
+| Doc tests | 62 | every example in the API documentation, compiled and run |
 
 Counts are from version 0.14.0. `cargo test --release` runs the same set
 against optimised code, which is what CI does after the debug run, along with
