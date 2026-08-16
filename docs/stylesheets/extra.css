@@ -28,6 +28,20 @@
   --md-accent-fg-color: #e8833a;
 }
 
+/* The dark scheme needs its own blue, for the same reason it needs its own
+   accent. `#0072b2` is chosen to sit on white, and on the dark page it comes
+   to 3.38 against the background, under the 4.5 that body text needs: links
+   were the hardest thing on the page to read, which is the wrong thing for
+   them to be. This is the same hue lifted until it clears, measured rather
+   than guessed, and it clears by a margin so it stays legible against the
+   code blocks too, which are lighter than the page. */
+[data-md-color-scheme="slate"][data-md-color-primary="custom"] {
+  --md-primary-fg-color:        #068ddb;
+  --md-primary-fg-color--light: #38b3fa;
+  --md-primary-fg-color--dark:  #0072b2;
+  --md-typeset-a-color:         #38b3fa;
+}
+
 /* The logo is square and carries the wordmark inside it, so it needs a little
    more height than the default to stay readable beside the site name. */
 .md-header__button.md-logo img {
@@ -519,4 +533,152 @@
   .md-typeset .plot-card {
     transition: none;
   }
+}
+
+/* --------------------------------------------------------------------------
+   The reading measure
+
+   Text was running to two hundred characters a line on any page without a
+   left-hand navigation, which is the home page and the one everybody lands on.
+   Comfortable is somewhere between forty-five and seventy-five: past that the
+   eye loses its place on the way back to the start of the next line, and a
+   page of prose becomes work to read for a reason the reader cannot name.
+
+   The measure is capped on the things made of words and nothing else. Figures
+   are the point of this site and several of them are two thousand pixels of
+   genome browser, so they keep the whole column, as do tables, code blocks and
+   the catalogue's own components. That is why this is a list of elements
+   rather than a width on the container: a container narrow enough for prose
+   would be too narrow for a gallery sheet.
+   -------------------------------------------------------------------------- */
+
+.md-typeset > p,
+.md-typeset > ul,
+.md-typeset > ol,
+.md-typeset > blockquote,
+.md-typeset > h1,
+.md-typeset > h2,
+.md-typeset > h3,
+.md-typeset > h4,
+.md-typeset > .admonition,
+.md-typeset > details {
+  max-width: 33rem;
+  margin-inline: auto;
+}
+
+/* A paragraph that is only an image is not prose. The site's figures are
+   written that way, so the cap has to let them out again, and they have to
+   share the same centre line as the text or the page has two axes and looks
+   as though one of them slipped. */
+.md-typeset > p:has(> img),
+.md-typeset > p:has(> a > img) {
+  max-width: none;
+  text-align: center;
+}
+
+
+/* --------------------------------------------------------------------------
+   Balance on a page with no left navigation
+
+   The home page has no section list under its tab, so Material hides that
+   column entirely and the content column becomes the full width of the page.
+   The prose then sat hard against the left edge with five hundred pixels of
+   nothing between it and the table of contents, which reads as a mistake
+   rather than as a choice.
+
+   Centring each capped block rather than the container is what makes this
+   work on both kinds of page. Where there is a navigation the column is barely
+   wider than the measure, so nothing appears to move; where there is not, the
+   text finds the middle. It also needs no `:has()` and no guess about which
+   page is which: the same rule is correct either way.
+   -------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+   The chrome gets out of the way
+
+   The header and the tab bar were seventy-seven pixels of fully saturated
+   brand blue across the top of every page. On a site whose whole purpose is to
+   show figures, and whose figures are full of deliberate colour chosen from a
+   palette that is legible to a reader with a colour vision deficiency, the
+   loudest thing on the page was the furniture. Chrome that outshouts the
+   content is the definition of decoration.
+
+   So the bar becomes the page: the same surface, a hairline underneath it
+   instead of a block of colour, and the brand blue kept for the things that
+   are actually about the brand or about what the reader can do. The active tab
+   is underlined in it, links are it, the logo carries it. It is used where it
+   means something and nowhere else, which is the same rule the crate applies
+   to ink in a figure.
+
+   This costs nothing in either scheme, because both already have a surface
+   colour and a foreground that meet contrast against each other.
+   -------------------------------------------------------------------------- */
+
+.md-header,
+.md-tabs {
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.md-header {
+  box-shadow: none;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Shadow only once the page has moved under it, so the boundary is a boundary
+   rather than a permanent line of weight. */
+.md-header[data-md-state="shadow"],
+.md-header--shadow {
+  box-shadow: 0 0 0.2rem rgb(0 0 0 / 8%), 0 0.2rem 0.4rem rgb(0 0 0 / 8%);
+}
+
+.md-tabs {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* The tab labels sit at reading weight, and the one you are on is the only one
+   wearing the brand. */
+.md-tabs__link {
+  color: var(--md-default-fg-color--light);
+  opacity: 1;
+}
+
+.md-tabs__link:hover,
+.md-tabs__link:focus {
+  color: var(--md-default-fg-color);
+}
+
+.md-tabs__item--active .md-tabs__link,
+.md-tabs__link--active {
+  color: var(--md-primary-fg-color);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 0 var(--md-primary-fg-color);
+}
+
+/* The search field was a translucent well cut into a coloured bar. On a plain
+   surface it needs its own edge instead. */
+.md-search__form {
+  background-color: var(--md-default-fg-color--lightest);
+  border-radius: 0.3rem;
+}
+
+.md-search__form:hover {
+  background-color: var(--md-default-fg-color--lighter);
+}
+
+.md-search__input,
+.md-search__input::placeholder,
+.md-search__icon {
+  color: var(--md-default-fg-color--light);
+}
+
+/* The repository link and the palette toggle inherited white on blue. */
+.md-header__button,
+.md-header__topic,
+.md-source {
+  color: var(--md-default-fg-color);
+}
+
+.md-header__button:hover {
+  opacity: 0.7;
 }
