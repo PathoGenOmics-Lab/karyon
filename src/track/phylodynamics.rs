@@ -180,13 +180,19 @@ impl Track for PhylodynamicTrack {
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
-        let mut points: Vec<&PhylodynamicPoint> = self
+        // Each survivor is kept beside the value it was transformed to, rather
+        // than transformed again at every use. The second read used to fall
+        // back to the bottom of the domain when it came out empty, which is a
+        // value standing in for the absence of one: an estimate nothing could
+        // be computed from would have been drawn as the smallest estimate in
+        // the panel, and the tooltip beside it would have said otherwise.
+        let mut points: Vec<(&PhylodynamicPoint, f64)> = self
             .points
             .iter()
             .filter(|point| ctx.region.contains(point.time))
-            .filter(|point| self.transformed(point.estimate).is_some())
+            .filter_map(|point| Some((point, self.transformed(point.estimate)?)))
             .collect();
-        points.sort_by_key(|point| point.time);
+        points.sort_by_key(|(point, _)| point.time);
         if points.is_empty() {
             return;
         }
@@ -196,10 +202,8 @@ impl Track for PhylodynamicTrack {
         let plot_bottom = ctx.band.bottom() - ctx.px(7.0);
         let plot_height = (plot_bottom - plot_top).max(2.0);
         let mut values = Vec::new();
-        for point in &points {
-            if let Some(value) = self.transformed(point.estimate) {
-                values.push(value);
-            }
+        for (point, estimate) in &points {
+            values.push(*estimate);
             if self.show_interval {
                 if let Some((lower, upper)) = point.bounds() {
                     if let Some(value) = self.transformed(lower) {
@@ -216,18 +220,38 @@ impl Track for PhylodynamicTrack {
                 values.push(value);
             }
         }
-        let mut minimum = values.iter().copied().fold(f64::MAX, f64::min);
-        let mut maximum = values.iter().copied().fold(f64::MIN, f64::max);
-        if maximum <= minimum {
-            let padding = maximum.abs().max(1.0) * 0.12;
-            minimum -= padding;
-            maximum += padding;
+        let lowest = values.iter().copied().fold(f64::MAX, f64::min);
+        let highest = values.iter().copied().fold(f64::MIN, f64::max);
+        let padding = if highest <= lowest {
+            highest.abs().max(1.0) * 0.12
         } else {
-            let padding = (maximum - minimum) * 0.08;
-            minimum -= padding;
-            maximum += padding;
-        }
-        let y_of = |value: f64| plot_bottom - (value - minimum) / (maximum - minimum) * plot_height;
+            (highest - lowest) * 0.08
+        };
+        // Both ends are widened through the same guard, because both used to
+        // leave the range the same way: an estimate of `f64::MAX` plus any
+        // breathing room at all is infinity, and so is `-f64::MAX` minus it.
+        let minimum = widened(lowest, -padding);
+        let maximum = widened(highest, padding);
+        // The distance between the two ends is not a number in every panel
+        // where both ends are. An estimate of `1e308` above one of `-1e308` is
+        // what a diverged optimiser writes, two ordinary finite numbers, and
+        // their difference overflows on its own. Every coordinate in this
+        // track is a fraction of that distance, so the overflow does not stay
+        // where it happened: it arrives at the writer as `inf / inf`, which is
+        // not a number, in every circle, every ribbon vertex and every axis
+        // label. Halving both ends before subtracting brings them back inside
+        // the range and leaves the fraction exactly the fraction it was, since
+        // halving a double is exact at any magnitude that can overflow. The
+        // factor is one wherever the subtraction already worked, so no panel
+        // that reads correctly today moves by a thousandth of a pixel.
+        let shrink = if (maximum - minimum).is_finite() {
+            1.0
+        } else {
+            0.5
+        };
+        let span = maximum * shrink - minimum * shrink;
+        let y_of =
+            |value: f64| plot_bottom - (value * shrink - minimum * shrink) / span * plot_height;
         let color = self
             .color
             .clone()
@@ -236,7 +260,22 @@ impl Track for PhylodynamicTrack {
         self.draw_header(ctx, &color);
         for index in 0..=3 {
             let fraction = index as f64 / 3.0;
-            let transformed = minimum + fraction * (maximum - minimum);
+            let transformed = (minimum * shrink + fraction * span) / shrink;
+            let original = match self.scale {
+                PhylodynamicScale::Linear => transformed,
+                PhylodynamicScale::Log10 => 10f64.powf(transformed),
+            };
+            // A rule is a promise that this height means this value, so a rule
+            // whose value cannot be written is a promise this track cannot
+            // keep. The log axis is where it happens: raising ten to the top of
+            // a domain that reaches `f64::MAX` overflows, and the rule used to
+            // be drawn anyway, labelled `inf`. Nothing above the largest number
+            // there is can be named, and an axis that names it anyway is a
+            // figure that will be read and believed. The bottom of the domain
+            // always survives this, so the panel is never left with no scale.
+            if !original.is_finite() {
+                continue;
+            }
             let y = y_of(transformed);
             ctx.svg.line(
                 ctx.band.x,
@@ -246,10 +285,6 @@ impl Track for PhylodynamicTrack {
                 &ctx.theme.rule,
                 ctx.theme.tokens.hairline,
             );
-            let original = match self.scale {
-                PhylodynamicScale::Linear => transformed,
-                PhylodynamicScale::Log10 => 10f64.powf(transformed),
-            };
             let label = if self.unit.is_empty() {
                 text_rounded(original, 3)
             } else {
@@ -297,7 +332,7 @@ impl Track for PhylodynamicTrack {
         if self.show_interval {
             let mut segments = Vec::<Vec<(f64, f64, f64)>>::new();
             let mut segment = Vec::new();
-            for point in &points {
+            for (point, _) in &points {
                 let transformed_bounds = point.bounds().and_then(|(lower, upper)| {
                     Some((self.transformed(lower)?, self.transformed(upper)?))
                 });
@@ -327,18 +362,13 @@ impl Track for PhylodynamicTrack {
 
         let line: Vec<(f64, f64)> = points
             .iter()
-            .filter_map(|point| {
-                Some((
-                    ctx.scale.x_center(point.time),
-                    y_of(self.transformed(point.estimate)?),
-                ))
-            })
+            .map(|(point, estimate)| (ctx.scale.x_center(point.time), y_of(*estimate)))
             .collect();
         ctx.svg
             .polyline(&line, &color, ctx.theme.tokens.stroke.max(1.8));
-        for point in points {
+        for (point, estimate) in points {
             let x = ctx.scale.x_center(point.time);
-            let y = y_of(self.transformed(point.estimate).unwrap_or(minimum));
+            let y = y_of(estimate);
             ctx.svg.begin_titled(&point_title(point, &self.unit));
             if self.show_points {
                 ctx.svg.circle_ringed(
@@ -385,6 +415,24 @@ impl PhylodynamicTrack {
             size,
             Anchor::Start,
         );
+    }
+}
+
+/// Moves one end of the value domain out by `padding`, staying in range.
+///
+/// The padding is breathing room around the data rather than part of it, so an
+/// end that cannot move that far stays where the data left it. Moving it anyway
+/// is how a panel of real estimates came to be drawn as an empty box: an end of
+/// `f64::MAX` widened by a fraction of itself is infinity, every height in the
+/// track is measured against that end, and a height that is not a number is
+/// dropped by the writer rather than guessed at. The trajectory disappeared and
+/// its tooltips stayed, promising values with nothing under them.
+fn widened(bound: f64, padding: f64) -> f64 {
+    let widened = bound + padding;
+    if widened.is_finite() {
+        widened
+    } else {
+        bound
     }
 }
 
@@ -466,5 +514,110 @@ mod tests {
             .to_svg();
         assert!(!svg.contains("uncertainty interval"), "{svg}");
         assert!(svg.contains("estimate 4"), "{svg}");
+    }
+
+    /// The height of every mark in the document, in the order it was drawn.
+    fn marker_heights(svg: &str) -> Vec<f64> {
+        svg.split("cy=\"")
+            .skip(1)
+            .filter_map(|piece| piece.split('"').next()?.parse().ok())
+            .collect()
+    }
+
+    /// Every vertex of the uncertainty ribbon, in the order it is visited.
+    fn ribbon_vertices(svg: &str) -> Vec<(f64, f64)> {
+        let d = svg
+            .split("uncertainty interval</title>")
+            .nth(1)
+            .and_then(|rest| rest.split("d=\"").nth(1))
+            .and_then(|rest| rest.split('"').next())
+            .expect("the ribbon is drawn");
+        let numbers: Vec<f64> = d
+            .split(' ')
+            .filter_map(|piece| piece.parse::<f64>().ok())
+            .collect();
+        numbers
+            .chunks_exact(2)
+            .map(|two| (two[0], two[1]))
+            .collect()
+    }
+
+    #[test]
+    fn padding_that_would_leave_the_range_leaves_the_domain_where_the_data_left_it() {
+        // The breathing room around the data is a twelfth of it, and a twelfth
+        // more than `f64::MAX` is infinity. The domain then had an end that was
+        // not a number, every height in the panel is measured against that end,
+        // and both estimates came out at the same fraction of an infinite
+        // distance: two values as far apart as doubles go, drawn on one line at
+        // the floor of the track, under an axis with no rules left on it.
+        let figure = Figure::new(Region::new("time", 0, 4).unwrap())
+            .show_region_label(false)
+            .push(PhylodynamicTrack::new(vec![
+                PhylodynamicPoint::new(1, 0.0),
+                PhylodynamicPoint::new(3, f64::MAX),
+            ]));
+        let svg = figure.to_svg();
+        let heights = marker_heights(&svg);
+        assert_eq!(heights.len(), 4, "two ringed markers, two circles each");
+        assert!(
+            heights[0] > heights[3] + 1.0,
+            "nought is drawn at {} and f64::MAX at {}",
+            heights[0],
+            heights[3]
+        );
+        // Four rules, and the top one names the largest number there is.
+        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 4, "{svg}");
+        assert!(svg.contains(">1.7976931348623157e308<"), "{svg}");
+    }
+
+    #[test]
+    fn a_domain_too_wide_to_subtract_still_draws_every_point_and_its_ribbon() {
+        // `1e308` above `-1e308` is two ordinary finite estimates whose distance
+        // is not a finite number, which is what a diverged optimiser writes. The
+        // circles and the axis went quiet, because the writer drops a coordinate
+        // that is not a number rather than guessing one, and the ribbon did not:
+        // a path has no such guard, so the vertex was written as the nought that
+        // stands for an unwritable number and the interval was painted from the
+        // trajectory to the top of the sheet, over the track above it.
+        let figure = Figure::new(Region::new("time", 0, 4).unwrap())
+            .show_region_label(false)
+            .push(PhylodynamicTrack::new(vec![
+                PhylodynamicPoint::new(1, -1e308).interval(-1e308, 0.0),
+                PhylodynamicPoint::new(2, 5.0).interval(0.0, 1e308),
+                PhylodynamicPoint::new(3, 1e308),
+            ]));
+        let (_, height) = figure.dimensions();
+        let svg = figure.to_svg();
+        assert_eq!(svg.matches("<circle").count(), 6, "{svg}");
+        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 4, "{svg}");
+        for (x, y) in ribbon_vertices(&svg) {
+            assert!(
+                x > 0.0 && y > 0.0 && y <= height,
+                "a ribbon vertex at {x},{y} on a figure {height} tall"
+            );
+        }
+        assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    #[test]
+    fn a_log_axis_draws_no_rule_it_cannot_name() {
+        // Ten raised to the top of a log domain that reaches `f64::MAX` is
+        // infinity, and the rule at that height used to be drawn and labelled
+        // with it. A missing rule costs the reader a gridline; a rule reading
+        // `inf` costs them the figure, because it is a number they will believe.
+        // The three rules below it are all nameable and all still there.
+        let svg = Figure::new(Region::new("time", 0, 4).unwrap())
+            .show_region_label(false)
+            .push(
+                PhylodynamicTrack::new(vec![
+                    PhylodynamicPoint::new(1, 1.0),
+                    PhylodynamicPoint::new(3, f64::MAX),
+                ])
+                .scale(PhylodynamicScale::Log10),
+            )
+            .to_svg();
+        assert!(!svg.contains("inf"), "{svg}");
+        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 3, "{svg}");
+        assert_eq!(svg.matches("<circle").count(), 4, "{svg}");
     }
 }
