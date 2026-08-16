@@ -99,7 +99,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Pinned to the version Cargo.toml advertises. That number is 1.74 because
       # this manifest configures missing_docs through the [lints] table, and
       # 1.74 is the release whose Cargo learned to read it; on anything older
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # Every example, not a selection of them. Six were missing from this
       # list, so six figures could drift without the gate noticing, which is
@@ -218,7 +218,7 @@ jobs:
               --output "visual-gallery/${name}.png" "$figure"
           done
       - name: Upload visual gallery
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: visual-gallery
           path: visual-gallery/*.png
