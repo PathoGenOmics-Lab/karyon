@@ -66,9 +66,29 @@ impl SurveillanceObservation {
         self
     }
 
-    /// Returns the observed frequency when the denominator is positive.
+    /// Whether the two numbers can be read as a frequency at all.
+    ///
+    /// A part cannot exceed its whole, so a count above its total is not a
+    /// frequency, it is a table whose numerator and denominator came from
+    /// different places. That happens: two files joined on a date, a
+    /// denominator counted over a week and a numerator over a day.
+    ///
+    /// The coordinates on a [`Map`](crate::Map) answer the same question the
+    /// same way, and for the same reason. Nothing here repairs the numbers,
+    /// because a repaired number is a claim nobody made.
+    pub fn is_drawable(&self) -> bool {
+        self.total > 0 && self.count <= self.total
+    }
+
+    /// Returns the observed frequency, when the two numbers are one.
+    ///
+    /// `None` rather than a number above one, which the frequency axis has no
+    /// room for: it runs from nought to one, so a frequency of two and a half
+    /// used to be drawn a hundred pixels above the top of the figure, where
+    /// the track's own clip hid it and nothing counted it.
     pub fn frequency(&self) -> Option<f64> {
-        (self.total > 0).then_some(self.count as f64 / self.total as f64)
+        self.is_drawable()
+            .then_some(self.count as f64 / self.total as f64)
     }
 }
 
@@ -161,13 +181,34 @@ impl SurveillanceTrack {
         &self.observations
     }
 
+    /// How many observations this track cannot place, and so does not draw.
+    ///
+    /// The count depends on the metric, unlike the equivalent on a
+    /// [`Map`](crate::Map), because the two numbers are read differently:
+    /// against a frequency axis a count above its total is impossible, and
+    /// counted as a count it is merely a count. Only the first is undrawable.
+    ///
+    /// This does not include an observation outside the drawn region, or one
+    /// held back by [`minimum_total`](SurveillanceTrack::minimum_total). Those
+    /// are choices about what to show. This is data that cannot be shown.
+    pub fn undrawable_observation_count(&self) -> usize {
+        match self.metric {
+            SurveillanceMetric::Frequency => self
+                .observations
+                .iter()
+                .filter(|observation| !observation.is_drawable())
+                .count(),
+            SurveillanceMetric::Count => 0,
+        }
+    }
+
     fn valid_observations(&self, ctx: &DrawContext<'_>) -> Vec<&SurveillanceObservation> {
         self.observations
             .iter()
             .filter(|observation| ctx.region.contains(observation.time))
             .filter(|observation| observation.total >= self.minimum_total)
             .filter(|observation| match self.metric {
-                SurveillanceMetric::Frequency => observation.total > 0,
+                SurveillanceMetric::Frequency => observation.is_drawable(),
                 SurveillanceMetric::Count => true,
             })
             .collect()
@@ -353,6 +394,47 @@ impl Track for SurveillanceTrack {
                     }
                     draw_surveillance_line(ctx, lineage_index, &segment);
                 }
+            }
+        }
+
+        // An observation that cannot be read as a frequency never reaches the
+        // loop below, because `valid_observations` drops it. Dropping it
+        // quietly is the part that was wrong: it used to be drawn at a
+        // frequency above one, which on an axis that stops at one put it above
+        // the top of the figure, where this track's own clip hid it. Nobody
+        // counts the dots on a plot against the rows of their table.
+        //
+        // It gets the same muted diamond the unjoinable and unstackable ones
+        // get, at the time it was observed, carrying its own numbers. That is
+        // this file's existing way of saying "here is something I did not
+        // draw", and a second way of saying it would be one more thing to
+        // keep right.
+        if self.metric == SurveillanceMetric::Frequency {
+            for observation in self
+                .observations
+                .iter()
+                .filter(|observation| ctx.region.contains(observation.time))
+                .filter(|observation| !observation.is_drawable())
+            {
+                let reason = if observation.total == 0 {
+                    "no denominator, so there is no frequency"
+                } else {
+                    "a count above its total is not a frequency"
+                };
+                ctx.svg.begin_titled(&format!(
+                    "{reason} | {}",
+                    observation_title(observation, None, None, None)
+                ));
+                ctx.svg.symbol_ringed(
+                    ctx.scale.x_center(observation.time),
+                    top + ctx.px(5.0),
+                    ctx.px(2.7),
+                    Symbol::Diamond,
+                    &ctx.theme.muted,
+                    ctx.theme.surface(),
+                    ctx.px(0.8),
+                );
+                ctx.svg.end_group();
             }
         }
 
@@ -562,6 +644,55 @@ mod tests {
     use crate::{Figure, Region};
 
     #[test]
+    fn a_count_above_its_total_is_counted_rather_than_drawn_off_the_page() {
+        // A part cannot exceed its whole, and a table where the numerator and
+        // the denominator came from different files can still say it does. The
+        // frequency axis runs from nought to one, so 250 out of 100 used to be
+        // placed a hundred pixels above the top of the whole figure, where this
+        // track's own clip hid it and nothing counted it.
+        let track = SurveillanceTrack::new(vec![
+            SurveillanceObservation::new(10, "A", 5, 100),
+            SurveillanceObservation::new(20, "A", 250, 100),
+            SurveillanceObservation::new(25, "A", 7, 0),
+            SurveillanceObservation::new(30, "A", 40, 100),
+        ])
+        .style(SurveillanceStyle::Lines);
+
+        assert_eq!(track.undrawable_observation_count(), 2);
+        assert_eq!(
+            SurveillanceObservation::new(0, "A", 250, 100).frequency(),
+            None
+        );
+
+        let figure = Figure::new(Region::new("time", 0, 40).unwrap()).push(track);
+        let (_, height) = figure.dimensions();
+        let svg = figure.to_svg();
+
+        // Nothing is placed outside the figure it belongs to.
+        for piece in svg.split("cy=\"").skip(1) {
+            let y: f64 = piece
+                .split('"')
+                .next()
+                .and_then(|value| value.parse().ok())
+                .expect("every cy is a number");
+            assert!(
+                (0.0..=height).contains(&y),
+                "a mark sits at {y} on a figure {height} tall"
+            );
+        }
+
+        // And what it did not draw, it says.
+        assert!(
+            svg.contains("a count above its total is not a frequency"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("no denominator, so there is no frequency"),
+            "{svg}"
+        );
+    }
+
+    #[test]
     fn stacked_surveillance_keeps_counts_denominators_and_alert_reasons() {
         let observations = vec![
             SurveillanceObservation::new(1, "A", 90, 100),
@@ -596,7 +727,19 @@ mod tests {
                 .minimum_total(10),
             )
             .to_svg();
-        assert!(!svg.contains("zero | time"), "{svg}");
+        // The two omissions are not the same kind, and the difference is the
+        // point of the name. A denominator of nought is data that cannot be
+        // read as a frequency, so it is drawn as a muted diamond carrying its
+        // own numbers and its reason: it used to vanish, which is what this
+        // test asserted before the numbers it could not use were counted.
+        //
+        // A total below the sampling floor is the caller's own filter. Nothing
+        // is wrong with those numbers and nothing is hidden from anyone who
+        // set the floor, so that one stays out of the document.
+        assert!(
+            svg.contains("no denominator, so there is no frequency | zero | time 1"),
+            "{svg}"
+        );
         assert!(!svg.contains("thin | time"), "{svg}");
         assert!(svg.contains("kept | time 3"), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");

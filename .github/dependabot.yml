@@ -129,6 +129,20 @@ updates:
     labels: ["dependencies", "github-actions"]
     commit-message:
       prefix: "actions"
+    # `dtolnay/rust-toolchain@1.74` is pinned to a compiler version rather than
+    # to an action version. It is the oldest Rust the crate claims to build on,
+    # the number `Cargo.toml` promises as `rust-version`, and the whole point of
+    # the job that uses it. Dependabot cannot tell those apart and opened a pull
+    # request moving it to 1.100, which would have left that job compiling on
+    # 1.100 and passing trivially while the manifest went on advertising 1.74.
+    #
+    # It was caught rather than merged, by the step in ci.yml that reads
+    # `rust-version` out of `Cargo.toml` and fails when the two numbers no
+    # longer agree. This ignore stops it being proposed again every month. The
+    # day 1.74 is genuinely dropped, both numbers move together, which is what
+    # that guard exists to insist on.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
     groups:
       actions-routine:
         patterns: ["*"]
