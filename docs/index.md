@@ -10,30 +10,114 @@ hide:
 
 # karyon
 
-Genomic track plots for Rust. A stack of tracks over one shared coordinate
-axis, rendered to standalone SVG.
+Genomic figures, as a Rust library and as a command. You name a region once and
+everything you add draws itself on that region, so the rows line up without
+being positioned. What comes out is one standalone SVG.
 
 </div>
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+## The same four rows, twice
 
-A general plotting library knows about points and lines. It does not know that a
-position is a base, that a gene has a strand, or that a figure stops being worth
-anything the moment its tracks stop lining up. `karyon` is the small amount of
-code that does. Thirty-three track types, one shared coordinate axis, plain SVG
-1.1, and no dependencies at all.
+<figure markdown>
+![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg)
+<figcaption><code>NC_000962.3:761000-762999</code>, two thousand bases</figcaption>
+</figure>
+
+<figure markdown>
+![The same locus over sixty bases: the depth profile, the reference sequence drawn as coloured letters, three variant lollipops standing on the bases they call, and a ruler underneath](assets/figures/example-zoom.svg)
+<figcaption><code>NC_000962.3:761121-761180</code>, sixty bases</figcaption>
+</figure>
+
+Depth, reference, variants. The same three rows in both, from the same arrays,
+and `Variant::new(761_154)` is the same line of code in both. The reference row
+in the first figure says to zoom in; the second is what that looks like when you
+do. Both come out of one run of `examples/locus.rs`.
+
+That is the whole idea. A row is handed its numbers and the window works out
+where they go, so a box lands inside its gene and a lollipop lands inside its
+box without anything being told to. Move the window and they move together.
+
+## What it looks like to write
+
+```rust
+use karyon::{plot, Aggregate};
+
+plot("NC_000962.3:761000-762999")?
+    .title("rpoB locus, resistance determining region")
+    .add_coverage(depth)
+    .label("depth")
+    .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
+    .add_sequence(bases)
+    .label("reference")
+    .add_features(genes)
+    .label("annotation")
+    .add_variants(variants)
+    .label("variants")
+    .save("example.svg")?;
+```
+
+That is the program that drew the first figure, with nothing left out. Four
+things in it were never asked for: the ruler along the bottom, the depth axis,
+the window printed in the corner, and the key naming which colour is *missense*.
+Neither was the `<title>` and `<desc>` a screen reader is given instead of
+several thousand unnamed rectangles.
+
+`Aggregate::Min` is the one decision worth pointing at. At this width a pixel
+covers more than one base, so a row has to choose what to show, and a maximum
+would have smoothed the dropout away, which is the thing the figure is about.
+
+!!! warning "One trap, said here rather than found later"
+    `add_coverage` anchors its first value at the left edge of the window. That
+    is what you want when the array starts there, and it is wrong the moment it
+    does not: change the region string alone and the array silently re-anchors,
+    which draws a figure that looks right. `add_coverage_at(start, values)` says
+    where the data actually begins, and is the form to reach for whenever the
+    window and the array are not the same span.
+
+## What it will not do
+
+It does not read BAM, CRAM or BCF. Those come in through a pipe, because
+`samtools` and `bcftools` already write what its readers take:
+
+```bash
+samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
+  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
+```
+
+It is not on crates.io yet, so both the library and the command install from
+this repository. And it does not resample, smooth or interpolate: a row draws
+the numbers it was given, or says that it could not.
+
+## Everything else it draws
+
+<details class="track-overview">
+  <summary>Thirty-three track types, twenty-two panels, one sheet</summary>
+  <img src="assets/figures/gallery.svg" loading="lazy" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
+</details>
+
+They compose the way the four above do: one call each, in the order they stack.
+A phylogeny is a track and so are its sample traits. A circular chromosome and a
+world map are containers of their own, because a sequence with no ends cannot be
+drawn as a line without inventing one.
+
+The count is thirty-three because three were removed. Every track has to answer
+one question, *does drawing it read the shared scale*, and three that could not
+were taken out rather than kept for the sake of a longer list.
+[Extending](how-it-works/extending.md) has that test and what a new track owes.
+
+## Where to go
 
 <div class="grid cards" markdown>
-
--   :material-download: **[Installation](getting-started/installation.md)**
-
-    Point Cargo at the repository for the library, `cargo install` for the
-    command. Nothing else to install alongside it.
 
 -   :material-rocket-launch: **[Quickstart](getting-started/quickstart.md)**
 
     A first figure in a dozen lines, and the same figure without writing any
     Rust.
+
+-   :material-download: **[Installation](getting-started/installation.md)**
+
+    Point Cargo at the repository for the library, `cargo install` for the
+    command. Nothing else to install alongside it.
 
 -   :material-view-grid-outline: **[Plot catalogue](plots/index.md)**
 
@@ -82,49 +166,10 @@ code that does. Thirty-three track types, one shared coordinate axis, plain SVG
 
 </div>
 
-## The figure above, in full
-
-```rust
-use karyon::{plot, Aggregate, Feature, Strand, Variant};
-
-plot("NC_000962.3:761000-762999")?
-    .title("rpoB locus, resistance determining region")
-    .add_coverage(depth)
-    .label("depth")
-    .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
-    .add_sequence(bases)
-    .label("reference")
-    .add_features(vec![
-        Feature::new(759_806, 763_325)
-            .name("rpoB")
-            .strand(Strand::Forward),
-        Feature::new(761_081, 761_162)
-            .name("RRDR")
-            .strand(Strand::Forward)
-            .color("#d55e00"),
-    ])
-    .label("annotation")
-    .add_variants(vec![
-        Variant::new(761_108).value(0.98).category("missense"),
-        Variant::new(761_138).value(0.55).category("missense"),
-        Variant::new(761_154).value(1.00).category("missense"),
-        Variant::new(761_155).value(0.21).category("synonymous"),
-        Variant::new(761_051).value(0.12).category("synonymous"),
-    ])
-    .label("variants")
-    .save("example.svg")?;
-```
-
-The thing to notice is that nothing in there positions anything: the box over
-the resistance determining region and the lollipops standing inside it line up
-without being told to, and the dropout in the depth track falls exactly where
-the depth values put it, because every track maps its data through the one scale
-the region defines. The ruler along the bottom was added without being asked
-for. This is `examples/locus.rs`, which renders the figure above.
-
 !!! note "Two coordinate systems, on purpose"
-    The locus string is the 1-based inclusive form samtools and IGV use, and so
+    The region string is the 1-based inclusive form samtools and IGV use, and so
     are the tick labels, because those are the two numbers a person reads.
-    Everything else, `Feature::new` and `Variant::new` among them, is 0-based
-    and half-open like BED, so a VCF `POS` goes in as `POS - 1`.
+    Everything else, `Feature::new` and `Variant::new` among them, is 0-based and
+    half-open like BED, so a VCF `POS` goes in as `POS - 1`.
+    [`karyon::read`](guide/formats.md) does that subtraction for you, and
     [Coordinates](how-it-works/coordinates.md) has the whole of it.
