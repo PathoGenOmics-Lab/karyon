@@ -1,5 +1,9 @@
 # Geographic genomics
 
+!!! info "Library only"
+    Everything on this page is the Rust library. There is no map flag on the
+    command line.
+
 Karyon can draw supplied sample locations, geographic links and a circular
 phylogeny around a map. Geography has its own coordinate system, so `Map` and
 `PhyloMap` are complete `Drawing` implementations rather than genomic tracks.

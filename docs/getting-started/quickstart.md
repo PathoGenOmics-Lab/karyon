@@ -117,9 +117,19 @@ The command line front end installs from the same repository:
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
-It is the same grammar with spaces instead of dots. Each track flag starts a
-track and the flags after it describe that one, so **the order of the flags is
-the order of the stack**:
+It is the same grammar with spaces instead of dots, for the thirteen track
+types that have a file to read.
+
+The command below names three files you do not have yet. If you want something
+that runs this second, this makes its own input and needs nothing else:
+
+```bash
+seq 1 60 | awk '{print "chr1\t" $1 "\t" (20 + $1 % 7)}' > depth.txt
+karyon chr1:1-60 --coverage depth.txt --label depth -o first.svg
+```
+
+Each track flag starts a track and the flags after it describe that one, so
+**the order of the flags is the order of the stack**:
 
 ```bash
 karyon NC_000962.3:761,121-761,180 \

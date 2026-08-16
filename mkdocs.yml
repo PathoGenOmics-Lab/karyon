@@ -84,7 +84,10 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      toc_depth: 2
+      # 3 rather than 2: every one of the 33 track entries and every one of
+      # the 16 recipes is an H3, so at 2 the sidebar contents on the two
+      # longest pages listed their section headings and none of their contents.
+      toc_depth: 3
   - pymdownx.betterem
   - pymdownx.caret
   - pymdownx.keys

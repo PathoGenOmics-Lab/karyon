@@ -1,5 +1,10 @@
 # Annotated phylogenetics
 
+!!! info "Library only"
+    Everything on this page is the Rust library. The command's `--tree` draws an
+    unannotated topology and its tip labels; dates, trait columns, branch colours,
+    rerooting and collapsing are not reachable from a shell.
+
 Karyon can keep metadata inside a phylogeny, manipulate its topology and draw
 the result on evolutionary distance or calendar time. Rectangular, radial and
 unrooted projections use the same topology and values. The same metadata can

@@ -56,8 +56,10 @@ plot("NC_000962.3:761000-762999")?
     .save("example.svg")?;
 ```
 
-That is the program that drew the first figure, with nothing left out. Four
-things in it were never asked for: the ruler along the bottom, the depth axis,
+That is the chain that drew the first figure, unedited. It is not a whole
+program: `depth`, `bases`, `genes` and `variants` are built above it, and
+[`examples/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/locus.rs)
+is the file that runs. Four things in it were never asked for: the ruler along the bottom, the depth axis,
 the window printed in the corner, and the key naming which colour is *missense*.
 Neither was the `<title>` and `<desc>` a screen reader is given instead of
 several thousand unnamed rectangles.
@@ -131,8 +133,9 @@ were taken out rather than kept for the sake of a longer list.
 
 -   :material-console: **[Command line](guide/cli.md)**
 
-    The same grammar with spaces instead of dots. Flag order is stack order,
-    and any track file may be `-`, so the pipeline is the parser.
+    The same grammar with spaces instead of dots, for the thirteen tracks that
+    have a file to read. Flag order is stack order, and any track file may be
+    `-`, so the pipeline is the parser.
 
 -   :material-file-document-outline: **[File formats](guide/formats.md)**
 
