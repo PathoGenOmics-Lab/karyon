@@ -42,11 +42,11 @@ hide:
       <textarea id="pg-file" class="pg-code pg-body" spellcheck="false" aria-label="File contents"></textarea>
     </section>
 
-    <div class="pg-split" id="pg-split" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize the panes"></div>
+    <div class="pg-split" id="pg-split" role="separator" aria-orientation="vertical" aria-valuenow="38" aria-valuemin="20" aria-valuemax="75" tabindex="0" aria-label="Resize the panes"></div>
 
     <section class="pg-view" aria-label="Figure">
-      <div class="pg-plot" id="pg-plot"></div>
-      <div class="pg-foot"><span class="pg-status" id="pg-status">loading the program…</span></div>
+      <div class="pg-plot" id="pg-plot" role="img" aria-label="The figure this command draws"></div>
+      <div class="pg-foot"><span class="pg-status" id="pg-status" role="status" aria-live="polite">loading the program…</span></div>
     </section>
   </div>
 </div>

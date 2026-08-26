@@ -249,6 +249,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Closing a file tab wrote the closed file's text into whichever file took its
+  place. The editor remembered which file it held by position, and removing one
+  shifts every file after it down, so the save that runs on the way out landed
+  on the wrong object: closing `depth.bg` left `genes.gff3` holding a bedGraph.
+  It remembers the file itself now, so a file that has gone is not written to
+  and one that has moved still gets its own text.
+- The splitter announced itself as a separator with a value and answered to no
+  key at all. Arrows move it, Shift moves it further, Home and End take it to
+  its ends, and it reports where it is. Its orientation follows the layout
+  rather than being frozen at whichever one the page opened in.
+- Interactive turned on a pan and zoom no keyboard could reach: only the home
+  page's figure had keys. The playground's figure joins the tab order while it
+  is interactive and leaves it when it is not, and answers to the same keys.
+  Its wheel now waits for focus too, so a wheel over it scrolls the page.
+- A refusal in the playground was announced to nobody. The status line is a
+  live region, as the home page's already was.
+- A file could not be removed without a pointer, and the close control being a
+  span inside the tab made every tab's name read as "depth.bg times". It is a
+  button with its own name, the tab carries its own, and F2 renames a file and
+  Delete removes one.
+- The grabbing cursor vanished a pixel into a drag, because a redraw rewrote
+  the whole class attribute and took `pg-dragging` with it.
 - A region the pan and zoom arithmetic was happy to reach stopped the program
   dead, and the page said nothing. `MAX_SPAN` was `1 << 32`, which the comment
   beside it called "below the point where the buffer cannot be allocated";

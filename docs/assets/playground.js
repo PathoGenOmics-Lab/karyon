@@ -462,7 +462,12 @@
     var answer = K.run(el.command.value, files, el.plot.clientWidth - 24);
 
     if (answer.ok) {
-      el.plot.className = "pg-plot" + (el.live.checked ? " pg-live" : "");
+      // Rebuilt rather than reassigned: writing the whole attribute took
+      // `pg-dragging` off one pixel into a drag, so the grabbing cursor
+      // flickered back to a hand for the rest of it.
+      el.plot.classList.remove("pg-failed");
+      el.plot.classList.add("pg-plot");
+      el.plot.classList.toggle("pg-live", el.live.checked);
       el.plot.innerHTML = answer.body;
       drawn = answer.body;
       var where = K.locus(el.command.value);
@@ -503,6 +508,9 @@
   function interactive(on) {
     el.plot.classList.toggle("pg-live", on);
     el.reset.disabled = !on;
+    // Reachable only while it does something, so a reader tabbing past a
+    // static figure is not stopped at it for nothing.
+    el.plot.tabIndex = on ? 0 : -1;
   }
 
   function onDown(event) {
@@ -530,7 +538,9 @@
   }
 
   function onWheel(event) {
-    if (!el.live.checked) return;
+    // Only once the figure has focus, so a wheel over a figure nobody has
+    // clicked scrolls the page rather than being eaten by it.
+    if (!el.live.checked || document.activeElement !== el.plot) return;
     event.preventDefault();
     var box = el.plot.getBoundingClientRect();
     var at = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
@@ -541,14 +551,17 @@
   // Files, as tabs
   // ---------------------------------------------------------------------
 
-  // Which file the editor is holding, which is not always the selected one:
-  // it is nothing at all until a file has been put in it. Saving without that
-  // distinction writes an empty editor over the first file of every example
-  // the moment it is loaded.
-  var showing = -1;
+  // The file the editor is holding, and the file itself rather than where it
+  // sits. Two reasons. It is nothing at all until a file has been put in it,
+  // and saving without that wrote an empty editor over the first file of every
+  // example the moment it loaded. And a position is not an identity: closing
+  // the open tab shifted every file after it down one, so the save that ran on
+  // the way out wrote the closed file's text into whichever file had taken its
+  // place. Closing `depth.bg` left `genes.gff3` holding a bedGraph.
+  var showing = null;
 
   function save() {
-    if (showing >= 0 && files[showing]) files[showing].body = el.file.value;
+    if (showing && files.indexOf(showing) >= 0) showing.body = el.file.value;
   }
 
   function show(index) {
@@ -556,7 +569,7 @@
     active = Math.max(0, Math.min(index, files.length - 1));
     el.file.value = files.length ? files[active].body : "";
     el.file.disabled = !files.length;
-    showing = files.length ? active : -1;
+    showing = files.length ? files[active] : null;
     tabs();
   }
 
@@ -569,22 +582,44 @@
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", index === active ? "true" : "false");
       tab.textContent = file.name;
+      // The close control lives inside the tab, so without this the tab's own
+      // name is read out as "depth.bg times".
+      tab.setAttribute("aria-label", file.name);
+      tab.title = file.name + "  (F2 renames, Delete removes)";
       tab.addEventListener("click", function () { show(index); });
-      // A double click renames it, since the name is what the command calls it
-      // by and a file nobody can rename is a file with the wrong name.
-      tab.addEventListener("dblclick", function () {
+
+      var rename = function () {
         var name = prompt("Name of this file, as the command calls it", file.name);
         if (name) { file.name = name.trim(); tabs(); draw(); }
-      });
-      var shut = document.createElement("span");
-      shut.className = "pg-shut";
-      shut.textContent = "×";
-      shut.title = "Remove " + file.name;
-      shut.addEventListener("click", function (event) {
-        event.stopPropagation();
+      };
+      var drop = function () {
         files.splice(index, 1);
         show(Math.min(active, files.length - 1));
         draw();
+        var next = el.tabs.querySelector(".pg-tab");
+        if (next) next.focus();
+      };
+
+      // A double click renames it, which is what a pointer expects, and F2
+      // does the same, which is what every file list in the world uses: the
+      // name is what the command calls the file by, and renaming it was bound
+      // to a gesture a keyboard cannot make.
+      tab.addEventListener("dblclick", rename);
+      tab.addEventListener("keydown", function (event) {
+        if (event.key === "F2") { event.preventDefault(); rename(); }
+        else if (event.key === "Delete") { event.preventDefault(); drop(); }
+      });
+
+      // A button rather than a span, so it is in the tab order and answers to
+      // Enter: a file could not be removed without a pointer at all.
+      var shut = document.createElement("button");
+      shut.type = "button";
+      shut.className = "pg-shut";
+      shut.textContent = "×";
+      shut.setAttribute("aria-label", "Remove " + file.name);
+      shut.addEventListener("click", function (event) {
+        event.stopPropagation();
+        drop();
       });
       tab.appendChild(shut);
       el.tabs.appendChild(tab);
@@ -611,7 +646,7 @@
     el.command.value = example.command;
     // The editor is holding the last example's file, not this one's, so it
     // has nothing to save.
-    showing = -1;
+    showing = null;
     files = (example.make ? example.make() : example.files).map(function (file) {
       return { name: file.name, body: file.body };
     });
@@ -769,6 +804,31 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
+  // Where the splitter sits, as a number, so the keyboard and the pointer move
+  // the same thing and the element can say where it is.
+  var at = 38;
+
+  function setSplit(fraction) {
+    at = Math.min(75, Math.max(20, fraction));
+    el.panes.style.setProperty("--pg-split", at.toFixed(1) + "%");
+    el.split.setAttribute("aria-valuenow", String(Math.round(at)));
+    draw();
+  }
+
+  function splitKeys(event) {
+    // It announced itself as a separator with a value and answered to no key
+    // at all, which is a control that says it can be adjusted and cannot.
+    var stacked = el.panes.classList.contains("pg-stacked");
+    var less = stacked ? "ArrowUp" : "ArrowLeft";
+    var more = stacked ? "ArrowDown" : "ArrowRight";
+    if (event.key === less) setSplit(at - (event.shiftKey ? 10 : 2));
+    else if (event.key === more) setSplit(at + (event.shiftKey ? 10 : 2));
+    else if (event.key === "Home") setSplit(20);
+    else if (event.key === "End") setSplit(75);
+    else return;
+    event.preventDefault();
+  }
+
   function dragSplit() {
     var moving = false;
     el.split.addEventListener("pointerdown", function (event) {
@@ -782,9 +842,7 @@
       var fraction = stacked
         ? (event.clientY - box.top) / box.height
         : (event.clientX - box.left) / box.width;
-      fraction = Math.min(0.75, Math.max(0.2, fraction));
-      el.panes.style.setProperty("--pg-split", (fraction * 100).toFixed(1) + "%");
-      draw();
+      setSplit(fraction * 100);
     });
     el.split.addEventListener("pointerup", function (event) {
       moving = false;
@@ -848,6 +906,12 @@
     });
     el.layout.addEventListener("click", function () {
       el.panes.classList.toggle("pg-stacked");
+      // The separator's orientation is a fact about the layout, and it was
+      // frozen at the one the page happened to start in.
+      el.split.setAttribute(
+        "aria-orientation",
+        el.panes.classList.contains("pg-stacked") ? "horizontal" : "vertical"
+      );
       draw();
     });
     el.export.addEventListener("click", exportSvg);
@@ -856,6 +920,20 @@
       else if (el.app.requestFullscreen) el.app.requestFullscreen();
     });
     dragSplit();
+    el.split.addEventListener("keydown", splitKeys);
+
+    // The figure answers to the keyboard here as it does on the home page.
+    // Interactive turned on pan and zoom that only a pointer could reach.
+    el.plot.addEventListener("keydown", function (event) {
+      if (!el.live.checked) return;
+      var step = 0.1;
+      if (event.key === "ArrowLeft") move(K.panned(el.command.value, step));
+      else if (event.key === "ArrowRight") move(K.panned(el.command.value, -step));
+      else if (event.key === "+" || event.key === "=") move(K.zoomed(el.command.value, 0.8, 0.5));
+      else if (event.key === "-" || event.key === "_") move(K.zoomed(el.command.value, 1.25, 0.5));
+      else return;
+      event.preventDefault();
+    });
 
     var wide = null;
     window.addEventListener("resize", function () {
