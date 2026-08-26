@@ -111,6 +111,22 @@ jobs:
         run: cargo test
       - name: Test release
         run: cargo test --release
+      # The playground bridge is a crate of its own rather than a member of a
+      # workspace, because it is the one place in the repository that needs raw
+      # pointers and the library forbids them. The root's own commands
+      # therefore do not reach it, and it would go unchecked here.
+      #
+      # The wasm build is checked too, on every pull request, because the site
+      # only builds it on a push to main: without this, a change that stops the
+      # library compiling for wasm passes review and breaks the next publish.
+      - name: Check the playground bridge
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo fmt --manifest-path playground/Cargo.toml -- --check
+          cargo clippy --manifest-path playground/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path playground/Cargo.toml
+          cargo build --release --target wasm32-unknown-unknown \
+            --manifest-path playground/Cargo.toml
       - name: Docs
         run: cargo doc --no-deps
         env:

@@ -131,6 +131,11 @@ were taken out rather than kept for the sake of a longer list.
     One call per track, in the order they stack. What the plot remembers
     between calls, what it fills in, and where the short form stops.
 
+-   :material-play-circle-outline: **[Playground](playground.md)**
+
+    The command line running in your own browser, over files you type into the
+    page. No install, no upload, and it works with the network unplugged.
+
 -   :material-console: **[Command line](guide/cli.md)**
 
     The same grammar with spaces instead of dots, for the twenty-five tracks that
