@@ -8,6 +8,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::bisulfite` reads a `bismark_methylation_extractor` file, which is one
+  row per cytosine per read. The track is a matrix, one shared list of sites and
+  one call per site per molecule indexed by the site's place in that list, and
+  nothing downstream checks that a caller got it right, so a row built by
+  pushing calls in the order the file listed them puts every call after the
+  first gap one column to the left: a methylation pattern that never existed,
+  drawn as cleanly as one that did. Every row is built at the full width and
+  written into by position. Both mates of a pair are one fragment and so one
+  row, and where they overlap and disagree neither call is kept.
+- `read::domain` reads an `InterProScan` table, and its axis is residues rather
+  than bases, which makes it the only track here that is not drawn over a
+  genome. Column one names the row rather than selecting it, as in the locus
+  reader, since the figure is the comparison. The protein's length is column
+  three and is never the furthest domain: a protein whose last annotated domain
+  ends at 300 may run to 800, and a backbone drawn to 300 says the domain
+  reaches the C terminus. `hmmscan --domtblout` is deliberately not read; which
+  of its columns holds the protein depends on which program wrote it, and the
+  only thing that says so is a comment line that goes the moment output is
+  piped.
+- `--bisulfite` and `--domains`, which is twenty-five of the thirty-three track
+  types the command reaches, and eight left in the library.
+- `--context` and `--analysis`, which join `--modification` as the flags that
+  say which of the several things a file holds to draw. All three are one
+  mechanism now, `Kind::selector`, spelled by what is being chosen and
+  exhaustive so that a track added without one cannot silently stack whatever
+  it found.
 - `read::methyl` reads bedMethyl, as `modkit pileup` writes it. Coordinates
   pass straight through, since it counts from nought like BED. Two things a
   pileup writes are not measurements and are refused as such: a position with no

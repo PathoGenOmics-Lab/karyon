@@ -23,11 +23,11 @@ use std::fs;
 use std::io::{self, Read as _};
 
 use crate::{
-    Aggregate, CladeTrack, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LocusTrack,
-    LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
-    PileupTrack, Plot, Region, SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack,
-    SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle,
-    WindowTrack,
+    Aggregate, BisulfiteTrack, CladeTrack, CoverageTrack, DomainTrack, DotplotTrack, FeatureTrack,
+    IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack,
+    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack,
+    SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack,
+    VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -287,6 +287,30 @@ fn fetch(
     Ok((text, name))
 }
 
+/// Which of the several things a file holds this figure is about.
+///
+/// One is the answer, whatever the flag says. Several with none named is
+/// refused rather than taken the first of, since drawing one of them under a
+/// label that names none is the whole of what the flag is for.
+fn chosen(
+    track: &'static str,
+    path: &str,
+    flag: &'static str,
+    held: &std::collections::BTreeMap<String, usize>,
+    asked: &Option<String>,
+) -> Result<String, BuildError> {
+    match (asked, held.len()) {
+        (Some(name), _) => Ok(name.clone()),
+        (None, 1) => Ok(held.keys().next().cloned().unwrap_or_default()),
+        (None, _) => Err(BuildError::Ambiguous {
+            track,
+            path: path.to_string(),
+            flag,
+            choices: held.keys().cloned().collect(),
+        }),
+    }
+}
+
 /// The part of a path a figure has room to print.
 ///
 /// A tanglegram names its two trees after the files they came from, and the
@@ -458,19 +482,10 @@ fn track(
         // axis those are two marks at one position with nothing naming either.
         Kind::Methylation => {
             let held = wrap(name, &path, read::methyl::codes(&text))?;
-            let code = match (&spec.modification, held.len()) {
-                (Some(code), _) => code.clone(),
-                (None, 1) => held.keys().next().cloned().unwrap_or_default(),
-                (None, 0) => return Err(empty("modified bases")),
-                (None, _) => {
-                    return Err(BuildError::Ambiguous {
-                        track: name,
-                        path: path.clone(),
-                        flag: "--modification",
-                        choices: held.keys().cloned().collect(),
-                    })
-                }
-            };
+            if held.is_empty() {
+                return Err(empty("modified bases"));
+            }
+            let code = chosen(name, &path, "--modification", &held, &spec.selects)?;
 
             let found = wrap(name, &path, read::methyl::sites(&text, region, &code))?;
             if found.records == 0 {
@@ -540,6 +555,84 @@ fn track(
             }
             let track = SplitReadTrack::new(found.reads);
             Box::new(named(track, label, SplitReadTrack::label))
+        }
+        // One row per molecule and one column per site. The reader builds the
+        // grid by position, since a call written into the wrong column is a
+        // methylation pattern that never existed, drawn as cleanly as one that
+        // did, and nothing downstream could tell.
+        Kind::Bisulfite => {
+            let held = wrap(name, &path, read::bisulfite::contexts(&text))?;
+            if held.is_empty() {
+                return Err(empty("methylation calls"));
+            }
+            let context = chosen(name, &path, "--context", &held, &spec.selects)?;
+
+            let found = wrap(
+                name,
+                &path,
+                read::bisulfite::molecules(&text, region, &context),
+            )?;
+            if found.molecules.is_empty() || found.sites.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "methylation calls",
+                    held: found.records,
+                    named: context.clone(),
+                    region: region.to_string(),
+                });
+            }
+
+            let track = BisulfiteTrack::new(found.sites, found.molecules);
+            Box::new(match label {
+                Some(label) => track.label(label),
+                None => track.label(context),
+            })
+        }
+        // Protein domains, on an axis of residues rather than of bases. Column
+        // one names the row rather than selecting it, so every protein in the
+        // file is drawn and they share one axis, which is what makes a domain
+        // gained or lost visible at all.
+        Kind::Domains => {
+            let held = wrap(name, &path, read::domain::analyses(&text))?;
+            if held.is_empty() {
+                return Err(empty("domain annotations"));
+            }
+            let analysis = chosen(name, &path, "--analysis", &held, &spec.selects)?;
+
+            let found = wrap(
+                name,
+                &path,
+                read::domain::architectures(&text, region, &analysis),
+            )?;
+            // A protein with no annotated domain is a real row, so an empty
+            // architecture is not the failure here; a file with no protein in
+            // it at all is.
+            if found.rows.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "domain annotations",
+                    held: found.records,
+                    named: analysis.clone(),
+                    region: region.to_string(),
+                });
+            }
+            if found.rows.iter().all(|row| row.features.is_empty()) {
+                return Err(BuildError::Unjoined {
+                    track: name,
+                    path: path.clone(),
+                    what: "domain",
+                    against: "the window",
+                    examples: found.proteins.iter().take(3).cloned().collect(),
+                });
+            }
+
+            let track = DomainTrack::new(found.rows);
+            Box::new(match label {
+                Some(label) => track.label(label),
+                None => track.label(analysis),
+            })
         }
         // Spans plus the taxa carrying them, painted onto a phylogeny that
         // comes from a second file. Every refusal below stands between a

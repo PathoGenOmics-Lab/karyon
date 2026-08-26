@@ -57,7 +57,9 @@ pub mod align;
 pub mod align_pairs;
 #[cfg(test)]
 mod audit;
+pub mod bisulfite;
 pub mod clade;
+pub mod domain;
 pub mod interval;
 pub mod locus;
 pub mod methyl;

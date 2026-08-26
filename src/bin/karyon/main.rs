@@ -73,6 +73,10 @@ TRACKS
                          VCF carrying symbolic alleles or SVTYPE
     --split-reads <FILE> molecules that aligned in pieces, SAM carrying an SA
                          tag; only primary alignments are read
+    --bisulfite <FILE>   methylation one molecule at a time, a Bismark
+                         methylation extractor file; --context says which
+    --domains <FILE>     protein domains on an axis of residues, an
+                         InterProScan table; --analysis says which
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it
@@ -85,6 +89,10 @@ TRACK OPTIONS, each describing the track before it
                          column could be either
     --modification <CODE> m, h, a or another modkit code, for a pileup that
                          counted more than one
+    --context <NAME>     CpG, CHG or CHH, for an extractor file holding more
+                         than one
+    --analysis <NAME>    Pfam, PANTHER or another member database, for a
+                         domain table holding more than one
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line, bars, or steps for a window track
@@ -194,9 +202,14 @@ mod tests {
                 kind.dashed()
             );
         }
-        // And the modifiers that name data rather than a setting.
-        for flag in ["--identity", "--modification"] {
-            assert!(HELP.contains(flag), "{flag} is undocumented");
+        // And the modifiers that name data rather than a setting: the unit a
+        // column is in, and every flag that picks one of the several things a
+        // file holds, taken from the parser rather than written out here.
+        assert!(HELP.contains("--identity"), "--identity is undocumented");
+        for kind in args::Kind::ALL {
+            if let Some(flag) = kind.selector() {
+                assert!(HELP.contains(flag), "{flag} is undocumented");
+            }
         }
         // And every flag that carries a second file, which is not a track.
         for kind in args::Kind::ALL {
@@ -230,6 +243,10 @@ mod tests {
             .iter()
             .filter_map(|kind| kind.second_flag())
             .collect();
+        let selectors: Vec<&str> = args::Kind::ALL
+            .iter()
+            .filter_map(|kind| kind.selector())
+            .collect();
         let mut found = 0;
         for word in tracks.split_whitespace() {
             if !word.starts_with("--") {
@@ -237,7 +254,7 @@ mod tests {
             }
             found += 1;
             assert!(
-                known.contains(&word) || seconds.contains(&word) || word == "--modification",
+                known.contains(&word) || seconds.contains(&word) || selectors.contains(&word),
                 "{word} is documented as a track and is not in Kind::ALL"
             );
         }

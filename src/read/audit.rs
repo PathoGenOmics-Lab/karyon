@@ -20,7 +20,10 @@
 
 use crate::{Region, Strand};
 
-use super::{align, clade, interval, locus, methyl, point, signal, split, structural, table};
+use super::{
+    align, bisulfite, clade, domain, interval, locus, methyl, point, signal, split, structural,
+    table,
+};
 
 /// 0-based 99, which every fixture in this file is written to land on.
 const TARGET: u64 = 99;
@@ -153,6 +156,44 @@ fn audit_split_read_moves_both_of_its_positions() {
         places.contains(&299),
         "the SA position moved wrongly: {places:?}"
     );
+}
+
+#[test]
+fn audit_bisulfite_one_base() {
+    // The extractor counts from one, like GFF3 and VCF and unlike the bedMethyl
+    // pileup next door, which is the pair worth having side by side: two
+    // methylation formats, two conventions, one base.
+    let text = "r1\t+\tchr1\t100\tZ\n";
+    let found = bisulfite::molecules(text, &region("chr1:1-200"), "CpG").unwrap();
+    assert_eq!(found.sites, vec![TARGET]);
+    assert_eq!(found.molecules[0].calls, vec![Some(true)]);
+
+    let pileup = "chr1\t99\t100\tm\t40\t+\t99\t100\t0,0,0\t40\t95.00\t38\t2\t0\t0\t0\t0\t0\n";
+    assert_eq!(
+        methyl::sites(pileup, &region("chr1:1-200"), "m")
+            .unwrap()
+            .sites[0]
+            .pos,
+        TARGET,
+        "the two methylation readers disagree about one base"
+    );
+}
+
+#[test]
+fn audit_domain_one_residue() {
+    // A domain is at a place in a protein, so this fixture pins the conversion
+    // rather than the base: the number is the same and the unit is a residue.
+    let text = "P\tmd5\t500\tPfam\tPF1\tkinase\t100\t100\t.\tT\t01-01-2026\n";
+    let found = domain::architectures(text, &region("P:1-500"), "Pfam").unwrap();
+    let one = &found.rows[0].features[0];
+    assert_eq!((one.start, one.end), (TARGET, TARGET + 1));
+    assert_eq!(one.end - one.start, 1);
+
+    // The same two numbers through the GFF3 path give the same pair, which is
+    // what says these two readers count the same way.
+    let gff = "##gff-version 3\nchr1\t.\tgene\t100\t100\t.\t+\t.\tID=one\n";
+    let genes = interval::features(gff, &region("chr1:1-200"), None).unwrap();
+    assert_eq!((genes[0].start, genes[0].end), (one.start, one.end));
 }
 
 #[test]

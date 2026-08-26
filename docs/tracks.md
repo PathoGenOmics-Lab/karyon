@@ -1155,16 +1155,20 @@ reads no file because it has nothing to read. [OrfTrack](#orftrack) and
 aligned FASTA that `--sequence` and `--msa` already take, and
 [SyntenyTrack](#syntenytrack) and [DotplotTrack](#dotplottrack) off one PAF
 from `minimap2`, which is the one format in the crate that needs no coordinate
-conversion at all. Three more are reachable through a flag that names a second file:
+conversion at all. [BisulfiteTrack](#bisulfitetrack) reads a `bismark_methylation_extractor` file
+through `--bisulfite`, and [DomainTrack](#domaintrack) an `InterProScan` table
+through `--domains`. That last one is the only track here whose axis is not
+bases: a domain is at a place in a protein, so the window is a residue range and
+the ruler underneath counts amino acids.
+
+Three more are reachable through a flag that names a second file:
 [TanglegramTrack](#tanglegramtrack) through `--tanglegram left.nwk --against
 right.nwk`, [CladeTrack](#cladetrack) through `--clades gubbins.gff --with-tree
 tree.nwk`, and [LocusTrack](#locustrack) through `--loci genes.bed --links
 hits.tsv`.
 
-That leaves ten in the library only, and the reasons are not the same one.
-[BisulfiteTrack](#bisulfitetrack) and [DomainTrack](#domaintrack) have a real
-interchange format and no reader yet: a bisulfite call table, and the domain
-annotations InterPro and Pfam write. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
+That leaves eight in the library only, and the reasons are not the same one.
+[CodonTrack](#codontrack), [GenomeTrack](#genometrack),
 [PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
 [SurveillanceTrack](#surveillancetrack) and
 [TranscriptionUnitTrack](#transcriptionunittrack) would need a table with no
