@@ -75,4 +75,5 @@ input, because nothing is piped into a page. And `--help`, which is
 
 </div>
 
+<script src="../assets/karyon-wasm.js" defer></script>
 <script src="../assets/playground.js" defer></script>

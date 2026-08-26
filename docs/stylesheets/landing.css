@@ -1,0 +1,641 @@
+/* ==========================================================================
+   The home page
+
+   Everything here is scoped to the `k-` prefix and to the sections on
+   `docs/index.md`, so nothing in it can reach the rest of the site. Three
+   rules from the stylesheet above govern it and are not restated:
+
+   - the colours are the crate's own, and the brand is spent only on the
+     things a reader can act on, which on this page is three links, three
+     buttons and one figure they can take hold of,
+   - the measure is thirty-three rem and every block of words is centred on
+     it individually, so the page has one centre line whether or not there is
+     a navigation column beside it,
+   - a committed figure is a light-theme SVG carrying its own white page, and
+     needs the edges of a printed figure on a dark one. The live figure is not
+     an `<img>`, it is an `<svg>` the program just drew, and it draws itself
+     dark when the page is dark, so it must not be given that white card.
+
+   The sections are `<section>` elements, which the site-wide measure rule
+   does not reach, because it lists the direct children of `.md-typeset`.
+   That is deliberate: it lets a band hold a full width grid and a capped
+   paragraph without either of them fighting the other, and the cap is put
+   back per band below with the same number.
+   ========================================================================== */
+
+/* The page keeps its table of contents, because it has eight headings and a
+   reader arriving at a landing page is entitled to see what is on it. That
+   leaves the secondary sidebar in place, so the 60rem cap above does not
+   apply and the column has to be capped here. The article carries
+   `md-content__inner` and `md-typeset` on the same element, which is why this
+   is a descendant `:has()` and not a child one. */
+.md-content__inner:has(.k-hero) {
+  max-width: 62rem;
+  margin-inline: auto;
+}
+
+/* -------------------------------------------------------------------------
+   The measure, put back inside a band
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-band > p,
+.md-typeset .k-band > ul,
+.md-typeset .k-band > ol,
+.md-typeset .k-band > blockquote,
+.md-typeset .k-band > h2,
+.md-typeset .k-band > h3,
+.md-typeset .k-band > .admonition,
+.md-typeset .k-band > details {
+  max-width: 33rem;
+  margin-inline: auto;
+}
+
+/* A code block twice the width of the prose beside it reads as a different
+   page. Wider than the measure, because a chain of calls breaks badly when it
+   wraps, and narrow enough that the longest line here still fits. */
+.md-typeset .k-band > .highlight {
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+.md-typeset .k-band > h2 {
+  margin-top: 2.6em;
+}
+
+/* The first heading on the page follows the hero's hairline already, so it
+   does not need the full gap the ones after it do. */
+.md-typeset .k-intro > h2 {
+  margin-top: 1.8em;
+}
+
+/* -------------------------------------------------------------------------
+   The hero
+
+   The logo already carries the wordmark, so there is no second wordmark to
+   set beside it. What goes on the right is the sentence, which is the part a
+   reader has come for, and three links.
+
+   No band of colour behind any of this. A hairline closes it instead, for the
+   same reason the header lost its block of brand blue: on a site whose whole
+   purpose is to show figures, chrome that outshouts the content is the
+   definition of decoration.
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-hero {
+  /* White clears 4.5 on `#0072b2` and on `#005587`, and does not clear it on
+     the vermillion or on the lifted dark blue, so the one filled link is blue
+     in both schemes and the hover darkens rather than changing hue. Measured
+     the same way the link colour further up this file was. */
+  --k-solid: #0072b2;
+  --k-solid-hover: #005587;
+  --k-solid-ink: #ffffff;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2.4rem;
+  /* The width of the figures below it, and centred like them. The site has
+     one axis and it is the centre line: every block of words is centred on
+     the measure individually, so a hero left against the column edge while
+     the figures sit in the middle is the page looking as though one of its
+     halves slipped. */
+  max-width: 45rem;
+  margin: 0.2rem auto 2.6rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* On the dark page the hover goes lighter rather than darker, since a darker
+   fill on a dark ground reads as disabled. `#38b3fa` under the page's own
+   background comes to 7.6, so the ink flips with it. */
+[data-md-color-scheme="slate"] .md-typeset .k-hero {
+  --k-solid-hover: #38b3fa;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .k-hero .k-go--first:hover,
+[data-md-color-scheme="slate"] .md-typeset .k-hero .k-go--first:focus-visible {
+  color: var(--md-default-bg-color);
+}
+
+.md-typeset .k-hero > p:first-child {
+  margin: 0;
+}
+
+.md-typeset .k-hero-logo {
+  display: block;
+  height: 9.5rem;
+  width: auto;
+  background: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* The heading stays in the document for the outline and for a screen reader.
+   In the light scheme it does not draw, because the logo beside it already
+   says the name and printing it again says "karyon" twice in the same font.
+
+   On the dark page it does draw, because the mark's ink is near black: the
+   helix survives a slate background and the wordmark inside it does not, so
+   the hero would otherwise carry no name at all. The rule to delete first,
+   the day there is a dark variant of the mark. */
+.md-typeset .k-hero h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .k-hero h1 {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 0 0.35rem;
+  overflow: visible;
+  clip-path: none;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.md-typeset .k-lead {
+  max-width: 26rem;
+  margin: 0;
+  color: var(--md-default-fg-color);
+  font-size: 1.3rem;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset .k-sub {
+  max-width: 30rem;
+  margin: 0.7rem 0 0;
+  color: var(--md-default-fg-color);
+  font-size: 0.82rem;
+  line-height: 1.62;
+}
+
+.md-typeset .k-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.2rem 0 0;
+}
+
+.md-typeset .k-actions .k-go {
+  display: inline-block;
+  padding: 0.42rem 0.9rem;
+  color: var(--md-default-fg-color);
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.md-typeset .k-actions .k-go--first {
+  color: var(--k-solid-ink);
+  background: var(--k-solid);
+  border-color: var(--k-solid);
+}
+
+.md-typeset .k-actions .k-go:hover,
+.md-typeset .k-actions .k-go:focus-visible {
+  color: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .k-actions .k-go--first:hover,
+.md-typeset .k-actions .k-go--first:focus-visible {
+  color: var(--k-solid-ink);
+  background: var(--k-solid-hover);
+  border-color: var(--k-solid-hover);
+}
+
+/* Four facts and one admission, in a sentence rather than in badges. A badge
+   row is furniture even when every badge is true, and the fourth item is the
+   reason the line is worth having at all. */
+.md-typeset .k-meta {
+  max-width: 30rem;
+  margin: 1rem 0 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------------
+   The live figure
+
+   A card rather than a bare figure, because the command above it and the
+   status line below it are part of what is being shown: the reader is meant
+   to see that moving the picture edits the region in the command and that the
+   program ran again.
+
+   Capped at the width of the two committed figures above it, so the live
+   figure and the stills have the same tick density and the same label size
+   and the sentence that calls them the same program is true of the picture as
+   well as of the code.
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-stage {
+  max-width: 45rem;
+  margin: 1.6rem auto 1.4rem;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+
+.md-typeset .k-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  padding: 0.45rem 0.6rem 0.45rem 0.85rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  font-size: 0.66rem;
+}
+
+.md-typeset .k-stage-name {
+  color: var(--md-default-fg-color--light);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Empty until the program has drawn something. A card that says how to drag a
+   picture the reader cannot drag is a value given for the absence of a value,
+   on the page that names the class. */
+.md-typeset .k-stage-hint {
+  flex: 1 1 auto;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .k-stage-keys {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+/* The pointer is not the only way in: these do what the wheel and the arrow
+   keys do, they are reachable by tab, and they are what a touch screen has
+   instead of a wheel. */
+.md-typeset .k-key {
+  padding: 0.2rem 0.5rem;
+  color: var(--md-default-fg-color);
+  background: none;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.3rem;
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.md-typeset .k-key:hover:not(:disabled),
+.md-typeset .k-key:focus-visible:not(:disabled) {
+  color: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .k-key:disabled {
+  color: var(--md-default-fg-color--lighter);
+  border-color: var(--md-default-fg-color--lightest);
+  cursor: default;
+}
+
+.md-typeset .k-stage-command {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  background: var(--md-code-bg-color);
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0;
+  overflow-x: auto;
+}
+
+/* No highlighting, on purpose: the region in this block is rewritten on every
+   frame, and text is the one thing a rewrite cannot damage. */
+.md-typeset .k-stage-command > code {
+  display: block;
+  padding: 0;
+  background: none;
+  color: var(--md-code-fg-color);
+  font-size: 0.64rem;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.md-typeset .k-stage-plot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+  padding: 0.6rem;
+}
+
+.md-typeset .k-stage-plot > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.md-typeset .k-stage-plot > img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+
+/* The figure drawn in advance is a committed light-theme SVG, so on a dark
+   page it gets the printed edges every other figure on the site gets. The
+   live one, three rules down, is not an image and does not. */
+[data-md-color-scheme="slate"] .md-typeset .k-stage-plot > img {
+  background: #ffffff;
+  padding: 0.4rem;
+  box-shadow: 0 0 0 1px hsl(210, 12%, 22%);
+}
+
+/* `pan-y` rather than `none`: a horizontal drag moves the window and a
+   vertical swipe still scrolls the page, so a figure in the middle of a long
+   page cannot trap a thumb. The wheel is left to the page as well until the
+   figure has focus, which is the other half of the same decision. */
+.md-typeset .k-stage-plot.is-live {
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.md-typeset .k-stage-plot.is-live.is-dragging {
+  cursor: grabbing;
+}
+
+/* The pointer belongs to the pane, not to anything inside the drawing. */
+.md-typeset .k-stage-plot.is-live > svg {
+  pointer-events: none;
+}
+
+.md-typeset .k-stage-plot.is-live:focus-visible {
+  outline: 2px solid var(--md-primary-fg-color);
+  outline-offset: -2px;
+}
+
+/* A refusal is the program speaking, so it is set the way the program's
+   output is set and at the strength of reading text. The vermillion is the
+   rule down the side rather than the ink, because vermillion text this small
+   does not clear 4.5 on either page. */
+.md-typeset .k-stage-plot.is-refused {
+  display: block;
+  align-items: initial;
+  padding: 1rem 0.9rem;
+  border-left: 3px solid var(--md-accent-fg-color);
+  color: var(--md-default-fg-color);
+  font-family: var(--md-code-font-family);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.md-typeset .k-stage-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem 1rem;
+  margin: 0;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color--light);
+  font-family: var(--md-code-font-family);
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
+
+/* The three files, which are also the input the program is handed: the page
+   is the only copy of them, and the script reads them out of it. */
+.md-typeset .k-files {
+  max-width: 40rem;
+  margin: 1rem auto 1.5rem;
+}
+
+.md-typeset .k-files > p {
+  font-size: 0.76rem;
+  line-height: 1.62;
+}
+
+.md-typeset .k-file {
+  margin-top: 0.9rem;
+}
+
+.md-typeset .k-file-name {
+  margin: 0 0 0.25rem;
+  color: var(--md-default-fg-color--light);
+  font-family: var(--md-code-font-family);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.md-typeset .k-file > pre {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--md-code-bg-color);
+  border-radius: 0.3rem;
+  overflow-x: auto;
+}
+
+.md-typeset .k-file > pre > code {
+  display: block;
+  padding: 0;
+  background: none;
+  color: var(--md-code-fg-color);
+  font-size: 0.62rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* -------------------------------------------------------------------------
+   The six pieces
+
+   No colour coding. The catalogue gives each family of plots an accent
+   because there the colour tells a reader which of eight routes they are on,
+   and it means something. Six concepts in six colours would mean nothing, so
+   they are separated by a hairline and told apart by their names.
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-block-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1.2rem;
+  margin: 1.5rem 0 0;
+}
+
+.md-typeset .k-block {
+  padding: 1rem 1.1rem 1.05rem;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-top: 2px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.5rem;
+}
+
+.md-typeset .k-block h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset .k-block .k-claim {
+  margin: 0 0 0.7rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Reading text, so it is set at the strength reading text is set at. The
+   light tier is for captions and for the status line, and six paragraphs of
+   the page's own argument are neither. */
+.md-typeset .k-block p {
+  margin: 0 0 0.7rem;
+  color: var(--md-default-fg-color);
+  font-size: 0.74rem;
+  line-height: 1.62;
+}
+
+.md-typeset .k-block .k-block-go {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+   The refusals and the shelf
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-refusal-list {
+  padding-left: 1.1rem;
+}
+
+.md-typeset .k-refusal-list > li {
+  margin-bottom: 0.6rem;
+  line-height: 1.65;
+}
+
+.md-typeset .k-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1.6rem 2.2rem;
+  margin: 1.4rem 0 1.8rem;
+}
+
+.md-typeset .k-shelf-group h3 {
+  margin: 0 0 0.2rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.md-typeset .k-shelf-group dl {
+  margin: 0;
+}
+
+.md-typeset .k-shelf-group dt {
+  margin: 0.85rem 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.md-typeset .k-shelf-group dt a {
+  text-decoration: none;
+}
+
+.md-typeset .k-shelf-group dd {
+  margin: 0;
+  color: var(--md-default-fg-color);
+  font-size: 0.74rem;
+  line-height: 1.58;
+}
+
+/* -------------------------------------------------------------------------
+   The references
+
+   A citation is two things: what it is for, and the reference itself. The
+   second is set smaller so a reader scanning for the first is not made to
+   read both, and at full strength because it is still text somebody has to
+   be able to read.
+   ------------------------------------------------------------------------- */
+
+.md-typeset .k-refs {
+  padding-left: 1.1rem;
+}
+
+.md-typeset .k-refs > li {
+  margin-bottom: 0.75rem;
+  line-height: 1.65;
+}
+
+.md-typeset .k-refs span {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--md-default-fg-color);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+/* -------------------------------------------------------------------------
+   Narrow pages
+   ------------------------------------------------------------------------- */
+
+@media screen and (max-width: 44.984375em) {
+  .md-typeset .k-hero {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 1.2rem;
+    text-align: center;
+  }
+
+  .md-typeset .k-hero-logo {
+    height: 6.5rem;
+  }
+
+  .md-typeset .k-lead,
+  .md-typeset .k-sub,
+  .md-typeset .k-meta {
+    margin-inline: auto;
+  }
+
+  .md-typeset .k-actions {
+    justify-content: center;
+  }
+
+  .md-typeset .k-block-grid,
+  .md-typeset .k-shelf {
+    grid-template-columns: 1fr;
+  }
+
+  .md-typeset .k-stage {
+    border-radius: 0.4rem;
+  }
+
+  .md-typeset .k-stage-head {
+    font-size: 0.62rem;
+  }
+
+  /* The picture is a fifth of the height it is on a wide screen, so the room
+     kept for it comes down with it. */
+  .md-typeset .k-stage-plot {
+    min-height: 5rem;
+    padding: 0.4rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .k-actions .k-go {
+    transition: none;
+  }
+}

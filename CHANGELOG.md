@@ -8,6 +8,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The site is laid out the way a tool's site is laid out: a hero, a band of
+  prose, a figure the reader can take hold of, the concepts, what it will not
+  do, and where to go. Five destinations rather than eight, and no file moved,
+  because a page's URL comes from its path and every link that exists points at
+  one of those. Headings are set in their own face and section headings carry a
+  rule, so a page of eight hundred lines can be scanned rather than read.
+- The home page draws its own figure. The picture it ships with is what the
+  printed command actually draws, and the program replaces it on arrival, so
+  the page is correct with JavaScript off, with the wasm missing, and for the
+  moment the fetch takes. It can then be dragged, zoomed with the wheel once it
+  has focus, and moved with the arrow keys, and each of those re-runs the
+  program over the three files printed underneath it, which the script reads
+  out of the page so that what is shown and what is drawn cannot drift.
+- `assets/karyon-wasm.js`, one bridge for the two pages that run the program.
+  The home page and the playground had a copy each of the protocol, the command
+  line splitting and the region arithmetic, and two copies of a protocol are two
+  things that drift.
 - The playground is a workbench rather than a page: a toolbar, an editor with
   one tab per file, and the figure filling its own pane, with a splitter
   between them and a stacked layout for a narrow screen.
@@ -218,6 +235,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The playground's first example refused on the fourth drag. Its three rows
+  covered the region exactly, so moving the window took it off the data, which
+  is the program being right and the example being too small to show anything
+  else. It is six bedGraph rows and eight calls over ten kilobases now, and the
+  home page says out loud that a window taken far enough will always find
+  nothing, and that what comes back then is a sentence rather than an empty
+  figure.
+- A wheel over the figure no longer eats the page's scroll. It zooms only once
+  the figure has focus, which is also what makes the arrow keys reachable
+  without a pointer.
 - A GFF3 span whose end came before its start was read as a one-base feature at
   the start rather than refused. The module doc had said all along that an
   inverted span stops the read, and only BED and cytoBand did it, so a gene

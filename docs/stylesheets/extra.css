@@ -1061,3 +1061,110 @@
     cursor: row-resize;
   }
 }
+
+/* ==========================================================================
+   Headings
+
+   Material sets one face for the whole page. Headings get a second one, so a
+   page has a voice before a word of it is read: Space Grotesk, whose figures
+   and capitals are drawn with the same flat, slightly technical hand the
+   logo's marker pen has, against Inter for the prose, which is the face to
+   read eight hundred lines of a formats page in.
+
+   Loaded through the same Google Fonts mechanism the theme already uses for
+   Inter and JetBrains Mono, so it costs no new machinery and no new host.
+   ========================================================================== */
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-nav__title,
+.md-header__topic > .md-ellipsis {
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  letter-spacing: -0.012em;
+}
+
+/* Tighter than the theme's default, because a heading and the paragraph it
+   belongs to should read as one thing rather than as two. */
+.md-typeset h1 {
+  font-weight: 700;
+  font-size: 2.1rem;
+  line-height: 1.15;
+  margin-bottom: 0.9rem;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset h2 {
+  font-weight: 700;
+  font-size: 1.44rem;
+  line-height: 1.25;
+  margin-top: 2.2rem;
+  margin-bottom: 0.7rem;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-top: 1.5rem;
+}
+
+/* A rule under the section headings, which is what makes a long page scannable
+   at a glance rather than by reading it. Not under h1: the page has one, and it
+   needs no separating from anything. */
+.md-typeset h2 {
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* ==========================================================================
+   Figures
+
+   Every committed figure is a light-theme SVG carrying its own white page, so
+   on a dark page it needs the edge a printed figure has. On a light one the
+   same edge separates the figure from the prose, which is what a caption
+   cannot do on its own.
+   ========================================================================== */
+
+.md-typeset figure {
+  margin-block: 1.6rem;
+}
+
+.md-typeset figure img,
+.md-typeset figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: #ffffff;
+}
+
+.md-typeset figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color--light);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Tables
+
+   The formats and track pages are mostly tables, and a table that runs to the
+   edge of the measure is one a reader loses their row in.
+   ========================================================================== */
+
+.md-typeset table:not([class]) {
+  font-size: 0.7rem;
+}
+
+.md-typeset table:not([class]) th {
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-weight: 600;
+  background: var(--md-code-bg-color);
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background: var(--md-accent-fg-color--transparent);
+}
