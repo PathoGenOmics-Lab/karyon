@@ -136,6 +136,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A GFF3 span whose end came before its start was read as a one-base feature at
+  the start rather than refused. The module doc had said all along that an
+  inverted span stops the read, and only BED and cytoBand did it, so a gene
+  written `400 100` was drawn confidently three hundred bases from where either
+  number put it.
+- A clade block naming one taxon twice counted two carriers of one row, so the
+  rows it cuts out came out of a subtraction with no answer: a panic where this
+  crate checks its arithmetic, and a number near the top of a `u64` in a release
+  build that does not. Carriers are distinct rows now, which is what the figure
+  draws either way.
 - A track whose second file was missing was refused by a match with a fallback
   arm, so a track added without a spelling would have drawn without a file it
   cannot do without. It is exhaustive now, as the flag spellings next to it are.
