@@ -31,6 +31,7 @@
 //! it has nothing to do with, and a figure of those is a figure of crossings.
 
 use crate::scale::Scale;
+use crate::style::LinePattern;
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::{contrast_ink, mix, wash, Theme};
 use crate::track::axis::group_thousands;
@@ -106,18 +107,45 @@ pub struct Homology {
     pub from: usize,
     /// Index of the gene in the lower row.
     pub to: usize,
-    /// How alike they are, between 0 and 1, which sets how dark the ribbon is.
-    pub identity: f64,
+    /// How alike they are, between 0 and 1, which sets how dark the ribbon is,
+    /// or `None` where nothing said.
+    ///
+    /// Two genes matching and nobody stating how closely is an ordinary case:
+    /// a two column list of pairs has no identity in it, and a search that
+    /// wrote `NA` has said the same thing at more length. It is not a low
+    /// identity, and drawing it as one would put a number on the page that no
+    /// search reported, so it is kept as the absence it is.
+    pub identity: Option<f64>,
 }
 
 impl Homology {
     /// A match between `from` in row `row` and `to` in the row under it.
+    ///
+    /// An identity outside 0 to 1 is clamped into it. One that is not a number
+    /// is not clamped into anything: `clamp` propagates a NaN, and a NaN
+    /// identity used to reach the ramp and come back off the far end of it, so
+    /// it becomes [`Homology::unstated`] instead.
     pub fn new(row: usize, from: usize, to: usize, identity: f64) -> Self {
         Homology {
             row,
             from,
             to,
-            identity: identity.clamp(0.0, 1.0),
+            identity: (!identity.is_nan()).then(|| identity.clamp(0.0, 1.0)),
+        }
+    }
+
+    /// A match nobody put a number on.
+    ///
+    /// The ribbon is drawn at the pale end of the ramp and outlined, so the
+    /// figure says the strength is unstated without anyone having to point at
+    /// it. For a list of pairs with no identity column, which is the common
+    /// shape of a hand-made homology file.
+    pub fn unstated(row: usize, from: usize, to: usize) -> Self {
+        Homology {
+            row,
+            from,
+            to,
+            identity: None,
         }
     }
 }
@@ -298,14 +326,21 @@ impl LocusTrack {
     pub fn ramp_ends(&self, theme: &Theme) -> (String, String) {
         let (low, high) = self.identity_range;
         (
-            mix(theme.surface(), &theme.foreground, self.shade(low)),
-            mix(theme.surface(), &theme.foreground, self.shade(high)),
+            mix(theme.surface(), &theme.foreground, self.shade(Some(low))),
+            mix(theme.surface(), &theme.foreground, self.shade(Some(high))),
         )
     }
 
     /// How dark the ribbon for a given identity is drawn.
-    fn shade(&self, identity: f64) -> f64 {
+    ///
+    /// An identity nobody stated is drawn at the pale end. Of the two ends it
+    /// is the one that does not claim a strong match, and the ribbon is
+    /// outlined as well so it is not read as a weak one either.
+    fn shade(&self, identity: Option<f64>) -> f64 {
         let (low, high) = self.identity_range;
+        let Some(identity) = identity else {
+            return 0.05;
+        };
         let fraction = ((identity - low) / (high - low)).clamp(0.0, 1.0);
         // Spread widely enough that two identities a few per cent apart are
         // two different greys, and capped low enough that the darkest is still
@@ -435,11 +470,14 @@ impl LocusTrack {
     /// The identity is named rather than left as a bare number, because `0.91`
     /// on its own is not a statement about anything.
     fn homology_title(&self, link: &Homology) -> String {
+        let identity = match link.identity {
+            Some(identity) => format!("identity {identity:.2}"),
+            None => "identity not stated".to_string(),
+        };
         format!(
-            "homology, upper {}, lower {}, identity {:.2}",
+            "homology, upper {}, lower {}, {identity}",
             self.gene_ref(link.row, link.from),
             self.gene_ref(link.row + 1, link.to),
-            link.identity
         )
     }
 }
@@ -532,7 +570,20 @@ impl Track for LocusTrack {
             ctx.svg.path(&d, &shade, 1.0);
             // A hairline edge, and no more. At these tints a dark outline
             // fights the genes, and the genes are the subject.
-            ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.10), 0.5);
+            //
+            // Unless nobody stated the identity, in which case the edge is the
+            // whole of what says so. A pale fill on its own is a weak match,
+            // which is a claim, and the figure has to be readable without
+            // anyone hovering over it to find out that it is not one.
+            match link.identity {
+                Some(_) => ctx.svg.path_stroked(&d, &mix(&shade, "#000000", 0.10), 0.5),
+                None => ctx.svg.path_stroked_pattern(
+                    &d,
+                    &mix(ctx.theme.surface(), &ctx.theme.foreground, 0.45),
+                    0.8,
+                    LinePattern::Dashed,
+                ),
+            }
             if pointable {
                 ctx.svg.end_group();
             }
@@ -743,6 +794,61 @@ mod tests {
     use crate::figure::Figure;
     use crate::region::Region;
 
+    /// An identity that is not a number is not a low identity. It used to
+    /// reach `mix` through `clamp`, which propagates a NaN, and come back as
+    /// `#000000`: darker than a perfect match, on a ramp where darker means
+    /// more alike. The strongest mark on the page for the one thing nobody
+    /// measured.
+    #[test]
+    fn an_identity_that_is_not_a_number_is_an_absent_one() {
+        assert_eq!(Homology::new(0, 0, 0, f64::NAN).identity, None);
+        assert_eq!(Homology::unstated(0, 0, 0).identity, None);
+        // The infinities are numbers and clamp into the range as before.
+        assert_eq!(Homology::new(0, 0, 0, f64::INFINITY).identity, Some(1.0));
+        assert_eq!(
+            Homology::new(0, 0, 0, f64::NEG_INFINITY).identity,
+            Some(0.0)
+        );
+
+        // And it is drawn as the pale end rather than off the dark one.
+        let track = LocusTrack::new(loci());
+        assert_eq!(track.shade(None), track.shade(Some(0.0)));
+        assert!(track.shade(None) < track.shade(Some(1.0)));
+    }
+
+    /// The figure has to say it without anyone pointing at it. A pale fill on
+    /// its own is a weak match, which is a claim about the data; the dashed
+    /// edge is what distinguishes "nobody said" from "barely alike".
+    #[test]
+    fn an_unstated_identity_is_outlined_and_named() {
+        let region = Region::new("ESX-1", 0, 3_000).unwrap();
+        let unstated = Figure::new(region.clone())
+            .push(LocusTrack::new(loci()).links(vec![Homology::unstated(0, 0, 0)]))
+            .to_svg();
+        assert!(
+            unstated.contains("identity not stated"),
+            "an unstated identity was given a number"
+        );
+        assert!(
+            unstated.contains("stroke-dasharray"),
+            "an unstated identity is not marked on the figure itself"
+        );
+        assert!(
+            !unstated.contains("#000000\" stroke-width"),
+            "an unstated identity reached the ramp"
+        );
+
+        // A stated one keeps the solid hairline it always had.
+        let stated = Figure::new(region)
+            .push(LocusTrack::new(loci()).links(vec![Homology::new(0, 0, 0, 0.97)]))
+            .to_svg();
+        assert!(stated.contains("identity 0.97"));
+        assert!(
+            !stated.contains("stroke-dasharray"),
+            "a stated identity was marked as unstated"
+        );
+    }
+
     fn loci() -> Vec<Locus> {
         vec![
             Locus::new(
@@ -798,8 +904,8 @@ mod tests {
 
     #[test]
     fn an_identity_outside_its_range_is_brought_back_in() {
-        assert_eq!(Homology::new(0, 0, 0, 4.0).identity, 1.0);
-        assert_eq!(Homology::new(0, 0, 0, -1.0).identity, 0.0);
+        assert_eq!(Homology::new(0, 0, 0, 4.0).identity, Some(1.0));
+        assert_eq!(Homology::new(0, 0, 0, -1.0).identity, Some(0.0));
     }
 
     #[test]
@@ -867,25 +973,29 @@ mod tests {
         // ramp over the whole of nought to one draws them all the same shade.
         let track = LocusTrack::new(loci());
         assert!(
-            track.shade(1.0) - track.shade(0.7) > 0.15,
+            track.shade(Some(1.0)) - track.shade(Some(0.7)) > 0.15,
             "the default range"
         );
         // Everything below the floor is the palest shade, not a negative one.
-        assert_eq!(track.shade(0.0), track.shade(0.7));
+        assert_eq!(track.shade(Some(0.0)), track.shade(Some(0.7)));
         // A ribbon stays context: never more than a third of the page's ink.
-        assert!(track.shade(1.0) < 0.25, "still context, not the subject");
+        assert!(
+            track.shade(Some(1.0)) < 0.25,
+            "still context, not the subject"
+        );
 
         // Spread over the whole range instead, and a seventy per cent match is
         // already most of the way to solid, leaving nothing for the rest.
         let wide = LocusTrack::new(loci()).identity_range(0.0, 1.0);
-        assert!(wide.shade(0.7) > track.shade(0.7));
+        assert!(wide.shade(Some(0.7)) > track.shade(Some(0.7)));
         assert!(
-            wide.shade(1.0) - wide.shade(0.7) < (track.shade(1.0) - track.shade(0.7)) / 2.0,
+            wide.shade(Some(1.0)) - wide.shade(Some(0.7))
+                < (track.shade(Some(1.0)) - track.shade(Some(0.7))) / 2.0,
             "the useful range gets less than half the ramp"
         );
         // A range the wrong way round falls back rather than dividing by zero.
         let broken = LocusTrack::new(loci()).identity_range(0.9, 0.1);
-        assert!(broken.shade(0.5).is_finite());
+        assert!(broken.shade(Some(0.5)).is_finite());
     }
 
     #[test]

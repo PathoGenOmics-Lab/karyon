@@ -358,7 +358,13 @@ pub fn mix(a: &str, b: &str, t: f64) -> String {
     let (Some(from), Some(to)) = (parse_hex(a), parse_hex(b)) else {
         return a.to_string();
     };
-    let t = t.clamp(0.0, 1.0);
+    // `clamp` propagates a NaN, and `NaN as u8` saturates to nought, so an
+    // amount that is not a number used to leave the ramp entirely and come
+    // back pure black: darker than `b`, on a scale where darker means more.
+    // Whatever the caller meant by it, the answer has to be a colour on this
+    // ramp, and of the two ends the pale one is the one that does not read as
+    // the strongest evidence on the page.
+    let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
     let channel = |from: u8, to: u8| (from as f64 + (to as f64 - from as f64) * t).round() as u8;
     format!(
         "#{:02x}{:02x}{:02x}",
@@ -446,6 +452,24 @@ fn relative_luminance(r: u8, g: u8, b: u8) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every ramp in the crate goes through here, so an amount that is not a
+    /// number used to be one line away from a black mark on any of them. Black
+    /// is not on this ramp: it is past the dark end, which on a scale where
+    /// darker means more reads as beyond the strongest value anyone measured.
+    #[test]
+    fn an_amount_that_is_not_a_number_stays_on_the_ramp() {
+        let pale = "#ffffff";
+        let dark = "#1b1f23";
+        assert_eq!(mix(pale, dark, f64::NAN), pale, "NaN left the ramp");
+        // The infinities already clamped, and still do.
+        assert_eq!(mix(pale, dark, f64::INFINITY), dark);
+        assert_eq!(mix(pale, dark, f64::NEG_INFINITY), pale);
+        // And the ordinary range is untouched by the guard.
+        assert_eq!(mix(pale, dark, 0.0), pale);
+        assert_eq!(mix(pale, dark, 1.0), dark);
+        assert_eq!(mix(pale, dark, 0.5), "#8d8f91");
+    }
 
     #[test]
     fn a_transparent_page_still_offers_a_colour_to_blend_against() {
