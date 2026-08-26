@@ -76,19 +76,31 @@ pub fn targets(text: &str, query: &str) -> Result<Vec<(String, usize)>, ReadErro
     Ok(out)
 }
 
-/// The alignments between one query and one target, and how many rows were not
-/// between them.
-///
-/// The count is not an error. A PAF of a whole assembly against a whole
-/// reference is the ordinary case, and one figure shows one pair of sequences,
-/// so passing over the rest is right. Saying nothing about it would not be.
-pub fn blocks(
-    text: &str,
-    query: &str,
-    target: &str,
-) -> Result<(Vec<AlignmentBlock>, usize), ReadError> {
+/// What one PAF says about one pair of sequences.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Alignments {
+    /// The blocks between the two, in the order the file listed them.
+    pub blocks: Vec<AlignmentBlock>,
+    /// The target's whole length, from column seven.
+    ///
+    /// The track wants it and the alignments cannot supply it: blocks cover
+    /// the part that aligned, so the longest of them says how far the
+    /// alignment reached and never how long the sequence is. `None` when no
+    /// row named this pair, since then nothing said.
+    pub target_length: Option<u64>,
+    /// Rows about some other pair of sequences.
+    ///
+    /// Not an error. A PAF of a whole assembly against a whole reference is
+    /// the ordinary case, and one figure shows one pair, so passing over the
+    /// rest is right. Saying nothing about it would not be.
+    pub passed_over: usize,
+}
+
+/// The alignments between one query and one target.
+pub fn blocks(text: &str, query: &str, target: &str) -> Result<Alignments, ReadError> {
     let mut blocks = Vec::new();
     let mut passed_over = 0usize;
+    let mut target_length = None;
 
     for (at, line) in lines(text) {
         let cols = columns(line);
@@ -136,10 +148,28 @@ pub fn blocks(
         if span > 0 {
             block = block.identity(matches as f64 / span as f64);
         }
+        // Column seven is the same number on every row of a pair, so the first
+        // one is as good as any, and a file that disagrees with itself about
+        // it is a file two runs were concatenated into.
+        let stated: u64 = number(cols[6], "target length", at)?;
+        match target_length {
+            None => target_length = Some(stated),
+            Some(first) if first != stated => {
+                return Err(ReadError::at(
+                    at,
+                    format!("{target} is {stated} long here and {first} long earlier"),
+                ))
+            }
+            Some(_) => {}
+        }
         blocks.push(block);
     }
 
-    Ok((blocks, passed_over))
+    Ok(Alignments {
+        blocks,
+        target_length,
+        passed_over,
+    })
 }
 
 #[cfg(test)]
@@ -158,7 +188,7 @@ q2\t800\t0\t50\t+\tt1\t2000\t0\t50\t50\t50\t60
     fn both_coordinate_pairs_come_through_untouched() {
         // PAF is already 0-based and half-open, so this reader is the one in
         // the directory that must NOT move a coordinate.
-        let (blocks, _) = blocks(PAF, "q1", "t1").unwrap();
+        let Alignments { blocks, .. } = blocks(PAF, "q1", "t1").unwrap();
         assert_eq!(blocks.len(), 2);
         assert_eq!(
             (blocks[0].query_start, blocks[0].query_end),
@@ -174,7 +204,7 @@ q2\t800\t0\t50\t+\tt1\t2000\t0\t50\t50\t50\t60
 
     #[test]
     fn the_strand_column_is_the_only_thing_that_says_backwards() {
-        let (blocks, _) = blocks(PAF, "q1", "t1").unwrap();
+        let Alignments { blocks, .. } = blocks(PAF, "q1", "t1").unwrap();
         assert!(!blocks[0].reversed);
         // The second row's target coordinates ascend exactly as the first's do,
         // so nothing but column five distinguishes them.
@@ -187,18 +217,24 @@ q2\t800\t0\t50\t+\tt1\t2000\t0\t50\t50\t50\t60
         // The whole reason this reader takes two names. Without the filter
         // these four rows become four blocks on one axis, describing a
         // comparison that was never made.
-        let (blocks, passed_over) = blocks(PAF, "q1", "t1").unwrap();
+        let Alignments {
+            blocks,
+            passed_over,
+            ..
+        } = blocks(PAF, "q1", "t1").unwrap();
         assert_eq!(blocks.len(), 2);
         assert_eq!(passed_over, 2, "rows for another pair went missing quietly");
     }
 
     #[test]
     fn identity_is_matches_over_the_block_and_nothing_when_there_is_no_block() {
-        let (found, _) = blocks(PAF, "q1", "t1").unwrap();
+        let Alignments { blocks: found, .. } = blocks(PAF, "q1", "t1").unwrap();
         assert_eq!(found[0].identity, Some(0.95));
 
         let zero = "q1\t10\t0\t5\t+\tt1\t10\t0\t5\t0\t0\t60\n";
-        let (no_span, _) = blocks(zero, "q1", "t1").unwrap();
+        let Alignments {
+            blocks: no_span, ..
+        } = blocks(zero, "q1", "t1").unwrap();
         assert_eq!(
             no_span[0].identity, None,
             "a block of no length was given an identity anyway"
