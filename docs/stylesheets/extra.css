@@ -1028,6 +1028,25 @@
   .pg-split {
     cursor: row-resize;
   }
+
+  /* The bar wraps and the groups inside it did not, so at 375px the last
+     group ran from 326 to 426 with the window ending at 375 and nothing
+     scrolling: `Full screen` was drawn off the edge and could not be reached
+     at all. A group is a grouping, not a thing that has to stay on one line. */
+  .pg-group {
+    flex-wrap: wrap;
+  }
+
+  /* The region readout is the one thing here that is not a control, so it
+     goes on its own line rather than pushing one off. */
+  .pg-region {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+
+  .pg-spacer {
+    display: none;
+  }
 }
 
 /* ==========================================================================
@@ -1154,18 +1173,34 @@
    figure.
    ========================================================================== */
 
+/* A real `dialog`, opened with `showModal`, because `aria-modal="true"` on a
+   `div` is a promise the browser does not keep: with the panel open the page
+   behind it was still reachable by Tab. The element gets focus containment,
+   Escape and an inert background for nothing. */
 .pg-picker {
   position: fixed;
   inset: 0;
   z-index: 20;
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(17, 24, 39, 0.35);
-  backdrop-filter: blur(2px);
+  max-width: 100vw;
+  max-height: 100vh;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  color: var(--md-default-fg-color);
 }
 
-.pg-picker[hidden] {
-  display: none;
+.pg-picker[open] {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pg-picker::backdrop {
+  background: rgba(17, 24, 39, 0.35);
+  backdrop-filter: blur(2px);
 }
 
 .pg-panel {

@@ -83,14 +83,24 @@ window.karyon = (function () {
 
   var LOCUS = /^(.+):([\d,]+)-([\d,]+)$/;
 
+  // The four flags that stand on their own. Every other flag takes the word
+  // after it, and that word is not the region however much it looks like one:
+  // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
+  // drag then rewrote the label and left the figure where it was.
+  var ALONE = ["--axis", "--log", "--no-axis", "--no-region-label"];
+
   // The region a command names, which is its one positional word.
   function locus(text) {
-    var found = null;
-    words(text).forEach(function (word) {
-      if (found || word.charAt(0) === "-") return;
+    var argv = words(text);
+    for (var i = 0; i < argv.length; i++) {
+      var word = argv[i];
+      if (word.charAt(0) === "-" && word !== "-") {
+        if (ALONE.indexOf(word) < 0) i++;
+        continue;
+      }
       var m = LOCUS.exec(word);
       if (m) {
-        found = {
+        return {
           word: word,
           seq: m[1],
           // 1-based inclusive, which is what a person reads and types.
@@ -98,8 +108,8 @@ window.karyon = (function () {
           end: parseInt(m[3].replace(/,/g, ""), 10),
         };
       }
-    });
-    return found;
+    }
+    return null;
   }
 
   function grouped(n) {
@@ -107,12 +117,20 @@ window.karyon = (function () {
   }
 
   // Rewrites the region a command names, leaving the rest of it alone.
+  //
+  // The span asked for is kept and the window is slid, rather than the start
+  // being clamped where it is and the end left where it was. Clamping alone
+  // made a drag towards the first base of a sequence shrink the window: from
+  // `chr1:1-1,000` five drags gave 700, 490, 343, 240 and 168 bases, so the
+  // figure zoomed itself in while the reader was only moving it sideways.
   function retarget(text, start, end) {
     var where = locus(text);
     if (!where) return text;
-    start = Math.max(1, Math.round(start));
-    end = Math.max(start + MIN_SPAN - 1, Math.round(end));
-    if (end - start + 1 > MAX_SPAN) end = start + MAX_SPAN - 1;
+    start = Math.round(start);
+    end = Math.round(end);
+    var span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, end - start + 1));
+    if (start < 1) start = 1;
+    end = start + span - 1;
     return text.replace(where.word, where.seq + ":" + grouped(start) + "-" + grouped(end));
   }
 

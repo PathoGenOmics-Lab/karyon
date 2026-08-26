@@ -720,16 +720,22 @@
   function openPicker() {
     lastFocus = document.activeElement;
     opened = true;
-    el.picker.hidden = false;
     el.examples.setAttribute("aria-expanded", "true");
     el.search.value = "";
     cards("");
+    // `showModal` rather than an attribute, so the page behind is inert and
+    // the focus cannot leave. Escape is the element's own.
+    el.picker.showModal();
     el.search.focus();
   }
 
   function closePicker() {
+    if (el.picker.open) el.picker.close();
+    // Done here rather than on the element's `close` event, which does not
+    // fire in every engine: a listener added in front of a `close()` call was
+    // measured never running, and the button was left saying it was expanded
+    // over a panel that had gone.
     opened = false;
-    el.picker.hidden = true;
     el.examples.setAttribute("aria-expanded", "false");
     if (lastFocus) lastFocus.focus();
   }
@@ -790,9 +796,17 @@
     el.picker.addEventListener("mousedown", function (event) {
       if (event.target === el.picker) closePicker();
     });
-    document.addEventListener("keydown", function (event) {
-      if (opened && event.key === "Escape") { event.preventDefault(); closePicker(); }
+    // Escape, the close button and the backdrop all end at the same place.
+    // The element closes itself on Escape, so that path is taken over rather
+    // than left to an event that may not arrive.
+    el.picker.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closePicker();
     });
+    el.picker.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { event.preventDefault(); closePicker(); }
+    });
+    el.picker.addEventListener("close", closePicker);
 
     el.draw.addEventListener("click", draw);
     el.command.addEventListener("input", soon);

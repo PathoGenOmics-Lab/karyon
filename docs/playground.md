@@ -51,7 +51,7 @@ hide:
   </div>
 </div>
 
-<div class="pg-picker" id="pg-picker" role="dialog" aria-modal="true" aria-labelledby="pg-picker-title" hidden markdown="0">
+<dialog class="pg-picker" id="pg-picker" aria-labelledby="pg-picker-title">
   <aside class="pg-panel">
     <div class="pg-panel-head">
       <div>
@@ -63,7 +63,7 @@ hide:
     <input class="pg-search" id="pg-search" type="search" placeholder="Search examples" autocomplete="off" aria-label="Search examples">
     <div class="pg-panel-body" id="pg-picker-body"></div>
   </aside>
-</div>
+</dialog>
 
 <div class="pg-notes" markdown>
 

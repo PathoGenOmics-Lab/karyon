@@ -249,6 +249,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Dragging a figure towards the first base of a sequence shrank the window
+  instead of moving it. The start was clamped to 1 and the end left where it
+  was, so from `chr1:1-1,000` five drags gave 700, 490, 343, 240 and 168 bases
+  and the figure zoomed itself in while the reader was only moving it sideways.
+  The span asked for is kept and the window slid. The same clamp stopped a zoom
+  out from ever reaching its own limit.
+- A `--label` that looked like a locus, written before the real one, was taken
+  for the region, so a drag rewrote the label and left the figure where it was.
+  The four flags that stand alone are known now, and the word after every other
+  flag is skipped, as the parser itself does.
+- The example panel said `aria-modal` and did not mean it: with it open the page
+  behind was still reachable by Tab. It is a real `dialog` opened with
+  `showModal`, which contains the focus and makes the background inert.
+- The Examples button went on saying it was expanded over a panel that had
+  closed, because the bookkeeping hung off the dialog's `close` event, which a
+  listener added directly in front of a `close()` call was measured never
+  receiving. It is done where the closing happens instead.
+- On a 375px screen the toolbar wrapped but the groups inside it did not, so
+  `Full screen` was drawn from 326 to 426 with the window ending at 375 and
+  nothing scrolling: the button could not be reached at all.
 - The example previews were drawn on the next animation frame, which a tab
   that is not on screen never gets, so a panel opened in a background tab came
   up with every card empty. They need no layout, so they are drawn as the card
