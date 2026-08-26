@@ -20,7 +20,7 @@
 //! Where a word sits is the whole of what binds it to a track, and two things
 //! fall outside that. One is a track whose data is not one file: a `--<track>`
 //! flag takes one path, so a tanglegram, which is two trees, has nowhere to put
-//! the second, and thirteen of the crate's thirty track types are all the
+//! the second, and seventeen of the crate's thirty-three track types are all the
 //! command line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -175,6 +175,14 @@ pub enum Kind {
     Matrix,
     /// Aligned reads from SAM text.
     Pileup,
+    /// Alignment ribbons between two sequences, from PAF.
+    Synteny,
+    /// The same alignments as a dot plot, from the same PAF.
+    Dotplot,
+    /// Open reading frames in six frames, computed from FASTA bases.
+    Orfs,
+    /// A sequence logo, counted from aligned FASTA.
+    Logo,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
@@ -195,6 +203,10 @@ impl Kind {
             Kind::Ideogram => "ideogram",
             Kind::Matrix => "matrix",
             Kind::Pileup => "pileup",
+            Kind::Synteny => "synteny",
+            Kind::Dotplot => "dotplot",
+            Kind::Orfs => "orfs",
+            Kind::Logo => "logo",
             Kind::Axis => "axis",
         }
     }
@@ -215,6 +227,8 @@ impl Kind {
                 | Kind::Windows
                 | Kind::Manhattan
                 | Kind::Ideogram
+                | Kind::Synteny
+                | Kind::Dotplot
                 | Kind::Axis
         )
     }
@@ -379,6 +393,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--ideogram" => Some((Kind::Ideogram, true)),
             "--matrix" => Some((Kind::Matrix, true)),
             "--pileup" => Some((Kind::Pileup, true)),
+            "--synteny" => Some((Kind::Synteny, true)),
+            "--dotplot" => Some((Kind::Dotplot, true)),
+            "--orfs" => Some((Kind::Orfs, true)),
+            "--logo" => Some((Kind::Logo, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };

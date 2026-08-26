@@ -1150,21 +1150,30 @@ standard input, which is how the binary formats get in: `samtools` and
 `bcftools` already write exactly what these readers take.
 
 `AxisTrack` is also available to the command: `--axis` places the ruler, which
-reads no file because it has nothing to read. The other seventeen have no
-standard text file to read from either, so they stay in the library:
-[BisulfiteTrack](#bisulfitetrack), [CladeTrack](#cladetrack),
-[CodonTrack](#codontrack), [DotplotTrack](#dotplottrack),
-[DomainTrack](#domaintrack),
-[GenomeTrack](#genometrack), [LegendTrack](#legendtrack),
-[LocusTrack](#locustrack), [LogoTrack](#logotrack),
-[MethylationTrack](#methylationtrack), [OrfTrack](#orftrack),
-[SplitReadTrack](#splitreadtrack), [SquiggleTrack](#squiggletrack),
-[StructuralTrack](#structuraltrack), [SyntenyTrack](#syntenytrack),
-[TanglegramTrack](#tanglegramtrack) and
-[TranscriptionUnitTrack](#transcriptionunittrack). A flag for each of them would
-mean inventing seventeen file formats nobody else writes, and the library takes
-vectors of structs rather than paths in any case. The reasoning, and the whole
-grammar, is in [the command line guide](guide/cli.md).
+reads no file because it has nothing to read. [OrfTrack](#orftrack) and
+[LogoTrack](#logotrack) are reachable too, off the same FASTA and the same
+aligned FASTA that `--sequence` and `--msa` already take, and
+[SyntenyTrack](#syntenytrack) and [DotplotTrack](#dotplottrack) off one PAF
+from `minimap2`, which is the one format in the crate that needs no coordinate
+conversion at all.
+
+That leaves sixteen in the library only, and the reasons are not the same one.
+[BisulfiteTrack](#bisulfitetrack), [DomainTrack](#domaintrack),
+[MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack) and
+[StructuralTrack](#structuraltrack) have a real interchange format and no
+reader yet: bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM carrying
+`SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
+[TanglegramTrack](#tanglegramtrack) need more than one file, and the grammar
+gives one path per flag. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
+[PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
+[SurveillanceTrack](#surveillancetrack) and
+[TranscriptionUnitTrack](#transcriptionunittrack) would need a table with no
+single standard behind it.
+
+Two belong here for good. [SquiggleTrack](#squiggletrack) reads raw current,
+and the formats that carry it, POD5 and FAST5, are binary. [LegendTrack](#legendtrack)
+is built from what the other tracks decided rather than from a file at all. The
+reasoning, and the whole grammar, is in [the command line guide](guide/cli.md).
 
 !!! note "Not a track"
     A circular sequence is not a stack of bands, so it is not a track and not a
