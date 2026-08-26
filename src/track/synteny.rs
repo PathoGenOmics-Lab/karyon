@@ -75,8 +75,12 @@ impl AlignmentBlock {
     }
 
     /// Sets the identity, from 0 to 1.
+    ///
+    /// A value outside the range is clamped into it. One that is not a number
+    /// leaves the block with no identity at all, since `clamp` propagates a
+    /// NaN and the field already has a spelling for the thing nobody stated.
     pub fn identity(mut self, identity: f64) -> Self {
-        self.identity = Some(identity.clamp(0.0, 1.0));
+        self.identity = (!identity.is_nan()).then(|| identity.clamp(0.0, 1.0));
         self
     }
 

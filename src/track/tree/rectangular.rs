@@ -683,7 +683,7 @@ pub(super) fn draw_trait_columns(
                 }
             }
             if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
-                let text = displayed.as_deref().unwrap_or("—");
+                let text = displayed.as_deref().unwrap_or(crate::tree::ABSENT);
                 let visible = fit_text(text, column.width - 4.0, size);
                 let ink = fill
                     .as_deref()

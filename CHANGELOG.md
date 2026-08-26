@@ -104,6 +104,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A value that is not a number was drawn as the strongest one on the page.
+  `mix` blends two colours by an amount, `clamp` propagates a NaN, and `NaN as
+  u8` saturates to nought, so an amount that was not a number left the ramp
+  entirely and came back `#000000`: darker than the dark end, on scales where
+  darker means more. Every ramp in the crate goes through that one function.
+  A homology of unknown identity was the visible case, drawn blacker than a
+  perfect match.
+- `Homology::identity` is `Option<f64>` rather than `f64`, matching
+  `AlignmentBlock`. Two genes matching with nobody stating how closely is an
+  ordinary case, and `Homology::new` now records a NaN as the absence it is
+  instead of clamping it into the range. `Homology::unstated` says it outright.
+  An unstated identity draws at the pale end of the ramp with a dashed edge, so
+  the figure distinguishes "nobody said" from "barely alike" without anyone
+  having to point at it.
+- `AlignmentBlock::identity` had the same hole and is closed the same way.
+- A tree annotation whose number is not a number printed as `NaN` in every
+  tooltip, trait strip and node label, through the one function the crate had
+  already centralised annotation formatting in. It is spelled with the same
+  glyph an absent annotation already used, since a number field that is not a
+  number and a field that is not there are the same fact about the same field.
+  The infinities are untouched: a file can carry a number too large for an
+  `f64`, it parses to one, and reporting it verbatim says what the file said.
+- `tests/properties.rs` checks tooltips as well as attributes. The writer's
+  guard covers numbers written into attributes, and a tooltip is a caller's
+  number put through `format!` into text a person reads, which is the gap all
+  of the above came through. The property found the tree annotation case on
+  its own, in a track nobody was looking at.
 - A track flag written without its path named the wrong flag. The spelling was
   kept in step with the list of tracks by a fallback arm rather than by the
   compiler, so `--synteny` with nothing after it reported that `--axis` needed

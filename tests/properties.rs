@@ -705,6 +705,21 @@ fn complaints(svg: &str) -> Vec<String> {
         if text.contains('<') {
             bad.push(format!("a title carries a raw < : {text:?}"));
         }
+        // The writer's `num` guard covers attributes, and a tooltip is not an
+        // attribute: it is a caller's number put through `format!` into text a
+        // person reads. That is the gap `identity NaN` came through, having
+        // been clamped by a `clamp` that propagates one.
+        //
+        // Not the infinities. A file can state a number too large for an f64
+        // and it parses to one, so `text_exact` reports it verbatim on
+        // purpose, and a reader seeing `inf` has been told what the file said.
+        // A NaN is not a number a file states, it is the absence of one, and
+        // printing it where a measurement goes is this crate's own bug class.
+        for word in text.split(|c: char| !c.is_ascii_alphanumeric()) {
+            if word.eq_ignore_ascii_case("nan") {
+                bad.push(format!("a title presents a NaN as a measurement: {text:?}"));
+            }
+        }
         let mut rest = text;
         while let Some(at) = rest.find('&') {
             rest = &rest[at..];
