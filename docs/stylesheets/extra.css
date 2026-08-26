@@ -704,115 +704,321 @@
   margin-inline: auto;
 }
 
-/* The playground. Its own block because it is the one page that is a program
-   rather than prose, so the reading measure the rest of the site keeps would
-   make the boxes too narrow to type a command line into. */
-.md-content__inner:has(#karyon-playground-app) .md-typeset > * {
+/* The playground: a workbench rather than a page of prose, so it is the one
+   place on the site that fills its own width and its own height. Everything
+   here is scoped to .pg- and to the page that carries it. */
+.md-content__inner:has(.pg-app) {
+  max-width: none;
+  padding-inline: 0.8rem;
+}
+
+.md-content__inner:has(.pg-app) > * {
   max-width: none;
 }
 
-#karyon-playground-app {
-  margin-block: 1.2rem;
+/* The article carries both classes rather than nesting them, so a descendant
+   selector for `.md-typeset` inside `.md-content__inner` matches nothing. */
+.md-content__inner:has(.pg-app) {
+  padding-top: 0.4rem;
 }
 
-.pg-label {
-  display: block;
-  margin-block: 0.9rem 0.3rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--md-default-fg-color--light);
+.md-content__inner:has(.pg-app)::before {
+  display: none;
 }
 
-.pg-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.2rem;
-  background: var(--md-code-bg-color);
-  color: var(--md-code-fg-color);
-  font-family: var(--md-code-font-family), monospace;
-  font-size: 0.7rem;
-  line-height: 1.5;
-  resize: vertical;
-  /* A command line and a data file are both things where a wrapped line is a
-     different line, so the tabs a BED is made of have to survive. */
-  tab-size: 8;
-  white-space: pre;
-  overflow-x: auto;
+/* The heading is what the toolbar says already. */
+.md-content__inner:has(.pg-app) > h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
-.pg-input:focus {
-  outline: 2px solid var(--md-accent-fg-color);
-  outline-offset: -1px;
-}
-
-.pg-examples {
+.pg-app {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-
-.pg-examples .pg-label {
-  margin: 0;
-}
-
-.pg-chip,
-.pg-button {
+  flex-direction: column;
+  /* The header and the tab bar are what is above it; the rest is the tool. */
+  height: calc(100vh - 4.2rem);
+  min-height: 26rem;
   border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.2rem;
-  background: transparent;
-  color: var(--md-typeset-a-color);
-  font-family: inherit;
-  font-size: 0.7rem;
-  padding: 0.25rem 0.6rem;
-  cursor: pointer;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  background: var(--md-default-bg-color);
 }
 
-.pg-chip:hover,
-.pg-button:hover:not(:disabled) {
-  background: var(--md-accent-fg-color--transparent);
+.pg-app:fullscreen {
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
 }
 
-.pg-actions {
+/* ---------------------------------------------------------------- toolbar */
+
+.pg-bar {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  margin-top: 0.9rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
 }
 
-.pg-button {
+.pg-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pg-spacer {
+  flex: 1 1 auto;
+}
+
+.pg-btn {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  font-family: inherit;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pg-btn:hover:not(:disabled) {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-fg-color);
+}
+
+.pg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pg-primary {
   font-weight: 700;
-  padding: 0.4rem 1.1rem;
   color: var(--md-primary-bg-color);
   background: var(--md-primary-fg-color);
   border-color: transparent;
 }
 
-.pg-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.pg-primary:hover:not(:disabled) {
+  color: var(--md-primary-bg-color);
+  filter: brightness(1.12);
 }
 
-.pg-status {
+.pg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-size: 0.68rem;
   color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.pg-output {
-  margin-top: 1rem;
-  padding: 0.8rem;
+.pg-region {
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.66rem;
+  color: var(--md-default-fg-color--light);
+  white-space: nowrap;
+}
+
+.pg-menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  z-index: 5;
+  min-width: 12rem;
+  padding: 0.25rem;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.2rem;
   background: var(--md-default-bg-color);
-  overflow-x: auto;
+  box-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.18);
 }
 
-.pg-output svg {
+.pg-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0.15rem;
+  background: transparent;
+  color: var(--md-default-fg-color);
+  font-family: inherit;
+  font-size: 0.68rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+}
+
+.pg-item:hover {
+  background: var(--md-accent-fg-color--transparent);
+  color: var(--md-accent-fg-color);
+}
+
+/* ------------------------------------------------------------------ panes */
+
+.pg-panes {
+  --pg-split: 38%;
+  display: grid;
+  grid-template-columns: var(--pg-split) 0.35rem 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pg-panes.pg-stacked {
+  grid-template-columns: 1fr;
+  grid-template-rows: var(--pg-split) 0.35rem 1fr;
+}
+
+.pg-split {
+  background: var(--md-default-fg-color--lightest);
+  cursor: col-resize;
+}
+
+.pg-panes.pg-stacked .pg-split {
+  cursor: row-resize;
+}
+
+.pg-split:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+}
+
+.pg-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.5rem;
+  gap: 0.3rem;
+}
+
+.pg-legend {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color--light);
+}
+
+.pg-code {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: var(--md-code-bg-color);
+  color: var(--md-code-fg-color);
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  resize: none;
+  /* A command line and a data file are both things where a wrapped line is a
+     different line, so the tabs a BED is made of have to survive. */
+  tab-size: 8;
+  white-space: pre;
+  overflow: auto;
+}
+
+.pg-code:focus {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -1px;
+}
+
+.pg-command {
+  flex: 0 0 auto;
+}
+
+.pg-body {
+  flex: 1 1 auto;
+  min-height: 6rem;
+}
+
+/* ------------------------------------------------------------------- tabs */
+
+.pg-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-top: 0.2rem;
+}
+
+.pg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-bottom-color: transparent;
+  border-radius: 0.2rem 0.2rem 0 0;
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.64rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.pg-tab.pg-on {
+  color: var(--md-default-fg-color);
+  background: var(--md-code-bg-color);
+  border-color: var(--md-default-fg-color--lightest);
+  font-weight: 700;
+}
+
+.pg-shut {
+  opacity: 0.5;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.pg-shut:hover {
+  opacity: 1;
+  color: var(--md-typeset-del-color);
+}
+
+.pg-add {
+  font-family: inherit;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------- view */
+
+.pg-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pg-plot {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.7rem;
+  overflow: auto;
+  background: var(--md-default-bg-color);
+}
+
+.pg-plot svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Interactive: the figure is something you take hold of, and every frame of
+   the drag is a figure the program drew rather than a scaled picture. */
+.pg-live {
+  cursor: grab;
+  user-select: none;
+}
+
+.pg-live.pg-dragging {
+  cursor: grabbing;
+}
+
+.pg-live svg {
+  pointer-events: none;
 }
 
 /* A refusal is text and reads as text, not as a figure that failed to appear. */
@@ -821,5 +1027,37 @@
   font-family: var(--md-code-font-family), monospace;
   font-size: 0.7rem;
   color: var(--md-typeset-del-color);
-  border-color: var(--md-typeset-del-color);
+}
+
+.pg-foot {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.7rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
+}
+
+.pg-status {
+  font-size: 0.64rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.pg-status.pg-bad {
+  color: var(--md-typeset-del-color);
+}
+
+.pg-notes {
+  margin-top: 1.4rem;
+  max-width: 34rem;
+}
+
+/* A phone has no room for two panes and no pointer to drag a splitter with. */
+@media screen and (max-width: 60em) {
+  .pg-panes {
+    grid-template-columns: 1fr;
+    grid-template-rows: 45% 0.35rem 1fr;
+  }
+
+  .pg-split {
+    cursor: row-resize;
+  }
 }
