@@ -669,6 +669,19 @@
       return;
     }
 
+    // Without the program there is nothing to draw the previews with, and
+    // twenty-one empty boxes read as twenty-one figures that failed. The cards
+    // still carry their command and their files, so they are still worth
+    // opening; the boxes are what go.
+    if (!K.ready()) {
+      var note = document.createElement("p");
+      note.className = "pg-empty";
+      note.textContent =
+        "The program has not arrived, so these have no preview. The commands " +
+        "and their files are still here, and they run in a terminal.";
+      body.appendChild(note);
+    }
+
     groups.forEach(function (set) {
       var section = document.createElement("section");
       section.className = "pg-set";
@@ -683,9 +696,12 @@
         card.type = "button";
         card.className = "pg-card";
 
-        var shot = document.createElement("div");
-        shot.className = "pg-preview";
-        card.appendChild(shot);
+        var shot = null;
+        if (K.ready()) {
+          shot = document.createElement("div");
+          shot.className = "pg-preview";
+          card.appendChild(shot);
+        }
 
         var title = document.createElement("span");
         title.className = "pg-card-title";
@@ -710,7 +726,7 @@
         // fixed width and needs no layout to have happened, and a tab that is
         // not on screen never gets a frame at all, so a panel opened in a
         // background tab would have come up with every card empty.
-        preview(example, shot);
+        if (shot) preview(example, shot);
       });
       section.appendChild(grid);
       body.appendChild(section);

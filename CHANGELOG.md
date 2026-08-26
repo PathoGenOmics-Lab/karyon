@@ -249,6 +249,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Without the program, the example panel came up as twenty-one empty boxes,
+  which reads as twenty-one figures that failed. The boxes go and one sentence
+  says why; the cards keep their command and their files, which are still worth
+  reading and still run in a terminal.
 - Dragging a figure towards the first base of a sequence shrank the window
   instead of moving it. The start was clamped to 1 and the end left where it
   was, so from `chr1:1-1,000` five drags gave 700, 490, 343, 240 and 168 bases
