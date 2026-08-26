@@ -61,12 +61,22 @@ TRACKS
     --logo <FILE>        a sequence logo counted from aligned FASTA
     --tanglegram <FILE>  two phylogenies face to face, Newick; this is the
                          left one and --against names the right
+    --clades <FILE>      spans carried by named taxa painted onto a phylogeny,
+                         GFF3 with a taxa attribute as Gubbins writes it; the
+                         tree is named by --with-tree
+    --loci <FILE>        gene neighbourhoods from several genomes, BED or GFF3
+                         whose first column names the genome; what joins them
+                         is named by --links
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it
     --label <TEXT>       the name in the left gutter
-    --against <FILE>     the other file, for a track drawn from two of them:
-                         the right-hand tree of a tanglegram
+    --against <FILE>     the right-hand tree of a tanglegram
+    --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
+    --links <FILE>       the homologies between the rows of a locus track,
+                         BLAST tabular, or two or three columns of names
+    --identity <UNIT>    percent or fraction, for a homology file whose third
+                         column could be either
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line, bars, or steps for a window track
@@ -176,8 +186,12 @@ mod tests {
                 kind.dashed()
             );
         }
-        // And the flag that carries a second file, which is not a track.
-        assert!(HELP.contains("--against"), "--against is undocumented");
+        // And every flag that carries a second file, which is not a track.
+        for kind in args::Kind::ALL {
+            if let Some(flag) = kind.second_flag() {
+                assert!(HELP.contains(flag), "{flag} is undocumented");
+            }
+        }
     }
 
     /// The other direction, which closes the loop. `Kind::dashed` is
@@ -197,6 +211,13 @@ mod tests {
             .0;
 
         let known: Vec<&str> = args::Kind::ALL.iter().map(|k| k.dashed()).collect();
+        // A second-path flag is named inside the track it belongs to, since
+        // that is where a reader looks for it. Taken from the parser rather
+        // than written out, so a third spelling does not have to be added here.
+        let seconds: Vec<&str> = args::Kind::ALL
+            .iter()
+            .filter_map(|kind| kind.second_flag())
+            .collect();
         let mut found = 0;
         for word in tracks.split_whitespace() {
             if !word.starts_with("--") {
@@ -204,7 +225,7 @@ mod tests {
             }
             found += 1;
             assert!(
-                known.contains(&word) || word == "--against",
+                known.contains(&word) || seconds.contains(&word),
                 "{word} is documented as a track and is not in Kind::ALL"
             );
         }

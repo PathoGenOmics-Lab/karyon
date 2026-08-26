@@ -57,7 +57,9 @@ pub mod align;
 pub mod align_pairs;
 #[cfg(test)]
 mod audit;
+pub mod clade;
 pub mod interval;
+pub mod locus;
 pub mod point;
 pub mod seq;
 pub mod signal;

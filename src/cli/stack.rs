@@ -23,10 +23,10 @@ use std::fs;
 use std::io::{self, Read as _};
 
 use crate::{
-    Aggregate, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LogoTrack, ManhattanTrack,
-    MatrixTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack,
-    SnpTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack,
-    WindowStyle, WindowTrack,
+    Aggregate, CladeTrack, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LocusTrack,
+    LogoTrack, ManhattanTrack, MatrixTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot,
+    Region, SequenceTrack, SnpTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack,
+    VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -62,6 +62,44 @@ pub enum BuildError {
         /// What was expected in it.
         wanted: &'static str,
     },
+    /// A file held what was wanted, somewhere the figure is not.
+    ///
+    /// Separate from [`BuildError::Empty`] because the two are different
+    /// mistakes with the same symptom. An empty file is a wrong path; a full
+    /// file with nothing in the window is a wrong locus, or a file whose first
+    /// column names its sequence something the region does not.
+    Elsewhere {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// What was expected in it.
+        wanted: &'static str,
+        /// How many of them the file did hold.
+        held: usize,
+        /// The sequences it named, where naming them helps.
+        named: String,
+        /// The locus that was asked for.
+        region: String,
+    },
+    /// Two files were read and nothing in one names anything in the other.
+    ///
+    /// The join is names, and names from two tools are routinely not the same
+    /// strings. A figure drawn from a join that found nothing is not blank: it
+    /// is every gene marked as having no counterpart, or a phylogeny with no
+    /// block on it, and both of those read as a finding.
+    Unjoined {
+        /// Which track wanted it.
+        track: &'static str,
+        /// The file whose names found nothing.
+        path: String,
+        /// What kind of name did not join.
+        what: &'static str,
+        /// What it was matched against.
+        against: &'static str,
+        /// A few of the names, so the mismatch can be seen at a glance.
+        examples: Vec<String>,
+    },
     /// A track drawn from two files was handed one.
     ///
     /// The parser refuses this, so it reaches here only from an
@@ -92,6 +130,37 @@ impl fmt::Display for BuildError {
                 path,
                 wanted,
             } => write!(f, "--{track} {path}: no {wanted} in the region"),
+            BuildError::Elsewhere {
+                track,
+                path,
+                wanted,
+                held,
+                named,
+                region,
+            } => {
+                write!(f, "--{track} {path}: no {wanted} in {region}")?;
+                write!(f, ", though the file holds {held}")?;
+                if !named.is_empty() {
+                    write!(f, " on {named}")?;
+                }
+                Ok(())
+            }
+            BuildError::Unjoined {
+                track,
+                path,
+                what,
+                against,
+                examples,
+            } => {
+                write!(
+                    f,
+                    "--{track} {path}: no {what} in this file names anything in {against}"
+                )?;
+                if !examples.is_empty() {
+                    write!(f, ", starting with {}", examples.join(", "))?;
+                }
+                Ok(())
+            }
             BuildError::MissingSecond { track } => write!(
                 f,
                 "a {track} track is drawn from two files, and only one was given"
@@ -356,6 +425,121 @@ fn track(
             let track =
                 TanglegramTrack::new(left, right).names(shortened(&path), shortened(&right_path));
             Box::new(named(track, label, TanglegramTrack::label))
+        }
+        // Spans plus the taxa carrying them, painted onto a phylogeny that
+        // comes from a second file. Every refusal below stands between a
+        // mistake and a figure that looks like a result: a tree with no blocks
+        // on it says there was no recombination here, and a tree whose taxa the
+        // file never names says the same thing at more length.
+        Kind::Clades => {
+            let Some(source) = spec.second.as_ref() else {
+                return Err(BuildError::MissingSecond { track: name });
+            };
+            let (newick, tree_path) = fetch(name, source, open)?;
+            let tree = Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
+                flag: "--with-tree",
+                path: tree_path,
+                cause,
+            })?;
+
+            let found = wrap(name, &path, read::clade::blocks(&text, region))?;
+            if found.records == 0 {
+                return Err(empty("clade blocks"));
+            }
+            if found.blocks.is_empty() {
+                // The file did hold blocks, so say which of the two ways they
+                // failed to reach the figure rather than repeating the count.
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "clade blocks",
+                    held: found.records,
+                    named: found.sequences.join(", "),
+                    region: region.to_string(),
+                });
+            }
+
+            // The join is names, and both ways it fails are counted here
+            // because the track cannot tell a caller either of them: a block
+            // none of whose taxa the tree has reports no unmatched taxa at all,
+            // the names inside it having been dropped along with the block.
+            let leaves: std::collections::BTreeSet<String> =
+                tree.leaf_names().into_iter().collect();
+            let carried = found
+                .blocks
+                .iter()
+                .filter(|block| block.taxa().iter().any(|taxon| leaves.contains(taxon)))
+                .count();
+            if carried == 0 {
+                return Err(BuildError::Unjoined {
+                    track: name,
+                    path: path.clone(),
+                    what: "taxon",
+                    against: "the phylogeny",
+                    examples: found
+                        .blocks
+                        .iter()
+                        .flat_map(|block| block.taxa())
+                        .take(3)
+                        .cloned()
+                        .collect(),
+                });
+            }
+
+            let track = CladeTrack::new(tree, found.blocks);
+            Box::new(named(track, label, CladeTrack::label))
+        }
+        // Gene neighbourhoods from several genomes, and a second file saying
+        // what joins one to the next. The links are required: the track marks
+        // every gene no homology reaches, so the absence of the file is drawn
+        // as the strongest positive finding the track can make.
+        Kind::Loci => {
+            let Some(source) = spec.second.as_ref() else {
+                return Err(BuildError::MissingSecond { track: name });
+            };
+            let found = wrap(name, &path, read::locus::loci(&text, region, spec.format))?;
+            if found.records == 0 {
+                return Err(empty("genes"));
+            }
+            if found.loci.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "genes",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                });
+            }
+
+            let (text, link_path) = fetch(name, source, open)?;
+            let joined = wrap(
+                name,
+                &link_path,
+                read::locus::links(&text, &found.loci, spec.identity),
+            )?;
+            if joined.records == 0 {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path: link_path,
+                    wanted: "homologies",
+                });
+            }
+            // Nothing joined is the figure this whole arm exists to refuse. It
+            // is not an empty plot: it is every gene in every genome outlined
+            // as having no counterpart, which reads as a discovery.
+            if joined.links.is_empty() {
+                return Err(BuildError::Unjoined {
+                    track: name,
+                    path: link_path,
+                    what: "gene name",
+                    against: "the loci",
+                    examples: joined.unjoined.iter().take(3).cloned().collect(),
+                });
+            }
+
+            let track = LocusTrack::new(found.loci).links(joined.links);
+            Box::new(named(track, label, LocusTrack::label))
         }
         // A PAF names both sequences on every row, and an AlignmentBlock keeps
         // neither, so something has to choose which pair the figure is about.
@@ -672,6 +856,146 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         invocation.tracks[0].kind = Kind::Tanglegram;
         let error = build(&invocation, |_| Ok("((a,b),(c,d));".to_string())).unwrap_err();
         assert!(matches!(error, BuildError::MissingSecond { .. }), "{error}");
+    }
+
+    /// The two refusals these arms exist for, and both are about a figure
+    /// that looks finished. A clade file whose taxa the tree has never heard
+    /// of draws a phylogeny with nothing on it, which reads as no
+    /// recombination; a homology file whose names did not join draws every
+    /// gene in every genome outlined as unique, which reads as a discovery.
+    #[test]
+    fn two_files_that_name_nothing_in_each_other_are_refused_rather_than_drawn() {
+        const GFF: &str = "SEQUENCE\t.\tCDS\t100\t900\t.\t.\t0\ttaxa=\"s1 s2\";\n";
+        const BED: &str = "\
+A\t0\t400\tg1\t0\t+
+B\t0\t400\tg2\t0\t+
+";
+
+        // The clade side: a tree of a, b, c against a file naming s1 and s2.
+        let it = pair(
+            "chr1:1-1000",
+            "--clades",
+            "clades.gff",
+            "--with-tree",
+            "tree.nwk",
+        );
+        let error = build(&it, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("tree.nwk") => "((a,b),c);",
+                _ => GFF,
+            }
+            .to_string())
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error, BuildError::Unjoined { what: "taxon", .. }),
+            "{error}"
+        );
+        // And the message shows the names, which is what makes it actionable.
+        assert!(error.to_string().contains("s1"), "{error}");
+
+        // A tree that does have them draws.
+        let svg = build(&it, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("tree.nwk") => "((s1,s2),s3);",
+                _ => GFF,
+            }
+            .to_string())
+        })
+        .unwrap();
+        assert!(svg.contains("s1"));
+
+        // The locus side: names from a search against a different FASTA.
+        let it = pair("chr1:1-1000", "--loci", "loci.bed", "--links", "links.tsv");
+        let error = build(&it, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("links.tsv") => "lcl|g1\tlcl|g2\t98.0\n",
+                _ => BED,
+            }
+            .to_string())
+        })
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                BuildError::Unjoined {
+                    what: "gene name",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+
+        let svg = build(&it, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("links.tsv") => "g1\tg2\t98.0\n",
+                _ => BED,
+            }
+            .to_string())
+        })
+        .unwrap();
+        assert!(svg.contains("homology"), "the joined pair drew no ribbon");
+        assert!(
+            !svg.contains(", unmatched"),
+            "a joined gene was still marked as having nothing to match"
+        );
+    }
+
+    /// Both new tracks need a second file, and every field of a TrackSpec is
+    /// public, so the parser's refusal is not the only one that has to exist.
+    #[test]
+    fn a_track_drawn_from_two_files_is_refused_here_too_and_not_a_panic() {
+        for (flag, kind) in [
+            ("--clades", Kind::Clades),
+            ("--loci", Kind::Loci),
+            ("--tanglegram", Kind::Tanglegram),
+        ] {
+            let mut it = over("chr1:1-1000", "--tree", "t.nwk");
+            it.tracks[0].kind = kind;
+            let error = build(&it, |_| Ok("((a,b),c);".to_string())).unwrap_err();
+            assert!(
+                matches!(error, BuildError::MissingSecond { .. }),
+                "{flag}: {error}"
+            );
+        }
+    }
+
+    /// A file that holds what was asked for, somewhere the window is not, is a
+    /// different mistake from an empty file and says so. Gubbins writes the
+    /// literal SEQUENCE in column one, so this is the ordinary way a correct
+    /// file draws nothing.
+    #[test]
+    fn a_full_file_with_nothing_in_the_window_says_what_it_did_hold() {
+        let it = pair(
+            "chr1:9000-9500",
+            "--clades",
+            "clades.gff",
+            "--with-tree",
+            "tree.nwk",
+        );
+        let error = build(&it, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("tree.nwk") => "((s1,s2),s3);",
+                _ => "SEQUENCE\t.\tCDS\t100\t900\t.\t.\t0\ttaxa=\"s1 s2\";\n",
+            }
+            .to_string())
+        })
+        .unwrap_err();
+        let said = error.to_string();
+        assert!(said.contains("though the file holds 1"), "{said}");
+        assert!(said.contains("SEQUENCE"), "{said}");
+    }
+
+    /// A track drawn from two files, with both of them named.
+    fn pair(locus: &str, flag: &str, path: &str, second: &str, other: &str) -> Invocation {
+        let args: Vec<String> = [locus, flag, path, second, other]
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        }
     }
 
     /// One region, one track flag and one path, which may hold spaces.

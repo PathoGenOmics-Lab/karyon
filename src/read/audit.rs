@@ -20,7 +20,7 @@
 
 use crate::{Region, Strand};
 
-use super::{align, interval, point, signal, table};
+use super::{align, clade, interval, locus, point, signal, table};
 
 /// 0-based 99, which every fixture in this file is written to land on.
 const TARGET: u64 = 99;
@@ -71,6 +71,38 @@ fn audit_gff3_one_base() {
     assert_eq!((genes[0].start, genes[0].end), (TARGET, TARGET + 1));
     assert_eq!(genes[0].len(), 1);
     assert_eq!(genes[0].strand, Strand::Forward);
+}
+
+#[test]
+fn audit_clade_block_one_base() {
+    // A clade file is GFF3, so it counts the same way a gene does, and this is
+    // the assertion that says so out loud rather than by resemblance.
+    let text = "SEQUENCE\t.\tCDS\t100\t100\t.\t.\t0\ttaxa=\"s1\";\n";
+    let found = clade::blocks(text, &region("chr1:1-200")).unwrap();
+    assert_eq!(
+        (found.blocks[0].start(), found.blocks[0].end()),
+        (TARGET, TARGET + 1)
+    );
+    assert_eq!(found.blocks[0].span(), 1);
+}
+
+#[test]
+fn audit_locus_bed_one_base() {
+    // A locus file is BED or GFF3 read with column one grouping instead of
+    // filtering, which changes which rows are kept and no coordinate at all.
+    let found = locus::loci("H37Rv\t99\t100\tg\n", &region("chr1:1-200"), None).unwrap();
+    let gene = &found.loci[0].genes[0];
+    assert_eq!((gene.start, gene.end), (TARGET, TARGET + 1));
+    assert_eq!(found.loci[0].name, "H37Rv");
+}
+
+#[test]
+fn audit_locus_gff3_one_base() {
+    let text = "##gff-version 3\nH37Rv\t.\tgene\t100\t100\t.\t+\t.\tID=one\n";
+    let found = locus::loci(text, &region("chr1:1-200"), None).unwrap();
+    let gene = &found.loci[0].genes[0];
+    assert_eq!((gene.start, gene.end), (TARGET, TARGET + 1));
+    assert_eq!(gene.strand, Strand::Forward);
 }
 
 #[test]
@@ -172,6 +204,91 @@ fn audit_window_end_is_exclusive() {
 /// The window every edge test below is measured against: 0-based 100..200.
 fn window() -> Region {
     region("chr1:101-200")
+}
+
+#[test]
+fn audit_clade_end_is_inclusive_so_the_span_is_one_longer() {
+    // 100 to 200 written GFF3 is 101 bases, and the same two numbers written
+    // BED are 100. A clade block reads the first way.
+    let text = "SEQUENCE\t.\tCDS\t100\t200\t.\t.\t0\ttaxa=\"s1\";\n";
+    let found = clade::blocks(text, &region("chr1:1-400")).unwrap();
+    assert_eq!(found.blocks[0].span(), 101);
+
+    let bed = locus::loci("g\t100\t200\tx\n", &region("chr1:1-400"), None).unwrap();
+    assert_eq!(bed.loci[0].genes[0].len(), 100);
+}
+
+#[test]
+fn audit_clade_keeps_a_block_that_overlaps_either_edge() {
+    // The same four edges `audit_gff3_keeps_a_feature_that_overlaps_either_edge`
+    // pins, on the same window, since a clade file is GFF3 and an edge is where
+    // two readers of one convention drift apart without failing.
+    let read = |text: &str| clade::blocks(text, &window()).unwrap();
+
+    // 1-based 1..101 is 0-based 0..101, whose last base is 100.
+    assert_eq!(
+        read("SEQUENCE\t.\tCDS\t1\t101\t.\t.\t0\ttaxa=\"s\";\n")
+            .blocks
+            .len(),
+        1
+    );
+    // 1-based 1..100 is 0-based 0..100, one short of the window.
+    let short = read("SEQUENCE\t.\tCDS\t1\t100\t.\t.\t0\ttaxa=\"s\";\n");
+    assert!(short.blocks.is_empty());
+    assert_eq!(
+        short.records, 1,
+        "the record went uncounted as well as undrawn"
+    );
+    assert_eq!(short.off_region, 1);
+    // 1-based 200 is 0-based 199, the last base of the window.
+    assert_eq!(
+        read("SEQUENCE\t.\tCDS\t200\t500\t.\t.\t0\ttaxa=\"s\";\n")
+            .blocks
+            .len(),
+        1
+    );
+    // 1-based 201 is 0-based 200, one past it.
+    assert!(read("SEQUENCE\t.\tCDS\t201\t500\t.\t.\t0\ttaxa=\"s\";\n")
+        .blocks
+        .is_empty());
+}
+
+#[test]
+fn audit_locus_keeps_a_gene_that_overlaps_either_edge() {
+    let read = |text: &str| locus::loci(text, &window(), None).unwrap();
+
+    assert_eq!(
+        read("g\t0\t101\ta\n").loci.len(),
+        1,
+        "overlaps the left edge"
+    );
+    let short = read("g\t0\t100\tb\n");
+    assert!(short.loci.is_empty(), "entirely left");
+    assert_eq!(short.records, 1);
+    assert_eq!(short.off_region, 1);
+    assert_eq!(
+        read("g\t199\t500\tc\n").loci.len(),
+        1,
+        "overlaps the right edge"
+    );
+    assert!(read("g\t200\t500\td\n").loci.is_empty(), "entirely right");
+}
+
+#[test]
+fn audit_locus_groups_on_column_one_where_a_feature_reader_filters_on_it() {
+    // The one place these two readers differ, and the difference is not a
+    // coordinate: every row of a locus file is drawn and column one says which
+    // row, where a feature file drops every row that is not the sequence.
+    let text = "chr1\t99\t100\ta\nchr2\t99\t100\tb\n";
+    let here = region("chr1:1-200");
+
+    let features = interval::features(text, &here, None).unwrap();
+    assert_eq!(features.len(), 1, "a feature reader kept another sequence");
+
+    let found = locus::loci(text, &here, None).unwrap();
+    assert_eq!(found.loci.len(), 2, "a locus reader dropped a genome");
+    assert_eq!(found.loci[1].name, "chr2");
+    assert_eq!(found.loci[1].genes[0].start, TARGET);
 }
 
 #[test]

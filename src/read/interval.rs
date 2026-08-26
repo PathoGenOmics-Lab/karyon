@@ -42,7 +42,7 @@ use super::{columns, lines, number, ReadError};
 
 /// Which of the two interval formats a file turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Flavour {
+pub(crate) enum Flavour {
     /// `chrom start end [name] [score] [strand]`, 0-based half-open.
     Bed,
     /// Nine columns, 1-based inclusive, attributes in the ninth.
@@ -148,7 +148,7 @@ pub fn cytoband(text: &str, sequence: &str) -> Result<(u64, Vec<Band>), ReadErro
 /// column seven of the first data row, which GFF3 spends on the strand and a
 /// BED of nine or more columns spends on `thickStart`, a number. A row with
 /// fewer than seven columns is BED, since a GFF3 row always has nine.
-fn flavour(text: &str, format: Option<Format>) -> Flavour {
+pub(crate) fn flavour(text: &str, format: Option<Format>) -> Flavour {
     match format {
         Some(Format::Gff3) => return Flavour::Gff3,
         Some(Format::Bed) => return Flavour::Bed,
@@ -175,7 +175,7 @@ fn flavour(text: &str, format: Option<Format>) -> Flavour {
 }
 
 /// One BED row, whose coordinates are already the ones the crate uses.
-fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
+pub(crate) fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     if cols.len() < 3 {
         return Err(ReadError::at(
             at,
@@ -201,7 +201,7 @@ fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
 }
 
 /// One GFF3 row, whose start counts from one and whose end is included.
-fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
+pub(crate) fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     // The last four columns are not needed to place a feature, so a file that
     // stops short of nine still reads. The first five are.
     if cols.len() < 5 {
@@ -242,15 +242,23 @@ fn gff3_name(attributes: &str) -> Option<String> {
         .find_map(|key| attribute(attributes, key))
 }
 
-/// One `key=value` out of the ninth column, decoded.
-fn attribute(attributes: &str, key: &str) -> Option<String> {
+/// One `key=value` out of the ninth column, exactly as it was written.
+///
+/// Undecoded on purpose, for a value that is a list. The column spends `,` on
+/// its own list syntax, so a name holding a comma arrives as `%2C`, and
+/// decoding the whole value before splitting it turns one name into two
+/// without anything failing. A caller reading a list splits first and calls
+/// [`percent_decode`] on each piece.
+pub(crate) fn raw_attribute<'a>(attributes: &'a str, key: &str) -> Option<&'a str> {
     attributes.split(';').find_map(|pair| {
         let (found, value) = pair.trim().split_once('=')?;
-        if found.trim() != key {
-            return None;
-        }
-        label(Some(&percent_decode(value.trim())))
+        (found.trim() == key).then(|| value.trim())
     })
+}
+
+/// One `key=value` out of the ninth column, decoded.
+fn attribute(attributes: &str, key: &str) -> Option<String> {
+    label(Some(&percent_decode(raw_attribute(attributes, key)?)))
 }
 
 /// Decodes the `%XX` escapes of a GFF3 attribute value.
@@ -259,7 +267,7 @@ fn attribute(attributes: &str, key: &str) -> Option<String> {
 /// of them arrives escaped, and `%20` for a space is just as common. Anything
 /// that is not a complete escape is left as it was written, since a stray `%`
 /// in a name is more likely than a truncated one.
-fn percent_decode(value: &str) -> String {
+pub(crate) fn percent_decode(value: &str) -> String {
     if !value.contains('%') {
         return value.to_string();
     }
@@ -285,7 +293,7 @@ fn percent_decode(value: &str) -> String {
 
 /// A name column, with the `.` every one of these formats uses for "none" read
 /// as none rather than as a feature called `.`.
-fn label(field: Option<&str>) -> Option<String> {
+pub(crate) fn label(field: Option<&str>) -> Option<String> {
     let text = field?.trim();
     if text.is_empty() || text == "." {
         None
