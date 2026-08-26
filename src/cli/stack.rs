@@ -23,9 +23,9 @@ use std::fs;
 use std::io::{self, Read as _};
 
 use crate::{
-    Aggregate, CoverageTrack, FeatureTrack, IdeogramTrack, LogoTrack, ManhattanTrack, MatrixTrack,
-    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack, Theme,
-    Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    Aggregate, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LogoTrack, ManhattanTrack,
+    MatrixTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack,
+    SnpTrack, SyntenyTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -288,6 +288,48 @@ fn track(
             })?;
             Box::new(named(TreeTrack::new(tree), label, TreeTrack::label))
         }
+        // A PAF names both sequences on every row, and an AlignmentBlock keeps
+        // neither, so something has to choose which pair the figure is about.
+        // The query is the sequence the region is on, which is not a choice.
+        // The target is, and guessing it silently would draw a comparison
+        // nobody asked for, so the pick is the most-aligned target, it is
+        // deterministic, and the ribbon prints both names so the figure says
+        // which two sequences it compared rather than leaving it to be assumed.
+        Kind::Synteny | Kind::Dotplot => {
+            let query = region.seq();
+            let found = wrap(name, &path, read::align_pairs::targets(&text, query))?;
+            let target = found
+                .first()
+                .map(|(name, _)| name.clone())
+                .ok_or_else(|| empty(spec.kind.flag()))?;
+            let alignments = wrap(
+                name,
+                &path,
+                read::align_pairs::blocks(&text, query, &target),
+            )?;
+            if alignments.blocks.is_empty() {
+                return Err(empty(spec.kind.flag()));
+            }
+            if spec.kind == Kind::Dotplot {
+                let mut track = DotplotTrack::new(alignments.blocks);
+                if let Some(length) = alignments.target_length {
+                    track = track.target_length(length);
+                }
+                if let Some(height) = height {
+                    track = track.height(height);
+                }
+                Box::new(named(track, label, DotplotTrack::label))
+            } else {
+                let mut track = SyntenyTrack::new(alignments.blocks).names(query, &target);
+                if let Some(length) = alignments.target_length {
+                    track = track.target_length(length);
+                }
+                if let Some(height) = height {
+                    track = track.height(height);
+                }
+                Box::new(named(track, label, SyntenyTrack::label))
+            }
+        }
         // The two conventions in this file are opposite, and which one a track
         // follows is not a matter of taste. `--sequence` clips its bases to the
         // window and anchors them at the window's start; `--snps` anchors at
@@ -407,6 +449,47 @@ fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A PAF names two sequences on every row and an AlignmentBlock keeps
+    /// neither, so a whole-genome file would otherwise stack alignments
+    /// against different chromosomes on one axis and say nothing. This pins
+    /// the three things that stops: only the chosen pair is drawn, the choice
+    /// is the most-aligned target and is deterministic, and the ribbon prints
+    /// both names so the figure states which two it compared.
+    #[test]
+    fn a_paf_naming_several_targets_draws_one_pair_and_names_it() {
+        const PAF: &str = "\
+ctg1\t5000\t0\t1200\t+\tchrA\t9000\t400\t1600\t1150\t1200\t60
+ctg1\t5000\t1500\t2600\t-\tchrA\t9000\t3000\t4100\t1000\t1100\t60
+ctg1\t5000\t100\t400\t+\tchrB\t4000\t50\t350\t280\t300\t60
+ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
+";
+        let svg = build(&over("ctg1:1-5000", "--synteny", "a.paf"), |_| {
+            Ok(PAF.to_string())
+        })
+        .unwrap();
+
+        // chrA has two rows for this query and chrB one, so chrA is drawn and
+        // the figure says so. chrB is not mentioned, which is the whole point.
+        assert!(svg.contains("chrA"), "the ribbon does not name its target");
+        assert!(
+            !svg.contains("chrB"),
+            "a second target reached a figure about the first"
+        );
+
+        // And the reader agrees about what it kept and what it passed over.
+        let found = crate::read::align_pairs::blocks(PAF, "ctg1", "chrA").unwrap();
+        assert_eq!(found.blocks.len(), 2);
+        assert_eq!(
+            found.passed_over, 2,
+            "rows of another pair went unmentioned"
+        );
+        assert_eq!(
+            found.target_length,
+            Some(9000),
+            "the target length has to come from column seven, not from the blocks"
+        );
+    }
 
     /// Both new flags follow a coordinate convention, and they are opposite
     /// ones. A logo anchored where the sequence anchors is offset by the whole

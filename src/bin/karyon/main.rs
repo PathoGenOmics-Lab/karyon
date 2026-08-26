@@ -53,6 +53,9 @@ TRACKS
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
     --matrix <FILE>      a value per sample per site, a table
     --pileup <FILE>      aligned reads, SAM text from samtools view
+    --synteny <FILE>     alignment ribbons between two sequences, PAF from
+                         minimap2; the most-aligned target is drawn and named
+    --dotplot <FILE>     the same PAF as a dot plot
     --orfs <FILE>        open reading frames in six frames, from the same FASTA
                          --sequence takes
     --logo <FILE>        a sequence logo counted from aligned FASTA
@@ -172,6 +175,8 @@ mod tests {
             "--ideogram",
             "--matrix",
             "--pileup",
+            "--synteny",
+            "--dotplot",
             "--orfs",
             "--logo",
             "--axis",

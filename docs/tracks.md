@@ -1152,15 +1152,17 @@ standard input, which is how the binary formats get in: `samtools` and
 `AxisTrack` is also available to the command: `--axis` places the ruler, which
 reads no file because it has nothing to read. [OrfTrack](#orftrack) and
 [LogoTrack](#logotrack) are reachable too, off the same FASTA and the same
-aligned FASTA that `--sequence` and `--msa` already take.
+aligned FASTA that `--sequence` and `--msa` already take, and
+[SyntenyTrack](#syntenytrack) and [DotplotTrack](#dotplottrack) off one PAF
+from `minimap2`, which is the one format in the crate that needs no coordinate
+conversion at all.
 
-That leaves eighteen in the library only, and the reasons are not the same one.
+That leaves sixteen in the library only, and the reasons are not the same one.
 [BisulfiteTrack](#bisulfitetrack), [DomainTrack](#domaintrack),
-[MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack),
-[StructuralTrack](#structuraltrack), [SyntenyTrack](#syntenytrack) and
-[DotplotTrack](#dotplottrack) have a real interchange format and no reader yet:
-PAF from minimap2, bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM
-carrying `SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
+[MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack) and
+[StructuralTrack](#structuraltrack) have a real interchange format and no
+reader yet: bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM carrying
+`SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
 [TanglegramTrack](#tanglegramtrack) need more than one file, and the grammar
 gives one path per flag. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
 [PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
