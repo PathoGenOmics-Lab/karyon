@@ -50,6 +50,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::read::locus::Identity;
 use crate::{Aggregate, CoverageStyle, Format, Region, WindowStyle};
 
 /// What went wrong before anything was read.
@@ -203,6 +204,11 @@ pub enum Kind {
     Logo,
     /// Two phylogenies face to face, from two Newick files.
     Tanglegram,
+    /// Spans carried by named taxa, painted onto a phylogeny.
+    Clades,
+    /// Gene neighbourhoods from several genomes, with their homologies drawn
+    /// between them.
+    Loci,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
@@ -215,7 +221,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 18] = [
+    pub const ALL: [Kind; 20] = [
         Kind::Coverage,
         Kind::Sequence,
         Kind::Features,
@@ -233,6 +239,8 @@ impl Kind {
         Kind::Orfs,
         Kind::Logo,
         Kind::Tanglegram,
+        Kind::Clades,
+        Kind::Loci,
         Kind::Axis,
     ];
 
@@ -256,6 +264,8 @@ impl Kind {
             Kind::Orfs => "orfs",
             Kind::Logo => "logo",
             Kind::Tanglegram => "tanglegram",
+            Kind::Clades => "clades",
+            Kind::Loci => "loci",
             Kind::Axis => "axis",
         }
     }
@@ -286,6 +296,8 @@ impl Kind {
             Kind::Orfs => "--orfs",
             Kind::Logo => "--logo",
             Kind::Tanglegram => "--tanglegram",
+            Kind::Clades => "--clades",
+            Kind::Loci => "--loci",
             Kind::Axis => "--axis",
         }
     }
@@ -331,9 +343,31 @@ impl Kind {
     /// does, has to be able to ask which tracks want a second file and what to
     /// call the control that asks for it.
     pub fn second_flag(self) -> Option<&'static str> {
+        // Exhaustive for the reason `dashed` is. A fallback arm here does not
+        // give a wrong error message, it gives a track drawn without a file it
+        // cannot do without, and each of the three has a figure that looks
+        // finished when that happens.
         match self {
             Kind::Tanglegram => Some("--against"),
-            _ => None,
+            Kind::Clades => Some("--with-tree"),
+            Kind::Loci => Some("--links"),
+            Kind::Coverage
+            | Kind::Sequence
+            | Kind::Features
+            | Kind::Variants
+            | Kind::Windows
+            | Kind::Manhattan
+            | Kind::Tree
+            | Kind::Msa
+            | Kind::Snps
+            | Kind::Ideogram
+            | Kind::Matrix
+            | Kind::Pileup
+            | Kind::Synteny
+            | Kind::Dotplot
+            | Kind::Orfs
+            | Kind::Logo
+            | Kind::Axis => None,
         }
     }
 }
@@ -398,6 +432,8 @@ pub struct TrackSpec {
     pub color: Option<String>,
     /// `--format`, when the file cannot be told by looking at it.
     pub format: Option<Format>,
+    /// `--identity`, when a homology file's third column could be either unit.
+    pub identity: Option<Identity>,
 }
 
 impl TrackSpec {
@@ -414,6 +450,7 @@ impl TrackSpec {
             log: false,
             color: None,
             format: None,
+            identity: None,
         }
     }
 }
@@ -508,6 +545,8 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--orfs" => Some((Kind::Orfs, true)),
             "--logo" => Some((Kind::Logo, true)),
             "--tanglegram" => Some((Kind::Tanglegram, true)),
+            "--clades" => Some((Kind::Clades, true)),
+            "--loci" => Some((Kind::Loci, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };
@@ -643,8 +682,16 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            "--against" => {
-                let word = value("--against")?;
+            flag @ ("--against" | "--with-tree" | "--links") => {
+                // One arm for every second path, because the mechanism is one
+                // mechanism; only the spelling changes, and the spelling is
+                // what says which file it is.
+                let flag: &'static str = match flag {
+                    "--with-tree" => "--with-tree",
+                    "--links" => "--links",
+                    _ => "--against",
+                };
+                let word = value(flag)?;
                 // Checked before the track is borrowed, and against both
                 // fields: a pipe can be read once, and it is now possible for
                 // one track to ask for it twice by itself.
@@ -657,14 +704,30 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 } else {
                     Source::Path(PathBuf::from(word))
                 };
-                let track = last(&mut tracks, "--against")?;
-                if track.kind.second_flag() != Some("--against") {
+                let track = last(&mut tracks, flag)?;
+                if track.kind.second_flag() != Some(flag) {
                     return Err(ArgError::WrongTrack {
-                        flag: "--against",
+                        flag,
                         track: track.kind.flag(),
                     });
                 }
                 track.second = Some(source);
+            }
+            "--identity" => {
+                let text = value("--identity")?;
+                let unit = Identity::parse(text).ok_or_else(|| ArgError::BadValue {
+                    flag: "--identity",
+                    given: text.clone(),
+                    expected: "percent or fraction",
+                })?;
+                let track = last(&mut tracks, "--identity")?;
+                if track.kind != Kind::Loci {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--identity",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.identity = Some(unit);
             }
             "--format" => {
                 let text = value("--format")?;
@@ -957,13 +1020,98 @@ mod tests {
     /// `--synteny` with no path reported that `--axis` needed a value.
     #[test]
     fn a_track_flag_missing_its_path_names_itself() {
-        for flag in ["--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram"] {
+        for flag in [
+            "--synteny",
+            "--dotplot",
+            "--orfs",
+            "--logo",
+            "--tanglegram",
+            "--clades",
+            "--loci",
+        ] {
             let error = parse(&args(&format!("chr1:1-1000 {flag}"))).unwrap_err();
             let ArgError::MissingValue(named) = error else {
                 panic!("{flag} without a path gave {error}");
             };
             assert_eq!(named, flag, "{flag} reported itself as {named}");
         }
+    }
+
+    /// The mechanism is one mechanism and the spellings are three, because a
+    /// second phylogeny, a second table of names and the right-hand tree of a
+    /// tanglegram are three different files. Each is refused by name anywhere
+    /// it says nothing, which is what the spelling is for.
+    #[test]
+    fn every_track_drawn_from_two_files_asks_for_the_second_by_its_own_name() {
+        for (track, flag, other) in [
+            ("--tanglegram", "--against", "--links"),
+            ("--clades", "--with-tree", "--against"),
+            ("--loci", "--links", "--with-tree"),
+        ] {
+            let it = draw(&format!("chr1:1-1000 {track} one.txt {flag} two.txt"));
+            assert_eq!(it.tracks.len(), 1, "{flag} started a second track");
+            assert_eq!(
+                it.tracks[0].second,
+                Some(Source::Path("two.txt".into())),
+                "{track} did not take {flag}"
+            );
+
+            // Without it, refused by name rather than drawn from one file.
+            let error = parse(&args(&format!("chr1:1-1000 {track} one.txt"))).unwrap_err();
+            let ArgError::MissingSecond { flag: named, .. } = error else {
+                panic!("{track} with one file gave {error}");
+            };
+            assert_eq!(named, flag);
+
+            // And another track's spelling means nothing here.
+            let error = parse(&args(&format!(
+                "chr1:1-1000 {track} one.txt {other} two.txt"
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag, .. } if flag == other),
+                "{track} accepted {other}: {error}"
+            );
+
+            // One pipe, whichever of the two files asks for it.
+            let error = parse(&args(&format!("chr1:1-1000 {track} - {flag} -"))).unwrap_err();
+            assert!(matches!(error, ArgError::StdinTwice), "{track}: {error}");
+        }
+    }
+
+    /// `--identity` says whether a homology file's third column is a
+    /// percentage or a fraction, which no other track has an opinion about.
+    #[test]
+    fn the_identity_unit_means_nothing_to_a_track_that_is_not_loci() {
+        let it = draw("chr1:1-1000 --loci g.bed --links h.tsv --identity fraction");
+        assert_eq!(it.tracks[0].identity, Some(Identity::Fraction));
+
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --identity percent")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--identity",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+
+        let error = parse(&args(
+            "chr1:1-1000 --loci g.bed --links h.tsv --identity half",
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::BadValue {
+                    flag: "--identity",
+                    ..
+                }
+            ),
+            "{error}"
+        );
     }
 
     #[test]

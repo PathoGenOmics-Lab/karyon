@@ -27,6 +27,8 @@
 //! are printed in the corner of the band rather than left to be asked for,
 //! since nothing else on the figure would look any different.
 
+use std::collections::BTreeSet;
+
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, wash, Theme};
@@ -575,7 +577,7 @@ fn row_of_leaf(tree: &Tree) -> Vec<String> {
 fn place(block: &CladeBlock, rows: &[String], leaves: usize) -> Option<Placed> {
     let mut first = usize::MAX;
     let mut last = 0usize;
-    let mut carriers = 0usize;
+    let mut carried: BTreeSet<usize> = BTreeSet::new();
     let mut missing = 0usize;
 
     for taxon in &block.taxa {
@@ -583,18 +585,24 @@ fn place(block: &CladeBlock, rows: &[String], leaves: usize) -> Option<Placed> {
             Some(row) if row < leaves => {
                 first = first.min(row);
                 last = last.max(row);
-                carriers += 1;
+                // Rows, not names. Two names landing on one row is one row
+                // carrying the block, and counting it twice puts more carriers
+                // in a block than it spans rows, which leaves what the block
+                // cuts out to a subtraction with no answer: a panic where this
+                // crate checks its arithmetic, and a number near u64::MAX where
+                // a release build does not.
+                carried.insert(row);
             }
             _ => missing += 1,
         }
     }
-    if carriers == 0 {
+    if carried.is_empty() {
         return None;
     }
     Some(Placed {
         first,
         last,
-        carriers,
+        carriers: carried.len(),
         missing,
     })
 }
@@ -604,6 +612,29 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+
+    /// A block naming one taxon twice claims two carriers of one row, and the
+    /// count of rows it cuts out is then one number taken from a smaller one.
+    /// This crate checks its arithmetic, so that was a panic here and a number
+    /// near the top of a u64 in a release build that does not.
+    #[test]
+    fn a_taxon_named_twice_is_one_row_carrying_the_block() {
+        let tree = Tree::parse_newick("((a,b),c);").unwrap();
+        let twice = CladeTrack::new(tree.clone(), vec![CladeBlock::new(0, 100, ["a", "a", "b"])]);
+        let once = CladeTrack::new(tree, vec![CladeBlock::new(0, 100, ["a", "b"])]);
+
+        assert_eq!(twice.cut_rows(0), 0, "a repeated name cut rows out");
+        assert_eq!(twice.cut_rows(0), once.cut_rows(0));
+        assert!(twice.is_clade(0), "a and b are a clade however often named");
+        assert_eq!(twice.unmatched(), 0, "a repeated name is not a missing one");
+
+        // And the figure says the same thing either way round.
+        let region = Region::new("chr", 0, 100).unwrap();
+        assert_eq!(
+            Figure::new(region.clone()).push(twice).to_svg(),
+            Figure::new(region).push(once).to_svg(),
+        );
+    }
 
     fn tree() -> Tree {
         // ((A,B),(C,D)),(E,F) with A and B sisters, C and D sisters.

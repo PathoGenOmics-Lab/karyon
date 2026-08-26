@@ -42,7 +42,7 @@ use super::{columns, lines, number, ReadError};
 
 /// Which of the two interval formats a file turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Flavour {
+pub(crate) enum Flavour {
     /// `chrom start end [name] [score] [strand]`, 0-based half-open.
     Bed,
     /// Nine columns, 1-based inclusive, attributes in the ninth.
@@ -148,7 +148,7 @@ pub fn cytoband(text: &str, sequence: &str) -> Result<(u64, Vec<Band>), ReadErro
 /// column seven of the first data row, which GFF3 spends on the strand and a
 /// BED of nine or more columns spends on `thickStart`, a number. A row with
 /// fewer than seven columns is BED, since a GFF3 row always has nine.
-fn flavour(text: &str, format: Option<Format>) -> Flavour {
+pub(crate) fn flavour(text: &str, format: Option<Format>) -> Flavour {
     match format {
         Some(Format::Gff3) => return Flavour::Gff3,
         Some(Format::Bed) => return Flavour::Bed,
@@ -175,7 +175,7 @@ fn flavour(text: &str, format: Option<Format>) -> Flavour {
 }
 
 /// One BED row, whose coordinates are already the ones the crate uses.
-fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
+pub(crate) fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     if cols.len() < 3 {
         return Err(ReadError::at(
             at,
@@ -201,7 +201,7 @@ fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
 }
 
 /// One GFF3 row, whose start counts from one and whose end is included.
-fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
+pub(crate) fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     // The last four columns are not needed to place a feature, so a file that
     // stops short of nine still reads. The first five are.
     if cols.len() < 5 {
@@ -217,6 +217,13 @@ fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
             at,
             "GFF3 counts from 1, so 0 is not a start position",
         ));
+    }
+    // The same refusal `bed` makes, and it was missing here. `Feature::new`
+    // widens an inverted span into one base at the start, so 400 to 100 came
+    // back as a one-base gene at 400: a real gene, drawn confidently, three
+    // hundred bases from where either number put it.
+    if end < start {
+        return Err(ReadError::at(at, "end is before start"));
     }
     // 1-based inclusive to 0-based half-open: the start moves back one, the end
     // stays where it is because it was already one past the last base once the
@@ -242,15 +249,23 @@ fn gff3_name(attributes: &str) -> Option<String> {
         .find_map(|key| attribute(attributes, key))
 }
 
-/// One `key=value` out of the ninth column, decoded.
-fn attribute(attributes: &str, key: &str) -> Option<String> {
+/// One `key=value` out of the ninth column, exactly as it was written.
+///
+/// Undecoded on purpose, for a value that is a list. The column spends `,` on
+/// its own list syntax, so a name holding a comma arrives as `%2C`, and
+/// decoding the whole value before splitting it turns one name into two
+/// without anything failing. A caller reading a list splits first and calls
+/// [`percent_decode`] on each piece.
+pub(crate) fn raw_attribute<'a>(attributes: &'a str, key: &str) -> Option<&'a str> {
     attributes.split(';').find_map(|pair| {
         let (found, value) = pair.trim().split_once('=')?;
-        if found.trim() != key {
-            return None;
-        }
-        label(Some(&percent_decode(value.trim())))
+        (found.trim() == key).then(|| value.trim())
     })
+}
+
+/// One `key=value` out of the ninth column, decoded.
+fn attribute(attributes: &str, key: &str) -> Option<String> {
+    label(Some(&percent_decode(raw_attribute(attributes, key)?)))
 }
 
 /// Decodes the `%XX` escapes of a GFF3 attribute value.
@@ -259,7 +274,7 @@ fn attribute(attributes: &str, key: &str) -> Option<String> {
 /// of them arrives escaped, and `%20` for a space is just as common. Anything
 /// that is not a complete escape is left as it was written, since a stray `%`
 /// in a name is more likely than a truncated one.
-fn percent_decode(value: &str) -> String {
+pub(crate) fn percent_decode(value: &str) -> String {
     if !value.contains('%') {
         return value.to_string();
     }
@@ -285,7 +300,7 @@ fn percent_decode(value: &str) -> String {
 
 /// A name column, with the `.` every one of these formats uses for "none" read
 /// as none rather than as a feature called `.`.
-fn label(field: Option<&str>) -> Option<String> {
+pub(crate) fn label(field: Option<&str>) -> Option<String> {
     let text = field?.trim();
     if text.is_empty() || text == "." {
         None
@@ -431,6 +446,28 @@ NC_000962.3\tRefSeq\tgene\t763370\t767320\t.\t+\t.\tID=gene-Rv0668;Name=rpoC
 
         let none = "chr1\t.\tgene\t1\t9\t.\t+\t.\tParent=x\n";
         assert_eq!(read(none, "chr1:1-100", None)[0].name, None);
+    }
+
+    /// The module doc has always said an inverted span stops the read, and
+    /// only two of the three readers did it. GFF3 handed the pair to
+    /// `Feature::new`, which widens it into a single base at the start, so the
+    /// gene was drawn a whole interval from where either coordinate put it.
+    #[test]
+    fn an_inverted_span_stops_the_read_in_both_formats() {
+        let gff = "##gff-version 3\nchr1\t.\tgene\t400\t100\t.\t+\t.\tID=x\n";
+        let error = features(gff, &Region::parse("chr1:1-1000").unwrap(), None).unwrap_err();
+        // Line two: the pragma is line one, and the numbering counts it.
+        assert_eq!(error.line, 2);
+        assert!(error.reason.contains("end is before start"), "{error}");
+
+        let bed = "chr1\t400\t100\tx\n";
+        let error = features(bed, &Region::parse("chr1:1-1000").unwrap(), None).unwrap_err();
+        assert!(error.reason.contains("end is before start"), "{error}");
+
+        // A single-base GFF3 gene, where start equals end, is still a gene.
+        let one = "##gff-version 3\nchr1\t.\tgene\t100\t100\t.\t+\t.\tID=x\n";
+        let genes = features(one, &Region::parse("chr1:1-1000").unwrap(), None).unwrap();
+        assert_eq!(genes[0].len(), 1);
     }
 
     #[test]

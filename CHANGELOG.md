@@ -8,6 +8,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::clade` reads the GFF3 that recombination detection writes, `Gubbins`
+  above all, whose ninth column carries the taxa an interval is carried by. It
+  is the one file shape in ordinary use holding a span and its carriers in one
+  record. The list is split before it is decoded, because the ninth column
+  spends the comma on its own syntax and decoding first turns one name into two;
+  a repeated taxon is dropped and counted, because a block claiming more
+  carriers than the tree has rows leaves what it covers to a subtraction with no
+  answer; and a file naming exactly one sequence is read whatever that sequence
+  is called, because `Gubbins` writes the literal `SEQUENCE` and filtering on
+  the region's own name would draw a phylogeny with nothing on it, which reads
+  as a statement that there was no recombination here.
+- `read::locus` reads gene neighbourhoods and the homologies between them.
+  Column one names the genome rather than selecting it, which is the one place
+  an interval file is read differently here, so the file is the concatenation a
+  shell already produces. `links` takes BLAST tabular output, which DIAMOND and
+  others write too, or two or three columns of names, and does the join a
+  `Homology` needs: it refers to genes by position and every file that produces
+  one names them instead. The join is exact and every way it fails is counted
+  rather than resolved, since a name pointed at gene nought draws a well formed
+  ribbon into the leftmost gene and takes that gene's unmatched outline off.
+- `--clades` and `--loci`, taking their second file by name as `--tanglegram`
+  does: `--with-tree` for the phylogeny a clade track is painted onto and
+  `--links` for what joins one locus to the next. Both are required. Each of
+  these tracks draws a finished-looking figure without its second file and each
+  of those figures says something strong and false, a locus track most of all,
+  which marks every gene no homology reaches and so turns a forgotten flag into
+  the loudest positive finding it can make. That is twenty of the thirty-three
+  track types the command reaches.
+- `--identity` says whether a homology file's third column is a percentage, as
+  BLAST and DIAMOND write it, or a fraction, as others do. Left out it is worked
+  out from the values and refused where they cannot say, because read the wrong
+  way round every ribbon becomes a perfect match and nothing fails.
 - The command line moved into the library as `karyon::cli`, and stopped
   opening files. `cli::stack::build` now takes a closure that answers with a
   source's text, so the same grammar that a shell drives from disk can be
@@ -104,6 +136,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A GFF3 span whose end came before its start was read as a one-base feature at
+  the start rather than refused. The module doc had said all along that an
+  inverted span stops the read, and only BED and cytoBand did it, so a gene
+  written `400 100` was drawn confidently three hundred bases from where either
+  number put it.
+- A clade block naming one taxon twice counted two carriers of one row, so the
+  rows it cuts out came out of a subtraction with no answer: a panic where this
+  crate checks its arithmetic, and a number near the top of a `u64` in a release
+  build that does not. Carriers are distinct rows now, which is what the figure
+  draws either way.
+- A track whose second file was missing was refused by a match with a fallback
+  arm, so a track added without a spelling would have drawn without a file it
+  cannot do without. It is exhaustive now, as the flag spellings next to it are.
 - A value that is not a number was drawn as the strongest one on the page.
   `mix` blends two colours by an amount, `clamp` propagates a NaN, and `NaN as
   u8` saturates to nought, so an amount that was not a number left the ramp

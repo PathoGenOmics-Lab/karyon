@@ -117,7 +117,7 @@ The command line front end installs from the same repository:
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
-It is the same grammar with spaces instead of dots, for the eighteen track
+It is the same grammar with spaces instead of dots, for the twenty track
 types that have a file to read.
 
 The command below names three files you do not have yet. If you want something
