@@ -215,6 +215,10 @@ pub enum Kind {
     Structural,
     /// Molecules that aligned in pieces, from SAM and its SA tag.
     SplitReads,
+    /// Methylation one molecule at a time, from a Bismark extractor file.
+    Bisulfite,
+    /// Protein domains, from an InterProScan table.
+    Domains,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
@@ -227,7 +231,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 23] = [
+    pub const ALL: [Kind; 25] = [
         Kind::Coverage,
         Kind::Sequence,
         Kind::Features,
@@ -250,6 +254,8 @@ impl Kind {
         Kind::Methylation,
         Kind::Structural,
         Kind::SplitReads,
+        Kind::Bisulfite,
+        Kind::Domains,
         Kind::Axis,
     ];
 
@@ -278,6 +284,8 @@ impl Kind {
             Kind::Methylation => "methylation",
             Kind::Structural => "structural",
             Kind::SplitReads => "split-reads",
+            Kind::Bisulfite => "bisulfite",
+            Kind::Domains => "domains",
             Kind::Axis => "axis",
         }
     }
@@ -313,6 +321,8 @@ impl Kind {
             Kind::Methylation => "--methylation",
             Kind::Structural => "--structural",
             Kind::SplitReads => "--split-reads",
+            Kind::Bisulfite => "--bisulfite",
+            Kind::Domains => "--domains",
             Kind::Axis => "--axis",
         }
     }
@@ -387,6 +397,49 @@ impl Kind {
             | Kind::Methylation
             | Kind::Structural
             | Kind::SplitReads
+            | Kind::Bisulfite
+            | Kind::Domains
+            | Kind::Axis => None,
+        }
+    }
+
+    /// The flag that says which of the several things a file holds to draw.
+    ///
+    /// Three formats hold more than one dataset in one file and one of them is
+    /// a track: a pileup counting two modifications of the same cytosine, an
+    /// extractor file carrying three sequence contexts, a domain table where a
+    /// dozen member databases describe the same kinase in their own words.
+    /// Drawn together they are several marks in one place naming none of them.
+    ///
+    /// Spelled by what is being chosen, as [`Kind::second_flag`] is, and
+    /// exhaustive for the same reason: a track added without one silently
+    /// stacks whatever it found.
+    pub fn selector(self) -> Option<&'static str> {
+        match self {
+            Kind::Methylation => Some("--modification"),
+            Kind::Bisulfite => Some("--context"),
+            Kind::Domains => Some("--analysis"),
+            Kind::Coverage
+            | Kind::Sequence
+            | Kind::Features
+            | Kind::Variants
+            | Kind::Windows
+            | Kind::Manhattan
+            | Kind::Tree
+            | Kind::Msa
+            | Kind::Snps
+            | Kind::Ideogram
+            | Kind::Matrix
+            | Kind::Pileup
+            | Kind::Synteny
+            | Kind::Dotplot
+            | Kind::Orfs
+            | Kind::Logo
+            | Kind::Tanglegram
+            | Kind::Clades
+            | Kind::Loci
+            | Kind::Structural
+            | Kind::SplitReads
             | Kind::Axis => None,
         }
     }
@@ -454,8 +507,9 @@ pub struct TrackSpec {
     pub format: Option<Format>,
     /// `--identity`, when a homology file's third column could be either unit.
     pub identity: Option<Identity>,
-    /// `--modification`, when a pileup counted more than one of them.
-    pub modification: Option<String>,
+    /// Which of the several things a file holds to draw, named by the flag
+    /// [`Kind::selector`] gives this track.
+    pub selects: Option<String>,
 }
 
 impl TrackSpec {
@@ -473,7 +527,7 @@ impl TrackSpec {
             color: None,
             format: None,
             identity: None,
-            modification: None,
+            selects: None,
         }
     }
 }
@@ -573,6 +627,8 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--methylation" => Some((Kind::Methylation, true)),
             "--structural" => Some((Kind::Structural, true)),
             "--split-reads" => Some((Kind::SplitReads, true)),
+            "--bisulfite" => Some((Kind::Bisulfite, true)),
+            "--domains" => Some((Kind::Domains, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };
@@ -739,16 +795,21 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.second = Some(source);
             }
-            "--modification" => {
-                let code = value("--modification")?.clone();
-                let track = last(&mut tracks, "--modification")?;
-                if track.kind != Kind::Methylation {
+            flag @ ("--modification" | "--context" | "--analysis") => {
+                let flag: &'static str = match flag {
+                    "--context" => "--context",
+                    "--analysis" => "--analysis",
+                    _ => "--modification",
+                };
+                let chosen = value(flag)?.clone();
+                let track = last(&mut tracks, flag)?;
+                if track.kind.selector() != Some(flag) {
                     return Err(ArgError::WrongTrack {
-                        flag: "--modification",
+                        flag,
                         track: track.kind.flag(),
                     });
                 }
-                track.modification = Some(code);
+                track.selects = Some(chosen);
             }
             "--identity" => {
                 let text = value("--identity")?;
@@ -1068,6 +1129,8 @@ mod tests {
             "--methylation",
             "--structural",
             "--split-reads",
+            "--bisulfite",
+            "--domains",
         ] {
             let error = parse(&args(&format!("chr1:1-1000 {flag}"))).unwrap_err();
             let ArgError::MissingValue(named) = error else {
@@ -1154,25 +1217,52 @@ mod tests {
         );
     }
 
-    /// A pileup may count several modifications and only one of them is a
-    /// track, so the flag names it. No other track has an opinion about which
-    /// modification anything is.
+    /// Three formats hold more than one dataset in one file and one of them is
+    /// a track, and each names what it is choosing among. The mechanism is one
+    /// mechanism, and each spelling is refused everywhere it says nothing.
     #[test]
-    fn the_modification_flag_means_nothing_to_a_track_that_is_not_methylation() {
-        let it = draw("chr1:1-1000 --methylation calls.bed --modification h");
-        assert_eq!(it.tracks[0].modification.as_deref(), Some("h"));
+    fn every_track_that_picks_one_dataset_names_what_it_is_picking_among() {
+        for (track, flag, other) in [
+            ("--methylation", "--modification", "--context"),
+            ("--bisulfite", "--context", "--analysis"),
+            ("--domains", "--analysis", "--modification"),
+        ] {
+            let it = draw(&format!("chr1:1-1000 {track} f.txt {flag} chosen"));
+            assert_eq!(it.tracks[0].selects.as_deref(), Some("chosen"), "{track}");
 
-        let error = parse(&args("chr1:1-1000 --coverage d.bg --modification m")).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                ArgError::WrongTrack {
-                    flag: "--modification",
-                    ..
-                }
-            ),
-            "{error}"
-        );
+            let error = parse(&args(&format!("chr1:1-1000 {track} f.txt {other} x"))).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag, .. } if flag == other),
+                "{track} accepted {other}: {error}"
+            );
+
+            // And a track with nothing to choose among refuses all three.
+            let error = parse(&args(&format!("chr1:1-1000 --coverage d.bg {flag} x"))).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { .. }),
+                "{flag} landed on a coverage track: {error}"
+            );
+        }
+    }
+
+    /// Neither of the last two sizes itself from a height, so a height flag on
+    /// one would parse and go nowhere, and the figure would come out at the
+    /// default with nothing saying the number was dropped.
+    #[test]
+    fn the_last_two_tracks_take_no_second_path_and_no_height() {
+        for flag in ["--bisulfite", "--domains"] {
+            let it = draw(&format!("chr1:1-1000 {flag} f.txt"));
+            assert_eq!(it.tracks[0].second, None);
+
+            for refused in ["--against x", "--height 90"] {
+                let error =
+                    parse(&args(&format!("chr1:1-1000 {flag} f.txt {refused}"))).unwrap_err();
+                assert!(
+                    matches!(error, ArgError::WrongTrack { .. }),
+                    "{flag} accepted {refused}: {error}"
+                );
+            }
+        }
     }
 
     /// The three that came last take one file each, so none of them may be

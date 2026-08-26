@@ -133,7 +133,7 @@ were taken out rather than kept for the sake of a longer list.
 
 -   :material-console: **[Command line](guide/cli.md)**
 
-    The same grammar with spaces instead of dots, for the twenty-three tracks that
+    The same grammar with spaces instead of dots, for the twenty-five tracks that
     have a file to read. Flag order is stack order, and any track file may be
     `-`, so the pipeline is the parser.
 
