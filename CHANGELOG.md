@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Twenty-one examples in the playground rather than six, which between them
+  use every one of the twenty-five flags the command has. Each was run through
+  the binary before it was written down, so none of them is an example that
+  does not draw.
 - The playground's examples open in a panel rather than a menu, because they
   are pictures and pictures need room. The measurements are the ones the tool
   it is modelled on uses, since they are good ones: a panel of `min(68rem,

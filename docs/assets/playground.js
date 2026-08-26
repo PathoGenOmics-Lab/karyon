@@ -21,6 +21,21 @@
   var active = 0;
   var pending = null;
 
+  // The reference the sequence, ORF and pileup examples share, so the reads
+  // carry the bases they are aligned to rather than a different string.
+  function reference() {
+    var unit = "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAGG";
+    var out = "";
+    for (var i = 0; i < 300; i++) out += unit[i % 61];
+    return out;
+  }
+
+  function fastaOf(name, seq) {
+    var out = ">" + name + "\n";
+    for (var i = 0; i < seq.length; i += 60) out += seq.slice(i, i + 60) + "\n";
+    return out;
+  }
+
   var EXAMPLES = [
     {
       name: "A locus",
@@ -107,7 +122,7 @@
     },
     {
       name: "Gene neighbourhoods",
-      group: "Comparisons",
+      group: "Comparisons across genomes",
       command: "ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1'",
       files: [
         {
@@ -129,7 +144,7 @@
     },
     {
       name: "Protein domains",
-      group: "Comparisons",
+      group: "Comparisons across genomes",
       command: "protein:1-700 --domains domains.tsv --analysis Pfam",
       files: [
         {
@@ -146,7 +161,7 @@
     },
     {
       name: "One molecule at a time",
-      group: "Molecules",
+      group: "Reads and molecules",
       command: "chr11:1-200 --bisulfite calls.txt --context CpG --label 'H19 ICR'",
       files: [
         {
@@ -166,6 +181,271 @@
             return out;
           })(),
         },
+      ],
+    },
+    {
+      name: "Reference bases",
+      group: "Signal and annotation",
+      command: "chr1:1-120 --axis --sequence ref.fa --label reference --orfs ref.fa --label 'reading frames'",
+      files: [
+        { name: "ref.fa", body:
+            ">chr1\n" +
+            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "GACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAA\n" +
+            "GGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTA\n" +
+            "AGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTT\n" +
+            "AAGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCT\n" },
+      ],
+    },
+    {
+      name: "A cytogenetic ideogram",
+      group: "Signal and annotation",
+      command: "chr1:1-2,000,000 --ideogram bands.txt --label chromosome",
+      files: [
+        { name: "bands.txt", body:
+            "chr1 0 200000 p11 gneg\n" +
+            "chr1 200000 400000 p10 gpos25\n" +
+            "chr1 400000 600000 p9 gpos50\n" +
+            "chr1 600000 800000 p8 gpos75\n" +
+            "chr1 800000 1000000 p7 gpos100\n" +
+            "chr1 1000000 1200000 q1 acen\n" +
+            "chr1 1200000 1400000 q2 gvar\n" +
+            "chr1 1400000 1600000 q3 stalk\n" +
+            "chr1 1600000 1800000 q4 gneg\n" +
+            "chr1 1800000 2000000 q5 gpos50\n" },
+      ],
+    },
+    {
+      name: "A genome-wide scan",
+      group: "Association and genotype",
+      command: "chr1:1-1,000,000 --manhattan assoc.tsv --label association",
+      files: [
+        { name: "assoc.tsv", body: "" },
+      ],
+      // Five hundred rows built here rather than pasted, so the example is one
+      // a reader can pan across rather than one they can read.
+      make: function () {
+        var rows = "pos\tp\n";
+        for (var i = 0; i < 500; i++) {
+          var peak = 6 * Math.exp(-Math.pow(i - 250, 2) / 900);
+          var p = Math.pow(10, -(1 + peak + 0.6 * Math.sin(i)));
+          rows += (i * 2000 + 1) + "\t" + p.toPrecision(4) + "\n";
+        }
+        return [{ name: "assoc.tsv", body: rows }];
+      },
+    },
+    {
+      name: "A genotype matrix",
+      group: "Association and genotype",
+      command: "chr1:1-400 --matrix geno.tsv --label 'allele fraction'",
+      files: [
+        { name: "geno.tsv", body:
+            "sample\t51\t97\t149\t203\t258\t311\t355\n" +
+            "S01\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" +
+            "S02\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" +
+            "S03\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
+            "S04\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
+            "S05\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\tNA\n" +
+            "S06\t0.95\t0.05\t0.95\t0.05\t0.95\tNA\t0.95\n" +
+            "S07\t0.95\t0.05\t0.95\t0.05\tNA\t0.05\t0.95\n" +
+            "S08\t0.95\t0.05\t0.95\tNA\t0.95\t0.05\t0.95\n" +
+            "S09\t0.05\t0.95\tNA\t0.95\t0.05\t0.95\t0.05\n" +
+            "S10\t0.05\tNA\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
+            "S11\tNA\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
+            "S12\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" },
+      ],
+    },
+    {
+      name: "A read pileup",
+      group: "Reads and molecules",
+      command: "chr1:1-160 --sequence ref.fa --label reference --pileup reads.sam --label reads",
+      files: [
+        { name: "ref.fa", body:
+            ">chr1\n" +
+            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "GACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAA\n" +
+            "GGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTA\n" +
+            "AGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTT\n" +
+            "AAGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCT\n" },
+        { name: "reads.sam", body: "" },
+      ],
+      make: function () {
+        var ref = reference();
+        var sam = "";
+        for (var i = 0; i < 16; i++) {
+          sam += "r" + i + "\t" + (i % 2 === 0 ? 0 : 16) + "\tchr1\t" + (1 + i * 5) +
+                 "\t60\t60M\t*\t0\t0\t" + ref.slice(i * 5, i * 5 + 60) + "\t*\n";
+        }
+        return [
+          { name: "ref.fa", body: fastaOf("chr1", ref) },
+          { name: "reads.sam", body: sam },
+        ];
+      },
+    },
+    {
+      name: "One molecule in pieces",
+      group: "Reads and molecules",
+      command: "chr1:1-9,000 --split-reads split.sam --label 'split reads'",
+      files: [
+        { name: "split.sam", body:
+            "m1\t0\tchr1\t540\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6540,-,900S700M0S,60,0;\n" +
+            "m2\t0\tchr1\t580\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6580,+,900S700M0S,60,0;\n" +
+            "m3\t0\tchr1\t620\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6620,-,900S700M0S,60,0;\n" +
+            "m4\t0\tchr1\t660\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6660,+,900S700M0S,60,0;\n" +
+            "m5\t0\tchr1\t700\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6700,-,900S700M0S,60,0;\n" +
+            "m6\t0\tchr1\t740\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6740,+,900S700M0S,60,0;\n" +
+            "m7\t0\tchr1\t780\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6780,-,900S700M0S,60,0;\n" +
+            "m8\t0\tchr1\t820\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6820,+,900S700M0S,60,0;\n" },
+      ],
+    },
+    {
+      name: "Modified bases",
+      group: "Reads and molecules",
+      command: "chr1:1-1,000 --methylation calls.bed --modification m --label '5mC'",
+      files: [
+        { name: "calls.bed", body: "" },
+      ],
+      make: function () {
+        var rows = "";
+        for (var p = 20; p < 980; p += 24) {
+          var pct = p < 400 ? 90 : 12;
+          var mod = Math.round(40 * pct / 100);
+          rows += "chr1 " + p + " " + (p + 1) + " m 40 + " + p + " " + (p + 1) +
+                  " 0,0,0 40 " + pct.toFixed(2) + " " + mod + " " + (40 - mod) +
+                  " 0 0 0 0 0\n";
+        }
+        return [{ name: "calls.bed", body: rows }];
+      },
+    },
+    {
+      name: "Alignment ribbons",
+      group: "Alignments and rearrangements",
+      command: "ctg1:1-40,000 --synteny aln.paf --label 'against chrA'",
+      files: [
+        { name: "aln.paf", body:
+            "ctg1\t40000\t0\t3600\t-\tchrA\t60000\t5000\t8600\t3400\t3600\t60\n" +
+            "ctg1\t40000\t4000\t7600\t+\tchrA\t60000\t9200\t12800\t3400\t3600\t60\n" +
+            "ctg1\t40000\t8000\t11600\t+\tchrA\t60000\t13400\t17000\t3400\t3600\t60\n" +
+            "ctg1\t40000\t12000\t15600\t-\tchrA\t60000\t17600\t21200\t3400\t3600\t60\n" +
+            "ctg1\t40000\t16000\t19600\t+\tchrA\t60000\t21800\t25400\t3400\t3600\t60\n" +
+            "ctg1\t40000\t20000\t23600\t+\tchrA\t60000\t26000\t29600\t3400\t3600\t60\n" +
+            "ctg1\t40000\t24000\t27600\t-\tchrA\t60000\t30200\t33800\t3400\t3600\t60\n" +
+            "ctg1\t40000\t28000\t31600\t+\tchrA\t60000\t34400\t38000\t3400\t3600\t60\n" +
+            "ctg1\t40000\t32000\t35600\t+\tchrA\t60000\t38600\t42200\t3400\t3600\t60\n" },
+      ],
+    },
+    {
+      name: "The same PAF as a dot plot",
+      group: "Alignments and rearrangements",
+      command: "ctg1:1-40,000 --dotplot aln.paf --label 'dot plot'",
+      files: [
+        { name: "aln.paf", body:
+            "ctg1\t40000\t0\t3600\t-\tchrA\t60000\t5000\t8600\t3400\t3600\t60\n" +
+            "ctg1\t40000\t4000\t7600\t+\tchrA\t60000\t9200\t12800\t3400\t3600\t60\n" +
+            "ctg1\t40000\t8000\t11600\t+\tchrA\t60000\t13400\t17000\t3400\t3600\t60\n" +
+            "ctg1\t40000\t12000\t15600\t-\tchrA\t60000\t17600\t21200\t3400\t3600\t60\n" +
+            "ctg1\t40000\t16000\t19600\t+\tchrA\t60000\t21800\t25400\t3400\t3600\t60\n" +
+            "ctg1\t40000\t20000\t23600\t+\tchrA\t60000\t26000\t29600\t3400\t3600\t60\n" +
+            "ctg1\t40000\t24000\t27600\t-\tchrA\t60000\t30200\t33800\t3400\t3600\t60\n" +
+            "ctg1\t40000\t28000\t31600\t+\tchrA\t60000\t34400\t38000\t3400\t3600\t60\n" +
+            "ctg1\t40000\t32000\t35600\t+\tchrA\t60000\t38600\t42200\t3400\t3600\t60\n" },
+      ],
+    },
+    {
+      name: "A multiple alignment",
+      group: "Sequence alignment",
+      command: "aln:1-61 --msa aln.fa --label alignment",
+      files: [
+        { name: "aln.fa", body:
+            ">sample1\n" +
+            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample2\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample3\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample4\n" +
+            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" },
+      ],
+    },
+    {
+      name: "Only the variable sites",
+      group: "Sequence alignment",
+      command: "aln:1-61 --snps aln.fa --label 'variable sites'",
+      files: [
+        { name: "aln.fa", body:
+            ">sample1\n" +
+            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample2\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample3\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample4\n" +
+            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" },
+      ],
+    },
+    {
+      name: "A sequence logo",
+      group: "Sequence alignment",
+      command: "aln:1-61 --logo aln.fa --label logo",
+      files: [
+        { name: "aln.fa", body:
+            ">sample1\n" +
+            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample2\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample3\n" +
+            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" +
+            ">sample4\n" +
+            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
+            "G\n" },
+      ],
+    },
+    {
+      name: "A phylogeny",
+      group: "Phylogeny",
+      command: "tree:1-100 --no-axis --tree tree.nwk --label phylogeny",
+      files: [
+        { name: "tree.nwk", body:
+            "(((s1:0.01,s2:0.012):0.02,(s3:0.008,s4:0.011):0.018):0.03,(s5:0.02,s6:0.017):0.025);\n" },
+      ],
+    },
+    {
+      name: "Recombination on a tree",
+      group: "Phylogeny",
+      command: "NC_011900.1:1-8,000 --clades gubbins.gff --with-tree tree.nwk --label recombination",
+      files: [
+        { name: "gubbins.gff", body:
+            "##gff-version 3\n" +
+            "SEQUENCE\tGUBBINS\tCDS\t500\t1500\t0.000\t.\t0\tnode=\"N7\";taxa=\"s1 s2 s3\";\n" +
+            "SEQUENCE\tGUBBINS\tCDS\t3000\t4200\t0.000\t.\t0\tnode=\"N2\";taxa=\"s5 s6\";\n" +
+            "SEQUENCE\tGUBBINS\tCDS\t6000\t6800\t0.000\t.\t0\tnode=\"N9\";taxa=\"s3 s4\";\n" },
+        { name: "tree.nwk", body:
+            "(((s1:0.01,s2:0.012):0.02,(s3:0.008,s4:0.011):0.018):0.03,(s5:0.02,s6:0.017):0.025);\n" },
+      ],
+    },
+    {
+      name: "Structural variants",
+      group: "Alignments and rearrangements",
+      command: "chr1:1-200,000 --structural sv.vcf --label 'structural variants'",
+      files: [
+        { name: "sv.vcf", body:
+            "chr1\t10000\t.\tN\t<DEL>\t.\t.\tSVTYPE=DEL;END=19000;SVLEN=9000\n" +
+            "chr1\t38000\t.\tN\t<DUP>\t.\t.\tSVTYPE=DUP;END=50000;SVLEN=12000\n" +
+            "chr1\t66000\t.\tN\t<INV>\t.\t.\tSVTYPE=INV;END=73000;SVLEN=7000\n" +
+            "chr1\t94000\t.\tN\t<DEL>\t.\t.\tSVTYPE=DEL;END=109000;SVLEN=15000\n" +
+            "chr1\t122000\t.\tN\t<DUP>\t.\t.\tSVTYPE=DUP;END=128000;SVLEN=6000\n" +
+            "chr1\t150000\t.\tN\t<INV>\t.\t.\tSVTYPE=INV;END=161000;SVLEN=11000\n" },
       ],
     },
   ];
