@@ -26,10 +26,14 @@ window.karyon = (function () {
   var encoder = new TextEncoder();
   var decoder = new TextDecoder();
 
-  // Below sixty bases the ruler has nothing left to label, and above a u32 the
-  // parser refuses the region outright.
+  // Below sixty bases the ruler has nothing left to label.
   var MIN_SPAN = 60;
-  var MAX_SPAN = 4000000000;
+  // And above this the parser refuses the region, because a per-base track
+  // keeps eight bytes a base and a `Vec` on a 32-bit target cannot address
+  // more. It is the same number as `MAX_SPAN` in src/cli/args.rs and has to
+  // stay so: a wheel that can reach a span the program will not draw is a
+  // wheel that stops working partway round.
+  var MAX_SPAN = 268435455;
 
   function load() {
     if (arriving) return arriving;
@@ -211,7 +215,24 @@ window.karyon = (function () {
     var started = performance.now();
     var inPtr = wasm.alloc(input.length);
     new Uint8Array(wasm.memory.buffer, inPtr, input.length).set(input);
-    var outPtr = wasm.render(inPtr, input.length);
+
+    // A trap is not an error the program returned, it is the program stopping,
+    // and it escaped to nobody: both callers had already written the new
+    // command down before drawing, so the page went on showing the previous
+    // figure, the previous region and the previous timing underneath a region
+    // it had never drawn. Caught here, it becomes an ordinary refusal, which
+    // both callers already know how to show.
+    var outPtr;
+    try {
+      outPtr = wasm.render(inPtr, input.length);
+    } catch (error) {
+      wasm.dealloc(inPtr, input.length);
+      return {
+        ok: false,
+        body: "the program stopped on this command (" + error.message + ")",
+        ms: performance.now() - started,
+      };
+    }
     wasm.dealloc(inPtr, input.length);
 
     // `memory.buffer` is detached and replaced whenever wasm grows its heap,

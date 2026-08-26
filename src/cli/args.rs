@@ -113,9 +113,20 @@ const MAX_WIDTH: f64 = 100_000.0;
 /// The longest region that is drawn, in bases.
 ///
 /// A per-base track keeps one value for every base of the window, so the span
-/// is what a figure costs in memory. This is well above the longest sequence
-/// anyone assembles and below the point where the buffer cannot be allocated.
-const MAX_SPAN: u64 = 1 << 32;
+/// is what a figure costs in memory: eight bytes a base, and
+/// [`CoverageTrack::from_pairs`](crate::CoverageTrack::from_pairs) allocates
+/// the whole of it at once.
+///
+/// The number is the largest such buffer a 32-bit target can hold. A `Vec` may
+/// not exceed `isize::MAX` bytes, so `1 << 28` values of eight bytes each is
+/// exactly one byte too many, and asking for it is a capacity overflow rather
+/// than an allocation failure: a panic, and in a build that aborts on one, a
+/// trap. That is what this limit is for, and the old one, `1 << 32`, was
+/// thirty-two gigabytes and above the ceiling on every target there is.
+///
+/// It leaves every chromosome anyone sequences inside it. The longest human
+/// one is 248,956,422 bases, which is eight per cent under this.
+const MAX_SPAN: u64 = (1 << 28) - 1;
 
 impl fmt::Display for ArgError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1306,6 +1317,26 @@ mod tests {
         );
     }
 
+    /// The span is what a figure costs in memory, eight bytes a base, and the
+    /// buffer is allocated in one piece. On a 32-bit target a `Vec` may not
+    /// exceed `isize::MAX` bytes, so one base past this is a capacity overflow,
+    /// which is a panic, which in the build the documentation site runs is a
+    /// trap with no `Result` to carry it. The old limit was thirty-two
+    /// gigabytes and refused nothing that mattered.
+    #[test]
+    fn the_longest_region_is_one_a_thirty_two_bit_target_can_hold() {
+        assert_eq!(MAX_SPAN, 268_435_455);
+        // Eight bytes a base has to stay inside what a Vec can address.
+        assert!(MAX_SPAN * 8 <= i32::MAX as u64);
+
+        // Every chromosome anyone sequences is inside it. The longest human
+        // one is chromosome 1.
+        assert!(draw("chr1:1-248,956,422 --coverage d.bg").tracks.len() == 1);
+
+        let error = parse(&args("chr1:1-268,435,456 --coverage d.bg")).unwrap_err();
+        assert!(matches!(error, ArgError::HugeRegion { .. }), "{error}");
+    }
+
     #[test]
     fn a_dash_means_standard_input_and_only_one_track_gets_it() {
         let it = draw("chr1:1-1000 --coverage -");
@@ -1425,12 +1456,15 @@ mod tests {
     #[test]
     fn a_region_longer_than_a_figure_is_drawn_over_is_an_error() {
         // The whole u64 range used to reach `vec![0.0; region.len() as usize]`
-        // and abort the process with `capacity overflow`.
+        // and abort the process with `capacity overflow`. The limit that was
+        // put in front of it stopped that and was still four gigabases, which
+        // is sixteen times what a 32-bit target can hold, so the same abort
+        // came back the moment the crate was compiled for one.
         let err = parse(&args("chr1:1-18446744073709551615 --coverage d.bg")).unwrap_err();
         assert_eq!(
             err.to_string(),
             "\"chr1:1-18446744073709551615\" spans 18446744073709551615 bases, \
-             and a figure is drawn over at most 4294967296"
+             and a figure is drawn over at most 268435455"
         );
         // A whole large sequence is an ordinary figure and stays one.
         assert_eq!(draw("chr1:1-248956422").region.len(), 248_956_422);

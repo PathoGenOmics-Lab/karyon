@@ -249,6 +249,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A region the pan and zoom arithmetic was happy to reach stopped the program
+  dead, and the page said nothing. `MAX_SPAN` was `1 << 32`, which the comment
+  beside it called "below the point where the buffer cannot be allocated";
+  thirty-two gigabytes is above that point on every target there is, and on the
+  32-bit one the documentation site runs on, a `Vec` cannot exceed `isize::MAX`
+  bytes, so a per-base track of `1 << 28` bases is a capacity overflow, which
+  is a panic, which in a build that aborts on one is a trap with no `Result` to
+  carry it. Measured: a span of 268,435,455 draws and 268,435,456 stops the
+  program. The limit is that number now, which leaves every chromosome anyone
+  sequences inside it, and says why.
+- Nothing caught that trap, and both pages write the new command down before
+  they draw, so twenty-two turns of the wheel left the command box saying
+  `chr1:1-271,050,503` over the previous figure, the previous region readout
+  and the previous timing, with nothing marked as failed. The page asserted a
+  region it had never drawn, which is this crate's own bug class in a browser.
+  A trap is an ordinary refusal now, and the wheel cannot reach a span the
+  program will not draw.
 - Without the program, the example panel came up as twenty-one empty boxes,
   which reads as twenty-one figures that failed. The boxes go and one sentence
   says why; the cards keep their command and their files, which are still worth
