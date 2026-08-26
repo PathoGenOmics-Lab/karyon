@@ -1161,14 +1161,10 @@ right.nwk`, [CladeTrack](#cladetrack) through `--clades gubbins.gff --with-tree
 tree.nwk`, and [LocusTrack](#locustrack) through `--loci genes.bed --links
 hits.tsv`.
 
-That leaves thirteen in the library only, and the reasons are not the same one.
-[BisulfiteTrack](#bisulfitetrack), [DomainTrack](#domaintrack),
-[MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack) and
-[StructuralTrack](#structuraltrack) have a real interchange format and no
-reader yet: bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM carrying
-`SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
-[TanglegramTrack](#tanglegramtrack) each need more than one file, and each names
-its second by what that file means: `--with-tree`, `--links` and `--against`. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
+That leaves ten in the library only, and the reasons are not the same one.
+[BisulfiteTrack](#bisulfitetrack) and [DomainTrack](#domaintrack) have a real
+interchange format and no reader yet: a bisulfite call table, and the domain
+annotations InterPro and Pfam write. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
 [PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
 [SurveillanceTrack](#surveillancetrack) and
 [TranscriptionUnitTrack](#transcriptionunittrack) would need a table with no

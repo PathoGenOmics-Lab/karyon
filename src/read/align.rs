@@ -140,7 +140,7 @@ pub fn sam(text: &str, region: &Region) -> Result<Vec<Read>, ReadError> {
 /// `P` is padding between reads in a multiple alignment of a pileup. It moves
 /// along neither the reference nor the read, so it is dropped here rather than
 /// carried as an operation that draws nothing.
-fn cigar(text: &str, line: usize) -> Result<Vec<CigarOp>, ReadError> {
+pub(crate) fn cigar(text: &str, line: usize) -> Result<Vec<CigarOp>, ReadError> {
     if text.is_empty() {
         return Err(ReadError::at(line, "the CIGAR column is empty"));
     }

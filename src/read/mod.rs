@@ -60,9 +60,12 @@ mod audit;
 pub mod clade;
 pub mod interval;
 pub mod locus;
+pub mod methyl;
 pub mod point;
 pub mod seq;
 pub mod signal;
+pub mod split;
+pub mod structural;
 pub mod table;
 
 use std::fmt;

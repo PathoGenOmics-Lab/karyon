@@ -209,6 +209,12 @@ pub enum Kind {
     /// Gene neighbourhoods from several genomes, with their homologies drawn
     /// between them.
     Loci,
+    /// Modified bases per strand, from a bedMethyl pileup.
+    Methylation,
+    /// Structural calls as arcs between their breakpoints, from a VCF.
+    Structural,
+    /// Molecules that aligned in pieces, from SAM and its SA tag.
+    SplitReads,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
@@ -221,7 +227,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 20] = [
+    pub const ALL: [Kind; 23] = [
         Kind::Coverage,
         Kind::Sequence,
         Kind::Features,
@@ -241,6 +247,9 @@ impl Kind {
         Kind::Tanglegram,
         Kind::Clades,
         Kind::Loci,
+        Kind::Methylation,
+        Kind::Structural,
+        Kind::SplitReads,
         Kind::Axis,
     ];
 
@@ -266,6 +275,9 @@ impl Kind {
             Kind::Tanglegram => "tanglegram",
             Kind::Clades => "clades",
             Kind::Loci => "loci",
+            Kind::Methylation => "methylation",
+            Kind::Structural => "structural",
+            Kind::SplitReads => "split-reads",
             Kind::Axis => "axis",
         }
     }
@@ -298,6 +310,9 @@ impl Kind {
             Kind::Tanglegram => "--tanglegram",
             Kind::Clades => "--clades",
             Kind::Loci => "--loci",
+            Kind::Methylation => "--methylation",
+            Kind::Structural => "--structural",
+            Kind::SplitReads => "--split-reads",
             Kind::Axis => "--axis",
         }
     }
@@ -320,6 +335,8 @@ impl Kind {
                 | Kind::Ideogram
                 | Kind::Synteny
                 | Kind::Dotplot
+                | Kind::Methylation
+                | Kind::Structural
                 | Kind::Axis
         )
     }
@@ -367,6 +384,9 @@ impl Kind {
             | Kind::Dotplot
             | Kind::Orfs
             | Kind::Logo
+            | Kind::Methylation
+            | Kind::Structural
+            | Kind::SplitReads
             | Kind::Axis => None,
         }
     }
@@ -434,6 +454,8 @@ pub struct TrackSpec {
     pub format: Option<Format>,
     /// `--identity`, when a homology file's third column could be either unit.
     pub identity: Option<Identity>,
+    /// `--modification`, when a pileup counted more than one of them.
+    pub modification: Option<String>,
 }
 
 impl TrackSpec {
@@ -451,6 +473,7 @@ impl TrackSpec {
             color: None,
             format: None,
             identity: None,
+            modification: None,
         }
     }
 }
@@ -547,6 +570,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--tanglegram" => Some((Kind::Tanglegram, true)),
             "--clades" => Some((Kind::Clades, true)),
             "--loci" => Some((Kind::Loci, true)),
+            "--methylation" => Some((Kind::Methylation, true)),
+            "--structural" => Some((Kind::Structural, true)),
+            "--split-reads" => Some((Kind::SplitReads, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };
@@ -712,6 +738,17 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.second = Some(source);
+            }
+            "--modification" => {
+                let code = value("--modification")?.clone();
+                let track = last(&mut tracks, "--modification")?;
+                if track.kind != Kind::Methylation {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--modification",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.modification = Some(code);
             }
             "--identity" => {
                 let text = value("--identity")?;
@@ -1028,6 +1065,9 @@ mod tests {
             "--tanglegram",
             "--clades",
             "--loci",
+            "--methylation",
+            "--structural",
+            "--split-reads",
         ] {
             let error = parse(&args(&format!("chr1:1-1000 {flag}"))).unwrap_err();
             let ArgError::MissingValue(named) = error else {
@@ -1107,6 +1147,68 @@ mod tests {
                 error,
                 ArgError::BadValue {
                     flag: "--identity",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    /// A pileup may count several modifications and only one of them is a
+    /// track, so the flag names it. No other track has an opinion about which
+    /// modification anything is.
+    #[test]
+    fn the_modification_flag_means_nothing_to_a_track_that_is_not_methylation() {
+        let it = draw("chr1:1-1000 --methylation calls.bed --modification h");
+        assert_eq!(it.tracks[0].modification.as_deref(), Some("h"));
+
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --modification m")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--modification",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    /// The three that came last take one file each, so none of them may be
+    /// given a second, and only the two that do not size themselves from their
+    /// data take a height.
+    #[test]
+    fn the_single_file_tracks_take_no_second_path_and_the_right_heights() {
+        for flag in ["--methylation", "--structural", "--split-reads"] {
+            let it = draw(&format!("chr1:1-1000 {flag} f.txt"));
+            assert_eq!(it.tracks[0].second, None);
+            let error = parse(&args(&format!("chr1:1-1000 {flag} f.txt --against x"))).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::WrongTrack {
+                        flag: "--against",
+                        ..
+                    }
+                ),
+                "{flag} accepted a second path: {error}"
+            );
+        }
+
+        // A height flag that parses and goes nowhere is a figure that is not
+        // the one asked for and does not look wrong, so the two that have no
+        // height of their own refuse it by name.
+        for flag in ["--methylation", "--structural"] {
+            let it = draw(&format!("chr1:1-1000 {flag} f.txt --height 90"));
+            assert_eq!(it.tracks[0].height, Some(90.0), "{flag}");
+        }
+        let error = parse(&args("chr1:1-1000 --split-reads r.sam --height 90")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--height",
                     ..
                 }
             ),

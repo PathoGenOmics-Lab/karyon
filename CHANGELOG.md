@@ -8,6 +8,37 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::methyl` reads bedMethyl, as `modkit pileup` writes it. Coordinates
+  pass straight through, since it counts from nought like BED. Two things a
+  pileup writes are not measurements and are refused as such: a position with no
+  valid coverage, which the file marks by writing nought in every count and
+  which read as a fraction is a mark on the baseline saying the cytosine is
+  unmodified; and column eleven, the rendered percentage, which is the one
+  field a pileup can write the word `NaN` into. The fraction is the two counts
+  instead, so a value that is not a number cannot be built. A file counting more
+  than one modification is refused until `--modification` says which, because
+  `m` and `h` at one cytosine stacked on one axis are two marks naming neither.
+- `read::structural` reads structural calls out of a VCF. `POS` is the base
+  before a symbolic event, so it becomes the 0-based start unchanged and `END`
+  the exclusive end unchanged: both conversions are the identity, for two
+  different reasons, and copying the point reader's `POS - 1` moves every call
+  two bases left. `SVLEN` is taken absolute, since 4.3 writes a deletion's
+  length negative and 4.4 positive. A call stating no length at all is refused
+  rather than made one base wide, `<CNV>` is counted rather than drawn as a
+  duplication, and a breakend finds its mate in its own ALT so that the
+  reciprocal record does not draw the same arc again.
+- `read::split` reads molecules that aligned in pieces, from SAM and its `SA`
+  tag. The order of the pieces is the whole claim the figure makes, so it is
+  computed from where each alignment sat on the read rather than assumed. A
+  CIGAR runs along the reference, so a reverse-strand alignment's clips are the
+  far end of the molecule and its place on the read is measured from the other
+  side; without that step every read crossing an inversion comes out in the
+  opposite order and draws the mirror of what happened. Only primary alignments
+  are read, since a supplementary one is already an entry in its primary's tag
+  and reading both counts every piece twice.
+- `--methylation`, `--structural` and `--split-reads`, which is twenty-three of
+  the thirty-three track types the command reaches. `--modification` names the
+  modification a pileup counted.
 - `read::clade` reads the GFF3 that recombination detection writes, `Gubbins`
   above all, whose ninth column carries the taxa an interval is carried by. It
   is the one file shape in ordinary use holding a span and its carriers in one

@@ -24,9 +24,10 @@ use std::io::{self, Read as _};
 
 use crate::{
     Aggregate, CladeTrack, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LocusTrack,
-    LogoTrack, ManhattanTrack, MatrixTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot,
-    Region, SequenceTrack, SnpTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack,
-    VariantTrack, WindowStyle, WindowTrack,
+    LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
+    PileupTrack, Plot, Region, SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack,
+    SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle,
+    WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -81,6 +82,22 @@ pub enum BuildError {
         named: String,
         /// The locus that was asked for.
         region: String,
+    },
+    /// A file holds several of a thing and the command asked for none of them.
+    ///
+    /// The `--format` case turned round: there the shape is ambiguous and the
+    /// file cannot say, and here the file says several things and only one of
+    /// them is a track. Picking the first would draw one of them under a label
+    /// that names none.
+    Ambiguous {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// The flag that settles it.
+        flag: &'static str,
+        /// What the file holds, so the choice can be made without opening it.
+        choices: Vec<String>,
     },
     /// Two files were read and nothing in one names anything in the other.
     ///
@@ -145,6 +162,16 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::Ambiguous {
+                track,
+                path,
+                flag,
+                choices,
+            } => write!(
+                f,
+                "--{track} {path} holds {}, and {flag} says which to draw",
+                choices.join(", ")
+            ),
             BuildError::Unjoined {
                 track,
                 path,
@@ -425,6 +452,94 @@ fn track(
             let track =
                 TanglegramTrack::new(left, right).names(shortened(&path), shortened(&right_path));
             Box::new(named(track, label, TanglegramTrack::label))
+        }
+        // One bedMethyl is one track only when it counted one modification. A
+        // dual-mode run writes m and h at the same cytosine, and stacked on one
+        // axis those are two marks at one position with nothing naming either.
+        Kind::Methylation => {
+            let held = wrap(name, &path, read::methyl::codes(&text))?;
+            let code = match (&spec.modification, held.len()) {
+                (Some(code), _) => code.clone(),
+                (None, 1) => held.keys().next().cloned().unwrap_or_default(),
+                (None, 0) => return Err(empty("modified bases")),
+                (None, _) => {
+                    return Err(BuildError::Ambiguous {
+                        track: name,
+                        path: path.clone(),
+                        flag: "--modification",
+                        choices: held.keys().cloned().collect(),
+                    })
+                }
+            };
+
+            let found = wrap(name, &path, read::methyl::sites(&text, region, &code))?;
+            if found.records == 0 {
+                return Err(empty("modified bases"));
+            }
+            if found.sites.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "modified bases",
+                    held: found.records,
+                    named: code.clone(),
+                    region: region.to_string(),
+                });
+            }
+
+            let mut track = MethylationTrack::new(found.sites);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            // Named after the modification it counted, since the band shows one
+            // of the several a file may hold and nothing else would say which.
+            Box::new(match label {
+                Some(label) => track.label(label),
+                None => track.label(code),
+            })
+        }
+        // Calls as arcs between their breakpoints. Every refusal in the reader
+        // stands between a broken record and an arc drawn at full confidence.
+        Kind::Structural => {
+            let found = wrap(name, &path, read::structural::variants(&text, region))?;
+            if found.records == 0 {
+                return Err(empty("variant calls"));
+            }
+            if found.variants.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "structural calls",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                });
+            }
+            let mut track = StructuralTrack::new(found.variants);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, StructuralTrack::label))
+        }
+        // One row per molecule, its pieces in the order that molecule visited
+        // them, which the reader works out rather than takes from the file.
+        Kind::SplitReads => {
+            let found = wrap(name, &path, read::split::reads(&text, region))?;
+            if found.records == 0 {
+                return Err(empty("alignments"));
+            }
+            if found.reads.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "split reads",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                });
+            }
+            let track = SplitReadTrack::new(found.reads);
+            Box::new(named(track, label, SplitReadTrack::label))
         }
         // Spans plus the taxa carrying them, painted onto a phylogeny that
         // comes from a second file. Every refusal below stands between a
