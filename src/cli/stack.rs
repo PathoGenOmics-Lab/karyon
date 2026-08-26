@@ -25,7 +25,8 @@ use std::io::{self, Read as _};
 use crate::{
     Aggregate, CoverageTrack, DotplotTrack, FeatureTrack, IdeogramTrack, LogoTrack, ManhattanTrack,
     MatrixTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack,
-    SnpTrack, SyntenyTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    SnpTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack,
+    WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -61,8 +62,19 @@ pub enum BuildError {
         /// What was expected in it.
         wanted: &'static str,
     },
+    /// A track drawn from two files was handed one.
+    ///
+    /// The parser refuses this, so it reaches here only from an
+    /// [`Invocation`] built by hand, whose fields are all public.
+    MissingSecond {
+        /// Which track is short of a file.
+        track: &'static str,
+    },
     /// The tree would not parse.
     Tree {
+        /// The flag that asked for it, since more than one takes a phylogeny
+        /// and a tanglegram takes two by different names.
+        flag: &'static str,
         /// What it was called, or `standard input`.
         path: String,
         /// Why it is not a tree.
@@ -80,7 +92,11 @@ impl fmt::Display for BuildError {
                 path,
                 wanted,
             } => write!(f, "--{track} {path}: no {wanted} in the region"),
-            BuildError::Tree { path, cause } => write!(f, "--tree {path}: {cause}"),
+            BuildError::MissingSecond { track } => write!(
+                f,
+                "a {track} track is drawn from two files, and only one was given"
+            ),
+            BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
         }
     }
 }
@@ -150,16 +166,40 @@ fn slurp(
     let Some(source) = spec.source.as_ref() else {
         return Ok((String::new(), String::new()));
     };
+    fetch(spec.kind.flag(), source, open)
+}
+
+/// Reads one source, and says what it was called.
+///
+/// Split out from [`slurp`] because a track drawn from two files opens the
+/// second the same way it opened the first, and both belong to the same track
+/// as far as an error message is concerned.
+fn fetch(
+    track: &'static str,
+    source: &Source,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> Result<(String, String), BuildError> {
     let name = match source {
         Source::Path(path) => path.display().to_string(),
         Source::Stdin => "standard input".to_string(),
     };
     let text = open(source).map_err(|cause| BuildError::Open {
-        track: spec.kind.flag(),
+        track,
         path: name.clone(),
         cause,
     })?;
     Ok((text, name))
+}
+
+/// The part of a path a figure has room to print.
+///
+/// A tanglegram names its two trees after the files they came from, and the
+/// name is drawn over the tree, so an absolute path would run across the
+/// figure. The last component is what distinguishes two trees in practice and
+/// is still exactly what was typed, rather than something made up for the
+/// caption.
+fn shortened(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// Opens what a command line names, the way a shell would.
@@ -283,10 +323,39 @@ fn track(
         }
         Kind::Tree => {
             let tree = Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                flag: "--tree",
                 path: path.clone(),
                 cause,
             })?;
             Box::new(named(TreeTrack::new(tree), label, TreeTrack::label))
+        }
+        // Two trees, and the grammar gives one path per flag, so the second
+        // arrives by name: --tanglegram left.nwk --against right.nwk. The
+        // parser refuses the flag without its pair, and this refuses it again
+        // because every field of a TrackSpec is public and the parser is not
+        // the only way one is built. Neither refusal is spare: a tanglegram
+        // drawn from a single tree against itself has no crossings at all,
+        // which is what a perfect result looks like.
+        Kind::Tanglegram => {
+            let Some(source) = spec.second.as_ref() else {
+                return Err(BuildError::MissingSecond { track: name });
+            };
+            let (other, right_path) = fetch(name, source, open)?;
+            let parse = |text: &str, flag, path: &str| {
+                Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                    flag,
+                    path: path.to_string(),
+                    cause,
+                })
+            };
+            let left = parse(&text, "--tanglegram", &path)?;
+            let right = parse(&other, "--against", &right_path)?;
+            // Named, because two phylogenies side by side with nothing over
+            // them do not say which is which, and which is which is the whole
+            // of what a tanglegram is read for.
+            let track =
+                TanglegramTrack::new(left, right).names(shortened(&path), shortened(&right_path));
+            Box::new(named(track, label, TanglegramTrack::label))
         }
         // A PAF names both sequences on every row, and an AlignmentBlock keeps
         // neither, so something has to choose which pair the figure is about.
@@ -554,6 +623,55 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
         fs::write(&path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// The whole of what the second path buys. Two different trees have to
+    /// reach the two sides, so the closure answers a different Newick per
+    /// path: hand both sides the same text and the crossing count is nought,
+    /// which is indistinguishable from a real result.
+    #[test]
+    fn a_tanglegram_reads_two_files_and_puts_each_on_its_own_side() {
+        let args: Vec<String> = "chr1:1-1000 --tanglegram before.nwk --against after.nwk"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+
+        let svg = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("before.nwk") => "((a,b),(c,d));",
+                Source::Path(path) if path.ends_with("after.nwk") => "((a,c),(b,d));",
+                other => panic!("asked for a file nobody named: {other:?}"),
+            }
+            .to_string())
+        })
+        .unwrap();
+
+        // Both files were opened, and the figure says which side each is.
+        assert!(svg.contains("before.nwk"), "the left tree is unnamed");
+        assert!(svg.contains("after.nwk"), "the right tree is unnamed");
+
+        // b and c swap between the two topologies, so exactly one tie crosses.
+        // Reading the same file twice would report none.
+        assert!(
+            svg.contains("1 crossing") && !svg.contains("0 crossing"),
+            "the two sides are not the two trees that were given"
+        );
+    }
+
+    /// Every field of a TrackSpec is public, so the parser is not the only way
+    /// one is built, and the playground and any other library caller will
+    /// build them directly. A tanglegram short of its second tree must be an
+    /// error here too rather than an unwrap.
+    #[test]
+    fn a_tanglegram_built_without_its_second_tree_is_refused_and_not_a_panic() {
+        let mut invocation = over("chr1:1-1000", "--tree", "t.nwk");
+        invocation.tracks[0].kind = Kind::Tanglegram;
+        let error = build(&invocation, |_| Ok("((a,b),(c,d));".to_string())).unwrap_err();
+        assert!(matches!(error, BuildError::MissingSecond { .. }), "{error}");
     }
 
     /// One region, one track flag and one path, which may hold spaces.
