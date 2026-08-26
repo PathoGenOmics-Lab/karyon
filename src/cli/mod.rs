@@ -15,7 +15,7 @@
 //! # Nothing here opens a file
 //!
 //! [`build`] takes the text, rather than fetching it. Every `--flag <PATH>` in
-//! an [`Invocation`](args::Invocation) is resolved by a closure the caller
+//! an [`args::Invocation`] is resolved by a closure the caller
 //! supplies, so a shell hands it `fs::read_to_string`, a browser hands it a
 //! lookup into a map of editor buffers, and a test hands it a literal. That
 //! keeps the rule the rest of the crate already follows: the library takes

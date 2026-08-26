@@ -54,6 +54,7 @@
 //! stops there and the [`ReadError`] carries the line it stopped on.
 
 pub mod align;
+pub mod align_pairs;
 #[cfg(test)]
 mod audit;
 pub mod interval;
