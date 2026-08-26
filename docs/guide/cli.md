@@ -1,6 +1,6 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches seventeen
+`karyon` is a second front end onto the same library, and it reaches eighteen
 of the thirty-three track types: the ones that have a file to read. Trees drawn
 with metadata, maps and the selection views are library only.
 
@@ -94,7 +94,7 @@ genome-wide file can be handed over whole and only the window comes back.
 
 ## Track flags
 
-Thirteen flags, twelve of which take a file. `-` in place of a path means
+Eighteen flags, seventeen of which take a file. `-` in place of a path means
 standard input.
 
 | Flag | The track | What it reads |
@@ -111,12 +111,24 @@ standard input.
 | `--ideogram <FILE>` | Cytogenetic bands | a cytoBand table |
 | `--matrix <FILE>` | A value per sample per site | a table |
 | `--pileup <FILE>` | Aligned reads | SAM text, as `samtools view` writes it |
+| `--synteny <FILE>` | Alignment ribbons between two sequences | PAF, as `minimap2` writes it |
+| `--dotplot <FILE>` | The same alignments as a dot plot | the same PAF |
+| `--orfs <FILE>` | Open reading frames in six frames | FASTA, the same file `--sequence` takes |
+| `--logo <FILE>` | A sequence logo | aligned FASTA, the same file `--msa` takes |
+| `--tanglegram <FILE>` | Two phylogenies face to face | Newick, and a second one named by `--against` |
 | `--axis` | The coordinate ruler | nothing |
 
-Twelve of the thirty-three track types have a standard text format to read, and
-those are the ones the command has. The rest have no file to read from, so they
-stay in the library. What each reader accepts, column by column, is in
-[Formats](formats.md).
+Eighteen of the thirty-three track types have a file the command can put in
+front of them, and those are the ones it has. The rest are library only, either
+because their format is binary, because no single standard exists for what they
+draw, or because nobody has written the reader yet;
+[Track catalogue](../tracks.md) says which is which for each of them. What each
+reader accepts, column by column, is in [Formats](formats.md).
+
+`--orfs` and `--logo` compute rather than read: reading frames off the same
+FASTA `--sequence` takes, and a logo off the same aligned FASTA `--msa` takes.
+So either can be stacked under the track it was derived from without naming a
+second file.
 
 A ruler is added at the bottom without being asked for. `--axis` puts one where
 the flag sits and cancels the automatic one, so writing `--axis` first is a
@@ -134,12 +146,37 @@ because most of them are a setting only some tracks have.
 | Flag | Value | Applies to | Default |
 |:-----|:------|:-----------|:--------|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
-| `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--axis` | the track's own |
+| `--against <FILE>` | a path, or `-` | `--tanglegram` | none, and it is required |
+| `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows` | `--coverage`, `--windows` | `area` and `steps` |
 | `--log` | none | `--coverage` | linear |
 | `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
+
+`--against` is the one modifier that carries a file rather than a setting, for
+a track whose data is not one file. A tanglegram is two phylogenies, and a
+`--<track>` flag takes one path, so the second is named:
+
+```bash
+karyon chr1:1-1000 --no-axis \
+  --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
+```
+
+It is spelled by what the file means rather than by where it sits, which is the
+same rule every other modifier follows, and it is required. A tanglegram given
+one tree twice has no crossings at all, and no crossings is what a perfect
+result looks like, so the missing half is an error instead of a default:
+
+```console
+$ karyon chr1:1-1000 --tanglegram before.nwk
+karyon: a tanglegram track is drawn from two files, and --against names the second
+```
+
+The two trees are named in the figure after the files they came from, since two
+phylogenies side by side with nothing over them do not say which is which.
+`--no-axis` is worth adding: a tanglegram has no genomic coordinates, so the
+ruler underneath it measures nothing.
 
 `--height` is on the tracks that do not size themselves. A feature track, a
 pileup, an alignment, a matrix and a tree are as tall as the number of rows

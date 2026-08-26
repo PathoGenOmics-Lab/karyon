@@ -18,10 +18,17 @@
 //! # What position alone cannot say
 //!
 //! Where a word sits is the whole of what binds it to a track, and two things
-//! fall outside that. One is a track whose data is not one file: a `--<track>`
-//! flag takes one path, so a tanglegram, which is two trees, has nowhere to put
-//! the second, and seventeen of the crate's thirty-three track types are all the
-//! command line reaches.
+//! fall outside that.
+//!
+//! One is a track whose data is not one file. A `--<track>` flag takes one
+//! path, and a tanglegram is two trees, so the second arrives by a name of its
+//! own: `--tanglegram left.nwk --against right.nwk`. It is spelled by what the
+//! file means rather than by where it sits, because a second phylogeny and a
+//! second table are not interchangeable, and a track that takes one is refused
+//! without it. That refusal is the point: a tanglegram of one tree against
+//! itself has no crossings at all, which is what a perfect answer looks like.
+//! Eighteen of the crate's thirty-three track types are what the command line
+//! reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
 //! of the words does nothing to prevent. Every modifier therefore carries the
@@ -87,6 +94,13 @@ pub enum ArgError {
     },
     /// More than one track wanted standard input.
     StdinTwice,
+    /// A track drawn from two files was given one.
+    MissingSecond {
+        /// The flag that names the other file.
+        flag: &'static str,
+        /// The track that is short of it.
+        track: &'static str,
+    },
 }
 
 /// The widest figure that is drawn, in pixels.
@@ -133,6 +147,10 @@ impl fmt::Display for ArgError {
                 "{given:?} spans {span} bases, and a figure is drawn over at most {MAX_SPAN}"
             ),
             ArgError::StdinTwice => write!(f, "only one track can read from standard input"),
+            ArgError::MissingSecond { flag, track } => write!(
+                f,
+                "a {track} track is drawn from two files, and {flag} names the second"
+            ),
         }
     }
 }
@@ -183,11 +201,41 @@ pub enum Kind {
     Orfs,
     /// A sequence logo, counted from aligned FASTA.
     Logo,
+    /// Two phylogenies face to face, from two Newick files.
+    Tanglegram,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
 
 impl Kind {
+    /// Every track the command line can draw, in the order the help text
+    /// lists them.
+    ///
+    /// A caller offering a choice of tracks, a browser front end among them,
+    /// wants the list rather than a copy of it that goes stale. The help text
+    /// is checked against this, so a track added without a line in it is a
+    /// failing test rather than a flag nobody can find.
+    pub const ALL: [Kind; 18] = [
+        Kind::Coverage,
+        Kind::Sequence,
+        Kind::Features,
+        Kind::Variants,
+        Kind::Windows,
+        Kind::Manhattan,
+        Kind::Tree,
+        Kind::Msa,
+        Kind::Snps,
+        Kind::Ideogram,
+        Kind::Matrix,
+        Kind::Pileup,
+        Kind::Synteny,
+        Kind::Dotplot,
+        Kind::Orfs,
+        Kind::Logo,
+        Kind::Tanglegram,
+        Kind::Axis,
+    ];
+
     /// The flag that asks for this track, without the dashes.
     pub fn flag(self) -> &'static str {
         match self {
@@ -207,7 +255,38 @@ impl Kind {
             Kind::Dotplot => "dotplot",
             Kind::Orfs => "orfs",
             Kind::Logo => "logo",
+            Kind::Tanglegram => "tanglegram",
             Kind::Axis => "axis",
+        }
+    }
+
+    /// The flag as it is written, for the errors that name one.
+    ///
+    /// Exhaustive on purpose. [`Kind::flag`] spells the track and this spells
+    /// the word someone typed, and when the two were kept in step by a
+    /// fallback arm instead of by the compiler, four tracks added later fell
+    /// through it and `--synteny` with no path reported that `--axis` needed a
+    /// value.
+    pub fn dashed(self) -> &'static str {
+        match self {
+            Kind::Coverage => "--coverage",
+            Kind::Sequence => "--sequence",
+            Kind::Features => "--features",
+            Kind::Variants => "--variants",
+            Kind::Windows => "--windows",
+            Kind::Manhattan => "--manhattan",
+            Kind::Tree => "--tree",
+            Kind::Msa => "--msa",
+            Kind::Snps => "--snps",
+            Kind::Ideogram => "--ideogram",
+            Kind::Matrix => "--matrix",
+            Kind::Pileup => "--pileup",
+            Kind::Synteny => "--synteny",
+            Kind::Dotplot => "--dotplot",
+            Kind::Orfs => "--orfs",
+            Kind::Logo => "--logo",
+            Kind::Tanglegram => "--tanglegram",
+            Kind::Axis => "--axis",
         }
     }
 
@@ -231,6 +310,31 @@ impl Kind {
                 | Kind::Dotplot
                 | Kind::Axis
         )
+    }
+
+    /// The flag that names this track's second file, where one file is not all
+    /// of its data.
+    ///
+    /// Spelled by what the second file means and not by where it sits. A
+    /// second phylogeny and a second table are different files asking
+    /// different questions, so one spelling for both would be a flag that is
+    /// accepted everywhere and correct in one place, which is the thing the
+    /// module refuses to do with every other modifier.
+    ///
+    /// A track that takes a second file needs it. Drawing one from the single
+    /// file it was given is not a smaller version of the figure asked for, it
+    /// is a different figure: a tanglegram of one tree against itself has no
+    /// crossings and looks like a perfect result.
+    ///
+    /// Public because it gates a public field: a caller building a
+    /// [`TrackSpec`] by hand, which is what a front end that is not a shell
+    /// does, has to be able to ask which tracks want a second file and what to
+    /// call the control that asks for it.
+    pub fn second_flag(self) -> Option<&'static str> {
+        match self {
+            Kind::Tanglegram => Some("--against"),
+            _ => None,
+        }
     }
 }
 
@@ -275,6 +379,11 @@ pub struct TrackSpec {
     pub kind: Kind,
     /// Where its data is, or `None` for the axis.
     pub source: Option<Source>,
+    /// The other file, for a track whose data is not one file.
+    ///
+    /// Which flag fills it is [`Kind::second_flag`], and a track that has one
+    /// is refused without it, so this is `None` only where it means nothing.
+    pub second: Option<Source>,
     /// `--label`.
     pub label: Option<String>,
     /// `--height`.
@@ -297,6 +406,7 @@ impl TrackSpec {
         TrackSpec {
             kind,
             source,
+            second: None,
             label: None,
             height: None,
             aggregate: None,
@@ -397,12 +507,13 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--dotplot" => Some((Kind::Dotplot, true)),
             "--orfs" => Some((Kind::Orfs, true)),
             "--logo" => Some((Kind::Logo, true)),
+            "--tanglegram" => Some((Kind::Tanglegram, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };
         if let Some((kind, reads)) = track {
             let source = if reads {
-                let word = value(leak(kind.flag()))?;
+                let word = value(kind.dashed())?;
                 Some(if word == "-" {
                     Source::Stdin
                 } else {
@@ -411,11 +522,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             } else {
                 None
             };
-            if matches!(source, Some(Source::Stdin))
-                && tracks
-                    .iter()
-                    .any(|t| matches!(t.source, Some(Source::Stdin)))
-            {
+            if matches!(source, Some(Source::Stdin)) && stdin_taken(&tracks) {
                 return Err(ArgError::StdinTwice);
             }
             if kind == Kind::Axis {
@@ -536,6 +643,29 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
+            "--against" => {
+                let word = value("--against")?;
+                // Checked before the track is borrowed, and against both
+                // fields: a pipe can be read once, and it is now possible for
+                // one track to ask for it twice by itself.
+                let stdin = word == "-";
+                if stdin && stdin_taken(&tracks) {
+                    return Err(ArgError::StdinTwice);
+                }
+                let source = if stdin {
+                    Source::Stdin
+                } else {
+                    Source::Path(PathBuf::from(word))
+                };
+                let track = last(&mut tracks, "--against")?;
+                if track.kind.second_flag() != Some("--against") {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--against",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.second = Some(source);
+            }
             "--format" => {
                 let text = value("--format")?;
                 let format = Format::parse(text).ok_or_else(|| ArgError::BadValue {
@@ -605,6 +735,19 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         }
     }
 
+    // Late, because the flag that fills it comes after the track flag and may
+    // be anywhere before the next one.
+    for spec in &tracks {
+        if let Some(flag) = spec.kind.second_flag() {
+            if spec.second.is_none() {
+                return Err(ArgError::MissingSecond {
+                    flag,
+                    track: spec.kind.flag(),
+                });
+            }
+        }
+    }
+
     let region = region.ok_or(ArgError::NoRegion)?;
     Ok(Request::Draw(Box::new(Invocation {
         region,
@@ -618,32 +761,23 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     })))
 }
 
+/// Whether standard input has already been spoken for.
+///
+/// Both fields, since a track drawn from two files could otherwise ask for the
+/// pipe twice and read the same text as each of them.
+fn stdin_taken(tracks: &[TrackSpec]) -> bool {
+    tracks
+        .iter()
+        .flat_map(|t| [t.source.as_ref(), t.second.as_ref()])
+        .any(|source| matches!(source, Some(Source::Stdin)))
+}
+
 /// The track a modifier belongs to, which is the one before it.
 fn last<'a>(
     tracks: &'a mut [TrackSpec],
     flag: &'static str,
 ) -> Result<&'a mut TrackSpec, ArgError> {
     tracks.last_mut().ok_or(ArgError::NoTrackYet(flag))
-}
-
-/// A track flag's name, for the one error message that needs it as a literal.
-fn leak(flag: &str) -> &'static str {
-    // The set is closed and small, so a match beats leaking a String.
-    match flag {
-        "coverage" => "--coverage",
-        "sequence" => "--sequence",
-        "features" => "--features",
-        "variants" => "--variants",
-        "windows" => "--windows",
-        "manhattan" => "--manhattan",
-        "tree" => "--tree",
-        "msa" => "--msa",
-        "snps" => "--snps",
-        "ideogram" => "--ideogram",
-        "matrix" => "--matrix",
-        "pileup" => "--pileup",
-        _ => "--axis",
-    }
 }
 
 #[cfg(test)]
@@ -699,6 +833,137 @@ mod tests {
         assert_eq!(it.region.seq(), "chr1");
         let err = parse(&args("chr1:1-1000 chr2:1-1000")).unwrap_err();
         assert!(matches!(err, ArgError::ExtraRegion(_)));
+    }
+
+    /// The grammar gives one path per flag, and a tanglegram is two trees. The
+    /// second arrives by a name rather than by a position, because a second
+    /// phylogeny and a second table are different files, and a modifier that
+    /// means one thing here and another there is the thing this module refuses
+    /// to have.
+    /// `ALL` is a list, and a list is the kind of thing that goes stale. The
+    /// compiler checks its length and nothing else, so this checks that every
+    /// entry is a different track and that each one is a flag the parser
+    /// actually answers to.
+    #[test]
+    fn the_list_of_tracks_is_every_track_exactly_once() {
+        let mut spellings: Vec<&str> = Kind::ALL.iter().map(|k| k.dashed()).collect();
+        spellings.sort_unstable();
+        spellings.dedup();
+        assert_eq!(spellings.len(), Kind::ALL.len(), "a track is listed twice");
+
+        for kind in Kind::ALL {
+            let line = format!("chr1:1-1000 {} f.txt --against t.nwk", kind.dashed());
+            let parsed = parse(&args(&line));
+            // Every one of them starts a track, so none is an unknown flag.
+            assert!(
+                !matches!(parsed, Err(ArgError::UnknownFlag(_))),
+                "{} is listed and the parser does not know it",
+                kind.dashed()
+            );
+        }
+    }
+
+    #[test]
+    fn a_second_path_arrives_by_name_and_lands_on_the_track_before_it() {
+        let it = draw("chr1:1-1000 --tanglegram before.nwk --against after.nwk --label topology");
+        assert_eq!(it.tracks.len(), 1, "the second path started a second track");
+        assert_eq!(
+            it.tracks[0].source,
+            Some(Source::Path("before.nwk".into())),
+            "the first path moved"
+        );
+        assert_eq!(
+            it.tracks[0].second,
+            Some(Source::Path("after.nwk".into())),
+            "the second path did not arrive"
+        );
+        // And an ordinary modifier still lands after it, so the second path
+        // did not end the track.
+        assert_eq!(it.tracks[0].label.as_deref(), Some("topology"));
+    }
+
+    /// A tanglegram of one tree against itself has no crossings, which is what
+    /// a perfect result looks like, so the missing half has to be refused
+    /// rather than filled in. The check is late because `--against` may sit
+    /// anywhere before the next track flag.
+    #[test]
+    fn a_track_drawn_from_two_files_is_refused_with_one() {
+        let error = parse(&args("chr1:1-1000 --tanglegram before.nwk")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::MissingSecond {
+                    flag: "--against",
+                    track: "tanglegram"
+                }
+            ),
+            "{error}"
+        );
+
+        // Written after other flags, which is the whole reason for a late pass.
+        let it = draw("chr1:1-1000 --tanglegram a.nwk --label x --against b.nwk --title t");
+        assert_eq!(it.tracks[0].second, Some(Source::Path("b.nwk".into())));
+    }
+
+    /// Every other modifier is refused by name where it says nothing, and this
+    /// one is no different: a coverage track has no second file, so `--against`
+    /// on one is a flag that would be read and then ignored.
+    #[test]
+    fn the_second_path_flag_is_refused_where_a_track_has_no_second_file() {
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --against t.nwk")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--against",
+                    track: "coverage"
+                }
+            ),
+            "{error}"
+        );
+
+        let error = parse(&args("chr1:1-1000 --against t.nwk")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::NoTrackYet("--against")),
+            "{error}"
+        );
+    }
+
+    /// A pipe can be read once, and a track drawn from two files is the first
+    /// thing that can ask for it twice on its own.
+    #[test]
+    fn one_track_cannot_take_standard_input_for_both_of_its_files() {
+        let error = parse(&args("chr1:1-1000 --tanglegram - --against -")).unwrap_err();
+        assert!(matches!(error, ArgError::StdinTwice), "{error}");
+
+        // And the second path is counted against the other tracks too, in
+        // both directions.
+        let error = parse(&args(
+            "chr1:1-1000 --tanglegram a.nwk --against - --coverage -",
+        ));
+        assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
+        let error = parse(&args(
+            "chr1:1-1000 --coverage - --tanglegram a.nwk --against -",
+        ));
+        assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
+
+        // One of the two, on the other hand, is the ordinary case.
+        let it = draw("chr1:1-1000 --tanglegram - --against after.nwk");
+        assert_eq!(it.tracks[0].source, Some(Source::Stdin));
+    }
+
+    /// [`Kind::flag`] spells the track and [`Kind::dashed`] spells the word,
+    /// and a fallback arm once let four tracks fall through so that
+    /// `--synteny` with no path reported that `--axis` needed a value.
+    #[test]
+    fn a_track_flag_missing_its_path_names_itself() {
+        for flag in ["--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram"] {
+            let error = parse(&args(&format!("chr1:1-1000 {flag}"))).unwrap_err();
+            let ArgError::MissingValue(named) = error else {
+                panic!("{flag} without a path gave {error}");
+            };
+            assert_eq!(named, flag, "{flag} reported itself as {named}");
+        }
     }
 
     #[test]

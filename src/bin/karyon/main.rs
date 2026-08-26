@@ -59,10 +59,14 @@ TRACKS
     --orfs <FILE>        open reading frames in six frames, from the same FASTA
                          --sequence takes
     --logo <FILE>        a sequence logo counted from aligned FASTA
+    --tanglegram <FILE>  two phylogenies face to face, Newick; this is the
+                         left one and --against names the right
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it
     --label <TEXT>       the name in the left gutter
+    --against <FILE>     the other file, for a track drawn from two of them:
+                         the right-hand tree of a tanglegram
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line, bars, or steps for a window track
@@ -160,28 +164,53 @@ mod tests {
         assert!(error.contains("unknown flag"), "{error}");
     }
 
+    /// Against the parser's own list rather than a copy of it, so a track
+    /// wired up and left out of the help text is a failing test instead of a
+    /// flag nobody can find.
     #[test]
     fn the_help_text_names_every_track_flag() {
-        for kind in [
-            "--coverage",
-            "--sequence",
-            "--features",
-            "--variants",
-            "--windows",
-            "--manhattan",
-            "--tree",
-            "--msa",
-            "--snps",
-            "--ideogram",
-            "--matrix",
-            "--pileup",
-            "--synteny",
-            "--dotplot",
-            "--orfs",
-            "--logo",
-            "--axis",
-        ] {
-            assert!(HELP.contains(kind), "the help text does not mention {kind}");
+        for kind in args::Kind::ALL {
+            assert!(
+                HELP.contains(kind.dashed()),
+                "the help text does not mention {}",
+                kind.dashed()
+            );
         }
+        // And the flag that carries a second file, which is not a track.
+        assert!(HELP.contains("--against"), "--against is undocumented");
+    }
+
+    /// The other direction, which closes the loop. `Kind::dashed` is
+    /// exhaustive so the compiler keeps the spellings honest, but `Kind::ALL`
+    /// is a list, and a list is the kind of thing that falls behind. Checking
+    /// the help text against it and it against the help text makes the two a
+    /// pair: a track wired into the parser and written up here but left out of
+    /// the list fails, which is the way round the compiler cannot see.
+    #[test]
+    fn the_help_text_names_no_track_the_list_has_not_got() {
+        let tracks = HELP
+            .split_once("\nTRACKS\n")
+            .expect("the help text has no TRACKS section")
+            .1
+            .split_once("\nTRACK OPTIONS")
+            .expect("the TRACKS section has no end")
+            .0;
+
+        let known: Vec<&str> = args::Kind::ALL.iter().map(|k| k.dashed()).collect();
+        let mut found = 0;
+        for word in tracks.split_whitespace() {
+            if !word.starts_with("--") {
+                continue;
+            }
+            found += 1;
+            assert!(
+                known.contains(&word) || word == "--against",
+                "{word} is documented as a track and is not in Kind::ALL"
+            );
+        }
+        assert!(
+            found >= known.len(),
+            "the TRACKS section found only {found}"
+        );
     }
 }

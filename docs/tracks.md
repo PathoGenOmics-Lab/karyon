@@ -1155,16 +1155,18 @@ reads no file because it has nothing to read. [OrfTrack](#orftrack) and
 aligned FASTA that `--sequence` and `--msa` already take, and
 [SyntenyTrack](#syntenytrack) and [DotplotTrack](#dotplottrack) off one PAF
 from `minimap2`, which is the one format in the crate that needs no coordinate
-conversion at all.
+conversion at all. [TanglegramTrack](#tanglegramtrack) is reachable through
+`--tanglegram left.nwk --against right.nwk`, the one flag whose data is two
+files.
 
-That leaves sixteen in the library only, and the reasons are not the same one.
+That leaves fifteen in the library only, and the reasons are not the same one.
 [BisulfiteTrack](#bisulfitetrack), [DomainTrack](#domaintrack),
 [MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack) and
 [StructuralTrack](#structuraltrack) have a real interchange format and no
 reader yet: bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM carrying
-`SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
-[TanglegramTrack](#tanglegramtrack) need more than one file, and the grammar
-gives one path per flag. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
+`SA`. [CladeTrack](#cladetrack) and [LocusTrack](#locustrack) need more than one
+file, and each needs a reader for the second. [TanglegramTrack](#tanglegramtrack)
+needed only the second path, which `--against` now supplies. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
 [PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
 [SurveillanceTrack](#surveillancetrack) and
 [TranscriptionUnitTrack](#transcriptionunittrack) would need a table with no

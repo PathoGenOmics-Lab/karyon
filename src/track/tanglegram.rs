@@ -716,10 +716,18 @@ impl Track for TanglegramTrack {
 
         if self.show_summary {
             let current = self.crossings();
-            let crossing_text = if current == self.initial_crossings {
-                format!("{current} crossings")
+            // One crossing is a crossing. The summary is the shortest line on
+            // the figure and the one a reader takes the result from, so it is
+            // the last place to be sloppy about it.
+            let plural = if current == 1 {
+                "crossing"
             } else {
-                format!("{} → {current} crossings", self.initial_crossings)
+                "crossings"
+            };
+            let crossing_text = if current == self.initial_crossings {
+                format!("{current} {plural}")
+            } else {
+                format!("{} → {current} {plural}", self.initial_crossings)
             };
             let odd = self.unshared().len();
             let mut summary = format!("{crossing_text} · {} linked", ties.len());
