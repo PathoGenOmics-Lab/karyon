@@ -8,6 +8,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A playground on the documentation site: the command line running in the
+  reader's own browser, over files typed into the page. It is the same code the
+  terminal runs, because it is the same code. `cli::stack::build` takes a
+  closure that answers with a source's text rather than opening a path, which
+  is what makes it possible: a browser has no disk, so a shell hands the
+  grammar one and the page hands it a textarea. Every flag, every reader and
+  every refusal is what the terminal gives, including the counts, and the
+  figure is a real `<svg>` element rather than an image of one.
+- `playground/`, the bridge that runs over. It is a crate of its own and not a
+  member of anything, because it is the one place in the repository that needs
+  raw pointers and the library forbids them, and because doing it with
+  `wasm-bindgen` would mean a dependency tree for a crate that has none. One
+  buffer in and one buffer out, both length prefixed, and the protocol is
+  written down in the module. The wasm is built by the documentation workflow
+  rather than committed, so the page cannot serve a program older than the
+  library it came from.
 - `read::bisulfite` reads a `bismark_methylation_extractor` file, which is one
   row per cytosine per read. The track is a matrix, one shared list of sites and
   one call per site per molecule indexed by the site's place in that list, and

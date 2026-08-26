@@ -35,6 +35,13 @@ on:
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/docs.yml"
+      # The playground on the site is the crate compiled to WebAssembly, so a
+      # change to the library or to the bridge changes what the site serves
+      # without changing a word under docs/. Left out of this list, the page
+      # would go on running whatever was built the last time a paragraph moved.
+      - "src/**"
+      - "playground/**"
+      - "Cargo.toml"
   workflow_dispatch:
 
 # Read the repository to build it. The deploy job asks for what it needs on its
@@ -60,6 +67,21 @@ jobs:
           python-version: "3.x"
       - name: Install build dependencies
         run: pip install -r requirements-docs.txt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # The playground is the command line running in the reader's own browser,
+      # which is the same code the terminal runs because it is the same code.
+      # Built here rather than committed: a wasm file in the repository is a
+      # binary that drifts from the source next to it, and this way the page
+      # cannot serve a program older than the library it came from.
+      - name: Build the playground
+        run: |
+          cargo build --release --target wasm32-unknown-unknown \
+            --manifest-path playground/Cargo.toml
+          cp playground/target/wasm32-unknown-unknown/release/karyon_playground.wasm \
+            docs/assets/
+          ls -l docs/assets/karyon_playground.wasm
       # The figures this site serves are copies of the ones under assets/, and
       # they drift. That gate lives in CI, which runs on every pull request and
       # on every push to main, which is the only branch this file publishes

@@ -14,6 +14,8 @@
   <h3>
     <a href="https://pathogenomics-lab.github.io/karyon/">Documentation</a>
     &nbsp;·&nbsp;
+    <a href="https://pathogenomics-lab.github.io/karyon/playground/">Playground</a>
+    &nbsp;·&nbsp;
     <a href="https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/">Quick start</a>
     &nbsp;·&nbsp;
     <a href="https://pathogenomics-lab.github.io/karyon/plots/">Plot catalogue</a>
@@ -73,6 +75,7 @@ The documentation is the manual; this page is the front door.
 
 | If you want to | Go to |
 | --- | --- |
+| try it without installing anything | [Playground](https://pathogenomics-lab.github.io/karyon/playground/), which is this crate compiled to WebAssembly and running in your own browser |
 | draw something in the next five minutes | [Quick start](https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/) |
 | find the plot that fits your data | [Plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/), which sorts all thirty-three tracks by biological question rather than by type name |
 | look up one track's exact API | [Track reference](https://pathogenomics-lab.github.io/karyon/tracks/) |

@@ -12,6 +12,10 @@ line based text. This page is
 the grammar: which flags start a track, which describe the one before them, and
 what the command says when one of them is wrong.
 
+Every command on this page runs in the [playground](../playground.md), which is
+this same code compiled to WebAssembly: type the files into the box and the
+figure is drawn by your own browser.
+
 ## The grammar is the stack
 
 A figure is a list of tracks in the order they are drawn, and `argv` is already

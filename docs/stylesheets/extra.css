@@ -703,3 +703,123 @@
   max-width: 60rem;
   margin-inline: auto;
 }
+
+/* The playground. Its own block because it is the one page that is a program
+   rather than prose, so the reading measure the rest of the site keeps would
+   make the boxes too narrow to type a command line into. */
+.md-content__inner:has(#karyon-playground-app) .md-typeset > * {
+  max-width: none;
+}
+
+#karyon-playground-app {
+  margin-block: 1.2rem;
+}
+
+.pg-label {
+  display: block;
+  margin-block: 0.9rem 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--md-default-fg-color--light);
+}
+
+.pg-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: var(--md-code-bg-color);
+  color: var(--md-code-fg-color);
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  resize: vertical;
+  /* A command line and a data file are both things where a wrapped line is a
+     different line, so the tabs a BED is made of have to survive. */
+  tab-size: 8;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.pg-input:focus {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -1px;
+}
+
+.pg-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.pg-examples .pg-label {
+  margin: 0;
+}
+
+.pg-chip,
+.pg-button {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: transparent;
+  color: var(--md-typeset-a-color);
+  font-family: inherit;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.pg-chip:hover,
+.pg-button:hover:not(:disabled) {
+  background: var(--md-accent-fg-color--transparent);
+}
+
+.pg-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
+.pg-button {
+  font-weight: 700;
+  padding: 0.4rem 1.1rem;
+  color: var(--md-primary-bg-color);
+  background: var(--md-primary-fg-color);
+  border-color: transparent;
+}
+
+.pg-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pg-status {
+  font-size: 0.68rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.pg-output {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  overflow-x: auto;
+}
+
+.pg-output svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* A refusal is text and reads as text, not as a figure that failed to appear. */
+.pg-failed {
+  white-space: pre-wrap;
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.7rem;
+  color: var(--md-typeset-del-color);
+  border-color: var(--md-typeset-del-color);
+}

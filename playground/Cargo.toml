@@ -1,0 +1,19 @@
+[package]
+name = "karyon-playground"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "The wasm bridge the documentation site's playground runs on."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+karyon = { path = ".." }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

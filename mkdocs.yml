@@ -142,6 +142,7 @@ nav:
       - Evolution and surveillance: plots/evolution-surveillance.md
       - Whole genomes and geography: plots/whole-genomes-geography.md
       - Track API reference: tracks.md
+  - Playground: playground.md
   - User guide:
       - guide/plot.md
       - guide/figure.md

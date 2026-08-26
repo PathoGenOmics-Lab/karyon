@@ -14,3 +14,20 @@
 # locally. It is an artifact of a run, not part of the repository.
 /mutants.out
 /mutants.out.old
+
+# The playground's own build directory, since it is a crate of its own rather
+# than a member of a workspace.
+/playground/target
+
+# The wasm the documentation site's playground runs. Built by the docs
+# workflow from src/ and playground/ rather than committed, because a binary in
+# a repository is a binary that drifts from the source beside it. To try the
+# page on a laptop:
+#
+#   cargo build --release --target wasm32-unknown-unknown \
+#     --manifest-path playground/Cargo.toml
+#   cp playground/target/wasm32-unknown-unknown/release/karyon_playground.wasm \
+#     docs/assets/
+#
+# Without it the page says so and points at the command line guide.
+/docs/assets/karyon_playground.wasm
