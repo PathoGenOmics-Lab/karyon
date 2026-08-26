@@ -1,7 +1,7 @@
 //! Turning a parsed command line into a figure.
 //!
 //! Every arm here is one track of the stack, built in the order the flags were
-//! written, which is the whole reason the grammar in [`crate::args`] looks the
+//! written, which is the whole reason the grammar in [`args`](crate::cli::args) looks the
 //! way it does.
 //!
 //! The tracks are built and then handed over with
@@ -93,7 +93,7 @@ impl std::error::Error for BuildError {}
 ///
 /// Returns the first file that would not open, would not parse, or held
 /// nothing inside the region. The command line itself has already been checked
-/// by [`crate::args::parse`], so everything here is about the data.
+/// by [`crate::cli::args::parse`], so everything here is about the data.
 pub fn build(
     invocation: &Invocation,
     mut open: impl FnMut(&Source) -> io::Result<String>,
