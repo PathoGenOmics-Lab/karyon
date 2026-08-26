@@ -1,6 +1,6 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches thirteen
+`karyon` is a second front end onto the same library, and it reaches fifteen
 of the thirty-three track types: the ones that have a file to read. Trees drawn
 with metadata, maps and the selection views are library only.
 

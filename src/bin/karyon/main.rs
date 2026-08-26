@@ -53,6 +53,9 @@ TRACKS
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
     --matrix <FILE>      a value per sample per site, a table
     --pileup <FILE>      aligned reads, SAM text from samtools view
+    --orfs <FILE>        open reading frames in six frames, from the same FASTA
+                         --sequence takes
+    --logo <FILE>        a sequence logo counted from aligned FASTA
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it
@@ -169,6 +172,8 @@ mod tests {
             "--ideogram",
             "--matrix",
             "--pileup",
+            "--orfs",
+            "--logo",
             "--axis",
         ] {
             assert!(HELP.contains(kind), "the help text does not mention {kind}");

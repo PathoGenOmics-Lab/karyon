@@ -23,9 +23,9 @@ use std::fs;
 use std::io::{self, Read as _};
 
 use crate::{
-    Aggregate, CoverageTrack, FeatureTrack, IdeogramTrack, ManhattanTrack, MatrixTrack,
-    MsaSequence, MsaTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack, Theme, Track, Tree,
-    TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    Aggregate, CoverageTrack, FeatureTrack, IdeogramTrack, LogoTrack, ManhattanTrack, MatrixTrack,
+    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack, Theme,
+    Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -288,6 +288,28 @@ fn track(
             })?;
             Box::new(named(TreeTrack::new(tree), label, TreeTrack::label))
         }
+        // The two conventions in this file are opposite, and which one a track
+        // follows is not a matter of taste. `--sequence` clips its bases to the
+        // window and anchors them at the window's start; `--snps` anchors at
+        // nought and lets the alignment column be the coordinate. An ORF is
+        // read off the reference, so it takes the first; a logo is counted down
+        // alignment columns, so it takes the second. Using the window's start
+        // for a logo offsets every column by it, and the figure looks fine.
+        Kind::Orfs => {
+            let records = wrap(name, &path, read::seq::fasta(&text))?;
+            let (_, bases) = records.into_iter().next().ok_or_else(|| empty("orfs"))?;
+            let track = OrfTrack::new(region.start(), clip(&bases, region));
+            Box::new(named(track, label, OrfTrack::label))
+        }
+        Kind::Logo => {
+            let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
+            let rows: Vec<String> = sequences
+                .iter()
+                .map(|row| String::from_utf8_lossy(&row.residues).into_owned())
+                .collect();
+            let track = LogoTrack::from_sequences(0, &rows);
+            Box::new(named(track, label, LogoTrack::label))
+        }
         Kind::Msa => {
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
             Box::new(named(MsaTrack::new(sequences), label, MsaTrack::label))
@@ -385,6 +407,52 @@ fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both new flags follow a coordinate convention, and they are opposite
+    /// ones. A logo anchored where the sequence anchors is offset by the whole
+    /// window, and the figure looks perfectly reasonable, so this pins each to
+    /// the library call it must agree with rather than to a shape.
+    #[test]
+    fn orfs_and_logos_keep_the_conventions_their_data_has() {
+        use crate::{Figure, LogoTrack, OrfTrack};
+
+        let bases: Vec<u8> = b"ACGT".iter().cycle().take(400).copied().collect();
+        let fasta = format!(">ctg1\n{}\n", String::from_utf8_lossy(&bases));
+        let region = Region::parse("ctg1:101-400").unwrap();
+
+        let from_cli = build(&over("ctg1:101-400", "--orfs", "in.fa"), |_| {
+            Ok(fasta.clone())
+        })
+        .unwrap();
+        // The reference is read off the window, so it anchors at the window.
+        let from_library = Figure::new(region.clone())
+            .push(OrfTrack::new(100, bases[100..400].to_vec()))
+            .push(crate::AxisTrack::new())
+            .to_svg();
+        assert_eq!(from_cli, from_library, "an ORF track moved off its window");
+
+        let rows = ["ACGTACGTAC", "ACGTTCGTAC", "ACGAACGTAC"];
+        let aligned = rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| format!(">s{i}\n{r}\n"))
+            .collect::<String>();
+        let from_cli = build(&over("aln:1-10", "--logo", "aln.fa"), |_| {
+            Ok(aligned.clone())
+        })
+        .unwrap();
+        // A column of an alignment is its own coordinate, so it anchors at nought.
+        let right = Figure::new(Region::parse("aln:1-10").unwrap())
+            .push(LogoTrack::from_sequences(0, &rows))
+            .push(crate::AxisTrack::new())
+            .to_svg();
+        let wrong = Figure::new(Region::parse("aln:1-10").unwrap())
+            .push(LogoTrack::from_sequences(1, &rows))
+            .push(crate::AxisTrack::new())
+            .to_svg();
+        assert_eq!(from_cli, right, "a logo moved off its columns");
+        assert_ne!(right, wrong, "the two anchors are indistinguishable here");
+    }
     use crate::cli::args::{parse, Request};
 
     fn invocation(line: &str) -> Invocation {
