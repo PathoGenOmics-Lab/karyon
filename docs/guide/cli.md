@@ -1,6 +1,6 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches eighteen
+`karyon` is a second front end onto the same library, and it reaches twenty
 of the thirty-three track types: the ones that have a file to read. Trees drawn
 with metadata, maps and the selection views are library only.
 
@@ -94,7 +94,7 @@ genome-wide file can be handed over whole and only the window comes back.
 
 ## Track flags
 
-Eighteen flags, seventeen of which take a file. `-` in place of a path means
+Twenty flags, nineteen of which take a file. `-` in place of a path means
 standard input.
 
 | Flag | The track | What it reads |
@@ -116,9 +116,11 @@ standard input.
 | `--orfs <FILE>` | Open reading frames in six frames | FASTA, the same file `--sequence` takes |
 | `--logo <FILE>` | A sequence logo | aligned FASTA, the same file `--msa` takes |
 | `--tanglegram <FILE>` | Two phylogenies face to face | Newick, and a second one named by `--against` |
+| `--clades <FILE>` | Spans carried by named taxa, painted onto a phylogeny | GFF3 with a `taxa` attribute, as `Gubbins` writes it, and a tree named by `--with-tree` |
+| `--loci <FILE>` | Gene neighbourhoods from several genomes | BED or GFF3 whose first column names the genome, and the homologies named by `--links` |
 | `--axis` | The coordinate ruler | nothing |
 
-Eighteen of the thirty-three track types have a file the command can put in
+Twenty of the thirty-three track types have a file the command can put in
 front of them, and those are the ones it has. The rest are library only, either
 because their format is binary, because no single standard exists for what they
 draw, or because nobody has written the reader yet;
@@ -147,6 +149,9 @@ because most of them are a setting only some tracks have.
 |:-----|:------|:-----------|:--------|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a path, or `-` | `--tanglegram` | none, and it is required |
+| `--with-tree <FILE>` | a path, or `-` | `--clades` | none, and it is required |
+| `--links <FILE>` | a path, or `-` | `--loci` | none, and it is required |
+| `--identity <UNIT>` | `percent`, `fraction` | `--loci` | worked out from the values, and refused where they cannot say |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows` | `--coverage`, `--windows` | `area` and `steps` |
@@ -154,19 +159,30 @@ because most of them are a setting only some tracks have.
 | `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
 
-`--against` is the one modifier that carries a file rather than a setting, for
-a track whose data is not one file. A tanglegram is two phylogenies, and a
-`--<track>` flag takes one path, so the second is named:
+### A track whose data is not one file
+
+Three modifiers carry a file rather than a setting, for the three tracks whose
+data is two files. A `--<track>` flag takes one path, so the second is named,
+and it is named by what it means rather than by where it sits, which is the
+rule every other modifier follows:
+
+| Track | The first file | The second |
+|:------|:---------------|:-----------|
+| `--tanglegram` | the left-hand tree | `--against`, the right-hand tree |
+| `--clades` | the blocks and their taxa | `--with-tree`, the phylogeny they are painted onto |
+| `--loci` | the genes of each genome | `--links`, what joins one row to the next |
+
+A tanglegram is two phylogenies:
 
 ```bash
 karyon chr1:1-1000 --no-axis \
   --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
 ```
 
-It is spelled by what the file means rather than by where it sits, which is the
-same rule every other modifier follows, and it is required. A tanglegram given
-one tree twice has no crossings at all, and no crossings is what a perfect
-result looks like, so the missing half is an error instead of a default:
+All three are required, and for one reason: each of these tracks draws a
+finished-looking figure without its second file, and each of those figures says
+something strong and false. A tanglegram given one tree twice has no crossings,
+and no crossings is what a perfect result looks like:
 
 ```console
 $ karyon chr1:1-1000 --tanglegram before.nwk
@@ -177,6 +193,55 @@ The two trees are named in the figure after the files they came from, since two
 phylogenies side by side with nothing over them do not say which is which.
 `--no-axis` is worth adding: a tanglegram has no genomic coordinates, so the
 ruler underneath it measures nothing.
+
+A clade track is the same shape, and the tree is what fixes the rows:
+
+```bash
+karyon NC_011900.1:1-2,221,315 \
+  --clades gubbins.recombination_predictions.gff --with-tree tree.nwk \
+  --label recombination -o clades.svg
+```
+
+`Gubbins` writes the literal `SEQUENCE` in its first column whatever the
+reference was called, so a clade file naming exactly one sequence is read
+whatever that sequence is named. A file naming several is a whole genome, and
+then the region picks among them and the rest are counted. Either way, a file
+that does hold blocks and none of them in the window says so rather than drawing
+a bare tree:
+
+```console
+$ karyon NC_011900.1:2,000,000-2,100,000 --clades gubbins.gff --with-tree tree.nwk
+karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:2000000-2100000, though the file holds 47 on SEQUENCE
+```
+
+A locus track stacks gene neighbourhoods from several genomes. Its first column
+names the genome rather than selecting it, which is the one place an interval
+file is read differently here, so the file is the concatenation a shell already
+produces:
+
+```bash
+cat H37Rv.bed CDC1551.bed Erdman.bed > loci.bed
+karyon ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1' -o esx.svg
+```
+
+`--links` takes BLAST tabular output, `-outfmt 6` or `-outfmt 7`, which DIAMOND
+and others write too, or two or three columns of names. It joins its names to
+the genes by exact match, and that join is the thing worth watching: the names
+in a search result come from the FASTA it ran against and the names in an
+annotation come from its ninth column, and those are routinely not the same
+strings. A join that found nothing draws every gene in every genome outlined as
+having no counterpart, which reads as a discovery, so it is refused instead:
+
+```console
+$ karyon ESX-1:1-4,000 --loci loci.bed --links hits.tsv
+karyon: --loci hits.tsv: no gene name in this file names anything in the loci, starting with lcl|NC_000962.3_cds_NP_215181.1_667
+```
+
+`--identity` says whether the third column is a percentage, as BLAST and DIAMOND
+write it, or a fraction, as some others do. Left out it is worked out from the
+values, and a file whose values are all at or below one could be either, so it
+is refused by name rather than guessed at: read the wrong way round, every
+ribbon in the figure becomes a perfect match and nothing fails.
 
 `--height` is on the tracks that do not size themselves. A feature track, a
 pileup, an alignment, a matrix and a tree are as tall as the number of rows

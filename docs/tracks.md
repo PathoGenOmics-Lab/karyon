@@ -1155,18 +1155,20 @@ reads no file because it has nothing to read. [OrfTrack](#orftrack) and
 aligned FASTA that `--sequence` and `--msa` already take, and
 [SyntenyTrack](#syntenytrack) and [DotplotTrack](#dotplottrack) off one PAF
 from `minimap2`, which is the one format in the crate that needs no coordinate
-conversion at all. [TanglegramTrack](#tanglegramtrack) is reachable through
-`--tanglegram left.nwk --against right.nwk`, the one flag whose data is two
-files.
+conversion at all. Three more are reachable through a flag that names a second file:
+[TanglegramTrack](#tanglegramtrack) through `--tanglegram left.nwk --against
+right.nwk`, [CladeTrack](#cladetrack) through `--clades gubbins.gff --with-tree
+tree.nwk`, and [LocusTrack](#locustrack) through `--loci genes.bed --links
+hits.tsv`.
 
-That leaves fifteen in the library only, and the reasons are not the same one.
+That leaves thirteen in the library only, and the reasons are not the same one.
 [BisulfiteTrack](#bisulfitetrack), [DomainTrack](#domaintrack),
 [MethylationTrack](#methylationtrack), [SplitReadTrack](#splitreadtrack) and
 [StructuralTrack](#structuraltrack) have a real interchange format and no
 reader yet: bedMethyl from modkit, a VCF carrying `SVTYPE`, a SAM carrying
-`SA`. [CladeTrack](#cladetrack) and [LocusTrack](#locustrack) need more than one
-file, and each needs a reader for the second. [TanglegramTrack](#tanglegramtrack)
-needed only the second path, which `--against` now supplies. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
+`SA`. [CladeTrack](#cladetrack), [LocusTrack](#locustrack) and
+[TanglegramTrack](#tanglegramtrack) each need more than one file, and each names
+its second by what that file means: `--with-tree`, `--links` and `--against`. [CodonTrack](#codontrack), [GenomeTrack](#genometrack),
 [PhylodynamicTrack](#phylodynamictrack), [SelectionTrack](#selectiontrack),
 [SurveillanceTrack](#surveillancetrack) and
 [TranscriptionUnitTrack](#transcriptionunittrack) would need a table with no
