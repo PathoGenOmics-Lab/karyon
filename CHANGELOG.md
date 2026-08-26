@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The command line moved into the library as `karyon::cli`, and stopped
+  opening files. `cli::stack::build` now takes a closure that answers with a
+  source's text, so the same grammar that a shell drives from disk can be
+  driven from a browser holding the files in memory. `cli::args::Kind::ALL`
+  lists the tracks it can draw, for a caller offering a choice of them.
+- Five more track flags. `--synteny` and `--dotplot` draw a PAF from
+  `minimap2` as ribbons or as a dot plot; `--orfs` and `--logo` compute off the
+  same FASTA and aligned FASTA that `--sequence` and `--msa` already take; and
+  `--tanglegram` puts two phylogenies face to face. That is eighteen of the
+  thirty-three track types the command reaches, up from thirteen.
+- `read::align_pairs` reads PAF. Both of its coordinate pairs are already
+  0-based and half-open, so it is the one reader in the directory that moves
+  nothing, and a whole-genome file says how many rows belonged to a pair the
+  figure is not about rather than stacking them on one axis in silence.
+- A track flag can now name a second file, for a track whose data is not one
+  file: `--tanglegram left.nwk --against right.nwk`. The second is spelled by
+  what it means rather than by where it sits, as every other modifier is, and a
+  track that takes one is refused without it, because a tanglegram of one tree
+  against itself has no crossings and no crossings is what a correct answer
+  looks like.
 - An integrated evolutionary-genomics and surveillance vocabulary. Rectangular
   `TreeTrack` branches can now be orthogonal, diagonal or curved without
   changing topology; `AncestralStateLayer`, `BranchEventLayer` and
@@ -84,6 +104,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A track flag written without its path named the wrong flag. The spelling was
+  kept in step with the list of tracks by a fallback arm rather than by the
+  compiler, so `--synteny` with nothing after it reported that `--axis` needed
+  a value. It is an exhaustive match now, and the help text is checked against
+  the parser's own list of tracks instead of a copy of it.
+- A tanglegram summarising one crossing said `1 crossings`.
 - `SquiggleTrack` never finished drawing over a wide region. The envelope
   branch walked the axis positions a pixel column covers rather than the
   samples in it, so over a chromosome each column asked thousands of bases
