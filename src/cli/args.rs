@@ -3,7 +3,7 @@
 //! A figure is a list of tracks in the order they are drawn, and `argv` is a
 //! list in the order it was written, so the grammar is the obvious one: each
 //! `--<track>` flag starts a track, and the flags after it describe that track
-//! until the next one starts. It is [`karyon::Plot`] with spaces instead of
+//! until the next one starts. It is [`crate::Plot`] with spaces instead of
 //! dots, and the correspondence is exact:
 //!
 //! ```text
@@ -43,7 +43,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use karyon::{Aggregate, CoverageStyle, Format, Region, WindowStyle};
+use crate::{Aggregate, CoverageStyle, Format, Region, WindowStyle};
 
 /// What went wrong before anything was read.
 #[derive(Debug)]
@@ -73,7 +73,7 @@ pub enum ArgError {
         track: &'static str,
     },
     /// The first argument was not a locus string.
-    BadRegion(karyon::Error),
+    BadRegion(crate::Error),
     /// A locus was given twice, or a positional argument came after one.
     ExtraRegion(String),
     /// No locus at all.

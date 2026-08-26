@@ -1,11 +1,11 @@
 //! Turning a parsed command line into a figure.
 //!
 //! Every arm here is one track of the stack, built in the order the flags were
-//! written, which is the whole reason the grammar in [`crate::args`] looks the
+//! written, which is the whole reason the grammar in [`args`](crate::cli::args) looks the
 //! way it does.
 //!
 //! The tracks are built and then handed over with
-//! [`Plot::add_track`](karyon::Plot::add_track) rather than through the `add_`
+//! [`Plot::add_track`](crate::Plot::add_track) rather than through the `add_`
 //! methods, because a command line always has the settings in hand before the
 //! track exists: `--label` and `--height` have already been read by the time
 //! this runs, so there is nothing left for `Plot::label` to do afterwards.
@@ -22,14 +22,14 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read as _};
 
-use karyon::{
+use crate::{
     Aggregate, CoverageTrack, FeatureTrack, IdeogramTrack, ManhattanTrack, MatrixTrack,
     MsaSequence, MsaTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack, Theme, Track, Tree,
     TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::args::{Invocation, Kind, Palette, Source, TrackSpec};
-use karyon::read;
+use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
+use crate::read;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
@@ -66,7 +66,7 @@ pub enum BuildError {
         /// What it was called, or `standard input`.
         path: String,
         /// Why it is not a tree.
-        cause: karyon::Error,
+        cause: crate::Error,
     },
 }
 
@@ -93,8 +93,11 @@ impl std::error::Error for BuildError {}
 ///
 /// Returns the first file that would not open, would not parse, or held
 /// nothing inside the region. The command line itself has already been checked
-/// by [`crate::args::parse`], so everything here is about the data.
-pub fn build(invocation: &Invocation) -> Result<String, BuildError> {
+/// by [`crate::cli::args::parse`], so everything here is about the data.
+pub fn build(
+    invocation: &Invocation,
+    mut open: impl FnMut(&Source) -> io::Result<String>,
+) -> Result<String, BuildError> {
     let region = &invocation.region;
     let mut plot = Plot::over(region.clone());
     if let Some(title) = &invocation.title {
@@ -127,42 +130,61 @@ pub fn build(invocation: &Invocation) -> Result<String, BuildError> {
             plot = axis.done();
             continue;
         }
-        plot = plot.add_boxed(track(spec, region)?);
+        plot = plot.add_boxed(track(spec, region, &mut open)?);
     }
     Ok(plot.to_svg())
 }
 
-/// Reads a track's source, whether that is a file or standard input.
-fn slurp(spec: &TrackSpec) -> Result<(String, String), BuildError> {
-    let track = spec.kind.flag();
-    match spec.source.as_ref() {
-        Some(Source::Path(path)) => {
-            let name = path.display().to_string();
-            let text = fs::read_to_string(path).map_err(|cause| BuildError::Open {
-                track,
-                path: name.clone(),
-                cause,
-            })?;
-            Ok((text, name))
-        }
-        Some(Source::Stdin) => {
+/// Asks the caller for a source's text, and names it for any error message.
+///
+/// The whole of this module's contact with the outside world used to be here,
+/// as an `fs::read_to_string` and a read of standard input. It is a closure now
+/// because the two callers that matter want different answers: a shell opens
+/// the path, and a browser looks the name up in whatever the editor is holding.
+/// Neither is more correct, and the grammar does not care, so the grammar stops
+/// deciding.
+fn slurp(
+    spec: &TrackSpec,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> Result<(String, String), BuildError> {
+    let Some(source) = spec.source.as_ref() else {
+        return Ok((String::new(), String::new()));
+    };
+    let name = match source {
+        Source::Path(path) => path.display().to_string(),
+        Source::Stdin => "standard input".to_string(),
+    };
+    let text = open(source).map_err(|cause| BuildError::Open {
+        track: spec.kind.flag(),
+        path: name.clone(),
+        cause,
+    })?;
+    Ok((text, name))
+}
+
+/// Opens what a command line names, the way a shell would.
+///
+/// This is what the `karyon` binary hands to [`build`], and it is the only
+/// thing in the crate that reads a path. A caller with no filesystem, which is
+/// every caller in a browser, passes its own closure instead.
+pub fn open_from_disk(source: &Source) -> io::Result<String> {
+    match source {
+        Source::Path(path) => fs::read_to_string(path),
+        Source::Stdin => {
             let mut text = String::new();
-            io::stdin()
-                .read_to_string(&mut text)
-                .map_err(|cause| BuildError::Open {
-                    track,
-                    path: "standard input".to_string(),
-                    cause,
-                })?;
-            Ok((text, "standard input".to_string()))
+            io::stdin().read_to_string(&mut text)?;
+            Ok(text)
         }
-        None => Ok((String::new(), String::new())),
     }
 }
 
 /// Builds one track from its flags and its file.
-fn track(spec: &TrackSpec, region: &Region) -> Result<Box<dyn Track>, BuildError> {
-    let (text, path) = slurp(spec)?;
+fn track(
+    spec: &TrackSpec,
+    region: &Region,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> Result<Box<dyn Track>, BuildError> {
+    let (text, path) = slurp(spec, open)?;
     let name = spec.kind.flag();
     let label = spec.label.clone();
     let height = spec.height;
@@ -363,7 +385,7 @@ fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::{parse, Request};
+    use crate::cli::args::{parse, Request};
 
     fn invocation(line: &str) -> Invocation {
         let args: Vec<String> = line.split_whitespace().map(String::from).collect();
@@ -409,21 +431,29 @@ mod tests {
 
     #[test]
     fn an_empty_stack_is_still_a_figure_with_a_ruler() {
-        let svg = build(&invocation("chr1:1-1000")).unwrap();
+        let svg = build(&invocation("chr1:1-1000"), open_from_disk).unwrap();
         assert!(svg.starts_with("<svg"));
         assert!(svg.ends_with("</svg>"));
     }
 
     #[test]
     fn figure_flags_reach_the_figure() {
-        let svg = build(&invocation("chr1:1-1000 --title one --width 1200")).unwrap();
+        let svg = build(
+            &invocation("chr1:1-1000 --title one --width 1200"),
+            open_from_disk,
+        )
+        .unwrap();
         assert!(svg.contains("width=\"1200\""));
         assert!(svg.contains(">one<"));
     }
 
     #[test]
     fn a_file_that_is_not_there_says_which_flag_wanted_it() {
-        let error = build(&invocation("chr1:1-1000 --features nowhere.bed")).unwrap_err();
+        let error = build(
+            &invocation("chr1:1-1000 --features nowhere.bed"),
+            open_from_disk,
+        )
+        .unwrap_err();
         let message = error.to_string();
         assert!(message.starts_with("--features nowhere.bed:"), "{message}");
     }
@@ -437,7 +467,7 @@ mod tests {
             "outside.matrix.tsv",
             "sample\t9000\t9100\nERR1\t1\t0\nERR2\t0\t1\n",
         );
-        let error = build(&over("chr1:1-100", "--matrix", &path)).unwrap_err();
+        let error = build(&over("chr1:1-100", "--matrix", &path), open_from_disk).unwrap_err();
         assert_eq!(
             error.to_string(),
             format!("--matrix {path}: no samples in the region")
@@ -447,7 +477,7 @@ mod tests {
     #[test]
     fn a_matrix_with_a_site_in_the_region_still_draws() {
         let path = written("inside.matrix.tsv", "sample\t50\t60\nERR1\t1\t0\n");
-        let svg = build(&over("chr1:1-100", "--matrix", &path)).unwrap();
+        let svg = build(&over("chr1:1-100", "--matrix", &path), open_from_disk).unwrap();
         assert!(svg.contains("ERR1"), "{svg}");
     }
 
@@ -455,7 +485,7 @@ mod tests {
     fn a_tree_that_will_not_parse_names_the_file_it_was() {
         // The other failures of one flag name the file, and this one did not.
         let path = written("unbalanced.nwk", "((a,b\n");
-        let error = build(&over("chr1:1-100", "--tree", &path)).unwrap_err();
+        let error = build(&over("chr1:1-100", "--tree", &path), open_from_disk).unwrap_err();
         assert_eq!(
             error.to_string(),
             format!("--tree {path}: invalid Newick tree: unbalanced parentheses")

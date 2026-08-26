@@ -21,8 +21,7 @@
 //! plot is usually one step of a pipeline rather than the end of one, and the
 //! same is true on the way in: any track may read `-`, and one of them may.
 
-mod args;
-mod stack;
+use karyon::cli::{args, stack};
 
 use std::fs;
 use std::io::{self, Write};
@@ -123,7 +122,8 @@ fn run(args: &[String]) -> Result<(), String> {
         args::Request::Draw(invocation) => invocation,
     };
 
-    let svg = stack::build(&invocation).map_err(|error| error.to_string())?;
+    let svg =
+        stack::build(&invocation, stack::open_from_disk).map_err(|error| error.to_string())?;
     match &invocation.output {
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?
