@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The playground is a workbench rather than a page: a toolbar, an editor with
+  one tab per file, and the figure filling its own pane, with a splitter
+  between them and a stacked layout for a narrow screen.
+- Figures in the playground can be taken hold of. **Interactive** makes a drag
+  pan and the wheel zoom, and each of those re-runs the whole program: the
+  region in the command box is what is being changed, so every frame is a
+  figure `karyon` drew at that region from those files rather than a picture
+  being scaled. A figure of twenty thousand rows over two megabases redraws in
+  about sixteen milliseconds, which is what makes it possible at all.
 - A playground on the documentation site: the command line running in the
   reader's own browser, over files typed into the page. It is the same code the
   terminal runs, because it is the same code. `cli::stack::build` takes a
