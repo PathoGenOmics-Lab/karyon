@@ -218,6 +218,13 @@ pub(crate) fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
             "GFF3 counts from 1, so 0 is not a start position",
         ));
     }
+    // The same refusal `bed` makes, and it was missing here. `Feature::new`
+    // widens an inverted span into one base at the start, so 400 to 100 came
+    // back as a one-base gene at 400: a real gene, drawn confidently, three
+    // hundred bases from where either number put it.
+    if end < start {
+        return Err(ReadError::at(at, "end is before start"));
+    }
     // 1-based inclusive to 0-based half-open: the start moves back one, the end
     // stays where it is because it was already one past the last base once the
     // count started at zero.
@@ -439,6 +446,28 @@ NC_000962.3\tRefSeq\tgene\t763370\t767320\t.\t+\t.\tID=gene-Rv0668;Name=rpoC
 
         let none = "chr1\t.\tgene\t1\t9\t.\t+\t.\tParent=x\n";
         assert_eq!(read(none, "chr1:1-100", None)[0].name, None);
+    }
+
+    /// The module doc has always said an inverted span stops the read, and
+    /// only two of the three readers did it. GFF3 handed the pair to
+    /// `Feature::new`, which widens it into a single base at the start, so the
+    /// gene was drawn a whole interval from where either coordinate put it.
+    #[test]
+    fn an_inverted_span_stops_the_read_in_both_formats() {
+        let gff = "##gff-version 3\nchr1\t.\tgene\t400\t100\t.\t+\t.\tID=x\n";
+        let error = features(gff, &Region::parse("chr1:1-1000").unwrap(), None).unwrap_err();
+        // Line two: the pragma is line one, and the numbering counts it.
+        assert_eq!(error.line, 2);
+        assert!(error.reason.contains("end is before start"), "{error}");
+
+        let bed = "chr1\t400\t100\tx\n";
+        let error = features(bed, &Region::parse("chr1:1-1000").unwrap(), None).unwrap_err();
+        assert!(error.reason.contains("end is before start"), "{error}");
+
+        // A single-base GFF3 gene, where start equals end, is still a gene.
+        let one = "##gff-version 3\nchr1\t.\tgene\t100\t100\t.\t+\t.\tID=x\n";
+        let genes = features(one, &Region::parse("chr1:1-1000").unwrap(), None).unwrap();
+        assert_eq!(genes[0].len(), 1);
     }
 
     #[test]
