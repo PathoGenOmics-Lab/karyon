@@ -20,7 +20,7 @@
 
 use crate::{Region, Strand};
 
-use super::{align, clade, interval, locus, point, signal, table};
+use super::{align, clade, interval, locus, methyl, point, signal, split, structural, table};
 
 /// 0-based 99, which every fixture in this file is written to land on.
 const TARGET: u64 = 99;
@@ -103,6 +103,56 @@ fn audit_locus_gff3_one_base() {
     let gene = &found.loci[0].genes[0];
     assert_eq!((gene.start, gene.end), (TARGET, TARGET + 1));
     assert_eq!(gene.strand, Strand::Forward);
+}
+
+#[test]
+fn audit_bedmethyl_one_base() {
+    // bedMethyl is BED: 0-based and half-open, so nothing moves. Taking one
+    // off, the way the GFF3 path does, puts every call on its partner base in a
+    // CpG, which is a real position and the wrong one.
+    let text = "chr1\t99\t100\tm\t40\t+\t99\t100\t255,0,0\t40\t95.00\t38\t2\t0\t0\t3\t0\t1\n";
+    let found = methyl::sites(text, &region("chr1:1-200"), "m").unwrap();
+    assert_eq!(found.sites[0].pos, TARGET);
+    assert_eq!(found.sites[0].fraction, 0.95);
+}
+
+#[test]
+fn audit_structural_pos_is_the_base_before_the_event() {
+    // The one reader here that does NOT take one off a 1-based POS, because a
+    // symbolic allele puts POS on the base before what it describes. The point
+    // reader next door does take one off, and both are right.
+    let symbolic = "chr1\t99\t.\tT\t<DEL>\t6\tPASS\tSVLEN=1\n";
+    let found = structural::variants(symbolic, &region("chr1:1-200")).unwrap();
+    assert_eq!(found.variants[0].start, TARGET);
+    assert_eq!(found.variants[0].end, TARGET + 1);
+    assert_eq!(found.variants[0].span(), 1);
+
+    // The same 1-based position through the point reader is one lower, which is
+    // the whole of what the two conventions differ by.
+    let point = point::variants("chr1\t99\t.\tA\tG\t.\t.\t.\n", &region("chr1:1-200")).unwrap();
+    assert_eq!(point[0].pos, TARGET - 1);
+}
+
+#[test]
+fn audit_split_read_moves_both_of_its_positions() {
+    // Column four and the SA tag's own position count from one alike, and a
+    // reader that converts one and not the other puts every supplementary
+    // alignment exactly one base from where the aligner put it.
+    let text = "r1\t0\tchr1\t100\t60\t1M9S\t*\t0\t0\t*\t*\tSA:Z:chr1,300,+,1S9M,60,0;\n";
+    let found = split::reads(text, &region("chr1:1-400")).unwrap();
+    let places: Vec<u64> = found.reads[0]
+        .segments()
+        .iter()
+        .map(|s| s.start())
+        .collect();
+    assert!(
+        places.contains(&TARGET),
+        "column four moved wrongly: {places:?}"
+    );
+    assert!(
+        places.contains(&299),
+        "the SA position moved wrongly: {places:?}"
+    );
 }
 
 #[test]

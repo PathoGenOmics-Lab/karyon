@@ -1,6 +1,6 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches twenty
+`karyon` is a second front end onto the same library, and it reaches twenty-three
 of the thirty-three track types: the ones that have a file to read. Trees drawn
 with metadata, maps and the selection views are library only.
 
@@ -94,7 +94,7 @@ genome-wide file can be handed over whole and only the window comes back.
 
 ## Track flags
 
-Twenty flags, nineteen of which take a file. `-` in place of a path means
+Twenty-three flags, twenty-two of which take a file. `-` in place of a path means
 standard input.
 
 | Flag | The track | What it reads |
@@ -118,10 +118,13 @@ standard input.
 | `--tanglegram <FILE>` | Two phylogenies face to face | Newick, and a second one named by `--against` |
 | `--clades <FILE>` | Spans carried by named taxa, painted onto a phylogeny | GFF3 with a `taxa` attribute, as `Gubbins` writes it, and a tree named by `--with-tree` |
 | `--loci <FILE>` | Gene neighbourhoods from several genomes | BED or GFF3 whose first column names the genome, and the homologies named by `--links` |
+| `--methylation <FILE>` | Modified bases per strand | bedMethyl, as `modkit pileup` writes it |
+| `--structural <FILE>` | Structural calls as arcs between their breakpoints | VCF carrying symbolic alleles or `SVTYPE` |
+| `--split-reads <FILE>` | Molecules that aligned in pieces | SAM text carrying an `SA` tag |
 | `--axis` | The coordinate ruler | nothing |
 
-Twenty of the thirty-three track types have a file the command can put in
-front of them, and those are the ones it has. The rest are library only, either
+Twenty-three of the thirty-three track types have a file the command can put
+in front of them, and those are the ones it has. The rest are library only, either
 because their format is binary, because no single standard exists for what they
 draw, or because nobody has written the reader yet;
 [Track catalogue](../tracks.md) says which is which for each of them. What each
@@ -152,6 +155,7 @@ because most of them are a setting only some tracks have.
 | `--with-tree <FILE>` | a path, or `-` | `--clades` | none, and it is required |
 | `--links <FILE>` | a path, or `-` | `--loci` | none, and it is required |
 | `--identity <UNIT>` | `percent`, `fraction` | `--loci` | worked out from the values, and refused where they cannot say |
+| `--modification <CODE>` | `m`, `h`, `a`, any modkit code | `--methylation` | the one the file holds, and refused where it holds several |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows` | `--coverage`, `--windows` | `area` and `steps` |

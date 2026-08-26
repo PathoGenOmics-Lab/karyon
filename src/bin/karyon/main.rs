@@ -67,6 +67,12 @@ TRACKS
     --loci <FILE>        gene neighbourhoods from several genomes, BED or GFF3
                          whose first column names the genome; what joins them
                          is named by --links
+    --methylation <FILE> modified bases per strand, bedMethyl from modkit;
+                         --modification says which one when a file holds several
+    --structural <FILE>  structural calls as arcs between their breakpoints, a
+                         VCF carrying symbolic alleles or SVTYPE
+    --split-reads <FILE> molecules that aligned in pieces, SAM carrying an SA
+                         tag; only primary alignments are read
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it
@@ -77,6 +83,8 @@ TRACK OPTIONS, each describing the track before it
                          BLAST tabular, or two or three columns of names
     --identity <UNIT>    percent or fraction, for a homology file whose third
                          column could be either
+    --modification <CODE> m, h, a or another modkit code, for a pileup that
+                         counted more than one
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line, bars, or steps for a window track
@@ -186,6 +194,10 @@ mod tests {
                 kind.dashed()
             );
         }
+        // And the modifiers that name data rather than a setting.
+        for flag in ["--identity", "--modification"] {
+            assert!(HELP.contains(flag), "{flag} is undocumented");
+        }
         // And every flag that carries a second file, which is not a track.
         for kind in args::Kind::ALL {
             if let Some(flag) = kind.second_flag() {
@@ -225,7 +237,7 @@ mod tests {
             }
             found += 1;
             assert!(
-                known.contains(&word) || seconds.contains(&word),
+                known.contains(&word) || seconds.contains(&word) || word == "--modification",
                 "{word} is documented as a track and is not in Kind::ALL"
             );
         }
