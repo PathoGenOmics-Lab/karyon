@@ -24,6 +24,7 @@
   var EXAMPLES = [
     {
       name: "A locus",
+      group: "Signal and annotation",
       command:
         "NC_000962.3:761,000-762,999 --coverage depth.bg --label depth --aggregate min \\\n" +
         "  --features genes.gff3 --label annotation \\\n" +
@@ -66,6 +67,7 @@
     },
     {
       name: "A whole chromosome",
+      group: "Signal and annotation",
       command:
         "chr1:1-2,000,000 --coverage depth.bg --label depth --aggregate min \\\n" +
         "  --windows gc.bg --label 'GC content' --style steps",
@@ -96,6 +98,7 @@
     },
     {
       name: "Two trees",
+      group: "Phylogeny",
       command: "tangle:1-1000 --no-axis --tanglegram before.nwk --against after.nwk",
       files: [
         { name: "before.nwk", body: "((a:1,b:1):1,(c:1,d:1):1);\n" },
@@ -104,6 +107,7 @@
     },
     {
       name: "Gene neighbourhoods",
+      group: "Comparisons",
       command: "ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1'",
       files: [
         {
@@ -125,6 +129,7 @@
     },
     {
       name: "Protein domains",
+      group: "Comparisons",
       command: "protein:1-700 --domains domains.tsv --analysis Pfam",
       files: [
         {
@@ -141,6 +146,7 @@
     },
     {
       name: "One molecule at a time",
+      group: "Molecules",
       command: "chr11:1-200 --bisulfite calls.txt --context CpG --label 'H19 ICR'",
       files: [
         {
@@ -340,20 +346,112 @@
   // Chrome
   // ---------------------------------------------------------------------
 
-  function menu() {
-    el.menu.textContent = "";
+  // ---------------------------------------------------------------------
+  // The example picker
+  // ---------------------------------------------------------------------
+
+  var opened = false;
+  var lastFocus = null;
+
+  function preview(example, into) {
+    // Drawn by the program, out of the same files the example loads. A
+    // thumbnail that is a picture of a figure is a different claim from the
+    // figure, and at a millisecond each there is no reason to make it.
+    var list = (example.make ? example.make() : example.files);
+    var answer = K.run(example.command, list, 360);
+    if (answer.ok) {
+      into.innerHTML = answer.body;
+    } else {
+      into.textContent = "";
+    }
+  }
+
+  function cards(filter) {
+    var body = el.pickerBody;
+    body.textContent = "";
+    var needle = (filter || "").trim().toLowerCase();
+    var shown = 0;
+    var groups = [];
     EXAMPLES.forEach(function (example) {
-      var item = document.createElement("button");
-      item.type = "button";
-      item.className = "pg-item";
-      item.textContent = example.name;
-      item.addEventListener("click", function () {
-        el.menu.hidden = true;
-        el.examples.setAttribute("aria-expanded", "false");
-        load(example);
-      });
-      el.menu.appendChild(item);
+      var hay = (example.name + " " + example.group + " " + example.command).toLowerCase();
+      if (needle && hay.indexOf(needle) < 0) return;
+      var set = groups.filter(function (g) { return g.name === example.group; })[0];
+      if (!set) { set = { name: example.group, items: [] }; groups.push(set); }
+      set.items.push(example);
+      shown++;
     });
+
+    if (!shown) {
+      var none = document.createElement("p");
+      none.className = "pg-empty";
+      none.textContent = "Nothing here answers to " + JSON.stringify(filter) + ".";
+      body.appendChild(none);
+      return;
+    }
+
+    groups.forEach(function (set) {
+      var section = document.createElement("section");
+      section.className = "pg-set";
+      var head = document.createElement("h3");
+      head.textContent = set.name;
+      section.appendChild(head);
+
+      var grid = document.createElement("div");
+      grid.className = "pg-grid";
+      set.items.forEach(function (example) {
+        var card = document.createElement("button");
+        card.type = "button";
+        card.className = "pg-card";
+
+        var shot = document.createElement("div");
+        shot.className = "pg-preview";
+        card.appendChild(shot);
+
+        var title = document.createElement("span");
+        title.className = "pg-card-title";
+        title.textContent = example.name;
+        card.appendChild(title);
+
+        var meta = document.createElement("span");
+        meta.className = "pg-card-meta";
+        // The flags it uses, which is what a reader is actually shopping for.
+        meta.textContent = K.words(example.command)
+          .filter(function (word) { return word.indexOf("--") === 0; })
+          .slice(0, 3)
+          .join(" ");
+        card.appendChild(meta);
+
+        card.addEventListener("click", function () {
+          closePicker();
+          load(example);
+        });
+        grid.appendChild(card);
+        // Drawn now rather than on the next frame. A preview is drawn at a
+        // fixed width and needs no layout to have happened, and a tab that is
+        // not on screen never gets a frame at all, so a panel opened in a
+        // background tab would have come up with every card empty.
+        preview(example, shot);
+      });
+      section.appendChild(grid);
+      body.appendChild(section);
+    });
+  }
+
+  function openPicker() {
+    lastFocus = document.activeElement;
+    opened = true;
+    el.picker.hidden = false;
+    el.examples.setAttribute("aria-expanded", "true");
+    el.search.value = "";
+    cards("");
+    el.search.focus();
+  }
+
+  function closePicker() {
+    opened = false;
+    el.picker.hidden = true;
+    el.examples.setAttribute("aria-expanded", "false");
+    if (lastFocus) lastFocus.focus();
   }
 
   function exportSvg() {
@@ -397,22 +495,23 @@
   function start() {
     var ids = ["app", "bar", "panes", "split", "command", "file", "tabs", "plot",
                "status", "region", "draw", "live", "reset", "layout", "export",
-               "full", "examples", "menu"];
+               "full", "examples", "picker", "search"];
     ids.forEach(function (name) { el[name] = document.getElementById("pg-" + name); });
+    el.pickerBody = document.getElementById("pg-picker-body");
+    el.pickerClose = document.getElementById("pg-picker-close");
     if (!el.app || !el.command) return;
     el.app.hidden = false;
 
-    menu();
-    el.examples.addEventListener("click", function () {
-      var open = el.menu.hidden;
-      el.menu.hidden = !open;
-      el.examples.setAttribute("aria-expanded", String(open));
+    el.examples.addEventListener("click", openPicker);
+    el.pickerClose.addEventListener("click", closePicker);
+    el.search.addEventListener("input", function () { cards(el.search.value); });
+    // Clicking the dimmed page behind the panel closes it, and so does Escape,
+    // which are the two things every panel like this answers to.
+    el.picker.addEventListener("mousedown", function (event) {
+      if (event.target === el.picker) closePicker();
     });
-    document.addEventListener("click", function (event) {
-      if (!el.menu.hidden && !el.menu.contains(event.target) && event.target !== el.examples) {
-        el.menu.hidden = true;
-        el.examples.setAttribute("aria-expanded", "false");
-      }
+    document.addEventListener("keydown", function (event) {
+      if (opened && event.key === "Escape") { event.preventDefault(); closePicker(); }
     });
 
     el.draw.addEventListener("click", draw);
@@ -455,7 +554,13 @@
     });
     // The palette toggle rewrites an attribute rather than reloading, so the
     // figure has to be told.
-    K.onScheme(draw);
+    // The palette toggle rewrites an attribute rather than reloading, so both
+    // the figure and any previews already on screen have to be told: a preview
+    // drawn light and left on a dark panel is the stale one, not the new one.
+    K.onScheme(function () {
+      draw();
+      if (opened) cards(el.search.value);
+    });
 
     el.draw.disabled = true;
     interactive(false);

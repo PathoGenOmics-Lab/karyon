@@ -17,8 +17,7 @@ hide:
 <div class="pg-app" id="pg-app" hidden markdown="0">
   <div class="pg-bar">
     <div class="pg-group">
-      <button class="pg-btn" id="pg-examples" type="button" aria-haspopup="true" aria-expanded="false">Examples</button>
-      <div class="pg-menu" id="pg-menu" hidden></div>
+      <button class="pg-btn" id="pg-examples" type="button" aria-haspopup="dialog" aria-expanded="false">Examples</button>
     </div>
     <div class="pg-group">
       <button class="pg-btn pg-primary" id="pg-draw" type="button">Draw</button>
@@ -50,6 +49,20 @@ hide:
       <div class="pg-foot"><span class="pg-status" id="pg-status">loading the program…</span></div>
     </section>
   </div>
+</div>
+
+<div class="pg-picker" id="pg-picker" role="dialog" aria-modal="true" aria-labelledby="pg-picker-title" hidden markdown="0">
+  <aside class="pg-panel">
+    <div class="pg-panel-head">
+      <div>
+        <h2 id="pg-picker-title">Examples</h2>
+        <p>Every one of these is drawn by the program, here, as this opened.</p>
+      </div>
+      <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
+    </div>
+    <input class="pg-search" id="pg-search" type="search" placeholder="Search examples" autocomplete="off" aria-label="Search examples">
+    <div class="pg-panel-body" id="pg-picker-body"></div>
+  </aside>
 </div>
 
 <div class="pg-notes" markdown>

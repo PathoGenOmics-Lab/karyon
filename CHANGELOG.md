@@ -8,6 +8,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The playground's examples open in a panel rather than a menu, because they
+  are pictures and pictures need room. The measurements are the ones the tool
+  it is modelled on uses, since they are good ones: a panel of `min(68rem,
+  100vw)` at full height over a dimmed and slightly blurred page, a pill to
+  close, a search across the top, and a grid of cards that lift when the
+  pointer is on them. Escape and a click on the page behind close it.
+- Each card's preview is drawn by the program when the panel opens, out of the
+  same files the example loads. The tool this follows ships a screenshot per
+  example; a picture of a figure is a different claim from the figure, and at
+  a millisecond each there is no reason to make it.
 - The site is laid out the way a tool's site is laid out: a hero, a band of
   prose, a figure the reader can take hold of, the concepts, what it will not
   do, and where to go. Five destinations rather than eight, and no file moved,
@@ -235,6 +245,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The example previews were drawn on the next animation frame, which a tab
+  that is not on screen never gets, so a panel opened in a background tab came
+  up with every card empty. They need no layout, so they are drawn as the card
+  is made.
+- The example panel came up cream in the dark scheme, with light text on it.
+  Material writes the palette onto `body` and the rule was written against
+  `:root`, which is the same mistake this stylesheet had made once before.
 - The playground's first example refused on the fourth drag. Its three rows
   covered the region exactly, so moving the window took it off the data, which
   is the program being right and the example being too small to show anything
