@@ -728,7 +728,9 @@ pub(super) fn draw_trait_sector(
         }
     }
     if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
-        let text = value.map(ToString::to_string).unwrap_or_else(|| "—".into());
+        let text = value
+            .map(ToString::to_string)
+            .unwrap_or_else(|| crate::tree::ABSENT.to_string());
         let size = (ctx.theme.font_size - 3.0).max(6.0);
         if thickness >= size + 1.0 && arc_room >= text_width(&text, size) + 4.0 {
             let ink = fill

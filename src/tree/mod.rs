@@ -98,6 +98,13 @@ impl AnnotationValue {
     }
 }
 
+/// What is drawn where an annotation has no value to show.
+///
+/// The trait strips already spell an absent annotation this way, so a value
+/// that is not a number is spelled the same: both say there is nothing here to
+/// read, which is the only thing a reader can act on.
+pub const ABSENT: &str = "\u{2014}";
+
 impl fmt::Display for AnnotationValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -109,6 +116,17 @@ impl fmt::Display for AnnotationValue {
             // branch event tooltip. This is the fifth place in the crate the
             // same mistake has been found, so it is fixed at the one point
             // that turns an annotation into text rather than at each reader.
+            // A number field whose value is not a number is not a measurement
+            // of anything, and this is the point every annotation becomes text
+            // through, so it would otherwise reach a tooltip, a trait strip and
+            // a node label alike reading `NaN`. The tree already spells an
+            // annotation that is not there, and an annotation that is not a
+            // number is the same fact about the same field.
+            //
+            // The infinities are not this. A file can carry a number too large
+            // for an f64 and it parses to one, so reporting it verbatim tells
+            // the reader what the file actually said.
+            AnnotationValue::Number(value) if value.is_nan() => f.write_str(ABSENT),
             AnnotationValue::Number(value) => f.write_str(&crate::svg::text_exact(*value)),
             AnnotationValue::Boolean(value) => write!(f, "{value}"),
             AnnotationValue::List(values) => {
