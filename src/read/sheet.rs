@@ -24,10 +24,11 @@
 //! # A blank field is not a value
 //!
 //! A sample with no entry for a column has no entry, and the strip beside it is
-//! drawn as absent rather than as a category. `NA` is read the same way, and so
-//! is anything that parses as a number and is not one: a column of depths with
-//! `NaN` in it is a column with a depth missing, not a column with a sample
-//! whose depth is the word NaN.
+//! drawn as absent rather than as a category. A `.` and an `NA` are read the
+//! same way, which is what [`table`](super::table) already does with the three
+//! spellings, and so is anything that parses as a number and is not one: a
+//! column of depths with `NaN` in it is a column with a depth missing, not a
+//! column with a sample whose depth is the word NaN.
 //!
 //! The cost is one honest ambiguity. A categorical column whose levels really
 //! are the two-letter codes for continents has a level `NA` that is read as a
@@ -95,7 +96,7 @@ impl Sheet {
 /// attribute, kept in the order it was written.
 ///
 /// A field is a number when it parses as one, `true` or `false` when it spells
-/// one, and text otherwise. An empty field, the word `NA`, and anything that
+/// one, and text otherwise. An empty field, a `.`, an `NA`, and anything that
 /// parses to a number that is not a number are all absent, which is a state of
 /// its own and not a value.
 ///
@@ -190,7 +191,7 @@ pub fn sheet(text: &str) -> Result<Sheet, ReadError> {
 /// One field, or `None` where the field says there is nothing.
 fn value(field: &str) -> Option<AnnotationValue> {
     let field = field.trim();
-    if field.is_empty() || field == "NA" {
+    if field.is_empty() || field == "." || field == "NA" {
         return None;
     }
     if let Ok(number) = field.parse::<f64>() {
@@ -246,12 +247,15 @@ S003\tL4\t\t48.2
     }
 
     #[test]
-    fn na_and_a_number_that_is_not_a_number_are_both_absent() {
-        let found = sheet("id\tx\na\tNA\nb\tNaN\nc\t3\n").expect("a sheet");
+    fn na_a_dot_and_a_number_that_is_not_a_number_are_all_absent() {
+        // The same three spellings the matrix table already reads as nothing,
+        // because a sheet and a matrix are written by the same hands.
+        let found = sheet("id\tx\na\tNA\nb\tNaN\nc\t3\nd\t.\n").expect("a sheet");
         assert!(!found.rows["a"].contains_key("x"));
         assert!(!found.rows["b"].contains_key("x"));
+        assert!(!found.rows["d"].contains_key("x"));
         assert_eq!(found.rows["c"]["x"], AnnotationValue::Number(3.0));
-        assert_eq!(found.blank, 2);
+        assert_eq!(found.blank, 3);
     }
 
     #[test]

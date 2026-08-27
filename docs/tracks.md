@@ -159,6 +159,21 @@ each answer for it, and each says so in its own module:
   band that has to be stacked, sized and clipped like every other one, which is
   exactly what a track is.
 
+### And a thing that is not a track
+
+Metadata columns fail the entry test in the other direction, and the answer was
+not to make an exception for them. A sample's lineage is not at a base, and
+there is no zoom level at which more of it comes into view. Drawn as a track it
+would need an x nobody has, and the first pan would slide a sample's lineage off
+the end of that sample's own row.
+
+So [`Traits`](https://docs.rs/karyon/latest/karyon/track/traits/struct.Traits.html)
+is not a track. It attaches to the six tracks drawn as a row per named thing,
+and is drawn in the strip those tracks already reserve to the left of the
+plotting area, beside the row names and the dendrogram. It survives every pan
+and zoom untouched, because nothing in it was placed at a coordinate to begin
+with. It is described in full under [metadata columns](#metadata-columns).
+
 !!! warning "Coordinates"
     Every position on this page is 0-based and half-open, the BED convention, so
     a GFF interval `759806..763325` is `Feature::new(759_805, 763_325)` and a VCF
@@ -1121,6 +1136,72 @@ Entries are laid across the band and wrap onto another row when they run out of
 width, so its height depends on how wide the figure is. Nothing is ever dropped
 for want of room, because a key that is not drawn is worse than a legend that is
 two rows tall.
+
+## Metadata columns
+
+Six tracks are drawn as a row per named thing: [MatrixTrack](#matrixtrack),
+[MsaTrack](#msatrack), [SnpTrack](#snptrack), [CladeTrack](#cladetrack),
+[DomainTrack](#domaintrack) and [LocusTrack](#locustrack). Each of them answers
+"which ones". `Traits` answers what they were.
+
+```rust
+use karyon::read;
+use karyon::track::traits::Traits;
+use karyon::{plot, MatrixRow, MatrixTrack};
+
+let sheet = read::sheet::sheet(
+    "sample\tlineage\thost\tdepth\n\
+     S1\tL4\thuman\t72.5\n\
+     S2\tL2\tbovine\t61\n\
+     S3\tL4\t\t48.2\n",
+)?;
+let columns = sheet.columns.clone();
+let traits = Traits::new(sheet.rows).spread(columns);
+
+let rows = vec![
+    MatrixRow::new("S1", vec![1.0, 0.0]),
+    MatrixRow::new("S2", vec![0.0, 1.0]),
+    MatrixRow::new("S3", vec![1.0, 1.0]),
+];
+let svg = plot("chr1:1-1,000")?
+    .add_track(MatrixTrack::new(vec![120, 340], rows).traits(traits))
+    .to_svg();
+assert!(svg.contains("S1; lineage L4"));
+// S3 has no host, and the figure says so rather than colouring it.
+assert!(svg.contains("S3; host missing"));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The join is names, so the strips follow whatever order the rows are in,
+including the order a phylogeny put them in. A row the sheet says nothing about
+gets an empty outline, which is the one mark in a strip that cannot be mistaken
+for a level.
+
+These are the same columns a [TreeTrack](#treetrack) has always drawn beside its
+leaves, and they are drawn by the same code. The difference is where the values
+come from: a tree reads them off its own annotated nodes, and a row-based track
+reads them off [a sample sheet](guide/formats.md#the-sample-sheet). The one
+vocabulary is deliberate, so that the same lineage is the same colour in a tree
+and in the matrix under it, which is most of the reason to put them in one
+figure.
+
+`TraitColumn` decides how a column is drawn, and `Traits::spread` picks for you:
+a column whose every stated value is a number gets a ramp, anything else gets
+the categorical palette, and a column of more levels than the palette holds gets
+`TraitStyle::Symbol`, which carries the level in a shape as well as a hue and
+separates twenty-four instead of six. `TraitStyle::Bar` and `TraitStyle::Binary`
+are there for the iTOL-style datasets, on a matrix as much as on a tree.
+
+Levels are numbered as they are first met, never sorted, so a figure redrawn
+from the same file colours the same way and one more sample does not repaint the
+samples that were already there.
+
+`Traits::legend` builds a key naming every level and both ends of every ramp.
+Nothing calls it for you: a legend is a judgement about a figure rather than
+about a column, so where it goes and whether the figure needs one stay yours.
+
+From the command line this is `--traits`, described in
+[command line](guide/cli.md#what-is-known-about-the-rows).
 
 ## From the command line
 

@@ -164,12 +164,48 @@ because most of them are a setting only some tracks have.
 | `--modification <CODE>` | `m`, `h`, `a`, any modkit code | `--methylation` | the one the file holds, and refused where it holds several |
 | `--context <NAME>` | `CpG`, `CHG`, `CHH` | `--bisulfite` | the one the file holds, and refused where it holds several |
 | `--analysis <NAME>` | `Pfam`, `PANTHER`, any member database | `--domains` | the one the file holds, and refused where it holds several |
+| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
+| `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows` | `--coverage`, `--windows` | `area` and `steps` |
 | `--log` | none | `--coverage` | linear |
 | `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
+
+### What is known about the rows
+
+A track drawn as rows answers which ones. `--traits` answers what they were.
+It takes [a sample sheet](formats.md#the-sample-sheet), joins it to the rows by
+name, and draws one narrow strip per column between the row names and the
+figure:
+
+```bash
+karyon NC_000962.3:1-4,411,532 \
+  --matrix genotypes.tsv --label "resistance alleles" \
+  --traits samples.tsv --columns lineage,drug,depth
+```
+
+Every strip is beside the row it belongs to, whatever order the rows are in, so
+a phylogeny attached to the track reorders the strips with it. Nothing in the
+sheet is at a coordinate, so panning and zooming leave the strips where they
+are.
+
+Six tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
+`--clades`, `--domains` and `--loci`. A pileup has rows too, and they are reads
+rather than samples, so `--traits` is refused there rather than accepted and
+ignored.
+
+Two refusals are worth knowing before they happen. A sheet whose names match
+none of the rows is refused, naming the first few it did hold, because the
+figure it would otherwise draw is a strip of empty outlines beside every row
+and reads as "nothing is known about any of these". And a name in `--columns`
+that the sheet has not got is refused with the columns it has, since that is
+nearly always a spelling:
+
+```text
+karyon: --matrix samples.tsv has no column called linage; it has lineage, drug, depth
+```
 
 ### A track whose data is not one file
 

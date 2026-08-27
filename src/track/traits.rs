@@ -475,6 +475,35 @@ const STRIP_LEVELS: usize = 6;
 /// track share. A phylogeny attached to the track will already have put its
 /// rows in the tree's order, and a value found by position would then be drawn
 /// against the wrong sample and look exactly as convincing as the right one.
+///
+/// ```
+/// use karyon::read;
+/// use karyon::track::traits::Traits;
+/// use karyon::{plot, MatrixRow, MatrixTrack};
+///
+/// let sheet = read::sheet::sheet(
+///     "sample\tlineage\thost\tdepth\n\
+///      S1\tL4\thuman\t72.5\n\
+///      S2\tL2\tbovine\t61\n\
+///      S3\tL4\t\t48.2\n",
+/// )?;
+/// let columns = sheet.columns.clone();
+/// let traits = Traits::new(sheet.rows).spread(columns);
+///
+/// let rows = vec![
+///     MatrixRow::new("S1", vec![1.0, 0.0]),
+///     MatrixRow::new("S2", vec![0.0, 1.0]),
+///     MatrixRow::new("S3", vec![1.0, 1.0]),
+/// ];
+/// let svg = plot("chr1:1-1,000")?
+///     .add_track(MatrixTrack::new(vec![120, 340], rows).traits(traits))
+///     .to_svg();
+///
+/// assert!(svg.contains("S1; lineage L4"));
+/// // S3 has no host, and the figure says so rather than colouring it.
+/// assert!(svg.contains("S3; host missing"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Traits {
     rows: BTreeMap<String, Annotations>,
