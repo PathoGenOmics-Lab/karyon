@@ -9,10 +9,18 @@
 //! the agreement. The panel keeps only the columns that vary and spaces them
 //! evenly, which is why each one carries its own position underneath: the
 //! spacing deliberately says nothing about distance.
+//!
+//! What is known about the isolates is drawn between their names and the panel,
+//! out of the sample sheet below. Lineage runs in three blocks because the
+//! phylogeny put the rows in that order, and resistance does not, which is the
+//! thing the two strips side by side are for: the same phenotype in two clades
+//! that did not inherit it from each other.
 
 use std::env;
 use std::path::PathBuf;
 
+use karyon::read;
+use karyon::track::traits::Traits;
 use karyon::tree::Tree;
 use karyon::{Figure, MsaSequence, Region, SnpTrack};
 
@@ -41,9 +49,17 @@ fn main() -> std::io::Result<()> {
     )
     .expect("the tree in this example is well formed");
 
+    // Read rather than built, so the example exercises the same path a shell
+    // does. The join is names: the reference and the one isolate the tree does
+    // not carry are absent from the sheet, and their cells say so.
+    let sheet = read::sheet::sheet(SAMPLES).expect("the sheet in this example is well formed");
+    let columns = sheet.columns.clone();
+    let traits = Traits::new(sheet.rows).spread(columns);
+
     let panel = SnpTrack::from_alignment(0, &alignment)
         .offset(START)
         .tree(tree)
+        .traits(traits)
         .label("isolates")
         .row_height(16.0);
 
@@ -67,6 +83,27 @@ fn main() -> std::io::Result<()> {
     );
     Ok(())
 }
+
+/// What is known about the isolates, in the shape a sample sheet arrives in.
+///
+/// Lineage follows the phylogeny, because a lineage is inherited. Resistance
+/// does not: it is in one member of the first clade and two of the third, which
+/// is what convergence looks like in a strip. ERR400243 is in the panel and not
+/// in the sheet, so its cells are drawn as absent rather than as anything.
+const SAMPLES: &str = "\
+sample\tlineage\tresistance\tyear
+ERR400113\tL4\trifampicin\t2016
+ERR400152\tL4\tsusceptible\t2017
+ERR400191\tL4\tsusceptible\t2015
+ERR400230\tL4\tsusceptible\t2019
+ERR400100\tL2\tsusceptible\t2014
+ERR400126\tL2\tsusceptible\t2018
+ERR400139\tL2\tisoniazid\t2020
+ERR400165\tL2\tsusceptible\t2016
+ERR400178\tL1\trifampicin\t2021
+ERR400204\tL1\trifampicin\t2019
+ERR400217\tL1\tsusceptible\t
+";
 
 /// A reference and twelve isolates, two of which form a clade.
 fn synthetic_alignment() -> Vec<MsaSequence> {

@@ -32,6 +32,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   picks from, since two modifiers of one track are not in an order. A sheet
   naming none of the rows is refused, and so is a column the sheet has not got,
   which is named alongside the ones it has.
+- The `snps` example carries the metadata it was always about. Lineage,
+  resistance and collection year sit between the isolate names and the panel,
+  read out of a sample sheet the example prints. Lineage runs in three blocks
+  because the phylogeny put the rows in that order and a lineage is inherited;
+  resistance does not, which is the whole reason two strips are worth reading
+  side by side. The reference and the one isolate the tree does not carry are
+  absent from the sheet, and their cells say so rather than guessing.
 - Twenty-one examples in the playground rather than six, which between them
   use every one of the twenty-five flags the command has. Each was run through
   the binary before it was written down, so none of them is an example that

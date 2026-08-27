@@ -181,10 +181,7 @@ fn traits(rng: &mut Lcg, names: &[String]) -> Traits {
             held.insert("depth".to_string(), AnnotationValue::Number(rng.value()));
         }
         if !rng.chance(4) {
-            held.insert(
-                "kept".to_string(),
-                AnnotationValue::Boolean(rng.chance(2)),
-            );
+            held.insert("kept".to_string(), AnnotationValue::Boolean(rng.chance(2)));
         }
         if rng.chance(6) {
             held.insert("odd".to_string(), AnnotationValue::Text(rng.name()));

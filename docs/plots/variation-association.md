@@ -31,7 +31,7 @@ the genome.
     <span class="plot-card__body"><small>Two breakpoints</small><strong>StructuralTrack</strong><span>Deletions, inversions, duplications or translocations as span-aware arcs weighted by support.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#snptrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-snps.svg" alt="Variable alignment sites ordered by a phylogeny" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-snps.svg" alt="Variable alignment sites ordered by a phylogeny, with lineage, resistance and year beside them" loading="lazy"></span>
     <span class="plot-card__body"><small>Variable columns only</small><strong>SnpTrack</strong><span>Invariant columns removed so shared substitutions become visible blocks across ordered samples.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#matrixtrack">

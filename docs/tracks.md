@@ -445,7 +445,7 @@ argue with.
 The variable columns of an alignment and nothing else, spaced evenly, one row
 per sample.
 
-![A panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
+![A phylogeny, three strips of sample metadata and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
 
 An alignment of closely related genomes is almost entirely agreement: thirty
 kilobases carrying thirty-four differences would spend 99.9% of its pixels on

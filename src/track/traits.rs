@@ -33,8 +33,8 @@
 //!
 //! # Colour is assigned by first appearance
 //!
-//! [`TraitDomain`] numbers each distinct value as it meets it, so a figure
-//! redrawn from the same file colours the same way. Sorting the values instead
+//! A column numbers each distinct value as it meets it, so a figure redrawn
+//! from the same file colours the same way. Sorting the values instead
 //! would recolour half a figure when a sample whose name sorts early is added,
 //! and a figure that recolours itself cannot go in a paper.
 //!
