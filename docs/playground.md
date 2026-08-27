@@ -56,7 +56,7 @@ hide:
     <div class="pg-panel-head">
       <div>
         <h2 id="pg-picker-title">Examples</h2>
-        <p>Twenty-one, between them every flag the command has. Each preview is drawn by the program, here, as this opened.</p>
+        <p>Twenty-one, between them every track flag the command has. Each preview is drawn by the program, here, as this opened.</p>
       </div>
       <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
     </div>
