@@ -8,6 +8,37 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Twenty-one examples in the playground rather than six, which between them
+  use every one of the twenty-five flags the command has. Each was run through
+  the binary before it was written down, so none of them is an example that
+  does not draw.
+- The playground's examples open in a panel rather than a menu, because they
+  are pictures and pictures need room. The measurements are the ones the tool
+  it is modelled on uses, since they are good ones: a panel of `min(68rem,
+  100vw)` at full height over a dimmed and slightly blurred page, a pill to
+  close, a search across the top, and a grid of cards that lift when the
+  pointer is on them. Escape and a click on the page behind close it.
+- Each card's preview is drawn by the program when the panel opens, out of the
+  same files the example loads. The tool this follows ships a screenshot per
+  example; a picture of a figure is a different claim from the figure, and at
+  a millisecond each there is no reason to make it.
+- The site is laid out the way a tool's site is laid out: a hero, a band of
+  prose, a figure the reader can take hold of, the concepts, what it will not
+  do, and where to go. Five destinations rather than eight, and no file moved,
+  because a page's URL comes from its path and every link that exists points at
+  one of those. Headings are set in their own face and section headings carry a
+  rule, so a page of eight hundred lines can be scanned rather than read.
+- The home page draws its own figure. The picture it ships with is what the
+  printed command actually draws, and the program replaces it on arrival, so
+  the page is correct with JavaScript off, with the wasm missing, and for the
+  moment the fetch takes. It can then be dragged, zoomed with the wheel once it
+  has focus, and moved with the arrow keys, and each of those re-runs the
+  program over the three files printed underneath it, which the script reads
+  out of the page so that what is shown and what is drawn cannot drift.
+- `assets/karyon-wasm.js`, one bridge for the two pages that run the program.
+  The home page and the playground had a copy each of the protocol, the command
+  line splitting and the region arithmetic, and two copies of a protocol are two
+  things that drift.
 - The playground is a workbench rather than a page: a toolbar, an editor with
   one tab per file, and the figure filling its own pane, with a splitter
   between them and a stacked layout for a narrow screen.
@@ -218,6 +249,86 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Closing a file tab wrote the closed file's text into whichever file took its
+  place. The editor remembered which file it held by position, and removing one
+  shifts every file after it down, so the save that runs on the way out landed
+  on the wrong object: closing `depth.bg` left `genes.gff3` holding a bedGraph.
+  It remembers the file itself now, so a file that has gone is not written to
+  and one that has moved still gets its own text.
+- The splitter announced itself as a separator with a value and answered to no
+  key at all. Arrows move it, Shift moves it further, Home and End take it to
+  its ends, and it reports where it is. Its orientation follows the layout
+  rather than being frozen at whichever one the page opened in.
+- Interactive turned on a pan and zoom no keyboard could reach: only the home
+  page's figure had keys. The playground's figure joins the tab order while it
+  is interactive and leaves it when it is not, and answers to the same keys.
+  Its wheel now waits for focus too, so a wheel over it scrolls the page.
+- A refusal in the playground was announced to nobody. The status line is a
+  live region, as the home page's already was.
+- A file could not be removed without a pointer, and the close control being a
+  span inside the tab made every tab's name read as "depth.bg times". It is a
+  button with its own name, the tab carries its own, and F2 renames a file and
+  Delete removes one.
+- The grabbing cursor vanished a pixel into a drag, because a redraw rewrote
+  the whole class attribute and took `pg-dragging` with it.
+- A region the pan and zoom arithmetic was happy to reach stopped the program
+  dead, and the page said nothing. `MAX_SPAN` was `1 << 32`, which the comment
+  beside it called "below the point where the buffer cannot be allocated";
+  thirty-two gigabytes is above that point on every target there is, and on the
+  32-bit one the documentation site runs on, a `Vec` cannot exceed `isize::MAX`
+  bytes, so a per-base track of `1 << 28` bases is a capacity overflow, which
+  is a panic, which in a build that aborts on one is a trap with no `Result` to
+  carry it. Measured: a span of 268,435,455 draws and 268,435,456 stops the
+  program. The limit is that number now, which leaves every chromosome anyone
+  sequences inside it, and says why.
+- Nothing caught that trap, and both pages write the new command down before
+  they draw, so twenty-two turns of the wheel left the command box saying
+  `chr1:1-271,050,503` over the previous figure, the previous region readout
+  and the previous timing, with nothing marked as failed. The page asserted a
+  region it had never drawn, which is this crate's own bug class in a browser.
+  A trap is an ordinary refusal now, and the wheel cannot reach a span the
+  program will not draw.
+- Without the program, the example panel came up as twenty-one empty boxes,
+  which reads as twenty-one figures that failed. The boxes go and one sentence
+  says why; the cards keep their command and their files, which are still worth
+  reading and still run in a terminal.
+- Dragging a figure towards the first base of a sequence shrank the window
+  instead of moving it. The start was clamped to 1 and the end left where it
+  was, so from `chr1:1-1,000` five drags gave 700, 490, 343, 240 and 168 bases
+  and the figure zoomed itself in while the reader was only moving it sideways.
+  The span asked for is kept and the window slid. The same clamp stopped a zoom
+  out from ever reaching its own limit.
+- A `--label` that looked like a locus, written before the real one, was taken
+  for the region, so a drag rewrote the label and left the figure where it was.
+  The four flags that stand alone are known now, and the word after every other
+  flag is skipped, as the parser itself does.
+- The example panel said `aria-modal` and did not mean it: with it open the page
+  behind was still reachable by Tab. It is a real `dialog` opened with
+  `showModal`, which contains the focus and makes the background inert.
+- The Examples button went on saying it was expanded over a panel that had
+  closed, because the bookkeeping hung off the dialog's `close` event, which a
+  listener added directly in front of a `close()` call was measured never
+  receiving. It is done where the closing happens instead.
+- On a 375px screen the toolbar wrapped but the groups inside it did not, so
+  `Full screen` was drawn from 326 to 426 with the window ending at 375 and
+  nothing scrolling: the button could not be reached at all.
+- The example previews were drawn on the next animation frame, which a tab
+  that is not on screen never gets, so a panel opened in a background tab came
+  up with every card empty. They need no layout, so they are drawn as the card
+  is made.
+- The example panel came up cream in the dark scheme, with light text on it.
+  Material writes the palette onto `body` and the rule was written against
+  `:root`, which is the same mistake this stylesheet had made once before.
+- The playground's first example refused on the fourth drag. Its three rows
+  covered the region exactly, so moving the window took it off the data, which
+  is the program being right and the example being too small to show anything
+  else. It is six bedGraph rows and eight calls over ten kilobases now, and the
+  home page says out loud that a window taken far enough will always find
+  nothing, and that what comes back then is a sentence rather than an empty
+  figure.
+- A wheel over the figure no longer eats the page's scroll. It zooms only once
+  the figure has focus, which is also what makes the arrow keys reachable
+  without a pointer.
 - A GFF3 span whose end came before its start was read as a one-base feature at
   the start rather than refused. The module doc had said all along that an
   inverted span stops the read, and only BED and cytoBand did it, so a gene

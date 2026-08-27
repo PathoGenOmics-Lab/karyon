@@ -71,8 +71,12 @@ validation:
   unrecognized_links: warn
   anchors: warn
 
+# The theme loads two families and headings want a third, so it comes in
+# alongside rather than through `theme.font`.
 extra_css:
+  - https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap
   - stylesheets/extra.css
+  - stylesheets/landing.css
 
 markdown_extensions:
   - abbr
@@ -126,12 +130,16 @@ extra:
       name: karyon on GitHub
   generator: false
 
+# Five destinations rather than eight. The grouping changed and no file moved,
+# because a page's URL comes from its path and every link that exists points at
+# one of those. What used to be `How it works` and `Recipes` are sections of the
+# guide, since a reader looking for either was already in the guide; the plot
+# catalogue keeps the track reference next to it, since that is what a route
+# through the catalogue ends at.
 nav:
   - Home: index.md
-  - Getting started:
-      - getting-started/installation.md
-      - getting-started/quickstart.md
-  - Plot catalogue:
+  - Playground: playground.md
+  - Plots:
       - Overview: plots/index.md
       - Signal and sequence: plots/signal-sequence.md
       - Annotation and coordinates: plots/annotation-coordinates.md
@@ -141,22 +149,28 @@ nav:
       - Phylogeny and clades: plots/phylogeny-clades.md
       - Evolution and surveillance: plots/evolution-surveillance.md
       - Whole genomes and geography: plots/whole-genomes-geography.md
-      - Track API reference: tracks.md
-  - Playground: playground.md
-  - User guide:
-      - guide/plot.md
-      - guide/figure.md
-      - guide/cli.md
-      - guide/formats.md
-      - guide/phylogenetics.md
-      - guide/maps.md
-      - guide/theming.md
-      - guide/visual-system.md
-  - How it works:
-      - how-it-works/coordinates.md
-      - how-it-works/scale.md
-      - how-it-works/extending.md
-  - Recipes: recipes.md
+      - Track reference: tracks.md
+  - Guide:
+      - Start here:
+          - getting-started/installation.md
+          - getting-started/quickstart.md
+          - Worked recipes: recipes.md
+      - Writing a figure:
+          - guide/plot.md
+          - guide/figure.md
+          - guide/cli.md
+      - Reading files:
+          - guide/formats.md
+      - Particular figures:
+          - guide/phylogenetics.md
+          - guide/maps.md
+      - Making it yours:
+          - guide/theming.md
+          - guide/visual-system.md
+      - Why it works this way:
+          - how-it-works/coordinates.md
+          - how-it-works/scale.md
+          - how-it-works/extending.md
   - About:
       - about/changelog.md
       - about/citation.md

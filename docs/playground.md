@@ -17,8 +17,7 @@ hide:
 <div class="pg-app" id="pg-app" hidden markdown="0">
   <div class="pg-bar">
     <div class="pg-group">
-      <button class="pg-btn" id="pg-examples" type="button" aria-haspopup="true" aria-expanded="false">Examples</button>
-      <div class="pg-menu" id="pg-menu" hidden></div>
+      <button class="pg-btn" id="pg-examples" type="button" aria-haspopup="dialog" aria-expanded="false">Examples</button>
     </div>
     <div class="pg-group">
       <button class="pg-btn pg-primary" id="pg-draw" type="button">Draw</button>
@@ -43,14 +42,28 @@ hide:
       <textarea id="pg-file" class="pg-code pg-body" spellcheck="false" aria-label="File contents"></textarea>
     </section>
 
-    <div class="pg-split" id="pg-split" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize the panes"></div>
+    <div class="pg-split" id="pg-split" role="separator" aria-orientation="vertical" aria-valuenow="38" aria-valuemin="20" aria-valuemax="75" tabindex="0" aria-label="Resize the panes"></div>
 
     <section class="pg-view" aria-label="Figure">
-      <div class="pg-plot" id="pg-plot"></div>
-      <div class="pg-foot"><span class="pg-status" id="pg-status">loading the program…</span></div>
+      <div class="pg-plot" id="pg-plot" role="img" aria-label="The figure this command draws"></div>
+      <div class="pg-foot"><span class="pg-status" id="pg-status" role="status" aria-live="polite">loading the program…</span></div>
     </section>
   </div>
 </div>
+
+<dialog class="pg-picker" id="pg-picker" aria-labelledby="pg-picker-title">
+  <aside class="pg-panel">
+    <div class="pg-panel-head">
+      <div>
+        <h2 id="pg-picker-title">Examples</h2>
+        <p>Twenty-one, between them every flag the command has. Each preview is drawn by the program, here, as this opened.</p>
+      </div>
+      <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
+    </div>
+    <input class="pg-search" id="pg-search" type="search" placeholder="Search examples" autocomplete="off" aria-label="Search examples">
+    <div class="pg-panel-body" id="pg-picker-body"></div>
+  </aside>
+</dialog>
 
 <div class="pg-notes" markdown>
 
@@ -75,4 +88,5 @@ input, because nothing is piped into a page. And `--help`, which is
 
 </div>
 
+<script src="../assets/karyon-wasm.js" defer></script>
 <script src="../assets/playground.js" defer></script>
