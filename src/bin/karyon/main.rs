@@ -93,6 +93,11 @@ TRACK OPTIONS, each describing the track before it
                          than one
     --analysis <NAME>    Pfam, PANTHER or another member database, for a
                          domain table holding more than one
+    --traits <FILE>      a sample sheet drawn as strips beside the rows, for
+                         the tracks that have rows: a header, names in column
+                         one, one column per thing known about them
+    --columns <A,B,C>    which columns of that sheet to draw, in this order;
+                         every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line, bars, or steps for a window track

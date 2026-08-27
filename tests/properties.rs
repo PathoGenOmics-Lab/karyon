@@ -18,6 +18,9 @@
 
 use std::collections::BTreeMap;
 
+use karyon::track::traits::Traits;
+use karyon::tree::Annotations;
+
 use karyon::{
     read, AlignmentBlock, AncestralStateLayer, AnnotationValue, Association, AxisTrack, Band,
     BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
@@ -150,6 +153,59 @@ impl Lcg {
     }
 }
 
+/// A sheet of metadata for `names`, sometimes for nobody at all.
+///
+/// The hostile cases are the point. A value that is not a number, a name the
+/// rows have not got, a column every row leaves blank, a level per row so the
+/// palette runs out, and names carrying the characters an SVG cannot hold: all
+/// of those reach a tooltip and a swatch through the same two functions.
+fn traits(rng: &mut Lcg, names: &[String]) -> Traits {
+    let mut rows: BTreeMap<String, Annotations> = BTreeMap::new();
+    // Half the time the sheet is about somebody else entirely, which is the
+    // strip of nothing a caller who did not check the join would draw.
+    let joined = rng.chance(2);
+    for (index, name) in names.iter().enumerate() {
+        let key = if joined {
+            name.clone()
+        } else {
+            format!("{name}-elsewhere")
+        };
+        let mut held = Annotations::new();
+        if !rng.chance(4) {
+            held.insert(
+                "lineage".to_string(),
+                AnnotationValue::Text(format!("L{}", index % (1 + rng.below(9) as usize))),
+            );
+        }
+        if !rng.chance(4) {
+            held.insert("depth".to_string(), AnnotationValue::Number(rng.value()));
+        }
+        if !rng.chance(4) {
+            held.insert(
+                "kept".to_string(),
+                AnnotationValue::Boolean(rng.chance(2)),
+            );
+        }
+        if rng.chance(6) {
+            held.insert("odd".to_string(), AnnotationValue::Text(rng.name()));
+        }
+        rows.insert(key, held);
+    }
+
+    let columns = ["lineage", "depth", "kept", "odd", "never"];
+    let wanted: Vec<String> = columns
+        .iter()
+        .filter(|_| !rng.chance(3))
+        .map(|key| key.to_string())
+        .collect();
+    let traits = Traits::new(rows).spread(wanted);
+    if rng.chance(3) {
+        traits.heading_room(0.0)
+    } else {
+        traits
+    }
+}
+
 /// A region, sometimes one base wide and sometimes the whole coordinate range.
 fn region(rng: &mut Lcg) -> Region {
     let (start, end) = match rng.below(10) {
@@ -227,7 +283,13 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
                     MatrixRow::new(rng.name(), values)
                 })
                 .collect();
-            Box::new(MatrixTrack::new(sites, rows))
+            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+            let track = MatrixTrack::new(sites, rows);
+            Box::new(if rng.chance(2) {
+                track.traits(traits(rng, &names))
+            } else {
+                track
+            })
         }
         7 => {
             let columns = rng.count();
@@ -237,7 +299,13 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
                     MsaSequence::new(rng.name(), residues)
                 })
                 .collect();
-            Box::new(MsaTrack::new(rows))
+            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+            let track = MsaTrack::new(rows);
+            Box::new(if rng.chance(2) {
+                track.traits(traits(rng, &names))
+            } else {
+                track
+            })
         }
         8 => {
             let reads: Vec<Read> = (0..count)

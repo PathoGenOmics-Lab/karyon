@@ -32,6 +32,7 @@ use crate::{
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
 use crate::read;
+use crate::track::traits::Traits;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
@@ -117,6 +118,22 @@ pub enum BuildError {
         /// A few of the names, so the mismatch can be seen at a glance.
         examples: Vec<String>,
     },
+    /// A column was asked for by name and the sheet has no such column.
+    ///
+    /// Not [`BuildError::Ambiguous`], which is a file holding several things
+    /// and a command naming none of them. Here the command named one and the
+    /// file has not got it, which is nearly always a spelling, so the columns
+    /// it does have are worth printing beside it.
+    Unnamed {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What the sheet was called.
+        path: String,
+        /// The column that is not in it.
+        wanted: String,
+        /// The columns that are.
+        held: Vec<String>,
+    },
     /// A track drawn from two files was handed one.
     ///
     /// The parser refuses this, so it reaches here only from an
@@ -188,6 +205,16 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::Unnamed {
+                track,
+                path,
+                wanted,
+                held,
+            } => write!(
+                f,
+                "--{track} {path} has no column called {wanted}; it has {}",
+                held.join(", ")
+            ),
             BuildError::MissingSecond { track } => write!(
                 f,
                 "a {track} track is drawn from two files, and only one was given"
@@ -255,6 +282,66 @@ pub fn build(
 /// the path, and a browser looks the name up in whatever the editor is holding.
 /// Neither is more correct, and the grammar does not care, so the grammar stops
 /// deciding.
+/// Reads the sheet a track's `--traits` names, or nothing where it named none.
+fn sheet(
+    spec: &TrackSpec,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> Result<Option<(read::sheet::Sheet, String)>, BuildError> {
+    let Some(source) = spec.traits.as_ref() else {
+        return Ok(None);
+    };
+    let name = spec.kind.flag();
+    let (text, path) = fetch(name, source, open)?;
+    let held = wrap(name, &path, read::sheet::sheet(&text))?;
+    Ok(Some((held, path)))
+}
+
+/// The metadata columns a sheet becomes once it is joined to a track's rows.
+///
+/// The join is names and it is checked here rather than left to the drawing,
+/// because a sheet that names none of these rows draws a strip of empty
+/// outlines beside every one of them, and a figure that says "nothing is known
+/// about any of these" looks exactly like a figure that read the wrong file.
+fn strip(
+    spec: &TrackSpec,
+    sheet: Option<&(read::sheet::Sheet, String)>,
+    rows: &[String],
+) -> Result<Option<Traits>, BuildError> {
+    let Some((held, path)) = sheet else {
+        return Ok(None);
+    };
+    let track = spec.kind.flag();
+
+    let wanted: Vec<String> = match &spec.columns {
+        Some(named) => {
+            for column in named {
+                if !held.columns.contains(column) {
+                    return Err(BuildError::Unnamed {
+                        track,
+                        path: path.clone(),
+                        wanted: column.clone(),
+                        held: held.columns.clone(),
+                    });
+                }
+            }
+            named.clone()
+        }
+        None => held.columns.clone(),
+    };
+
+    if held.covers(rows.iter().map(String::as_str)) == 0 {
+        return Err(BuildError::Unjoined {
+            track,
+            path: path.clone(),
+            what: "name",
+            against: "the rows this track drew",
+            examples: held.names().take(3).map(str::to_string).collect(),
+        });
+    }
+
+    Ok(Some(Traits::new(held.rows.clone()).spread(wanted)))
+}
+
 fn slurp(
     spec: &TrackSpec,
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
@@ -354,6 +441,10 @@ fn track(
         path: path.clone(),
         wanted,
     };
+    // Read before the match rather than inside the arms, because two arms
+    // shadow `text` with a second file of their own and a sheet fetched after
+    // that would be read out of the wrong one.
+    let sheet = sheet(spec, open)?;
 
     let built: Box<dyn Track> = match spec.kind {
         Kind::Coverage => {
@@ -628,7 +719,11 @@ fn track(
                 });
             }
 
-            let track = DomainTrack::new(found.rows);
+            let names: Vec<String> = found.rows.iter().map(|row| row.name.clone()).collect();
+            let mut track = DomainTrack::new(found.rows);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
             Box::new(match label {
                 Some(label) => track.label(label),
                 None => track.label(analysis),
@@ -694,7 +789,11 @@ fn track(
                 });
             }
 
-            let track = CladeTrack::new(tree, found.blocks);
+            let names: Vec<String> = leaves.iter().cloned().collect();
+            let mut track = CladeTrack::new(tree, found.blocks);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
             Box::new(named(track, label, CladeTrack::label))
         }
         // Gene neighbourhoods from several genomes, and a second file saying
@@ -746,7 +845,11 @@ fn track(
                 });
             }
 
-            let track = LocusTrack::new(found.loci).links(joined.links);
+            let names: Vec<String> = found.loci.iter().map(|locus| locus.name.clone()).collect();
+            let mut track = LocusTrack::new(found.loci).links(joined.links);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
             Box::new(named(track, label, LocusTrack::label))
         }
         // A PAF names both sequences on every row, and an AlignmentBlock keeps
@@ -815,11 +918,20 @@ fn track(
         }
         Kind::Msa => {
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
-            Box::new(named(MsaTrack::new(sequences), label, MsaTrack::label))
+            let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
+            let mut track = MsaTrack::new(sequences);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
+            Box::new(named(track, label, MsaTrack::label))
         }
         Kind::Snps => {
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
-            let track = SnpTrack::from_alignment(0, &sequences);
+            let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
+            let mut track = SnpTrack::from_alignment(0, &sequences);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
             Box::new(named(track, label, SnpTrack::label))
         }
         Kind::Ideogram => {
@@ -841,11 +953,12 @@ fn track(
             if rows.is_empty() || sites.is_empty() {
                 return Err(empty("samples"));
             }
-            Box::new(named(
-                MatrixTrack::new(sites, rows),
-                label,
-                MatrixTrack::label,
-            ))
+            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+            let mut track = MatrixTrack::new(sites, rows);
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                track = track.traits(traits);
+            }
+            Box::new(named(track, label, MatrixTrack::label))
         }
         Kind::Pileup => {
             let reads = wrap(name, &path, read::align::sam(&text, region))?;
@@ -1015,6 +1128,123 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
         fs::write(&path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// A sheet of metadata is a third file, and the join is names.
+    ///
+    /// The refusal is what these are mostly about. A sheet whose names are
+    /// nobody's draws a strip of empty outlines beside every row, and that is
+    /// a figure that looks finished and says nothing about anything.
+    #[test]
+    fn a_sheet_of_metadata_becomes_a_strip_beside_the_rows() {
+        let genotypes = "sample\t10\t20\nA\t1\t0\nB\t0\t1\n";
+        let sheet = "sample\tlineage\tdepth\nA\tL4\t30\nB\tL2\t50\n";
+
+        let args: Vec<String> = "chr1:1-40 --matrix m.tsv --traits s.tsv"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let svg = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("s.tsv") => sheet.to_string(),
+                _ => genotypes.to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(svg.contains("A; lineage L4"), "{svg}");
+        assert!(svg.contains("B; depth 50"), "{svg}");
+        // The heading of a column is drawn on end, since a column is narrower
+        // than its name and will stay that way.
+        assert!(svg.contains("rotate(-90)"), "no heading on the strip");
+    }
+
+    #[test]
+    fn a_sheet_that_names_none_of_the_rows_is_refused() {
+        let genotypes = "sample\t10\t20\nA\t1\t0\nB\t0\t1\n";
+        let sheet = "sample\tlineage\nERR1\tL4\nERR2\tL2\n";
+
+        let args: Vec<String> = "chr1:1-40 --matrix m.tsv --traits s.tsv"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let error = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("s.tsv") => sheet.to_string(),
+                _ => genotypes.to_string(),
+            })
+        })
+        .unwrap_err();
+
+        assert!(
+            matches!(error, BuildError::Unjoined { what: "name", .. }),
+            "{error}"
+        );
+        // The names it did hold, so the mismatch can be seen without opening
+        // either file.
+        assert!(error.to_string().contains("ERR1"), "{error}");
+    }
+
+    #[test]
+    fn a_column_the_sheet_has_not_got_is_refused_and_the_ones_it_has_are_named() {
+        let genotypes = "sample\t10\t20\nA\t1\t0\nB\t0\t1\n";
+        let sheet = "sample\tlineage\tdepth\nA\tL4\t30\nB\tL2\t50\n";
+
+        let args: Vec<String> = "chr1:1-40 --matrix m.tsv --traits s.tsv --columns linage"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let error = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("s.tsv") => sheet.to_string(),
+                _ => genotypes.to_string(),
+            })
+        })
+        .unwrap_err();
+
+        let said = error.to_string();
+        assert!(said.contains("no column called linage"), "{said}");
+        assert!(said.contains("lineage, depth"), "{said}");
+    }
+
+    #[test]
+    fn the_columns_asked_for_are_the_only_ones_drawn() {
+        let genotypes = "sample\t10\t20\nA\t1\t0\nB\t0\t1\n";
+        let sheet = "sample\tlineage\tdepth\nA\tL4\t30\nB\tL2\t50\n";
+
+        let args: Vec<String> = "chr1:1-40 --matrix m.tsv --traits s.tsv --columns depth"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let svg = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("s.tsv") => sheet.to_string(),
+                _ => genotypes.to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(svg.contains("A; depth 30"), "{svg}");
+        assert!(
+            !svg.contains("lineage"),
+            "a column nobody asked for was drawn"
+        );
     }
 
     /// The whole of what the second path buys. Two different trees have to

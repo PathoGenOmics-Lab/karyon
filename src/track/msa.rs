@@ -40,6 +40,7 @@ use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::axis::group_thousands;
+use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -208,6 +209,7 @@ pub struct MsaTrack {
     tree: Option<Tree>,
     tree_width: f64,
     tree_shape: TreeShape,
+    traits: Traits,
 }
 
 impl MsaTrack {
@@ -231,6 +233,7 @@ impl MsaTrack {
             tree: None,
             tree_width: 100.0,
             tree_shape: TreeShape::Phylogram,
+            traits: Traits::default(),
         }
     }
 
@@ -350,6 +353,20 @@ impl MsaTrack {
         self
     }
 
+    /// Attaches metadata columns drawn between the sequence names and the rows.
+    ///
+    /// Joined by name, so the columns follow whatever order the sequences are
+    /// already in, including the one a phylogeny put them in.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
+    }
+
     /// The tree attached to the alignment, when present.
     pub fn attached_tree(&self) -> Option<&Tree> {
         self.tree.as_ref()
@@ -467,7 +484,7 @@ impl Track for MsaTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         let (rows, _) = self.visible_rows();
         let rows = rows.max(1) as f64;
-        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap
+        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -476,8 +493,9 @@ impl Track for MsaTrack {
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
         let tree = self.tree.as_ref().map_or(0.0, |_| self.tree_width);
+        let strip = self.traits.strip_width();
         if !self.show_names || self.sequences.is_empty() {
-            return tree;
+            return tree + strip;
         }
         let size = (theme.font_size - 2.0).min(self.row_height);
         let (rows, _) = self.visible_rows();
@@ -488,12 +506,15 @@ impl Track for MsaTrack {
             .fold(0.0f64, f64::max)
             + 8.0
             + tree
+            + strip
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let comparison = self.comparison();
         let (rows, hidden) = self.visible_rows();
+        let head = ctx.px(self.traits.heading_height());
+        let strip = self.traits.strip_width();
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
         let px_per_column = ctx.scale.px_per_bp();
         let draw_letters = self.show_letters && px_per_column >= self.letter_threshold;
@@ -505,16 +526,16 @@ impl Track for MsaTrack {
         if let Some(tree) = &self.tree {
             let area = Rect {
                 x: ctx.axis.x + 2.0,
-                y: band.y,
+                y: band.y + head,
                 w: (self.tree_width - 6.0).max(1.0),
-                h: band.h,
+                h: (band.h - head).max(1.0),
             };
             draw_tree(
                 ctx.svg,
                 tree,
                 area,
                 self.row_height + self.row_gap,
-                band.y + self.row_height / 2.0,
+                band.y + head + self.row_height / 2.0,
                 TreeStyle {
                     shape: self.tree_shape,
                     color: &tree_color,
@@ -524,7 +545,7 @@ impl Track for MsaTrack {
             );
             ctx.svg.line(
                 band.x - 2.0,
-                band.y + 1.0,
+                band.y + head + 1.0,
                 band.x - 2.0,
                 band.bottom() - 1.0,
                 &ctx.theme.rule,
@@ -533,7 +554,7 @@ impl Track for MsaTrack {
         }
 
         for (index, row) in self.sequences.iter().take(rows).enumerate() {
-            let top = band.y + index as f64 * (self.row_height + self.row_gap);
+            let top = band.y + head + index as f64 * (self.row_height + self.row_gap);
 
             // The row is named, and never the cell. A tooltip per residue is
             // rows times columns elements, which is tens of thousands of them
@@ -570,9 +591,9 @@ impl Track for MsaTrack {
                 self.paint_letters(ctx, row, &comparison, first, last, top);
             }
 
-            if self.show_names && ctx.axis.w > 0.0 {
+            if self.show_names && ctx.axis.w > strip {
                 ctx.svg.text(
-                    ctx.axis.right() - 4.0,
+                    ctx.axis.right() - strip - 4.0,
                     top + self.row_height / 2.0 + name_size * 0.35,
                     &row.name,
                     &ctx.theme.foreground,
@@ -587,10 +608,40 @@ impl Track for MsaTrack {
         if self.display == MsaDisplay::Bases && px_per_column >= 5.0 {
             for column in first.saturating_add(1)..last {
                 let x = ctx.scale.x(column as u64);
-                ctx.svg
-                    .line(x, band.y, x, band.bottom(), ctx.theme.surface(), 0.65);
+                ctx.svg.line(
+                    x,
+                    band.y + head,
+                    x,
+                    band.bottom(),
+                    ctx.theme.surface(),
+                    0.65,
+                );
             }
         }
+
+        let placed: Vec<(String, f64, f64)> = self
+            .sequences
+            .iter()
+            .take(rows)
+            .enumerate()
+            .map(|(index, row)| {
+                (
+                    row.name.clone(),
+                    band.y + head + index as f64 * (self.row_height + self.row_gap),
+                    self.row_height,
+                )
+            })
+            .collect();
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - strip,
+                y: band.y,
+                w: strip,
+                h: band.h,
+            },
+            &placed,
+        );
 
         if hidden > 0 {
             let text = format!("+{hidden} sequences not shown");

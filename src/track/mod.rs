@@ -57,6 +57,7 @@ pub mod structural;
 pub mod surveillance;
 pub mod synteny;
 pub mod tanglegram;
+pub mod traits;
 pub mod transcript;
 pub mod tree;
 pub mod variant;

@@ -40,7 +40,8 @@ use crate::track::feature::{span_label, strand_color, strand_label};
 /// How much of a gene's height the shaft of an arrow takes, the rest being the
 /// overhang of its head.
 const SHAFT: f64 = 0.62;
-use crate::track::{DrawContext, Feature, Strand, Track};
+use crate::track::traits::Traits;
+use crate::track::{DrawContext, Feature, Rect, Strand, Track};
 
 /// One locus, from one genome.
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +188,7 @@ pub struct LocusTrack {
     soft_fills: bool,
     link_inset: f64,
     shape: GeneShape,
+    traits: Traits,
 }
 
 impl LocusTrack {
@@ -208,6 +210,7 @@ impl LocusTrack {
             soft_fills: true,
             link_inset: 4.0,
             shape: GeneShape::Arrow,
+            traits: Traits::default(),
         }
     }
 
@@ -271,6 +274,19 @@ impl LocusTrack {
     pub fn shape(mut self, shape: GeneShape) -> Self {
         self.shape = shape;
         self
+    }
+
+    /// Attaches metadata columns drawn between the genome names and the loci.
+    ///
+    /// Joined by name, so the columns follow the order the loci are in.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
     }
 
     /// Whether a gene is a wash of its colour edged in the colour itself.
@@ -485,7 +501,9 @@ impl LocusTrack {
 impl Track for LocusTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.loci.len().max(1) as f64;
-        rows * self.gene_height + (rows - 1.0).max(0.0) * self.link_height
+        rows * self.gene_height
+            + (rows - 1.0).max(0.0) * self.link_height
+            + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -493,8 +511,9 @@ impl Track for LocusTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
+        let strip = self.traits.strip_width();
         if !self.show_names || self.loci.is_empty() {
-            return 0.0;
+            return strip;
         }
         let size = (theme.font_size - 1.0).min(self.gene_height);
         self.loci
@@ -502,10 +521,20 @@ impl Track for LocusTrack {
             .map(|locus| text_width(&locus.name, size))
             .fold(0.0f64, f64::max)
             + 8.0
+            + strip
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
-        let band = ctx.band;
+        // Shifted down by the room the headings of the metadata columns took,
+        // which `height` already asked the figure for. Every row here is
+        // placed from `band.y`, so moving it moves the ribbons with the genes.
+        let head = ctx.px(self.traits.heading_height());
+        let strip = self.traits.strip_width();
+        let band = Rect {
+            y: ctx.band.y + head,
+            h: (ctx.band.h - head).max(1.0),
+            ..ctx.band
+        };
         if self.loci.is_empty() {
             return;
         }
@@ -623,7 +652,7 @@ impl Track for LocusTrack {
             if self.show_names && ctx.axis.w > 0.0 {
                 let size = (ctx.theme.font_size - 1.0).min(self.gene_height);
                 ctx.svg.text(
-                    ctx.axis.right() - 4.0,
+                    ctx.axis.right() - strip - 4.0,
                     top + self.gene_height / 2.0 + size * 0.35,
                     &locus.name,
                     &ctx.theme.muted,
@@ -632,6 +661,29 @@ impl Track for LocusTrack {
                 );
             }
         }
+
+        let placed: Vec<(String, f64, f64)> = self
+            .loci
+            .iter()
+            .enumerate()
+            .map(|(row, locus)| {
+                (
+                    locus.name.clone(),
+                    band.y + self.row_top(row),
+                    self.gene_height,
+                )
+            })
+            .collect();
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - strip,
+                y: ctx.band.y,
+                w: strip,
+                h: ctx.band.h,
+            },
+            &placed,
+        );
     }
 }
 

@@ -154,7 +154,7 @@ against `ALT` and needs no annotation: a substitution, an insertion or a
 deletion.
 
 Without `-o` the SVG goes to standard output. `karyon --help` prints the whole
-grammar, which is twelve track flags and the ruler.
+grammar, which is twenty-four track flags and the ruler.
 
 !!! note "A FASTA is read from its own first base"
     `--sequence` wants the reference the window is cut out of, not the window.

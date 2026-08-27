@@ -34,6 +34,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, wash, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::feature::span_label;
+use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -169,6 +170,7 @@ pub struct CladeTrack {
     show_names: bool,
     show_block_names: bool,
     min_block: f64,
+    traits: Traits,
 }
 
 impl CladeTrack {
@@ -205,6 +207,7 @@ impl CladeTrack {
             show_names: true,
             show_block_names: true,
             min_block: 2.0,
+            traits: Traits::default(),
         }
     }
 
@@ -236,6 +239,20 @@ impl CladeTrack {
     pub fn tree_shape(mut self, shape: TreeShape) -> Self {
         self.tree_shape = shape;
         self
+    }
+
+    /// Attaches metadata columns drawn between the taxon names and the blocks.
+    ///
+    /// Joined by name, so the columns follow the order the phylogeny put the
+    /// taxa in.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
     }
 
     /// Whether to print taxon names between the tree and the blocks.
@@ -312,7 +329,7 @@ impl CladeTrack {
 impl Track for CladeTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.tree.leaf_count().max(1) as f64;
-        rows * self.row_height + (rows - 1.0) * self.row_gap + 12.0
+        rows * self.row_height + (rows - 1.0) * self.row_gap + 12.0 + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -331,11 +348,21 @@ impl Track for CladeTrack {
         } else {
             0.0
         };
-        self.tree_width + names
+        self.tree_width + names + self.traits.strip_width()
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
-        let band = ctx.band;
+        // Shifted down by the room the headings of the metadata columns took,
+        // which `height` already asked the figure for. Everything in the band
+        // is placed from `band.y`, so moving it moves the rows, the tree and
+        // the names together rather than one of the three.
+        let head = ctx.px(self.traits.heading_height());
+        let strip = self.traits.strip_width();
+        let band = Rect {
+            y: ctx.band.y + head,
+            h: (ctx.band.h - head).max(1.0),
+            ..ctx.band
+        };
         let theme = ctx.theme;
         let rows = self.tree.leaf_count();
         if rows == 0 {
@@ -369,7 +396,7 @@ impl Track for CladeTrack {
         if self.show_names {
             for (row, name) in self.tree.leaf_names().iter().enumerate() {
                 ctx.svg.text(
-                    ctx.axis.right() - 4.0,
+                    ctx.axis.right() - strip - 4.0,
                     self.row_centre(band, row) + name_size * 0.35,
                     name,
                     &theme.muted,
@@ -416,6 +443,30 @@ impl Track for CladeTrack {
                 Anchor::End,
             );
         }
+
+        let placed: Vec<(String, f64, f64)> = self
+            .tree
+            .leaf_names()
+            .into_iter()
+            .enumerate()
+            .map(|(row, name)| {
+                (
+                    name,
+                    self.row_centre(band, row) - self.row_height / 2.0,
+                    self.row_height,
+                )
+            })
+            .collect();
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - strip,
+                y: ctx.band.y,
+                w: strip,
+                h: ctx.band.h,
+            },
+            &placed,
+        );
     }
 }
 
