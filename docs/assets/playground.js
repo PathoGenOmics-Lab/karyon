@@ -39,6 +39,13 @@
   var EXAMPLES = [
     {
       name: "A locus",
+      bounds: { from: 756999, to: 766999, min: 270 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--aggregate", after: "--coverage", label: "How a pixel that covers many bases chooses", options: ["max", "mean", "min"] },
+        { kind: "choice", flag: "--style", after: "--coverage", label: "The shape of the signal", options: ["area", "line", "bars"] },
+        { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
+      ],
       group: "Signal and annotation",
       command:
         "NC_000962.3:761,000-762,999 --coverage depth.bg --label depth --aggregate min \\\n" +
@@ -49,39 +56,54 @@
       // the region exactly refused on the first drag, which is the program
       // being right and the example being too small to show anything else.
       files: [
-        {
-          name: "depth.bg",
-          body:
-            "NC_000962.3 756999 759999 62\n" +
-            "NC_000962.3 759999 760999 58\n" +
-            "NC_000962.3 760999 761899 57\n" +
-            "NC_000962.3 761899 762029 3\n" +
-            "NC_000962.3 762029 763999 60\n" +
-            "NC_000962.3 763999 766999 54\n",
-        },
-        {
-          name: "genes.gff3",
-          body:
-            "##gff-version 3\n" +
-            "NC_000962.3 . gene 759807 763325 . + . Name=rpoB\n" +
-            "NC_000962.3 . gene 761082 761162 . + . Name=RRDR\n",
-        },
-        {
-          name: "calls.vcf",
-          body:
-            "NC_000962.3 760106 . C T . . AF=0.09;ANN=T|synonymous_variant|LOW|rpoB\n" +
-            "NC_000962.3 761052 . C T . . AF=0.12;ANN=T|synonymous_variant|LOW|rpoB\n" +
-            "NC_000962.3 761109 . G T . . AF=0.98;ANN=T|missense_variant|MODERATE|rpoB\n" +
-            "NC_000962.3 761139 . C T . . AF=0.55;ANN=T|missense_variant|MODERATE|rpoB\n" +
-            "NC_000962.3 761155 . T C . . AF=1.00;ANN=C|missense_variant|MODERATE|rpoB\n" +
-            "NC_000962.3 761156 . C T . . AF=0.21;ANN=T|synonymous_variant|LOW|rpoB\n" +
-            "NC_000962.3 761606 . G A . . AF=0.07;ANN=A|synonymous_variant|LOW|rpoB\n" +
-            "NC_000962.3 762206 . C T . . AF=0.15;ANN=T|synonymous_variant|LOW|rpoB\n",
-        },
+        { name: "depth.bg", body: "" },
+        { name: "genes.gff3", body: "" },
+        { name: "calls.vcf", body: "" },
       ],
+      // Ten kilobases with something to see everywhere in them, so the window
+      // can be taken anywhere inside its own bounds and still draw. Written
+      // here rather than pasted because a reader wants to move it, not read it.
+      make: function () {
+        var depth = "", genes = "##gff-version 3\n", calls = "";
+        for (var at = 757000; at < 767000; at += 100) {
+          var dip = at > 761890 && at < 762030 ? 0.06 : 1;
+          depth += "NC_000962.3 " + at + " " + (at + 100) + " " +
+                   Math.round((56 + 8 * Math.sin((at - 757000) / 900)) * dip) + "\n";
+        }
+        genes += "NC_000962.3 . gene 759807 763325 . + . Name=rpoB\n";
+        genes += "NC_000962.3 . gene 761082 761162 . + . Name=RRDR\n";
+        var others = [[757200, 758900, "rpoC", "+"], [763600, 765100, "rpsL", "-"],
+                      [765400, 766800, "rrs", "+"], [758950, 759700, "Rv0666", "-"]];
+        for (var g = 0; g < others.length; g++) {
+          genes += "NC_000962.3 . gene " + others[g][0] + " " + others[g][1] +
+                   " . " + others[g][3] + " . Name=" + others[g][2] + "\n";
+        }
+        var known = { 761109: 0.98, 761139: 0.55, 761155: 1.0, 761156: 0.21 };
+        for (var v = 757060; v < 767000; v += 137) {
+          var af = known[v] !== undefined ? known[v] : (0.05 + ((v % 17) / 20));
+          var kind = af > 0.5 ? "missense_variant|MODERATE" : "synonymous_variant|LOW";
+          calls += "NC_000962.3 " + v + " . C T . . AF=" + af.toFixed(2) +
+                   ";ANN=T|" + kind + "|rpoB\n";
+        }
+        for (var k in known) {
+          calls += "NC_000962.3 " + k + " . G A . . AF=" + known[k].toFixed(2) +
+                   ";ANN=A|missense_variant|MODERATE|rpoB\n";
+        }
+        return [
+          { name: "depth.bg", body: depth },
+          { name: "genes.gff3", body: genes },
+          { name: "calls.vcf", body: calls },
+        ];
+      },
     },
     {
       name: "A whole chromosome",
+      bounds: { from: 1, to: 2000000, min: 60 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--aggregate", after: "--coverage", label: "How a pixel that covers many bases chooses", options: ["max", "mean", "min"] },
+        { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
+      ],
       group: "Signal and annotation",
       command:
         "chr1:1-2,000,000 --coverage depth.bg --label depth --aggregate min \\\n" +
@@ -113,6 +135,11 @@
     },
     {
       name: "Two trees",
+      bounds: { from: 1, to: 1000, min: 60 },
+      controls: [
+        { kind: "note", label: "Two phylogenies face to face. The axis is not a coordinate, so panning it would mean nothing; what changes a tanglegram is which trees you give it." },
+        { kind: "toggle", flag: "--no-axis", label: "The coordinate ruler, which measures nothing here" },
+      ],
       group: "Phylogeny",
       command: "tangle:1-1000 --no-axis --tanglegram before.nwk --against after.nwk",
       files: [
@@ -122,6 +149,10 @@
     },
     {
       name: "Gene neighbourhoods",
+      bounds: { from: 1, to: 4000, min: 1001 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Comparisons across genomes",
       command: "ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1'",
       files: [
@@ -144,6 +175,11 @@
     },
     {
       name: "Protein domains",
+      bounds: { from: 1, to: 700, min: 233 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--analysis", after: "--domains", label: "Which member database annotated it", options: ["Pfam"] },
+      ],
       group: "Comparisons across genomes",
       command: "protein:1-700 --domains domains.tsv --analysis Pfam",
       files: [
@@ -161,6 +197,11 @@
     },
     {
       name: "One molecule at a time",
+      bounds: { from: 1, to: 200, min: 60 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--context", after: "--bisulfite", label: "Which cytosine context", options: ["CpG"] },
+      ],
       group: "Reads and molecules",
       command: "chr11:1-200 --bisulfite calls.txt --context CpG --label 'H19 ICR'",
       files: [
@@ -185,6 +226,10 @@
     },
     {
       name: "Reference bases",
+      bounds: { from: 1, to: 300, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Signal and annotation",
       command: "chr1:1-120 --axis --sequence ref.fa --label reference --orfs ref.fa --label 'reading frames'",
       files: [
@@ -199,6 +244,10 @@
     },
     {
       name: "A cytogenetic ideogram",
+      bounds: { from: 1, to: 2000000, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Signal and annotation",
       command: "chr1:1-2,000,000 --ideogram bands.txt --label chromosome",
       files: [
@@ -217,6 +266,10 @@
     },
     {
       name: "A genome-wide scan",
+      bounds: { from: 1, to: 1000000, min: 1997 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Association and genotype",
       command: "chr1:1-1,000,000 --manhattan assoc.tsv --label association",
       files: [
@@ -236,6 +289,10 @@
     },
     {
       name: "A genotype matrix",
+      bounds: { from: 1, to: 400, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Association and genotype",
       command: "chr1:1-400 --matrix geno.tsv --label 'allele fraction'",
       files: [
@@ -257,24 +314,26 @@
     },
     {
       name: "A read pileup",
+      bounds: { from: 1, to: 300, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Reads and molecules",
-      command: "chr1:1-160 --sequence ref.fa --label reference --pileup reads.sam --label reads",
+      command: "chr1:1-300 --sequence ref.fa --label reference --pileup reads.sam --label reads",
       files: [
-        { name: "ref.fa", body:
-            ">chr1\n" +
-            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "GACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAA\n" +
-            "GGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTA\n" +
-            "AGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTT\n" +
-            "AAGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCT\n" },
+        { name: "ref.fa", body: "" },
         { name: "reads.sam", body: "" },
       ],
       make: function () {
         var ref = reference();
         var sam = "";
-        for (var i = 0; i < 16; i++) {
-          sam += "r" + i + "\t" + (i % 2 === 0 ? 0 : 16) + "\tchr1\t" + (1 + i * 5) +
-                 "\t60\t60M\t*\t0\t0\t" + ref.slice(i * 5, i * 5 + 60) + "\t*\n";
+        var n = 0;
+        for (var at = 1; at < 260; at += 6) {
+          for (var copy = 0; copy < 3; copy++) {
+            var len = 55 + ((at + copy * 7) % 12);
+            sam += "r" + (n++) + "\t" + (copy % 2 === 0 ? 0 : 16) + "\tchr1\t" + at +
+                   "\t60\t" + len + "M\t*\t0\t0\t" + ref.slice(at - 1, at - 1 + len) + "\t*\n";
+          }
         }
         return [
           { name: "ref.fa", body: fastaOf("chr1", ref) },
@@ -284,22 +343,32 @@
     },
     {
       name: "One molecule in pieces",
+      bounds: { from: 1, to: 9000, min: 200 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Reads and molecules",
       command: "chr1:1-9,000 --split-reads split.sam --label 'split reads'",
-      files: [
-        { name: "split.sam", body:
-            "m1\t0\tchr1\t540\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6540,-,900S700M0S,60,0;\n" +
-            "m2\t0\tchr1\t580\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6580,+,900S700M0S,60,0;\n" +
-            "m3\t0\tchr1\t620\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6620,-,900S700M0S,60,0;\n" +
-            "m4\t0\tchr1\t660\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6660,+,900S700M0S,60,0;\n" +
-            "m5\t0\tchr1\t700\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6700,-,900S700M0S,60,0;\n" +
-            "m6\t0\tchr1\t740\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6740,+,900S700M0S,60,0;\n" +
-            "m7\t0\tchr1\t780\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6780,-,900S700M0S,60,0;\n" +
-            "m8\t0\tchr1\t820\t60\t0S900M700S\t*\t0\t0\t*\t*\tSA:Z:chr1,6820,+,900S700M0S,60,0;\n" },
-      ],
+      files: [{ name: "split.sam", body: "" }],
+      make: function () {
+        var sam = "";
+        for (var i = 0; i < 30; i++) {
+          var a = 200 + i * 280;
+          var b = a + 900 + (i % 5) * 120;
+          var back = i % 3 === 0;
+          sam += "m" + i + "\t0\tchr1\t" + a + "\t60\t600M700S\t*\t0\t0\t*\t*\t" +
+                 "SA:Z:chr1," + b + "," + (back ? "-" : "+") + ",600S700M,60,0;\n";
+        }
+        return [{ name: "split.sam", body: sam }];
+      },
     },
     {
       name: "Modified bases",
+      bounds: { from: 1, to: 1000, min: 60 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--modification", after: "--methylation", label: "Which modified base to draw", options: ["m"] },
+      ],
       group: "Reads and molecules",
       command: "chr1:1-1,000 --methylation calls.bed --modification m --label '5mC'",
       files: [
@@ -319,6 +388,10 @@
     },
     {
       name: "Alignment ribbons",
+      bounds: { from: 1, to: 40000, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Alignments and rearrangements",
       command: "ctg1:1-40,000 --synteny aln.paf --label 'against chrA'",
       files: [
@@ -336,6 +409,10 @@
     },
     {
       name: "The same PAF as a dot plot",
+      bounds: { from: 1, to: 40000, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Alignments and rearrangements",
       command: "ctg1:1-40,000 --dotplot aln.paf --label 'dot plot'",
       files: [
@@ -353,6 +430,10 @@
     },
     {
       name: "A multiple alignment",
+      bounds: { from: 1, to: 61, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Sequence alignment",
       command: "aln:1-61 --msa aln.fa --label alignment",
       files: [
@@ -373,6 +454,10 @@
     },
     {
       name: "Only the variable sites",
+      bounds: { from: 1, to: 61, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Sequence alignment",
       command: "aln:1-61 --snps aln.fa --label 'variable sites'",
       files: [
@@ -393,6 +478,10 @@
     },
     {
       name: "A sequence logo",
+      bounds: { from: 1, to: 61, min: 60 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Sequence alignment",
       command: "aln:1-61 --logo aln.fa --label logo",
       files: [
@@ -413,6 +502,11 @@
     },
     {
       name: "A phylogeny",
+      bounds: { from: 1, to: 100, min: 60 },
+      controls: [
+        { kind: "note", label: "A phylogeny has no coordinates, so there is nothing to pan across. What it has is a shape." },
+        { kind: "toggle", flag: "--no-axis", label: "The coordinate ruler, which measures nothing here" },
+      ],
       group: "Phylogeny",
       command: "tree:1-100 --no-axis --tree tree.nwk --label phylogeny",
       files: [
@@ -422,6 +516,10 @@
     },
     {
       name: "Recombination on a tree",
+      bounds: { from: 1, to: 8000, min: 1701 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Phylogeny",
       command: "NC_011900.1:1-8,000 --clades gubbins.gff --with-tree tree.nwk --label recombination",
       files: [
@@ -436,19 +534,162 @@
     },
     {
       name: "Structural variants",
+      bounds: { from: 1, to: 200000, min: 2097 },
+      controls: [
+        { kind: "region" },
+      ],
       group: "Alignments and rearrangements",
       command: "chr1:1-200,000 --structural sv.vcf --label 'structural variants'",
-      files: [
-        { name: "sv.vcf", body:
-            "chr1\t10000\t.\tN\t<DEL>\t.\t.\tSVTYPE=DEL;END=19000;SVLEN=9000\n" +
-            "chr1\t38000\t.\tN\t<DUP>\t.\t.\tSVTYPE=DUP;END=50000;SVLEN=12000\n" +
-            "chr1\t66000\t.\tN\t<INV>\t.\t.\tSVTYPE=INV;END=73000;SVLEN=7000\n" +
-            "chr1\t94000\t.\tN\t<DEL>\t.\t.\tSVTYPE=DEL;END=109000;SVLEN=15000\n" +
-            "chr1\t122000\t.\tN\t<DUP>\t.\t.\tSVTYPE=DUP;END=128000;SVLEN=6000\n" +
-            "chr1\t150000\t.\tN\t<INV>\t.\t.\tSVTYPE=INV;END=161000;SVLEN=11000\n" },
-      ],
+      files: [{ name: "sv.vcf", body: "" }],
+      make: function () {
+        var kinds = ["DEL", "DUP", "INV"];
+        var vcf = "";
+        for (var i = 0; i < 40; i++) {
+          var at = 2000 + i * 4900;
+          var len = 1200 + (i % 7) * 900;
+          var k = kinds[i % 3];
+          vcf += "chr1\t" + at + "\t.\tN\t<" + k + ">\t.\t.\tSVTYPE=" + k +
+                 ";END=" + (at + len) + ";SVLEN=" + len + "\n";
+        }
+        return [{ name: "sv.vcf", body: vcf }];
+      },
     },
   ];
+
+  // ---------------------------------------------------------------------
+  // The controls, which belong to the example
+  // ---------------------------------------------------------------------
+  //
+  // Not the same for every one, because the figures are not the same thing.
+  // A window to slide is what a signal over a chromosome has and a tanglegram
+  // has not, and offering the tanglegram one anyway would be a control that
+  // does nothing and says nothing about why. Every control is a flag, so
+  // turning one rewrites a word of the command and the command stays the thing
+  // that decides.
+
+  var current = null;
+
+  function bounds() {
+    return current && current.bounds ? current.bounds : null;
+  }
+
+  function retune() {
+    // Written from the command rather than remembered, so a control and the
+    // text above it cannot come apart when one of them is edited by hand.
+    var strip = el.controls;
+    if (!current || !current.controls) { strip.textContent = ""; return; }
+    strip.textContent = "";
+
+    current.controls.forEach(function (spec) {
+      if (spec.kind === "note") {
+        var note = document.createElement("p");
+        note.className = "pg-note";
+        note.textContent = spec.label;
+        strip.appendChild(note);
+        return;
+      }
+
+      var row = document.createElement("label");
+      row.className = "pg-control";
+
+      var name = document.createElement("span");
+      name.className = "pg-control-name";
+      strip.appendChild(row);
+
+      if (spec.kind === "region") {
+        var edge = bounds();
+        var where = K.locus(el.command.value);
+        if (!edge || !where) return;
+        var span = where.end - where.start + 1;
+        var room = edge.to - edge.from + 1;
+
+        name.textContent = "Window";
+        row.appendChild(name);
+
+        var slide = document.createElement("input");
+        slide.type = "range";
+        slide.min = String(edge.from);
+        slide.max = String(Math.max(edge.from, edge.to - span + 1));
+        slide.value = String(Math.min(Math.max(where.start, edge.from), edge.to - span + 1));
+        slide.step = String(Math.max(1, Math.round(span / 50)));
+        slide.setAttribute("aria-label", "Where the window sits");
+        slide.addEventListener("input", function () {
+          var at = parseInt(slide.value, 10);
+          move(K.within(K.retarget(el.command.value, at, at + span - 1), edge));
+        });
+        row.appendChild(slide);
+
+        var wide = document.createElement("label");
+        wide.className = "pg-control";
+        var zname = document.createElement("span");
+        zname.className = "pg-control-name";
+        zname.textContent = "Width";
+        wide.appendChild(zname);
+
+        var zoom = document.createElement("input");
+        zoom.type = "range";
+        // A log scale, because a window runs from tens of bases to millions
+        // and a linear slider spends nine tenths of itself on the last order
+        // of magnitude.
+        zoom.min = "0";
+        zoom.max = "1000";
+        var lo = Math.log(Math.max(K.MIN_SPAN, edge.min || 60, Math.min(room, 60)));
+        var hi = Math.log(room);
+        zoom.value = String(Math.round(((Math.log(span) - lo) / Math.max(1e-9, hi - lo)) * 1000));
+        zoom.setAttribute("aria-label", "How many bases are in view");
+        zoom.addEventListener("input", function () {
+          var want = Math.round(Math.exp(lo + (parseInt(zoom.value, 10) / 1000) * (hi - lo)));
+          var here = K.locus(el.command.value);
+          var middle = here.start + (here.end - here.start) / 2;
+          move(K.within(K.retarget(el.command.value, middle - want / 2, middle + want / 2 - 1), edge));
+        });
+        wide.appendChild(zoom);
+
+        var says = document.createElement("output");
+        says.className = "pg-control-says";
+        says.textContent = K.grouped(span) + " bases";
+        wide.appendChild(says);
+        strip.appendChild(wide);
+        return;
+      }
+
+      name.textContent = spec.flag;
+      name.title = spec.label || "";
+      row.appendChild(name);
+
+      if (spec.kind === "toggle") {
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = K.hasFlag(el.command.value, spec.flag);
+        box.addEventListener("change", function () {
+          move(K.setFlag(el.command.value, spec.flag, box.checked ? true : null, spec.after));
+        });
+        row.appendChild(box);
+      } else if (spec.kind === "choice") {
+        var pick = document.createElement("select");
+        var now = K.flagOf(el.command.value, spec.flag);
+        // The empty option is what the flag not being there looks like, and
+        // that is a real state: the program has a default and says so.
+        [""].concat(spec.options).forEach(function (option) {
+          var o = document.createElement("option");
+          o.value = option;
+          o.textContent = option || "(the default)";
+          if (option === (now === null ? "" : now)) o.selected = true;
+          pick.appendChild(o);
+        });
+        pick.addEventListener("change", function () {
+          move(K.setFlag(el.command.value, spec.flag, pick.value || null, spec.after));
+        });
+        row.appendChild(pick);
+      }
+      if (spec.label) {
+        var why = document.createElement("span");
+        why.className = "pg-control-says";
+        why.textContent = spec.label;
+        row.appendChild(why);
+      }
+    });
+  }
 
   // ---------------------------------------------------------------------
   // Drawing
@@ -479,6 +720,7 @@
         files.length + (files.length === 1 ? " file" : " files") +
         ", drawn in " + answer.ms.toFixed(answer.ms < 10 ? 1 : 0) + " ms";
       el.status.classList.remove("pg-bad");
+      retune();
     } else {
       el.plot.className = "pg-plot pg-failed";
       el.plot.textContent = "karyon: " + answer.body;
@@ -525,7 +767,7 @@
     var moved = event.clientX - origin.x;
     if (Math.abs(moved) < 1) return;
     origin.x = event.clientX;
-    move(K.panned(el.command.value, moved / Math.max(1, el.plot.clientWidth)));
+    move(K.within(K.panned(el.command.value, moved / Math.max(1, el.plot.clientWidth)), bounds()));
   }
 
   function onUp(event) {
@@ -544,7 +786,7 @@
     event.preventDefault();
     var box = el.plot.getBoundingClientRect();
     var at = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    move(K.zoomed(el.command.value, event.deltaY > 0 ? 1.25 : 0.8, at));
+    move(K.within(K.zoomed(el.command.value, event.deltaY > 0 ? 1.25 : 0.8, at), bounds()));
   }
 
   // ---------------------------------------------------------------------
@@ -643,6 +885,7 @@
   var home = null;
 
   function load(example) {
+    current = example;
     el.command.value = example.command;
     // The editor is holding the last example's file, not this one's, so it
     // has nothing to save.
@@ -855,7 +1098,7 @@
   function start() {
     var ids = ["app", "bar", "panes", "split", "command", "file", "tabs", "plot",
                "status", "region", "draw", "live", "reset", "layout", "export",
-               "full", "examples", "picker", "search"];
+               "full", "examples", "picker", "search", "controls"];
     ids.forEach(function (name) { el[name] = document.getElementById("pg-" + name); });
     el.pickerBody = document.getElementById("pg-picker-body");
     el.pickerClose = document.getElementById("pg-picker-close");
@@ -927,10 +1170,11 @@
     el.plot.addEventListener("keydown", function (event) {
       if (!el.live.checked) return;
       var step = 0.1;
-      if (event.key === "ArrowLeft") move(K.panned(el.command.value, step));
-      else if (event.key === "ArrowRight") move(K.panned(el.command.value, -step));
-      else if (event.key === "+" || event.key === "=") move(K.zoomed(el.command.value, 0.8, 0.5));
-      else if (event.key === "-" || event.key === "_") move(K.zoomed(el.command.value, 1.25, 0.5));
+      var edge = bounds();
+      if (event.key === "ArrowLeft") move(K.within(K.panned(el.command.value, step), edge));
+      else if (event.key === "ArrowRight") move(K.within(K.panned(el.command.value, -step), edge));
+      else if (event.key === "+" || event.key === "=") move(K.within(K.zoomed(el.command.value, 0.8, 0.5), edge));
+      else if (event.key === "-" || event.key === "_") move(K.within(K.zoomed(el.command.value, 1.25, 0.5), edge));
       else return;
       event.preventDefault();
     });

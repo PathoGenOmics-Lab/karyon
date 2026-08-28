@@ -1379,3 +1379,78 @@ body:not([data-md-color-scheme="slate"]) .pg-panel {
     gap: 0.75rem;
   }
 }
+
+/* ==========================================================================
+   The controls, which belong to the example
+
+   A strip under the figure rather than a panel beside it, because what these
+   change is the figure and the eye should not have to travel. Each one is a
+   flag, so each one is named after the flag it writes, and the region control
+   is two: where the window sits and how much is in it.
+   ========================================================================== */
+
+.pg-controls {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-default-bg-color);
+}
+
+.pg-controls:empty {
+  display: none;
+}
+
+.pg-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.66rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.pg-control-name {
+  font-family: var(--md-code-font-family), monospace;
+  font-weight: 600;
+  color: var(--md-default-fg-color);
+  white-space: nowrap;
+}
+
+.pg-control-says {
+  color: var(--md-default-fg-color--light);
+  font-variant-numeric: tabular-nums;
+}
+
+.pg-control input[type="range"] {
+  width: 10rem;
+  accent-color: var(--md-primary-fg-color);
+}
+
+.pg-control select {
+  font-family: inherit;
+  font-size: 0.66rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.pg-control input:focus-visible,
+.pg-control select:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 1px;
+}
+
+/* What a figure with no window says instead of offering a slider that would
+   move nothing. */
+.pg-note {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color--light);
+}
