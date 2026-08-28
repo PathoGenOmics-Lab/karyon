@@ -31,3 +31,6 @@
 #
 # Without it the page says so and points at the command line guide.
 /docs/assets/karyon_playground.wasm
+
+# Python leaves this behind when the publish-time script is imported.
+__pycache__/

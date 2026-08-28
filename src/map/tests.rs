@@ -294,3 +294,36 @@ fn profiles_scale_map_themes_once() {
     assert_eq!(map.visual_scale, 1.35);
     assert_eq!(phylo.visual_scale, 1.35);
 }
+
+#[test]
+fn a_coastline_outside_the_window_is_not_written_into_the_document() {
+    // Two thirds of the world's coastline falls outside the window a map draws,
+    // and it used to be written out in full and then thrown away by the clip:
+    // the committed map figure carried 996 of 1,536 paths whose bounding box
+    // missed the clip entirely, which is 646 kilobytes of geometry that drew
+    // nothing. `touches` is what keeps them out, so this pins both directions.
+    let area = MapRect {
+        x: 100.0,
+        y: 100.0,
+        w: 200.0,
+        h: 200.0,
+    };
+    let hairline = 1.0;
+
+    // Inside, overlapping an edge, and touching a corner: all of them draw.
+    assert!(draw::touches("M150 150L250 250Z", area, hairline));
+    assert!(draw::touches("M50 150L150 150Z", area, hairline));
+    assert!(draw::touches("M300 300L400 400Z", area, hairline));
+
+    // Clear of every edge in each direction: none of them can.
+    assert!(!draw::touches("M0 0L50 50Z", area, hairline));
+    assert!(!draw::touches("M400 150L500 250Z", area, hairline));
+    assert!(!draw::touches("M150 0L250 50Z", area, hairline));
+    assert!(!draw::touches("M150 400L250 500Z", area, hairline));
+
+    // A hairline's width outside is still drawn, because the stroke reaches in.
+    assert!(draw::touches("M150 99.5L160 99.5Z", area, hairline));
+
+    // A path with no coordinates in it cannot be shown to reach anything.
+    assert!(!draw::touches("Z", area, hairline));
+}

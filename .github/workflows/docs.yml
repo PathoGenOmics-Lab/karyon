@@ -93,6 +93,15 @@ jobs:
       # failure, so a renamed section is caught here rather than by a reader.
       - name: Build, strictly
         run: mkdocs build --strict
+      # The stylesheets and scripts this project wrote carry twenty-two
+      # kilobytes of comments saying why each rule is what it is, which is worth
+      # having in the repository and worth nothing to a browser. extra.css is
+      # render blocking on every page, so a reader was waiting on eight
+      # kilobytes over the wire of prose addressed to whoever edits it next.
+      # The source keeps its comments; the published copy does not. Comments
+      # only: nothing is renamed, reordered or minified.
+      - name: Take the comments out of the published assets
+        run: python3 .github/scripts/strip-comments.py site
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

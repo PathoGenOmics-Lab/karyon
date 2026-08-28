@@ -135,13 +135,13 @@ documentation can quietly stop compiling:
 
 | Group | Tests | What it covers |
 |:------|------:|:---------------|
-| Library unit tests | 1249 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the readers, the shrinkage fitter, and the flag grammar, which is library code |
+| Library unit tests | 1250 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the readers, the shrinkage fitter, and the flag grammar, which is library code |
 | Binary unit tests | 4 | the walk from a command line to a figure |
 | `tests/properties.rs` | 43 | what is true of every figure rather than of one: generated stacks checked against invariants, ten thousand seeds each |
 | `tests/render.rs` | 15 | the document a user gets: well formed, deterministic, free of non-finite numbers, and correct about where a base lands on the page |
 | Doc tests | 67 | every example in the API documentation, compiled and run |
 
-One thousand three hundred and seventy-eight in all, and the counts are from
+One thousand three hundred and seventy-nine in all, and the counts are from
 version 0.14.0. `cargo test --release` runs the same set
 against optimised code, which is what CI does after the debug run, along with
 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` and

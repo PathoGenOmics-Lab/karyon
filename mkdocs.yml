@@ -73,10 +73,18 @@ validation:
 
 # The theme loads two families and headings want a third, so it comes in
 # alongside rather than through `theme.font`.
+# Only what every page needs. `landing.css` and `playground.css` are linked by
+# the one page each of them styles, because loading them here meant twenty-nine
+# pages fetched eleven kilobytes of render-blocking CSS that matched nothing on
+# them. The link sits at the top of that page's markdown, so the browser's
+# preload scanner still finds it in the first response.
 extra_css:
-  - https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap
+  # 600 and 700 only. Five hundred was requested and no rule on the site ever
+  # asked for it: three of the nine @font-face declarations were for a weight
+  # nothing wears, on a render-blocking cross-origin stylesheet that every page
+  # waits for.
+  - https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&display=swap
   - stylesheets/extra.css
-  - stylesheets/landing.css
 
 # The figures are drawn wider than any column on the site, so each one has to
 # be openable at the size it was drawn. This is the only script the site loads
