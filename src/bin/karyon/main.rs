@@ -46,6 +46,8 @@ TRACKS
                          the ploidy is a track option and is required
     --dynseq <FILE>      per-base model attribution, bedGraph, drawn as the
                          bases themselves; takes --with-sequence
+    --junctions <FILE>   splice junctions as arcs weighted by the reads that
+                         crossed them, an aligner's SJ.out.tab
     --sequence <FILE>    the reference bases, FASTA
     --features <FILE>    genes and other intervals, BED or GFF3
     --variants <FILE>    point calls, VCF

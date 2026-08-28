@@ -40,6 +40,7 @@ pub mod dynseq;
 pub mod feature;
 pub mod genome;
 pub mod ideogram;
+pub mod junction;
 pub mod legend;
 pub mod locus;
 pub mod logo;
@@ -76,6 +77,7 @@ pub use dynseq::DynseqTrack;
 pub use feature::{strand_color, Feature, FeatureTrack, Strand};
 pub use genome::GenomeTrack;
 pub use ideogram::{Band, IdeogramTrack, Stain};
+pub use junction::{Junction, JunctionTrack, Motif};
 pub use legend::{Legend, LegendItem, LegendTrack, Marker};
 pub use locus::{GeneShape, Homology, Locus, LocusTrack};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
@@ -139,6 +141,28 @@ impl Rect {
     pub fn mid_y(&self) -> f64 {
         self.y + self.h / 2.0
     }
+}
+
+/// The path of an arc springing from `baseline` at both feet and reaching
+/// `apex` in the middle.
+///
+/// One quadratic, whose control point is put twice as far from the baseline as
+/// the apex asked for, since a quadratic reaches only half way to its control.
+/// Two tracks draw arcs and they draw the same arc: a structural variant
+/// joining its breakpoints and a splice junction spanning its intron differ in
+/// what they mean and in how high they go, not in their shape, and two copies
+/// of this formula would be two shapes the first time one of them was tuned.
+pub(crate) fn arc_path(x0: f64, x1: f64, baseline: f64, apex: f64) -> String {
+    let control = baseline - (baseline - apex) * 2.0;
+    format!(
+        "M{} {}Q{} {} {} {}",
+        crate::svg::num(x0),
+        crate::svg::num(baseline),
+        crate::svg::num((x0 + x1) / 2.0),
+        crate::svg::num(control),
+        crate::svg::num(x1),
+        crate::svg::num(baseline)
+    )
 }
 
 /// Everything a track needs in order to draw one band.

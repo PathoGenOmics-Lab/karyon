@@ -62,6 +62,7 @@ pub mod clade;
 pub mod domain;
 pub mod dynseq;
 pub mod interval;
+pub mod junction;
 pub mod locus;
 pub mod methyl;
 pub mod point;

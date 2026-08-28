@@ -106,14 +106,14 @@ use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
     CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack, DomainArchitecture, DomainTrack,
-    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Legend,
-    LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack,
-    MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack, PhylodynamicPoint,
-    PhylodynamicTrack, PileupTrack, Read, SelectionSite, SelectionTrack, SequenceTrack, SnpSite,
-    SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack, Strand, StructuralTrack, StructuralVariant,
-    SurveillanceObservation, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track,
-    TranscriptionUnit, TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window,
-    WindowTrack,
+    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Junction,
+    JunctionTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack,
+    MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack,
+    OrfTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read, SelectionSite,
+    SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack,
+    Strand, StructuralTrack, StructuralVariant, SurveillanceObservation, SurveillanceTrack,
+    SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack,
+    Variant, VariantTrack, Window, WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -234,6 +234,7 @@ tracks![
     FeatureTrack,
     GenomeTrack,
     IdeogramTrack,
+    JunctionTrack,
     LegendTrack,
     LocusTrack,
     LogoTrack,
@@ -562,6 +563,11 @@ impl<T: Slot> Plot<T> {
         scores: impl Into<Vec<f64>>,
     ) -> Plot<DynseqTrack> {
         self.settle().park(DynseqTrack::new(start, seq, scores))
+    }
+
+    /// Splice junctions as arcs, weighted by the reads that crossed them.
+    pub fn add_junctions(self, junctions: impl Into<Vec<Junction>>) -> Plot<JunctionTrack> {
+        self.settle().park(JunctionTrack::new(junctions))
     }
 
     /// Read depth, one value per base, starting at the left edge of the region.

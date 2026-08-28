@@ -213,6 +213,8 @@ pub enum Kind {
     CopyNumber,
     /// Per-base model attribution from a bedGraph, over a reference.
     Dynseq,
+    /// Splice junctions from an aligner's SJ.out.tab.
+    Junctions,
     /// Reference bases from FASTA.
     Sequence,
     /// Intervals from BED or GFF3.
@@ -272,10 +274,11 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 27] = [
+    pub const ALL: [Kind; 28] = [
         Kind::Coverage,
         Kind::CopyNumber,
         Kind::Dynseq,
+        Kind::Junctions,
         Kind::Sequence,
         Kind::Features,
         Kind::Variants,
@@ -308,6 +311,7 @@ impl Kind {
             Kind::Coverage => "coverage",
             Kind::CopyNumber => "copy-number",
             Kind::Dynseq => "dynseq",
+            Kind::Junctions => "junctions",
             Kind::Sequence => "sequence",
             Kind::Features => "features",
             Kind::Variants => "variants",
@@ -347,6 +351,7 @@ impl Kind {
             Kind::Coverage => "--coverage",
             Kind::CopyNumber => "--copy-number",
             Kind::Dynseq => "--dynseq",
+            Kind::Junctions => "--junctions",
             Kind::Sequence => "--sequence",
             Kind::Features => "--features",
             Kind::Variants => "--variants",
@@ -407,6 +412,7 @@ impl Kind {
                 | Kind::Dotplot
                 | Kind::Methylation
                 | Kind::Structural
+                | Kind::Junctions
                 | Kind::Axis
         )
     }
@@ -441,6 +447,7 @@ impl Kind {
             Kind::Loci => Some("--links"),
             Kind::Coverage
             | Kind::CopyNumber
+            | Kind::Junctions
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
@@ -484,6 +491,7 @@ impl Kind {
             Kind::Coverage
             | Kind::CopyNumber
             | Kind::Dynseq
+            | Kind::Junctions
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
@@ -686,6 +694,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--coverage" => Some((Kind::Coverage, true)),
             "--copy-number" => Some((Kind::CopyNumber, true)),
             "--dynseq" => Some((Kind::Dynseq, true)),
+            "--junctions" => Some((Kind::Junctions, true)),
             "--sequence" => Some((Kind::Sequence, true)),
             "--features" => Some((Kind::Features, true)),
             "--variants" => Some((Kind::Variants, true)),
@@ -914,7 +923,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 let track = last(&mut tracks, "--color")?;
-                if !matches!(track.kind, Kind::Coverage | Kind::Features) {
+                if !matches!(
+                    track.kind,
+                    Kind::Coverage | Kind::Features | Kind::Junctions
+                ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--color",
                         track: track.kind.flag(),

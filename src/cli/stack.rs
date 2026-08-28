@@ -24,10 +24,10 @@ use std::io::{self, Read as _};
 
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
-    DotplotTrack, DynseqTrack, FeatureTrack, IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack,
-    MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region,
-    SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme,
-    Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    DotplotTrack, DynseqTrack, FeatureTrack, IdeogramTrack, JunctionTrack, LocusTrack, LogoTrack,
+    ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack,
+    Plot, Region, SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack,
+    TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -504,6 +504,34 @@ fn track(
                 track = track.height(height);
             }
             Box::new(named(track, label, DynseqTrack::label))
+        }
+        Kind::Junctions => {
+            let found = wrap(name, &path, read::junction::junctions(&text, region))?;
+            if found.records == 0 {
+                return Err(empty("junctions"));
+            }
+            if !found.junctions.iter().any(crate::Junction::is_observed) {
+                // Three ways a file of junctions reaches no figure, and the
+                // counts say which: another sequence, another window, or no
+                // read across any of them.
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "junctions",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                });
+            }
+
+            let mut track = JunctionTrack::new(found.junctions);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            if let Some(color) = spec.color.clone() {
+                track = track.color(color);
+            }
+            Box::new(named(track, label, JunctionTrack::label))
         }
         Kind::Sequence => {
             let records = wrap(name, &path, read::seq::fasta(&text))?;
