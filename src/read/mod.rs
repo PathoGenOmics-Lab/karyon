@@ -64,6 +64,7 @@ pub mod interval;
 pub mod locus;
 pub mod methyl;
 pub mod point;
+pub mod segments;
 pub mod seq;
 pub mod sheet;
 pub mod signal;
