@@ -18,33 +18,33 @@ frequencies or assert transmission.
 
 </div>
 
-![Eight synthetic views covering orthogonal, diagonal, curved, circular and unrooted trees, a tanglegram, genomic selection layers, a phylodynamic trajectory and lineage surveillance](../assets/figures/example-evolutionary-surveillance.svg)
+![Eight synthetic views covering orthogonal, diagonal, curved, circular and unrooted trees, a tanglegram, genomic selection layers, a phylodynamic trajectory and lineage surveillance](../assets/figures/example-evolutionary-surveillance.svg){ width="1410" height="2057" loading="lazy" }
 
 ## Choose the biological question
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../guide/phylogenetics/#choose-a-tree-geometry-for-the-reading-task">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Orthogonal, diagonal, curved, circular and unrooted phylogenetic geometries" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-layouts.svg" alt="Four views of one outbreak tree: an outward circular time tree with two trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram" loading="lazy" width="1402" height="1232"></span>
     <span class="plot-card__body"><small>Topology × geometry</small><strong>Tree shape</strong><span>Choose row alignment, compact radial context or topology-balanced unrooted space without changing the owned tree.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/phylogenetics/#render-ancestral-states-events-and-branch-uncertainty">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Curved phylogeny with ancestral state donuts, transition marks, mutation lists and concordance intervals" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales" loading="lazy" width="1742" height="632"></span>
     <span class="plot-card__body"><small>Reconstruction × uncertainty</small><strong>Ancestral evidence</strong><span>Place posterior state composition on internal nodes and direct mutation or interval evidence on the branch that owns it.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/phylogenetics/#build-a-branch-to-codon-selection-atlas">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="Branch rate mixtures, recurrence links and genomic site-wise selection evidence" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="Branch rate mixtures, recurrence links and genomic site-wise selection evidence" loading="lazy" width="1510" height="1057"></span>
     <span class="plot-card__body"><small>Branch × codon × genome</small><strong>Molecular evolution</strong><span>Separate fitted rate classes, effect direction, statistical evidence, recurrence and observed genomic variants.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#phylodynamictrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Log-scale effective population trajectory with uncertainty ribbon" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="An eight-panel evolutionary atlas whose sixth panel is a log-scale effective population trajectory with its uncertainty ribbon" loading="lazy" width="1410" height="2057"></span>
     <span class="plot-card__body"><small>Time × inferred population process</small><strong>PhylodynamicTrack</strong><span>Draw skyline, effective population, reproductive-number or growth estimates with their interval still visible.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#surveillancetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Stacked lineage frequencies with sampling-aware alert markers" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="An eight-panel evolutionary atlas whose last panel is stacked lineage frequencies with sampling-aware alert markers" loading="lazy" width="1410" height="2057"></span>
     <span class="plot-card__body"><small>Time × observed lineage counts</small><strong>SurveillanceTrack</strong><span>Compare lineage composition or trajectories while keeping counts, denominators and alert reasons inspectable.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#tanglegramtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Core and accessory trees joined through matching taxa" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Core and accessory trees joined through matching taxa" loading="lazy" width="760" height="236"></span>
     <span class="plot-card__body"><small>Topology × topology</small><strong>Evolutionary comparison</strong><span>Expose gene-tree, species-tree, core or accessory disagreement as traceable crossings.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

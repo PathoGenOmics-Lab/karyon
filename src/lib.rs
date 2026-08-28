@@ -118,6 +118,14 @@
 
 #![forbid(unsafe_code)]
 
+/// The version of this crate.
+///
+/// The command prints it for `--version`, and so does the WebAssembly build the
+/// documentation site's playground runs. That build is a separate crate with a
+/// version of its own, so reading `CARGO_PKG_VERSION` there answered for the
+/// shim rather than for the library and reported `0.0.0` for a release.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod cli;
 pub mod dash;
 pub mod error;

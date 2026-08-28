@@ -19,19 +19,19 @@ samples sit on Earth.
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../tracks/#ideogramtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-ideogram.svg" alt="Chromosome ideogram with the visible locus marked" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-ideogram.svg" alt="Chromosome ideogram with the visible locus marked" loading="lazy" width="900" height="276"></span>
     <span class="plot-card__body"><small>Window in chromosome</small><strong>IdeogramTrack</strong><span>A banded or bare whole chromosome with an explicit marker for the region shown below.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#genometrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-genomewide.svg" alt="Signals and association statistics across a multi-contig assembly" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-genomewide.svg" alt="Signals and association statistics across a multi-contig assembly" loading="lazy" width="940" height="290"></span>
     <span class="plot-card__body"><small>Multi-sequence assembly</small><strong>GenomeTrack</strong><span>Contigs placed end to end as named blocks so every neighbouring track can use one global scale.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/figure/#rings-a-circular-sequence">
-    <span class="plot-card__media"><img src="../../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with concentric genomic rings" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with concentric genomic rings" loading="lazy" width="688" height="688"></span>
     <span class="plot-card__body"><small>Circular sequence</small><strong>Rings</strong><span>Features, markers, signal and ruler rings around one sequence, with structural chords through the centre.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/maps/#draw-locations-and-explicit-links">
-    <span class="plot-card__media"><img src="../../assets/figures/example-maps.svg" alt="Locations and flows under three geographic projections" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-maps.svg" alt="Locations and flows under three geographic projections" loading="lazy" width="1402" height="974"></span>
     <span class="plot-card__body"><small>Supplied geography</small><strong>Map</strong><span>Locations, categories, counts and explicit flows under equirectangular, Mercator or orthographic projection.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

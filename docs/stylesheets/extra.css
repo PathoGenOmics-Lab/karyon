@@ -42,6 +42,48 @@
   --md-typeset-a-color:         #38b3fa;
 }
 
+/* The catalogue's seven route colours. They are the Okabe-Ito hues the crate
+   draws with, and like every other colour here they were chosen to sit on
+   white: on the dark page `#0072b2` measures 3.38 against the background and
+   `#7b3294` measures 2.27, so the labels wearing them came to 4.18 and under.
+   Each dark value is the same hue and saturation with the lightness raised
+   until it clears five, measured rather than guessed, which is the same thing
+   already done once for the links. */
+/* The vermillion the site spends on anything a reader can act on is the
+   Okabe-Ito one, chosen to be seen beside the figures rather than to be read
+   as small text: on white it measures 3.87, under the 4.5 body-sized text
+   needs. This is the same hue and saturation darkened until it clears, for the
+   places where the accent is words rather than a mark. Five rather than the
+   bare four and a half, because some of those words sit on a toolbar with a
+   tint of its own rather than on the page. */
+:root {
+  --k-accent-ink: #b85000;
+}
+
+[data-md-color-scheme="slate"] {
+  --k-accent-ink: var(--md-accent-fg-color);
+}
+
+:root {
+  --k-route-blue:       #0072b2;
+  --k-route-green:      #009e73;
+  --k-route-vermillion: #d55e00;
+  --k-route-purple:     #7b3294;
+  --k-route-pink:       #b34f86;
+  --k-route-amber:      #b77f00;
+  --k-route-sky:        #3987e5;
+}
+
+[data-md-color-scheme="slate"] {
+  --k-route-blue:       #38b3fa;
+  --k-route-green:      #009e73;
+  --k-route-vermillion: #e46500;
+  --k-route-purple:     #b56dce;
+  --k-route-pink:       #d98cb8;
+  --k-route-amber:      #e69f00;
+  --k-route-sky:        #428ce6;
+}
+
 /* The logo is square and carries the wordmark inside it, so it needs a little
    more height than the default to stay readable beside the site name. */
 .md-header__button.md-logo img {
@@ -64,6 +106,42 @@
   border-radius: 4px;
 }
 
+/* The site's figures are written as a paragraph holding nothing but an image,
+   which is why the printed edge is hung on the zoom control around it rather
+   than on `figure`: two of the hundred and fifty-seven images on the site are
+   inside a `figure` element, so a rule written for that one matched almost
+   nothing it was meant for. */
+.md-typeset .k-zoom {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  background: #ffffff;
+  cursor: zoom-in;
+  overflow: hidden;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+
+.md-typeset .k-zoom > img {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+}
+
+.md-typeset .k-zoom:hover,
+.md-typeset .k-zoom:focus-visible {
+  border-color: var(--md-primary-fg-color);
+  box-shadow: 0 0 0 3px var(--md-accent-fg-color--transparent);
+}
+
+/* A figure needs more air around it than a paragraph break gives, or it reads
+   as part of the sentence above it rather than as the thing being shown. */
+.md-typeset p:has(> .k-zoom) {
+  margin-block: 1.6rem;
+}
+
 [data-md-color-scheme="slate"] .md-typeset figure img,
 [data-md-color-scheme="slate"] .md-typeset p > img {
   background: #ffffff;
@@ -71,11 +149,133 @@
   box-shadow: 0 0 0 1px hsl(210, 12%, 22%);
 }
 
+/* The dark-theme demonstration figure is the one committed SVG that draws its
+   own dark page, so the white card the others need would put a white halo
+   around it. */
+[data-md-color-scheme="slate"] .md-typeset .k-zoom {
+  background: #ffffff;
+  border-color: hsl(210, 12%, 26%);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .k-zoom[data-ground="dark"] {
+  background: transparent;
+}
+
 .md-typeset figure figcaption {
   font-size: 0.75rem;
   color: var(--md-default-fg-color--light);
   max-width: 46rem;
   margin: 0.4rem auto 0;
+}
+
+/* --------------------------------------------------------------------------
+   The figure viewer
+
+   A native `<dialog>`, so the focus trap and the Escape key are the browser's.
+   Fitted to the window it is already far larger than any column on the site;
+   at actual size it is the size the figure was drawn, which is where the
+   labels inside it resolve, and the stage scrolls to reach the rest of it.
+   -------------------------------------------------------------------------- */
+
+.k-viewer {
+  width: 96vw;
+  max-width: 96vw;
+  max-height: 94vh;
+  padding: 0;
+  border: none;
+  border-radius: 0.3rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  overflow: hidden;
+}
+
+.k-viewer::backdrop {
+  background: rgba(8, 10, 12, 0.82);
+}
+
+.k-viewer__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  font-size: 0.62rem;
+}
+
+.k-viewer__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--md-default-fg-color--light);
+}
+
+.k-viewer__size,
+.k-viewer__open,
+.k-viewer__shut {
+  flex: 0 0 auto;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.15rem;
+  background: transparent;
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.k-viewer__size:hover,
+.k-viewer__open:hover,
+.k-viewer__shut:hover,
+.k-viewer__size:focus-visible,
+.k-viewer__open:focus-visible,
+.k-viewer__shut:focus-visible {
+  border-color: var(--md-primary-fg-color);
+  color: var(--md-primary-fg-color);
+}
+
+/* The dialog hugs the figure rather than filling the window, because most
+   committed figures are wide and short and a fixed height put them in the
+   middle of a field of white taller than they are. */
+.k-viewer__stage {
+  display: grid;
+  place-items: center;
+  max-height: calc(94vh - 2.4rem);
+  padding: 0.8rem;
+  overflow: auto;
+  background: #ffffff;
+}
+
+/* Fitted means fitted to the window, not merely not larger than it. These are
+   SVGs, so a nine-hundred pixel figure drawn at twelve hundred is sharper than
+   the same figure in the column, not softer, and without this the fitted view
+   would be the same size as the page for every figure narrower than the
+   dialog and the size control would appear to do nothing. */
+.k-viewer__stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: calc(94vh - 4.2rem);
+  object-fit: contain;
+}
+
+.k-viewer__stage:focus-visible {
+  outline: 0.14rem solid var(--md-accent-fg-color);
+  outline-offset: -0.14rem;
+}
+
+.k-viewer__stage[data-mode="full"] {
+  place-items: start;
+}
+
+.k-viewer__stage[data-mode="full"] img {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
 }
 
 /* A wide figure scrolls inside its own box rather than pushing the page. */
@@ -147,10 +347,21 @@
   border-radius: 0.35rem;
 }
 
+/* Material gives every `<summary>` a tinted bar of its own blue, and the
+   vermillion this one is written in measured 3.47 against it, where on the
+   page itself it measures 4.53. This disclosure is the site's own component
+   and wants no bar, so it does not get one. */
 .md-typeset .track-overview summary {
   cursor: pointer;
-  color: var(--md-accent-fg-color);
+  color: var(--k-accent-ink);
+  background: none;
+  padding-left: 0;
   font-weight: 600;
+}
+
+.md-typeset .track-overview summary::before,
+.md-typeset .track-overview summary::after {
+  display: none;
 }
 
 .md-typeset .track-overview img {
@@ -211,6 +422,20 @@
   white-space: nowrap;
 }
 
+/* A flag name is one thing. The reference tables are what a reader scans to
+   find theirs, and in a column of a hundred and thirty-seven pixels forty-six
+   of the hundred and fifty-seven names on the command line page were breaking
+   in half: `--coverage <FILE>` arrived as `--coverage` on one line and
+   `<FILE>` on the next, and a nine character name broke after its own two
+   hyphens. Nothing set in code inside a table cell breaks internally now.
+
+   A list of several names still wraps, because each name is its own span. The
+   one cell that held a list inside a single span, the default font stack, is
+   now written as the four families it is. */
+.md-typeset table:not([class]) td > code {
+  white-space: nowrap;
+}
+
 /* --------------------------------------------------------------------------
    Plot catalogue
 
@@ -237,7 +462,7 @@
 }
 
 .md-typeset .plot-hero {
-  --plot-accent: #0072b2;
+  --plot-accent: var(--k-route-blue);
   --plot-tint: hsl(203 100% 35% / 8%);
   position: relative;
   overflow: hidden;
@@ -298,17 +523,30 @@
   font-size: 0.78rem;
 }
 
-.md-typeset .plot-hero--catalog { --plot-accent: #0072b2; --plot-tint: hsl(203 100% 35% / 9%); }
-.md-typeset .plot-hero--signal { --plot-accent: #0072b2; --plot-tint: hsl(203 100% 35% / 8%); }
-.md-typeset .plot-hero--annotation { --plot-accent: #009e73; --plot-tint: hsl(164 100% 31% / 8%); }
-.md-typeset .plot-hero--variation { --plot-accent: #d55e00; --plot-tint: hsl(26 100% 42% / 8%); }
-.md-typeset .plot-hero--reads { --plot-accent: #7b3294; --plot-tint: hsl(285 49% 39% / 8%); }
-.md-typeset .plot-hero--comparison { --plot-accent: #cc79a7; --plot-tint: hsl(327 45% 64% / 10%); }
-.md-typeset .plot-hero--phylo { --plot-accent: #e69f00; --plot-tint: hsl(41 100% 45% / 10%); }
-.md-typeset .plot-hero--world { --plot-accent: #3987e5; --plot-tint: hsl(213 76% 56% / 8%); }
+.md-typeset .plot-hero--catalog { --plot-accent: var(--k-route-blue); --plot-tint: hsl(203 100% 35% / 9%); }
+.md-typeset .plot-hero--signal { --plot-accent: var(--k-route-blue); --plot-tint: hsl(203 100% 35% / 8%); }
+.md-typeset .plot-hero--annotation { --plot-accent: var(--k-route-green); --plot-tint: hsl(164 100% 31% / 8%); }
+.md-typeset .plot-hero--variation { --plot-accent: var(--k-route-vermillion); --plot-tint: hsl(26 100% 42% / 8%); }
+.md-typeset .plot-hero--reads { --plot-accent: var(--k-route-purple); --plot-tint: hsl(285 49% 39% / 8%); }
+.md-typeset .plot-hero--comparison { --plot-accent: var(--k-route-pink); --plot-tint: hsl(327 45% 64% / 10%); }
+.md-typeset .plot-hero--phylo { --plot-accent: var(--k-route-amber); --plot-tint: hsl(41 100% 45% / 10%); }
+.md-typeset .plot-hero--world { --plot-accent: var(--k-route-sky); --plot-tint: hsl(213 76% 56% / 8%); }
 
+/* The route cards and the track cards each carry a figure, and a figure is
+   what a reader has come to the catalogue to see. In two columns, with the
+   picture taking forty-two per cent of one of them, a nine-hundred pixel
+   genomic strip was drawn at a hundred and sixty pixels, which is eighteen per
+   cent and smaller than the same card gets on a phone. So the cards that carry
+   a figure take the whole column and put the figure on top of the words.
+   The route grid holds no figures and stays two across. */
 .md-typeset .plot-category-grid,
-.md-typeset .plot-card-grid,
+.md-typeset .plot-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.1rem;
+  margin: 1rem 0 1.6rem;
+}
+
 .md-typeset .plot-route-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -318,7 +556,7 @@
 
 .md-typeset .plot-category-card,
 .md-typeset .plot-card {
-  --card-accent: #0072b2;
+  --card-accent: var(--k-route-blue);
   display: grid;
   min-width: 0;
   overflow: hidden;
@@ -332,8 +570,7 @@
 }
 
 .md-typeset .plot-category-card {
-  grid-template-columns: minmax(8rem, 42%) 1fr;
-  min-height: 12rem;
+  grid-template-rows: auto auto;
   border-top: 0.2rem solid var(--card-accent);
 }
 
@@ -354,13 +591,16 @@
   outline-offset: 0.12rem;
 }
 
+/* No fixed height and no `object-fit`. A genomic strip is far wider than it is
+   tall, so a box of a fixed height letterboxed it inside bands of white that
+   were taller than the figure. Its own proportions are the right ones. */
 .md-typeset .plot-category-card img {
+  display: block;
   width: 100%;
-  height: 100%;
-  min-height: 12rem;
+  height: auto;
   box-sizing: border-box;
   padding: 0.55rem;
-  object-fit: contain;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
   background: #ffffff;
 }
 
@@ -404,13 +644,13 @@
   font-size: 0.64rem;
 }
 
-.md-typeset .plot-category-card--signal { --card-accent: #0072b2; }
-.md-typeset .plot-category-card--annotation { --card-accent: #009e73; }
-.md-typeset .plot-category-card--variation { --card-accent: #d55e00; }
-.md-typeset .plot-category-card--reads { --card-accent: #7b3294; }
-.md-typeset .plot-category-card--comparison { --card-accent: #b34f86; }
-.md-typeset .plot-category-card--phylo { --card-accent: #b77f00; }
-.md-typeset .plot-category-card--world { --card-accent: #3987e5; }
+.md-typeset .plot-category-card--signal { --card-accent: var(--k-route-blue); }
+.md-typeset .plot-category-card--annotation { --card-accent: var(--k-route-green); }
+.md-typeset .plot-category-card--variation { --card-accent: var(--k-route-vermillion); }
+.md-typeset .plot-category-card--reads { --card-accent: var(--k-route-purple); }
+.md-typeset .plot-category-card--comparison { --card-accent: var(--k-route-pink); }
+.md-typeset .plot-category-card--phylo { --card-accent: var(--k-route-amber); }
+.md-typeset .plot-category-card--world { --card-accent: var(--k-route-sky); }
 
 .md-typeset .plot-card {
   grid-template-rows: 10.5rem 1fr;
@@ -425,11 +665,11 @@
 }
 
 .md-typeset .plot-card__media img {
+  display: block;
   width: 100%;
-  height: 10.5rem;
+  height: auto;
   box-sizing: border-box;
   padding: 0.45rem;
-  object-fit: contain;
   background: #ffffff;
 }
 
@@ -495,36 +735,19 @@
   text-transform: uppercase;
 }
 
-@media screen and (max-width: 76.234375em) {
-  .md-typeset .plot-category-card {
-    grid-template-columns: 1fr;
-  }
-
-  .md-typeset .plot-category-card img {
-    height: 9rem;
-    min-height: 9rem;
-  }
-}
-
+/* The cards that carry a figure are one across at every width now, and the
+   figure keeps its own proportions, so the narrow-screen overrides that used
+   to re-impose a fixed height would only put the letterbox back. What is left
+   here is the grid that holds no figures and the hero's padding. */
 @media screen and (max-width: 44.984375em) {
   .md-typeset .plot-hero {
     padding: 1.2rem 1.05rem;
     border-radius: 0.6rem;
   }
 
-  .md-typeset .plot-category-grid,
-  .md-typeset .plot-card-grid,
   .md-typeset .plot-route-grid,
   .md-typeset .plot-concept-strip {
     grid-template-columns: 1fr;
-  }
-
-  .md-typeset .plot-card {
-    grid-template-rows: 9rem 1fr;
-  }
-
-  .md-typeset .plot-card__media img {
-    height: 9rem;
   }
 }
 
@@ -550,6 +773,22 @@
    the catalogue's own components. That is why this is a list of elements
    rather than a width on the container: a container narrow enough for prose
    would be too narrow for a gallery sheet.
+
+   Twenty-eight rem rather than thirty-three, because thirty-three was not the
+   measure it claimed to be. Counted a character at a time along the first line
+   of every paragraph on the page, thirty-three rem of Inter at sixteen pixels
+   came out at eighty to eighty-eight characters, median eighty-five, which is
+   ten past the top of the range this comment sets. Twenty-eight rem measures
+   sixty-eight to seventy-four.
+
+   Left aligned rather than centred. Centring the capped blocks put the prose
+   in the middle of the column while the figures, the tables and the code
+   blocks kept its full width, so the left edge the eye returns to moved back
+   and forth by a hundred and sixty pixels down the length of every page. One
+   left edge for everything is the rhythm. The pages with no navigation beside
+   them, where centring was what this bought, are handled where they are: the
+   column itself is capped and centred there, and the home page centres its own
+   bands.
    -------------------------------------------------------------------------- */
 
 .md-typeset > p,
@@ -562,8 +801,8 @@
 .md-typeset > h4,
 .md-typeset > .admonition,
 .md-typeset > details {
-  max-width: 33rem;
-  margin-inline: auto;
+  max-width: 28rem;
+  margin-inline: 0;
 }
 
 /* A paragraph that is only an image is not prose. The site's figures are
@@ -571,9 +810,29 @@
    share the same centre line as the text or the page has two axes and looks
    as though one of them slipped. */
 .md-typeset > p:has(> img),
-.md-typeset > p:has(> a > img) {
+.md-typeset > p:has(> a > img),
+.md-typeset > p:has(> .k-zoom) {
   max-width: none;
-  text-align: center;
+  text-align: left;
+}
+
+/* A disclosure whose content is a figure is not a block of words either, so
+   the cap on `details` reached the gallery sheet through its container. The
+   test is whether it holds a picture: the other disclosures on the site hold
+   file listings and keep the measure. */
+.md-typeset > details:has(img) {
+  max-width: none;
+}
+
+/* Material hangs a wide table sixteen pixels into the gutter so it can scroll.
+   With one left edge for everything else on the page, that is the only thing
+   sticking out of it. */
+.md-typeset__scrollwrap {
+  margin-inline: 0;
+}
+
+.md-typeset__table {
+  padding: 0;
 }
 
 
@@ -733,6 +992,14 @@
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+
+/* `display` on a class beats the browser's own `[hidden] { display: none }`,
+   so the workbench drew its whole seven hundred pixels of dead chrome on top
+   of the "this page needs JavaScript" message for a reader who has it off. The
+   script is what takes the attribute away. */
+.pg-app[hidden] {
+  display: none;
 }
 
 .pg-app {
@@ -936,15 +1203,17 @@
   font-weight: 700;
 }
 
+/* Half opacity on an already-reduced foreground put this glyph at 3.94, and
+   it is a control a reader has to find. */
 .pg-shut {
-  opacity: 0.5;
+  color: var(--md-default-fg-color--light);
   font-size: 0.8rem;
   line-height: 1;
 }
 
-.pg-shut:hover {
-  opacity: 1;
-  color: var(--md-typeset-del-color);
+.pg-shut:hover,
+.pg-shut:focus-visible {
+  color: var(--k-accent-ink);
 }
 
 .pg-add {
@@ -976,9 +1245,15 @@
 
 /* Interactive: the figure is something you take hold of, and every frame of
    the drag is a figure the program drew rather than a scaled picture. */
+/* The page advertises drag to pan. Without `touch-action` the browser claims
+   a drag on a touch screen as a scroll and the pointer events never reach the
+   figure, so on a phone the advertised gesture did nothing at all. Horizontal
+   is taken and vertical is left to the page, which is the axis the figure pans
+   on and the axis the reader still needs for the page. */
 .pg-live {
   cursor: grab;
   user-select: none;
+  touch-action: pan-y;
 }
 
 .pg-live.pg-dragging {
@@ -990,11 +1265,17 @@
 }
 
 /* A refusal is text and reads as text, not as a figure that failed to appear. */
+/* `--md-typeset-del-color` is `#f5503d26`: a colour with fifteen per cent
+   alpha, which Material uses as the *background* wash behind a `<del>`. Used
+   as a text colour it drew every refusal the program prints at 1.20 against
+   the page, which is to say invisibly. A refusal is the most important thing
+   this page ever says, so it wears the same vermillion as everything else that
+   asks to be looked at. */
 .pg-failed {
   white-space: pre-wrap;
   font-family: var(--md-code-font-family), monospace;
   font-size: 0.7rem;
-  color: var(--md-typeset-del-color);
+  color: var(--k-accent-ink);
 }
 
 .pg-foot {
@@ -1010,7 +1291,7 @@
 }
 
 .pg-status.pg-bad {
-  color: var(--md-typeset-del-color);
+  color: var(--k-accent-ink);
 }
 
 .pg-notes {
@@ -1090,10 +1371,24 @@
   margin-bottom: 0.7rem;
 }
 
+/* An h3 opened a sub-section with thirty pixels above it and seventeen below,
+   a ratio of one point seven to one, which on the pages where h3 is the level
+   that carries the structure is barely more than a paragraph break. A heading
+   belongs to what follows it, so the space above it has to be clearly the
+   larger of the two. */
 .md-typeset h3 {
   font-weight: 600;
   font-size: 1.1rem;
-  margin-top: 1.5rem;
+  margin-top: 2.2rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Paragraph spacing. Material sets no margin on a bare paragraph, so it fell
+   back to the browser's one em, which is sixteen pixels against a line of
+   twenty-five point six: less than two thirds of a line between one paragraph
+   and the next, and at this measure not enough to rest on. */
+.md-typeset p {
+  margin-block: 1.15em;
 }
 
 /* A rule under the section headings, which is what makes a long page scannable
@@ -1113,18 +1408,17 @@
    cannot do on its own.
    ========================================================================== */
 
+/* Material lays a `figure` out as a table so the caption wraps to the picture,
+   and a table takes its width from its content. The zoom control around the
+   image is a block of a hundred per cent, which contributes nothing to that
+   calculation, so the figure collapsed to the width of its caption and a nine
+   hundred pixel figure came out at three hundred and fifty. These figures want
+   the column anyway, so they take it. */
 .md-typeset figure {
-  margin-block: 1.6rem;
-}
-
-.md-typeset figure img,
-.md-typeset figure svg {
   display: block;
   width: 100%;
-  height: auto;
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.2rem;
-  background: #ffffff;
+  margin-block: 1.6rem;
+  margin-inline: 0;
 }
 
 .md-typeset figcaption {
@@ -1454,3 +1748,313 @@ body:not([data-md-color-scheme="slate"]) .pg-panel {
   line-height: 1.5;
   color: var(--md-default-fg-color--light);
 }
+
+/* ==========================================================================
+   The rest of the chrome
+
+   The header and the tab bar stopped being a block of brand blue for a stated
+   reason: on a site whose purpose is to show figures, chrome that outshouts
+   the content is the wrong chrome. The argument was made once and then applied
+   to two elements. What follows applies it to the rest of them, which is why
+   the site still read as somebody else's: the four loudest surfaces on any
+   page were the four the argument had not reached.
+   ========================================================================== */
+
+/* The footer was a hundred and fifty-eight pixels of near-black across the
+   bottom of every page, and then a darker strip under that. It is the same
+   boundary the header is, so it gets the same treatment: the page's own
+   surface, closed with a hairline. */
+.md-footer,
+.md-footer-meta {
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.md-footer {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-footer-meta {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-footer__link {
+  color: var(--md-default-fg-color--light);
+  opacity: 1;
+}
+
+.md-footer__link:hover,
+.md-footer__link:focus {
+  color: var(--md-primary-fg-color);
+}
+
+.md-footer__direction {
+  color: var(--md-default-fg-color--light);
+  opacity: 1;
+}
+
+[data-md-color-scheme="slate"] .md-footer__direction {
+  color: var(--md-default-fg-color);
+}
+
+/* Material writes the copyright and the social row in white, because it puts
+   them on a black bar. Once the bar is the page they have to be ink. */
+.md-footer-meta,
+.md-footer-copyright,
+.md-copyright,
+.md-copyright__highlight,
+.md-footer-meta .md-social__link {
+  color: var(--md-default-fg-color--light);
+}
+
+/* The permalink beside a heading is a link a keyboard reaches, and at
+   `--lighter` it measured 2.24 against the page. */
+.md-typeset .headerlink {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-footer-meta .md-social__link:hover {
+  color: var(--md-primary-fg-color);
+}
+
+/* Admonitions are the most repeated coloured component in the prose, and they
+   were drawn in Material Design's own hues over a Material elevation shadow,
+   which is a different colour system from the Okabe-Ito one the figures and
+   this file are built on. Same shapes, this palette, and a flat edge rather
+   than a shadow, so a note beside a figure belongs to the same document. */
+/* `.track-overview` is the site's own disclosure around a figure rather than
+   an admonition, so it is left out of all of this: it has no type, no icon and
+   nothing to say in a colour. */
+/* An admonition on this site is not an aside. It is where the sharp edges are
+   written down: what a reader must not do, what the program refuses, which
+   convention a number is in. Material sets it at 0.64rem, and the site had it
+   at 0.68; either way it was the smallest running text on the page, carrying
+   the sentences that cost the most to miss. It reads at 0.76rem now, and the
+   rule below stops code compounding inside it. */
+.md-typeset .admonition,
+.md-typeset details:not(.track-overview) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-left: 0.16rem solid var(--admonition-accent, var(--md-primary-fg-color));
+  border-radius: 0.2rem;
+  box-shadow: none;
+  font-size: 0.76rem;
+}
+
+/* Material sizes inline code as a fraction of what surrounds it, which is right
+   in a paragraph and compounds everywhere the site has already shrunk the
+   container: inside an admonition it came out at 11.56 pixels, and inside a
+   table at the same. Code carries the reference vocabulary of this site, the
+   flag names and the type names, so it is pinned to the size it has in prose
+   and stops multiplying. */
+.md-typeset .admonition code,
+.md-typeset details code,
+.md-typeset table:not([class]) code,
+.md-typeset figcaption code,
+.md-typeset .admonition pre > code,
+.md-typeset details pre > code {
+  font-size: 0.68rem;
+}
+
+.md-typeset .admonition-title,
+.md-typeset details:not(.track-overview) > summary {
+  background: color-mix(in srgb, var(--admonition-accent, var(--md-primary-fg-color)) 8%, transparent);
+  border: none;
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-weight: 600;
+}
+
+.md-typeset .admonition-title::before,
+.md-typeset details:not(.track-overview) > summary::before {
+  background-color: var(--admonition-accent, var(--md-primary-fg-color));
+}
+
+/* Blue for what is worth knowing, bluish green for what helps, orange and
+   vermillion for what will bite. Four of the Okabe-Ito eight, the same palette
+   the crate's own themes draw with, rather than Material's blue, amber and
+   red.
+
+   The selectors carry the type class as well as `.admonition`, because that is
+   what Material's own rules do and a shorter one loses to them however late it
+   is loaded. The `::before` rules carry one more for the same reason. */
+.md-typeset .admonition.note,
+.md-typeset details.note { --admonition-accent: #0072b2; }
+.md-typeset .admonition.info,
+.md-typeset details.info { --admonition-accent: #0072b2; }
+.md-typeset .admonition.tip,
+.md-typeset details.tip { --admonition-accent: #009e73; }
+.md-typeset .admonition.warning,
+.md-typeset details.warning { --admonition-accent: #e69f00; }
+.md-typeset .admonition.danger,
+.md-typeset details.danger { --admonition-accent: #d55e00; }
+
+.md-typeset .admonition.note,
+.md-typeset .admonition.info,
+.md-typeset .admonition.tip,
+.md-typeset .admonition.warning,
+.md-typeset .admonition.danger,
+.md-typeset details.note,
+.md-typeset details.info,
+.md-typeset details.tip,
+.md-typeset details.warning,
+.md-typeset details.danger {
+  border-color: var(--md-default-fg-color--lightest);
+  border-left-color: var(--admonition-accent);
+}
+
+.md-typeset .admonition.note > .admonition-title::before,
+.md-typeset .admonition.info > .admonition-title::before,
+.md-typeset .admonition.tip > .admonition-title::before,
+.md-typeset .admonition.warning > .admonition-title::before,
+.md-typeset .admonition.danger > .admonition-title::before,
+.md-typeset details.note > summary::before,
+.md-typeset details.info > summary::before,
+.md-typeset details.tip > summary::before,
+.md-typeset details.warning > summary::before,
+.md-typeset details.danger > summary::before {
+  background-color: var(--admonition-accent);
+}
+
+.md-typeset .admonition.note > .admonition-title,
+.md-typeset .admonition.info > .admonition-title,
+.md-typeset .admonition.tip > .admonition-title,
+.md-typeset .admonition.warning > .admonition-title,
+.md-typeset .admonition.danger > .admonition-title,
+.md-typeset details.note > summary,
+.md-typeset details.info > summary,
+.md-typeset details.tip > summary,
+.md-typeset details.warning > summary,
+.md-typeset details.danger > summary {
+  background: color-mix(in srgb, var(--admonition-accent) 8%, transparent);
+}
+
+/* A hundred and ninety-five code blocks make the second largest field of ink
+   on the site after the figures, and they were Material's grey well. The
+   surface becomes the one the crate's own dark theme uses, tinted the same way
+   in both schemes, and closed with the same hairline as everything else. */
+.md-typeset pre > code,
+.md-typeset .highlight {
+  border-radius: 0.2rem;
+}
+
+.md-typeset .highlight {
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset code {
+  border-radius: 0.15rem;
+}
+
+/* The navigation and the table of contents are the two columns beside the
+   prose on every page that has any, and they were the page's silhouette before
+   a word of it was read. What changes is weight, not structure: the section
+   headings become the heading face, the entries sit at reading weight, and the
+   one you are on is the only one wearing the brand, which is the same rule the
+   tab bar follows. */
+.md-nav__title {
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-weight: 600;
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  color: var(--md-default-fg-color);
+}
+
+.md-nav__link {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-nav__link:hover,
+.md-nav__link:focus {
+  color: var(--md-default-fg-color);
+}
+
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  color: var(--md-primary-fg-color);
+  font-weight: 600;
+}
+
+/* The secondary column is a list of places in one page rather than a list of
+   pages, so it is given a rule to hang from and the marker sits on it. */
+.md-nav--secondary .md-nav__list {
+  border-left: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-nav--secondary .md-nav__link {
+  padding-left: 0.6rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+}
+
+.md-nav--secondary .md-nav__link--active {
+  border-left-color: var(--md-primary-fg-color);
+}
+
+/* Material's content tabs carry a sliding underline in the accent colour and
+   its back-to-top control is a floating pill of solid brand. Both are louder
+   than anything they sit beside. */
+.md-typeset .tabbed-labels > label {
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-weight: 600;
+  font-size: 0.66rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .tabbed-labels > input:checked + label {
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .tabbed-labels::before {
+  background: var(--md-primary-fg-color);
+}
+
+.md-top {
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color--light);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: none;
+}
+
+.md-top:hover,
+.md-top:focus {
+  background: var(--md-default-bg-color);
+  color: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+
+/* Material fades every `<small>` inside `.md-typeset` to three quarters, which
+   is right for an aside inside a sentence and wrong for the sixty-four labels
+   that carry the type of a card. The colour was set on them without cancelling
+   the fade, so they composited to 3.90 against their card, under the 4.5 that
+   text this size needs. These are labels, not asides. */
+.md-typeset .plot-category-card small,
+.md-typeset .plot-card small,
+.md-typeset .track-card small {
+  opacity: 1;
+}
+
+
+/* In the light scheme a route colour is softened toward the ink so a label is
+   a label rather than a second heading. On the dark page that mix was what
+   held the labels at 4.18, under the 4.5 text this size needs, so there the
+   lifted colour is used as it is. */
+/* The concept chip sits on a tint of its own colour rather than on the page,
+   which costs it about a third of a point: the light page measured 4.17 and
+   the dark one 3.82, both under the 4.5 text this size needs. Each scheme gets
+   the further of its two blues. */
+.md-typeset .plot-chip {
+  color: var(--md-primary-fg-color--dark);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .plot-chip {
+  color: var(--md-primary-fg-color--light);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .plot-eyebrow,
+[data-md-color-scheme="slate"] .md-typeset .plot-stats strong,
+[data-md-color-scheme="slate"] .md-typeset .plot-category-card small,
+[data-md-color-scheme="slate"] .md-typeset .plot-card small,
+[data-md-color-scheme="slate"] .md-typeset .plot-category-card b,
+[data-md-color-scheme="slate"] .md-typeset .plot-card b {
+  color: var(--plot-accent, var(--card-accent, var(--md-primary-fg-color)));
+}
+

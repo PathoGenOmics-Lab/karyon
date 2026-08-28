@@ -23,8 +23,10 @@ the rows line up without being positioned. What comes out is one standalone SVG.
 [Source](https://github.com/PathoGenOmics-Lab/karyon){ .k-go }
 { .k-actions }
 
-33 track types, 25 of them reachable from the command line. No runtime
-dependencies, Rust 1.74 and later, MIT, and not on crates.io yet.
+It reads BED, bedGraph, GFF3, VCF, SAM, FASTA, Newick and [fourteen other text
+formats](guide/formats.md), and draws [36 track types](plots/index.md), [28 of
+them from the command line](guide/cli.md). No runtime dependencies, Rust 1.74
+and later, MIT, and not on crates.io yet.
 { .k-meta }
 
 </div>
@@ -41,12 +43,12 @@ line up. `karyon` is the small amount of code that does know those things.
 ## The same four rows, twice
 
 <figure markdown>
-![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg)
+![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 <figcaption><code>NC_000962.3:761000-762999</code>, two thousand bases</figcaption>
 </figure>
 
 <figure markdown>
-![The same locus over sixty bases: the depth profile, the reference sequence drawn as coloured letters, three variant lollipops standing on the bases they call, and a ruler underneath](assets/figures/example-zoom.svg)
+![The same locus over sixty bases: the depth profile, the reference sequence drawn as coloured letters, three variant lollipops standing on the bases they call, and a ruler underneath](assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
 <figcaption><code>NC_000962.3:761121-761180</code>, sixty bases</figcaption>
 </figure>
 
@@ -92,7 +94,7 @@ program again, which is why the rows stay together wherever you take them.
   --variants calls.vcf --label variants \
   --title 'rpoB locus, resistance determining region'</code></pre>
   <div class="k-stage-plot" data-karyon-plot>
-    <img src="assets/figures/example-live.svg" alt="A stack of three rows over two kilobases: a depth profile with a dropout in it, the rpoB gene running off both edges with its resistance determining region on the row beneath it, and variant lollipops coloured by consequence, over a coordinate ruler">
+    <img src="assets/figures/example-live.svg" alt="A stack of three rows over two kilobases: a depth profile with a dropout in it, the rpoB gene running off both edges with its resistance determining region on the row beneath it, and variant lollipops coloured by consequence, over a coordinate ruler" width="860" height="266" loading="lazy">
   </div>
   <p class="k-stage-status" data-karyon-status aria-live="polite">Drawn in advance, from the command above. If the program arrives, it is redrawn here.</p>
 </div>
@@ -346,12 +348,12 @@ no ends cannot be drawn as a line without inventing one.
 
 <details class="track-overview">
   <summary>Thirty-six track types, twenty-two panels, one sheet</summary>
-  <img src="assets/figures/gallery.svg" loading="lazy" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
+  <img src="assets/figures/gallery.svg" loading="lazy" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="3472" height="1908">
 </details>
 
-Twenty-eight of the thirty-six are reachable from the command line, the ones
-that have a file to read, and twenty-seven of those take a file: `--axis` is the
-one that takes none. Trees drawn with metadata, maps and the selection views are
+Twenty-eight of the thirty-six are reachable from the command line. Twenty-seven
+of those have a file to read; the twenty-eighth is the coordinate ruler, which
+needs none. Trees drawn with metadata, maps and the selection views are
 library only. Where the library ends and the command begins is worth saying out
 loud, because it is the boundary readers walk into.
 
@@ -417,8 +419,8 @@ the numbers it was given, or says that it could not.
 ### Start here
 
 [Quickstart](getting-started/quickstart.md)
-:   A first figure in a dozen lines, and the same figure without writing any
-    Rust.
+:   A first figure in one short program, and the same figure without writing
+    any Rust.
 
 [Installation](getting-started/installation.md)
 :   Point Cargo at the repository for the library, `cargo install` for the

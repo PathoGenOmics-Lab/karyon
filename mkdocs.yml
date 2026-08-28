@@ -78,6 +78,12 @@ extra_css:
   - stylesheets/extra.css
   - stylesheets/landing.css
 
+# The figures are drawn wider than any column on the site, so each one has to
+# be openable at the size it was drawn. This is the only script the site loads
+# on every page, and it does nothing until a figure is activated.
+extra_javascript:
+  - assets/figure-viewer.js
+
 markdown_extensions:
   - abbr
   - admonition
@@ -88,7 +94,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      # 3 rather than 2: every one of the 33 track entries and every one of
+      # 3 rather than 2: every one of the 36 track entries and every one of
       # the 16 recipes is an H3, so at 2 the sidebar contents on the two
       # longest pages listed their section headings and none of their contents.
       toc_depth: 3
@@ -107,6 +113,18 @@ markdown_extensions:
       base_path:
         - "."
       check_paths: true
+      # The glossary, appended to every page. The `abbr` extension below turns
+      # each entry into an `<abbr>` wherever the term appears in prose, and the
+      # theme's `content.tooltips` draws it. It reaches prose only: a term
+      # inside backticks or inside a code block is left exactly as written.
+      #
+      # This exists because the site is read by two people who are not the same
+      # person. One of them can read a VCF and has never written Rust; the other
+      # writes Rust and has never seen a bedGraph. Every term below is cold to
+      # one of them at its first use, and defining them here explains them
+      # everywhere at once without a word of the prose changing.
+      auto_append:
+        - includes/abbreviations.md
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid

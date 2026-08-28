@@ -101,7 +101,8 @@ fn run(mut input: &[u8]) -> Result<String, String> {
         // A page has nowhere to print to and no exit code, so the two requests
         // that are not a figure are answered as text rather than performed.
         args::Request::Help => return Err("--help prints to a terminal".to_string()),
-        args::Request::Version => return Err(format!("karyon {}", env!("CARGO_PKG_VERSION"))),
+        // `karyon::VERSION` and not this crate's own, which is the shim's.
+        args::Request::Version => return Err(format!("karyon {}", karyon::VERSION)),
     };
 
     stack::build(&invocation, |source| match source {

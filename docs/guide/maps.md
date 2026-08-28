@@ -10,7 +10,7 @@ phylogeny around a map. Geography has its own coordinate system, so `Map` and
 They can share a `Panels` sheet with figures and rings, but they never pretend
 that longitude aligns with a base position.
 
-![Three deterministic geographic views of the same synthetic observations: an equirectangular occurrence map, a Mercator occurrence map and an orthographic globe with weighted directed links](../assets/figures/example-maps.svg)
+![Three deterministic geographic views of the same synthetic observations: an equirectangular occurrence map, a Mercator occurrence map and an orthographic globe with weighted directed links](../assets/figures/example-maps.svg){ width="1402" height="974" loading="lazy" }
 
 Generate the geographic gallery with:
 
@@ -67,7 +67,7 @@ titles; only the path geometry is rounded to keep the document compact.
 
 ## Put a phylogeny around the map
 
-![Two circular views of one synthetic outbreak phylogeny: an inward calendar tree with one connector per location and a partial cladogram with one connector per sample](../assets/figures/example-phylo-map.svg)
+![Two circular views of one synthetic outbreak phylogeny: an inward calendar tree with one connector per location and a partial cladogram with one connector per sample](../assets/figures/example-phylo-map.svg){ width="1918" height="872" loading="lazy" }
 
 `PhyloMap` resolves one tree annotation against a named coordinate table. The
 tree stays a tree: the map neither changes its topology nor estimates a

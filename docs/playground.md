@@ -45,7 +45,7 @@ hide:
     <div class="pg-split" id="pg-split" role="separator" aria-orientation="vertical" aria-valuenow="38" aria-valuemin="20" aria-valuemax="75" tabindex="0" aria-label="Resize the panes"></div>
 
     <section class="pg-view" aria-label="Figure">
-      <div class="pg-plot" id="pg-plot" role="img" aria-label="The figure this command draws"></div>
+      <div class="pg-plot" id="pg-plot" aria-live="polite"></div>
       <div class="pg-controls" id="pg-controls"></div>
       <div class="pg-foot"><span class="pg-status" id="pg-status" role="status" aria-live="polite">loading the program…</span></div>
     </section>
@@ -57,7 +57,7 @@ hide:
     <div class="pg-panel-head">
       <div>
         <h2 id="pg-picker-title">Examples</h2>
-        <p>Twenty-one, between them every track flag the command has. Each preview is drawn by the program, here, as this opened.</p>
+        <p>Twenty-four, between them every one of the twenty-eight track flags. Each preview is drawn by the program, here, as this opened.</p>
       </div>
       <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
     </div>

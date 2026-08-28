@@ -57,7 +57,7 @@ karyon chr7:140,753,000-140,754,000 \
 the thing worth not smoothing away; the default is `max`. The ruler goes on the
 bottom without being asked for.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 The same stack over a different locus, rendered from the crate's own example
 data with `cargo run --example locus -- assets`.
@@ -66,6 +66,36 @@ data with `cargo run --example locus -- assets`.
     The first record of the FASTA is used, and it is cut down to the region by
     position, so it has to be the sequence the region names. A multi-record
     file does not select by name.
+
+### A bedGraph and a BED, which is the shortest real figure
+
+The two commonest text files in a genomics directory are a bedGraph of some
+per-base number and a BED of some intervals. Both are 0-based and half-open,
+which is the crate's own convention, so nothing is converted on the way in:
+
+```bash
+karyon chr7:140,753,001-140,754,000 \
+  --coverage depth.bedgraph --label depth --aggregate min \
+  --features genes.bed      --label genes \
+  -o locus.svg
+```
+
+```text title="depth.bedgraph"
+chr7	140753000	140753200	31
+chr7	140753200	140753400	44
+chr7	140753400	140753600	12
+```
+
+```text title="genes.bed"
+chr7	140753050	140753400	exon15	0	-
+chr7	140753500	140753900	exon16	0	-
+```
+
+The region is written the way a genome browser writes one, 1-based and
+inclusive, because that is what a reader copies out of IGV. The files stay in
+their own convention and the reader converts. A BED with no strand column draws
+blocks without arrowheads rather than refusing, and a name column is what
+labels each block.
 
 ### The reads themselves, when a call looks wrong
 
@@ -89,7 +119,7 @@ PileupTrack::new(reads)
     .fade_by_quality(true)
 ```
 
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg)
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg){ width="920" height="474" loading="lazy" }
 
 The library version, from `cargo run --example pileup -- assets`. The reference
 is attached, which is why the mismatches are there.
@@ -128,7 +158,7 @@ Positions are 1-based in both, the way every association tool writes them.
 A cell that is empty, `.` or `NA` is missing data and gets its own grey. Zero
 is a genotype, not an absence, and the two have to look different.
 
-![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg)
+![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg){ width="940" height="349" loading="lazy" }
 
 Both panels share the figure's x axis, so the haplotype block sits under its own
 tower. This one is `cargo run --example association -- assets`.
@@ -242,7 +272,7 @@ A save closes the stack: the pending track is put away and the axis is filled
 in, so saving twice does not draw two rulers. A track added after a save sits
 below the ruler rather than above it.
 
-![The same locus figure on a dark background](assets/figures/example-dark.svg)
+![The same locus figure on a dark background](assets/figures/example-dark.svg){ width="900" height="306" loading="lazy" }
 
 ### One track per sample
 
@@ -296,7 +326,7 @@ plot("NC_000962.3:761,121-761,180")?
 region, which is why the slice has to line up with it. The `_at` forms take a
 start of their own when it does not.
 
-![The same locus at base resolution, with the reference sequence drawn as coloured letters](assets/figures/example-zoom.svg)
+![The same locus at base resolution, with the reference sequence drawn as coloured letters](assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
 
 The sequence track follows the zoom the way a genome browser does: letters once
 a base is at least seven pixels wide, plain coloured blocks when it is
@@ -345,7 +375,7 @@ because a lineage is inherited and the tree put the rows in that order.
 Resistance does not, and that is the finding: the same phenotype in two clades
 that did not get it from each other.
 
-![A phylogeny on the left, three strips of sample metadata beside it, and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
+![A phylogeny on the left, three strips of sample metadata beside it, and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg){ width="900" height="387" loading="lazy" }
 
 Thirty-four differences in thirty kilobases, from
 `cargo run --example snps -- assets`. Drawing all thirty thousand columns would
@@ -386,7 +416,7 @@ its tracks to somebody else's band.
 Panels fill each column before starting the next, so the letters still read in
 order, and the column breaks are chosen to leave the columns roughly level.
 
-![Twenty-two panels in three columns on one sheet, showing every kind of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg)
+![Twenty-two panels in three columns on one sheet, showing every kind of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3472" height="1908" loading="lazy" }
 
 Twenty-two panels, three columns, one document:
 `cargo run --example gallery -- assets`.
@@ -436,7 +466,7 @@ Plot::over(genome.region())
 on it, and the value. `Genome::checked` refuses two sequences with the same
 name, since `Genome::at` would otherwise place everything on the first of them.
 
-![An association scan across twelve contigs of a draft assembly laid end to end, one peak crossing the threshold, with a depth profile and the contig blocks underneath](assets/figures/example-genomewide.svg)
+![An association scan across twelve contigs of a draft assembly laid end to end, one peak crossing the threshold, with a depth profile and the contig blocks underneath](assets/figures/example-genomewide.svg){ width="940" height="290" loading="lazy" }
 
 Twelve contigs over 3.27 Mb, from `cargo run --example genomewide -- assets`.
 
@@ -477,7 +507,7 @@ calendar-time layout. The outgroup call changes nothing unless both names exist
 as distinct leaves and form exactly one clade; use `reroot_midpoint` instead
 when the root should bisect a complete weighted tree.
 
-![Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales](assets/figures/example-phylo-evidence.svg)
+![Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales](assets/figures/example-phylo-evidence.svg){ width="1742" height="632" loading="lazy" }
 
 ### A figure with no coordinate ruler
 
@@ -508,7 +538,7 @@ purpose with `add_axis` stays where it was put. `remove_region_label` goes with
 it here, because the locus in the corner would be describing an axis that is
 not genomic.
 
-![Two trees face to face over one collection of isolates, their shared tips joined across the middle and the crossings coloured](assets/figures/example-tanglegram.svg)
+![Two trees face to face over one collection of isolates, their shared tips joined across the middle and the crossings coloured](assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
 
 From `cargo run --example shapes -- assets`. The header reports the crossing
 count before and after `untangle`, the linked taxa and unmatched tips. The

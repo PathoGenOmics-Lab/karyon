@@ -1,5 +1,10 @@
 # Theming
 
+!!! info "Mostly library"
+    The command line reaches the two built-in palettes through `--theme light`
+    and `--theme dark`, and a single track's colour through `--color`. Every
+    other field on this page is set from Rust.
+
 A `Theme` is the colours, fonts and spacing every track in a
 [figure](figure.md) shares. It is a plain struct with every field public, so
 there is no builder to learn and nothing hidden: start from `Theme::light` or
@@ -22,11 +27,11 @@ theme it was rendered with.
 
 === "Light"
 
-    ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+    ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 === "Dark"
 
-    ![The same locus figure on a dark page: the coverage profile, reference sequence, gene models and variants redrawn in the dark palette's steps against a near-black background](../assets/figures/example-dark.svg)
+    ![The same locus figure on a dark page: the coverage profile, reference sequence, gene models and variants redrawn in the dark palette's steps against a near-black background](../assets/figures/example-dark.svg){ width="900" height="306" loading="lazy" }
 
 The dark theme is **a selected set of colours, not an inversion** of the light
 one. Flipping a light palette is the obvious approach and it fails: a dark
@@ -66,7 +71,7 @@ And the values the two constructors give them:
 | `accent` | `#0072b2` | `#3987e5` |
 | `insertion` | `#8e44ad` | `#8e44ad` |
 | `corner_radius` | `2.5` | `2.5` |
-| `font_family` | `Liberation Sans, Arial, Helvetica, sans-serif` | `Liberation Sans, Arial, Helvetica, sans-serif` |
+| `font_family` | `Liberation Sans`, `Arial`, `Helvetica`, `sans-serif` | `Liberation Sans`, `Arial`, `Helvetica`, `sans-serif` |
 | `font_size` | `12.0` | `12.0` |
 | `label_font_size` | `12.0` | `12.0` |
 | `title_font_size` | `18.0` | `18.0` |

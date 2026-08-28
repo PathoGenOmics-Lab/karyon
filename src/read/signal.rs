@@ -147,7 +147,26 @@ pub fn spans(
                 let start: u64 = number(fields[1], "start", at)?;
                 let end: u64 = number(fields[2], "end", at)?;
                 if end < start {
-                    return Err(ReadError::at(at, "end is before start"));
+                    // The overlap check below is the one that names the way
+                    // out, and on real `samtools depth` output over two files
+                    // it is never reached: the second column is a position and
+                    // the third is a depth, so the very first record has an end
+                    // smaller than its start and stops here instead. A reader
+                    // who got the bare sentence had nothing to act on, so the
+                    // guidance is on both refusals rather than on the rarer
+                    // one.
+                    return Err(if asked.is_none() {
+                        ReadError::at(
+                            at,
+                            "end is before start, so this is not a bedGraph. \
+                             samtools depth over more than one file also writes four \
+                             columns, and its second column is a position rather than \
+                             an end: pass --format depth to read it as that, or \
+                             --format bedgraph to insist",
+                        )
+                    } else {
+                        ReadError::at(at, "end is before start")
+                    });
                 }
                 // Two bedGraph intervals never overlap. `samtools depth` over
                 // two files has four columns too, and reading one as a bedGraph
@@ -467,6 +486,29 @@ NC_045512.2\t100\t101\t7
         let error = spans(text, &region("amplicon:1-5"), None).unwrap_err();
         assert_eq!(error.line, 2);
         assert!(error.to_string().contains("--format depth"), "{error}");
+    }
+
+    #[test]
+    fn real_depth_output_stops_on_the_first_record_and_still_says_how_to_read_it() {
+        // The test above is the case where a depth is larger than the position
+        // it sits at, which lets two records overlap. Real output is the other
+        // way round: a position of ten thousand and a depth of thirty, so the
+        // third column is smaller than the second and the very first record
+        // ends before it starts. That refusal has to carry the same way out,
+        // because it is the one a reader will actually meet.
+        let text = "chr1\t10000\t30\t41\nchr1\t10001\t31\t40\n";
+        let error = spans(text, &region("chr1:1-20000"), None).unwrap_err();
+        assert_eq!(error.line, 1);
+        assert!(error.to_string().contains("--format depth"), "{error}");
+    }
+
+    #[test]
+    fn insisting_on_bedgraph_gets_the_plain_refusal_and_no_guess() {
+        // A reader who named the format is not guessing, so neither is this.
+        let text = "chr1\t10000\t30\t41\n";
+        let error = spans(text, &region("chr1:1-20000"), Some(Format::BedGraph)).unwrap_err();
+        assert!(error.to_string().contains("end is before start"), "{error}");
+        assert!(!error.to_string().contains("--format depth"), "{error}");
     }
 
     #[test]
