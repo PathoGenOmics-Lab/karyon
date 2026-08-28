@@ -13,33 +13,33 @@ Use these tracks when each genomic position, window or aligned column carries a
 measurement or symbol. The important choice is whether zero is a floor, a
 baseline to cross, or not part of the scale at all.
 
-<div class="plot-stats"><span><strong>5</strong> track types</span><span><strong>3</strong> scale contracts</span></div>
+<div class="plot-stats"><span><strong>6</strong> track types</span><span><strong>3</strong> scale contracts</span></div>
 
 </div>
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../tracks/#coveragetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Coverage profile over a locus" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Coverage profile over a locus" loading="lazy" width="900" height="306"></span>
     <span class="plot-card__body"><small>Dense or sparse signal</small><strong>CoverageTrack</strong><span>Per-base depth, GC content or mappability reduced honestly when several bases share a pixel.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#windowtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection.svg" alt="Signed statistics in genomic windows" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-selection.svg" alt="Signed statistics in genomic windows" loading="lazy" width="880" height="234"></span>
     <span class="plot-card__body"><small>Signed window statistic</small><strong>WindowTrack</strong><span>pN/pS, GC skew or Tajima's D drawn on both sides of the baseline they are interpreted against.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#methylationtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-methylation.svg" alt="Per-site methylation on forward and reverse strands" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-methylation.svg" alt="Per-site methylation on forward and reverse strands" loading="lazy" width="880" height="198"></span>
     <span class="plot-card__body"><small>Per-site fraction</small><strong>MethylationTrack</strong><span>Forward and reverse methylation calls kept separate, with depth filtering and hemimethylation queries.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#sequencetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-zoom.svg" alt="Reference bases rendered as coloured letters" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-zoom.svg" alt="Reference bases rendered as coloured letters" loading="lazy" width="900" height="223"></span>
     <span class="plot-card__body"><small>Reference symbols</small><strong>SequenceTrack</strong><span>Bases become letters, blocks or a zoom hint according to the actual pixel resolution.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#dynseqtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Per-base attribution drawn as scaled letters over a promoter" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Per-base attribution drawn as scaled letters over a promoter" loading="lazy" width="812" height="792"></span>
     <span class="plot-card__body"><small>A signed number per base</small><strong>DynseqTrack</strong><span>Model attribution drawn as the bases themselves, hanging below the line where the model pulled away.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#logotrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-logo.svg" alt="One DNA motif under three sequence-logo scores" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-logo.svg" alt="One DNA motif under three sequence-logo scores" loading="lazy" width="900" height="380"></span>
     <span class="plot-card__body"><small>Aligned-column composition</small><strong>LogoTrack</strong><span>Probabilities, information, enrichment or depletion with explicit alphabet and background contracts.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

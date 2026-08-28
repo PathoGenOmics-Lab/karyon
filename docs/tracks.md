@@ -25,50 +25,50 @@ not support the claim is what makes them worth having.
 
 <div class="track-gallery">
   <a class="track-card" href="#coveragetrack">
-    <img src="../assets/figures/example.svg" alt="Coverage, sequence, feature and variant tracks sharing one genomic axis">
+    <img src="../assets/figures/example.svg" alt="Coverage, sequence, feature and variant tracks sharing one genomic axis" width="900" height="306" loading="lazy">
     <span><strong>Locus</strong><small>Signal, sequence and annotation</small></span>
   </a>
   <a class="track-card" href="#pileuptrack">
-    <img src="../assets/figures/example-pileup.svg" alt="Read pileup with mismatches, insertions, deletions and spliced alignments">
+    <img src="../assets/figures/example-pileup.svg" alt="Read pileup with mismatches, insertions, deletions and spliced alignments" width="920" height="474" loading="lazy">
     <span><strong>Read pileup</strong><small>Alignments and variants</small></span>
   </a>
   <a class="track-card" href="#logotrack">
-    <img src="../assets/figures/example-logo.svg" alt="Nucleotide sequence logos">
+    <img src="../assets/figures/example-logo.svg" alt="Nucleotide sequence logos" width="900" height="380" loading="lazy">
     <span><strong>Sequence logo</strong><small>Conservation and motifs</small></span>
   </a>
   <a class="track-card" href="#manhattantrack">
-    <img src="../assets/figures/example-association.svg" alt="Association statistics above a genotype matrix">
+    <img src="../assets/figures/example-association.svg" alt="Association statistics above a genotype matrix" width="940" height="349" loading="lazy">
     <span><strong>Association</strong><small>Statistics and genotypes</small></span>
   </a>
   <a class="track-card" href="#syntenytrack">
-    <img src="../assets/figures/example-synteny.svg" alt="A dotplot and synteny ribbons comparing two sequences">
+    <img src="../assets/figures/example-synteny.svg" alt="A dotplot and synteny ribbons comparing two sequences" width="900" height="438" loading="lazy">
     <span><strong>Synteny</strong><small>Genome comparison</small></span>
   </a>
   <a class="track-card" href="#msatrack">
-    <img src="../assets/figures/example-msa.svg" alt="Multiple sequence alignment coloured by nucleotide">
+    <img src="../assets/figures/example-msa.svg" alt="Multiple sequence alignment coloured by nucleotide" width="940" height="327" loading="lazy">
     <span><strong>Alignment</strong><small>Multiple sequences</small></span>
   </a>
   <a class="track-card" href="#windowtrack">
-    <img src="../assets/figures/example-selection.svg" alt="Windowed statistics plotted around their baselines">
+    <img src="../assets/figures/example-selection.svg" alt="Windowed statistics plotted around their baselines" width="880" height="234" loading="lazy">
     <span><strong>Selection</strong><small>Windowed statistics</small></span>
   </a>
   <a class="track-card" href="#genometrack">
-    <img src="../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with genomic rings">
+    <img src="../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with genomic rings" width="688" height="688" loading="lazy">
     <span><strong>Circular genome</strong><small>Whole-genome context</small></span>
   </a>
   <a class="track-card" href="#bisulfitetrack">
-    <img src="../assets/figures/example-bisulfite.svg" alt="Single-molecule bisulfite methylation calls">
+    <img src="../assets/figures/example-bisulfite.svg" alt="Single-molecule bisulfite methylation calls" width="880" height="304" loading="lazy">
     <span><strong>Methylation</strong><small>Reads and molecules</small></span>
   </a>
   <a class="track-card" href="#phylodynamictrack">
-    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometry, ancestral reconstruction, molecular selection, phylodynamics and lineage surveillance">
+    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometry, ancestral reconstruction, molecular selection, phylodynamics and lineage surveillance" width="1410" height="2057" loading="lazy">
     <span><strong>Evolution</strong><small>Inference and surveillance through time</small></span>
   </a>
 </div>
 
 <details class="track-overview">
   <summary>See the main track gallery on one sheet</summary>
-  <img src="../assets/figures/gallery.svg" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
+  <img src="../assets/figures/gallery.svg" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="3472" height="1908" loading="lazy">
 </details>
 
 **Signal and sequence**
@@ -208,7 +208,7 @@ Most figures made with this crate are a stack of several tracks. The one below
 holds four of them: a depth profile with a dropout in it, the reference bases,
 two gene models and a set of variant calls, all over one axis.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 ### CoverageTrack
 
@@ -239,7 +239,7 @@ measure changes direction, and drawn up from the bottom of a band all of those
 lose the one thing they were computed to say, which is which side of the line a
 window fell on.
 
-![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows that fall below the line in a colour of their own](assets/figures/example-selection.svg)
+![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows that fall below the line in a colour of their own](assets/figures/example-selection.svg){ width="880" height="234" loading="lazy" }
 
 `WindowStyle::Steps` is the default and the honest one, because a window is an
 interval and a block says so; `WindowStyle::Line` is for a statistic read as a
@@ -267,7 +267,7 @@ base and the measurement is a fraction of reads rather than a genotype, and the
 two things that follow from that are why this is not a
 [VariantTrack](#varianttrack).
 
-![Dam methylation at GATC sites across the E. coli origin of replication, forward strand calls above the line and reverse below, each faded by how many reads covered it](assets/figures/example-methylation.svg)
+![Dam methylation at GATC sites across the E. coli origin of replication, forward strand calls above the line and reverse below, each faded by how many reads covered it](assets/figures/example-methylation.svg){ width="880" height="198" loading="lazy" }
 
 The first is strand. Methylation belongs to one strand of a duplex, so the two
 strands of a palindromic site are two measurements and the asymmetry is often
@@ -301,7 +301,7 @@ coloured letters once a base is at least seven pixels wide, plain coloured
 blocks below that, and a hint to zoom in once the bases would be thinner than
 0.6 of a pixel.
 
-![The same locus at base resolution, with the reference sequence drawn as coloured letters](assets/figures/example-zoom.svg)
+![The same locus at base resolution, with the reference sequence drawn as coloured letters](assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
 
 That last case is the refusal. Five million one-pixel rectangles is a file no
 viewer will open, so once the bases are that thin the track prints the hint
@@ -315,7 +315,7 @@ A sequence logo over consecutive positions, built from aligned sequences with
 `LogoTrack::from_sequences`, from a position weight matrix with
 `LogoTrack::from_matrix`, or column by column.
 
-![The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it](assets/figures/example-logo.svg)
+![The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it](assets/figures/example-logo.svg){ width="900" height="380" loading="lazy" }
 
 A logo has to decide what a letter's height means, and `LogoScore` offers seven
 answers. Five of them measure a symbol against a background and can therefore
@@ -323,7 +323,7 @@ hang it below the baseline, which is the thing a classic logo cannot do: a
 column that is nearly uniform is flat in bits, and a base that is missing from
 it is invisible. `LogoTrack::edlogo` is the one to reach for first.
 
-![The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient](assets/figures/example-logo-scores.svg)
+![The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient](assets/figures/example-logo-scores.svg){ width="760" height="544" loading="lazy" }
 
 Which one is chosen changes the reading, not just the drawing: the same four
 columns scored five ways put the emphasis in five different places.
@@ -338,12 +338,12 @@ is an estimation problem rather than a plotting one, so `LogoTrack::stabilize`
 shrinks each column towards the background by the amount its sample size
 supports, and `dash_fit` reports how far each column moved.
 
-![The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred](assets/figures/example-logo-stability.svg)
+![The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred](assets/figures/example-logo-stability.svg){ width="700" height="486" loading="lazy" }
 
 Symbols are arbitrary strings, so three letter amino acid codes and k-mers plot
 as readily as bases:
 
-![A sequence logo whose symbols are three letter amino acid codes](assets/figures/example-logo-protein.svg)
+![A sequence logo whose symbols are three letter amino acid codes](assets/figures/example-logo-protein.svg){ width="640" height="206" loading="lazy" }
 
 ### DynseqTrack
 
@@ -407,7 +407,7 @@ Where transcription starts, how far the leader runs, and where it stops: a bent
 arrow at the start site, a hollow 5' leader, and a hairpin or a plain bar at the
 terminator depending on whether it is intrinsic or Rho dependent.
 
-![Transcription units over a gene cluster, each drawn as a bent arrow at its start site, a hollow leader and a hairpin at its terminator, above a feature track of the genes they carry](assets/figures/example-transcripts.svg)
+![Transcription units over a gene cluster, each drawn as a bent arrow at its start site, a hollow leader and a hairpin at its terminator, above a feature track of the genes they carry](assets/figures/example-transcripts.svg){ width="880" height="218" loading="lazy" }
 
 The span is the claim. From the arrow to the terminator is one RNA molecule, so
 the genes under it are co-transcribed and a promoter mutation upstream of the
@@ -428,7 +428,7 @@ the frames read left to right and three below for the other strand, with each
 stop codon a tick across its lane and each open reading frame the bar between
 two of them.
 
-![Six lanes of reading frames across three and a half kilobases, stop codons drawn as ticks and the open stretches between them as bars, three lanes above the line and three below](assets/figures/example-frames.svg)
+![Six lanes of reading frames across three and a half kilobases, stop codons drawn as ticks and the open stretches between them as bars, three lanes above the line and three below](assets/figures/example-frames.svg){ width="880" height="172" loading="lazy" }
 
 Open means a run of at least `min_codons` codons with no stop in it, thirty by
 default. Whether it starts at a methionine is a separate question and a separate
@@ -462,7 +462,7 @@ Structural variant calls as arcs between their two breakpoints, springing from
 the axis at both ends, with arch height following how far apart the ends are and
 stroke weight following the supporting read count.
 
-![Five structural variant calls drawn as arcs between their breakpoints: a deletion, a duplication, an inversion, an insertion, and a translocation whose far end leaves the frame. Underneath, a depth profile that drops to nothing under the deletion and steps up under the duplication](assets/figures/example-structural.svg)
+![Five structural variant calls drawn as arcs between their breakpoints: a deletion, a duplication, an inversion, an insertion, and a translocation whose far end leaves the frame. Underneath, a depth profile that drops to nothing under the deletion and steps up under the duplication](assets/figures/example-structural.svg){ width="880" height="289" loading="lazy" }
 
 The arc is the point. A structural variant is not a mark at a position, it is a
 statement that two positions belong together: the two ends of a deletion, the
@@ -480,7 +480,7 @@ argue with.
 Segmented copy number, on a ladder of whole copies, with what the two alleles
 did along the foot.
 
-![A cohort copy number landscape over one arm, and under it one tumour's segmentation with its lost heterozygosity marked](assets/figures/example-copy-number.svg)
+![A cohort copy number landscape over one arm, and under it one tumour's segmentation with its lost heterozygosity marked](assets/figures/example-copy-number.svg){ width="900" height="342" loading="lazy" }
 
 A caller reports intervals, each carrying how many copies it found, and the good
 ones carry two numbers rather than one: the total, and how many of those copies
@@ -517,7 +517,7 @@ which is a number of copies nobody has.
 The variable columns of an alignment and nothing else, spaced evenly, one row
 per sample.
 
-![A phylogeny, three strips of sample metadata and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
+![A phylogeny, three strips of sample metadata and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg){ width="900" height="387" loading="lazy" }
 
 An alignment of closely related genomes is almost entirely agreement: thirty
 kilobases carrying thirty-four differences would spend 99.9% of its pixels on
@@ -548,7 +548,7 @@ pangenome presence and absence matrix once its genes have coordinates. The
 columns sit at their real coordinates, so the matrix shares the figure's axis
 with whatever is above it.
 
-![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg)
+![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg){ width="940" height="349" loading="lazy" }
 
 Three things have to look different in a matrix: a sample that does not carry
 the allele, a sample that was never typed, and empty page. So the sequential
@@ -561,7 +561,7 @@ as an index into the palette instead.
 `MatrixTrack::tree` sorts the rows by descent the same way the SNP panel does,
 which is what turns a speckle into rectangles:
 
-![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](assets/figures/example-pangenome.svg)
+![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](assets/figures/example-pangenome.svg){ width="940" height="265" loading="lazy" }
 
 Cells never merge, and that is the refusal. Six carriers drawn as six cells are
 six observations. One rectangle covering six rows would be one claim, and that
@@ -594,7 +594,7 @@ draws them in aligned tiers rather than letting one colour stand for both. The
 upper tier is either `-log10(p)` or posterior probability; the lower tier is a
 signed `log2(ω)` effect centred on ω = 1.
 
-![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](assets/figures/example-selection-atlas.svg)
+![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](assets/figures/example-selection-atlas.svg){ width="1510" height="1057" loading="lazy" }
 
 ```rust
 use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
@@ -634,7 +634,7 @@ model or decide a multiple-testing correction.
 Aligned reads, stacked the way a genome browser stacks them. This is the track
 you open when a variant call looks wrong.
 
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg)
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg){ width="920" height="474" loading="lazy" }
 
 A read is not an interval, so the track takes a real CIGAR and walks it. `M`,
 `=` and `X` all become `Match` and the track compares the sequences itself
@@ -659,7 +659,7 @@ those coordinates. A connector that runs backwards is drawn under the row rather
 than over it, so a read crossing an inversion looks different from a read
 crossing a deletion instead of merely being annotated differently.
 
-![Eight molecules each aligned in three pieces, two at a new insertion site and one back to the reference copy of the element on the reverse strand, with the connectors that run backwards drawn under their rows, above a depth profile that doubles over the donor](assets/figures/example-split.svg)
+![Eight molecules each aligned in three pieces, two at a new insertion site and one back to the reference copy of the element on the reverse strand, with the connectors that run backwards drawn under their rows, above a depth profile that doubles over the donor](assets/figures/example-split.svg){ width="880" height="331" loading="lazy" }
 
 This is the evidence, and neither neighbour can hold it. A
 [PileupTrack](#pileuptrack) read is one start, one CIGAR and one strand, so a
@@ -689,7 +689,7 @@ assert!(read.goes_backwards());
 Methylation one molecule at a time: one row per read, one column per site,
 filled for modified and open for not.
 
-![Sixteen molecules across a human imprinting control region, one row each, with filled and open circles per cytosine: some reads are methylated at every site and others at none](assets/figures/example-bisulfite.svg)
+![Sixteen molecules across a human imprinting control region, one row each, with filled and open circles per cytosine: some reads are methylated at every site and others at none](assets/figures/example-bisulfite.svg){ width="880" height="304" loading="lazy" }
 
 A [MethylationTrack](#methylationtrack) gives a fraction per site, and half the
 reads methylated at every site has two very different explanations. Either every
@@ -711,7 +711,7 @@ when the question is whether an island is uniformly modified.
 Splice junctions as arcs, each weighted by the reads that crossed it and
 labelled with the count.
 
-![A sashimi figure: junction arcs over a depth profile, and per-base attribution under it](assets/figures/example-regulation.svg)
+![A sashimi figure: junction arcs over a depth profile, and per-base attribution under it](assets/figures/example-regulation.svg){ width="812" height="792" loading="lazy" }
 
 Three things separate this from [StructuralTrack](#structuraltrack), which also
 draws arcs and also weights them by support, and none of the three is a setting.
@@ -755,7 +755,7 @@ into letters and throws the rest away. When a basecall is in doubt, or a
 modification is the thing being measured, the current is the evidence and the
 letters are the summary.
 
-![Raw nanopore current for one read, drawn as a min to max envelope that resolves into the trace, with the bases the basecaller assigned to each stretch marked above it](assets/figures/example-squiggle.svg)
+![Raw nanopore current for one read, drawn as a min to max envelope that resolves into the trace, with the bases the basecaller assigned to each stretch marked above it](assets/figures/example-squiggle.svg){ width="880" height="186" loading="lazy" }
 
 The x axis is sample number, which is time and not position, so the figure goes
 over `Region::new("read", 0, samples)`. Above one sample per pixel each column
@@ -774,7 +774,7 @@ samples each called base held the pore for.
 
 A multiple sequence alignment, row by row.
 
-![A conservation logo above a multiple sequence alignment, with only the disagreements painted](assets/figures/example-msa.svg)
+![A conservation logo above a multiple sequence alignment, with only the disagreements painted](assets/figures/example-msa.svg){ width="940" height="327" loading="lazy" }
 
 The coordinates are alignment columns, not genomic positions. They are two
 different things, so the figure's region is the column space, an alignment 900
@@ -791,7 +791,7 @@ reference, or leave it and the consensus is used. Conservation belongs above the
 alignment rather than inside it, and [LogoTrack](#logotrack) takes the same
 sequences this track does.
 
-![A short protein alignment with residues coloured by class](assets/figures/example-msa-protein.svg)
+![A short protein alignment with residues coloured by class](assets/figures/example-msa-protein.svg){ width="720" height="175" loading="lazy" }
 
 Protein alignments colour by physicochemical class, six of them, which is how
 many hues the validated palette has. Neighbouring cells of the same colour are
@@ -808,7 +808,7 @@ than being discarded.
 Domains, motifs, exons, introns or repeats as labelled half-open intervals,
 one sequence per row.
 
-![Node graphics, a tree-aligned MSA and tree-aligned domain architectures](assets/figures/example-phylo-faces.svg)
+![Node graphics, a tree-aligned MSA and tree-aligned domain architectures](assets/figures/example-phylo-faces.svg){ width="1388" height="664" loading="lazy" }
 
 `DomainArchitecture` holds one named sequence length and its `DomainFeature`
 intervals. Features with the same label share a stable palette colour across
@@ -829,7 +829,7 @@ forward block runs bottom left to top right, a reversed one the other way, and a
 rearrangement is whatever shape those make: a translocation sits off the main
 diagonal, an inversion is an anti-diagonal.
 
-![A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block](assets/figures/example-synteny.svg)
+![A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block](assets/figures/example-synteny.svg){ width="900" height="438" loading="lazy" }
 
 The figure's region is always the query. The target keeps its own scale, either
 its whole length through `target_length` or a slice of it through
@@ -842,7 +842,7 @@ The same `AlignmentBlock`s as ribbons between two bars. Compact, follows one
 block at a time, and an inversion becomes a twist rather than a shape you read
 off two axes.
 
-![The inversion on its own: two bars joined by ribbons that cross where the alignment reverses](assets/figures/example-synteny-inversion.svg)
+![The inversion on its own: two bars joined by ribbons that cross where the alignment reverses](assets/figures/example-synteny-inversion.svg){ width="760" height="252" loading="lazy" }
 
 Neither form is a summary of the other, which is why both ship. The dotplot
 shows the shape of a rearrangement at a glance and costs a tall panel; the
@@ -855,7 +855,7 @@ exactly what it connects.
 Several loci from several genomes, one row each, genes drawn as arrows and
 joined to their matches in the row below by identity ribbons.
 
-![The ESX-1 locus in three genomes, one row each, genes drawn as arrows and joined by identity ribbons, with the genes deleted in one of them left outlined and unjoined](assets/figures/example-cluster.svg)
+![The ESX-1 locus in three genomes, one row each, genes drawn as arrows and joined by identity ribbons, with the genes deleted in one of them left outlined and unjoined](assets/figures/example-cluster.svg){ width="880" height="259" loading="lazy" }
 
 The question asked of a gene cluster, an operon, a viral genome or a syntenic
 block is almost never "what is in it" but "what is in it that the other one has
@@ -881,7 +881,7 @@ mean something or a cladogram when they do not. The projection can be
 rectangular, a complete circle, a partial fan or an equal-angle unrooted view,
 with branches radiating outwards or inwards where the root is meaningful.
 
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](assets/figures/example-phylogenetics.svg)
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](assets/figures/example-phylogenetics.svg){ width="1542" height="356" loading="lazy" }
 
 Annotated Newick, BEAST, NHX and the first tree in a Nexus trees block retain
 typed metadata. `time` places nodes on a numeric date or height, `color_by`
@@ -890,7 +890,7 @@ heatmaps, bars, binary marks or shaped categories to the visible tips.
 `TreeTrack::collapse` replaces a
 visible clade with a triangle without changing the `Tree` it owns.
 
-![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](assets/figures/example-phylo-layouts.svg)
+![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](assets/figures/example-phylo-layouts.svg){ width="1402" height="1232" loading="lazy" }
 
 In circular coordinates, time ticks are concentric guides, trait columns are
 annular rings and collapsed clades are wedges. `circular`, `fan`,
@@ -902,14 +902,14 @@ curved parent-to-child connections. The choice changes only the SVG path:
 topology, branch length, terminal order and metadata ownership remain
 identical. Circular, fan and unrooted projections retain their own geometry.
 
-![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](assets/figures/example-phylo-annotations.svg)
+![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](assets/figures/example-phylo-annotations.svg){ width="1482" height="714" loading="lazy" }
 
 `unrooted` chooses a topology-balanced centre rather than the source Newick
 root. `TraitColumn::bar`, `binary` and `symbol` add iTOL-style datasets to both
 the circular and unrooted projections while preserving exact values in SVG
 tooltips.
 
-![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](assets/figures/example-selection-atlas.svg)
+![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](assets/figures/example-selection-atlas.svg){ width="1510" height="1057" loading="lazy" }
 
 `BranchRateMixture` preserves several fitted ω classes on the same branch:
 capsule segment width follows class weight and colour follows the neutral-
@@ -929,7 +929,7 @@ axis for concordance, rate uncertainty or transition support. All three work
 in rectangular, circular and unrooted projections, preserve exact source
 values in tooltips and never inherit missing branch annotations.
 
-![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](assets/figures/example-phylo-faces.svg)
+![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](assets/figures/example-phylo-faces.svg){ width="1388" height="664" loading="lazy" }
 
 `NodeGlyph::bubble`, `pie`, `donut` and `stacked_bar` attach numeric data to
 nodes. `NodeGlyphTarget` restricts marks to internal nodes or leaves, and
@@ -937,7 +937,7 @@ missing values suppress a glyph rather than becoming zero. `CladeHighlight`
 projects one descendant set as a band, annular sector or unrooted field without
 changing topology. Exact values and descendant counts remain in tooltips.
 
-![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](assets/figures/example-phylo-evidence.svg)
+![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](assets/figures/example-phylo-evidence.svg){ width="1742" height="632" loading="lazy" }
 
 `support_style` makes internal support visible as scaled symbols, exact labels
 or both, and `support_threshold` accepts either fractions or percentages.
@@ -946,7 +946,7 @@ it deliberately does not inherit ancestral values. `scale_bar` adds an
 automatic or exact branch-length ruler to any phylogram projection and refuses
 to imply those units on a cladogram or explicit time tree.
 
-![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](assets/figures/example-phylo-reroot.svg)
+![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](assets/figures/example-phylo-reroot.svg){ width="1742" height="362" loading="lazy" }
 
 `reroot`, `reroot_named`, `reroot_outgroup` and `reroot_midpoint` expose the
 common rooting choices without changing tip-to-tip distances. Outgroup rooting
@@ -974,7 +974,7 @@ against an accessory tree, two methods over one alignment: drawn side by side
 the disagreement is something you have to hold in your head, and drawn this way
 the disagreement is the crossings, which are a thing you can point at.
 
-![Core and accessory genome trees of eight isolates drawn face to face, the same tips joined across the middle and the crossing ties coloured](assets/figures/example-tanglegram.svg)
+![Core and accessory genome trees of eight isolates drawn face to face, the same tips joined across the middle and the crossing ties coloured](assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
 
 ```rust
 use karyon::tree::Tree;
@@ -1021,7 +1021,7 @@ not.
 Genomic intervals painted onto a phylogeny: a block whose width is a coordinate
 span and whose height is a clade.
 
-![Lineage-defining deletions drawn as blocks across a SARS-CoV-2 phylogeny, each spanning the rows of the lineages that carry it, with the recurrent one cut out where a lineage between the carriers does not](assets/figures/example-clades.svg)
+![Lineage-defining deletions drawn as blocks across a SARS-CoV-2 phylogeny, each spanning the rows of the lineages that carry it, with the recurrent one cut out where a lineage between the carriers does not](assets/figures/example-clades.svg){ width="880" height="242" loading="lazy" }
 
 A [MatrixTrack](#matrixtrack) cell is one base wide and cells never merge, so a
 matrix can only say that these six samples each carry something here. That is
@@ -1064,7 +1064,7 @@ therefore could not be placed.
 
 ## Evolution and surveillance
 
-![Eight synthetic evolutionary views including a coalescent trajectory and stacked lineage surveillance](assets/figures/example-evolutionary-surveillance.svg)
+![Eight synthetic evolutionary views including a coalescent trajectory and stacked lineage surveillance](assets/figures/example-evolutionary-surveillance.svg){ width="1410" height="2057" loading="lazy" }
 
 These two tracks use the shared integer x axis for time. That lets an inferred
 population trajectory, observed lineage composition, sampling annotations and
@@ -1143,7 +1143,7 @@ interpolation, forecasting or anomaly test.
 The whole chromosome drawn end to end across the plotting area, with a marker
 showing which part of it the tracks below are showing.
 
-![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](assets/figures/example-ideogram.svg)
+![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](assets/figures/example-ideogram.svg){ width="900" height="276" loading="lazy" }
 
 Of the five tracks that do not use the shared scale, this is the only one whose
 x is still a genomic coordinate, and it is not the figure's. The reason is the
@@ -1162,7 +1162,7 @@ viruses, draft assemblies and bacterial chromosomes among them.
 `IdeogramTrack::bare` gives an outline instead, which still answers the only
 question the track was ever asked.
 
-![The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it](assets/figures/example-ideogram-bacterial.svg)
+![The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it](assets/figures/example-ideogram-bacterial.svg){ width="760" height="142" loading="lazy" }
 
 ### GenomeTrack
 
@@ -1171,7 +1171,7 @@ names on them. A figure is one region on one sequence, which is right for a
 locus and wrong for an assembly; `Genome` hands back the single region that
 covers all of them, and every other track then works across the lot at once.
 
-![An association scan and a depth profile drawn across every contig of a draft assembly, with the contigs underneath as alternating named blocks](assets/figures/example-genomewide.svg)
+![An association scan and a depth profile drawn across every contig of a draft assembly, with the contigs underneath as alternating named blocks](assets/figures/example-genomewide.svg){ width="940" height="290" loading="lazy" }
 
 What it refuses to be is a ruler. A ruler of global coordinates under a
 concatenated genome would be a ruler of a coordinate system nothing else uses,
@@ -1201,7 +1201,7 @@ it counts.
 
 A ruler in codons, so a coding sequence can be read in protein coordinates.
 
-![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](assets/figures/example-codons.svg)
+![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](assets/figures/example-codons.svg){ width="880" height="171" loading="lazy" }
 
 A variant in a coding sequence is named by residue rather than by base: BRAF
 V600E, TP53 R175H, rpoB S450L. A figure drawn in bases cannot be pointed at with

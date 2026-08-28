@@ -70,7 +70,7 @@ So the same figure is the same list of words either way:
     `calls` are already in hand. Reading them from a bedGraph, a FASTA, a GFF3
     and a VCF is the only thing the command does that the library does not.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 ## The region
 
@@ -365,7 +365,7 @@ karyon NC_000962.3:761,000-763,000 \
   --theme dark -o rpoB-dark.svg
 ```
 
-![The same locus figure on a dark background](../assets/figures/example-dark.svg)
+![The same locus figure on a dark background](../assets/figures/example-dark.svg){ width="900" height="306" loading="lazy" }
 
 ## Standard input
 

@@ -19,31 +19,31 @@ state, migration event or transmission chain.
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../evolution-surveillance/">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometries, ancestral reconstruction, molecular evolution, comparison, phylodynamics and lineage surveillance" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometries, ancestral reconstruction, molecular evolution, comparison, phylodynamics and lineage surveillance" loading="lazy" width="1410" height="2057"></span>
     <span class="plot-card__body"><small>Topology × genome × time</small><strong>Evolutionary surveillance atlas</strong><span>Move from tree geometry through ancestral evidence and molecular selection to phylodynamic estimates and observed lineage change.</span><b>Open catalogue <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/phylogenetics/#build-a-branch-to-codon-selection-atlas">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="A molecular-selection atlas with branch rate mixtures, recurrent-event links and site-wise frequentist and posterior scans" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="A molecular-selection atlas with branch rate mixtures, recurrent-event links and site-wise frequentist and posterior scans" loading="lazy" width="1510" height="1057"></span>
     <span class="plot-card__body"><small>Tree × codon model</small><strong>Molecular selection atlas</strong><span>Keep weighted branch rate classes, recurrence, statistical evidence and signed site effects in separate visual channels.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/phylogenetics/#attach-data-graphics-to-nodes-and-clades">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Node bubbles, ancestral composition donuts, clade fields, an aligned MSA and aligned domain architectures" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Node bubbles, ancestral composition donuts, clade fields, an aligned MSA and aligned domain architectures" loading="lazy" width="1388" height="664"></span>
     <span class="plot-card__body"><small>Tree × node and row data</small><strong>Phylogenetic data faces</strong><span>Attach abundance, composition and clade context to nodes, then align sequences or domains by descent.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#treetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted trees with support, branch events and evolutionary scale bars" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted trees with support, branch events and evolutionary scale bars" loading="lazy" width="1742" height="632"></span>
     <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Root by node, outgroup or midpoint; then draw rectangular, radial or unrooted with support, events, scales and iTOL-style metadata.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" id="tree-to-tree-comparison" href="../../tracks/#tanglegramtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Two trees joined through their matching terminal taxa" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Two trees joined through their matching terminal taxa" loading="lazy" width="760" height="236"></span>
     <span class="plot-card__body"><small>Two topologies</small><strong>TanglegramTrack</strong><span>Matching taxa joined between trees, with crossing minimisation that changes order but never topology.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#cladetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-clades.svg" alt="Genomic intervals painted across the clades that carry them" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-clades.svg" alt="Genomic intervals painted across the clades that carry them" loading="lazy" width="880" height="242"></span>
     <span class="plot-card__body"><small>Tree × genomic interval</small><strong>CladeTrack</strong><span>Coordinate blocks whose height is a clade, with non-carrier rows cut out rather than hidden.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../guide/maps/#put-a-phylogeny-around-the-map">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-map.svg" alt="A circular time tree and cladogram around a map" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-map.svg" alt="A circular time tree and cladogram around a map" loading="lazy" width="1918" height="872"></span>
     <span class="plot-card__body"><small>Tree × supplied geography</small><strong>PhyloMap</strong><span>A circular tree around a central projection with aggregated, individual or absent sample-to-place links.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

@@ -8,7 +8,7 @@
    - the colours are the crate's own, and the brand is spent only on the
      things a reader can act on, which on this page is three links, three
      buttons and one figure they can take hold of,
-   - the measure is thirty-three rem and every block of words is centred on
+   - the measure is twenty-eight rem and every block of words is centred on
      it individually, so the page has one centre line whether or not there is
      a navigation column beside it,
    - a committed figure is a light-theme SVG carrying its own white page, and
@@ -46,15 +46,30 @@
 .md-typeset .k-band > h3,
 .md-typeset .k-band > .admonition,
 .md-typeset .k-band > details {
-  max-width: 33rem;
+  max-width: 28rem;
   margin-inline: auto;
+}
+
+/* A block whose whole content is a figure is not a block of words, so the
+   measure has to let it out again. Without this the gallery sheet came out at
+   six hundred and twenty-four pixels of a figure drawn at three thousand four
+   hundred and seventy-two, which is eighteen per cent, and the other
+   disclosure on this page, which holds only file listings, kept the measure
+   because it holds no picture. */
+.md-typeset .k-band > details:has(img),
+.md-typeset .k-band > p:has(> .k-zoom),
+.md-typeset .k-band > p:has(> img) {
+  max-width: none;
 }
 
 /* A code block twice the width of the prose beside it reads as a different
    page. Wider than the measure, because a chain of calls breaks badly when it
-   wraps, and narrow enough that the longest line here still fits. */
+   wraps, and narrow enough that the longest line here still fits. The longest
+   line on this page is seventy-seven characters of JetBrains Mono, which is
+   about twenty-eight rem, so thirty-two leaves it room and stops the left edge
+   of the page moving as far as forty did. */
 .md-typeset .k-band > .highlight {
-  max-width: 40rem;
+  max-width: 32rem;
   margin-inline: auto;
 }
 

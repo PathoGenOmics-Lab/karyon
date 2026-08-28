@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
 
 `cargo run` writes `rpoB.svg`:
 
-![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg)
+![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 Six things about that program are worth naming.
 
@@ -140,7 +140,7 @@ karyon NC_000962.3:761,121-761,180 \
   -o rpoB-zoom.svg
 ```
 
-![The same locus over sixty bases: a depth profile, the reference sequence drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg)
+![The same locus over sixty bases: a depth profile, the reference sequence drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
 
 `depth.txt` is what `samtools depth` writes, `H37Rv.fa` is the reference and
 `calls.vcf` is a VCF. **Each is read as its own format defines coordinates**:

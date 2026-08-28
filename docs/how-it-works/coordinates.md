@@ -139,7 +139,7 @@ of the next base. A ruler marks boundaries, so `AxisTrack` uses `x` by default;
 they count, which is what a sequence logo or a short motif wants, where a base
 is a column you can see rather than a fraction of a pixel.
 
-![The same locus at base resolution, with the reference sequence drawn as coloured letters and variant lollipops standing over the individual bases they call](../assets/figures/example-zoom.svg)
+![The same locus at base resolution, with the reference sequence drawn as coloured letters and variant lollipops standing over the individual bases they call](../assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
 
 ## What a file's numbers become
 
@@ -221,7 +221,7 @@ system nothing else uses.
 
 ## Protein coordinates
 
-![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg)
+![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="171" loading="lazy" }
 
 A variant in a coding sequence is named by residue rather than by base: BRAF
 V600E, TP53 R175H, rpoB S450L. A figure drawn in bases cannot be pointed at with

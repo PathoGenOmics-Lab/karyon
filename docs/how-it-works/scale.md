@@ -12,7 +12,7 @@ output rather than the resolution of the input. A depth profile over four
 megabases is then a few thousand marks instead of four million, and the document
 is a few tens of kilobytes instead of a few tens of megabytes.
 
-![An association scan across a whole draft assembly: twelve contigs laid end to end on one axis, association points banded by contig with a peak crossing the significance line on the fourth, a depth profile over all of them, and the contig names underneath](../assets/figures/example-genomewide.svg)
+![An association scan across a whole draft assembly: twelve contigs laid end to end on one axis, association points banded by contig with a peak crossing the significance line on the fourth, a depth profile over all of them, and the contig names underneath](../assets/figures/example-genomewide.svg){ width="940" height="290" loading="lazy" }
 
 ## The one map
 
@@ -93,7 +93,7 @@ that will quietly hide a deletion. The overview figure below uses
 `Aggregate::Min` for that reason: at two and a half bases per pixel the dropout
 is the thing worth not smoothing away.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 Two smaller rules go with it. Non-finite values are ignored rather than
 propagated, so one `NaN` in a column does not erase the column. And a column
@@ -163,7 +163,7 @@ reserved during packing; otherwise the next feature would sit on top of the
 name. Zoom out far enough and two genes that had a row each collide and the
 track grows a row; zoom in and it shrinks again.
 
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg)
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg){ width="920" height="474" loading="lazy" }
 
 `PileupTrack` packs only the reads that overlap the view, which is what keeps a
 window holding two reads from reserving forty rows of empty band. It stops at
