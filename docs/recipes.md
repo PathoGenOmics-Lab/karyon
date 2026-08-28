@@ -67,6 +67,36 @@ data with `cargo run --example locus -- assets`.
     position, so it has to be the sequence the region names. A multi-record
     file does not select by name.
 
+### A bedGraph and a BED, which is the shortest real figure
+
+The two commonest text files in a genomics directory are a bedGraph of some
+per-base number and a BED of some intervals. Both are 0-based and half-open,
+which is the crate's own convention, so nothing is converted on the way in:
+
+```bash
+karyon chr7:140,753,001-140,754,000 \
+  --coverage depth.bedgraph --label depth --aggregate min \
+  --features genes.bed      --label genes \
+  -o locus.svg
+```
+
+```text title="depth.bedgraph"
+chr7	140753000	140753200	31
+chr7	140753200	140753400	44
+chr7	140753400	140753600	12
+```
+
+```text title="genes.bed"
+chr7	140753050	140753400	exon15	0	-
+chr7	140753500	140753900	exon16	0	-
+```
+
+The region is written the way a genome browser writes one, 1-based and
+inclusive, because that is what a reader copies out of IGV. The files stay in
+their own convention and the reader converts. A BED with no strand column draws
+blocks without arrowheads rather than refusing, and a name column is what
+labels each block.
+
 ### The reads themselves, when a call looks wrong
 
 ```bash

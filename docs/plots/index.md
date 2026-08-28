@@ -115,7 +115,7 @@ exact reference entry for every component.
 
 <div class="plot-concept-strip">
   <div><span class="plot-chip">Track</span><strong>Shares a figure band</strong><p>Usually maps genomic position through the same horizontal scale as its neighbours.</p></div>
-  <div><span class="plot-chip">Drawing</span><strong>Own coordinate system</strong><p>`Rings`, `Map` and `PhyloMap` render a complete circular or geographic document.</p></div>
+  <div><span class="plot-chip">Drawing</span><strong>Own coordinate system</strong><p><code>Rings</code>, <code>Map</code> and <code>PhyloMap</code> render a complete circular or geographic document.</p></div>
   <div><span class="plot-chip">Panels</span><strong>Composes finished views</strong><p>Places figures and drawings on one labelled, aligned manuscript sheet.</p></div>
 </div>
 

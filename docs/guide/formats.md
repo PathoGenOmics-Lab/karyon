@@ -115,16 +115,21 @@ would take a score for a depth.
     the value, so each record turns into a run of bases at the height of the
     second sample: a plausible looking figure of nothing.
 
-    What tells the two apart is that two bedGraph intervals never overlap and
-    two depth records at consecutive positions do, so an overlap is refused
-    rather than drawn:
+    Two things give it away. A depth is almost always a smaller number than
+    the position it sits at, so read as a bedGraph the very first record ends
+    before it starts. And two bedGraph intervals never overlap where two depth
+    records at consecutive positions do. Either one is refused rather than
+    drawn, and both name the way out:
 
     ```
-    karyon: --coverage depth.txt: line 2: these intervals overlap, so this is
-    not a bedGraph. samtools depth over more than one file also writes four
-    columns: pass --format depth to read it as that, or --format bedgraph to
-    insist
+    karyon: --coverage depth.txt: line 1: end is before start, so this is not a
+    bedGraph. samtools depth over more than one file also writes four columns,
+    and its second column is a position rather than an end: pass --format depth
+    to read it as that, or --format bedgraph to insist
     ```
+
+    The first of the two is what a real file hits, because a position runs to
+    thousands and a depth rarely does.
 
     With `--format depth` the first sample is the one drawn and the rest of the
     columns are ignored. `--format bedgraph` insists on the other reading, which
@@ -577,8 +582,8 @@ length, which is what makes it an alignment rather than a set of sequences.
 record of the file, which is left out of the sample rows. A gap counts as a
 disagreement, since a deletion is an observation too.
 
-**Errors**: everything FASTA errors on, plus a record of the wrong length, which
-names the record and the difference:
+**Errors**: everything FASTA errors on, plus a record of the wrong length. That
+last message names the record and the difference:
 
 ```
 karyon: --msa aln.fa: line 3: an alignment has every record the same length,
@@ -698,10 +703,10 @@ Sites outside the region are dropped, and each one takes its column out of every
 row with it, so the rows still line up with the sites column for column.
 
 **Errors**: a row whose value count does not match the number of sites the
-header names, counted before the region drops anything, which names the sample
-and both counts; a header field that is not a number, or that is 0 in a 1-based
-header; a cell that is neither a number nor one of the three spellings of
-nothing.
+header names, counted before the region drops anything, and that message names
+the sample and both counts; a header field that is not a number, or that is 0 in
+a 1-based header; a cell that is neither a number nor one of the three spellings
+of nothing.
 
 **Skipped**: nothing on account of a sequence, since the table names none. Give
 it a table for the sequence being drawn.
@@ -830,6 +835,152 @@ it here would take that number off the figure.
 **Errors**: a row without nine columns, an intron start of nought in a file
 counting from one, an intron that ends before it starts.
 
+## PAF
+
+Used by `--synteny` and `--dotplot`, for alignments between two sequences.
+`minimap2` writes it by default, and so do `miniasm`, `winnowmap`, `wfmash` and
+`paftools.js` converting a nucmer delta.
+
+```text
+qry  4500  100  4400  +  ref  5000  200  4500  4100  4300  60
+```
+
+Twelve mandatory columns, then optional `tag:type:value` fields this reader does
+not need: query name, query length, query start, query end, strand, target name,
+target length, target start, target end, residue matches, alignment block length
+and mapping quality.
+
+**Coordinates**: 0-based and half-open on both pairs, which is this crate's own
+convention, so nothing is added or taken off. PAF is the one format in this
+guide that needs no conversion, which is worth saying out loud because every
+other one here does.
+
+**A block belongs to a pair of sequences, and a track only knows one.** A block
+holds two spans and no names, so two rows of a whole-genome PAF look identical
+to a track while describing alignments against different chromosomes, and
+stacking them on one axis would draw a comparison nobody made. So a read names
+its target: `read::align_pairs::pairs` says which query and target pairs a file
+holds and how many rows each has, and `blocks` takes the two names, keeps the
+rows that match both and returns how many it passed over. That count is the
+point. A figure drawing forty blocks out of four thousand should be able to say
+so.
+
+**Errors**: a row with fewer than twelve columns, a coordinate that is not a
+number, a strand column that is neither `+` nor `-`, and a target given two
+different lengths by two rows of the same file.
+
+## bedMethyl
+
+Used by `--methylation`, for modified bases as `modkit pileup` counts them.
+
+```text
+NC_000913.3  1000  1001  m  30  +  1000  1001  255,0,0  30  86.67  26  4  0  0  0  0  0
+```
+
+Nine BED-like columns and nine of counts, one row per position per strand per
+modification: chromosome, start, end, modification code, score, strand, thick
+start, thick end, colour, then valid coverage, percent modified, and the counts
+of modified, canonical, other modification, delete, fail, diff and nocall.
+
+**Coordinates**: 0-based and half-open, so nothing is added or taken off. Worth
+saying because the two readers either side of it do convert, and a methylation
+call moved one base left lands on the other strand's partner in a CpG, where it
+looks entirely reasonable.
+
+**One file is several tracks.** Column four says which modification was counted,
+and a dual-mode run writes `m` and `h` rows at the same cytosine. Stacked on one
+axis those are two marks at one position with nothing saying which is which, and
+`MethylationTrack::hemimethylated` pairs by position, so it would call a
+symmetrically modified CpG a strand difference no pileup reported. So a read
+names its modification: `read::methyl::codes` says what a file holds and `sites`
+takes the one to draw. The code is compared on its first field, since
+`modkit --motif` writes `m,CG,0` where a plain run writes `m`.
+
+**Nought reads is not nought per cent.** `modkit` writes a row for a position it
+could not call: valid coverage nought, every count nought, column eleven
+`0.00`. Passed through, that is a mark on the baseline whose tooltip says nought
+per cent modified, which is a measurement, and the position was not measured.
+Those rows are skipped and counted.
+
+**The fraction** is the modified count over the valid coverage rather than
+column eleven, which is the same quotient already rounded to two decimals.
+
+**Errors**: more reads modified than there was valid coverage to modify.
+
+## The Bismark extractor file
+
+Used by `--bisulfite`, for methylation one molecule at a time, as
+`bismark_methylation_extractor` writes it.
+
+```text
+read_0001  +  chr7  57383000  Z
+read_0001  -  chr7  57383012  z
+```
+
+Five columns: the read name, which is the SAM query name and is carried by both
+mates of a pair; a `+` or `-`; the sequence; the position; and the call.
+
+**Coordinates**: 1-based, so one is taken off. A call moved a base lands on the
+other cytosine of the same CpG, where it looks entirely reasonable.
+
+**The letter is both the context and the answer.** `Z` is a methylated CpG and
+`z` an unmethylated one, `X` and `x` are CHG, `H` and `h` are CHH, `U` and `u`
+are anything else. Column two is the case of that letter written out again, so
+it says nothing the letter did not, and in particular **it is not the strand**.
+
+**The row is the fragment.** Both mates of a pair carry one read name and are
+two halves of one molecule, so they are one row. Where they overlap and disagree
+about a cytosine, neither call is kept: the molecule's state there is what the
+two reads could not agree on, and either answer drawn is a coin toss shown as a
+measurement.
+
+**A site a molecule never covered stays absent**, which the track draws as
+nothing at all, rather than as the ring it draws for a cytosine that was
+measured and found unmethylated.
+
+**Errors**: a column two that is neither `+` nor `-`, and a call that is not one
+of `Z z X x H h U u`.
+
+## The InterProScan table
+
+Used by `--domains`, for protein domains on an axis of residues.
+
+```text
+P00533	md5	1210	Pfam	PF07714	Protein tyrosine kinase	712	979	1e-70	T	01-01-2026
+```
+
+Eleven columns and up to four more, tab separated, no header: protein accession,
+sequence MD5, sequence length, analysis, signature accession, signature
+description, start, stop, score, status, date, and optionally the InterPro
+accession and description.
+
+**Coordinates**: 1-based and inclusive, so a start comes back one lower and a
+stop is unchanged, the same conversion GFF3 gets.
+
+**Split on tabs and never on whitespace**, because column six is a sentence:
+`BRCA2, oligonucleotide/oligosaccharide-binding, domain 1` is one field and
+seven words. A row with no tab in it is refused rather than taken apart on its
+spaces.
+
+**The axis is residues.** A domain is at a place in a protein rather than at a
+place in a genome, so `Region::parse` takes `P00533:1-1210` as readily as it
+takes a chromosome, and the ruler underneath counts amino acids.
+
+**Column one names the row rather than selecting it**, as in the locus table and
+for the same reason: the figure is the comparison. Every protein in the file is
+a row and they share one residue axis, which is what makes a domain gained or
+lost visible at all.
+
+**A length that is absent is not a length of nought.** Column three is what the
+row's backbone is drawn from, and it is not the same as the furthest domain: a
+protein whose last annotated domain ends at residue 300 may run to 800, and
+drawing the backbone to 300 claims the domain reaches the C terminus. A length
+of nought would remove the backbone and every domain on the row, leaving the
+name standing over an empty line, so both are refused rather than drawn.
+
+**Errors**: a row with no tab in it, and a protein given two different lengths
+by two rows of the same file.
+
 ## The sample sheet
 
 Used by `--traits`, for what is known about the rows a track already has.
@@ -869,8 +1020,8 @@ The ambiguity is honest and worth stating: a column whose levels really are the
 two-letter codes for continents has a level `NA` that is read as missing, and
 nothing in the file separates those two cases.
 
-**Errors**: a row whose field count is not the header's, which names both
-counts; a name used twice; a repeated or empty column name; a header of one
+**Errors**: a row whose field count is not the header's, and that message names
+both counts; a name used twice; a repeated or empty column name; a header of one
 column, which names things and says nothing about them.
 
 **Skipped**: nothing. Every row is kept, and the join to the track's own rows

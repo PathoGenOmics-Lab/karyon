@@ -168,7 +168,7 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
         args::Request::Version => {
-            println!("karyon {}", env!("CARGO_PKG_VERSION"));
+            println!("karyon {}", karyon::VERSION);
             return Ok(());
         }
         args::Request::Draw(invocation) => invocation,

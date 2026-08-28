@@ -1,16 +1,12 @@
 # Command line
 
 `karyon` is a second front end onto the same library, and it reaches twenty-eight
-of the thirty-six track types: the ones that have a file to read. Trees drawn
-with metadata, maps and the selection views are library only.
+of the thirty-six track types: twenty-seven that have a file to read, and the
+coordinate ruler, which needs none. Trees drawn with metadata, maps and the
+selection views are library only.
 
-The parsing is not in this binary. It lives in the library as
-[`karyon::read`](formats.md), and every reader there takes a `&str` rather than
-a path, so nothing in the crate opens a file to read one and the dependency
-count stays at zero. What the binary keeps is opening the path. Every format is
-line based text. This page is
-the grammar: which flags start a track, which describe the one before them, and
-what the command says when one of them is wrong.
+This page is the grammar: which flags start a track, which describe the one
+before them, and what the command says when one of them is wrong.
 
 Every command on this page runs in the [playground](../playground.md), which is
 this same code compiled to WebAssembly: type the files into the box and the
@@ -101,6 +97,12 @@ genome-wide file can be handed over whole and only the window comes back.
 Twenty-eight flags, twenty-seven of which take a file. `-` in place of a path means
 standard input.
 
+The parsing is not in this binary. It lives in the library as
+[`karyon::read`](formats.md), and every reader there takes a `&str` rather than
+a path, so nothing in the crate opens a file to read one and the dependency
+count stays at zero. What the binary keeps is opening the path, and every format
+it opens is line based text.
+
 | Flag | The track | What it reads |
 |:-----|:----------|:--------------|
 | `--coverage <FILE>` | Per-base signal | bedGraph, `samtools depth`, or a bare column of values |
@@ -132,8 +134,9 @@ standard input.
 | `--domains <FILE>` | Protein domains, on an axis of residues | an `InterProScan` table |
 | `--axis` | The coordinate ruler | nothing |
 
-Twenty-eight of the thirty-six track types have a file the command can put
-in front of them, and those are the ones it has. The rest are library only, either
+Twenty-eight of the thirty-six track types are reachable here, and those are
+the ones it has: twenty-seven have a file the command can put in front of
+them, and the coordinate ruler needs none. The rest are library only, either
 because their format is binary, because no single standard exists for what they
 draw, or because nobody has written the reader yet;
 [Track catalogue](../tracks.md) says which is which for each of them. What each

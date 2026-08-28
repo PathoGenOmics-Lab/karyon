@@ -554,6 +554,81 @@
         return [{ name: "sv.vcf", body: vcf }];
       },
     },
+    {
+      name: "Segmented copy number",
+      bounds: { from: 1, to: 2000000, min: 2097 },
+      controls: [
+        { kind: "region" },
+        { kind: "note", label: "The ploidy is not in the file, which is why --ploidy is required rather than defaulted: a log ratio only becomes copies once you say what two copies means here." },
+      ],
+      group: "Signal and annotation",
+      command:
+        "chr8:1-2,000,000 --copy-number segments.cns --ploidy 2 \\\n" +
+        "  --label 'copy number'",
+      files: [
+        { name: "segments.cns", body:
+          "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\n" +
+          "chr8\t0\t400000\t-\t0.02\t2\t1\t1\n" +
+          "chr8\t400000\t700000\tMYC\t1.70\t6\t4\t2\n" +
+          "chr8\t700000\t1000000\t-\t-1.00\t1\t1\t0\n" +
+          "chr8\t1000000\t1400000\t-\t0.00\t2\t1\t1\n" +
+          "chr8\t1400000\t1700000\t-\tNA\tNA\tNA\tNA\n" +
+          "chr8\t1700000\t2000000\t-\t0.58\t3\t2\t1\n" },
+      ],
+    },
+    {
+      name: "Per-base model attribution",
+      bounds: { from: 1, to: 120, min: 40 },
+      controls: [
+        { kind: "region" },
+        { kind: "note", label: "The bases themselves are the bars. A letter above the line is one the model leaned on, and one below is one it pulled away from, so the height is a signed score rather than a count." },
+      ],
+      group: "Sequence alignment",
+      command:
+        "promoter:1-120 --dynseq attribution.bg --with-sequence promoter.fa \\\n" +
+        "  --label attribution",
+      files: [
+        { name: "attribution.bg", body: "" },
+        { name: "promoter.fa", body: "" },
+      ],
+      make: function () {
+        var bg = "";
+        for (var i = 0; i < 120; i++) {
+          var v;
+          if (i >= 40 && i < 48) v = 0.9 - 0.05 * (i - 40);
+          else if (i >= 70 && i < 76) v = -0.6 + 0.08 * (i - 70);
+          else v = 0.06 * Math.sin(i / 5);
+          bg += "promoter\t" + i + "\t" + (i + 1) + "\t" + v.toFixed(3) + "\n";
+        }
+        // A fixed sequence rather than a random one, so the figure is the same
+        // every time the example is opened.
+        var bases = "GCTAAAGACAATTACATAACATACACGTCAGCACGAAACTTATAAAAGCAGTGTGAATCG" +
+                    "TTGCACCGATTAGGCATCAGTACCGGATTACAGCTTAAGCCGGATTCAGTACCGATTAGC";
+        var fa = ">promoter\n" + bases.slice(0, 60) + "\n" + bases.slice(60) + "\n";
+        return [
+          { name: "attribution.bg", body: bg },
+          { name: "promoter.fa", body: fa },
+        ];
+      },
+    },
+    {
+      name: "Splice junctions",
+      bounds: { from: 1, to: 7000, min: 200 },
+      controls: [
+        { kind: "region" },
+        { kind: "note", label: "An arc per intron, thicker for the junctions more reads crossed. Multi-mapping reads are counted separately and never added in: a read that mapped in four places is one read." },
+      ],
+      group: "Reads and molecules",
+      command: "chr1:1-7,000 --junctions SJ.out.tab --label junctions",
+      files: [
+        { name: "SJ.out.tab", body:
+          "chr1\t1200\t2400\t1\t2\t1\t46\t3\t38\n" +
+          "chr1\t1200\t3600\t1\t2\t0\t9\t1\t31\n" +
+          "chr1\t2700\t3600\t1\t2\t1\t52\t4\t40\n" +
+          "chr1\t4000\t5200\t2\t1\t1\t18\t0\t35\n" +
+          "chr1\t5600\t6400\t1\t2\t1\t7\t2\t29\n" },
+      ],
+    },
   ];
 
   // ---------------------------------------------------------------------
@@ -709,6 +784,11 @@
       el.plot.classList.remove("pg-failed");
       el.plot.classList.add("pg-plot");
       el.plot.classList.toggle("pg-live", el.live.checked);
+      // A figure is one image and is announced as one. A refusal is words, and
+      // `role="img"` would make them presentational, so the pane only wears
+      // that role while it holds a picture.
+      el.plot.setAttribute("role", "img");
+      el.plot.setAttribute("aria-label", "The figure this command draws");
       el.plot.innerHTML = answer.body;
       drawn = answer.body;
       var where = K.locus(el.command.value);
@@ -723,6 +803,8 @@
       retune();
     } else {
       el.plot.className = "pg-plot pg-failed";
+      el.plot.removeAttribute("role");
+      el.plot.removeAttribute("aria-label");
       el.plot.textContent = "karyon: " + answer.body;
       drawn = null;
       el.region.textContent = "";
@@ -911,6 +993,41 @@
   var opened = false;
   var lastFocus = null;
 
+  var previews = 0;
+
+  /* Every figure the program draws names its own title and description with the
+     same two ids, which is right for a document holding one figure and wrong
+     for this panel, which holds two dozen. Injected as they come, all of them
+     point their `aria-labelledby` at the first card's title, so a screen reader
+     is told the same thing about all of them. Each one gets its own prefix on
+     the way in, on every id and on every reference to one. */
+  function unique(root, prefix) {
+    var nodes = root.querySelectorAll("[id]");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      nodes[i].id = prefix + nodes[i].id;
+    }
+    var all = root.querySelectorAll("*");
+    for (i = 0; i < all.length; i++) {
+      var el = all[i];
+      var labels = el.getAttribute("aria-labelledby");
+      if (labels) {
+        el.setAttribute(
+          "aria-labelledby",
+          labels.split(/\s+/).map(function (id) { return prefix + id; }).join(" ")
+        );
+      }
+      for (var a = 0; a < el.attributes.length; a++) {
+        var attr = el.attributes[a];
+        if (attr.value.indexOf("url(#") >= 0) {
+          attr.value = attr.value.replace(/url\(#/g, "url(#" + prefix);
+        } else if (attr.name === "href" || attr.name === "xlink:href") {
+          if (attr.value.charAt(0) === "#") attr.value = "#" + prefix + attr.value.slice(1);
+        }
+      }
+    }
+  }
+
   function preview(example, into) {
     // Drawn by the program, out of the same files the example loads. A
     // thumbnail that is a picture of a figure is a different claim from the
@@ -919,6 +1036,7 @@
     var answer = K.run(example.command, list, 360);
     if (answer.ok) {
       into.innerHTML = answer.body;
+      unique(into, "pv" + previews++ + "-");
     } else {
       into.textContent = "";
     }
@@ -1207,9 +1325,18 @@
         el.status.textContent = "the program did not load: " + error.message;
         el.status.classList.add("pg-bad");
         el.plot.className = "pg-plot pg-failed";
+        el.plot.removeAttribute("role");
+        el.plot.removeAttribute("aria-label");
+        // A message a reader can act on rather than a file path they cannot.
         el.plot.textContent =
-          "This page needs assets/karyon_playground.wasm, which is built and " +
-          "published with the site. The same commands run in a terminal.";
+          "The program that draws the figure did not arrive, so nothing on " +
+          "this page can run. Every command here runs the same way in a " +
+          "terminal: ";
+        var guide = document.createElement("a");
+        guide.href = "../guide/cli/";
+        guide.textContent = "the command line guide";
+        el.plot.appendChild(guide);
+        el.plot.appendChild(document.createTextNode("."));
       });
   }
 
