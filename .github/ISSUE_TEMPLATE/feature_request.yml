@@ -8,7 +8,7 @@ body:
         > [!TIP]
         > If you are not sure whether karyon already does this, ask in
         > [Q&A](https://github.com/PathoGenOmics-Lab/karyon/discussions/categories/q-a) first, or look through the
-        > [plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/). There are thirty-three track types and
+        > [plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/). There are thirty-six track types and
         > most of them take more options than the examples use, so this is a
         > shorter path to an answer than a feature request for something that
         > turns out to be one call.

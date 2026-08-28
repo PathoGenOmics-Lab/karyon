@@ -76,7 +76,7 @@ body:
     validations:
       required: true
 
-  # Thirty-three track types, a phylogenetics layer, the maps and the readers
+  # Thirty-six track types, a phylogenetics layer, the maps and the readers
   # are far enough apart that the first question on any report is which of them
   # it is. A guess costs the reporter nothing and it is what the area labels get
   # applied from, so "Not sure" is a real option rather than a way out.

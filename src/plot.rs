@@ -105,14 +105,15 @@ use crate::style::{Density, RenderProfile};
 use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
-    CodonTrack, CoverageTrack, DomainArchitecture, DomainTrack, DotplotTrack, Feature,
-    FeatureTrack, GenomeTrack, IdeogramTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
-    LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
-    MsaSequence, MsaTrack, OrfTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read,
-    SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack,
-    SquiggleTrack, Strand, StructuralTrack, StructuralVariant, SurveillanceObservation,
-    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit,
-    TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
+    CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack, DomainArchitecture, DomainTrack,
+    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Junction,
+    JunctionTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack,
+    MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack,
+    OrfTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read, SelectionSite,
+    SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack,
+    Strand, StructuralTrack, StructuralVariant, SurveillanceObservation, SurveillanceTrack,
+    SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack,
+    Variant, VariantTrack, Window, WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -225,12 +226,15 @@ tracks![
     BisulfiteTrack,
     CladeTrack,
     CodonTrack,
+    CopyNumberTrack,
     CoverageTrack,
     DomainTrack,
     DotplotTrack,
+    DynseqTrack,
     FeatureTrack,
     GenomeTrack,
     IdeogramTrack,
+    JunctionTrack,
     LegendTrack,
     LocusTrack,
     LogoTrack,
@@ -532,6 +536,38 @@ impl<T: Slot> Plot<T> {
     /// bases.
     pub fn add_codons(self, start: u64, end: u64, strand: Strand) -> Plot<CodonTrack> {
         self.settle().park(CodonTrack::new(start, end, strand))
+    }
+
+    /// Segmented copy number, on a ladder of whole copies.
+    ///
+    /// `ploidy` is where balanced sits and there is no default for it: this
+    /// crate does not know what it is drawing, and a rule in the wrong place
+    /// swaps every gain for a loss.
+    pub fn add_copy_number(
+        self,
+        segments: impl Into<Vec<CopyNumberSegment>>,
+        ploidy: f64,
+    ) -> Plot<CopyNumberTrack> {
+        self.settle()
+            .park(CopyNumberTrack::at_ploidy(segments, ploidy))
+    }
+
+    /// Per-base model attribution, drawn as the bases themselves.
+    ///
+    /// `seq[i]` and `scores[i]` describe the base at `start + i`. A score that
+    /// is not a number is a base nobody scored, and is drawn as one.
+    pub fn add_dynseq(
+        self,
+        start: u64,
+        seq: impl Into<Vec<u8>>,
+        scores: impl Into<Vec<f64>>,
+    ) -> Plot<DynseqTrack> {
+        self.settle().park(DynseqTrack::new(start, seq, scores))
+    }
+
+    /// Splice junctions as arcs, weighted by the reads that crossed them.
+    pub fn add_junctions(self, junctions: impl Into<Vec<Junction>>) -> Plot<JunctionTrack> {
+        self.settle().park(JunctionTrack::new(junctions))
     }
 
     /// Read depth, one value per base, starting at the left edge of the region.

@@ -1,7 +1,7 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches twenty-five
-of the thirty-three track types: the ones that have a file to read. Trees drawn
+`karyon` is a second front end onto the same library, and it reaches twenty-eight
+of the thirty-six track types: the ones that have a file to read. Trees drawn
 with metadata, maps and the selection views are library only.
 
 The parsing is not in this binary. It lives in the library as
@@ -98,12 +98,15 @@ genome-wide file can be handed over whole and only the window comes back.
 
 ## Track flags
 
-Twenty-five flags, twenty-four of which take a file. `-` in place of a path means
+Twenty-eight flags, twenty-seven of which take a file. `-` in place of a path means
 standard input.
 
 | Flag | The track | What it reads |
 |:-----|:----------|:--------------|
 | `--coverage <FILE>` | Per-base signal | bedGraph, `samtools depth`, or a bare column of values |
+| `--copy-number <FILE>` | Segmented copy number | a segment table: CNVkit `.cns`, ASCAT, or `.seg` |
+| `--dynseq <FILE>` | Per-base model attribution | bedGraph, with `--with-sequence` |
+| `--junctions <FILE>` | Splice junctions as arcs | an aligner's `SJ.out.tab` |
 | `--sequence <FILE>` | The reference bases | FASTA |
 | `--features <FILE>` | Genes and other intervals | BED or GFF3 |
 | `--variants <FILE>` | Point calls | VCF |
@@ -129,7 +132,7 @@ standard input.
 | `--domains <FILE>` | Protein domains, on an axis of residues | an `InterProScan` table |
 | `--axis` | The coordinate ruler | nothing |
 
-Twenty-five of the thirty-three track types have a file the command can put
+Twenty-eight of the thirty-six track types have a file the command can put
 in front of them, and those are the ones it has. The rest are library only, either
 because their format is binary, because no single standard exists for what they
 draw, or because nobody has written the reader yet;
@@ -158,12 +161,15 @@ because most of them are a setting only some tracks have.
 |:-----|:------|:-----------|:--------|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a path, or `-` | `--tanglegram` | none, and it is required |
+| `--with-sequence <FILE>` | a path, or `-` | `--dynseq` | none, and it is required |
 | `--with-tree <FILE>` | a path, or `-` | `--clades` | none, and it is required |
 | `--links <FILE>` | a path, or `-` | `--loci` | none, and it is required |
 | `--identity <UNIT>` | `percent`, `fraction` | `--loci` | worked out from the values, and refused where they cannot say |
 | `--modification <CODE>` | `m`, `h`, `a`, any modkit code | `--methylation` | the one the file holds, and refused where it holds several |
 | `--context <NAME>` | `CpG`, `CHG`, `CHH` | `--bisulfite` | the one the file holds, and refused where it holds several |
 | `--analysis <NAME>` | `Pfam`, `PANTHER`, any member database | `--domains` | the one the file holds, and refused where it holds several |
+| `--ploidy <COPIES>` | a number of copies, as in `2` | `--copy-number` | none, and it is required |
+| `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
 | `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
@@ -209,7 +215,7 @@ karyon: --matrix samples.tsv has no column called linage; it has lineage, drug, 
 
 ### A track whose data is not one file
 
-Three modifiers carry a file rather than a setting, for the three tracks whose
+Four modifiers carry a file rather than a setting, for the four tracks whose
 data is two files. A `--<track>` flag takes one path, so the second is named,
 and it is named by what it means rather than by where it sits, which is the
 rule every other modifier follows:
@@ -219,6 +225,7 @@ rule every other modifier follows:
 | `--tanglegram` | the left-hand tree | `--against`, the right-hand tree |
 | `--clades` | the blocks and their taxa | `--with-tree`, the phylogeny they are painted onto |
 | `--loci` | the genes of each genome | `--links`, what joins one row to the next |
+| `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 
 A tanglegram is two phylogenies:
 

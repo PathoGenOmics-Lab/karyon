@@ -27,7 +27,7 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Twenty-five of the crate's thirty-three track types are what the command
+//! Twenty-eight of the crate's thirty-six track types are what the command
 //! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -97,6 +97,14 @@ pub enum ArgError {
     StdinTwice,
     /// A list of columns on a track that was given no sheet to take them from.
     ///
+    /// A copy number track with no ploidy to read its levels against.
+    ///
+    /// Required rather than defaulted, because where balanced sits is not in
+    /// the file and this crate does not know what it is drawing. Two copies is
+    /// right for a human autosome and wrong for most of what else is handed to
+    /// it, and a rule in the wrong place does not merely mis-scale the ladder,
+    /// it swaps every gain for a loss and says so confidently.
+    MissingPloidy,
     /// Checked once the whole line is read rather than where the flag sits, so
     /// that `--columns` before `--traits` and after it are the same command.
     /// Two modifiers of one track are not in an order, and refusing one of the
@@ -173,6 +181,10 @@ impl fmt::Display for ArgError {
                 f,
                 "a {track} track is drawn from two files, and {flag} names the second"
             ),
+            ArgError::MissingPloidy => write!(
+                f,
+                "--copy-number needs --ploidy, since where balanced sits is not in the file"
+            ),
             ArgError::Unsourced { track } => write!(
                 f,
                 "--columns picks out of the sheet --traits names, and this {track} track was given no sheet"
@@ -197,6 +209,12 @@ pub enum Source {
 pub enum Kind {
     /// Per-base signal from bedGraph or `samtools depth`.
     Coverage,
+    /// Segmented copy number from a caller's segment table.
+    CopyNumber,
+    /// Per-base model attribution from a bedGraph, over a reference.
+    Dynseq,
+    /// Splice junctions from an aligner's SJ.out.tab.
+    Junctions,
     /// Reference bases from FASTA.
     Sequence,
     /// Intervals from BED or GFF3.
@@ -256,8 +274,11 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 25] = [
+    pub const ALL: [Kind; 28] = [
         Kind::Coverage,
+        Kind::CopyNumber,
+        Kind::Dynseq,
+        Kind::Junctions,
         Kind::Sequence,
         Kind::Features,
         Kind::Variants,
@@ -288,6 +309,9 @@ impl Kind {
     pub fn flag(self) -> &'static str {
         match self {
             Kind::Coverage => "coverage",
+            Kind::CopyNumber => "copy-number",
+            Kind::Dynseq => "dynseq",
+            Kind::Junctions => "junctions",
             Kind::Sequence => "sequence",
             Kind::Features => "features",
             Kind::Variants => "variants",
@@ -325,6 +349,9 @@ impl Kind {
     pub fn dashed(self) -> &'static str {
         match self {
             Kind::Coverage => "--coverage",
+            Kind::CopyNumber => "--copy-number",
+            Kind::Dynseq => "--dynseq",
+            Kind::Junctions => "--junctions",
             Kind::Sequence => "--sequence",
             Kind::Features => "--features",
             Kind::Variants => "--variants",
@@ -376,6 +403,8 @@ impl Kind {
         matches!(
             self,
             Kind::Coverage
+                | Kind::CopyNumber
+                | Kind::Dynseq
                 | Kind::Sequence
                 | Kind::Variants
                 | Kind::Windows
@@ -385,6 +414,7 @@ impl Kind {
                 | Kind::Dotplot
                 | Kind::Methylation
                 | Kind::Structural
+                | Kind::Junctions
                 | Kind::Axis
         )
     }
@@ -413,10 +443,13 @@ impl Kind {
         // cannot do without, and each of the three has a figure that looks
         // finished when that happens.
         match self {
+            Kind::Dynseq => Some("--with-sequence"),
             Kind::Tanglegram => Some("--against"),
             Kind::Clades => Some("--with-tree"),
             Kind::Loci => Some("--links"),
             Kind::Coverage
+            | Kind::CopyNumber
+            | Kind::Junctions
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
@@ -458,6 +491,9 @@ impl Kind {
             Kind::Bisulfite => Some("--context"),
             Kind::Domains => Some("--analysis"),
             Kind::Coverage
+            | Kind::CopyNumber
+            | Kind::Dynseq
+            | Kind::Junctions
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
@@ -548,6 +584,10 @@ pub struct TrackSpec {
     /// Which of the several things a file holds to draw, named by the flag
     /// [`Kind::selector`] gives this track.
     pub selects: Option<String>,
+    /// `--ploidy`, where balanced sits on a copy number ladder.
+    pub ploidy: Option<f64>,
+    /// `--sample`, for a file holding more than one.
+    pub sample: Option<String>,
     /// `--traits`, the sample sheet whose columns are drawn beside the rows.
     pub traits: Option<Source>,
     /// `--columns`, the columns of that sheet to draw and the order to draw
@@ -572,6 +612,8 @@ impl TrackSpec {
             format: None,
             identity: None,
             selects: None,
+            ploidy: None,
+            sample: None,
             traits: None,
             columns: None,
         }
@@ -652,6 +694,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         // A track flag starts a track. `--axis` is the one that reads nothing.
         let track = match arg.as_str() {
             "--coverage" => Some((Kind::Coverage, true)),
+            "--copy-number" => Some((Kind::CopyNumber, true)),
+            "--dynseq" => Some((Kind::Dynseq, true)),
+            "--junctions" => Some((Kind::Junctions, true)),
             "--sequence" => Some((Kind::Sequence, true)),
             "--features" => Some((Kind::Features, true)),
             "--variants" => Some((Kind::Variants, true)),
@@ -703,6 +748,41 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--label" => {
                 let text = value("--label")?.clone();
                 last(&mut tracks, "--label")?.label = Some(text);
+            }
+            "--ploidy" => {
+                let text = value("--ploidy")?;
+                let copies = text
+                    .parse::<f64>()
+                    .ok()
+                    // Greater than nought, not merely not negative. At nought
+                    // a log ratio becomes nought copies everywhere, and every
+                    // one of them lands on the rule that means unchanged, so a
+                    // called amplification is drawn as a quiet arm.
+                    .filter(|copies| copies.is_finite() && *copies > 0.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--ploidy",
+                        given: text.clone(),
+                        expected: "a number of copies above nought, as in 2",
+                    })?;
+                let track = last(&mut tracks, "--ploidy")?;
+                if track.kind != Kind::CopyNumber {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--ploidy",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.ploidy = Some(copies);
+            }
+            "--sample" => {
+                let text = value("--sample")?.clone();
+                let track = last(&mut tracks, "--sample")?;
+                if track.kind != Kind::CopyNumber {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--sample",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.sample = Some(text);
             }
             "--traits" => {
                 let word = value("--traits")?.clone();
@@ -849,7 +929,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 let track = last(&mut tracks, "--color")?;
-                if !matches!(track.kind, Kind::Coverage | Kind::Features) {
+                if !matches!(
+                    track.kind,
+                    Kind::Coverage | Kind::Features | Kind::Junctions
+                ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--color",
                         track: track.kind.flag(),
@@ -857,13 +940,14 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
                 let flag: &'static str = match flag {
                     "--with-tree" => "--with-tree",
                     "--links" => "--links",
+                    "--with-sequence" => "--with-sequence",
                     _ => "--against",
                 };
                 let word = value(flag)?;
@@ -999,6 +1083,11 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     track: spec.kind.flag(),
                 });
             }
+        }
+        // Late for the same reason `--against` is checked late: the flag may
+        // sit anywhere after the track it describes.
+        if spec.kind == Kind::CopyNumber && spec.ploidy.is_none() {
+            return Err(ArgError::MissingPloidy);
         }
         // Late for the same reason: `--columns` may be written before the
         // `--traits` it picks from, and both orders describe one track.
@@ -1226,6 +1315,42 @@ mod tests {
         assert_eq!(it.tracks[0].source, Some(Source::Stdin));
     }
 
+    /// Where balanced sits is not in a segment table, and a rule in the wrong
+    /// place does not mis-scale a copy number ladder, it inverts it.
+    #[test]
+    fn a_copy_number_track_is_refused_without_a_ploidy() {
+        let error = parse(&args("chr8:1-1000 --copy-number seg.cns")).unwrap_err();
+        assert!(matches!(error, ArgError::MissingPloidy), "{error}");
+
+        // Late, so the flag may sit anywhere after the track it describes.
+        let it = draw("chr8:1-1000 --copy-number seg.cns --label copies --ploidy 2");
+        assert_eq!(it.tracks[0].ploidy, Some(2.0));
+
+        let error = parse(&args("chr8:1-1000 --copy-number seg.cns --ploidy two")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::BadValue {
+                    flag: "--ploidy",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+
+        let error = parse(&args("chr8:1-1000 --coverage d.bg --ploidy 2")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--ploidy",
+                    track: "coverage"
+                }
+            ),
+            "{error}"
+        );
+    }
+
     #[test]
     fn a_sheet_of_metadata_is_refused_by_a_track_that_has_no_rows() {
         // The refusal is the point. A coverage track has nothing for a strip
@@ -1257,6 +1382,34 @@ mod tests {
                 Some(Source::Path(PathBuf::from("s.tsv"))),
                 "{line}"
             );
+        }
+    }
+
+    #[test]
+    fn a_ploidy_of_nought_is_refused_and_the_height_is_not() {
+        // At nought copies a log ratio becomes nought everywhere, and every one
+        // of them lands on the rule that means unchanged.
+        let error = parse(&args("chr8:1-1000 --copy-number s.cns --ploidy 0")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::BadValue {
+                    flag: "--ploidy",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+
+        // Both new tracks size themselves by a field rather than by rows, so
+        // both take a height, and a flag refused where it means something is
+        // as wrong as one accepted where it does not.
+        for line in [
+            "chr8:1-1000 --copy-number s.cns --ploidy 2 --height 90",
+            "chr1:1-1000 --dynseq d.bg --with-sequence r.fa --height 90",
+        ] {
+            let it = draw(line);
+            assert_eq!(it.tracks[0].height, Some(90.0), "{line}");
         }
     }
 

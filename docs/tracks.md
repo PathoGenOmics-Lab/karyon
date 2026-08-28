@@ -5,7 +5,7 @@ description: Exhaustive behaviour and data contracts for every Karyon track type
 
 # Track API reference
 
-Thirty-three track types ship across thirty-two focused modules. Every one of
+Thirty-six track types ship across thirty-five focused modules. Every one of
 them is an implementation of the same small trait, `Track`, and none of them has
 privileged access to the figure: a track reports how tall it wants to be, then
 draws inside the band it is handed, already clipped. A track type the crate does
@@ -142,7 +142,7 @@ being honest about it. The analyses they carried are still worth having: a
 rarefaction over a presence matrix is a statistic rather than a plot type, and
 it does not need a `Track` to compute it.
 
-Twenty-eight of the thirty-three draw through `ctx.scale`. The five that do not
+Thirty-one of the thirty-six draw through `ctx.scale`. The five that do not
 each answer for it, and each says so in its own module:
 
 - [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
@@ -345,6 +345,41 @@ as readily as bases:
 
 ![A sequence logo whose symbols are three letter amino acid codes](assets/figures/example-logo-protein.svg)
 
+### DynseqTrack
+
+Per-base model attribution, drawn as the bases themselves at a height
+proportional to their score, hanging below the line where the score is negative.
+
+A model that predicts something from a sequence can be asked which bases it
+used, and the answer is one signed number per base. Drawn this way a motif
+appears as a word, which is the reason the figure is read at all.
+
+It is not a [LogoTrack](#logotrack), and the reason is measurable rather than
+stylistic. A logo normalises within a column, so one symbol carrying one weight
+takes the whole column whatever the number was: with four bases and one symbol
+per column, `0.1` and `0.9` both come out at height `1.0` under `Probability`
+and both at `8.65` under `LogOdds`. And `LogoColumn::add` clamps a negative
+weight to zero before any score is chosen, so a base the model pulled away from
+draws as nothing. The magnitude and the sign are the whole measurement.
+
+It is not a [WindowTrack](#windowtrack) either, which is the closer call, since
+that also draws a signed statistic against a line and also reduces a pixel
+column to its extremes. A window is an interval carrying a statistic and a base
+is not an interval: a megabase of per-base scores would be a million one-base
+windows to say what a sequence and a vector of numbers say. And a base has an
+identity, which is what the letter is.
+
+Three regimes and the zoom picks: letters where a letter fits, boxes down to a
+pixel a base, and below that an envelope of the extremes in one neutral ink,
+never a base colour, because a column spanning forty bases has no base. There is
+no aggregate to choose, and that is a decision: a maximum hides a strong
+negative, a minimum hides a strong positive, and a mean cancels a `+2` against a
+`-2` into a nought that says the model ignored the place.
+
+The rule is one line per run of scored bases rather than one across the band. A
+base scoring exactly nought draws no glyph and so does a base nobody scored, so
+the rule under it is the only thing that tells them apart.
+
 ## Annotation
 
 ### FeatureTrack
@@ -439,6 +474,43 @@ middle, which is usually the one place nothing happened.
 Put a [CoverageTrack](#coveragetrack) under it. Half of reading an SV call is
 whether the depth agrees, and a deletion with no drop under it is a call to
 argue with.
+
+### CopyNumberTrack
+
+Segmented copy number, on a ladder of whole copies, with what the two alleles
+did along the foot.
+
+![A cohort copy number landscape over one arm, and under it one tumour's segmentation with its lost heterozygosity marked](assets/figures/example-copy-number.svg)
+
+A caller reports intervals, each carrying how many copies it found, and the good
+ones carry two numbers rather than one: the total, and how many of those copies
+came from the quieter of the two alleles.
+
+The reason this is not a [WindowTrack](#windowtrack) is what the two draw where
+nothing happened. A window track fills from its baseline out to the value, so a
+segment called at exactly the ploidy is neither above nor below and draws
+nothing at all. That is not an edge case: a balanced segment is most of a
+genome, and a figure whose quiet arms are blank cannot be told apart from one
+whose quiet arms were never called. Measured, on four windows at two copies, no
+call, seven and nought with the baseline at two, two marks come out and the two
+that vanish are the balanced one and the missing one. So a level here is a bar
+drawn at the level, and only a segment nobody called is blank.
+
+The other half is loss of heterozygosity. A minor allele of nought with copies
+still present is a finding, and it must not look like the absence of one, so the
+absence is not representable: `CopyNumber::Total` has no field to put a minor
+allele in and `minor()` answers with `None`. Copy-neutral loss of heterozygosity
+is the case the lane along the bottom exists for, since two copies both from one
+allele put the bar exactly on the rule that means unchanged.
+
+Where balanced sits has no default. `at_ploidy` takes it, because this crate
+does not know what it is drawing and a rule in the wrong place does not
+mis-scale the ladder, it swaps every gain for a loss.
+
+Copies are continuous, since subclonal and purity-adjusted calls are fractional.
+The rungs are at whole copies because whole copies are where the interpretable
+states are, and an evenly divided axis would print three and a half copies,
+which is a number of copies nobody has.
 
 ### SnpTrack
 
@@ -633,6 +705,47 @@ molecule did not cover gets no mark at all, because "measured and not
 methylated" and "not measured" are different statements and must not look the
 same. Columns sit at the real distances between the cytosines, which matters
 when the question is whether an island is uniformly modified.
+
+### JunctionTrack
+
+Splice junctions as arcs, each weighted by the reads that crossed it and
+labelled with the count.
+
+![A sashimi figure: junction arcs over a depth profile, and per-base attribution under it](assets/figures/example-regulation.svg)
+
+Three things separate this from [StructuralTrack](#structuraltrack), which also
+draws arcs and also weights them by support, and none of the three is a setting.
+
+What the arc joins. A structural variant joins two breakpoints, which are bases.
+An intron is not at a base, it is the boundary between two, so the feet here are
+at the left edge of a base rather than at its middle. At twenty pixels a base
+that is ten pixels of drift, and the arc stops meeting the step in the coverage
+profile underneath it.
+
+How high it goes. A structural variant arcs by the distance between its ends,
+because reaching further is what it did. An intron reaching further is not a
+bigger event, so height carries nothing at all here: arcs go in lanes so they
+miss each other, and `y_axis_width` answers with nought so that nothing invites
+a reader to measure one.
+
+What is printed. A structural variant keeps its support in a tooltip and says in
+its own words that stroke weight is an ordering and never a length. That is not
+enough here, because the ratio between two junctions is the finding, so the
+count is printed over the apex. Thickness is logarithmic for the same reason:
+counts inside one gene span three or four orders of magnitude, and on a linear
+ramp every minor isoform sits on the floor together.
+
+It is not a [SplitReadTrack](#splitreadtrack) either, and that one cannot hold
+the data at all. A spliced alignment is one primary record whose CIGAR steps
+over the intron and it carries no `SA` tag, so `read::split::reads` counts it as
+not split and emits nothing: measured, three spliced records in, nought
+molecules out. A split read track is also one row per molecule, and four hundred
+reads over one exon are four hundred rows there. Here they are one arc labelled
+400, and the collapsing is the point.
+
+A junction no read crossed is not an observation. It reaches the track, is not
+drawn, and the figure prints how many it held back, since a filter nobody can
+see is worse than no filter.
 
 ### SquiggleTrack
 
@@ -1205,7 +1318,7 @@ From the command line this is `--traits`, described in
 
 ## From the command line
 
-Twelve of the thirty-three tracks have a standard text format to read, and those
+Twenty-eight of the thirty-six tracks have a standard text format to read, and those
 are the ones `karyon` the command can build. Each flag starts a track and the
 flags after it describe that one, so the order of the flags is the order of the
 stack.
@@ -1213,6 +1326,9 @@ stack.
 | Flag | Track | Format |
 |:-----|:------|:-------|
 | `--coverage` | [CoverageTrack](#coveragetrack) | bedGraph, `samtools depth`, or one value per line |
+| `--copy-number` | [CopyNumberTrack](#copynumbertrack) | a segment table: CNVkit `.cns`, ASCAT, or `.seg` |
+| `--dynseq` | [DynseqTrack](#dynseqtrack) | bedGraph of per-base scores, with `--with-sequence` |
+| `--junctions` | [JunctionTrack](#junctiontrack) | an aligner's `SJ.out.tab` |
 | `--sequence` | [SequenceTrack](#sequencetrack) | FASTA |
 | `--features` | [FeatureTrack](#featuretrack) | BED or GFF3 |
 | `--variants` | [VariantTrack](#varianttrack) | VCF |

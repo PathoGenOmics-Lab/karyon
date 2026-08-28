@@ -133,6 +133,49 @@ is a genotype, not an absence, and the two have to look different.
 Both panels share the figure's x axis, so the haplotype block sits under its own
 tower. This one is `cargo run --example association -- assets`.
 
+### A cohort copy number landscape, without a track for it
+
+How often each part of a genome is gained across a cohort, and how often it is
+lost, is two numbers over the same place. There is no track type for this and
+there is not going to be one, because a `WindowTrack` already draws it: `Window`
+holds one number per row, and nothing says one row per place.
+
+```rust
+use karyon::{plot, QuantitativeAxis, Window, WindowTrack};
+
+// Two rows over every span. A locus gained in a third of the cohort and lost
+// in a fifth of it is both, and a net of the two would put it where a locus
+// gained in an eighth and lost in none also lands.
+let mut landscape = Vec::new();
+for i in 0..40u64 {
+    let (from, to) = (i * 100_000, (i + 1) * 100_000);
+    landscape.push(Window::new(from, to, gained[i as usize]));
+    landscape.push(Window::new(from, to, -lost[i as usize]));
+}
+
+let svg = plot("chr8:1-4,000,000")?
+    .add_track(
+        WindowTrack::new(landscape)
+            // Warm for gained and cool for lost, the field's convention, which
+            // is the other way round from the default.
+            .colors("#d55e00", "#0072b2")
+            .axis(QuantitativeAxis::new().range(-1.0, 1.0).ticks(3))
+            .label("120 samples"),
+    )
+    .to_svg();
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`WindowTrack::columns` accumulates the lowest and the highest value in each
+pixel column and `WindowStyle::Steps` draws both, one up from the baseline and
+one down, so a place that went both ways is drawn going both ways at any zoom.
+Losses arrive negative because the baseline is what separates them, and each
+row is a fraction of the cohort rather than a count, so the axis reads the same
+whatever the cohort's size.
+
+The [copy number example](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/copy_number.rs)
+puts one sample's segmentation under a landscape drawn this way.
+
 ### A signed statistic in windows
 
 ```bash

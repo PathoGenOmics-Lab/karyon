@@ -8,6 +8,53 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `CopyNumberTrack` and `--copy-number`, for the segments a copy number caller
+  fitted. A window track fills from its baseline out to the value, so a segment
+  called at exactly the ploidy draws nothing, and that is most of a genome:
+  measured on four windows at two copies, no call, seven and nought with the
+  baseline at two, two marks come out and the two that vanish are the balanced
+  one and the missing one. So a level here is a bar at the level, and only a
+  segment nobody called is blank. `--ploidy` is required rather than defaulted
+  because where balanced sits is not in the file, and a rule in the wrong place
+  does not mis-scale the ladder, it swaps every gain for a loss.
+- Loss of heterozygosity is unrepresentable as an absence: `CopyNumber::Total`
+  has no field to put a minor allele in and `minor()` answers with `None`, so
+  the finding cannot be confused with a call nobody made. Copy-neutral loss is
+  what the lane along the foot of the band exists for, since two copies both
+  from one allele sit exactly on the rule that means unchanged.
+- `DynseqTrack` and `--dynseq`, for per-base model attribution drawn as the
+  bases themselves. It is not a sequence logo, and the reason is measurable: a
+  logo normalises within a column, so `0.1` and `0.9` both come out at height
+  `1.0` under `Probability` and both at `8.65` under `LogOdds`, and
+  `LogoColumn::add` clamps a negative weight to zero before any score is chosen.
+  Three regimes and the zoom picks between them, with no aggregate offered,
+  because a maximum hides a strong negative, a minimum hides a strong positive,
+  and a mean cancels a `+2` against a `-2` into a nought.
+- The rule under a dynseq track is one line per run of scored bases rather than
+  one across the band. A base scoring exactly nought draws no glyph and so does
+  a base nobody scored, so the rule is the only thing that tells them apart.
+- `JunctionTrack` and `--junctions`, for splice junctions as arcs weighted and
+  labelled by the reads that crossed them. Three things separate it from the
+  structural variants that also draw arcs: an intron is the boundary between two
+  bases rather than a base, so the feet are at a base's left edge and the arc
+  meets the step in the coverage under it; an intron reaching further is not a
+  bigger event, so height carries nothing and no value axis is offered; and the
+  count is printed, because the ratio between two junctions is the finding.
+  Thickness is logarithmic, since counts inside one gene span three or four
+  orders of magnitude.
+- `read::segments`, `read::dynseq` and `read::junction`. The segment table finds
+  its columns by name off a required header, because every one of them has a
+  chromosome, two coordinates and some numbers, and reading `nMajor` where
+  `nMinor` was written is a figure claiming lost heterozygosity in the arms that
+  kept it. `SJ.out.tab` counts from one and inclusively on the intron, which is
+  a third convention and neither of its neighbours.
+- Two examples, `copy_number` and `regulation`, and the figures they draw.
+- A recipe for the cohort copy number landscape, which is a `WindowTrack` with
+  two rows over every span. There is no track type for it because that already
+  draws it: `Window` holds one number per row and nothing says one row per place,
+  so a locus gained in a third of a cohort and lost in a fifth of it is drawn
+  going both ways.
+
 - Metadata columns beside the rows of six tracks. A track drawn as a row per
   named thing answers which ones, and the question after it is almost always
   what they were, which is in a sample sheet rather than in the file the track
@@ -245,8 +292,76 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `selection_atlas` example combines all three with protein architecture and
   iTOL-style terminal metadata.
 
+### Fixed
+
+- A dynseq band shorter than its own labels no longer panics. The two bounds of
+  the clamp that keeps a label inside the band cross once the band is shorter
+  than the text is tall, and `clamp` panics rather than choosing, which a track
+  four pixels high reached without asking for anything unusual.
+- A bedGraph of per-base scores is read as spans rather than as one entry per
+  base, so the cost is the width of the window rather than the rows times the
+  width of the window. A sixty byte file across a chromosome asked for seven and
+  a half gigabytes; a thousand such rows asked for about four terabytes and were
+  killed. A thousand rows now cost what one does.
+- The rule under a dynseq track is written as pixels rather than as runs of
+  bases. A file scoring every other base over a megabase produced half a million
+  line elements and forty-two megabytes of SVG to draw a rule; the same input
+  now produces twelve.
+- The strip beside a dynseq track is measured over every label that goes in it
+  rather than over the nought alone, so a score of minus twelve thousand is no
+  longer printed with its minus sign cut off by the clip, which made it a
+  positive number an order of magnitude too small.
+- Junction lanes are packed over the window rather than over the whole track. A
+  junction a megabase away took a lane, and the arcs on screen were flattened to
+  make room for it: one visible arc went from forty-nine pixels tall to two and
+  a half when twenty off-screen junctions were added.
+- The rungs of a copy number ladder keep thinning past a step of ten, so a
+  ceiling in the thousands no longer paints the whole band in the rule colour.
+- The distinct sample names of a segment table are found with a set rather than
+  a linear scan. Sixty thousand distinct names took tens of seconds and were
+  quadratic; they take a quarter of a second.
+- `CopyNumberTrack::legend` takes the theme and names the inks that were drawn,
+  rather than three literals that are the wrong colours in a dark figure and
+  that claimed a gain and a loss whatever the data held.
+- A copy number rung label is held inside the band at the bottom as well as the
+  top, since with the allele lane hidden the nought label fell below the band
+  and lost its lower third to the clip.
+- An allele pair with one number missing is no longer read as a total of the
+  other. A caller reporting three major copies and `NA` for the minor has not
+  said there are three copies, it has said the total is three plus something
+  nobody measured, and keeping the survivor as a total put that something at
+  nought.
+- `--sample` on a segment table with no sample column is refused rather than
+  accepted and ignored, which drew the whole table under a name the command had
+  asked to pick out of it.
+- A `--dynseq` reference holding several records is picked by the sequence the
+  region names rather than by being first in the file. One chromosome's letters
+  under another chromosome's scores is a figure that is wrong at every base and
+  looks right at all of them.
+- A `--dynseq` track is laid over the window rather than over the reference, so
+  a score inside the window is not dropped because the FASTA stopped short of
+  it.
+- A segment table spelled `start_pos` and `end_pos` is read as 1-based like the
+  `startpos` it is an alias of, rather than as 0-based, which put every segment
+  a base to the right and stepped over the guard against a start of nought.
+- A row whose end is one below its start is refused in a 1-based table too. The
+  comparison happened after the conversion, so that one row survived it and
+  became a segment covering no bases.
+- `--height` is accepted on `--copy-number` and `--dynseq`, both of which size
+  themselves by a field and were refusing a flag that means something to them.
+- `--ploidy 0` is refused. At nought copies a log ratio becomes nought
+  everywhere, and every one of them lands on the rule that means unchanged, so
+  a called amplification drew as a quiet arm.
+- A dynseq band in which nothing was scored no longer prints a scale, which put
+  numbers on the page for a measurement that was never made.
+- A copy number track built by hand with no ploidy is refused rather than given
+  a diploid ladder whose rule came from nowhere.
+
 ### Changed
 
+- The quadratic both arc-drawing tracks spring from a baseline lives in one
+  place now, `track::arc_path`, and the structural variants call it. Verified by
+  re-rendering every committed figure: byte for byte what they were.
 - `TraitColumn`, `TraitScale` and `TraitStyle` moved from `track::tree` to
   `track::traits`, unchanged, and are still exported from `karyon`,
   `karyon::track` and `karyon::track::tree`. They stopped being a phylogeny's

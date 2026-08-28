@@ -36,7 +36,7 @@
 //! on one axis for anyone to see that.
 
 use crate::scale::Scale;
-use crate::svg::{num, text_width, Anchor};
+use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::feature::span_label;
@@ -356,16 +356,7 @@ impl Track for StructuralTrack {
             } else {
                 // Springing from the axis at both ends. A control point twice
                 // the height puts the apex of the curve at the height asked for.
-                let control = baseline - (baseline - apex) * 2.0;
-                let d = format!(
-                    "M{} {}Q{} {} {} {}",
-                    num(x0),
-                    num(baseline),
-                    num((x0 + x1) / 2.0),
-                    num(control),
-                    num(x1),
-                    num(baseline)
-                );
+                let d = crate::track::arc_path(x0, x1, baseline, apex);
                 ctx.svg.path_stroked(&d, &color, self.stroke_of(call));
 
                 if self.show_names {

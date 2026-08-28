@@ -117,7 +117,7 @@ The command line front end installs from the same repository:
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
-It is the same grammar with spaces instead of dots, for the twenty-five track
+It is the same grammar with spaces instead of dots, for the twenty-eight track
 types that have a file to read.
 
 The command below names three files you do not have yet. If you want something
@@ -154,7 +154,7 @@ against `ALT` and needs no annotation: a substitution, an insertion or a
 deletion.
 
 Without `-o` the SVG goes to standard output. `karyon --help` prints the whole
-grammar, which is twenty-four track flags and the ruler.
+grammar, which is twenty-seven track flags and the ruler.
 
 !!! note "A FASTA is read from its own first base"
     `--sequence` wants the reference the window is cut out of, not the window.
@@ -188,7 +188,7 @@ The layout will not: the code on this page renders at the same 900 by 284 and
 
 ## Next
 
-- [Tracks](../tracks.md), for the thirty-three track types and what each one
+- [Tracks](../tracks.md), for the thirty-six track types and what each one
   draws.
 - [Plot API](../guide/plot.md), for what `label`, `adjust` and `done` do and
   where the short form stops.

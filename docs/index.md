@@ -345,17 +345,17 @@ chromosome and a world map are containers of their own, because a sequence with
 no ends cannot be drawn as a line without inventing one.
 
 <details class="track-overview">
-  <summary>Thirty-three track types, twenty-two panels, one sheet</summary>
+  <summary>Thirty-six track types, twenty-two panels, one sheet</summary>
   <img src="assets/figures/gallery.svg" loading="lazy" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator">
 </details>
 
-Twenty-five of the thirty-three are reachable from the command line, the ones
-that have a file to read, and twenty-four of those take a file: `--axis` is the
+Twenty-eight of the thirty-six are reachable from the command line, the ones
+that have a file to read, and twenty-seven of those take a file: `--axis` is the
 one that takes none. Trees drawn with metadata, maps and the selection views are
 library only. Where the library ends and the command begins is worth saying out
 loud, because it is the boundary readers walk into.
 
-The count is thirty-three because three were removed. Every track has to answer
+The count is thirty-six because three were removed. Every track has to answer
 one question, *does drawing it read the shared scale*, and three that could not
 were taken out rather than kept for the sake of a longer list.
 [Extending](how-it-works/extending.md) has that test and what a new track owes.
@@ -435,7 +435,7 @@ the numbers it was given, or says that it could not.
 ### The reference
 
 [Plot catalogue](plots/index.md)
-:   Eight routes through all thirty-three tracks plus the circular and
+:   Eight routes through all thirty-six tracks plus the circular and
     geographic drawings, sorted by biological question rather than by type name.
 
 [Track API reference](tracks.md)
@@ -447,7 +447,7 @@ the numbers it was given, or says that it could not.
     form stops.
 
 [Command line](guide/cli.md)
-:   The same grammar with spaces instead of dots, for the twenty-five tracks
+:   The same grammar with spaces instead of dots, for the twenty-eight tracks
     that have a file to read. Flag order is stack order, and any track file may
     be `-`, though one track may take it, since there is only one standard
     input to go around.

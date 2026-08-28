@@ -706,6 +706,130 @@ nothing.
 **Skipped**: nothing on account of a sequence, since the table names none. Give
 it a table for the sequence being drawn.
 
+## The segment table
+
+Used by `--copy-number`, for what a caller concluded over each interval.
+
+```text
+chromosome  start      end        gene  log2   cn  cn1  cn2
+chr8        127200000  127740000  MYC   1.86   7   5    2
+chr8        127740000  129100000  -     -0.02  2   1    1
+chr17       7565000    7590000    TP53  -1.04  1   1    0
+chr17       7590000    7700000    -     NA     NA  NA   NA
+```
+
+The columns are found by name off a required header, which is the one place in
+this guide a header is a rule rather than something worked out from the shape of
+the file. Every segment table has a chromosome, two coordinates and some
+numbers, and the writers disagree about the order, the count and the names.
+Guessing by column count would read `nMajor` where `nMinor` was written, and
+that is a figure claiming lost heterozygosity in the arms that kept it, drawn
+confidently.
+
+Three shapes are known: CNVkit's `.cns` (`chromosome`, `start`, `end`, and
+`cn`, `cn1`, `cn2` or `log2`), ASCAT's segment table (`startpos`, `endpos`,
+`nMajor`, `nMinor`), and the `.seg` file IGV and GISTIC2 read (`loc.start`,
+`loc.end`, `seg.mean`). A header naming none of them is refused rather than
+guessed at.
+
+**Coordinates**: the `.cns` is BED-like, 0-based and half-open, passed straight
+through. ASCAT and `.seg` are 1-based and inclusive, so one comes off the start
+and the end is unchanged. The header decides which, since the two spell the same
+two coordinates by different names.
+
+**Log ratios**: a `.seg` carries `seg.mean` and a `.cns` carries `log2`, both
+ratios against a reference. Turning either into copies is `ploidy * 2^log2`, and
+the ploidy is not in the file, which is why `--ploidy` is required rather than
+defaulted. A file carrying a called integer copy number is read from that
+instead, since it is what the caller concluded rather than what this arithmetic
+would infer.
+
+**The allele split is read first**, before the total and before the ratio. A
+caller that wrote both wrote the split on purpose, and a total cannot be turned
+back into one.
+
+**Missing values**: an empty field, a `.`, an `NA`, a `-`, and anything that
+parses to a number that is not a number. A segment whose copy number is any of
+those is counted and not drawn, so the interval is a gap in the ladder rather
+than a level nobody called.
+
+**Several samples**: a table naming more than one is refused until `--sample`
+picks, because two step functions in one band read as one sample with a great
+many breakpoints.
+
+**Errors**: a header naming none of the known shapes; a row narrower than the
+columns the header names; a 1-based coordinate of nought; an end before its
+start.
+
+## Per-base scores
+
+Used by `--dynseq`, for what a model made of each base.
+
+```text
+chr1  1000  1001  0.42
+chr1  1001  1002  -0.13
+chr1  1002  1003  0.05
+```
+
+bedGraph and nothing else. [The signal reader](#bedgraph) tells three shapes
+apart by column count and two of them mean nothing here: the output of
+`samtools depth` is a read depth, which is never negative and is not a
+contribution, and a bare column of values carries no coordinates, so a model
+scored over one stretch would be laid over another. Either would draw a figure,
+and the figure would be wrong in a way nothing on it could show.
+
+**Coordinates**: 0-based and half-open, passed straight through. A row covering
+several bases gives its score to each of them, and only the part inside the
+window is expanded, so a genome-wide file does not become a genome-wide vector.
+
+**Missing values**: the gaps between rows. A base no row covers stays unscored
+rather than becoming a nought, and the difference is a model that looked and
+found nothing against one that never looked. The figure draws it: the rule under
+the bases is broken wherever nothing was scored.
+
+**Errors**: a row without four columns, a coordinate that is not a number, an
+end before its start.
+
+## SJ.out.tab
+
+Used by `--junctions`, for the introns an aligner saw reads step over.
+
+```text
+chr1  14830  14969  2  2  1  14  3  40
+```
+
+Nine columns: sequence, first base of the intron, last base of the intron,
+strand (0 unknown, 1 forward, 2 reverse), intron motif, whether an annotation
+held it, uniquely mapping reads across it, multi-mapping reads across it, and
+the longest spliced overhang.
+
+**Coordinates**: 1-based and inclusive **on the intron**, not on the exons
+either side. So the start comes down by one and the end, made half-open, is the
+number as written. That is a third convention, different from both of its
+neighbours in this guide, and a reader that copied [VCF](#vcf), where both come
+down by one, would draw every arc a base short at its right foot.
+
+**Motifs**: the six codes fold to four, because the pairs differ only in which
+strand the intron is on and the strand is its own column.
+
+**Multi-mapping reads** are kept and never added to the unique ones. A read that
+mapped in four places is one read and four pieces of evidence, and adding it to
+a count the figure draws a thickness from makes a repeat look like an expressed
+isoform.
+
+**Novelty**: column six is nought for a junction no annotation held. A file read
+against no annotation is nought everywhere and cannot be told apart from a file
+whose junctions are all novel, so both come back as stated novelty and the
+caller who knows which they have is the one who can say. A column holding
+neither nought nor one leaves it unstated, and unstated is not false.
+
+**Missing values**: a junction no uniquely mapping read crossed is handed on
+rather than dropped, and the track holds it back and prints how many. Filtering
+it here would take that number off the figure.
+
+**Errors**: a row without nine columns, an intron start of nought in a file
+counting from one, an intron that ends before it starts.
+
 ## The sample sheet
 
 Used by `--traits`, for what is known about the rows a track already has.

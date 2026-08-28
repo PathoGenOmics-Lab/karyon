@@ -24,10 +24,11 @@ use karyon::tree::Annotations;
 use karyon::{
     read, AlignmentBlock, AncestralStateLayer, AnnotationValue, Association, AxisTrack, Band,
     BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
-    CigarOp, CladeBlock, CladeTrack, CodonTrack, CoverageTrack, DomainArchitecture, DomainFeature,
-    DomainTrack, DotplotTrack, Feature, FeatureTrack, Figure, Format, Genome, GenomeTrack, GeoFlow,
-    GeoLocation, GeoProjection, HomoplasyLayer, IdeogramTrack, Legend, LegendTrack, Locus,
-    LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite,
+    CigarOp, CladeBlock, CladeTrack, CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack,
+    DomainArchitecture, DomainFeature, DomainTrack, DotplotTrack, DynseqTrack, Feature,
+    FeatureTrack, Figure, Format, Genome, GenomeTrack, GeoFlow, GeoLocation, GeoProjection,
+    HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack, Legend, LegendTrack, Locus, LocusTrack,
+    LogoColumn, LogoTrack, ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite,
     MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack, PhyloConnector, PhyloMap,
     PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Read, Region,
     RenderProfile, Scale, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack, SnpSite,
@@ -225,10 +226,61 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
     let width = span.min(4_000);
     let count = rng.count();
 
-    match rng.below(33) {
+    match rng.below(36) {
         0 => {
             let values: Vec<f64> = (0..count).map(|_| rng.value()).collect();
             Box::new(CoverageTrack::new(rng.position(span), values))
+        }
+        33 => {
+            // Segments that touch, overlap, invert and carry no call, since the
+            // one thing this track must never do is draw an absent allele as a
+            // zero.
+            let segments: Vec<CopyNumberSegment> = (0..count)
+                .map(|_| {
+                    let a = rng.position(span);
+                    let b = rng.position(span);
+                    if rng.chance(3) {
+                        CopyNumberSegment::allelic(a.min(b), a.max(b), rng.value(), rng.value())
+                    } else {
+                        CopyNumberSegment::total(a.min(b), a.max(b), rng.value())
+                    }
+                })
+                .collect();
+            Box::new(CopyNumberTrack::at_ploidy(segments, rng.value()))
+        }
+        35 => {
+            // Junctions that touch, cross, invert and that nobody crossed, so
+            // the lane packing and the never-drawn count are both exercised.
+            let junctions: Vec<Junction> = (0..count)
+                .map(|_| {
+                    let a = rng.position(span);
+                    let b = rng.position(span);
+                    let reads = if rng.chance(6) {
+                        0
+                    } else {
+                        rng.below(5_000) as u32
+                    };
+                    let mut junction = Junction::new(a.min(b), a.max(b), reads);
+                    if rng.chance(2) {
+                        junction = junction.multi(rng.below(100_000) as u32);
+                    }
+                    if rng.chance(3) {
+                        junction = junction.annotated(rng.chance(2));
+                    }
+                    junction
+                })
+                .collect();
+            Box::new(JunctionTrack::new(junctions))
+        }
+        34 => {
+            let bases: Vec<u8> = (0..count.max(1)).map(|_| rng.base()).collect();
+            let scores: Vec<f64> = (0..bases.len()).map(|_| rng.value()).collect();
+            let track = DynseqTrack::new(rng.position(span), bases, scores);
+            Box::new(if rng.chance(2) {
+                track.symmetric(false)
+            } else {
+                track
+            })
         }
         1 => {
             let bases: Vec<u8> = (0..count).map(|_| rng.base()).collect();

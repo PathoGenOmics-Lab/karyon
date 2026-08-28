@@ -94,7 +94,7 @@
 //!
 //! # A track type the crate lacks is thirty lines
 //!
-//! The thirty-three track types shipped here are implementations of one small
+//! The thirty-six track types shipped here are implementations of one small
 //! trait, [`Track`], with no privileged access to the figure. See the example
 //! on [`Track`] for the whole of what a new one has to do.
 //!
@@ -159,12 +159,13 @@ pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, Aggregate, AlignmentBlock, AncestralStateLayer, Association, AxisTrack, Band,
     BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
-    CellScale, Centering, CigarOp, CladeBlock, CladeHighlight, CladeTrack, CodonTrack,
-    CoverageStyle, CoverageTrack, DomainArchitecture, DomainFeature, DomainTrack, DotplotTrack,
-    DrawContext, Feature, FeatureTrack, GeneShape, GenomeTrack, Homology, HomoplasyLayer,
-    IdeogramTrack, Legend, LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore,
-    LogoStack, LogoTrack, ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite,
-    MethylationTrack, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, NodeGlyph,
+    CellScale, Centering, CigarOp, CladeBlock, CladeHighlight, CladeTrack, CodonTrack, CopyNumber,
+    CopyNumberSegment, CopyNumberTrack, CoverageStyle, CoverageTrack, DomainArchitecture,
+    DomainFeature, DomainTrack, DotplotTrack, DrawContext, DynseqTrack, Feature, FeatureTrack,
+    GeneShape, GenomeTrack, Homology, HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack,
+    Legend, LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack,
+    LogoTrack, ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack,
+    Molecule, Motif, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, NodeGlyph,
     NodeGlyphStyle, NodeGlyphTarget, Orf, OrfTrack, PhylodynamicPoint, PhylodynamicScale,
     PhylodynamicTrack, PileupLayout, PileupTrack, RadialDirection, Read, ReadColoring, Rect,
     Segment, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack,
