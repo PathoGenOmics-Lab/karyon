@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `read::signal::dense` is `read::signal::spans` and hands back half-open
+  `(start, end, value)` spans rather than one entry per base. A bedGraph row is
+  one row however many bases it covers, and expanding it on the way in made the
+  cost the width of the window rather than the size of the file: a forty byte
+  row across a chromosome asked for 5.5 GB, and fifty tiled rows, a kilobyte of
+  input, asked for 6.0 GB. Both now take 2.15 GB, which is `CoverageTrack`'s own
+  buffer of one value per base and the honest cost of what it holds. Every
+  committed figure is byte for byte what it was.
+- `CoverageTrack::from_spans` lays those down, and `from_pairs` calls it, so
+  scattered points still arrive the way they did. `CoverageTrack::at` reads one
+  value back out.
+- `read::signal::windows` and `read::point` were checked for the same pattern
+  and do not have it, measured rather than read: the same forty byte file takes
+  2.1 MB through `--windows`, and two hundred thousand calls take 125 MB through
+  `--variants`. Both already keep one entry per row.
+
 ### Added
 
 - `CopyNumberTrack` and `--copy-number`, for the segments a copy number caller

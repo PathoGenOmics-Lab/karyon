@@ -39,23 +39,23 @@ fn region(locus: &str) -> Region {
 #[test]
 fn audit_bedgraph_one_base() {
     // bedGraph is 0-based half-open: 99..100 is the single base 1-based 100.
-    let pairs = signal::dense("chr1\t99\t100\t7\n", &region("chr1:1-200"), None).unwrap();
-    assert_eq!(pairs, vec![(TARGET, 7.0)]);
+    let spans = signal::spans("chr1\t99\t100\t7\n", &region("chr1:1-200"), None).unwrap();
+    assert_eq!(spans, vec![(TARGET, TARGET + 1, 7.0)]);
 }
 
 #[test]
 fn audit_depth_one_base() {
     // samtools depth is 1-based: position 100 is 0-based 99.
-    let pairs = signal::dense("chr1\t100\t7\n", &region("chr1:1-200"), None).unwrap();
-    assert_eq!(pairs, vec![(TARGET, 7.0)]);
+    let spans = signal::spans("chr1\t100\t7\n", &region("chr1:1-200"), None).unwrap();
+    assert_eq!(spans, vec![(TARGET, TARGET + 1, 7.0)]);
 }
 
 #[test]
 fn audit_values_one_base() {
     // A bare column starts at the left edge of the region. chr1:100-200 is
     // 0-based 99..200, so the first value is the base at 99.
-    let pairs = signal::dense("7\n", &region("chr1:100-200"), None).unwrap();
-    assert_eq!(pairs, vec![(TARGET, 7.0)]);
+    let spans = signal::spans("7\n", &region("chr1:100-200"), None).unwrap();
+    assert_eq!(spans, vec![(TARGET, TARGET + 1, 7.0)]);
 }
 
 #[test]
@@ -241,12 +241,23 @@ fn audit_matrix_one_site() {
 
 #[test]
 fn audit_bedgraph_end_is_exclusive_and_every_base_is_filled() {
-    // 100..200 is 100 bases: 100 through 199, and 200 belongs to no one.
-    let pairs = signal::dense("chr1\t100\t200\t5\n", &region("chr1:1-1000"), None).unwrap();
-    assert_eq!(pairs.len(), 100, "a bedGraph span fills every base in it");
-    assert_eq!(pairs.first().copied(), Some((100, 5.0)));
-    assert_eq!(pairs.last().copied(), Some((199, 5.0)));
-    assert!(pairs.iter().all(|(_, value)| *value == 5.0));
+    // 100..200 is 100 bases: 100 through 199, and 200 belongs to no one. The
+    // reader hands back the span rather than the hundred bases, and the track
+    // is what lays them down, so the fill is checked where it happens.
+    let spans = signal::spans("chr1\t100\t200\t5\n", &region("chr1:1-1000"), None).unwrap();
+    assert_eq!(spans, vec![(100, 200, 5.0)]);
+
+    // The track is what lays the span down, so the fill is checked where it
+    // happens: the drawn profile is flat over 100..200 and on the floor either
+    // side of it.
+    let track = crate::CoverageTrack::from_spans(&region("chr1:1-1000"), spans);
+    assert_eq!(track.at(100), Some(5.0));
+    assert_eq!(
+        track.at(199),
+        Some(5.0),
+        "the last base of the span was empty"
+    );
+    assert_eq!(track.at(200), Some(0.0), "a half-open end was filled");
 }
 
 #[test]
@@ -425,18 +436,20 @@ fn audit_gff3_keeps_a_feature_that_overlaps_either_edge() {
 
 #[test]
 fn audit_bedgraph_fills_only_the_part_of_a_span_inside_the_window() {
+    // The span comes back clipped to the window, so a genome-wide row is a
+    // window-wide span rather than a genome-wide one.
     // 0..101 overlaps the window by one base, the one at 100.
-    let pairs = signal::dense("chr1\t0\t101\t5\n", &window(), None).unwrap();
-    assert_eq!(pairs, vec![(100, 5.0)]);
+    let spans = signal::spans("chr1\t0\t101\t5\n", &window(), None).unwrap();
+    assert_eq!(spans, vec![(100, 101, 5.0)]);
     // 0..100 stops one base short.
-    let pairs = signal::dense("chr1\t0\t100\t5\n", &window(), None).unwrap();
-    assert!(pairs.is_empty());
+    let spans = signal::spans("chr1\t0\t100\t5\n", &window(), None).unwrap();
+    assert!(spans.is_empty());
     // 199..500 overlaps by the last base of the window.
-    let pairs = signal::dense("chr1\t199\t500\t5\n", &window(), None).unwrap();
-    assert_eq!(pairs, vec![(199, 5.0)]);
+    let spans = signal::spans("chr1\t199\t500\t5\n", &window(), None).unwrap();
+    assert_eq!(spans, vec![(199, 200, 5.0)]);
     // 200..500 starts one past it.
-    let pairs = signal::dense("chr1\t200\t500\t5\n", &window(), None).unwrap();
-    assert!(pairs.is_empty());
+    let spans = signal::spans("chr1\t200\t500\t5\n", &window(), None).unwrap();
+    assert!(spans.is_empty());
 }
 
 #[test]
@@ -500,15 +513,23 @@ fn audit_point_readers_use_the_half_open_end_of_the_window() {
 
 #[test]
 fn audit_bedgraph_row_before_the_window_does_not_underflow() {
-    let pairs = signal::dense("chr1\t0\t10\t5\n", &window(), None).unwrap();
-    assert!(pairs.is_empty());
+    let spans = signal::spans("chr1\t0\t10\t5\n", &window(), None).unwrap();
+    assert!(spans.is_empty());
 }
 
 #[test]
 fn audit_values_run_out_before_the_window_does() {
     // Four values into a five base window, so the last base stays unset.
-    let pairs = signal::dense("1\n2\n3\n4\n", &region("chr1:100-104"), None).unwrap();
-    assert_eq!(pairs, vec![(99, 1.0), (100, 2.0), (101, 3.0), (102, 4.0)]);
+    let spans = signal::spans("1\n2\n3\n4\n", &region("chr1:100-104"), None).unwrap();
+    assert_eq!(
+        spans,
+        vec![
+            (99, 100, 1.0),
+            (100, 101, 2.0),
+            (101, 102, 3.0),
+            (102, 103, 4.0)
+        ]
+    );
 }
 
 #[test]
@@ -558,24 +579,24 @@ fn samtools_depth_over_two_bams_is_not_guessed_at_as_a_bedgraph() {
         .collect();
     // Read as a bedGraph the intervals overlap, which no bedGraph does, so the
     // guess is refused and the message names the flag that reads it right.
-    let error = signal::dense(&amplicon, &region("amplicon:1-1500"), None).unwrap_err();
+    let error = signal::spans(&amplicon, &region("amplicon:1-1500"), None).unwrap_err();
     assert!(error.to_string().contains("--format depth"), "{error}");
 
     // Five lines of a depth file are five positions, 0-based 0 to 4.
-    let pairs = signal::dense(
+    let spans = signal::spans(
         &amplicon,
         &region("amplicon:1-1500"),
         Some(super::Format::Depth),
     )
     .unwrap();
     assert_eq!(
-        pairs,
+        spans,
         vec![
-            (0, 3000.0),
-            (1, 3000.0),
-            (2, 3000.0),
-            (3, 3000.0),
-            (4, 3000.0)
+            (0, 1, 3000.0),
+            (1, 2, 3000.0),
+            (2, 3, 3000.0),
+            (3, 4, 3000.0),
+            (4, 5, 3000.0)
         ]
     );
 }
@@ -587,13 +608,13 @@ fn a_three_column_file_is_samtools_depth_and_nothing_else() {
     // carrying a depth of 200. Nothing distinguishes the two, since a BED3 has
     // no value column to notice the absence of, so this is written down rather
     // than guessed at. The help text says a three column file is depth.
-    let pairs = signal::dense("chr1\t100\t200\n", &region("chr1:1-1000"), None).unwrap();
-    assert_eq!(pairs, vec![(99, 200.0)]);
+    let spans = signal::spans("chr1\t100\t200\n", &region("chr1:1-1000"), None).unwrap();
+    assert_eq!(spans, vec![(99, 100, 200.0)]);
 }
 
 #[test]
 fn an_inverted_bed_span_is_refused_the_way_signal_refuses_it() {
-    // `signal::dense` and `signal::windows` both call `end < start` an error on
+    // `signal::spans` and `signal::windows` both call `end < start` an error on
     // the same four columns. `interval::features` does not check, so
     // `Feature::new` widens 200..100 into a one base feature at 200: a gene
     // drawn 100 bases from where either coordinate says it is.

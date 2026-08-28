@@ -2037,17 +2037,29 @@ fn every_format_puts_the_same_interval_on_the_same_bases() {
         // per base in the other.
         let bedgraph = format!("chr1\t{start}\t{end}\t7\n");
         let depth: String = (first..=end).map(|at| format!("chr1\t{at}\t7\n")).collect();
-        let covered = |pairs: Vec<(u64, f64)>| -> (u64, u64, usize) {
-            let low = pairs.iter().map(|(at, _)| *at).min().unwrap_or(u64::MAX);
-            let high = pairs.iter().map(|(at, _)| *at).max().unwrap_or(0);
-            (low, high, pairs.len())
+        // Both readers hand back spans now, and a bedGraph says in one span
+        // what a depth file says in one per base. What has to agree is the
+        // stretch they cover and how many bases that is, not how many entries
+        // each of them took to say it.
+        let covered = |spans: Vec<(u64, u64, f64)>| -> (u64, u64, usize) {
+            let low = spans.iter().map(|(at, _, _)| *at).min().unwrap_or(u64::MAX);
+            let high = spans
+                .iter()
+                .map(|(_, to, _)| to.saturating_sub(1))
+                .max()
+                .unwrap_or(0);
+            let bases = spans
+                .iter()
+                .map(|(from, to, _)| to.saturating_sub(*from) as usize)
+                .sum();
+            (low, high, bases)
         };
         let from_bedgraph = covered(
-            read::signal::dense(&bedgraph, &region, None)
+            read::signal::spans(&bedgraph, &region, None)
                 .unwrap_or_else(|e| panic!("seed {seed}: bedgraph: {e}")),
         );
         let from_depth = covered(
-            read::signal::dense(&depth, &region, None)
+            read::signal::spans(&depth, &region, None)
                 .unwrap_or_else(|e| panic!("seed {seed}: depth: {e}")),
         );
         assert_eq!(
@@ -2067,8 +2079,8 @@ fn every_format_puts_the_same_interval_on_the_same_bases() {
         // is where these readers went wrong in practice.
         for (text, format) in [(&bedgraph, Format::BedGraph), (&depth, Format::Depth)] {
             assert_eq!(
-                read::signal::dense(text, &region, None).ok(),
-                read::signal::dense(text, &region, Some(format)).ok(),
+                read::signal::spans(text, &region, None).ok(),
+                read::signal::spans(text, &region, Some(format)).ok(),
                 "seed {seed}: {format:?} reads differently when it is named"
             );
         }
