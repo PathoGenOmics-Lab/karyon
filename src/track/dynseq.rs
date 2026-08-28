@@ -129,14 +129,40 @@ impl DynseqTrack {
         seq: impl Into<Vec<u8>>,
         pairs: impl IntoIterator<Item = (u64, f64)>,
     ) -> Self {
+        Self::from_spans(
+            start,
+            seq,
+            pairs.into_iter().map(|(pos, score)| (pos, pos + 1, score)),
+        )
+    }
+
+    /// Lays half-open `(start, end, score)` spans over a sequence.
+    ///
+    /// What a bedGraph states, taken as it states it. A row covering a hundred
+    /// bases is one span here and not a hundred pairs, which is the difference
+    /// between a file of a few rows staying small and a file of a few rows
+    /// across a whole window becoming gigabytes.
+    ///
+    /// A base no span covers stays unscored. It does not become a nought,
+    /// which is the difference between a model that looked and found nothing
+    /// and a model that never looked.
+    pub fn from_spans(
+        start: u64,
+        seq: impl Into<Vec<u8>>,
+        spans: impl IntoIterator<Item = (u64, u64, f64)>,
+    ) -> Self {
         let seq = seq.into();
         let mut scores = vec![f64::NAN; seq.len()];
-        for (pos, score) in pairs {
-            if let Some(slot) = pos
-                .checked_sub(start)
-                .and_then(|index| usize::try_from(index).ok())
-                .and_then(|index| scores.get_mut(index))
-            {
+        for (from, to, score) in spans {
+            let first = from.saturating_sub(start);
+            let last = to.saturating_sub(start);
+            let Ok(first) = usize::try_from(first) else {
+                continue;
+            };
+            let last = usize::try_from(last)
+                .unwrap_or(scores.len())
+                .min(scores.len());
+            for slot in scores.iter_mut().take(last).skip(first) {
                 *slot = score;
             }
         }
@@ -290,7 +316,26 @@ impl Track for DynseqTrack {
         if !self.show_scale {
             return 0.0;
         }
-        crate::svg::text_width(&self.axis.label(0.0), theme.font_size - 1.0) + 24.0
+        // Measured over every label that will be drawn, not just the nought.
+        // The clip covers the strip, so a wider label loses its left end, and
+        // a score of minus twelve thousand printed with its minus sign cut off
+        // is a positive number an order of magnitude too small.
+        let size = theme.font_size - 1.0;
+        // The widest score the track carries anywhere, not the widest inside
+        // the window, because the figure asks for this width before it says
+        // which window. A visible extent is never larger than that one.
+        let reach = self.max_extent.unwrap_or_else(|| {
+            self.scores
+                .iter()
+                .filter(|score| score.is_finite())
+                .fold(0.0f64, |widest, score| widest.max(score.abs()))
+                .max(1.0)
+        });
+        [reach, -reach, 0.0]
+            .into_iter()
+            .map(|value| crate::svg::text_width(&self.axis.label(value), size))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -308,9 +353,14 @@ impl Track for DynseqTrack {
         let measured = self.visible_extent(ctx.region).is_some();
         if self.show_scale && measured && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
+            // Ordered before clamping. On a band shorter than the text is
+            // tall the two bounds cross, and `clamp` panics rather than
+            // choosing: a track four pixels high is allowed by `height`, so
+            // this was reachable.
+            let top = band.y + size * 0.8;
+            let bottom = band.bottom() - size * 0.15;
             for value in [hi, 0.0, lo] {
-                let y = (y_of(value) + size * 0.35)
-                    .clamp(band.y + size * 0.8, band.bottom() - size * 0.15);
+                let y = (y_of(value) + size * 0.35).clamp(top.min(bottom), top.max(bottom));
                 ctx.svg.text(
                     ctx.axis.right() - 4.0,
                     y,
@@ -346,7 +396,18 @@ impl Track for DynseqTrack {
         if let Some(done) = run.take() {
             runs.push(done);
         }
-        for (from, to) in &runs {
+        // Runs closer together than a pixel are joined before anything is
+        // written. Every gap is a separate `<line>`, and a file scoring every
+        // other base over a megabase produced half a million of them in a nine
+        // hundred pixel band: forty-two megabytes of SVG to draw a rule.
+        let mut merged: Vec<(u64, u64)> = Vec::new();
+        for (from, to) in runs {
+            match merged.last_mut() {
+                Some(open) if ctx.scale.x(from) - ctx.scale.x(open.1) < 1.0 => open.1 = to,
+                _ => merged.push((from, to)),
+            }
+        }
+        for (from, to) in &merged {
             ctx.svg.line(
                 ctx.scale.x(*from),
                 rule_y,
@@ -447,6 +508,7 @@ impl Track for DynseqTrack {
 mod tests {
     use super::*;
     use crate::figure::Figure;
+    use crate::theme::Theme;
 
     fn region(width: u64) -> Region {
         Region::new("chr1", 0, width).unwrap()
@@ -583,6 +645,55 @@ mod tests {
         let track = DynseqTrack::new(0, b"ACGT".to_vec(), vec![f64::NAN; 4]);
         assert_eq!(track.visible_extent(&region(4)), None);
         assert_eq!(rules(&drawn(track, 4, 400.0)), 0);
+    }
+
+    #[test]
+    fn a_band_shorter_than_its_own_labels_does_not_panic() {
+        // The two bounds of the label clamp cross once the band is shorter than
+        // the text is tall, and `clamp` panics rather than choosing. `height`
+        // allows four pixels, so this was reachable without asking for it.
+        for pixels in [4.0, 8.0, 10.0, 10.4, 10.5, 40.0] {
+            let track = DynseqTrack::new(0, b"ACGT".to_vec(), vec![0.5; 4]).height(pixels);
+            let svg = Figure::new(region(4))
+                .show_region_label(false)
+                .push(track)
+                .to_svg();
+            assert!(svg.starts_with("<svg "), "{pixels} px");
+        }
+    }
+
+    #[test]
+    fn the_strip_is_wide_enough_for_the_labels_that_go_in_it() {
+        // Sized from the label of nought alone, the extremes were cut off on
+        // the left by the clip, and a score of minus twelve thousand printed
+        // without its minus sign is a positive number an order of magnitude
+        // too small.
+        let big = DynseqTrack::new(0, b"AC".to_vec(), vec![12_345.678, -12_345.678]);
+        let small = DynseqTrack::new(0, b"AC".to_vec(), vec![0.5, -0.5]);
+        let theme = Theme::light();
+        assert!(
+            big.y_axis_width(&theme) > small.y_axis_width(&theme),
+            "the strip is the same width whatever the numbers are"
+        );
+        let size = theme.font_size - 1.0;
+        let widest = crate::svg::text_width(&big.axis.label(-12_345.678), size);
+        assert!(
+            big.y_axis_width(&theme) >= widest,
+            "the widest label will not fit"
+        );
+    }
+
+    #[test]
+    fn the_rule_is_bounded_by_the_pixels_and_not_by_the_bases() {
+        // Every other base scored is half a million runs over a megabase, and
+        // one line each was forty-two megabytes of SVG to draw a rule.
+        let bases: Vec<u8> = (0..40_000).map(|_| b'A').collect();
+        let scores: Vec<f64> = (0..40_000)
+            .map(|i| if i % 2 == 0 { 0.5 } else { f64::NAN })
+            .collect();
+        let svg = drawn(DynseqTrack::new(0, bases, scores), 40_000, 900.0);
+        let lines = svg.matches("<line ").count();
+        assert!(lines < 200, "{lines} rule segments in a 900 pixel band");
     }
 
     #[test]

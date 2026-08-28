@@ -33,8 +33,14 @@ use super::{columns, lines, number, ReadError};
 /// The scores a file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Scores {
-    /// Position and score, one per base the file states.
-    pub pairs: Vec<(u64, f64)>,
+    /// The spans the file stated, clipped to the window: first base, one past
+    /// the last, and the score over them.
+    ///
+    /// Spans and not one entry per base. A sixty byte file holding one row
+    /// across a whole window expanded to seven and a half gigabytes of pairs,
+    /// and the cost was the number of rows times the width of the window
+    /// rather than the size of the file.
+    pub spans: Vec<(u64, u64, f64)>,
     /// Rows in the file, before any filter.
     pub records: usize,
     /// Rows naming another sequence.
@@ -48,8 +54,9 @@ pub struct Scores {
 /// Reads per-base attribution scores out of a bedGraph.
 ///
 /// A row covering several bases gives that score to each of them, which is what
-/// a bedGraph means. Only the part of a row inside `region` is expanded, so a
-/// genome-wide file does not become a genome-wide vector.
+/// a bedGraph means, and it comes back as the span rather than as one entry per
+/// base: a row is one entry however wide it is, so a file of a few rows over a
+/// whole chromosome stays a file of a few rows.
 ///
 /// # Errors
 ///
@@ -98,9 +105,7 @@ pub fn scores(text: &str, region: &Region) -> Result<Scores, ReadError> {
 
         let from = start.max(region.start());
         let to = end.min(region.end());
-        for pos in from..to {
-            found.pairs.push((pos, score));
-        }
+        found.spans.push((from, to, score));
     }
 
     Ok(found)
@@ -115,18 +120,17 @@ mod tests {
     }
 
     #[test]
-    fn a_row_gives_its_score_to_every_base_it_covers() {
+    fn a_row_comes_back_as_a_span_however_many_bases_it_covers() {
         let found = scores("chr1\t1000\t1003\t0.42\n", &region()).expect("scores");
-        assert_eq!(found.pairs, [(1_000, 0.42), (1_001, 0.42), (1_002, 0.42)]);
+        assert_eq!(found.spans, [(1_000, 1_003, 0.42)]);
     }
 
     #[test]
-    fn only_the_part_inside_the_window_is_expanded() {
-        // A genome-wide file must not become a genome-wide vector.
+    fn only_the_part_inside_the_window_comes_back_and_it_is_still_one_entry() {
+        // A whole chromosome in one row used to become one entry per base, and
+        // the cost was the rows times the width of the window.
         let found = scores("chr1\t0\t1000000\t0.1\n", &region()).expect("scores");
-        assert_eq!(found.pairs.len(), 10);
-        assert_eq!(found.pairs[0].0, 1_000);
-        assert_eq!(found.pairs[9].0, 1_009);
+        assert_eq!(found.spans, [(1_000, 1_010, 0.1)]);
     }
 
     #[test]
@@ -136,7 +140,7 @@ mod tests {
             &region(),
         )
         .expect("scores");
-        assert_eq!(found.pairs, [(1_000, -0.5)]);
+        assert_eq!(found.spans, [(1_000, 1_001, -0.5)]);
         assert_eq!(found.no_score, 2);
         assert_eq!(found.records, 3);
     }
@@ -150,7 +154,7 @@ mod tests {
         .expect("scores");
         assert_eq!(found.other_sequence, 1);
         assert_eq!(found.off_region, 1);
-        assert_eq!(found.pairs.len(), 1);
+        assert_eq!(found.spans.len(), 1);
     }
 
     #[test]

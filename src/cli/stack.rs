@@ -521,7 +521,7 @@ fn track(
             if found.records == 0 {
                 return Err(empty("scores"));
             }
-            if found.pairs.is_empty() {
+            if found.spans.is_empty() {
                 return Err(BuildError::Elsewhere {
                     track: name,
                     path: path.clone(),
@@ -532,13 +532,22 @@ fn track(
                 });
             }
 
-            // Padded to the window rather than cut to the reference. A score
-            // the reader accepted lies inside the window by definition, and a
-            // track only as long as a short FASTA would drop it without a word.
+            // Padded as far as the scores reach, rather than cut to the
+            // reference or stretched to the window. A track only as long as a
+            // short FASTA drops a score the reader accepted, without a word;
+            // one as long as the window allocates a byte and eight more per
+            // base of it, which a sixty byte file across a chromosome should
+            // not be able to ask for.
             let mut letters = clip(&bases, region);
-            let wanted = usize::try_from(region.len()).unwrap_or(letters.len());
+            let reach = found
+                .spans
+                .iter()
+                .map(|(_, to, _)| to.saturating_sub(region.start()))
+                .max()
+                .unwrap_or(0);
+            let wanted = usize::try_from(reach).unwrap_or(letters.len());
             letters.resize(wanted.max(letters.len()), b'N');
-            let mut track = DynseqTrack::from_pairs(region.start(), letters, found.pairs);
+            let mut track = DynseqTrack::from_spans(region.start(), letters, found.spans);
             if let Some(height) = height {
                 track = track.height(height);
             }

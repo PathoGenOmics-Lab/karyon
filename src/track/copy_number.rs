@@ -419,18 +419,46 @@ impl CopyNumberTrack {
     }
 
     /// A key holding only the marks this data actually used.
-    pub fn legend(&self) -> Legend {
-        let mut legend = Legend::new();
+    pub fn legend(&self, theme: &Theme) -> Legend {
+        // The theme is taken rather than the colours written down, because the
+        // inks come from it unless the caller overrode them, and a key holding
+        // literals names the wrong colour the first time a figure is drawn
+        // dark.
+        let gain = self
+            .gain
+            .clone()
+            .unwrap_or_else(|| theme.color(1).to_string());
+        let loss = self
+            .loss
+            .clone()
+            .unwrap_or_else(|| theme.color(0).to_string());
+        let lost = self
+            .loh
+            .clone()
+            .unwrap_or_else(|| theme.color(2).to_string());
+
+        let called = |f: fn(&CopyNumberSegment, f64) -> bool| {
+            self.segments
+                .iter()
+                .any(|segment| segment.copy.is_called() && f(segment, self.ploidy))
+        };
         let has = |state: Allele| self.segments.iter().any(|s| self.state(s) == state);
-        legend = legend.key("gain", "#d55e00").key("loss", "#0072b2");
+
+        let mut legend = Legend::new();
+        if called(|s, ploidy| s.copy.total() > ploidy) {
+            legend = legend.key("gain", gain);
+        }
+        if called(|s, ploidy| s.copy.total() < ploidy) {
+            legend = legend.key("loss", loss.clone());
+        }
         if has(Allele::Lost) {
-            legend = legend.key("heterozygosity lost", "#009e73");
+            legend = legend.key("heterozygosity lost", lost);
         }
         if has(Allele::Absent) {
-            legend = legend.key("no copies", "#0072b2");
+            legend = legend.key("no copies", loss);
         }
         if has(Allele::Unresolved) {
-            legend = legend.key("allele split not called", "#4b5563");
+            legend = legend.key("allele split not called", theme.rule.clone());
         }
         legend
     }
@@ -472,15 +500,19 @@ impl CopyNumberTrack {
     fn rungs(&self, band_height: f64) -> Vec<f64> {
         let ceiling = self.ceiling();
         let spacing = band_height / ceiling.max(1.0);
-        let step = if spacing >= 9.0 {
-            1.0
-        } else if spacing * 2.0 >= 9.0 {
-            2.0
-        } else if spacing * 5.0 >= 9.0 {
-            5.0
-        } else {
-            10.0
-        };
+        // One, two, five, ten and then the same run again a decade up, rather
+        // than stopping at ten: a ceiling of a thousand copies with a step of
+        // ten is a rung every two thirds of a pixel, which paints the whole
+        // band in the rule colour and is no longer a ladder.
+        let mut step = 1.0f64;
+        while spacing * step < 9.0 && step < ceiling {
+            let decade = 10f64.powf(step.log10().floor());
+            step = match (step / decade).round() as u32 {
+                1 => decade * 2.0,
+                2 => decade * 5.0,
+                _ => decade * 10.0,
+            };
+        }
         let mut rungs = Vec::new();
         let mut copies = 0.0;
         // Counted rather than compared, so no ceiling and no step can make this
@@ -590,7 +622,12 @@ impl Track for CopyNumberTrack {
                 // Nudged down where the top rung sits on the edge of the band.
                 // The clip covers the strip along with the band, so a label
                 // whose ascenders reach above `band.y` loses them.
-                let y = (y_of(copies) + size * 0.35).max(band.y + size * 0.8);
+                // Held inside the band at both ends. With the allele lane
+                // hidden the floor is the bottom of the band, and the nought
+                // label then sat below it and lost its lower third to the clip.
+                let top = band.y + size * 0.8;
+                let bottom = band.bottom() - size * 0.15;
+                let y = (y_of(copies) + size * 0.35).clamp(top.min(bottom), top.max(bottom));
                 ctx.svg.text(
                     ctx.axis.right() - 4.0,
                     y,
@@ -735,6 +772,7 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+    use crate::theme::Theme;
 
     fn region() -> Region {
         Region::new("chr8", 0, 10_000).unwrap()
@@ -851,6 +889,39 @@ mod tests {
             cramped < roomy,
             "the rungs did not thin out: {cramped} against {roomy}"
         );
+    }
+
+    #[test]
+    fn the_rungs_keep_thinning_past_ten_rather_than_painting_the_band() {
+        // A step that stops at ten is a rung every two thirds of a pixel once
+        // the ceiling passes about six hundred and seventy, and the whole
+        // plotting area is then filled with the rule colour.
+        let track = CopyNumberTrack::diploid(vec![CopyNumberSegment::total(0, 5_000, 5_000.0)]);
+        let rungs = track.rungs(70.0);
+        assert!(
+            rungs.len() < 20,
+            "{} rungs in a seventy pixel band",
+            rungs.len()
+        );
+        let svg = drawn(track);
+        assert!(
+            svg.matches("<line ").count() < 20,
+            "the ladder painted the band"
+        );
+    }
+
+    #[test]
+    fn the_key_names_the_inks_that_were_drawn_and_no_others() {
+        let theme = Theme::dark();
+        let track = CopyNumberTrack::diploid(vec![
+            CopyNumberSegment::allelic(0, 5_000, 6.0, 1.0),
+            CopyNumberSegment::allelic(5_000, 9_000, 2.0, 0.0),
+        ]);
+        let keys = format!("{:?}", track.legend(&theme).items());
+        // The theme's inks, not the light theme's literals.
+        assert!(keys.contains(theme.color(1)), "{keys}");
+        // Nothing here is below the ploidy, so there is no loss to name.
+        assert!(!keys.contains("loss"), "{keys}");
     }
 
     #[test]

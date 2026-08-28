@@ -294,6 +294,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A dynseq band shorter than its own labels no longer panics. The two bounds of
+  the clamp that keeps a label inside the band cross once the band is shorter
+  than the text is tall, and `clamp` panics rather than choosing, which a track
+  four pixels high reached without asking for anything unusual.
+- A bedGraph of per-base scores is read as spans rather than as one entry per
+  base, so the cost is the width of the window rather than the rows times the
+  width of the window. A sixty byte file across a chromosome asked for seven and
+  a half gigabytes; a thousand such rows asked for about four terabytes and were
+  killed. A thousand rows now cost what one does.
+- The rule under a dynseq track is written as pixels rather than as runs of
+  bases. A file scoring every other base over a megabase produced half a million
+  line elements and forty-two megabytes of SVG to draw a rule; the same input
+  now produces twelve.
+- The strip beside a dynseq track is measured over every label that goes in it
+  rather than over the nought alone, so a score of minus twelve thousand is no
+  longer printed with its minus sign cut off by the clip, which made it a
+  positive number an order of magnitude too small.
+- Junction lanes are packed over the window rather than over the whole track. A
+  junction a megabase away took a lane, and the arcs on screen were flattened to
+  make room for it: one visible arc went from forty-nine pixels tall to two and
+  a half when twenty off-screen junctions were added.
+- The rungs of a copy number ladder keep thinning past a step of ten, so a
+  ceiling in the thousands no longer paints the whole band in the rule colour.
+- The distinct sample names of a segment table are found with a set rather than
+  a linear scan. Sixty thousand distinct names took tens of seconds and were
+  quadratic; they take a quarter of a second.
+- `CopyNumberTrack::legend` takes the theme and names the inks that were drawn,
+  rather than three literals that are the wrong colours in a dark figure and
+  that claimed a gain and a loss whatever the data held.
+- A copy number rung label is held inside the band at the bottom as well as the
+  top, since with the allele lane hidden the nought label fell below the band
+  and lost its lower third to the clip.
 - An allele pair with one number missing is no longer read as a total of the
   other. A caller reporting three major copies and `NA` for the minor has not
   said there are three copies, it has said the total is three plus something

@@ -56,7 +56,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::feature::span_label;
 use crate::track::{arc_path, DrawContext, Track};
-use crate::Strand;
+use crate::{Region, Strand};
 
 /// Which dinucleotides the intron began and ended with.
 ///
@@ -375,8 +375,16 @@ impl JunctionTrack {
     ///
     /// Busiest first, ties by position, so the lane a junction lands in comes
     /// from its own numbers rather than from the order a file listed it.
-    fn lanes(&self, scale: &Scale) -> Vec<(usize, &Junction)> {
-        let mut order: Vec<&Junction> = self.drawn().collect();
+    fn lanes(&self, scale: &Scale, region: &Region) -> Vec<(usize, &Junction)> {
+        // Only what this window draws. Packing over the whole track let a
+        // junction a megabase away take a lane, and the arcs that are on screen
+        // were flattened to make room for it: measured, one visible arc went
+        // from forty-nine pixels tall to two and a half when twenty off-screen
+        // junctions were added to the same track.
+        let mut order: Vec<&Junction> = self
+            .drawn()
+            .filter(|j| j.end > region.start() && j.start < region.end())
+            .collect();
         order.sort_by(|a, b| {
             b.reads
                 .cmp(&a.reads)
@@ -464,16 +472,13 @@ impl Track for JunctionTrack {
             ctx.theme.tokens.hairline,
         );
 
-        let placed = self.lanes(ctx.scale);
+        let placed = self.lanes(ctx.scale, ctx.region);
         let lanes = placed.iter().map(|(lane, _)| *lane).max().unwrap_or(0) + 1;
         let size = ctx.theme.font_size - 1.0;
         let room = (band.h - size - 4.0).max(6.0);
         let step = room / lanes as f64;
 
         for (lane, junction) in &placed {
-            if junction.end <= ctx.region.start() || junction.start >= ctx.region.end() {
-                continue;
-            }
             // The left edge of a base, not its middle. A junction is not at a
             // base, it is the boundary between two, and the arc has to meet the
             // step in whatever is drawn under it.
@@ -605,7 +610,7 @@ mod tests {
             Junction::new(1_000, 2_000, 400),
             Junction::new(3_000, 4_000, 200),
         ]);
-        let lanes = track.lanes(&scale);
+        let lanes = track.lanes(&scale, &region());
         let lane_of = |reads: u32| {
             lanes
                 .iter()
@@ -629,7 +634,7 @@ mod tests {
         let other = JunctionTrack::new(vec![b, a]);
         let lanes = |t: &JunctionTrack| {
             let mut got: Vec<(usize, u32)> = t
-                .lanes(&scale)
+                .lanes(&scale, &region())
                 .into_iter()
                 .map(|(lane, j)| (lane, j.reads()))
                 .collect();
@@ -637,6 +642,31 @@ mod tests {
             got
         };
         assert_eq!(lanes(&one), lanes(&other));
+    }
+
+    #[test]
+    fn a_junction_off_the_screen_does_not_flatten_the_ones_on_it() {
+        // Packing over the whole track let data a megabase away take a lane,
+        // and the arcs actually drawn were squashed to make room for it.
+        let alone = drawn(JunctionTrack::new(vec![Junction::new(1_000, 3_000, 400)]));
+        let mut crowded = vec![Junction::new(1_000, 3_000, 400)];
+        for i in 0..20u64 {
+            crowded.push(Junction::new(1_000_000, 1_010_000 + i, 500));
+        }
+        let with = drawn(JunctionTrack::new(crowded));
+
+        let apex = |svg: &str| -> f64 {
+            svg.split("Q")
+                .nth(1)
+                .and_then(|piece| piece.split_whitespace().nth(1))
+                .and_then(|value| value.parse::<f64>().ok())
+                .expect("an arc")
+        };
+        assert_eq!(
+            apex(&alone),
+            apex(&with),
+            "the visible arc changed shape because of data a megabase away"
+        );
     }
 
     #[test]

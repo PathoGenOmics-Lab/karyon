@@ -39,6 +39,8 @@
 //! since it is what the caller concluded rather than what this arithmetic
 //! would infer.
 
+use std::collections::BTreeSet;
+
 use crate::{CopyNumber, CopyNumberSegment, Region};
 
 use super::{columns, lines, ReadError};
@@ -115,6 +117,7 @@ pub fn copy_numbers(
     let layout = layout(&columns(head), at)?;
 
     let mut found = Segmentation::default();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut wanted = 0usize;
 
     for (at, line) in rows {
@@ -146,7 +149,11 @@ pub fn copy_numbers(
 
         if let Some(index) = layout.sample {
             let named = cols[index].to_string();
-            if !found.samples.contains(&named) {
+            // Membership in a set and order in the vector. A linear scan over
+            // the names already seen is quadratic in the distinct ones, and a
+            // table whose sample column holds one value per row took forty
+            // seconds at two hundred thousand rows.
+            if seen.insert(named.clone()) {
                 found.samples.push(named.clone());
             }
             if let Some(wanted_sample) = sample {
@@ -219,11 +226,12 @@ pub fn samples(text: &str) -> Result<Vec<String>, ReadError> {
     };
 
     let mut named: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     for (_, line) in rows {
         let cols = columns(line);
         if let Some(sample) = cols.get(index) {
             let sample = sample.to_string();
-            if !named.contains(&sample) {
+            if seen.insert(sample.clone()) {
                 named.push(sample);
             }
         }
