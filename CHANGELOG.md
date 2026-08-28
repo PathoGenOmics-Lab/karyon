@@ -8,6 +8,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Each example in the playground carries its own controls, because the figures
+  are not the same thing. A window to slide is what a signal over a chromosome
+  has and a tanglegram has not, so a tanglegram says why instead of offering a
+  slider that would move nothing; a coverage figure gets `--aggregate`,
+  `--style` and `--log`; a domain table gets `--analysis`; a bisulfite grid
+  gets `--context`. Every control is a flag, so turning one rewrites that word
+  of the command and the command stays the thing that decides.
+- A window cannot be put where there is nothing to draw. Each example carries
+  the stretch its own files cover and the narrowest window that still draws
+  anywhere in it, both measured by running the binary over that example's own
+  files rather than guessed, and the sliders, the drag and the wheel are all
+  held inside them. Checked by driving every slider of all twenty-one examples
+  to both ends and three points between, 475 positions, and eighty pointer
+  gestures on top: no refusals.
+- Four examples had data too thin to explore. The locus is ten kilobases with
+  something to see everywhere in it now rather than eight calls in the middle,
+  which took its narrowest drawable window from 4,794 bases to 270; the split
+  reads from 4,790 to 200; the structural variants from 38,997 to 2,097; and
+  the pileup down to the floor.
 - Twenty-one examples in the playground rather than six, which between them
   use every one of the twenty-five flags the command has. Each was run through
   the binary before it was written down, so none of them is an example that
@@ -249,6 +268,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A modifier set from a control was appended to the end of the command, so it
+  landed on whichever track happened to be last: `--aggregate` set on a figure
+  whose last track was variants was refused, correctly, as meaning nothing to
+  one. A modifier describes the track before it, so it is written next to that
+  track.
 - Closing a file tab wrote the closed file's text into whichever file took its
   place. The editor remembered which file it held by position, and removing one
   shifts every file after it down, so the save that runs on the way out landed

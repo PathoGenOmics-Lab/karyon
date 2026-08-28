@@ -159,6 +159,86 @@ window.karyon = (function () {
     return retarget(text, anchor - at * next, anchor - at * next + next - 1);
   }
 
+  // Clamps a region to the stretch a set of files actually covers.
+  //
+  // A window taken past the data comes back as the program's own refusal,
+  // which is right when someone typed it and wrong when they were turning a
+  // control: a control that can be put somewhere there is nothing to see is a
+  // control that looks broken. So a control that knows its data says so, and
+  // this keeps the window inside it.
+  function within(text, bounds) {
+    if (!bounds) return text;
+    var where = locus(text);
+    if (!where) return text;
+    var room = bounds.to - bounds.from + 1;
+    var span = Math.min(where.end - where.start + 1, room);
+    // The floor is the example's own, measured against its own files: the
+    // narrowest window that still draws wherever it is put. A track refuses a
+    // window with nothing of its own in it, which is right, and a control that
+    // can be turned to a window like that is a control that looks broken.
+    if (bounds.min) span = Math.min(room, Math.max(span, bounds.min));
+    var start = where.start;
+    if (start < bounds.from) start = bounds.from;
+    if (start + span - 1 > bounds.to) start = bounds.to - span + 1;
+    return retarget(text, start, start + span - 1);
+  }
+
+  // ------------------------------------------------------------------ flags
+  //
+  // A control is a flag with a value, so setting one is rewriting one word of
+  // the command and leaving every other word alone. The command stays the
+  // thing that decides, and a reader watching it can see what a control did.
+
+  /// The value a flag was given, or null.
+  function flagOf(text, flag) {
+    var argv = words(text);
+    for (var i = 0; i < argv.length; i++) {
+      if (argv[i] === flag) return i + 1 < argv.length ? argv[i + 1] : "";
+    }
+    return null;
+  }
+
+  function hasFlag(text, flag) {
+    return words(text).indexOf(flag) >= 0;
+  }
+
+  /// Sets, replaces or removes a flag and its value.
+  ///
+  /// `value` of `null` takes the flag out, `true` puts it in on its own, and a
+  /// string puts it in with that after it. A flag that describes a track is
+  /// written next to the one it describes rather than at the end, since where
+  /// a word sits is what binds it in this grammar.
+  function setFlag(text, flag, value, after) {
+    var argv = words(text);
+    var alone = ALONE.indexOf(flag) >= 0;
+
+    var at = argv.indexOf(flag);
+    if (at >= 0) argv.splice(at, alone ? 1 : 2);
+    if (value === null || value === false) return join(argv);
+
+    var piece = alone || value === true ? [flag] : [flag, String(value)];
+
+    // A modifier describes the track before it, so where it goes is not a
+    // detail: appended to the end, `--aggregate` landed on whichever track
+    // happened to be last and the program refused it, correctly, as meaning
+    // nothing to a variants track.
+    var anchor = after ? argv.indexOf(after) : -1;
+    if (anchor < 0) return join(argv.concat(piece));
+
+    var into = anchor + (ALONE.indexOf(after) >= 0 ? 1 : 2);
+    argv.splice.apply(argv, [into, 0].concat(piece));
+    return join(argv);
+  }
+
+  /// Puts a command back together, quoting only what has to be quoted.
+  function join(argv) {
+    return argv
+      .map(function (word) {
+        return /\s/.test(word) ? "'" + word + "'" : word;
+      })
+      .join(" ");
+  }
+
   // Material writes the palette onto `body`, and a figure drawn light on a dark
   // page is not a figure with a light theme, it is a hole in the page.
   function dark() {
@@ -264,6 +344,11 @@ window.karyon = (function () {
     retarget: retarget,
     panned: panned,
     zoomed: zoomed,
+    within: within,
+    flagOf: flagOf,
+    hasFlag: hasFlag,
+    setFlag: setFlag,
+    join: join,
     dark: dark,
     onScheme: onScheme,
     MIN_SPAN: MIN_SPAN,
