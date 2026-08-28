@@ -59,7 +59,7 @@ let svg = plot("NC_000962.3:761000-761200")?
     .to_svg();
 ```
 
-Thirty-three track types compose that way, over one region, in the order you
+Thirty-six track types compose that way, over one region, in the order you
 write them. No runtime dependencies, no I/O beyond an optional `save_svg`, and
 plain SVG 1.1 that opens unchanged in a browser, in Inkscape and in Illustrator.
 
@@ -77,7 +77,7 @@ The documentation is the manual; this page is the front door.
 | --- | --- |
 | try it without installing anything | [Playground](https://pathogenomics-lab.github.io/karyon/playground/), which is this crate compiled to WebAssembly and running in your own browser |
 | draw something in the next five minutes | [Quick start](https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/) |
-| find the plot that fits your data | [Plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/), which sorts all thirty-three tracks by biological question rather than by type name |
+| find the plot that fits your data | [Plot catalogue](https://pathogenomics-lab.github.io/karyon/plots/), which sorts all thirty-six tracks by biological question rather than by type name |
 | look up one track's exact API | [Track reference](https://pathogenomics-lab.github.io/karyon/tracks/) |
 | read files instead of building vectors | [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/): BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`, FASTA and Newick |
 | draw trees, traits, support or dN/dS | [Phylogenetics](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/) |

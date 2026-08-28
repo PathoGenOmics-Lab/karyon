@@ -30,6 +30,10 @@ the genome.
     <span class="plot-card__media"><img src="../../assets/figures/example-structural.svg" alt="Structural variants drawn as arcs between breakpoints" loading="lazy"></span>
     <span class="plot-card__body"><small>Two breakpoints</small><strong>StructuralTrack</strong><span>Deletions, inversions, duplications or translocations as span-aware arcs weighted by support.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
+  <a class="plot-card" href="../../tracks/#copynumbertrack">
+    <span class="plot-card__media"><img src="../../assets/figures/example-copy-number.svg" alt="A cohort copy number landscape over one arm, and one tumour's segmentation under it" loading="lazy"></span>
+    <span class="plot-card__body"><small>Segments a caller fitted</small><strong>CopyNumberTrack</strong><span>Total and minor allele copies on a ladder, with lost heterozygosity in a lane of its own.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
+  </a>
   <a class="plot-card" href="../../tracks/#snptrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-snps.svg" alt="Variable alignment sites ordered by a phylogeny, with lineage, resistance and year beside them" loading="lazy"></span>
     <span class="plot-card__body"><small>Variable columns only</small><strong>SnpTrack</strong><span>Invariant columns removed so shared substitutions become visible blocks across ordered samples.</span><b>Open reference <span aria-hidden="true">→</span></b></span>

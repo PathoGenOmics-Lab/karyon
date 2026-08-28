@@ -54,11 +54,13 @@
 //!
 //! No average is offered, and that is deliberate. The mean of a call of one and
 //! a call of three is two, which is a level nobody called, and on a diploid
-//! ladder it lands exactly on the rule that means unchanged. So a column too
-//! narrow to hold its segments draws the one that covers most of it, and a
-//! hairline riser between the lowest and the highest level any segment in that
-//! column reached. A focal amplification inside a quiet arm is then a one pixel
-//! bar with a stalk down to the arm, rather than a bump in an average.
+//! ladder it lands exactly on the rule that means unchanged. So every segment
+//! is drawn at its own level, at a pixel wide where it is narrower than one,
+//! and a hairline riser joins the lowest and the highest level any segment
+//! reached in each column. A focal amplification inside a quiet arm is then a
+//! one pixel bar with a stalk down to the arm, rather than a bump in an
+//! average. Where two segments land in the same column both are drawn, in the
+//! order they were given, so the picture is a function of the file.
 //!
 //! Nothing is ever drawn between two segments. A caller reports intervals, not
 //! a polyline, and a line across a gap asserts a breakpoint at a coordinate
@@ -90,14 +92,15 @@ impl CopyNumber {
     /// An allele-specific call, ordered, so a caller holding the pair the other
     /// way round is right anyway.
     ///
-    /// A pair with a value that is not a number is not a pair: it becomes
-    /// [`CopyNumber::Total`] of whichever number survived, or of the sum when
-    /// neither did, so that a half-read line cannot claim an allele split it
-    /// has not got.
+    /// A pair with a value that is not a number is not a call at all, and in
+    /// particular it is not a total. A caller reporting three major copies and
+    /// `NA` for the minor has not said there are three copies, it has said the
+    /// total is three plus something nobody measured. Keeping the surviving
+    /// number as a total would put that missing something at nought, which is
+    /// this crate's named mistake with an extra step in front of it.
     pub fn allelic(a: f64, b: f64) -> CopyNumber {
         if !a.is_finite() || !b.is_finite() {
-            let stated = [a, b].into_iter().find(|value| value.is_finite());
-            return CopyNumber::Total(stated.unwrap_or(f64::NAN));
+            return CopyNumber::Total(f64::NAN);
         }
         CopyNumber::Allelic {
             major: a.max(b),
@@ -222,8 +225,9 @@ enum Allele {
 ///
 /// let segments = vec![
 ///     CopyNumberSegment::allelic(0, 40_000, 1.0, 1.0),
-///     // Two copies, both from one allele: the ladder shows nothing, and the
-///     // lane along the bottom is the only thing that says the other one went.
+///     // Two copies, both from one allele: the total bar sits exactly on the
+///     // balanced rule, and the lane along the bottom is what says the other
+///     // allele went.
 ///     CopyNumberSegment::allelic(40_000, 90_000, 2.0, 0.0),
 ///     CopyNumberSegment::total(90_000, 120_000, 7.0),
 /// ];
@@ -342,9 +346,11 @@ impl CopyNumberTrack {
 
     /// Draws or hides the lane along the foot of the band.
     ///
-    /// Worth hiding only where no segment carries an allele split, since that
-    /// lane is the one place copy-neutral loss of heterozygosity appears at
-    /// all: the ladder puts it exactly on the balanced rule.
+    /// Worth hiding only where no segment carries an allele split. Copy-neutral
+    /// loss of heterozygosity puts the total bar exactly on the balanced rule,
+    /// so what says the allele went is the minor bar down at nought copies and
+    /// this lane, and the lane is the one a reader finds without looking for
+    /// it.
     pub fn show_alleles(mut self, show: bool) -> Self {
         self.show_alleles = show;
         self
@@ -567,7 +573,20 @@ impl Track for CopyNumberTrack {
 
         if self.show_scale && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
-            for copies in self.rungs(ladder) {
+            // The rungs may be closer together than a label is tall, and a
+            // column of numbers touching each other is a column nobody reads.
+            // The lines stay where they are; only the labels thin out.
+            let rungs = self.rungs(ladder);
+            let apart = rungs
+                .windows(2)
+                .map(|pair| (y_of(pair[0]) - y_of(pair[1])).abs())
+                .fold(f64::MAX, f64::min);
+            let every = if apart >= size + 3.0 {
+                1
+            } else {
+                (((size + 3.0) / apart.max(0.1)).ceil() as usize).max(1)
+            };
+            for copies in rungs.into_iter().step_by(every) {
                 // Nudged down where the top rung sits on the edge of the band.
                 // The clip covers the strip along with the band, so a label
                 // whose ascenders reach above `band.y` loses them.
@@ -789,10 +808,18 @@ mod tests {
                 minor: 1.0
             }
         );
-        // One number missing is not an allele split with a zero in it. It is a
-        // total, and the type says so rather than the drawing having to.
-        assert_eq!(CopyNumber::allelic(3.0, f64::NAN), CopyNumber::Total(3.0));
-        assert_eq!(CopyNumber::allelic(3.0, f64::NAN).minor(), None);
+        // One number missing is not an allele split with a zero in it, and it
+        // is not a total of the number that survived either: three major copies
+        // and an unmeasured minor is a total of three plus something nobody
+        // counted, and calling that three puts the something at nought.
+        let half = CopyNumber::allelic(3.0, f64::NAN);
+        assert!(!half.is_called(), "a half-read pair became a call");
+        assert_eq!(half.minor(), None);
+        let segment = CopyNumberSegment::allelic(0, 5_000, 3.0, f64::NAN);
+        assert_eq!(segment.loh(), None);
+        let svg = drawn(CopyNumberTrack::diploid(vec![segment]));
+        assert!(svg.contains("no call"), "{svg}");
+        assert!(!svg.contains("3 copies"), "an unmeasured total was drawn");
     }
 
     #[test]

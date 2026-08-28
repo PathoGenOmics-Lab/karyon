@@ -1,5 +1,5 @@
 # Blank issues stay available. The two forms cover the reports that arrive most
-# often, but a library with thirty-three track types gets requests that fit no
+# often, but a library with thirty-six track types gets requests that fit no
 # form, and having nowhere to put them is worse than an unstructured issue.
 blank_issues_enabled: true
 

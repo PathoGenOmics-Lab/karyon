@@ -34,6 +34,10 @@ baseline to cross, or not part of the scale at all.
     <span class="plot-card__media"><img src="../../assets/figures/example-zoom.svg" alt="Reference bases rendered as coloured letters" loading="lazy"></span>
     <span class="plot-card__body"><small>Reference symbols</small><strong>SequenceTrack</strong><span>Bases become letters, blocks or a zoom hint according to the actual pixel resolution.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
+  <a class="plot-card" href="../../tracks/#dynseqtrack">
+    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Per-base attribution drawn as scaled letters over a promoter" loading="lazy"></span>
+    <span class="plot-card__body"><small>A signed number per base</small><strong>DynseqTrack</strong><span>Model attribution drawn as the bases themselves, hanging below the line where the model pulled away.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
+  </a>
   <a class="plot-card" href="../../tracks/#logotrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-logo.svg" alt="One DNA motif under three sequence-logo scores" loading="lazy"></span>
     <span class="plot-card__body"><small>Aligned-column composition</small><strong>LogoTrack</strong><span>Probabilities, information, enrichment or depletion with explicit alphabet and background contracts.</span><b>Open reference <span aria-hidden="true">→</span></b></span>

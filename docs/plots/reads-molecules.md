@@ -30,6 +30,10 @@ produced it.
     <span class="plot-card__media"><img src="../../assets/figures/example-bisulfite.svg" alt="Single-molecule methylation calls at cytosines" loading="lazy"></span>
     <span class="plot-card__body"><small>Modification pattern</small><strong>BisulfiteTrack</strong><span>Filled and open calls per covered site, leaving truly uncovered positions empty rather than unmodified.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
+  <a class="plot-card" href="../../tracks/#junctiontrack">
+    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Junction arcs over a depth profile, with per-base attribution under them" loading="lazy"></span>
+    <span class="plot-card__body"><small>Introns reads stepped over</small><strong>JunctionTrack</strong><span>Sashimi arcs weighted and labelled by the reads that crossed each junction.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
+  </a>
   <a class="plot-card" href="../../tracks/#squiggletrack">
     <span class="plot-card__media"><img src="../../assets/figures/example-squiggle.svg" alt="Raw nanopore current resolving from an envelope into a trace" loading="lazy"></span>
     <span class="plot-card__body"><small>Raw current</small><strong>SquiggleTrack</strong><span>Nanopore signal as a min–max envelope at overview scale and the original trace when resolution allows.</span><b>Open reference <span aria-hidden="true">→</span></b></span>

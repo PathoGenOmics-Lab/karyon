@@ -134,6 +134,16 @@ pub enum BuildError {
         /// The columns that are.
         held: Vec<String>,
     },
+    /// A copy number track with no ploidy to read its levels against.
+    ///
+    /// The parser refuses this, so it reaches here only from an [`Invocation`]
+    /// built by hand, whose fields are all public. Defaulting it would draw a
+    /// confident ladder whose rule came from nowhere, and the rule is what
+    /// separates a gain from a loss.
+    MissingPloidy {
+        /// Which track is short of it.
+        track: &'static str,
+    },
     /// A track drawn from two files was handed one.
     ///
     /// The parser refuses this, so it reaches here only from an
@@ -214,6 +224,10 @@ impl fmt::Display for BuildError {
                 f,
                 "--{track} {path} has no column called {wanted}; it has {}",
                 held.join(", ")
+            ),
+            BuildError::MissingPloidy { track } => write!(
+                f,
+                "a {track} track is drawn against a ploidy, and none was given"
             ),
             BuildError::MissingSecond { track } => write!(
                 f,
@@ -474,14 +488,34 @@ fn track(
             };
             let (fasta, ref_path) = fetch(name, source, open)?;
             let records = wrap(name, &ref_path, read::seq::fasta(&fasta))?;
-            let (_, bases) = records
-                .into_iter()
-                .next()
-                .ok_or_else(|| BuildError::Empty {
+            if records.is_empty() {
+                return Err(BuildError::Empty {
                     track: name,
                     path: ref_path.clone(),
                     wanted: "sequence",
-                })?;
+                });
+            }
+            // One record in the file is the record the file is about, whatever
+            // its header calls it. More than one is a genome, and then the
+            // region picks: one chromosome's letters under another chromosome's
+            // scores is a figure that is wrong everywhere and looks right.
+            let bases = if records.len() == 1 {
+                records.into_iter().next().map(|(_, bases)| bases)
+            } else {
+                records
+                    .iter()
+                    .find(|(named, _)| named == region.seq())
+                    .map(|(_, bases)| bases.clone())
+            };
+            let Some(bases) = bases else {
+                return Err(BuildError::Unjoined {
+                    track: name,
+                    path: ref_path.clone(),
+                    what: "record",
+                    against: "the sequence the region names",
+                    examples: Vec::new(),
+                });
+            };
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -498,8 +532,13 @@ fn track(
                 });
             }
 
-            let mut track =
-                DynseqTrack::from_pairs(region.start(), clip(&bases, region), found.pairs);
+            // Padded to the window rather than cut to the reference. A score
+            // the reader accepted lies inside the window by definition, and a
+            // track only as long as a short FASTA would drop it without a word.
+            let mut letters = clip(&bases, region);
+            let wanted = usize::try_from(region.len()).unwrap_or(letters.len());
+            letters.resize(wanted.max(letters.len()), b'N');
+            let mut track = DynseqTrack::from_pairs(region.start(), letters, found.pairs);
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -1013,8 +1052,22 @@ fn track(
         Kind::CopyNumber => {
             // Checked by the parser, so this is reached only from an
             // Invocation built by hand, whose fields are all public.
-            let ploidy = spec.ploidy.unwrap_or(2.0);
+            let Some(ploidy) = spec.ploidy else {
+                return Err(BuildError::MissingPloidy { track: name });
+            };
             let held = wrap(name, &path, read::segments::samples(&text))?;
+            if spec.sample.is_some() && held.is_empty() {
+                // A flag accepted and then ignored gives a figure that is not
+                // the one asked for and does not look wrong: this table names
+                // no samples, so the whole of it would be drawn under a name
+                // the command asked to pick out of it.
+                return Err(BuildError::Ambiguous {
+                    track: name,
+                    path: path.clone(),
+                    flag: "--sample",
+                    choices: vec!["no sample column".to_string()],
+                });
+            }
             if held.len() > 1 && spec.sample.is_none() {
                 return Err(BuildError::Ambiguous {
                     track: name,
@@ -1231,6 +1284,104 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
         fs::write(&path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// A dynseq draws letters from a reference, and the reference has to be the
+    /// one the region names.
+    ///
+    /// One chromosome's letters under another chromosome's scores is a figure
+    /// that is wrong at every base and looks right at all of them.
+    #[test]
+    fn a_reference_of_several_records_is_picked_by_the_region_and_not_by_order() {
+        let genome = ">chr1\nAAAAAAAAAAAAAAAAAAAA\n>chr2\nGGGGGGGGGGGGGGGGGGGG\n";
+        let scores = "chr2\t0\t8\t0.5\n";
+
+        let args: Vec<String> = "chr2:1-20 --dynseq s.bg --with-sequence g.fa"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let svg = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("g.fa") => genome.to_string(),
+                _ => scores.to_string(),
+            })
+        })
+        .unwrap();
+
+        assert!(svg.contains("G at "), "chr2 was not the record drawn");
+        assert!(
+            !svg.contains("A at "),
+            "chr1's letters reached a chr2 figure"
+        );
+    }
+
+    #[test]
+    fn a_reference_naming_none_of_the_region_is_refused_rather_than_guessed() {
+        let genome = ">chr1\nAAAAAAAAAAAAAAAAAAAA\n>chr3\nCCCCCCCCCCCCCCCCCCCC\n";
+        let args: Vec<String> = "chr2:1-20 --dynseq s.bg --with-sequence g.fa"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let error = build(&invocation, |source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("g.fa") => genome.to_string(),
+                _ => "chr2\t0\t8\t0.5\n".to_string(),
+            })
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error, BuildError::Unjoined { what: "record", .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_segment_table_with_no_sample_column_refuses_the_flag_that_picks_one() {
+        // Accepted and ignored, the whole table would be drawn under a name the
+        // command asked to pick out of it.
+        let table = "chromosome\tstart\tend\tcn\nchr1\t0\t500\t2\n";
+        let args: Vec<String> = "chr1:1-1000 --copy-number s.cns --ploidy 2 --sample S1"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let invocation = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let error = build(&invocation, |_| Ok(table.to_string())).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                BuildError::Ambiguous {
+                    flag: "--sample",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_copy_number_track_built_by_hand_with_no_ploidy_is_refused() {
+        // The parser refuses it, so this is reached only from an Invocation
+        // built by hand, and defaulting it would draw a confident ladder whose
+        // rule came from nowhere.
+        let mut invocation = invocation("chr1:1-1000 --coverage d.bg");
+        invocation.tracks[0].kind = Kind::CopyNumber;
+        invocation.tracks[0].ploidy = None;
+        let error = build(&invocation, |_| {
+            Ok("chromosome\tstart\tend\tcn\nchr1\t0\t500\t2\n".to_string())
+        })
+        .unwrap_err();
+        assert!(matches!(error, BuildError::MissingPloidy { .. }), "{error}");
     }
 
     /// A sheet of metadata is a third file, and the join is names.

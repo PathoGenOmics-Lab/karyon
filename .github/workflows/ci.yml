@@ -191,10 +191,11 @@ jobs:
       # going quietly unrendered the way those six did.
       - name: Render every figure
         run: |
-          examples="association circular evolutionary_surveillance gallery
-                    genomewide ideogram locus logo maps msa niche pangenome
-                    phylo_dnds phylo_map phylogenetics pileup reading selection
-                    selection_atlas shapes snps synteny visual_system"
+          examples="association circular copy_number evolutionary_surveillance
+                    gallery genomewide ideogram locus logo maps msa niche
+                    pangenome phylo_dnds phylo_map phylogenetics pileup reading
+                    regulation selection selection_atlas shapes snps synteny
+                    visual_system"
 
           listed="$(printf '%s\n' $examples | sort)"
           present="$(ls examples/*.rs | xargs -n1 basename | sed 's/\.rs$//' | sort)"

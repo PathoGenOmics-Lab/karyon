@@ -94,7 +94,7 @@
 //!
 //! # A track type the crate lacks is thirty lines
 //!
-//! The thirty-three track types shipped here are implementations of one small
+//! The thirty-six track types shipped here are implementations of one small
 //! trait, [`Track`], with no privileged access to the figure. See the example
 //! on [`Track`] for the whole of what a new one has to do.
 //!

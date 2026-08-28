@@ -302,7 +302,11 @@ impl Track for DynseqTrack {
         let quiet = mix(&ctx.theme.foreground, ctx.theme.surface(), 0.45);
         let per_base = ctx.scale.px_per_bp();
 
-        if self.show_scale && ctx.axis.w > 0.0 {
+        // No numbers beside a band nobody scored. The extent would be the
+        // symmetric default, and printing it puts a quantitative scale on the
+        // page for a measurement that was never made.
+        let measured = self.visible_extent(ctx.region).is_some();
+        if self.show_scale && measured && ctx.axis.w > 0.0 {
             let size = ctx.theme.font_size - 1.0;
             for value in [hi, 0.0, lo] {
                 let y = (y_of(value) + size * 0.35)

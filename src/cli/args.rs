@@ -27,7 +27,7 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Twenty-five of the crate's thirty-three track types are what the command
+//! Twenty-eight of the crate's thirty-six track types are what the command
 //! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -403,6 +403,8 @@ impl Kind {
         matches!(
             self,
             Kind::Coverage
+                | Kind::CopyNumber
+                | Kind::Dynseq
                 | Kind::Sequence
                 | Kind::Variants
                 | Kind::Windows
@@ -752,11 +754,15 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 let copies = text
                     .parse::<f64>()
                     .ok()
-                    .filter(|copies| copies.is_finite() && *copies >= 0.0)
+                    // Greater than nought, not merely not negative. At nought
+                    // a log ratio becomes nought copies everywhere, and every
+                    // one of them lands on the rule that means unchanged, so a
+                    // called amplification is drawn as a quiet arm.
+                    .filter(|copies| copies.is_finite() && *copies > 0.0)
                     .ok_or_else(|| ArgError::BadValue {
                         flag: "--ploidy",
                         given: text.clone(),
-                        expected: "a number of copies, as in 2",
+                        expected: "a number of copies above nought, as in 2",
                     })?;
                 let track = last(&mut tracks, "--ploidy")?;
                 if track.kind != Kind::CopyNumber {
@@ -1376,6 +1382,34 @@ mod tests {
                 Some(Source::Path(PathBuf::from("s.tsv"))),
                 "{line}"
             );
+        }
+    }
+
+    #[test]
+    fn a_ploidy_of_nought_is_refused_and_the_height_is_not() {
+        // At nought copies a log ratio becomes nought everywhere, and every one
+        // of them lands on the rule that means unchanged.
+        let error = parse(&args("chr8:1-1000 --copy-number s.cns --ploidy 0")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::BadValue {
+                    flag: "--ploidy",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+
+        // Both new tracks size themselves by a field rather than by rows, so
+        // both take a height, and a flag refused where it means something is
+        // as wrong as one accepted where it does not.
+        for line in [
+            "chr8:1-1000 --copy-number s.cns --ploidy 2 --height 90",
+            "chr1:1-1000 --dynseq d.bg --with-sequence r.fa --height 90",
+        ] {
+            let it = draw(line);
+            assert_eq!(it.tracks[0].height, Some(90.0), "{line}");
         }
     }
 

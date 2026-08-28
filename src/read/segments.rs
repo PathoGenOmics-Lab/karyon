@@ -163,7 +163,14 @@ pub fn copy_numbers(
         }
 
         let raw_start: u64 = super::number(cols[layout.start], "start", at)?;
-        let end: u64 = super::number(cols[layout.end], "end", at)?;
+        let raw_end: u64 = super::number(cols[layout.end], "end", at)?;
+        // Compared as the file wrote them, before either is converted. Checked
+        // afterwards, a 1-based row whose end is one below its start survives
+        // the subtraction and becomes a segment covering no bases.
+        if raw_end < raw_start {
+            return Err(ReadError::at(at, "end is before start"));
+        }
+        let end = raw_end;
         let start = if layout.shape == Shape::Cns {
             raw_start
         } else {
@@ -175,9 +182,6 @@ pub fn copy_numbers(
             }
             raw_start - 1
         };
-        if end < start {
-            return Err(ReadError::at(at, "end is before start"));
-        }
         if end <= region.start() || start >= region.end() {
             found.off_region += 1;
             continue;
@@ -250,8 +254,13 @@ fn layout(head: &[&str], at: usize) -> Result<Layout, ReadError> {
         let total = find(&["cn", "total_cn", "copy_number", "copies"]);
         let ratio = find(&["log2", "log2ratio", "logr"]);
         // ASCAT counts from one and CNVkit does not, and the two are told
-        // apart by the names they use for the same two coordinates.
-        let shape = if lower.iter().any(|name| name == "startpos") {
+        // apart by the names they use for the same two coordinates. The list
+        // has to be the same list `find` accepted, or a table spelled one of
+        // the aliases is read in the other convention and every segment lands
+        // a base to the right with the guard against a start of nought
+        // stepped over on the way.
+        let one_based = ["startpos", "start_pos", "endpos", "end_pos"];
+        let shape = if lower.iter().any(|name| one_based.contains(&name.as_str())) {
             Shape::Ascat
         } else {
             Shape::Cns
