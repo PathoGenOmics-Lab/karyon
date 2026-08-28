@@ -24,10 +24,10 @@ use std::io::{self, Read as _};
 
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
-    DotplotTrack, FeatureTrack, IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack, MatrixTrack,
-    MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack,
-    SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree,
-    TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    DotplotTrack, DynseqTrack, FeatureTrack, IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack,
+    MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region,
+    SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme,
+    Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -467,6 +467,43 @@ fn track(
                 track = track.height(height);
             }
             Box::new(named(track, label, CoverageTrack::label))
+        }
+        Kind::Dynseq => {
+            let Some(source) = spec.second.as_ref() else {
+                return Err(BuildError::MissingSecond { track: name });
+            };
+            let (fasta, ref_path) = fetch(name, source, open)?;
+            let records = wrap(name, &ref_path, read::seq::fasta(&fasta))?;
+            let (_, bases) = records
+                .into_iter()
+                .next()
+                .ok_or_else(|| BuildError::Empty {
+                    track: name,
+                    path: ref_path.clone(),
+                    wanted: "sequence",
+                })?;
+
+            let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
+            if found.records == 0 {
+                return Err(empty("scores"));
+            }
+            if found.pairs.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "scores",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                });
+            }
+
+            let mut track =
+                DynseqTrack::from_pairs(region.start(), clip(&bases, region), found.pairs);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, DynseqTrack::label))
         }
         Kind::Sequence => {
             let records = wrap(name, &path, read::seq::fasta(&text))?;

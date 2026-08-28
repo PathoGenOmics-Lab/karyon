@@ -44,6 +44,8 @@ TRACKS
     --coverage <FILE>    per-base signal: bedGraph, samtools depth, or values
     --copy-number <FILE> segmented copy number, a caller's segment table;
                          the ploidy is a track option and is required
+    --dynseq <FILE>      per-base model attribution, bedGraph, drawn as the
+                         bases themselves; takes --with-sequence
     --sequence <FILE>    the reference bases, FASTA
     --features <FILE>    genes and other intervals, BED or GFF3
     --variants <FILE>    point calls, VCF
@@ -84,6 +86,8 @@ TRACKS
 TRACK OPTIONS, each describing the track before it
     --label <TEXT>       the name in the left gutter
     --against <FILE>     the right-hand tree of a tanglegram
+    --with-sequence <FILE> the reference a dynseq track draws its letters
+                         from, FASTA
     --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names

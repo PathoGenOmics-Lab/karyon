@@ -106,9 +106,9 @@ use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
     CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack, DomainArchitecture, DomainTrack,
-    DotplotTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Legend, LegendTrack, Locus,
-    LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite,
-    MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack, PhylodynamicPoint,
+    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Legend,
+    LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack,
+    MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack, PhylodynamicPoint,
     PhylodynamicTrack, PileupTrack, Read, SelectionSite, SelectionTrack, SequenceTrack, SnpSite,
     SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack, Strand, StructuralTrack, StructuralVariant,
     SurveillanceObservation, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track,
@@ -230,6 +230,7 @@ tracks![
     CoverageTrack,
     DomainTrack,
     DotplotTrack,
+    DynseqTrack,
     FeatureTrack,
     GenomeTrack,
     IdeogramTrack,
@@ -548,6 +549,19 @@ impl<T: Slot> Plot<T> {
     ) -> Plot<CopyNumberTrack> {
         self.settle()
             .park(CopyNumberTrack::at_ploidy(segments, ploidy))
+    }
+
+    /// Per-base model attribution, drawn as the bases themselves.
+    ///
+    /// `seq[i]` and `scores[i]` describe the base at `start + i`. A score that
+    /// is not a number is a base nobody scored, and is drawn as one.
+    pub fn add_dynseq(
+        self,
+        start: u64,
+        seq: impl Into<Vec<u8>>,
+        scores: impl Into<Vec<f64>>,
+    ) -> Plot<DynseqTrack> {
+        self.settle().park(DynseqTrack::new(start, seq, scores))
     }
 
     /// Read depth, one value per base, starting at the left edge of the region.

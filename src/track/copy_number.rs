@@ -66,7 +66,7 @@
 
 use crate::scale::Scale;
 use crate::style::LinePattern;
-use crate::svg::{text_rounded, Anchor};
+use crate::svg::{finite_within, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::feature::span_label;
 use crate::track::legend::Legend;
@@ -193,6 +193,14 @@ impl CopyNumberSegment {
         Some(minor == 0.0 && self.copy.total() > 0.0)
     }
 }
+
+/// The most copies a ladder is drawn to.
+///
+/// A caller does not report a hundred thousand copies, and a file that says so
+/// says it by mistake. The number is a bound on the drawing rather than a claim
+/// about biology: past it the rungs are closer than a pixel and the ladder
+/// stops being one.
+const CEILING: f64 = 100_000.0;
 
 /// The lane along the foot of the band, saying what the alleles did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,8 +373,14 @@ impl CopyNumberTrack {
             .iter()
             .filter(|segment| segment.copy.is_called())
             .map(|segment| segment.copy.total())
+            .filter(|total| total.is_finite())
             .fold(0.0f64, f64::max);
-        (highest * 1.06).max(self.ploidy + 2.0).ceil()
+        // Bounded, and not only for tidiness. A ceiling of infinity makes the
+        // spacing between rungs nought, and the loop that walks the ladder to
+        // the top then never reaches it. The property net found that by being
+        // killed for the memory.
+        let asked = (highest * 1.06).max(self.ploidy + 2.0).ceil();
+        finite_within(asked, 1.0, CEILING, self.ploidy + 2.0)
     }
 
     /// The spans where one allele is gone and copies remain.
@@ -463,7 +477,10 @@ impl CopyNumberTrack {
         };
         let mut rungs = Vec::new();
         let mut copies = 0.0;
-        while copies <= ceiling {
+        // Counted rather than compared, so no ceiling and no step can make this
+        // a loop that does not end.
+        let steps = ((ceiling / step).floor() as usize).min(4_096);
+        for _ in 0..=steps {
             rungs.push(copies);
             copies += step;
         }

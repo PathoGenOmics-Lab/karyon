@@ -60,6 +60,7 @@ mod audit;
 pub mod bisulfite;
 pub mod clade;
 pub mod domain;
+pub mod dynseq;
 pub mod interval;
 pub mod locus;
 pub mod methyl;

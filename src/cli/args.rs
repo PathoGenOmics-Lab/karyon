@@ -211,6 +211,8 @@ pub enum Kind {
     Coverage,
     /// Segmented copy number from a caller's segment table.
     CopyNumber,
+    /// Per-base model attribution from a bedGraph, over a reference.
+    Dynseq,
     /// Reference bases from FASTA.
     Sequence,
     /// Intervals from BED or GFF3.
@@ -270,9 +272,10 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 26] = [
+    pub const ALL: [Kind; 27] = [
         Kind::Coverage,
         Kind::CopyNumber,
+        Kind::Dynseq,
         Kind::Sequence,
         Kind::Features,
         Kind::Variants,
@@ -304,6 +307,7 @@ impl Kind {
         match self {
             Kind::Coverage => "coverage",
             Kind::CopyNumber => "copy-number",
+            Kind::Dynseq => "dynseq",
             Kind::Sequence => "sequence",
             Kind::Features => "features",
             Kind::Variants => "variants",
@@ -342,6 +346,7 @@ impl Kind {
         match self {
             Kind::Coverage => "--coverage",
             Kind::CopyNumber => "--copy-number",
+            Kind::Dynseq => "--dynseq",
             Kind::Sequence => "--sequence",
             Kind::Features => "--features",
             Kind::Variants => "--variants",
@@ -430,6 +435,7 @@ impl Kind {
         // cannot do without, and each of the three has a figure that looks
         // finished when that happens.
         match self {
+            Kind::Dynseq => Some("--with-sequence"),
             Kind::Tanglegram => Some("--against"),
             Kind::Clades => Some("--with-tree"),
             Kind::Loci => Some("--links"),
@@ -477,6 +483,7 @@ impl Kind {
             Kind::Domains => Some("--analysis"),
             Kind::Coverage
             | Kind::CopyNumber
+            | Kind::Dynseq
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
@@ -678,6 +685,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         let track = match arg.as_str() {
             "--coverage" => Some((Kind::Coverage, true)),
             "--copy-number" => Some((Kind::CopyNumber, true)),
+            "--dynseq" => Some((Kind::Dynseq, true)),
             "--sequence" => Some((Kind::Sequence, true)),
             "--features" => Some((Kind::Features, true)),
             "--variants" => Some((Kind::Variants, true)),
@@ -914,13 +922,14 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
                 let flag: &'static str = match flag {
                     "--with-tree" => "--with-tree",
                     "--links" => "--links",
+                    "--with-sequence" => "--with-sequence",
                     _ => "--against",
                 };
                 let word = value(flag)?;
