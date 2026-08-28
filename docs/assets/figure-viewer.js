@@ -48,7 +48,9 @@
       '<a class="k-viewer__open" target="_blank" rel="noopener">Open the SVG</a>' +
       '<button type="button" class="k-viewer__shut" aria-label="Close">&times;</button>' +
       "</div>" +
-      '<div class="k-viewer__stage"><img alt=""></div>';
+      '<div class="k-viewer__stage" tabindex="0" role="group" ' +
+      'aria-label="The figure. Use the arrow keys to move around it at actual size.">' +
+      '<img alt=""></div>';
     document.body.appendChild(dialog);
     return dialog;
   }
@@ -71,6 +73,10 @@
       stage.dataset.mode = mode;
       size.textContent = mode === FIT ? "Actual size" : "Fit to window";
       size.setAttribute("aria-pressed", mode === FULL ? "true" : "false");
+      /* At actual size the picture is larger than the window and the stage is
+         what scrolls, so that is where the arrow keys have to land. Chrome does
+         not make a scrolling box focusable on its own. */
+      if (mode === FULL) stage.focus();
     }
 
     function show(img) {

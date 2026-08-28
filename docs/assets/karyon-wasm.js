@@ -284,7 +284,13 @@ window.karyon = (function () {
     // room to be, and which way the page is running. Both are supplied only
     // where the command did not say, so writing either one overrules the page
     // rather than fighting it.
-    if (argv.indexOf("--width") < 0 && room > 320) {
+    // A floor of 320 was above every phone, so the one reader who most needed
+    // the figure drawn to fit got the 900 pixel default squashed by CSS to
+    // about a third of it instead. Nothing here has to guard the low end:
+    // `Figure::width` raises a width that would leave no plotting area to the
+    // smallest one that does, so the only value worth refusing is a pane that
+    // has not been laid out yet.
+    if (argv.indexOf("--width") < 0 && room > 0) {
       argv = argv.concat(["--width", String(Math.round(room))]);
     }
     if (argv.indexOf("--theme") < 0 && dark()) {

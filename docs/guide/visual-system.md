@@ -1,5 +1,11 @@
 # Visual system
 
+!!! info "Library only"
+    Everything on this page is the Rust library. `RenderProfile`,
+    `VisualTokens`, `Density` and `Emphasis` have no flag on the command line,
+    which reaches the two built-in themes through `--theme` and nothing else
+    here.
+
 Karyon has one visual grammar for linear figures, circular plots and panel
 sheets. It separates three decisions that used to be mixed together:
 
@@ -99,6 +105,8 @@ at the same sheet coordinate. Circular and free-form drawings have no linear
 origin and keep their natural left edge.
 
 ```rust
+use karyon::Panels;
+
 Panels::new()
     .align_plot_areas(true)
     .push(&coverage, "A")

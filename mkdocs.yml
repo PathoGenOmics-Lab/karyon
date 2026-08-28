@@ -113,6 +113,18 @@ markdown_extensions:
       base_path:
         - "."
       check_paths: true
+      # The glossary, appended to every page. The `abbr` extension below turns
+      # each entry into an `<abbr>` wherever the term appears in prose, and the
+      # theme's `content.tooltips` draws it. It reaches prose only: a term
+      # inside backticks or inside a code block is left exactly as written.
+      #
+      # This exists because the site is read by two people who are not the same
+      # person. One of them can read a VCF and has never written Rust; the other
+      # writes Rust and has never seen a bedGraph. Every term below is cold to
+      # one of them at its first use, and defining them here explains them
+      # everywhere at once without a word of the prose changing.
+      auto_append:
+        - includes/abbreviations.md
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid

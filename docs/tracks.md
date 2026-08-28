@@ -122,85 +122,13 @@ not support the claim is what makes them worth having.
 [CodonTrack](#codontrack) &middot;
 [LegendTrack](#legendtrack)
 
-## The entry test
-
-A track has to live on the figure's shared integer coordinate axis. Usually
-that is a genomic position; `PhylodynamicTrack` and `SurveillanceTrack`
-deliberately use it for aligned time pivots. In code that reads: its `draw` has
-to use `ctx.scale`, the shared mapping from position to pixel that every band
-in the figure is drawn through. That is the whole reason this crate exists
-rather than a general plotting library. A track whose x is a list of samples
-or a count of genomes is a bar chart, a line chart or a heatmap that happens to
-have been handed genomic data, and matplotlib draws those better.
-
-Three track types were in the crate and are not any more. `AccumulationTrack`,
-`DistanceTrack` and `FrequencyTrack` all failed this test: their x axes were a
-count of genomes, a count of genomes and a list of sample names, so what they
-actually drew was a bar chart, a line chart with a quantile ribbon and a
-clustered heatmap. Removing them broke the public API, which was the cost of
-being honest about it. The analyses they carried are still worth having: a
-rarefaction over a presence matrix is a statistic rather than a plot type, and
-it does not need a `Track` to compute it.
-
-Thirty-one of the thirty-six draw through `ctx.scale`. The five that do not
-each answer for it, and each says so in its own module:
-
-- [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
-  area on purpose. A track that showed only the region on display could not say
-  where the region is: it would be a picture of the window, drawn inside the
-  window.
-- [TreeTrack](#treetrack) and [TanglegramTrack](#tanglegramtrack) measure
-  evolutionary distance across, which has nothing to do with position. What they
-  share with their neighbours is the other axis, because a leaf is a row.
-- [SnpTrack](#snptrack) lays its own columns out. Its x is a site index, since
-  throwing the invariant columns away is the point of the panel, and no shared
-  ruler survives that.
-- [LegendTrack](#legendtrack) carries no coordinates at all. It is a horizontal
-  band that has to be stacked, sized and clipped like every other one, which is
-  exactly what a track is.
-
-### And a thing that is not a track
-
-Metadata columns fail the entry test in the other direction, and the answer was
-not to make an exception for them. A sample's lineage is not at a base, and
-there is no zoom level at which more of it comes into view. Drawn as a track it
-would need an x nobody has, and the first pan would slide a sample's lineage off
-the end of that sample's own row.
-
-So [`Traits`](https://docs.rs/karyon/latest/karyon/track/traits/struct.Traits.html)
-is not a track. It attaches to the six tracks drawn as a row per named thing,
-and is drawn in the strip those tracks already reserve to the left of the
-plotting area, beside the row names and the dendrogram. It survives every pan
-and zoom untouched, because nothing in it was placed at a coordinate to begin
-with. It is described in full under [metadata columns](#metadata-columns).
-
-!!! warning "Coordinates"
-    Every position on this page is 0-based and half-open, the BED convention, so
-    a GFF interval `759806..763325` is `Feature::new(759_805, 763_325)` and a VCF
-    `POS` is `POS - 1`. The two exceptions are the ones a reader sees:
-    `Region::parse` accepts the 1-based inclusive locus strings samtools and IGV
-    use, and the tick labels an [AxisTrack](#axistrack) prints are in that same
-    form. Some tracks are not in genomic coordinates at all: MsaTrack counts
-    alignment columns, SnpTrack counts variable sites, SquiggleTrack counts
-    signal samples, and the two tree tracks measure branch length. Each entry
-    below says which. The full argument is in
-    [coordinates](how-it-works/coordinates.md).
-
-Every track type has a matching `add_` on `Plot` and can equally be pushed onto
-a `Figure`, which is what you want when the track is built by an alternative
-constructor or read back before it is drawn:
-
-```rust
-use karyon::{AxisTrack, CoverageTrack, Figure, Region};
-
-Figure::new(Region::parse("NC_000962.3:761000-763000")?)
-    .push(CoverageTrack::new(760_999, depth).label("depth"))
-    .push(AxisTrack::new())
-    .save_svg("rpoB.svg")?;
-```
-
-The two layers are described in [plot](guide/plot.md) and
-[figure](guide/figure.md).
+!!! note "What counts as a track"
+    A track has to live on the figure's shared integer coordinate axis: its
+    `draw` has to use `ctx.scale`. Three types were written and removed for
+    failing that, and metadata columns fail it in the other direction and are
+    attached to a track rather than made into one. The argument is at the foot
+    of this page, under [the entry test](#the-entry-test), because the entries
+    are what you came for.
 
 ## Signal and sequence
 
@@ -234,10 +162,10 @@ of a signed statistic. A number that can fall below its baseline belongs in a
 ### WindowTrack
 
 A statistic computed in windows, drawn against a line it may fall below. pN/pS
-is centred on one, GC skew and Tajima's D cross zero wherever the thing they
-measure changes direction, and drawn up from the bottom of a band all of those
-lose the one thing they were computed to say, which is which side of the line a
-window fell on.
+is centred on one; GC skew and Tajima's D cross zero wherever the thing they
+measure changes direction. Draw any of them up from the bottom of a band and
+they lose the one thing they were computed to say, which is which side of the
+line a window fell on.
 
 ![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows that fall below the line in a colour of their own](assets/figures/example-selection.svg){ width="880" height="234" loading="lazy" }
 
@@ -970,9 +898,10 @@ shared substitutions into a block.
 
 Two trees over the same taxa, drawn facing each other with every shared tip
 joined across the middle. A gene tree against a species tree, a core tree
-against an accessory tree, two methods over one alignment: drawn side by side
-the disagreement is something you have to hold in your head, and drawn this way
-the disagreement is the crossings, which are a thing you can point at.
+against an accessory tree, two methods over one alignment: drawn apart, with
+nothing running between them, the disagreement is something you have to hold in
+your head while your eye travels from one to the other. Drawn with the tips
+joined, the disagreement is the crossings, which are a thing you can point at.
 
 ![Core and accessory genome trees of eight isolates drawn face to face, the same tips joined across the middle and the crossing ties coloured](assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
 
@@ -1382,6 +1311,85 @@ reasoning, and the whole grammar, is in [the command line guide](guide/cli.md).
     composition and variants on concentric rings, and uses the middle for chords
     joining the two ends of a rearrangement. A `Rings` plot and a `Figure` can
     share one `Panels` sheet. See [figure](guide/figure.md).
+
+## The entry test
+
+A track has to live on the figure's shared integer coordinate axis. Usually
+that is a genomic position; `PhylodynamicTrack` and `SurveillanceTrack`
+deliberately use it for aligned time pivots. In code that reads: its `draw` has
+to use `ctx.scale`, the shared mapping from position to pixel that every band
+in the figure is drawn through. That is the whole reason this crate exists
+rather than a general plotting library. A track whose x is a list of samples
+or a count of genomes is a bar chart, a line chart or a heatmap that happens to
+have been handed genomic data, and matplotlib draws those better.
+
+Three track types were in the crate and are not any more. `AccumulationTrack`,
+`DistanceTrack` and `FrequencyTrack` all failed this test: their x axes were a
+count of genomes, a count of genomes and a list of sample names, so what they
+actually drew was a bar chart, a line chart with a quantile ribbon and a
+clustered heatmap. Removing them broke the public API, which was the cost of
+being honest about it. The analyses they carried are still worth having: a
+rarefaction over a presence matrix is a statistic rather than a plot type, and
+it does not need a `Track` to compute it.
+
+Thirty-one of the thirty-six draw through `ctx.scale`. The five that do not
+each answer for it, and each says so in its own module:
+
+- [IdeogramTrack](#ideogramtrack) draws the whole sequence across the plotting
+  area on purpose. A track that showed only the region on display could not say
+  where the region is: it would be a picture of the window, drawn inside the
+  window.
+- [TreeTrack](#treetrack) and [TanglegramTrack](#tanglegramtrack) measure
+  evolutionary distance across, which has nothing to do with position. What they
+  share with their neighbours is the other axis, because a leaf is a row.
+- [SnpTrack](#snptrack) lays its own columns out. Its x is a site index, since
+  throwing the invariant columns away is the point of the panel, and no shared
+  ruler survives that.
+- [LegendTrack](#legendtrack) carries no coordinates at all. It is a horizontal
+  band that has to be stacked, sized and clipped like every other one, which is
+  exactly what a track is.
+
+### And a thing that is not a track
+
+Metadata columns fail the entry test in the other direction, and the answer was
+not to make an exception for them. A sample's lineage is not at a base, and
+there is no zoom level at which more of it comes into view. Drawn as a track it
+would need an x nobody has, and the first pan would slide a sample's lineage off
+the end of that sample's own row.
+
+So [`Traits`](#metadata-columns) is not a track. It attaches to the six tracks drawn as a row per named thing,
+and is drawn in the strip those tracks already reserve to the left of the
+plotting area, beside the row names and the dendrogram. It survives every pan
+and zoom untouched, because nothing in it was placed at a coordinate to begin
+with. It is described in full under [metadata columns](#metadata-columns).
+
+!!! warning "Coordinates"
+    Every position on this page is 0-based and half-open, the BED convention, so
+    a GFF interval `759806..763325` is `Feature::new(759_805, 763_325)` and a VCF
+    `POS` is `POS - 1`. The two exceptions are the ones a reader sees:
+    `Region::parse` accepts the 1-based inclusive locus strings samtools and IGV
+    use, and the tick labels an [AxisTrack](#axistrack) prints are in that same
+    form. Some tracks are not in genomic coordinates at all: MsaTrack counts
+    alignment columns, SnpTrack counts variable sites, SquiggleTrack counts
+    signal samples, and the two tree tracks measure branch length. Each entry
+    below says which. The full argument is in
+    [coordinates](how-it-works/coordinates.md).
+
+Every track type has a matching `add_` on `Plot` and can equally be pushed onto
+a `Figure`, which is what you want when the track is built by an alternative
+constructor or read back before it is drawn:
+
+```rust
+use karyon::{AxisTrack, CoverageTrack, Figure, Region};
+
+Figure::new(Region::parse("NC_000962.3:761000-763000")?)
+    .push(CoverageTrack::new(760_999, depth).label("depth"))
+    .push(AxisTrack::new())
+    .save_svg("rpoB.svg")?;
+```
+
+The two layers are described in [plot](guide/plot.md) and
+[figure](guide/figure.md).
 
 ## Next
 

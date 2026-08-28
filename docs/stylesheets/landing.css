@@ -345,12 +345,17 @@
   white-space: pre;
 }
 
+/* The figure on this page is draggable, and without `touch-action` a touch
+   screen claims the drag as a page scroll before the pointer events reach it,
+   so the gesture the caption advertises never fires on a phone. Horizontal is
+   taken, which is the axis the figure pans on; vertical is left to the page. */
 .md-typeset .k-stage-plot {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 12rem;
   padding: 0.6rem;
+  touch-action: pan-y;
 }
 
 .md-typeset .k-stage-plot > svg {

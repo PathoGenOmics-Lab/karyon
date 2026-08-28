@@ -262,6 +262,11 @@
   object-fit: contain;
 }
 
+.k-viewer__stage:focus-visible {
+  outline: 0.14rem solid var(--md-accent-fg-color);
+  outline-offset: -0.14rem;
+}
+
 .k-viewer__stage[data-mode="full"] {
   place-items: start;
 }
@@ -414,6 +419,20 @@
 }
 
 .md-typeset table:not([class]) th {
+  white-space: nowrap;
+}
+
+/* A flag name is one thing. The reference tables are what a reader scans to
+   find theirs, and in a column of a hundred and thirty-seven pixels forty-six
+   of the hundred and fifty-seven names on the command line page were breaking
+   in half: `--coverage <FILE>` arrived as `--coverage` on one line and
+   `<FILE>` on the next, and a nine character name broke after its own two
+   hyphens. Nothing set in code inside a table cell breaks internally now.
+
+   A list of several names still wraps, because each name is its own span. The
+   one cell that held a list inside a single span, the default font stack, is
+   now written as the four families it is. */
+.md-typeset table:not([class]) td > code {
   white-space: nowrap;
 }
 
@@ -975,6 +994,14 @@
   clip-path: inset(50%);
 }
 
+/* `display` on a class beats the browser's own `[hidden] { display: none }`,
+   so the workbench drew its whole seven hundred pixels of dead chrome on top
+   of the "this page needs JavaScript" message for a reader who has it off. The
+   script is what takes the attribute away. */
+.pg-app[hidden] {
+  display: none;
+}
+
 .pg-app {
   display: flex;
   flex-direction: column;
@@ -1218,9 +1245,15 @@
 
 /* Interactive: the figure is something you take hold of, and every frame of
    the drag is a figure the program drew rather than a scaled picture. */
+/* The page advertises drag to pan. Without `touch-action` the browser claims
+   a drag on a touch screen as a scroll and the pointer events never reach the
+   figure, so on a phone the advertised gesture did nothing at all. Horizontal
+   is taken and vertical is left to the page, which is the axis the figure pans
+   on and the axis the reader still needs for the page. */
 .pg-live {
   cursor: grab;
   user-select: none;
+  touch-action: pan-y;
 }
 
 .pg-live.pg-dragging {
@@ -1792,12 +1825,33 @@ body:not([data-md-color-scheme="slate"]) .pg-panel {
 /* `.track-overview` is the site's own disclosure around a figure rather than
    an admonition, so it is left out of all of this: it has no type, no icon and
    nothing to say in a colour. */
+/* An admonition on this site is not an aside. It is where the sharp edges are
+   written down: what a reader must not do, what the program refuses, which
+   convention a number is in. Material sets it at 0.64rem, and the site had it
+   at 0.68; either way it was the smallest running text on the page, carrying
+   the sentences that cost the most to miss. It reads at 0.76rem now, and the
+   rule below stops code compounding inside it. */
 .md-typeset .admonition,
 .md-typeset details:not(.track-overview) {
   border: 1px solid var(--md-default-fg-color--lightest);
   border-left: 0.16rem solid var(--admonition-accent, var(--md-primary-fg-color));
   border-radius: 0.2rem;
   box-shadow: none;
+  font-size: 0.76rem;
+}
+
+/* Material sizes inline code as a fraction of what surrounds it, which is right
+   in a paragraph and compounds everywhere the site has already shrunk the
+   container: inside an admonition it came out at 11.56 pixels, and inside a
+   table at the same. Code carries the reference vocabulary of this site, the
+   flag names and the type names, so it is pinned to the size it has in prose
+   and stops multiplying. */
+.md-typeset .admonition code,
+.md-typeset details code,
+.md-typeset table:not([class]) code,
+.md-typeset figcaption code,
+.md-typeset .admonition pre > code,
+.md-typeset details pre > code {
   font-size: 0.68rem;
 }
 

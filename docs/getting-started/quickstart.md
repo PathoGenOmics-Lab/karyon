@@ -1,9 +1,77 @@
 # Quickstart
 
-The shortest path to a figure, twice: once from Rust, once from the shell.
+The shortest path to a figure, twice: once from the shell, once from Rust.
 Both build the same thing, a stack of tracks over one shared coordinate axis
 written out as a standalone SVG, and neither needs anything installed beyond a
 Rust toolchain.
+
+The shell comes first because it is the shorter of the two and because a reader
+who has a file and wants a figure does not have to write any Rust to get one.
+Skip to [writing it in Rust](#from-rust) if that is what you came for.
+
+## From the shell
+
+The command line front end installs from the repository:
+
+```bash
+cargo install --git https://github.com/PathoGenOmics-Lab/karyon
+```
+
+It is the grammar of [the Rust half below](#from-rust) with spaces instead of
+dots, for the twenty-eight track types it reaches: each `--flag` opens a track
+and the flags after it describe that track, so the order of the flags is the
+order of the stack.
+
+The command below names three files you do not have yet. If you want something
+that runs this second, this makes its own input and needs nothing else:
+
+```bash
+seq 1 60 | awk '{print "chr1\t" $1 "\t" (20 + $1 % 7)}' > depth.txt
+karyon chr1:1-60 --coverage depth.txt --label depth -o first.svg
+```
+
+Each track flag starts a track and the flags after it describe that one, so
+**the order of the flags is the order of the stack**:
+
+```bash
+karyon NC_000962.3:761,121-761,180 \
+  --coverage depth.txt  --label depth     --height 45 \
+  --sequence H37Rv.fa   --label reference \
+  --variants calls.vcf  --label variants  --height 40 \
+  --title 'The same locus at base resolution' \
+  -o rpoB-zoom.svg
+```
+
+![The same locus over sixty bases: a depth profile, the reference sequence drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
+
+`depth.txt` is what `samtools depth` writes, `H37Rv.fa` is the reference and
+`calls.vcf` is a VCF. **Each is read as its own format defines coordinates**:
+BED, bedGraph and cytoBand 0-based and half-open, GFF3, VCF, SAM and
+`samtools depth` 1-based. Both come out at the same place in the figure, and
+every reader has a test pinning a known base through the conversion.
+
+The keys in the variant legend come from the `ANN` or `BCSQ` consequence when
+the VCF carries one, and otherwise from the shape of the call, which is `REF`
+against `ALT` and needs no annotation: a substitution, an insertion or a
+deletion.
+
+Without `-o` the SVG goes to standard output. `karyon --help` prints the whole
+grammar, which is twenty-seven track flags and the ruler.
+
+!!! note "A FASTA is read from its own first base"
+    `--sequence` wants the reference the window is cut out of, not the window.
+    Byte *n* of the record is the base at 0-based position *n*, so a FASTA
+    holding only the sixty bases on display would place them at positions 0 to
+    59 and the track would come out empty.
+
+BAM, CRAM and BCF are not read here. They arrive through a pipe, since
+`samtools` and `bcftools` already write exactly what these readers take, so the
+pipeline is the parser. Any track file may be `-`, and one track may take it:
+
+```bash
+samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
+  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
+```
 
 ## From Rust
 
@@ -109,68 +177,6 @@ alignment is indexed by column and a raw signal by sample, so
 `plot("alignment:1-320")` is as good a region as a locus is, and the ruler
 counts whatever the region counts.
 
-## From the shell
-
-The command line front end installs from the same repository:
-
-```bash
-cargo install --git https://github.com/PathoGenOmics-Lab/karyon
-```
-
-It is the same grammar with spaces instead of dots, for the twenty-eight track
-types that have a file to read.
-
-The command below names three files you do not have yet. If you want something
-that runs this second, this makes its own input and needs nothing else:
-
-```bash
-seq 1 60 | awk '{print "chr1\t" $1 "\t" (20 + $1 % 7)}' > depth.txt
-karyon chr1:1-60 --coverage depth.txt --label depth -o first.svg
-```
-
-Each track flag starts a track and the flags after it describe that one, so
-**the order of the flags is the order of the stack**:
-
-```bash
-karyon NC_000962.3:761,121-761,180 \
-  --coverage depth.txt  --label depth     --height 45 \
-  --sequence H37Rv.fa   --label reference \
-  --variants calls.vcf  --label variants  --height 40 \
-  --title 'The same locus at base resolution' \
-  -o rpoB-zoom.svg
-```
-
-![The same locus over sixty bases: a depth profile, the reference sequence drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
-
-`depth.txt` is what `samtools depth` writes, `H37Rv.fa` is the reference and
-`calls.vcf` is a VCF. **Each is read as its own format defines coordinates**:
-BED, bedGraph and cytoBand 0-based and half-open, GFF3, VCF, SAM and
-`samtools depth` 1-based. Both come out at the same place in the figure, and
-every reader has a test pinning a known base through the conversion.
-
-The keys in the variant legend come from the `ANN` or `BCSQ` consequence when
-the VCF carries one, and otherwise from the shape of the call, which is `REF`
-against `ALT` and needs no annotation: a substitution, an insertion or a
-deletion.
-
-Without `-o` the SVG goes to standard output. `karyon --help` prints the whole
-grammar, which is twenty-seven track flags and the ruler.
-
-!!! note "A FASTA is read from its own first base"
-    `--sequence` wants the reference the window is cut out of, not the window.
-    Byte *n* of the record is the base at 0-based position *n*, so a FASTA
-    holding only the sixty bases on display would place them at positions 0 to
-    59 and the track would come out empty.
-
-BAM, CRAM and BCF are not read here. They arrive through a pipe, since
-`samtools` and `bcftools` already write exactly what these readers take, so the
-pipeline is the parser. Any track file may be `-`, and one track may take it:
-
-```bash
-samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
-  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
-```
-
 ## About the two figures
 
 Both are rendered by the `locus` example, which is the program above with two
@@ -183,8 +189,8 @@ cargo run --example locus -- assets
 
 The seed is why the committed files come out byte-identical between runs, so a
 diff appears only when the rendering actually changed. Your data will differ.
-The layout will not: the code on this page renders at the same 900 by 284 and
-900 by 203 as the two figures above.
+The layout will not: the code on this page renders at the same 900 by 306 and
+900 by 223 as the two figures above.
 
 ## Next
 

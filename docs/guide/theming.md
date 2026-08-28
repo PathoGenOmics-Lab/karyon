@@ -1,5 +1,10 @@
 # Theming
 
+!!! info "Mostly library"
+    The command line reaches the two built-in palettes through `--theme light`
+    and `--theme dark`, and a single track's colour through `--color`. Every
+    other field on this page is set from Rust.
+
 A `Theme` is the colours, fonts and spacing every track in a
 [figure](figure.md) shares. It is a plain struct with every field public, so
 there is no builder to learn and nothing hidden: start from `Theme::light` or
@@ -66,7 +71,7 @@ And the values the two constructors give them:
 | `accent` | `#0072b2` | `#3987e5` |
 | `insertion` | `#8e44ad` | `#8e44ad` |
 | `corner_radius` | `2.5` | `2.5` |
-| `font_family` | `Liberation Sans, Arial, Helvetica, sans-serif` | `Liberation Sans, Arial, Helvetica, sans-serif` |
+| `font_family` | `Liberation Sans`, `Arial`, `Helvetica`, `sans-serif` | `Liberation Sans`, `Arial`, `Helvetica`, `sans-serif` |
 | `font_size` | `12.0` | `12.0` |
 | `label_font_size` | `12.0` | `12.0` |
 | `title_font_size` | `18.0` | `18.0` |
