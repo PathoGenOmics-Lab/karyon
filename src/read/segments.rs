@@ -24,7 +24,8 @@
 //! CNVkit's `.cns` is BED-like: 0-based and half-open, passed straight through.
 //! ASCAT's segment table and the `.seg` file IGV and GISTIC2 read are 1-based
 //! and inclusive, so one comes off the start and the end is unchanged. The
-//! header is what decides which, and [`Format`] overrules it.
+//! header is what decides which, since the two spell the same two coordinates
+//! by different names.
 //!
 //! # A log ratio is not a copy number until somebody says what balanced is
 //!
@@ -335,4 +336,143 @@ fn number(field: Option<&&str>) -> Option<f64> {
     }
     let value = field.parse::<f64>().ok()?;
     value.is_finite().then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn region() -> Region {
+        Region::new("chr8", 0, 10_000_000).unwrap()
+    }
+
+    const CNS: &str = "\
+chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2
+chr8\t0\t2000000\t-\t-0.02\t2\t1\t1
+chr8\t2000000\t3500000\t-\t-1.04\t1\t1\t0
+chr8\t7000000\t7400000\t-\tNA\tNA\tNA\tNA
+chr17\t0\t100\t-\t0.5\t3\t2\t1
+";
+
+    #[test]
+    fn a_cns_is_read_where_it_lies_and_counted_where_it_does_not() {
+        let found = copy_numbers(CNS, &region(), 2.0, None).expect("segments");
+        assert_eq!(found.records, 4);
+        assert_eq!(found.segments.len(), 2);
+        assert_eq!(found.no_call, 1);
+        assert_eq!(found.other_sequence, 1);
+        // BED-like, so the start passes straight through.
+        assert_eq!(found.segments[0].start, 0);
+        assert_eq!(found.segments[0].end, 2_000_000);
+    }
+
+    #[test]
+    fn the_allele_split_is_read_before_the_total_and_the_total_before_the_ratio() {
+        // A caller that wrote both wrote the split on purpose, and a total is
+        // what it concluded rather than what this arithmetic would infer.
+        let found = copy_numbers(CNS, &region(), 2.0, None).expect("segments");
+        assert_eq!(found.segments[1].copy.minor(), Some(0.0));
+        assert_eq!(found.segments[1].copy.total(), 1.0);
+        assert_eq!(found.segments[1].loh(), Some(true));
+    }
+
+    #[test]
+    fn a_seg_file_counts_from_one_and_its_ratio_becomes_copies_at_the_ploidy() {
+        let text = "\
+ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean
+S1\tchr8\t1\t2000000\t1043\t0.0
+S1\tchr8\t2000001\t3000000\t998\t1.0
+";
+        let found = copy_numbers(text, &region(), 2.0, None).expect("segments");
+        assert_eq!(found.segments[0].start, 0, "1-based start not taken down");
+        assert_eq!(found.segments[0].end, 2_000_000);
+        assert_eq!(found.segments[0].copy.total(), 2.0);
+        // One doubling above the reference, at two copies, is four.
+        assert_eq!(found.segments[1].copy.total(), 4.0);
+        // And the ploidy is what says so: the same file at one copy is two.
+        let haploid = copy_numbers(text, &region(), 1.0, None).expect("segments");
+        assert_eq!(haploid.segments[1].copy.total(), 2.0);
+    }
+
+    #[test]
+    fn a_table_of_several_samples_is_not_drawn_until_one_is_chosen() {
+        // Two step functions in one band read as one sample with a great many
+        // breakpoints, which is a figure nobody would question.
+        let text = "\
+ID\tchrom\tloc.start\tloc.end\tseg.mean
+S1\tchr8\t1\t2000000\t0.0
+S2\tchr8\t1\t2000000\t1.0
+";
+        let error = copy_numbers(text, &region(), 2.0, None).unwrap_err();
+        assert!(error.reason.contains("2 samples"), "{error}");
+
+        let found = copy_numbers(text, &region(), 2.0, Some("S2")).expect("segments");
+        assert_eq!(found.segments.len(), 1);
+        assert_eq!(found.segments[0].copy.total(), 4.0);
+        assert_eq!(samples(text).expect("samples"), ["S1", "S2"]);
+    }
+
+    #[test]
+    fn a_header_naming_none_of_the_known_tables_is_refused() {
+        // Rather than guessed at. Reading nMajor where nMinor was written is a
+        // figure claiming lost heterozygosity in the arms that kept it.
+        let error = copy_numbers("a\tb\tc\n1\t2\t3\n", &region(), 2.0, None).unwrap_err();
+        assert!(
+            error.reason.contains("names none of the segment tables"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn ascat_counts_from_one_and_cnvkit_does_not() {
+        let ascat = "\
+sample\tchr\tstartpos\tendpos\tnMajor\tnMinor
+T1\tchr8\t1\t2000000\t2\t0
+";
+        let found = copy_numbers(ascat, &region(), 2.0, None).expect("segments");
+        assert_eq!(found.segments[0].start, 0);
+        assert_eq!(found.segments[0].copy.minor(), Some(0.0));
+
+        let zero = "\
+sample\tchr\tstartpos\tendpos\tnMajor\tnMinor
+T1\tchr8\t0\t2000000\t2\t0
+";
+        let error = copy_numbers(zero, &region(), 2.0, None).unwrap_err();
+        assert!(error.reason.contains("counts from 1"), "{error}");
+    }
+
+    #[test]
+    fn a_stated_no_call_is_counted_and_never_becomes_a_number() {
+        for spelling in ["NA", ".", "", "-", "NaN"] {
+            let text = format!("chromosome\tstart\tend\tcn\nchr8\t0\t100\t{spelling}\n");
+            let found = copy_numbers(&text, &region(), 2.0, None).expect("segments");
+            assert_eq!(found.segments.len(), 0, "{spelling:?} became a copy number");
+            assert_eq!(found.no_call, 1, "{spelling:?} was not counted");
+        }
+    }
+
+    #[test]
+    fn a_row_shorter_than_its_header_is_refused_by_line() {
+        let error = copy_numbers(
+            "chromosome\tstart\tend\tcn\nchr8\t0\n",
+            &region(),
+            2.0,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.line, 2);
+        assert!(error.reason.contains("this row has 2"), "{error}");
+    }
+
+    #[test]
+    fn an_end_before_its_start_is_refused() {
+        let error = copy_numbers(
+            "chromosome\tstart\tend\tcn\nchr8\t500\t100\t2\n",
+            &region(),
+            2.0,
+            None,
+        )
+        .unwrap_err();
+        assert!(error.reason.contains("end is before start"), "{error}");
+    }
 }

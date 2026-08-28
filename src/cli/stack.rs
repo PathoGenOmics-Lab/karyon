@@ -23,11 +23,11 @@ use std::fs;
 use std::io::{self, Read as _};
 
 use crate::{
-    Aggregate, BisulfiteTrack, CladeTrack, CoverageTrack, DomainTrack, DotplotTrack, FeatureTrack,
-    IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack,
-    MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack, SnpTrack,
-    SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack,
-    VariantTrack, WindowStyle, WindowTrack,
+    Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
+    DotplotTrack, FeatureTrack, IdeogramTrack, LocusTrack, LogoTrack, ManhattanTrack, MatrixTrack,
+    MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack, Plot, Region, SequenceTrack,
+    SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree,
+    TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
@@ -944,6 +944,44 @@ fn track(
                 track = track.height(height);
             }
             Box::new(named(track, label, IdeogramTrack::label))
+        }
+        Kind::CopyNumber => {
+            // Checked by the parser, so this is reached only from an
+            // Invocation built by hand, whose fields are all public.
+            let ploidy = spec.ploidy.unwrap_or(2.0);
+            let held = wrap(name, &path, read::segments::samples(&text))?;
+            if held.len() > 1 && spec.sample.is_none() {
+                return Err(BuildError::Ambiguous {
+                    track: name,
+                    path: path.clone(),
+                    flag: "--sample",
+                    choices: held,
+                });
+            }
+            let found = wrap(
+                name,
+                &path,
+                read::segments::copy_numbers(&text, region, ploidy, spec.sample.as_deref()),
+            )?;
+            if found.records == 0 {
+                return Err(empty("segments"));
+            }
+            if found.segments.is_empty() {
+                // The file did hold segments, so say which of the three ways
+                // they failed to reach the figure rather than repeating the
+                // count: another sequence, another window, or no call at all.
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "called segments",
+                    held: found.records,
+                    named: found.samples.join(", "),
+                    region: region.to_string(),
+                });
+            }
+
+            let track = CopyNumberTrack::at_ploidy(found.segments, ploidy);
+            Box::new(named(track, label, CopyNumberTrack::label))
         }
         Kind::Matrix => {
             let (sites, rows) = wrap(name, &path, read::table::matrix(&text, region))?;

@@ -42,6 +42,8 @@ may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, samtools depth, or values
+    --copy-number <FILE> segmented copy number, a caller's segment table;
+                         the ploidy is a track option and is required
     --sequence <FILE>    the reference bases, FASTA
     --features <FILE>    genes and other intervals, BED or GFF3
     --variants <FILE>    point calls, VCF
@@ -93,6 +95,9 @@ TRACK OPTIONS, each describing the track before it
                          than one
     --analysis <NAME>    Pfam, PANTHER or another member database, for a
                          domain table holding more than one
+    --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
+                         required, since it is not in the file
+    --sample <NAME>      which sample of a segment table holding several
     --traits <FILE>      a sample sheet drawn as strips beside the rows, for
                          the tracks that have rows: a header, names in column
                          one, one column per thing known about them
