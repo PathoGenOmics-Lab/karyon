@@ -38,6 +38,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::msa::{is_gap, MsaSequence};
+use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -127,6 +128,7 @@ pub struct SnpTrack {
     tree: Option<Tree>,
     tree_width: f64,
     tree_shape: TreeShape,
+    traits: Traits,
 }
 
 impl SnpTrack {
@@ -150,6 +152,7 @@ impl SnpTrack {
             tree: None,
             tree_width: 90.0,
             tree_shape: TreeShape::Phylogram,
+            traits: Traits::default(),
         }
     }
 
@@ -327,6 +330,23 @@ impl SnpTrack {
         self
     }
 
+    /// Attaches metadata columns drawn between the sample names and the panel.
+    ///
+    /// Joined by name, so the columns follow whatever order the samples are
+    /// already in, including the one a phylogeny put them in. The reference row
+    /// is joined the same way: it is a name like any other here, and a sheet
+    /// that says nothing about it leaves its cells as the outline that means
+    /// nothing was said.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
+    }
+
     /// The tree beside the panel, if there is one.
     pub fn attached_tree(&self) -> Option<&Tree> {
         self.tree.as_ref()
@@ -398,6 +418,7 @@ impl Track for SnpTrack {
         rows * self.row_height
             + (rows - 1.0).max(0.0) * self.row_gap
             + self.position_strip(&Theme::default())
+            + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -410,8 +431,9 @@ impl Track for SnpTrack {
         } else {
             0.0
         };
+        let gutter = self.traits.strip_width();
         if !self.show_names {
-            return tree;
+            return tree + gutter;
         }
         let size = (theme.font_size - 1.0).min(self.row_height);
         let (rows, _) = self.visible_rows();
@@ -423,14 +445,23 @@ impl Track for SnpTrack {
             .map(|name| text_width(name, size))
             .fold(0.0f64, f64::max);
         if widest <= 0.0 {
-            tree
+            tree + gutter
         } else {
-            widest + 8.0 + tree
+            widest + 8.0 + tree + gutter
         }
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
-        let band = ctx.band;
+        // Shifted down by the room the headings of the metadata columns took,
+        // which `height` already asked the figure for. The panel places every
+        // row from `band.y`, so moving it moves the whole grid at once.
+        let head = ctx.px(self.traits.heading_height());
+        let gutter = self.traits.strip_width();
+        let band = Rect {
+            y: ctx.band.y + head,
+            h: (ctx.band.h - head).max(1.0),
+            ..ctx.band
+        };
         if self.sites.is_empty() {
             return;
         }
@@ -613,6 +644,26 @@ impl Track for SnpTrack {
                 Anchor::End,
             );
         }
+
+        let pitch = self.row_height + self.row_gap;
+        let mut placed: Vec<(String, f64, f64)> = Vec::new();
+        if self.show_reference {
+            placed.push((self.reference_name.clone(), band.y, self.row_height));
+        }
+        let first = band.y + if self.show_reference { pitch } else { 0.0 };
+        for (row, name) in self.names.iter().take(rows).enumerate() {
+            placed.push((name.clone(), first + row as f64 * pitch, self.row_height));
+        }
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - gutter,
+                y: ctx.band.y,
+                w: gutter,
+                h: ctx.band.h,
+            },
+            &placed,
+        );
     }
 }
 
@@ -727,7 +778,7 @@ impl SnpTrack {
         name: &str,
         reference: bool,
     ) {
-        if !self.show_names || ctx.axis.w <= 0.0 {
+        if !self.show_names || ctx.axis.w <= self.traits.strip_width() {
             return;
         }
         let color = if reference {
@@ -736,7 +787,7 @@ impl SnpTrack {
             ctx.theme.muted.clone()
         };
         ctx.svg.text(
-            ctx.axis.right() - 4.0,
+            ctx.axis.right() - self.traits.strip_width() - 4.0,
             top + self.row_height / 2.0 + size * 0.35,
             name,
             &color,

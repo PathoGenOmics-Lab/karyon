@@ -294,7 +294,15 @@ is read before it is drawn: `panel.sites()` is what the region is built from.
 Rows are matched to leaves by name, and a sample the tree does not mention
 keeps its place at the bottom rather than vanishing.
 
-![A phylogeny on the left and, beside it, a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
+The figure below has one more thing in it than the code above: three strips of
+[metadata](tracks.md#metadata-columns) between the names and the panel, added
+with `.traits(..)` out of a sample sheet. They are worth having here because
+they are read against the tree beside them. Lineage runs in three blocks,
+because a lineage is inherited and the tree put the rows in that order.
+Resistance does not, and that is the finding: the same phenotype in two clades
+that did not get it from each other.
+
+![A phylogeny on the left, three strips of sample metadata beside it, and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](assets/figures/example-snps.svg)
 
 Thirty-four differences in thirty kilobases, from
 `cargo run --example snps -- assets`. Drawing all thirty thousand columns would

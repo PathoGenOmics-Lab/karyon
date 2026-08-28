@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use crate::scale::Scale;
 use crate::svg::{fit_text, text_width, Anchor};
 use crate::theme::{contrast_ink, mix, wash};
+use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -106,6 +107,7 @@ pub struct DomainTrack {
     tree: Option<Tree>,
     tree_width: f64,
     tree_shape: TreeShape,
+    traits: Traits,
 }
 
 impl DomainTrack {
@@ -121,6 +123,7 @@ impl DomainTrack {
             tree: None,
             tree_width: 100.0,
             tree_shape: TreeShape::Phylogram,
+            traits: Traits::default(),
         }
     }
 
@@ -188,6 +191,20 @@ impl DomainTrack {
         self
     }
 
+    /// Attaches metadata columns drawn between the row names and the rows.
+    ///
+    /// Joined by name, so the columns follow whatever order the rows are
+    /// already in.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
+    }
+
     /// Architectures in their current visual order.
     pub fn rows(&self) -> &[DomainArchitecture] {
         &self.rows
@@ -212,7 +229,7 @@ impl DomainTrack {
 impl Track for DomainTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.rows.len().max(1) as f64;
-        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap
+        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -221,20 +238,31 @@ impl Track for DomainTrack {
 
     fn y_axis_width(&self, theme: &crate::Theme) -> f64 {
         let tree = self.tree.as_ref().map_or(0.0, |_| self.tree_width);
+        let strip = self.traits.strip_width();
         if !self.show_names || self.rows.is_empty() {
-            return tree;
+            return tree + strip;
         }
         let size = (theme.font_size - 2.0).min(self.row_height);
-        tree + self
-            .rows
-            .iter()
-            .map(|row| text_width(&row.name, size))
-            .fold(0.0f64, f64::max)
+        tree + strip
+            + self
+                .rows
+                .iter()
+                .map(|row| text_width(&row.name, size))
+                .fold(0.0f64, f64::max)
             + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
-        let band = ctx.band;
+        // The band the rows are drawn in starts below the room the headings
+        // of the metadata columns took, which `height` already asked for. The
+        // bottom is unmoved, so everything measured from it still lands.
+        let head = ctx.px(self.traits.heading_height());
+        let strip = self.traits.strip_width();
+        let band = Rect {
+            y: ctx.band.y + head,
+            h: (ctx.band.h - head).max(1.0),
+            ..ctx.band
+        };
         let categories = self.categories();
         let name_size = (ctx.theme.font_size - 2.0).min(self.row_height);
         let tree_color = mix(&ctx.theme.foreground, &ctx.theme.muted, 0.45);
@@ -351,7 +379,7 @@ impl Track for DomainTrack {
 
             if self.show_names && ctx.axis.w > 0.0 {
                 ctx.svg.text(
-                    ctx.axis.right() - 4.0,
+                    ctx.axis.right() - strip - 4.0,
                     centre + name_size * 0.35,
                     &row.name,
                     &ctx.theme.foreground,
@@ -360,6 +388,29 @@ impl Track for DomainTrack {
                 );
             }
         }
+
+        let placed: Vec<(String, f64, f64)> = self
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                (
+                    row.name.clone(),
+                    band.y + index as f64 * (self.row_height + self.row_gap),
+                    self.row_height,
+                )
+            })
+            .collect();
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - strip,
+                y: ctx.band.y,
+                w: strip,
+                h: ctx.band.h,
+            },
+            &placed,
+        );
     }
 }
 

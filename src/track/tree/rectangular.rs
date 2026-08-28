@@ -553,154 +553,35 @@ pub(super) fn draw_trait_columns(
     if columns.is_empty() {
         return;
     }
-    let size = (ctx.theme.font_size - 2.0).max(6.0);
     let mut x = area.right() + tip_width + ctx.theme.tokens.label_gap;
+    let names: Vec<String> = scene
+        .terminals
+        .iter()
+        .map(|node| terminal_label(tree, *node, collapsed))
+        .collect();
 
     for column in columns {
-        let values: Vec<Option<&AnnotationValue>> = scene
-            .terminals
-            .iter()
-            .map(|node| inherited_annotation(tree, *node, &column.key))
-            .collect();
+        // The domain is every placement and not only the terminals, because a
+        // value inherited from an internal node is a value this column has and
+        // a level nobody drew still has to keep its colour.
         let domain =
             TraitDomain::new(
                 scene.placements.iter().flatten().filter_map(|placement| {
                     inherited_annotation(tree, placement.node, &column.key)
                 }),
             );
-
-        let heading = fit_text(&column.label, column.width, size);
-        ctx.svg.text(
-            x + column.width / 2.0,
-            area.y - 5.0,
-            &heading,
-            &ctx.theme.muted,
-            size,
-            crate::svg::Anchor::Middle,
-        );
-
-        for (row, node) in scene.terminals.iter().enumerate() {
-            let y = area.y + row as f64 * row_pitch + 1.0;
-            let height = (row_pitch - 2.0).max(1.0);
-            let name = terminal_label(tree, *node, collapsed);
-            let value = values[row];
-            let fill = domain.color(column, value, ctx.theme);
-            let displayed = value.map(ToString::to_string);
-            let title = match &displayed {
-                Some(value) => format!("{name}; {} {value}", column.key),
-                None => format!("{name}; {} missing", column.key),
-            };
-            ctx.svg.begin_titled(&title);
-            match column.style {
-                TraitStyle::Strip => {
-                    if let Some(fill) = &fill {
-                        ctx.svg.rect_rounded(
-                            x,
-                            y,
-                            column.width,
-                            height,
-                            ctx.theme.corner_radius.min(2.0),
-                            fill,
-                        );
-                    } else {
-                        ctx.svg.rect_outline(
-                            x,
-                            y,
-                            column.width,
-                            height,
-                            &ctx.theme.rule,
-                            ctx.theme.tokens.hairline,
-                        );
-                    }
-                }
-                TraitStyle::Bar => {
-                    ctx.svg.rect_outline(
-                        x,
-                        y,
-                        column.width,
-                        height,
-                        &ctx.theme.rule,
-                        ctx.theme.tokens.hairline,
-                    );
-                    if let Some(fraction) = domain.fraction(value) {
-                        ctx.svg.rect_rounded(
-                            x,
-                            y,
-                            column.width * fraction,
-                            height,
-                            ctx.theme.corner_radius.min(2.0),
-                            fill.as_deref().unwrap_or(&ctx.theme.accent),
-                        );
-                    }
-                }
-                TraitStyle::Binary => match binary_state(value) {
-                    Some(true) => ctx.svg.circle_ringed(
-                        x + column.width / 2.0,
-                        y + height / 2.0,
-                        (height * 0.28).clamp(1.4, 5.0),
-                        &ctx.theme.accent,
-                        &ctx.theme.background,
-                        ctx.theme.tokens.hairline,
-                    ),
-                    Some(false) => ctx.svg.circle_ringed(
-                        x + column.width / 2.0,
-                        y + height / 2.0,
-                        (height * 0.12).clamp(0.8, 2.0),
-                        &ctx.theme.rule,
-                        &ctx.theme.background,
-                        ctx.theme.tokens.hairline,
-                    ),
-                    None => ctx.svg.rect_outline(
-                        x,
-                        y,
-                        column.width,
-                        height,
-                        &ctx.theme.rule,
-                        ctx.theme.tokens.hairline,
-                    ),
-                },
-                TraitStyle::Symbol => {
-                    if let Some(index) = domain.category(value) {
-                        ctx.svg.symbol_ringed(
-                            x + column.width / 2.0,
-                            y + height / 2.0,
-                            (height * 0.28).clamp(1.4, 5.0),
-                            ctx.theme.symbol(index),
-                            fill.as_deref().unwrap_or(&ctx.theme.accent),
-                            &ctx.theme.background,
-                            ctx.theme.tokens.hairline,
-                        );
-                    } else {
-                        ctx.svg.rect_outline(
-                            x,
-                            y,
-                            column.width,
-                            height,
-                            &ctx.theme.rule,
-                            ctx.theme.tokens.hairline,
-                        );
-                    }
-                }
-            }
-            if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
-                let text = displayed.as_deref().unwrap_or(crate::tree::ABSENT);
-                let visible = fit_text(text, column.width - 4.0, size);
-                let ink = fill
-                    .as_deref()
-                    .filter(|_| column.style == TraitStyle::Strip)
-                    .map(contrast_ink)
-                    .unwrap_or(ctx.theme.muted.as_str());
-                ctx.svg.text(
-                    x + column.width / 2.0,
-                    y + height / 2.0 + size * 0.35,
-                    &visible,
-                    ink,
-                    size,
-                    crate::svg::Anchor::Middle,
-                );
-            }
-            ctx.svg.end_group();
-        }
+        let rows: Vec<TraitRow<'_>> = names
+            .iter()
+            .zip(&scene.terminals)
+            .enumerate()
+            .map(|(row, (name, node))| TraitRow {
+                name,
+                top: area.y + row as f64 * row_pitch + 1.0,
+                height: (row_pitch - 2.0).max(1.0),
+                value: inherited_annotation(tree, *node, &column.key),
+            })
+            .collect();
+        draw_column(ctx, column, &domain, x, Some(area.y - 5.0), &rows);
         x += column.width + ctx.theme.tokens.legend_gap;
     }
 }

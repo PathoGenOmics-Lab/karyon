@@ -29,6 +29,7 @@ use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
+use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
@@ -127,6 +128,7 @@ pub struct MatrixTrack {
     tree: Option<Tree>,
     tree_width: f64,
     tree_shape: TreeShape,
+    traits: Traits,
 }
 
 impl MatrixTrack {
@@ -149,6 +151,7 @@ impl MatrixTrack {
             tree: None,
             tree_width: 90.0,
             tree_shape: TreeShape::Phylogram,
+            traits: Traits::default(),
         }
     }
 
@@ -236,6 +239,20 @@ impl MatrixTrack {
         self
     }
 
+    /// Attaches metadata columns drawn between the row names and the cells.
+    ///
+    /// Joined by name, so the columns follow whatever order the rows are
+    /// already in, including the one a phylogeny put them in.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        self.traits = traits;
+        self
+    }
+
+    /// The metadata columns attached to this track.
+    pub fn attached_traits(&self) -> &Traits {
+        &self.traits
+    }
+
     /// The tree beside the matrix, if there is one.
     pub fn attached_tree(&self) -> Option<&Tree> {
         self.tree.as_ref()
@@ -289,7 +306,11 @@ impl MatrixTrack {
 impl Track for MatrixTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.rows.len().max(1) as f64;
-        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap
+        // The headings of the metadata columns stand on end above the rows,
+        // and the room they take is the track's own: a figure asks a track how
+        // tall it is and then hands it exactly that, so anything drawn in room
+        // nobody asked for is drawn outside the clip and is not drawn.
+        rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap + self.traits.heading_height()
     }
 
     fn label(&self) -> Option<&str> {
@@ -302,8 +323,9 @@ impl Track for MatrixTrack {
         } else {
             0.0
         };
+        let strip = self.traits.strip_width();
         if !self.show_row_names || self.rows.is_empty() {
-            return tree;
+            return tree + strip;
         }
         let size = (theme.font_size - 2.0).min(self.row_height);
         let widest = self
@@ -311,11 +333,16 @@ impl Track for MatrixTrack {
             .iter()
             .map(|row| text_width(&row.name, size))
             .fold(0.0f64, f64::max);
-        widest + 8.0 + tree
+        widest + 8.0 + tree + strip
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
+        // Scaled, because the band was: the figure multiplies what `height`
+        // returned by the density it is drawing at, and room reserved raw and
+        // stepped over scaled would put the last row past the bottom of it.
+        let head = ctx.px(self.traits.heading_height());
+        let strip = self.traits.strip_width();
         let ceiling = match &self.scale {
             CellScale::Sequential { max: Some(max), .. } => *max,
             _ => self.value_ceiling().unwrap_or(1.0),
@@ -331,9 +358,9 @@ impl Track for MatrixTrack {
         if let Some(tree) = &self.tree {
             let area = Rect {
                 x: ctx.axis.x + 2.0,
-                y: band.y,
+                y: band.y + head,
                 w: (self.tree_width - 6.0).max(1.0),
-                h: band.h,
+                h: (band.h - head).max(1.0),
             };
             draw_tree(
                 ctx.svg,
@@ -351,7 +378,7 @@ impl Track for MatrixTrack {
         }
 
         for (index, row) in self.rows.iter().enumerate() {
-            let top = band.y + index as f64 * (self.row_height + self.row_gap);
+            let top = band.y + head + index as f64 * (self.row_height + self.row_gap);
             // The gap between rows is left in the page colour rather than drawn.
             let cell_height = self.row_height;
 
@@ -383,9 +410,9 @@ impl Track for MatrixTrack {
                 ctx.svg.rect(x, top, width, cell_height, &color);
             }
 
-            if self.show_row_names && ctx.axis.w > 0.0 {
+            if self.show_row_names && ctx.axis.w > strip {
                 ctx.svg.text(
-                    ctx.axis.right() - 4.0,
+                    ctx.axis.right() - strip - 4.0,
                     top + cell_height / 2.0 + name_size * 0.35,
                     &row.name,
                     &ctx.theme.muted,
@@ -396,6 +423,31 @@ impl Track for MatrixTrack {
 
             ctx.svg.end_group();
         }
+
+        // Drawn after the rows and outside their groups, so a cell of the
+        // strip carries its own tooltip rather than inheriting the row's.
+        let placed: Vec<(String, f64, f64)> = self
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                (
+                    row.name.clone(),
+                    band.y + head + index as f64 * (self.row_height + self.row_gap),
+                    self.row_height,
+                )
+            })
+            .collect();
+        self.traits.draw(
+            ctx,
+            Rect {
+                x: ctx.axis.right() - strip,
+                y: band.y,
+                w: strip,
+                h: band.h,
+            },
+            &placed,
+        );
     }
 }
 

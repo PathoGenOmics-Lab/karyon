@@ -706,6 +706,54 @@ nothing.
 **Skipped**: nothing on account of a sequence, since the table names none. Give
 it a table for the sequence being drawn.
 
+## The sample sheet
+
+Used by `--traits`, for what is known about the rows a track already has.
+
+```text
+sample   lineage  host    depth  drug
+S001     L4       human   72.5   true
+S002     L2       bovine  61.0   false
+S003     L4               48.2   true
+S004     L1       human   NA     false
+```
+
+The first line is the header, the first column is the name, and every other
+column is one attribute. Unlike every other format here the header is a rule
+rather than something worked out from the shape of the file: a sheet has no
+shape, since any row is a name and some words and so is the header. A file
+whose first line is data loses that line to the column names, which shows up in
+the drawn figure rather than passing quietly.
+
+**Coordinates**: none. Nothing in a sheet is at a position, which is why these
+columns are drawn beside the rows rather than over the axis, and why they do
+not move when the region does.
+
+**Types**: a field is a number when it parses as one, `true` or `false` when it
+spells one, and text otherwise. A column whose every stated value is a number
+gets a ramp; anything else gets the categorical palette, and a column of more
+levels than the palette holds gets a shape as well as a hue so that two levels
+never share a mark.
+
+**Missing values**: an empty field, a `.` and an `NA`, the same three spellings
+[the matrix table](#the-matrix-table) reads as nothing. A field that parses to a
+number that is not a number is missing too: a `NaN` in a column of depths is a
+depth nobody measured. A missing cell is drawn as an empty outline, which is the
+one mark in a strip that cannot be mistaken for a level.
+
+The ambiguity is honest and worth stating: a column whose levels really are the
+two-letter codes for continents has a level `NA` that is read as missing, and
+nothing in the file separates those two cases.
+
+**Errors**: a row whose field count is not the header's, which names both
+counts; a name used twice; a repeated or empty column name; a header of one
+column, which names things and says nothing about them.
+
+**Skipped**: nothing. Every row is kept, and the join to the track's own rows
+happens afterwards. A sheet that names none of them is refused by
+`karyon` the command rather than drawn, because a strip of empty outlines
+beside every row is a figure that looks finished and says nothing.
+
 ## When a file draws nothing
 
 A track whose file held nothing usable inside the region is an error naming the

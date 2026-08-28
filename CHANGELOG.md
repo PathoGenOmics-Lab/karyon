@@ -8,6 +8,37 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Metadata columns beside the rows of six tracks. A track drawn as a row per
+  named thing answers which ones, and the question after it is almost always
+  what they were, which is in a sample sheet rather than in the file the track
+  was drawn from. `MatrixTrack`, `MsaTrack`, `SnpTrack`, `CladeTrack`,
+  `DomainTrack` and `LocusTrack` take `Traits` now, and draw one narrow strip
+  per attribute in the strip they already reserve for the row names and the
+  dendrogram. A pileup has rows too and they are reads rather than samples, so
+  it does not take one.
+- These are not a track and are not going to be. A sample's lineage is not at a
+  base, so a track of them would need an x nobody has and the first pan would
+  slide a sample's lineage off the end of that sample's own row. They are drawn
+  in the gutter and survive every pan and zoom untouched, which is the whole
+  reason they are attached to a track rather than stacked beside one.
+- `read::sheet`, which reads a sample sheet: a header, names in column one, and
+  a column per thing known about them. A field is a number when it parses as
+  one, a flag when it spells one, and text otherwise; an empty field, a `.`, an
+  `NA` and anything that parses to a number that is not a number are all
+  absent, which is the same three spellings `read::table` already reads as
+  nothing.
+- `--traits <FILE>` on the command line, with `--columns <A,B,C>` to pick the
+  columns and their order. `--columns` may be written before the `--traits` it
+  picks from, since two modifiers of one track are not in an order. A sheet
+  naming none of the rows is refused, and so is a column the sheet has not got,
+  which is named alongside the ones it has.
+- The `snps` example carries the metadata it was always about. Lineage,
+  resistance and collection year sit between the isolate names and the panel,
+  read out of a sample sheet the example prints. Lineage runs in three blocks
+  because the phylogeny put the rows in that order and a lineage is inherited;
+  resistance does not, which is the whole reason two strips are worth reading
+  side by side. The reference and the one isolate the tree does not carry are
+  absent from the sheet, and their cells say so rather than guessing.
 - Each example in the playground carries its own controls, because the figures
   are not the same thing. A window to slide is what a signal over a chromosome
   has and a tanglegram has not, so a tanglegram says why instead of offering a
@@ -216,6 +247,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `TraitColumn`, `TraitScale` and `TraitStyle` moved from `track::tree` to
+  `track::traits`, unchanged, and are still exported from `karyon`,
+  `karyon::track` and `karyon::track::tree`. They stopped being a phylogeny's
+  business when six other tracks started drawing them, and the tree now draws
+  its own through the same function the others do, so a lineage cannot be one
+  colour beside a tree and another beside the matrix under it. Every committed
+  figure is byte for byte what it was.
+- Two counts in the prose were wrong before this and are fixed with it: the
+  command line reaches twenty-five track types, not eighteen, and `--help`
+  prints twenty-four track flags and the ruler, not twelve.
 - Release builds now check arithmetic for overflow. A wrapped add is a figure
   that is quietly wrong, which is the one thing this crate is not allowed to
   be: `Genome` added lengths without saturating, and a release build turned

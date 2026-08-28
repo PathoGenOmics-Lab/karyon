@@ -38,8 +38,14 @@ use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
+use crate::track::traits::{binary_state, draw_column, TraitDomain, TraitRow};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
+
+// The metadata columns beside a phylogeny are the same columns a matrix or an
+// alignment puts beside its rows, so they live in one module and are named
+// from here for everything that already reaches them through this one.
+pub use crate::track::traits::{TraitColumn, TraitScale, TraitStyle};
 
 mod decorate;
 mod interactions;
@@ -102,29 +108,6 @@ pub enum RadialDirection {
     Outward,
     /// Root at the circumference and terminal taxa towards the centre.
     Inward,
-}
-
-/// How a phylogenetic trait column maps values to colour.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TraitScale {
-    /// Each distinct value receives a categorical palette colour.
-    Categorical,
-    /// Numeric values form one continuous muted-to-accent ramp.
-    Continuous,
-}
-
-/// Mark used for one metadata dataset beside or around a tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TraitStyle {
-    /// One filled cell or annular sector per terminal taxon.
-    #[default]
-    Strip,
-    /// Numeric value encoded by bar length or radial height.
-    Bar,
-    /// Boolean or zero/non-zero value encoded by presence of a marker.
-    Binary,
-    /// Category encoded redundantly by both colour and marker shape.
-    Symbol,
 }
 
 /// Visible encoding used for internal-node support values.
@@ -629,123 +612,6 @@ impl SupportStyle {
 
     fn labels(self) -> bool {
         matches!(self, Self::Labels | Self::SymbolsAndLabels)
-    }
-}
-
-/// One metadata column drawn beside the terminal taxa of a tree.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TraitColumn {
-    key: String,
-    label: String,
-    scale: TraitScale,
-    style: TraitStyle,
-    width: f64,
-    ring_width: f64,
-    show_values: bool,
-}
-
-impl TraitColumn {
-    /// Builds a categorical column from annotation `key`.
-    pub fn categorical(key: impl Into<String>) -> Self {
-        let key = key.into();
-        TraitColumn {
-            label: key.clone(),
-            key,
-            scale: TraitScale::Categorical,
-            style: TraitStyle::Strip,
-            width: 56.0,
-            ring_width: 10.0,
-            show_values: true,
-        }
-    }
-
-    /// Builds a continuous column from numeric annotation `key`.
-    pub fn continuous(key: impl Into<String>) -> Self {
-        let mut column = Self::categorical(key);
-        column.scale = TraitScale::Continuous;
-        column
-    }
-
-    /// Builds a numeric bar column or radial bar ring.
-    pub fn bar(key: impl Into<String>) -> Self {
-        let mut column = Self::continuous(key);
-        column.style = TraitStyle::Bar;
-        column.show_values = false;
-        column
-    }
-
-    /// Builds a boolean presence/absence marker dataset.
-    ///
-    /// Boolean values and finite numbers are accepted; zero is absent and a
-    /// non-zero number is present. Text is left missing rather than guessed.
-    pub fn binary(key: impl Into<String>) -> Self {
-        let mut column = Self::categorical(key);
-        column.style = TraitStyle::Binary;
-        column.width = 28.0;
-        column.show_values = false;
-        column
-    }
-
-    /// Builds a categorical dataset encoded by colour and marker shape.
-    pub fn symbol(key: impl Into<String>) -> Self {
-        let mut column = Self::categorical(key);
-        column.style = TraitStyle::Symbol;
-        column.width = 32.0;
-        column.show_values = false;
-        column
-    }
-
-    /// Replaces the visible column heading without changing its metadata key.
-    pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.label = label.into();
-        self
-    }
-
-    /// Sets the cell width in pixels.
-    pub fn width(mut self, width: f64) -> Self {
-        self.width = if width.is_finite() {
-            width.max(12.0)
-        } else {
-            56.0
-        };
-        self
-    }
-
-    /// Sets the thickness of this trait when drawn as a circular ring.
-    pub fn ring_width(mut self, width: f64) -> Self {
-        self.ring_width = if width.is_finite() {
-            width.clamp(2.0, 24.0)
-        } else {
-            10.0
-        };
-        self
-    }
-
-    /// Draws or hides the value text inside each cell.
-    pub fn show_values(mut self, show: bool) -> Self {
-        self.show_values = show;
-        self
-    }
-
-    /// Replaces the visual mark while retaining the column's value mapping.
-    pub fn style(mut self, style: TraitStyle) -> Self {
-        self.style = style;
-        self
-    }
-
-    /// The annotation key read from each terminal taxon.
-    pub fn key(&self) -> &str {
-        &self.key
-    }
-
-    /// The colour mapping used by this column.
-    pub fn scale(&self) -> TraitScale {
-        self.scale
-    }
-
-    /// The mark used in rectangular, radial and unrooted projections.
-    pub fn trait_style(&self) -> TraitStyle {
-        self.style
     }
 }
 

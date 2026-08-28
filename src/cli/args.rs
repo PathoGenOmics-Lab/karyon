@@ -27,8 +27,8 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Eighteen of the crate's thirty-three track types are what the command line
-//! reaches.
+//! Twenty-five of the crate's thirty-three track types are what the command
+//! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
 //! of the words does nothing to prevent. Every modifier therefore carries the
@@ -95,6 +95,16 @@ pub enum ArgError {
     },
     /// More than one track wanted standard input.
     StdinTwice,
+    /// A list of columns on a track that was given no sheet to take them from.
+    ///
+    /// Checked once the whole line is read rather than where the flag sits, so
+    /// that `--columns` before `--traits` and after it are the same command.
+    /// Two modifiers of one track are not in an order, and refusing one of the
+    /// two spellings would be refusing a line that says exactly what it means.
+    Unsourced {
+        /// The track that has columns and no sheet.
+        track: &'static str,
+    },
     /// A track drawn from two files was given one.
     MissingSecond {
         /// The flag that names the other file.
@@ -162,6 +172,10 @@ impl fmt::Display for ArgError {
             ArgError::MissingSecond { flag, track } => write!(
                 f,
                 "a {track} track is drawn from two files, and {flag} names the second"
+            ),
+            ArgError::Unsourced { track } => write!(
+                f,
+                "--columns picks out of the sheet --traits names, and this {track} track was given no sheet"
             ),
         }
     }
@@ -345,6 +359,19 @@ impl Kind {
 
     /// Whether the track has a height of its own, rather than one that follows
     /// from how many rows its data needs.
+    /// Whether a sheet of metadata means anything to this track.
+    ///
+    /// The tracks drawn as a row per named thing, which are the ones a strip
+    /// can sit beside and line up with. A pileup has rows too, and they are
+    /// reads rather than samples: nobody keeps a sheet keyed by read name, and
+    /// a flag accepted there would be a flag that draws nothing.
+    pub fn takes_traits(self) -> bool {
+        matches!(
+            self,
+            Kind::Matrix | Kind::Msa | Kind::Snps | Kind::Clades | Kind::Domains | Kind::Loci
+        )
+    }
+
     fn takes_height(self) -> bool {
         matches!(
             self,
@@ -521,6 +548,12 @@ pub struct TrackSpec {
     /// Which of the several things a file holds to draw, named by the flag
     /// [`Kind::selector`] gives this track.
     pub selects: Option<String>,
+    /// `--traits`, the sample sheet whose columns are drawn beside the rows.
+    pub traits: Option<Source>,
+    /// `--columns`, the columns of that sheet to draw and the order to draw
+    /// them in. `None` draws every column the sheet has, in the order its
+    /// header named them.
+    pub columns: Option<Vec<String>>,
 }
 
 impl TrackSpec {
@@ -539,6 +572,8 @@ impl TrackSpec {
             format: None,
             identity: None,
             selects: None,
+            traits: None,
+            columns: None,
         }
     }
 }
@@ -668,6 +703,53 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             "--label" => {
                 let text = value("--label")?.clone();
                 last(&mut tracks, "--label")?.label = Some(text);
+            }
+            "--traits" => {
+                let word = value("--traits")?.clone();
+                // Checked before the track is borrowed, and against every
+                // source: a pipe can be read once, and a third file per track
+                // is a third way for one command to ask for it twice.
+                let stdin = word == "-";
+                if stdin && stdin_taken(&tracks) {
+                    return Err(ArgError::StdinTwice);
+                }
+                let source = if stdin {
+                    Source::Stdin
+                } else {
+                    Source::Path(PathBuf::from(word))
+                };
+                let track = last(&mut tracks, "--traits")?;
+                if !track.kind.takes_traits() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--traits",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.traits = Some(source);
+            }
+            "--columns" => {
+                let text = value("--columns")?.clone();
+                let track = last(&mut tracks, "--columns")?;
+                if !track.kind.takes_traits() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--columns",
+                        track: track.kind.flag(),
+                    });
+                }
+                let wanted: Vec<String> = text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if wanted.is_empty() {
+                    return Err(ArgError::BadValue {
+                        flag: "--columns",
+                        given: text,
+                        expected: "one or more column names separated by commas",
+                    });
+                }
+                track.columns = Some(wanted);
             }
             "--height" => {
                 let text = value("--height")?;
@@ -918,6 +1000,13 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 });
             }
         }
+        // Late for the same reason: `--columns` may be written before the
+        // `--traits` it picks from, and both orders describe one track.
+        if spec.columns.is_some() && spec.traits.is_none() {
+            return Err(ArgError::Unsourced {
+                track: spec.kind.flag(),
+            });
+        }
     }
 
     let region = region.ok_or(ArgError::NoRegion)?;
@@ -940,7 +1029,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 fn stdin_taken(tracks: &[TrackSpec]) -> bool {
     tracks
         .iter()
-        .flat_map(|t| [t.source.as_ref(), t.second.as_ref()])
+        .flat_map(|t| [t.source.as_ref(), t.second.as_ref(), t.traits.as_ref()])
         .any(|source| matches!(source, Some(Source::Stdin)))
 }
 
@@ -1119,9 +1208,100 @@ mod tests {
         ));
         assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
 
+        // A sheet is a third file per track, so it is a third way to ask for
+        // the pipe twice. The list `stdin_taken` walks is an array literal,
+        // and a field left out of it is a silent second read of a drained
+        // pipe, which comes back as an empty file rather than as an error.
+        let error = parse(&args("chr1:1-1000 --matrix - --traits -"));
+        assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
+        let error = parse(&args("chr1:1-1000 --matrix m.tsv --traits - --coverage -"));
+        assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
+        let error = parse(&args("chr1:1-1000 --coverage - --matrix m.tsv --traits -"));
+        assert!(matches!(error, Err(ArgError::StdinTwice)), "{error:?}");
+
         // One of the two, on the other hand, is the ordinary case.
         let it = draw("chr1:1-1000 --tanglegram - --against after.nwk");
         assert_eq!(it.tracks[0].source, Some(Source::Stdin));
+        let it = draw("chr1:1-1000 --matrix - --traits sheet.tsv");
+        assert_eq!(it.tracks[0].source, Some(Source::Stdin));
+    }
+
+    #[test]
+    fn a_sheet_of_metadata_is_refused_by_a_track_that_has_no_rows() {
+        // The refusal is the point. A coverage track has nothing for a strip
+        // to line up with, and a flag accepted and then ignored gives a figure
+        // that is not the one asked for and does not look wrong.
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --traits sheet.tsv")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--traits",
+                    track: "coverage"
+                }
+            ),
+            "{error}"
+        );
+
+        for line in [
+            "chr1:1-1000 --matrix m.tsv --traits s.tsv",
+            "chr1:1-1000 --msa a.fa --traits s.tsv",
+            "chr1:1-1000 --snps a.fa --traits s.tsv",
+            "chr1:1-1000 --clades b.gff --with-tree t.nwk --traits s.tsv",
+            "chr1:1-1000 --domains d.tsv --traits s.tsv",
+            "chr1:1-1000 --loci l.gff --links h.tsv --traits s.tsv",
+        ] {
+            let it = draw(line);
+            assert_eq!(
+                it.tracks[0].traits,
+                Some(Source::Path(PathBuf::from("s.tsv"))),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_columns_of_a_sheet_may_be_named_before_the_sheet_is() {
+        // Two modifiers of one track are not in an order, so the check that
+        // one needs the other waits until the whole line has been read.
+        let it = draw("chr1:1-1000 --matrix m.tsv --columns host,lineage --traits s.tsv");
+        assert_eq!(
+            it.tracks[0].columns,
+            Some(vec!["host".to_string(), "lineage".to_string()])
+        );
+
+        let error = parse(&args("chr1:1-1000 --matrix m.tsv --columns host")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::Unsourced { track: "matrix" }),
+            "{error}"
+        );
+
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --columns host")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--columns",
+                    track: "coverage"
+                }
+            ),
+            "{error}"
+        );
+
+        let error = parse(&args(
+            "chr1:1-1000 --matrix m.tsv --traits s.tsv --columns ,,",
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::BadValue {
+                    flag: "--columns",
+                    ..
+                }
+            ),
+            "{error}"
+        );
     }
 
     /// [`Kind::flag`] spells the track and [`Kind::dashed`] spells the word,
