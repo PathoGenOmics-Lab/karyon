@@ -19,27 +19,27 @@ needed to decode the rest of a figure.
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../tracks/#featuretrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Gene and interval annotations under a genomic signal" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Gene and interval annotations under a genomic signal" loading="lazy" width="900" height="306"></span>
     <span class="plot-card__body"><small>Intervals</small><strong>FeatureTrack</strong><span>Genes, exons, repeats or primers packed into non-overlapping rows with strand-aware shapes.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#transcriptionunittrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-transcripts.svg" alt="Transcription units with starts, leaders and terminators" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-transcripts.svg" alt="Transcription units with starts, leaders and terminators" loading="lazy" width="880" height="218"></span>
     <span class="plot-card__body"><small>RNA span</small><strong>TranscriptionUnitTrack</strong><span>Start site, 5′ leader and terminator shown as one transcriptional claim rather than separate features.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#orftrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-frames.svg" alt="Six reading frames with stops and open stretches" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-frames.svg" alt="Six reading frames with stops and open stretches" loading="lazy" width="880" height="172"></span>
     <span class="plot-card__body"><small>Six reading frames</small><strong>OrfTrack</strong><span>Forward and reverse open stretches partitioned by stop codons without pretending they are annotations.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#axistrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-visual-system.svg" alt="Aligned figures with shared quantitative and coordinate axes" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-visual-system.svg" alt="Aligned figures with shared quantitative and coordinate axes" loading="lazy" width="834" height="568"></span>
     <span class="plot-card__body"><small>Base coordinates</small><strong>AxisTrack</strong><span>A 1-based human-readable ruler with round steps and one consistent bp, kb or Mb unit.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#codontrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-codons.svg" alt="Numbered codons and translated residues under variant calls" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-codons.svg" alt="Numbered codons and translated residues under variant calls" loading="lazy" width="880" height="171"></span>
     <span class="plot-card__body"><small>Protein coordinates</small><strong>CodonTrack</strong><span>A strand-aware codon ruler that lets a genomic figure be referenced as S450L or V600E.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#legendtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-visual-system.svg" alt="A manuscript sheet using shared categorical symbols and legends" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-visual-system.svg" alt="A manuscript sheet using shared categorical symbols and legends" loading="lazy" width="834" height="568"></span>
     <span class="plot-card__body"><small>Visual key</small><strong>LegendTrack</strong><span>A stackable legend band that wraps instead of covering data or dropping entries.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

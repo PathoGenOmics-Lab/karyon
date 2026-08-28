@@ -19,7 +19,7 @@ let svg = plot("chr1:1-2,000")?.add_features(features).to_svg();
 `karyon` the command does the same thing, and the only part it keeps to itself
 is opening the path.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 Binary formats are not read at all. BAM, CRAM and BCF come in through a pipe,
 because `samtools` and `bcftools` already write exactly what these readers take,
@@ -394,7 +394,7 @@ chr21  12000000  46709983  q22.3  gneg
 chr20  0         64444167  p13    gneg
 ```
 
-![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](../assets/figures/example-ideogram.svg)
+![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](../assets/figures/example-ideogram.svg){ width="900" height="276" loading="lazy" }
 
 | Column | Field | Read |
 |:--|:--|:--|
@@ -509,7 +509,7 @@ disappears.
 The value is handed over as it is. The track is what decides to draw it on a log
 scale.
 
-![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](../assets/figures/example-association.svg)
+![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](../assets/figures/example-association.svg){ width="940" height="349" loading="lazy" }
 
 **Errors**: any width other than two or three columns; a position or a value
 that is not a number.
@@ -633,7 +633,7 @@ samtools view aln.bam NC_002516.2:3900-4100 \
 read1  0  NC_002516.2  4001  60  3S5M2I4M1D6M  *  0  0  AAAGGGGGTTCCCCTTTTTT  *
 ```
 
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg)
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg){ width="920" height="474" loading="lazy" }
 
 | Column | Field | Read |
 |:--|:--|:--|

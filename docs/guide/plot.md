@@ -12,7 +12,7 @@ track, and the window start repeated on every track that takes one even though
 the figure already holds it. `plot()` holds the region and names the track
 types, so none of that is written twice.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 ```rust
 use karyon::{plot, Aggregate, Feature, Strand, Variant};
@@ -248,7 +248,7 @@ plot("chr1:1-1000")?
 tree wants: those have leaf rows, not coordinates, and a ruler under them would
 be measuring nothing.
 
-![Two trees of the same eight isolates face to face, core genome on the left and accessory genome on the right, tips joined by lines across the middle and the crossings coloured](../assets/figures/example-tanglegram.svg)
+![Two trees of the same eight isolates face to face, core genome on the left and accessory genome on the right, tips joined by lines across the middle and the crossings coloured](../assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
 
 ```rust
 plot("taxa:1-8")?
@@ -306,7 +306,7 @@ one of those wants a region in that unit: `plot("alignment:1-320")`. The region
 is a coordinate system, not a claim about a genome. What the ruler counts is
 whatever the data is indexed by.
 
-![A conservation logo above a multiple sequence alignment of twelve isolates, with only the disagreements painted](../assets/figures/example-msa.svg)
+![A conservation logo above a multiple sequence alignment of twelve isolates, with only the disagreements painted](../assets/figures/example-msa.svg){ width="940" height="327" loading="lazy" }
 
 The locus string printed at the top right is the one place that still reads as
 genomic, so `remove_region_label()` leaves it out when it would mislead:
@@ -397,7 +397,7 @@ Several track types have constructors that compute the track from raw input:
 of those, because the list would be as long as the constructors are. `add_track`
 takes a finished track and pushes it straight through:
 
-![Two windowed statistics over the same window: pN/pS coloured by which side of the baseline each window falls on, and GC skew as a line that turns over a third of the way along](../assets/figures/example-selection.svg)
+![Two windowed statistics over the same window: pN/pS coloured by which side of the baseline each window falls on, and GC skew as a line that turns over a third of the way along](../assets/figures/example-selection.svg){ width="880" height="234" loading="lazy" }
 
 ```rust
 use karyon::{Plot, Region, Window, WindowStyle, WindowTrack};
@@ -431,7 +431,7 @@ kept, `TanglegramTrack::crossings` counts the crossing ties in the drawing.
 Reading any of those needs the track as a variable, so it is built first and
 added with `add_track`:
 
-![A coding sequence drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg)
+![A coding sequence drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="171" loading="lazy" }
 
 ```rust
 use karyon::{CodonTrack, Plot, Region, Strand, Variant};

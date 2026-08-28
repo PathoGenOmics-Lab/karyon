@@ -11,7 +11,7 @@ unrooted projections use the same topology and values. The same metadata can
 colour branches and form colour strips, heatmaps, bars, binary marks or shaped
 categories aligned to the terminal taxa.
 
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with two named clades collapsed](../assets/figures/example-phylogenetics.svg)
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with two named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1542" height="356" loading="lazy" }
 
 The figure is deterministic and its outbreak is synthetic. Generate it with:
 
@@ -93,7 +93,7 @@ is tight.
 
 ## Change the projection, not the tree
 
-![Four views of the same synthetic outbreak phylogeny: an outward circular time tree with two trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram](../assets/figures/example-phylo-layouts.svg)
+![Four views of the same synthetic outbreak phylogeny: an outward circular time tree with two trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1402" height="1232" loading="lazy" }
 
 `circular` wraps the terminal order around a complete circumference. Branch
 lengths, dates, annotations, labels and node order are not recomputed. Calendar
@@ -149,7 +149,7 @@ leaf-to-row alignment is the analytical claim.
 
 ## Choose a tree geometry for the reading task
 
-![Eight synthetic evolutionary views beginning with orthogonal, diagonal, curved, circular and unrooted tree geometries](../assets/figures/example-evolutionary-surveillance.svg)
+![Eight synthetic evolutionary views beginning with orthogonal, diagonal, curved, circular and unrooted tree geometries](../assets/figures/example-evolutionary-surveillance.svg){ width="1410" height="2057" loading="lazy" }
 
 Geometry is a reading aid, not a transformation of the owned tree. The three
 rectangular branch shapes keep the same node coordinates and terminal order;
@@ -182,7 +182,7 @@ a path shape never performs one of them implicitly.
 
 ## Draw topology without privileging the Newick root
 
-![An unrooted tree with a layered metadata halo beside a circular cladogram carrying the same four annotation datasets](../assets/figures/example-phylo-annotations.svg)
+![An unrooted tree with a layered metadata halo beside a circular cladogram carrying the same four annotation datasets](../assets/figures/example-phylo-annotations.svg){ width="1482" height="714" loading="lazy" }
 
 `unrooted()` treats every branch as an undirected edge, chooses a centre that
 minimises the largest terminal-bearing component and assigns equal angular
@@ -218,7 +218,7 @@ age, direction or calendar time is part of the claim.
 
 ## Put support, events and distance on the branches
 
-![The same synthetic phylogram drawn in rectangular, circular and unrooted coordinates with scaled support markers, exact support labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg)
+![The same synthetic phylogram drawn in rectangular, circular and unrooted coordinates with scaled support markers, exact support labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1742" height="632" loading="lazy" }
 
 Support, an event and branch length answer different questions, so Karyon gives
 each one an independent channel. Support uses node markers and optional text;
@@ -304,7 +304,7 @@ value onto descendants.
 
 ## Show branch-wise dN/dS without moving the neutral point
 
-![Four views of one synthetic codon-model tree: a phylogram, a circular tree with genomic metadata rings, an unrooted tree and a cladogram, all with branch-wise dN/dS](../assets/figures/example-phylo-dnds.svg)
+![Four views of one synthetic codon-model tree: a phylogram, a circular tree with genomic metadata rings, an unrooted tree and a cladogram, all with branch-wise dN/dS](../assets/figures/example-phylo-dnds.svg){ width="1510" height="1394" loading="lazy" }
 
 `dnds` is a dedicated branch encoding for the nonsynonymous-to-synonymous rate
 ratio, ω. It differs from a generic continuous `color_by` in two important
@@ -348,7 +348,7 @@ cargo run --example phylo_dnds -- assets
 
 ## Build a branch-to-codon selection atlas
 
-![A four-panel synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event connections, a circular dN/dS tree, a frequentist site scan and a posterior site scan](../assets/figures/example-selection-atlas.svg)
+![A four-panel synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event connections, a circular dN/dS tree, a frequentist site scan and a posterior site scan](../assets/figures/example-selection-atlas.svg){ width="1510" height="1057" loading="lazy" }
 
 A single mean ω is sometimes the result, and sometimes the summary that hides
 the result. Branch-site models can fit several rate classes to one branch,
@@ -473,7 +473,7 @@ removing tooltips.
 
 ## Attach data graphics to nodes and clades
 
-![Four synthetic phylogenetic data views: a rectangular tree with abundance bubbles, stacked host bars and a highlighted clade; a circular tree with ancestral-state donuts and a clade sector; a tree-aligned nucleotide alignment; and tree-aligned protein domain architectures](../assets/figures/example-phylo-faces.svg)
+![Four synthetic phylogenetic data views: a rectangular tree with abundance bubbles, stacked host bars and a highlighted clade; a circular tree with ancestral-state donuts and a clade sector; a tree-aligned nucleotide alignment; and tree-aligned protein domain architectures](../assets/figures/example-phylo-faces.svg){ width="1388" height="664" loading="lazy" }
 
 `NodeGlyph` turns numeric node annotations into small plots without flattening
 them into labels. Bubble area follows one value; pie, donut and stacked-bar
@@ -568,7 +568,7 @@ in an analysis pipeline.
 
 ## Choose the root explicitly
 
-![The same synthetic phylogeny with its source root, a checked monophyletic outgroup root and a weighted midpoint root; a diamond identifies each selected root](../assets/figures/example-phylo-reroot.svg)
+![The same synthetic phylogeny with its source root, a checked monophyletic outgroup root and a weighted midpoint root; a diamond identifies each selected root](../assets/figures/example-phylo-reroot.svg){ width="1742" height="362" loading="lazy" }
 
 Rerooting changes orientation, not the undirected tree. Karyon preserves every
 tip-to-tip distance, keeps support on the same split and appends a new root only
@@ -630,7 +630,7 @@ assert_eq!(track.tree().clade_size(outbreak), 4);
 
 ## Make tree-to-tree disagreement traceable
 
-![Core and accessory genome trees with duplicated terminal labels, ward-coloured ties, dashed crossings and a before-to-after untangling summary](../assets/figures/example-tanglegram.svg)
+![Core and accessory genome trees with duplicated terminal labels, ward-coloured ties, dashed crossings and a before-to-after untangling summary](../assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
 
 A tanglegram compares terminal order, not branch coordinates. `untangle`
 rotates free clades on both trees and accepts a rotation only when the crossing

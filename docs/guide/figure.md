@@ -193,7 +193,7 @@ A paper figure is usually several plots with letters on them. `Panels` stacks
 finished drawings into one SVG without any of them having to know about the
 others.
 
-![Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator](../assets/figures/gallery.svg)
+![Every kind of plot karyon draws, on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator](../assets/figures/gallery.svg){ width="3472" height="1908" loading="lazy" }
 
 ```rust
 use karyon::Panels;
@@ -261,7 +261,7 @@ position to an angle instead, which is a different coordinate system and
 therefore a different container: `Rings` is to `Ring` what `Figure` is to
 `Track`.
 
-![A 4.41 Mb chromosome drawn as concentric rings, its name and length in the middle: a position ruler around the outside, a dense ring of genes with the forward strand outside the reverse, three named loci, point mutations as tick marks coloured by category, then GC content and GC skew as rings rising above and falling below their baselines, and two translucent ribbons across the middle joining the ends of a rearrangement](../assets/figures/example-circular.svg)
+![A 4.41 Mb chromosome drawn as concentric rings, its name and length in the middle: a position ruler around the outside, a dense ring of genes with the forward strand outside the reverse, three named loci, point mutations as tick marks coloured by category, then GC content and GC skew as rings rising above and falling below their baselines, and two translucent ribbons across the middle joining the ends of a rearrangement](../assets/figures/example-circular.svg){ width="688" height="688" loading="lazy" }
 
 ```rust
 use karyon::{AxisRing, FeatureRing, MarkerRing, Rings, SignalRing};
@@ -324,7 +324,7 @@ chromosome and its plasmid do not fit in one region. `Genome` lays the sequences
 end to end and hands back the single region that covers them all, and from then
 on every track in the crate works across all of them at once.
 
-![An association scan across a whole draft assembly: twelve contigs laid end to end on one axis, association points banded by contig with one peak crossing the genome-wide line, a depth profile that falls away at every contig end, and a track naming the contigs underneath](../assets/figures/example-genomewide.svg)
+![An association scan across a whole draft assembly: twelve contigs laid end to end on one axis, association points banded by contig with one peak crossing the genome-wide line, a depth profile that falls away at every contig end, and a track naming the contigs underneath](../assets/figures/example-genomewide.svg){ width="940" height="290" loading="lazy" }
 
 ```rust
 use karyon::{Figure, Genome, GenomeTrack};

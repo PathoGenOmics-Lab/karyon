@@ -19,23 +19,23 @@ normalised into forward-looking matches.
 
 <div class="plot-card-grid">
   <a class="plot-card" href="../../tracks/#msatrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-msa.svg" alt="Multiple nucleotide sequence alignment" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-msa.svg" alt="Multiple nucleotide sequence alignment" loading="lazy" width="940" height="327"></span>
     <span class="plot-card__body"><small>Column-wise comparison</small><strong>MsaTrack</strong><span>Aligned nucleotides or residues coloured against a reference, consensus or residue class.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#domaintrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Protein domain architectures aligned to the leaves of a phylogeny" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Protein domain architectures aligned to the leaves of a phylogeny" loading="lazy" width="1388" height="664"></span>
     <span class="plot-card__body"><small>Interval architecture</small><strong>DomainTrack</strong><span>Domains, motifs, exons or repeats as labelled intervals, optionally sorted and justified by an adjacent tree.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#dotplottrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-synteny.svg" alt="Pairwise sequence dotplot with forward and reverse blocks" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-synteny.svg" alt="Pairwise sequence dotplot with forward and reverse blocks" loading="lazy" width="900" height="438"></span>
     <span class="plot-card__body"><small>Two coordinate axes</small><strong>DotplotTrack</strong><span>Alignment blocks as diagonals or anti-diagonals, preserving exact position on both sequences.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#syntenytrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-synteny-inversion.svg" alt="Synteny ribbons crossing at an inversion" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-synteny-inversion.svg" alt="Synteny ribbons crossing at an inversion" loading="lazy" width="760" height="252"></span>
     <span class="plot-card__body"><small>Block correspondence</small><strong>SyntenyTrack</strong><span>Two sequence bars joined by ribbons that cross where order or orientation changes.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
   <a class="plot-card" href="../../tracks/#locustrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-pangenome.svg" alt="One homologous locus compared across several genomes" loading="lazy"></span>
+    <span class="plot-card__media"><img src="../../assets/figures/example-pangenome.svg" alt="One homologous locus compared across several genomes" loading="lazy" width="940" height="265"></span>
     <span class="plot-card__body"><small>Gene neighbourhood</small><strong>LocusTrack</strong><span>Homologous loci as gene arrows and identity ribbons, with absent homologues kept explicit.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
   </a>
 </div>

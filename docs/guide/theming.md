@@ -22,11 +22,11 @@ theme it was rendered with.
 
 === "Light"
 
-    ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg)
+    ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 
 === "Dark"
 
-    ![The same locus figure on a dark page: the coverage profile, reference sequence, gene models and variants redrawn in the dark palette's steps against a near-black background](../assets/figures/example-dark.svg)
+    ![The same locus figure on a dark page: the coverage profile, reference sequence, gene models and variants redrawn in the dark palette's steps against a near-black background](../assets/figures/example-dark.svg){ width="900" height="306" loading="lazy" }
 
 The dark theme is **a selected set of colours, not an inversion** of the light
 one. Flipping a light palette is the obvious approach and it fails: a dark
