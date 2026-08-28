@@ -17,7 +17,8 @@ Genomic figures, as a Rust library and as a command.
 { .k-lead }
 
 You name a region once and everything you add draws itself on that region, so
-the rows line up without being positioned. What comes out is one standalone SVG.
+the rows line up without being positioned. A row is what the API calls a track.
+What comes out is one standalone SVG.
 { .k-sub }
 
 [Get started](getting-started/quickstart.md){ .k-go .k-go--first }

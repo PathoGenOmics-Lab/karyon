@@ -27,14 +27,21 @@ name: Docs
 # To publish from a laptop without CI, `mkdocs build` and upload the `site/`
 # directory. `mkdocs gh-deploy` no longer reaches the published site.
 
+# The same paths on both events. A pull request builds the site and stops
+# there; only a push to main goes on to publish. Without the pull request
+# trigger a documentation change could break `mkdocs build --strict` and nobody
+# would find out until it was merged and the deploy failed, which is the one
+# place this repository had no check at all.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &site
       - "docs/**"
+      - "includes/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/docs.yml"
+      - ".github/scripts/**"
       # The playground on the site is the crate compiled to WebAssembly, so a
       # change to the library or to the bridge changes what the site serves
       # without changing a word under docs/. Left out of this list, the page
@@ -42,6 +49,8 @@ on:
       - "src/**"
       - "playground/**"
       - "Cargo.toml"
+  pull_request:
+    paths: *site
   workflow_dispatch:
 
 # Read the repository to build it. The deploy job asks for what it needs on its
@@ -109,6 +118,8 @@ jobs:
   deploy:
     name: Publish to GitHub Pages
     needs: build
+    # A pull request proves the site builds and publishes nothing.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
