@@ -4,6 +4,8 @@ hide:
   - toc
 ---
 
+<link rel="stylesheet" href="../stylesheets/playground.css">
+
 # Playground
 
 <div id="karyon-playground" markdown="0">

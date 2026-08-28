@@ -147,6 +147,9 @@ pub(super) fn draw_base_map(
             for ring in world_land() {
                 let fill = if ring.hole { &water } else { &land };
                 for path in orthographic_ring_paths(ring, projection, area) {
+                    if !touches(&path, area, theme.tokens.hairline) {
+                        continue;
+                    }
                     svg.path(&path, fill, 1.0);
                     svg.path_stroked(&path, &coast, theme.tokens.hairline * 0.65);
                 }
@@ -163,6 +166,9 @@ pub(super) fn draw_base_map(
             for ring in world_land() {
                 let fill = if ring.hole { &water } else { &land };
                 for path in rectangular_ring_paths(ring, projection, area) {
+                    if !touches(&path, area, theme.tokens.hairline) {
+                        continue;
+                    }
                     svg.path(&path, fill, 1.0);
                     svg.path_stroked(&path, &coast, theme.tokens.hairline * 0.65);
                 }
@@ -181,6 +187,62 @@ pub(super) fn draw_base_map(
             );
         }
     }
+}
+
+/// Whether a finished path can put any ink inside `area`.
+///
+/// Two thirds of the coastline of a world map lies outside the window a figure
+/// draws, and every ring of it was written out in full and then thrown away by
+/// the clip: measured on the committed map figure, 996 of the 1,536 paths
+/// inside the clipped groups had a bounding box that missed the clip entirely.
+/// They cost bytes in the document and drew nothing.
+///
+/// The test is the path's bounding box against the area, widened by the stroke
+/// so a coastline that only grazes the edge keeps its hairline. A bounding box
+/// is enough because it can only ever be too generous: a path it rejects has no
+/// point inside the area, so nothing is dropped that would have drawn.
+pub(super) fn touches(path: &str, area: MapRect, margin: f64) -> bool {
+    let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+    let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut number = String::new();
+    let mut coords: usize = 0;
+    let mut pending: Option<f64> = None;
+    let mut flush = |number: &mut String, coords: &mut usize, pending: &mut Option<f64>| {
+        if number.is_empty() {
+            return;
+        }
+        if let Ok(value) = number.parse::<f64>() {
+            if *coords % 2 == 0 {
+                *pending = Some(value);
+            } else if let Some(x) = pending.take() {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(value);
+                max_y = max_y.max(value);
+            }
+            *coords += 1;
+        }
+        number.clear();
+    };
+    for c in path.chars() {
+        if c.is_ascii_digit() || c == '.' || (c == '-' && number.is_empty()) {
+            number.push(c);
+        } else {
+            flush(&mut number, &mut coords, &mut pending);
+            if c.is_ascii_alphabetic() {
+                coords = 0;
+                pending = None;
+            }
+        }
+    }
+    flush(&mut number, &mut coords, &mut pending);
+    if !min_x.is_finite() || !min_y.is_finite() {
+        return false;
+    }
+    max_x >= area.x - margin
+        && min_x <= area.x + area.w + margin
+        && max_y >= area.y - margin
+        && min_y <= area.y + area.h + margin
 }
 
 pub(super) fn rectangular_ring_paths(

@@ -3,6 +3,8 @@ hide:
   - navigation
 ---
 
+<link rel="stylesheet" href="stylesheets/landing.css">
+
 <section class="k-hero" markdown>
 
 ![The karyon logo: a marker pen drawing a DNA double helix, half of it still blue and half already redrawn in orange](assets/karyon_logo.svg){ .k-hero-logo }

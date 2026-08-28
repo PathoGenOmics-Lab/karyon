@@ -139,23 +139,55 @@
     });
     home = command();
 
-    K.load()
-      .then(function () {
-        live = true;
-        el.plot.tabIndex = 0;
-        el.plot.classList.add("is-live");
-        if (el.name) el.name.textContent = "karyon, running in this page";
-        if (el.hint) el.hint.textContent = "drag, or use the arrow keys and + and -";
-        [el.zoomIn, el.zoomOut, el.reset].forEach(function (button) {
-          if (button) button.disabled = false;
+    // The program is two hundred and seventy kilobytes over the wire, which is
+    // more than everything else this page fetches put together, and the figure
+    // it would redraw is already on the page as a real image. This section is
+    // eighteen hundred pixels down, so a reader who never scrolls to it was
+    // paying for it in full. It is fetched when the figure comes into view, or
+    // the moment a reader reaches for it, whichever happens first.
+    var asked = false;
+    function arrive() {
+      if (asked) return;
+      asked = true;
+      K.load()
+        .then(function () {
+          live = true;
+          el.plot.tabIndex = 0;
+          el.plot.classList.add("is-live");
+          if (el.name) el.name.textContent = "karyon, running in this page";
+          if (el.hint) el.hint.textContent = "drag, or use the arrow keys and + and -";
+          [el.zoomIn, el.zoomOut, el.reset].forEach(function (button) {
+            if (button) button.disabled = false;
+          });
+          draw();
+        })
+        .catch(function (error) {
+          // The picture drawn in advance stays where it is, which is the whole
+          // reason it is a real image rather than a fallback.
+          say("", "the program did not arrive (" + error.message + "), so this is the picture drawn in advance");
         });
-        draw();
-      })
-      .catch(function (error) {
-        // The picture drawn in advance stays where it is, which is the whole
-        // reason it is a real image rather than a fallback.
-        say("", "the program did not arrive (" + error.message + "), so this is the picture drawn in advance");
-      });
+    }
+
+    if (window.IntersectionObserver) {
+      // A margin of one screen, so on an ordinary scroll the program is already
+      // there by the time the figure is.
+      new IntersectionObserver(function (entries, observer) {
+        if (!entries.some(function (e) { return e.isIntersecting; })) return;
+        observer.disconnect();
+        arrive();
+      }, { rootMargin: "100% 0px" }).observe(el.plot);
+    } else {
+      arrive();
+    }
+
+    // Reaching for it counts as asking for it, for a reader who tabs to a
+    // control rather than scrolling the figure into the middle of the screen.
+    ["pointerdown", "keydown", "focusin"].forEach(function (kind) {
+      el.plot.addEventListener(kind, arrive, { once: false });
+    });
+    [el.zoomIn, el.zoomOut, el.reset].forEach(function (button) {
+      if (button) button.addEventListener("focus", arrive);
+    });
 
     el.plot.addEventListener("pointerdown", onDown);
     el.plot.addEventListener("pointermove", onMove);
