@@ -46,6 +46,7 @@ hide:
 
     <section class="pg-view" aria-label="Figure">
       <div class="pg-plot" id="pg-plot" role="img" aria-label="The figure this command draws"></div>
+      <div class="pg-controls" id="pg-controls"></div>
       <div class="pg-foot"><span class="pg-status" id="pg-status" role="status" aria-live="polite">loading the program…</span></div>
     </section>
   </div>
@@ -73,10 +74,20 @@ refusal are what the terminal gives, because it is the same code: the grammar
 lives in the library and takes a closure that answers with a file's text, so a
 shell hands it a disk and this page hands it the editor.
 
-**Interactive** re-runs the whole program on every frame. Drag the figure to
-pan, scroll to zoom, and the command's region string follows along, because
-that is what is actually being changed. Nothing is transformed or scaled: every
-frame is a figure `karyon` drew, at that region, from those files.
+**The controls under the figure belong to the example.** They are not the same
+for every one, because the figures are not the same thing: a window to slide is
+what a signal over a chromosome has and a tanglegram has not, and a tanglegram
+says so rather than offering a slider that would mean nothing. Every control
+is a flag, and turning one rewrites that flag in the command above, which is
+the thing that decides.
+
+A window is bounded by the stretch its own files cover, so it cannot be put
+somewhere there is nothing to draw.
+
+**Interactive** adds the pointer to that: drag the figure to pan, and scroll to
+zoom once it has focus. Nothing is transformed or scaled, and nothing is
+cached: every frame is a figure `karyon` drew, at that region, from those
+files.
 
 The pane supplies two things the command does not: the width to draw at, and
 the dark theme when the page is dark. Writing `--width` or `--theme` in the box
