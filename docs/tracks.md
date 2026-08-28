@@ -143,9 +143,13 @@ two gene models and a set of variant calls, all over one axis.
 A quantitative signal sampled once per base: read depth, GC content,
 mappability, anything with one number per position. Values are stored densely
 from a start position, which is the shape `samtools depth` output arrives in,
-and `CoverageTrack::from_pairs` builds the same thing from sparse
-`(position, value)` pairs, with a buffer that spans the region on display
-rather than the genome.
+and `CoverageTrack::from_spans` builds the same thing from half-open
+`(start, end, value)` spans, with a buffer that spans the region on display
+rather than the genome. Spans and not one entry per base, because a bedGraph
+row is one row however many bases it covers: expanded on the way in, a
+kilobyte of input tiling a chromosome cost six gigabytes.
+`CoverageTrack::from_pairs` still takes scattered points and calls the same
+thing.
 
 When a pixel covers more than one base the column is reduced with `Aggregate`,
 and the choice is a claim about what you are looking for. `Max` is the default

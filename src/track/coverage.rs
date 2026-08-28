@@ -123,13 +123,48 @@ impl CoverageTrack {
     /// proportional to the region on display, not to the genome. Pairs outside
     /// the region are ignored, and positions not listed stay at zero.
     pub fn from_pairs(region: &Region, pairs: impl IntoIterator<Item = (u64, f64)>) -> Self {
+        Self::from_spans(
+            region,
+            pairs.into_iter().map(|(pos, value)| (pos, pos + 1, value)),
+        )
+    }
+
+    /// A profile from half-open `(start, end, value)` spans over `region`.
+    ///
+    /// What a bedGraph states, taken as it states it. A row covering a hundred
+    /// thousand bases is one span here and not a hundred thousand pairs, which
+    /// is the difference between a kilobyte of input costing a kilobyte and it
+    /// costing six gigabytes.
+    ///
+    /// A base no span covers stays at nought, the same as
+    /// [`CoverageTrack::from_pairs`], because that is what a depth of nought
+    /// means and what a bedGraph leaves out.
+    pub fn from_spans(region: &Region, spans: impl IntoIterator<Item = (u64, u64, f64)>) -> Self {
         let mut values = vec![0.0; region.len() as usize];
-        for (pos, value) in pairs {
-            if region.contains(pos) {
-                values[(pos - region.start()) as usize] = value;
+        for (start, end, value) in spans {
+            let first = start.max(region.start()) - region.start();
+            let last = end.min(region.end()).saturating_sub(region.start());
+            let Ok(first) = usize::try_from(first) else {
+                continue;
+            };
+            let last = usize::try_from(last)
+                .unwrap_or(values.len())
+                .min(values.len());
+            for slot in values.iter_mut().take(last).skip(first) {
+                *slot = value;
             }
         }
         CoverageTrack::new(region.start(), values)
+    }
+
+    /// The value at a 0-based position, or `None` outside what this track holds.
+    ///
+    /// A track laid over a region holds a value for every base of it, so a
+    /// `Some(0.0)` here is a nought the file stated or a base it left out, and
+    /// `None` is a position this track does not reach at all.
+    pub fn at(&self, pos: u64) -> Option<f64> {
+        let index = usize::try_from(pos.checked_sub(self.start)?).ok()?;
+        self.values.get(index).copied()
     }
 
     /// Sets the text shown in the left gutter.

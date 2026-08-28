@@ -1,7 +1,8 @@
 //! Per-base signal: bedGraph, `samtools depth`, and a bare column of values.
 //!
-//! Three formats that give a value to every base, read as `(position, value)`
-//! pairs for a coverage track and as spans for a window track, which takes
+//! Three formats that give a value to every base, read as half-open
+//! `(start, end, value)` spans for a coverage track and as windows for a
+//! window track, which takes
 //! bedGraph alone. bedGraph is 0-based and half-open and passes straight
 //! through, every base of an interval taking the interval's value. `samtools
 //! depth` is 1-based, one position to a line, so one comes off on the way in.
@@ -42,13 +43,20 @@ use crate::{Region, Window};
 use super::Format;
 use super::{columns, lines, number, ReadError};
 
-/// Reads a value per position, as 0-based `(position, value)` pairs.
+/// Reads a value per position, as 0-based half-open `(start, end, value)`
+/// spans.
 ///
-/// Pairs rather than a dense array, because
-/// [`CoverageTrack::from_pairs`](crate::CoverageTrack::from_pairs) already
-/// lays them over the region and a sparse file should not have to be widened
-/// on the way in. A position the file says nothing about stays at zero, which
-/// is what a depth of zero means and what a bedGraph leaves out.
+/// Spans rather than one entry per base, because a bedGraph row is one row
+/// however many bases it covers. Expanded here, a file tiling a whole
+/// chromosome became one entry per base of it and a kilobyte of input asked
+/// for six gigabytes; the span form costs the size of the file.
+/// [`CoverageTrack::from_spans`](crate::CoverageTrack::from_spans) lays them
+/// over the region once.
+///
+/// A position no span covers stays at zero, which is what a depth of zero
+/// means and what a bedGraph leaves out. That is a decision rather than an
+/// accident, and it is why this reader hands back what the file stated rather
+/// than what it did not.
 ///
 /// The format is told by the shape of a line unless `format` says otherwise:
 /// four columns is bedGraph (`chrom start end value`, 0-based half-open, and
@@ -60,11 +68,11 @@ use super::{columns, lines, number, ReadError};
 /// file can be handed over and only the window comes back. So are rows outside
 /// the region, which is what keeps a genome-wide file from being widened into
 /// memory.
-pub fn dense(
+pub fn spans(
     text: &str,
     region: &Region,
     format: Option<Format>,
-) -> Result<Vec<(u64, f64)>, ReadError> {
+) -> Result<Vec<(u64, u64, f64)>, ReadError> {
     let asked = match format {
         Some(Format::BedGraph) => Some(Shape::BedGraph),
         Some(Format::Depth) => Some(Shape::Depth),
@@ -86,7 +94,7 @@ pub fn dense(
     // tells them apart, and a file that changes count halfway is a file whose
     // positions cannot be trusted rather than one to guess at line by line.
     let mut shape = asked;
-    let mut pairs: Vec<(u64, f64)> = Vec::new();
+    let mut found: Vec<(u64, u64, f64)> = Vec::new();
     // Where the next bare value lands, that shape carrying no position of its own.
     let mut next = region.start();
     // How far the last bedGraph interval reached, which is what says whether
@@ -181,13 +189,14 @@ pub fn dense(
                     reached = Some(end);
                 }
                 let value: f64 = number(fields[3], "value", at)?;
-                // An interval covers every base in it, so a genome-wide file
-                // would otherwise become one pair per base of the genome. The
-                // clip is what keeps that from happening.
+                // The span, not one entry per base of it. A row is a row
+                // however wide it is: expanded here, a bedGraph tiling a whole
+                // chromosome became one pair per base of it, and a kilobyte of
+                // input asked for six gigabytes.
                 let from = start.max(region.start());
                 let to = end.min(region.end());
-                for pos in from..to {
-                    pairs.push((pos, value));
+                if to > from {
+                    found.push((from, to, value));
                 }
             }
             Shape::Depth => {
@@ -205,7 +214,7 @@ pub fn dense(
                 // 1-based inclusive to 0-based.
                 let pos = pos - 1;
                 if region.contains(pos) {
-                    pairs.push((pos, depth));
+                    found.push((pos, pos + 1, depth));
                 }
             }
             Shape::Values => {
@@ -213,13 +222,13 @@ pub fn dense(
                 let pos = next;
                 next += 1;
                 if region.contains(pos) {
-                    pairs.push((pos, value));
+                    found.push((pos, pos + 1, value));
                 }
             }
         }
     }
 
-    Ok(pairs)
+    Ok(found)
 }
 
 /// Reads intervals with a value each, for a window track.
@@ -350,44 +359,48 @@ chr2L\t103\t105\t9
 
     #[test]
     fn samtools_depth_is_one_based_so_position_761100_lands_on_761099() {
-        let pairs = dense(DEPTH, &region("NC_000962.3:761100-761104"), None).unwrap();
+        let spans = spans(DEPTH, &region("NC_000962.3:761100-761104"), None).unwrap();
         assert_eq!(
-            pairs,
-            vec![(761_099, 12.0), (761_100, 14.0), (761_101, 0.0)]
+            spans,
+            vec![
+                (761_099, 761_100, 12.0),
+                (761_100, 761_101, 14.0),
+                (761_101, 761_102, 0.0)
+            ]
         );
     }
 
     #[test]
     fn a_bedgraph_interval_is_zero_based_half_open_and_covers_every_base_in_it() {
-        let pairs = dense(BEDGRAPH, &region("chr2L:1-200"), None).unwrap();
+        let spans = spans(BEDGRAPH, &region("chr2L:1-200"), None).unwrap();
         // 100 to 103 is three bases and does not include 103, which the next
-        // interval starts on.
-        assert_eq!(
-            pairs,
-            vec![(100, 5.0), (101, 5.0), (102, 5.0), (103, 9.0), (104, 9.0),]
-        );
+        // interval starts on. The span says so without being expanded.
+        assert_eq!(spans, vec![(100, 103, 5.0), (103, 105, 9.0)]);
     }
 
     #[test]
     fn a_bare_column_of_values_starts_at_the_left_edge_of_the_region() {
         let text = "0.5\n0.25\n0.75\n";
-        let pairs = dense(text, &region("Chr4:501-600"), None).unwrap();
-        assert_eq!(pairs, vec![(500, 0.5), (501, 0.25), (502, 0.75)]);
+        let spans = spans(text, &region("Chr4:501-600"), None).unwrap();
+        assert_eq!(
+            spans,
+            vec![(500, 501, 0.5), (501, 502, 0.25), (502, 503, 0.75)]
+        );
     }
 
     #[test]
     fn values_past_the_right_edge_of_the_region_are_left_out() {
-        let pairs = dense("1\n2\n3\n4\n", &region("Chr4:1-2"), None).unwrap();
-        assert_eq!(pairs, vec![(0, 1.0), (1, 2.0)]);
+        let spans = spans("1\n2\n3\n4\n", &region("Chr4:1-2"), None).unwrap();
+        assert_eq!(spans, vec![(0, 1, 1.0), (1, 2, 2.0)]);
     }
 
     #[test]
     fn a_genome_wide_interval_is_clipped_to_the_region() {
-        let pairs = dense("chrX\t0\t1000000\t3\n", &region("chrX:11-15"), None).unwrap();
-        assert_eq!(
-            pairs,
-            vec![(10, 3.0), (11, 3.0), (12, 3.0), (13, 3.0), (14, 3.0)]
-        );
+        // One row across a whole chromosome is one span the width of the
+        // window, not a million entries. This is the thing that made a forty
+        // byte file cost six gigabytes.
+        let spans = spans("chrX\t0\t1000000\t3\n", &region("chrX:11-15"), None).unwrap();
+        assert_eq!(spans, vec![(10, 15, 3.0)]);
     }
 
     #[test]
@@ -397,21 +410,21 @@ chr7\t100\t200\t5
 NC_045512.2\t50\t60\t1
 NC_045512.2\t100\t101\t7
 ";
-        let pairs = dense(text, &region("NC_045512.2:101-110"), None).unwrap();
-        assert_eq!(pairs, vec![(100, 7.0)]);
+        let spans = spans(text, &region("NC_045512.2:101-110"), None).unwrap();
+        assert_eq!(spans, vec![(100, 101, 7.0)]);
     }
 
     #[test]
     fn a_file_that_changes_shape_names_the_line_it_changed_on() {
         let text = "chrM\t10\t20\t4\nchrM\t21\t4\n";
-        let error = dense(text, &region("chrM:1-100"), None).unwrap_err();
+        let error = spans(text, &region("chrM:1-100"), None).unwrap_err();
         assert_eq!(error.line, 2);
         assert!(error.to_string().contains("bedGraph"), "{error}");
     }
 
     #[test]
     fn a_line_that_is_none_of_the_three_shapes_says_what_the_three_are() {
-        let error = dense("chrM\t10\t20\t4\t+\n", &region("chrM:1-100"), None).unwrap_err();
+        let error = spans("chrM\t10\t20\t4\t+\n", &region("chrM:1-100"), None).unwrap_err();
         assert_eq!(error.line, 1);
         assert!(error.to_string().contains("bedGraph"), "{error}");
         assert!(error.to_string().contains("5 columns"), "{error}");
@@ -420,21 +433,21 @@ NC_045512.2\t100\t101\t7
     #[test]
     fn a_malformed_number_names_its_line_counting_the_ones_that_were_skipped() {
         let text = "#depth\n\nSL2.40ch01\t10\t7\nSL2.40ch01\t11\tNA\n";
-        let error = dense(text, &region("SL2.40ch01:1-100"), None).unwrap_err();
+        let error = spans(text, &region("SL2.40ch01:1-100"), None).unwrap_err();
         assert_eq!(error.line, 4);
         assert_eq!(error.to_string(), "line 4: depth is not a number: \"NA\"");
     }
 
     #[test]
     fn a_position_of_zero_in_a_one_based_file_is_an_error_and_not_an_underflow() {
-        let error = dense("MT\t0\t5\n", &region("MT:1-100"), None).unwrap_err();
+        let error = spans("MT\t0\t5\n", &region("MT:1-100"), None).unwrap_err();
         assert_eq!(error.line, 1);
         assert!(error.to_string().contains("1-based"), "{error}");
     }
 
     #[test]
     fn an_interval_that_ends_before_it_starts_is_an_error_rather_than_an_empty_range() {
-        let error = dense("chr3\t200\t100\t1\n", &region("chr3:1-500"), None).unwrap_err();
+        let error = spans("chr3\t200\t100\t1\n", &region("chr3:1-500"), None).unwrap_err();
         assert_eq!(error.line, 1);
         let error = windows("chr3\t200\t100\t1\n", &region("chr3:1-500")).unwrap_err();
         assert_eq!(error.line, 1);
@@ -444,7 +457,7 @@ NC_045512.2\t100\t101\t7
     fn the_format_flag_is_taken_over_the_shape_of_the_line() {
         // Three columns sniff as depth, so asking for bedGraph has to be the
         // thing that decides, and has to say so when the line cannot be one.
-        let error = dense(
+        let error = spans(
             "chr7\t100\t7\n",
             &region("chr7:1-200"),
             Some(Format::BedGraph),
@@ -459,8 +472,8 @@ NC_045512.2\t100\t101\t7
         // `samtools depth a.bam b.bam` writes one depth column per file, and
         // the first sample is the one drawn.
         let text = "amplicon\t1\t3000\t2900\namplicon\t2\t3010\t2880\n";
-        let pairs = dense(text, &region("amplicon:1-5"), Some(Format::Depth)).unwrap();
-        assert_eq!(pairs, vec![(0, 3000.0), (1, 3010.0)]);
+        let spans = spans(text, &region("amplicon:1-5"), Some(Format::Depth)).unwrap();
+        assert_eq!(spans, vec![(0, 1, 3000.0), (1, 2, 3010.0)]);
     }
 
     #[test]
@@ -470,7 +483,7 @@ NC_045512.2\t100\t101\t7
         // second sample. The intervals overlap, which no bedGraph does, and
         // that is what says the guess was wrong.
         let text = "amplicon\t1\t3000\t2900\namplicon\t2\t3010\t2880\n";
-        let error = dense(text, &region("amplicon:1-5"), None).unwrap_err();
+        let error = spans(text, &region("amplicon:1-5"), None).unwrap_err();
         assert_eq!(error.line, 2);
         assert!(error.to_string().contains("--format depth"), "{error}");
     }
@@ -484,7 +497,7 @@ NC_045512.2\t100\t101\t7
         // ends before it starts. That refusal has to carry the same way out,
         // because it is the one a reader will actually meet.
         let text = "chr1\t10000\t30\t41\nchr1\t10001\t31\t40\n";
-        let error = dense(text, &region("chr1:1-20000"), None).unwrap_err();
+        let error = spans(text, &region("chr1:1-20000"), None).unwrap_err();
         assert_eq!(error.line, 1);
         assert!(error.to_string().contains("--format depth"), "{error}");
     }
@@ -493,7 +506,7 @@ NC_045512.2\t100\t101\t7
     fn insisting_on_bedgraph_gets_the_plain_refusal_and_no_guess() {
         // A reader who named the format is not guessing, so neither is this.
         let text = "chr1\t10000\t30\t41\n";
-        let error = dense(text, &region("chr1:1-20000"), Some(Format::BedGraph)).unwrap_err();
+        let error = spans(text, &region("chr1:1-20000"), Some(Format::BedGraph)).unwrap_err();
         assert!(error.to_string().contains("end is before start"), "{error}");
         assert!(!error.to_string().contains("--format depth"), "{error}");
     }
@@ -501,20 +514,20 @@ NC_045512.2\t100\t101\t7
     #[test]
     fn a_bedgraph_that_is_merely_out_of_order_says_how_to_insist() {
         let text = "chr9\t100\t200\t1\nchr9\t50\t100\t2\n";
-        assert!(dense(text, &region("chr9:1-300"), None).is_err());
-        let pairs = dense(text, &region("chr9:1-300"), Some(Format::BedGraph)).unwrap();
-        assert_eq!(pairs.len(), 150);
+        assert!(spans(text, &region("chr9:1-300"), None).is_err());
+        let got = spans(text, &region("chr9:1-300"), Some(Format::BedGraph)).unwrap();
+        assert_eq!(got, vec![(100, 200, 1.0), (50, 100, 2.0)]);
     }
 
     #[test]
     fn a_column_of_values_can_be_asked_for_by_name() {
-        let pairs = dense("7\n8\n", &region("ChrUn:3-10"), Some(Format::Values)).unwrap();
-        assert_eq!(pairs, vec![(2, 7.0), (3, 8.0)]);
+        let got = spans("7\n8\n", &region("ChrUn:3-10"), Some(Format::Values)).unwrap();
+        assert_eq!(got, vec![(2, 3, 7.0), (3, 4, 8.0)]);
     }
 
     #[test]
     fn an_interval_format_is_refused_rather_than_read_as_a_signal() {
-        let error = dense(
+        let error = spans(
             "chr1\t10\t20\tgene\n",
             &region("chr1:1-100"),
             Some(Format::Bed),
@@ -529,7 +542,7 @@ NC_045512.2\t100\t101\t7
 
     #[test]
     fn an_empty_file_is_no_pairs_rather_than_an_error() {
-        assert!(dense("# nothing here\n", &region("chr1:1-100"), None)
+        assert!(spans("# nothing here\n", &region("chr1:1-100"), None)
             .unwrap()
             .is_empty());
     }

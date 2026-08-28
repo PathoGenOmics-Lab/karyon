@@ -462,11 +462,11 @@ fn track(
 
     let built: Box<dyn Track> = match spec.kind {
         Kind::Coverage => {
-            let pairs = wrap(name, &path, read::signal::dense(&text, region, spec.format))?;
-            if pairs.is_empty() {
+            let spans = wrap(name, &path, read::signal::spans(&text, region, spec.format))?;
+            if spans.is_empty() {
                 return Err(empty("values"));
             }
-            let mut track = CoverageTrack::from_pairs(region, pairs)
+            let mut track = CoverageTrack::from_spans(region, spans)
                 .aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
             if let Some(style) = spec.style.and_then(|style| style.coverage()) {
                 track = track.style(style);

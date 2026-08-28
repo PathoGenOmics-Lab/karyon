@@ -8,7 +8,7 @@
 //!
 //! # One shape, on purpose
 //!
-//! [`signal::dense`](super::signal::dense) reads three shapes and tells them
+//! [`signal::spans`](super::signal::spans) reads three shapes and tells them
 //! apart by how many columns a row has. Two of the three mean nothing here. The
 //! output of `samtools depth` is a read depth, which is never negative and is
 //! not a contribution; a bare column of values carries no coordinates, so a
