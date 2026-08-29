@@ -611,7 +611,12 @@ impl SvgWriter {
         while self.open_groups > 0 {
             self.end_group();
         }
-        let mut out = String::with_capacity(self.body.len() + self.defs.len() + 512);
+        // The header is small and the body can be tens of megabytes, so the
+        // header is built on its own and the body is kept where it is. Writing
+        // the header into a fresh buffer and then copying the body in after it
+        // held two whole copies of the document at once, which on a fifty
+        // megabyte figure is fifty megabytes of peak nobody needed.
+        let mut out = String::with_capacity(self.defs.len() + 512);
         // `role="img"` and `aria-labelledby` are what make an assistive
         // technology read the title and the description instead of walking
         // several thousand rectangles that mean nothing one at a time.
@@ -671,9 +676,16 @@ impl SvgWriter {
                 background
             );
         }
-        out.push_str(&self.body);
-        out.push_str("</svg>");
-        out
+        // The body is moved rather than copied, and the header is pushed in
+        // front of it. `insert_str` shifts the body inside its own allocation
+        // whenever the spare capacity a growing `String` already has is enough
+        // for the header, which for a header of a few hundred bytes it almost
+        // always is.
+        let mut document = std::mem::take(&mut self.body);
+        document.reserve(out.len() + 6);
+        document.insert_str(0, &out);
+        document.push_str("</svg>");
+        document
     }
 
     /// The definitions and the elements written so far, without the wrapper.
