@@ -865,11 +865,19 @@
         { kind: "choice", flag: "--max-rows", after: "--pileup",
           label: "How deep it is drawn before it counts the rest",
           options: ["10", "40", "120", "all"] },
+        { kind: "data", param: "quality", value: "a mix", label: "Mapping quality",
+          options: ["all confident", "a mix"],
+          says: "Only a mix gives --fade-by-mapq anything to fade" },
+        { kind: "toggle", flag: "--fade-by-mapq", after: "--pileup",
+          label: "Draw a read fainter the less sure the aligner was" },
+        { kind: "note", label: "The fade is on to begin with, because a pileup where every read is equally solid is a pileup that has not been asked the question. Turn it off and the two mapping qualities draw the same figure, which is the point of the knob above it." },
+        { kind: "choice", flag: "--row-height", after: "--pileup",
+          label: "How tall one read is", options: ["6", "12", "24"] },
       ],
       group: "Reads and molecules",
       command:
         "chr1:1-400 --sequence ref.fa --label reference \\\n" +
-        "  --pileup reads.sam --with-sequence ref.fa --label reads",
+        "  --pileup reads.sam --with-sequence ref.fa --fade-by-mapq --label reads",
       files: [
         { name: "ref.fa", body: "" },
         { name: "reads.sam", body: "" },
@@ -894,6 +902,7 @@
         var copies = p && p.copies ? p.copies : 3;
         var reach = (p && p.reach) || "55 bases";
         var carrying = (p && p.carrying) || "one variant";
+        var mixedQuality = (p && p.quality) !== "all confident";
         var swap = { A: "G", C: "T", G: "A", T: "C" };
         var sites = carrying === "nothing" ? [] : [97, 184, 320];
         var forwardOnly = carrying === "a strand artefact";
@@ -919,8 +928,14 @@
               var carries = forwardOnly ? forward : next() < 0.5;
               if (carries) seq[off] = swap[seq[off]] || "N";
             }
+            // A read the aligner could have placed anywhere carries a low
+            // mapping quality, and the whole point of --fade-by-mapq is to
+            // stop it looking as solid as one that could not. With every read
+            // at 60 the flag has nothing to do, so the knob above says whether
+            // they vary.
+            var mapq = mixedQuality ? [60, 2, 30, 0][n % 4] : 60;
             sam += "r" + (n++) + "\t" + (forward ? 0 : 16) + "\tchr1\t" + at +
-                   "\t60\t" + len + "M\t*\t0\t0\t" + seq.join("") + "\t*\n";
+                   "\t" + mapq + "\t" + len + "M\t*\t0\t0\t" + seq.join("") + "\t*\n";
           }
         }
         return [
@@ -983,6 +998,9 @@
         { kind: "region" },
         { kind: "choice", flag: "--modification", after: "--methylation",
           label: "Which modified base was counted", options: ["m", "h"] },
+        { kind: "choice", flag: "--min-reads", after: "--methylation",
+          label: "The fewest reads behind a site for it to be drawn",
+          options: ["5", "20", "45"] },
         { kind: "choice", flag: "--height", after: "--methylation",
           label: "How much room the two strand lanes get",
           options: ["60", "120", "220"] },
@@ -1084,6 +1102,13 @@
           options: [6, 18, 40, 90], says: "Every one is a row, and nothing caps them" },
         { kind: "data", param: "columns", value: 900, label: "Columns it is long",
           options: [300, 900, 2400] },
+        { kind: "choice", flag: "--style", after: "--msa",
+          label: "Only the cells that disagree, or all of them",
+          options: ["differences", "all"] },
+        { kind: "choice", flag: "--compare-to", after: "--msa",
+          label: "The row the others are read against",
+          options: ["L1_001", "L2_002", "L3_003"],
+          says: "The consensus without it" },
         { kind: "choice", flag: "--max-rows", after: "--msa",
           label: "How many rows before it stops and counts the rest",
           options: ["8", "40", "all"] },
@@ -1121,6 +1146,12 @@
           options: [6, 18, 40, 90] },
         { kind: "data", param: "columns", value: 300, label: "Columns the alignment is long",
           options: [150, 300, 600], says: "The panel keeps only the ones that disagree" },
+        { kind: "choice", flag: "--compare-to", after: "--snps",
+          label: "The row the others are read against",
+          options: ["L1_001", "L2_002", "L3_003"],
+          says: "Whichever record came first, without it" },
+        { kind: "toggle", flag: "--no-counts", after: "--snps",
+          label: "Leave out the difference count down the right" },
         { kind: "choice", flag: "--max-rows", after: "--snps",
           label: "How many rows before it stops and counts the rest",
           options: ["8", "40", "all"] },
@@ -1494,6 +1525,11 @@
           label: "The shape of the depth profile", options: ["area", "line", "bars"] },
         { kind: "toggle", flag: "--log", after: "--coverage",
           label: "A log scale, which is what shows the introns are not empty" },
+        { kind: "choice", flag: "--min-reads", after: "--junctions",
+          label: "The fewest reads across an intron for its arc to be drawn",
+          options: ["50", "200", "500"] },
+        { kind: "toggle", flag: "--no-counts", after: "--junctions",
+          label: "Leave out the read count over each arc" },
         { kind: "choice", flag: "--height", after: "--junctions",
           label: "How much room the arcs get to miss each other",
           options: ["60", "120", "240"] },
