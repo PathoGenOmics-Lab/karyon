@@ -278,9 +278,14 @@ first and the last of them pick out one clade and no other.
 A name the tree has not got is refused against the names it has, rather than
 quietly drawing the whole tree.
 
-The [tree viewer](../tree.md) is this flag with a pointer: it runs the same
-program on every move, and clicking a triangle is `--focus` on the pair that
-triangle prints.
+The [tree viewer](../tree.md) is this flag with a hand on it. Dragging and
+rolling the wheel move a transform, which costs a composite and never a render,
+so the picture keeps up on a million tips exactly as it does on a hundred. When
+the hand stops, the rows the view is looking at are read back, the clade holding
+them is worked out, and the program is asked for that clade: a wheel gesture
+takes twenty thousand tips to eight thousand, then four, then two, each drawn in
+full. Pulling back out returns a level at a time. Clicking a triangle is the
+same thing done in one step, `--focus` on the pair that triangle prints.
 
 ### The shape a phylogeny is laid out in
 

@@ -104,11 +104,53 @@
   color: var(--md-default-fg-color--light);
 }
 
+/* A window onto the tree, not a scrolling document: the stage inside it is
+   moved by a transform, so the picture keeps up with the hand whatever the
+   tree costs to draw. */
 .tv-plot {
+  position: relative;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.3rem;
-  overflow: auto;
-  max-height: 78vh;
+  overflow: hidden;
+  height: 74vh;
+  min-height: 20rem;
+  touch-action: none;
+  cursor: grab;
+  overscroll-behavior: contain;
+}
+
+.tv-plot.tv-dragging { cursor: grabbing; }
+
+.tv-stage {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.tv-hud {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+}
+
+.tv-zoom {
+  font-variant-numeric: tabular-nums;
+  color: var(--md-default-fg-color--light);
+  min-width: 2.6rem;
+  text-align: right;
+}
+
+.tv-hint {
+  font-size: 0.65rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0.4rem 0 0;
 }
 
 /* A triangle is a clade waiting to be opened, so it says so. */

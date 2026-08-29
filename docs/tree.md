@@ -49,7 +49,16 @@ hide:
 
   <p class="tv-error" id="tv-error" hidden></p>
 
-  <div class="tv-plot" id="tv-plot"></div>
+  <div class="tv-plot" id="tv-plot">
+    <div class="tv-stage" id="tv-stage"></div>
+    <div class="tv-hud">
+      <output class="tv-zoom" id="tv-zoom"></output>
+      <button class="tv-btn" id="tv-fit" type="button" disabled>Fit</button>
+    </div>
+  </div>
+  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in, and keep pulling the wheel back
+    to come out a level at a time. Stop moving and the tree is redrawn at the detail the view is asking
+    for, so five gestures take twenty thousand tips down to five hundred with every name legible.</p>
 
   <p class="tv-command">The same view from a shell: <code id="tv-command"></code></p>
 </div>

@@ -28,15 +28,29 @@
   var rows = 60;
   var projection = "rectangular";
   var pending = null;
+  // Where the hand has put the picture since it was last drawn: a scale about
+  // the top left of the stage and an offset in page pixels. It is a CSS
+  // transform and nothing else, so a wheel notch costs a composite and not a
+  // render of the tree.
+  var view = { k: 1, tx: 0, ty: 0 };
+  var settling = null;
+  var ZOOM_MIN = 1;
+  var ZOOM_MAX = 60;
+  // How hard the reader has pulled against the far end of the zoom, and when
+  // that last took them up a level.
+  var pull = 0;
+  var lastPull = 0;
+  var lastPop = 0;
 
   // ------------------------------------------------------------ the command
 
   // The command line this view would be drawn by, which is also the one to
   // copy into a terminal and get the same figure.
-  function command() {
+  function command(steps) {
+    var path = steps || trail;
     var argv = ["tree:1-1", "--tree", tree.name, "--projection", projection];
     argv = argv.concat(["--max-rows", String(rows)]);
-    var at = trail[trail.length - 1];
+    var at = path[path.length - 1];
     if (at) argv = argv.concat(["--focus", at.focus]);
     argv.push("--no-region-label");
     return argv;
@@ -46,9 +60,11 @@
     if (!K.ready() || !tree.body) return;
     var argv = command();
     var room = el.plot.clientWidth - 24;
+    if (room < 40) room = 900;
     var answer = K.run(K.join(argv), [{ name: tree.name, body: tree.body }], room);
     if (answer.ok) {
-      el.plot.innerHTML = answer.body;
+      el.stage.innerHTML = answer.body;
+      reset();
       el.error.hidden = true;
     } else {
       el.error.textContent = answer.body;
@@ -99,6 +115,293 @@
     });
   }
 
+  // ----------------------------------------------------------- the viewport
+
+  // A map, not a slideshow. The wheel and the drag move a CSS transform on the
+  // stage, which costs a composite and never a render, so the picture keeps up
+  // with the hand on a million tip tree exactly as it does on a hundred. What
+  // the transform cannot do is add detail: past a certain magnification the
+  // names are simply the same names drawn larger. So when the hand stops, the
+  // view is read back, the clade under it is worked out, and the program is
+  // asked for that clade at full detail. Zoom for the feel, redraw for the
+  // detail, which is how a tiled map works and for the same reason.
+
+  function apply() {
+    el.stage.style.transform =
+      "translate(" + view.tx + "px," + view.ty + "px) scale(" + view.k + ")";
+    el.zoom.textContent = view.k > 1.02 ? "\u00d7" + view.k.toFixed(1) : "";
+    el.fit.disabled = view.k <= 1.001 && Math.abs(view.tx) < 1 && Math.abs(view.ty) < 1;
+  }
+
+  function reset() {
+    view = { k: 1, tx: 0, ty: 0 };
+    apply();
+  }
+
+  // Keeps the picture from being thrown off the edge of its own window. At a
+  // scale of one it cannot move at all, which is what makes the wheel feel
+  // anchored rather than slippery.
+  function contain() {
+    var box = el.plot.getBoundingClientRect();
+    var w = el.stage.offsetWidth * view.k;
+    var h = el.stage.offsetHeight * view.k;
+    var slack = 40;
+    view.tx = Math.min(slack, Math.max(box.width - w - slack, view.tx));
+    view.ty = Math.min(slack, Math.max(box.height - h - slack, view.ty));
+    if (w <= box.width) view.tx = 0;
+    if (h <= box.height) view.ty = 0;
+  }
+
+  function zoomAt(px, py, factor) {
+    var next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.k * factor));
+    if (next === view.k) {
+      // Already as far out as the picture goes, so the gesture means the level
+      // above rather than nothing at all. It has to be pulled against, though:
+      // one notch of a wheel is a twitch, and treating each notch as a level
+      // took a view of five hundred tips back to all twenty thousand in a
+      // single flick, skipping every level in between.
+      if (factor < 1 && trail.length) {
+        var now = Date.now();
+        // Reset when the notches stop coming, not when a level was last left:
+        // measuring the gap from the last pop meant the count restarted on
+        // every notch until a pop happened, so it never reached one and the
+        // view would not come back out at all.
+        if (now - lastPull > 400) pull = 0;
+        lastPull = now;
+        pull += 1 - factor;
+        if (pull > 0.6 && now - lastPop > 350) {
+          pull = 0;
+          lastPop = now;
+          trail.pop();
+          later();
+        }
+      }
+      return;
+    }
+    pull = 0;
+    var ratio = next / view.k;
+    view.tx = px - (px - view.tx) * ratio;
+    view.ty = py - (py - view.ty) * ratio;
+    view.k = next;
+    contain();
+    apply();
+    settle();
+  }
+
+  // --------------------------------------------------------- reading it back
+
+  // Which names the view is looking at. Measured from the laid-out page rather
+  // than from the SVG's own coordinates, so it costs nothing to be right about
+  // the transform.
+  //
+  // Not simply "is the label on screen", which was the first try and was
+  // wrong: the names are written down the right hand edge, so zooming into the
+  // branches on the left put every one of them off screen and the view had
+  // nothing to name. A row is what is being looked at, and a row reaches
+  // across the whole figure. On a rectangle that means the height of the label
+  // and nothing about its x. On a disc a row is a spoke, so the test is
+  // whether the line from the middle of the drawing out to the name passes
+  // through the window.
+  function visibleTips() {
+    var box = el.plot.getBoundingClientRect();
+    var stage = el.stage.getBoundingClientRect();
+    var mid = { x: (stage.left + stage.right) / 2, y: (stage.top + stage.bottom) / 2 };
+    var radial = projection !== "rectangular";
+    var seen = [];
+    var all = el.stage.querySelectorAll("text");
+    for (var i = 0; i < all.length; i++) {
+      var body = all[i].textContent.trim();
+      // A scale bar prints a number and nothing else; everything else written
+      // beside a row is a name, whether the row is one tip or a folded clade
+      // saying which tip it starts from.
+      if (!body || /^[\d.,]+$/.test(body)) continue;
+      var r = all[i].getBoundingClientRect();
+      var on;
+      if (!radial) {
+        on = r.bottom > box.top && r.top < box.bottom;
+      } else {
+        on = false;
+        var px = (r.left + r.right) / 2;
+        var py = (r.top + r.bottom) / 2;
+        for (var t = 0; t <= 1.0001 && !on; t += 0.1) {
+          var x = mid.x + (px - mid.x) * t;
+          var y = mid.y + (py - mid.y) * t;
+          on = x > box.left && x < box.right && y > box.top && y < box.bottom;
+        }
+      }
+      seen.push({ name: body.split(" +")[0].split(" (")[0], on: on });
+    }
+    return seen;
+  }
+
+  // The longest unbroken run of rows the view is looking at.
+  //
+  // It is not allowed to wrap, and that is deliberate rather than an
+  // oversight. On a disc the names go round, so a wedge near where the ring
+  // was started sees an arc whose two ends are the first and last tips in the
+  // file. Those two are as far apart in the tree as two tips can be and the
+  // smallest clade holding both of them is the root, so asking for it draws
+  // the whole tree again: zooming a corner of a twenty thousand tip circle
+  // asked for L1_17152,L3_00512 and got all twenty thousand back. Splitting
+  // the arc at the seam and keeping the longer half asks for a clade that is
+  // really there.
+  function longestRun(tips) {
+    var best = { at: -1, len: 0 };
+    var start = -1;
+    for (var i = 0; i <= tips.length; i++) {
+      var on = i < tips.length && tips[i].on;
+      if (on && start < 0) start = i;
+      if (!on && start >= 0) {
+        if (i - start > best.len) best = { at: start, len: i - start };
+        start = -1;
+      }
+    }
+    return best.len > 0 ? tips.slice(best.at, best.at + best.len) : [];
+  }
+
+  // How many tips a figure accounts for, which is what says whether a zoom
+  // achieved anything.
+  function tipsAccountedFor(svg) {
+    var total = 0;
+    var pieces = svg.split("<text");
+    for (var i = 1; i < pieces.length; i++) {
+      var at = pieces[i].indexOf(">");
+      if (at < 0) continue;
+      var body = pieces[i].slice(at + 1).split("<")[0].trim();
+      var more = / \+([\d,]+) more$/.exec(body);
+      if (more) {
+        total += Number(more[1].replace(/,/g, "")) + 1;
+        continue;
+      }
+      var held = / \(([\d,]+) tips?\)$/.exec(body);
+      if (held) {
+        total += Number(held[1].replace(/,/g, ""));
+        continue;
+      }
+      if (body && !/^[\d.,]+$/.test(body)) total += 1;
+    }
+    return total;
+  }
+
+  // After the hand stops: if the view has closed in on part of the picture,
+  // ask the program for that part instead of magnifying what is already drawn.
+  function settle() {
+    if (settling) clearTimeout(settling);
+    settling = setTimeout(refine, 220);
+  }
+
+  function refine() {
+    settling = null;
+    if (view.k < 2) return;
+    var tips = visibleTips();
+    var on = longestRun(tips);
+    // Nothing to gain when most of the picture is still on screen, and nothing
+    // to name when none of it is.
+    if (!on.length || on.length > tips.length * 0.6) return;
+    var first = on[0].name;
+    var last = on[on.length - 1].name;
+    var focus = first === last ? first : first + "," + last;
+    var at = trail[trail.length - 1];
+    if (at && at.focus === focus) {
+      reset();
+      return;
+    }
+
+    // Asked for before it is committed to. The clade holding two rows can be
+    // very much bigger than the two rows, up to the whole tree when the view
+    // straddles the deepest split there is, and a step in the trail that draws
+    // exactly what was already on screen is a step that wasted the gesture.
+    var was = tipsAccountedFor(el.stage.innerHTML);
+    var trying = trail.concat([{ focus: focus, label: "" }]);
+    var argv = command(trying);
+    var answer = K.run(K.join(argv), [{ name: tree.name, body: tree.body }], el.plot.clientWidth - 24);
+    if (!answer.ok || tipsAccountedFor(answer.body) >= was) {
+      // The view spans more of the tree than any one clade below the current
+      // one, so magnifying is all there is; leave the transform alone.
+      return;
+    }
+    trail.push({
+      focus: focus,
+      label: first === last ? first : first + " to " + last,
+    });
+    later();
+  }
+
+  // --------------------------------------------------------------- the hand  // --------------------------------------------------------------- the hand
+
+  function hand() {
+    var dragging = false;
+    var moved = 0;
+    var from = { x: 0, y: 0 };
+
+    el.plot.addEventListener(
+      "wheel",
+      function (event) {
+        if (!el.stage.firstChild) return;
+        event.preventDefault();
+        var box = el.plot.getBoundingClientRect();
+        // A line-mode wheel reports a handful of lines where a pixel-mode one
+        // reports tens of pixels, and treating them the same makes a mouse
+        // either useless or violent next to a trackpad.
+        var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+        zoomAt(event.clientX - box.left, event.clientY - box.top, Math.exp(-step * 0.002));
+      },
+      { passive: false }
+    );
+
+    el.plot.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0 || !el.stage.firstChild) return;
+      dragging = true;
+      moved = 0;
+      from = { x: event.clientX, y: event.clientY };
+      el.plot.setPointerCapture(event.pointerId);
+      el.plot.classList.add("tv-dragging");
+    });
+
+    el.plot.addEventListener("pointermove", function (event) {
+      if (!dragging) return;
+      var dx = event.clientX - from.x;
+      var dy = event.clientY - from.y;
+      moved += Math.abs(dx) + Math.abs(dy);
+      from = { x: event.clientX, y: event.clientY };
+      view.tx += dx;
+      view.ty += dy;
+      contain();
+      apply();
+    });
+
+    ["pointerup", "pointercancel"].forEach(function (kind) {
+      el.plot.addEventListener(kind, function (event) {
+        if (!dragging) return;
+        dragging = false;
+        el.plot.classList.remove("tv-dragging");
+        if (el.plot.hasPointerCapture(event.pointerId)) {
+          el.plot.releasePointerCapture(event.pointerId);
+        }
+        if (moved > 4) settle();
+      });
+    });
+
+    el.plot.addEventListener("dblclick", function (event) {
+      var box = el.plot.getBoundingClientRect();
+      zoomAt(event.clientX - box.left, event.clientY - box.top, 2.2);
+    });
+
+    el.fit.addEventListener("click", reset);
+
+    // A drag that happened to end on a triangle is a drag, not a click on it.
+    el.plot.addEventListener(
+      "click",
+      function (event) {
+        if (moved > 4) {
+          event.stopPropagation();
+          moved = 0;
+        }
+      },
+      true
+    );
+  }
+
   // --------------------------------------------------------------- opening
 
   // A folded triangle's tooltip reads "clade (46 tips), t123 to t168", and the
@@ -118,7 +421,7 @@
   }
 
   function titleOf(node) {
-    while (node && node !== el.plot) {
+    while (node && node !== el.plot && node !== el.stage.parentNode) {
       if (node.tagName === "g") {
         var title = node.querySelector(":scope > title");
         if (title) return title.textContent;
@@ -206,7 +509,7 @@
   }
 
   function start() {
-    ["plot", "trail", "search", "rows", "rowsOut", "command", "timing", "error", "drop", "app", "file", "paste", "usePaste"].forEach(
+    ["plot", "stage", "trail", "search", "rows", "rowsOut", "command", "timing", "error", "drop", "app", "file", "paste", "usePaste", "fit", "zoom"].forEach(
       function (name) {
         el[name] = document.getElementById("tv-" + name.toLowerCase());
       }
@@ -233,6 +536,8 @@
       var title = titleOf(event.target);
       if (title) openAt(title);
     });
+
+    hand();
 
     el.search.addEventListener("keydown", function (event) {
       if (event.key === "Enter") {
