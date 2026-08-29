@@ -1520,3 +1520,42 @@ fn a_round_tree_is_as_tall_as_the_band_it_is_given_is_wide() {
         "a longer gutter label should leave a narrower band: {short} then {long}"
     );
 }
+
+#[test]
+fn a_folded_clade_is_drawn_in_the_colour_its_value_earns() {
+    // A cell with a value and no colour to draw it in is an empty outline, and
+    // an empty outline is how this figure says it knows nothing. The colours
+    // come from a domain built by walking the drawn nodes, and a folded row's
+    // value belongs to none of them: it is what its tips agree on. So the
+    // domain is fed the row values too, or forty rows of lineage come out as
+    // forty empty outlines with forty tooltips that each name a lineage.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&group=one]:0.1,b[&group=one]:0.1):0.1,",
+        "(c[&group=two]:0.1,d[&group=two]:0.1):0.1);"
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree)
+                .max_rows(Some(2))
+                .trait_categorical("group"),
+        )
+        .to_svg();
+
+    // Both rows are folded, both clades agree, and the two values are
+    // different, so two cells are filled and they are not the same colour.
+    let filled: Vec<&str> = svg
+        .split("<rect")
+        .skip(1)
+        .filter_map(|piece| piece.split("fill=\"").nth(1)?.split('"').next())
+        .filter(|fill| fill.starts_with('#') && *fill != "#ffffff")
+        .collect();
+    assert_eq!(filled.len(), 2, "one filled cell per folded row: {svg}");
+    assert_ne!(
+        filled[0], filled[1],
+        "two clades that agree on different values are two colours: {svg}"
+    );
+    assert!(svg.contains("a +1 more; group one"), "{svg}");
+    assert!(svg.contains("c +1 more; group two"), "{svg}");
+}

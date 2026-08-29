@@ -791,11 +791,17 @@ pub(super) fn draw_unrooted_trait_rings(
             .iter()
             .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
             .collect();
+        // Chained with the values the rows are drawn with, so a folded clade
+        // that agrees on a value has a colour for it. See the note in
+        // rectangular.rs.
         let domain = TraitDomain::new(
             scene
                 .visible
                 .iter()
-                .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key)),
+                .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
+                .chain(scene.terminals.iter().filter_map(|node| {
+                    row_annotation(&track.tree, *node, &column.key, &track.collapsed)
+                })),
         );
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]

@@ -663,12 +663,25 @@ pub(super) fn draw_trait_columns(
         // The domain is every placement and not only the terminals, because a
         // value inherited from an internal node is a value this column has and
         // a level nobody drew still has to keep its colour.
-        let domain =
-            TraitDomain::new(
-                scene.placements.iter().flatten().filter_map(|placement| {
-                    inherited_annotation(tree, placement.node, &column.key)
-                }),
-            );
+        // Every placement, and then every value a row will actually be drawn
+        // with. The first half is why a level nobody drew still keeps its
+        // colour; the second half is because a folded row shows what its tips
+        // agree on, and that value is not attached to any node the walk above
+        // passes, so without it the cell has a value and no colour to draw it
+        // in: forty rows of lineage came out as forty empty outlines.
+        let domain = TraitDomain::new(
+            scene
+                .placements
+                .iter()
+                .flatten()
+                .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
+                .chain(
+                    scene
+                        .terminals
+                        .iter()
+                        .filter_map(|node| row_annotation(tree, *node, &column.key, collapsed)),
+                ),
+        );
         let rows: Vec<TraitRow<'_>> = names
             .iter()
             .zip(&scene.terminals)

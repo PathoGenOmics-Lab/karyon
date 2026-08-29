@@ -695,9 +695,21 @@ pub(super) fn draw_trait_rings(
             .iter()
             .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
             .collect();
-        let domain = TraitDomain::new(scene.placements.iter().flatten().filter_map(|placement| {
-            inherited_annotation(&track.tree, placement.node, &column.key)
-        }));
+        // Chained with the values the rows are drawn with, so a folded clade
+        // that agrees on a value has a colour for it. See the note in
+        // rectangular.rs.
+        let domain = TraitDomain::new(
+            scene
+                .placements
+                .iter()
+                .flatten()
+                .filter_map(|placement| {
+                    inherited_annotation(&track.tree, placement.node, &column.key)
+                })
+                .chain(scene.terminals.iter().filter_map(|node| {
+                    row_annotation(&track.tree, *node, &column.key, &track.collapsed)
+                })),
+        );
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
