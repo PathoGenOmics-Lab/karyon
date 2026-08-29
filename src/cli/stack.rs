@@ -30,7 +30,7 @@ use crate::{
     TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::cli::args::{Invocation, Kind, Palette, Source, TrackSpec};
+use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec};
 use crate::read;
 use crate::track::traits::Traits;
 
@@ -616,6 +616,13 @@ fn track(
             let mut track = VariantTrack::new(variants);
             if let Some(height) = height {
                 track = track.height(height);
+            }
+            // The library's answer to density, which the command line could not
+            // reach before: a genome-wide panel of two hundred thousand calls
+            // was fifty megabytes of lollipops nobody could tell apart, and the
+            // same panel as ticks is seventy-four kilobytes.
+            if let Some(style) = spec.style.and_then(Style::variant) {
+                track = track.style(style);
             }
             Box::new(named(track, label, VariantTrack::label))
         }

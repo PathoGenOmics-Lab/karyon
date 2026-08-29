@@ -177,10 +177,31 @@ because most of them are a setting only some tracks have.
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
-| `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows` | `--coverage`, `--windows` | `area` and `steps` |
+| `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows`; `lollipop`, `tick` for `--variants` | `--coverage`, `--windows`, `--variants` | `area`, `steps` and `lollipop` |
 | `--log` | none | `--coverage` | linear |
 | `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
+
+### When the calls are too dense to tell apart
+
+A lollipop is a stem with a ringed head, and it reads well up to a few hundred
+calls. Past that the heads overlap into a smear, and the file pays for every one
+of them: two hundred thousand calls over four megabases is fifty megabytes of
+document for a picture eight hundred and sixty-seven pixel columns wide.
+
+`--style tick` is the other answer. A tick is a plain vertical mark that ignores
+the value, and two ticks of one colour on one pixel column are the same ink, so
+only the first is drawn:
+
+```bash
+karyon chr1:1-4,000,000 --variants calls.vcf --style tick --label variants
+```
+
+The same two hundred thousand calls come out at seventy-four kilobytes, in a
+twelfth of the time and a fifth of the memory. What you give up is the value,
+which a tick does not show, and the tooltip, which a mark nobody can point at
+alone was never going to carry. Colours are kept: two categories on one column
+are two ticks.
 
 ### What is known about the rows
 

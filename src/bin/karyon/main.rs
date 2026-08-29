@@ -111,7 +111,8 @@ TRACK OPTIONS, each describing the track before it
                          every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
-    --style <HOW>        area, line, bars, or steps for a window track
+    --style <HOW>        area, line or bars for coverage, steps or line for
+                         windows, tick or lollipop for variants
     --log                a log scale
     --color <HEX>        as in '#d55e00'
     --format <NAME>      bedgraph, depth, values, bed or gff3, when the file
@@ -232,6 +233,16 @@ mod tests {
             if let Some(flag) = kind.second_flag() {
                 assert!(HELP.contains(flag), "{flag} is undocumented");
             }
+        }
+    }
+
+    /// The same loop for the words `--style` takes, against the parser's own
+    /// list. A style wired up and left out of the help is a value a reader has
+    /// no way to discover.
+    #[test]
+    fn the_help_text_names_every_style() {
+        for (_, word) in args::Style::ALL {
+            assert!(HELP.contains(word), "the help text does not mention {word}");
         }
     }
 
