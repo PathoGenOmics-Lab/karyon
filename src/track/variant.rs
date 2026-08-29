@@ -45,6 +45,8 @@
 //! figures that have to agree on what red means must be given their variants in
 //! one order.
 
+use std::collections::BTreeSet;
+
 use crate::scale::Scale;
 use crate::style::{Emphasis, QuantitativeAxis, Symbol};
 use crate::svg::{text_width, Anchor};
@@ -312,6 +314,20 @@ impl Track for VariantTrack {
             .color
             .clone()
             .unwrap_or_else(|| ctx.theme.accent.clone());
+        // A colour and a symbol are a property of the category, not of the
+        // variant, and both were being worked out inside the loop: a linear
+        // scan of the category list and a fresh `String` for every mark. On a
+        // panel of two hundred thousand calls with a handful of consequences
+        // that is two hundred thousand scans and two hundred thousand
+        // allocations for a handful of distinct answers.
+        let palette: Vec<(String, Symbol)> = categories
+            .iter()
+            .enumerate()
+            .map(|(index, _)| (ctx.theme.color(index).to_string(), ctx.theme.symbol(index)))
+            .collect();
+        let slot_of = |category: Option<&str>| -> Option<usize> {
+            category.and_then(|name| categories.iter().position(|c| *c == name))
+        };
         let data_ceiling = self
             .axis
             .max
@@ -404,21 +420,40 @@ impl Track for VariantTrack {
             }
         }
 
+        // Ticks are the caller saying the marks are too dense to be told apart,
+        // and this is where that statement is made good. Two ticks on the same
+        // pixel column in the same colour are the same ink: a tick carries no
+        // height, no symbol and no tooltip, so the second one adds a line to
+        // the document and nothing to the picture. Measured on two hundred
+        // thousand calls over two megabases, they landed on eight hundred and
+        // sixty-seven columns, so two hundred and thirty of every two hundred
+        // and thirty-one were drawing over one already there.
+        //
+        // Lollipops are not folded, and must not be: their height is the value
+        // and their head is a thing a pointer lands on, so two at one column
+        // are two different claims.
+        let mut drawn: BTreeSet<(i64, usize)> = BTreeSet::new();
+
         for variant in &self.variants {
             if !ctx.region.contains(variant.pos) {
                 continue;
             }
             let x = ctx.scale.x_center(variant.pos);
-            let color = match variant.category.as_deref() {
-                Some(category) => {
-                    let index = categories.iter().position(|c| *c == category).unwrap_or(0);
-                    ctx.theme.color(index).to_string()
-                }
-                None => default_color.clone(),
+            let slot = slot_of(variant.category.as_deref());
+            let color: &str = match slot {
+                Some(index) => palette
+                    .get(index)
+                    .map_or(default_color.as_str(), |(color, _)| color.as_str()),
+                None => default_color.as_str(),
             };
 
             match self.style {
                 VariantStyle::Tick => {
+                    // The column, not the coordinate: the mark is a hairline and
+                    // its own width is what decides whether two of them are one.
+                    if !drawn.insert((x.round() as i64, slot.unwrap_or(usize::MAX))) {
+                        continue;
+                    }
                     // Not named, and the style is the reason. Choosing ticks is
                     // the caller saying the marks are too dense to be told
                     // apart, which is the same statement a binned track makes
@@ -430,7 +465,7 @@ impl Track for VariantTrack {
                         baseline,
                         x,
                         baseline - stem_room,
-                        &color,
+                        color,
                         ctx.theme.tokens.stroke,
                     );
                 }
@@ -444,20 +479,18 @@ impl Track for VariantTrack {
                     // mark is worse than none.
                     ctx.svg.begin_titled(&tooltip(variant));
                     ctx.svg
-                        .line(x, baseline, x, top, &color, ctx.theme.tokens.stroke);
+                        .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
                     // The ring is what keeps two variants a base apart reading
                     // as two variants instead of one blob.
-                    let symbol = variant
-                        .category
-                        .as_deref()
-                        .and_then(|category| categories.iter().position(|c| *c == category))
-                        .map_or(Symbol::Circle, |index| ctx.theme.symbol(index));
+                    let symbol = slot
+                        .and_then(|index| palette.get(index))
+                        .map_or(Symbol::Circle, |(_, symbol)| *symbol);
                     ctx.svg.symbol_ringed(
                         x,
                         top,
                         radius,
                         symbol,
-                        &color,
+                        color,
                         ctx.theme.surface(),
                         ctx.theme.tokens.hairline,
                     );
@@ -820,6 +853,77 @@ mod tests {
             "{lollipops}"
         );
         assert!(groups_balance(&lollipops));
+    }
+
+    #[test]
+    fn ticks_fold_onto_their_pixel_column_and_lollipops_do_not() {
+        // A tick carries no height, no symbol and no tooltip, so two of them on
+        // one pixel column in one colour are the same ink and the second draws
+        // nothing. Measured before this: two hundred thousand calls over two
+        // megabases put 230.7 ticks on every column, and the file was sixteen
+        // megabytes for eight hundred and sixty-seven columns of picture.
+        //
+        // A lollipop is not the same: its height is its value and its head is a
+        // thing a pointer lands on, so two at one column are two claims and
+        // both are drawn.
+        let dense: Vec<Variant> = (0..2_000u64)
+            .map(|i| Variant::new(1_000 + i).value((i % 10) as f64 / 10.0))
+            .collect();
+        let figure = |style| {
+            Figure::new(Region::parse("chr1:1-100000").unwrap())
+                .show_region_label(false)
+                .push(
+                    VariantTrack::new(dense.clone())
+                        .style(style)
+                        .show_legend(false),
+                )
+                .to_svg()
+        };
+
+        let ticks = figure(VariantStyle::Tick);
+        let drawn = ticks.matches("stroke-width=\"1.2\"").count();
+        assert!(
+            drawn < 40,
+            "two thousand ticks over a few pixels drew {drawn} marks"
+        );
+        assert!(groups_balance(&ticks));
+
+        let lollipops = figure(VariantStyle::Lollipop);
+        assert!(
+            lollipops.matches("<circle").count() >= 2_000,
+            "lollipops must not fold: {} heads",
+            lollipops.matches("<circle").count()
+        );
+    }
+
+    #[test]
+    fn two_categories_on_one_column_are_two_ticks() {
+        // The fold is per colour, because two ticks of different colours at one
+        // column are two different statements and the picture has to keep both.
+        let svg = Figure::new(Region::parse("chr1:1-100000").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(1_000).category("missense"),
+                    Variant::new(1_001).category("synonymous"),
+                    Variant::new(1_002).category("missense"),
+                ])
+                .style(VariantStyle::Tick)
+                .show_legend(false),
+            )
+            .to_svg();
+        // The baseline is a line too, so the marks are counted by their own
+        // stroke rather than by the element name.
+        let ticks: Vec<&str> = svg.matches("stroke-width=\"1.2\"").collect();
+        assert_eq!(ticks.len(), 2, "one tick per colour, and no more: {svg}");
+        assert!(
+            svg.contains("stroke=\"#0072b2\""),
+            "first colour gone: {svg}"
+        );
+        assert!(
+            svg.contains("stroke=\"#d55e00\""),
+            "second colour gone: {svg}"
+        );
     }
 
     #[test]

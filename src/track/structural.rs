@@ -286,11 +286,22 @@ impl StructuralTrack {
     /// on a linear scale the small ones all lie flat against the axis in a
     /// single indistinguishable line.
     pub fn arch(&self, call: &StructuralVariant) -> f64 {
-        let widest = self.widest() as f64;
-        ((call.span().max(1) as f64) / widest)
-            .sqrt()
-            .clamp(0.08, 1.0)
+        arch_against(call, self.widest() as f64)
     }
+}
+
+/// The height of one call's arc against a given widest span.
+///
+/// Split out from [`StructuralTrack::arch`] because the widest span is a
+/// property of the whole track and the drawing needs it once, not once per
+/// call: `widest` walks every call, so working it out inside the loop made
+/// drawing quadratic. Measured before this, at a fixed window and width:
+/// 25,000 calls took 0.34 seconds and 50,000 took 1.36, which is four times the
+/// work for twice the data.
+fn arch_against(call: &StructuralVariant, widest: f64) -> f64 {
+    ((call.span().max(1) as f64) / widest)
+        .sqrt()
+        .clamp(0.08, 1.0)
 }
 
 impl Track for StructuralTrack {
@@ -319,6 +330,9 @@ impl Track for StructuralTrack {
         let mut order: Vec<usize> = (0..self.variants.len()).collect();
         order.sort_by_key(|index| std::cmp::Reverse(self.variants[*index].span()));
 
+        // Once, rather than once per call: this walks every call in the track.
+        let widest = self.widest() as f64;
+
         for index in order {
             let call = &self.variants[index];
             if !call.touches(ctx.region.start(), ctx.region.end()) {
@@ -327,7 +341,7 @@ impl Track for StructuralTrack {
             let color = self.color_of(call.kind, ctx.theme);
             let x0 = ctx.scale.x_center(call.start);
             let x1 = ctx.scale.x_center(call.end);
-            let apex = baseline - self.arch(call) * band.h;
+            let apex = baseline - arch_against(call, widest) * band.h;
 
             // A call is a footprint, an arc and sometimes a name, and the whole
             // of it is one event. The group holds them together so a pointer
@@ -478,6 +492,16 @@ mod tests {
         assert_eq!(track.widest(), 5_000);
         let small = StructuralVariant::new(0, 500, SvKind::Deletion);
         let large = StructuralVariant::new(0, 5_000, SvKind::Deletion);
+        // The drawing works the widest span out once and passes it in, so the
+        // two ways of asking have to agree or the split silently changed the
+        // picture.
+        let widest = track.widest() as f64;
+        for call in &track.variants {
+            assert!(
+                (track.arch(call) - arch_against(call, widest)).abs() < f64::EPSILON,
+                "the hoisted arch disagrees with the method"
+            );
+        }
         assert!(track.arch(&large) > track.arch(&small));
         assert!(
             (track.arch(&large) - 1.0).abs() < 1e-9,

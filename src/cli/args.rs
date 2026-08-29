@@ -51,7 +51,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::read::locus::Identity;
-use crate::{Aggregate, CoverageStyle, Format, Region, WindowStyle};
+use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle};
 
 /// What went wrong before anything was read.
 #[derive(Debug)]
@@ -530,16 +530,36 @@ pub enum Style {
     Bars,
     /// A step function, which only a window track draws.
     Steps,
+    /// A plain vertical mark, which only a variant track draws. The right
+    /// choice once the calls are dense enough that lollipop heads would
+    /// overlap into a smear, and the only way a command line reader could
+    /// reach the library's answer to that.
+    Tick,
+    /// A stem with a head, which only a variant track draws, and its default.
+    Lollipop,
 }
 
 impl Style {
+    /// Every style the parser accepts, with the word it is written as.
+    ///
+    /// Here rather than in the help text, so a style wired up and left out of
+    /// the help is a failing test instead of a value nobody can find.
+    pub const ALL: [(Style, &'static str); 6] = [
+        (Style::Area, "area"),
+        (Style::Line, "line"),
+        (Style::Bars, "bars"),
+        (Style::Steps, "steps"),
+        (Style::Tick, "tick"),
+        (Style::Lollipop, "lollipop"),
+    ];
+
     /// The coverage spelling, or `None` for a style coverage does not have.
     pub fn coverage(self) -> Option<CoverageStyle> {
         Some(match self {
             Style::Area => CoverageStyle::Area,
             Style::Line => CoverageStyle::Line,
             Style::Bars => CoverageStyle::Bars,
-            Style::Steps => return None,
+            Style::Steps | Style::Tick | Style::Lollipop => return None,
         })
     }
 
@@ -548,7 +568,16 @@ impl Style {
         Some(match self {
             Style::Steps => WindowStyle::Steps,
             Style::Line => WindowStyle::Line,
-            Style::Area | Style::Bars => return None,
+            Style::Area | Style::Bars | Style::Tick | Style::Lollipop => return None,
+        })
+    }
+
+    /// The variant spelling, or `None` for a style a variant track has not got.
+    pub fn variant(self) -> Option<VariantStyle> {
+        Some(match self {
+            Style::Tick => VariantStyle::Tick,
+            Style::Lollipop => VariantStyle::Lollipop,
+            Style::Area | Style::Line | Style::Bars | Style::Steps => return None,
         })
     }
 }
@@ -872,16 +901,13 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--style" => {
                 let text = value("--style")?;
-                let style = match text.as_str() {
-                    "area" => Style::Area,
-                    "line" => Style::Line,
-                    "bars" => Style::Bars,
-                    "steps" => Style::Steps,
-                    _ => {
+                let style = match Style::ALL.iter().find(|(_, word)| *word == text) {
+                    Some((style, _)) => *style,
+                    None => {
                         return Err(ArgError::BadValue {
                             flag: "--style",
                             given: text.clone(),
-                            expected: "area, line, bars or steps",
+                            expected: "area, line, bars, steps, tick or lollipop",
                         })
                     }
                 };
@@ -890,6 +916,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 let fits = match track.kind {
                     Kind::Coverage => style.coverage().is_some(),
                     Kind::Windows => style.window().is_some(),
+                    Kind::Variants => style.variant().is_some(),
                     _ => false,
                 };
                 if !fits {
@@ -899,6 +926,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         expected: match track.kind {
                             Kind::Coverage => "area, line or bars for a coverage track",
                             Kind::Windows => "steps or line for a window track",
+                            Kind::Variants => "tick or lollipop for a variant track",
                             _ => "nothing: this track has no style",
                         },
                     });
