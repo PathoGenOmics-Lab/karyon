@@ -125,7 +125,7 @@ pub(super) fn draw_unrooted_scale_bar(
     area: Rect,
     bar: &ScaleBar,
 ) {
-    let Some(value) = scale_bar_value(bar, scene.radius) else {
+    let Some(value) = scale_bar_value(bar, scene.span()) else {
         return;
     };
     draw_scale_bar(

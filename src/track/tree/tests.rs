@@ -1233,3 +1233,107 @@ fn the_tips_beyond_an_edge_are_counted_the_same_whether_walked_or_looked_up() {
         "only {edges} edges checked, too few to mean much"
     );
 }
+
+#[test]
+fn an_unrooted_tree_is_centred_on_its_own_drawing_and_stays_inside_the_band() {
+    // The layout's origin is whichever node the walk started from, and a tree
+    // hangs off that node however its branches happen to fall. Fitting the
+    // drawing by its distance from that origin put a two hundred tip tree a
+    // hundred and fifty pixels below the middle of its band and ran the
+    // branches out through all four sides of the clip.
+    // One long branch, so the drawing is lopsided while the walk still starts
+    // from the middle of the chain: the starting node is picked by how many
+    // tips lie each way, which a long branch does not change, so the origin
+    // and the middle of the picture are in different places.
+    let caterpillar = Tree::parse_newick(&format!(
+        "{}t24:40.0{};",
+        "(t0:0.4,".repeat(24),
+        ")".repeat(24)
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .width(600.0)
+        .show_region_label(false)
+        .push(TreeTrack::new(caterpillar).unrooted())
+        .to_svg();
+
+    let numbers = |tag: &str| {
+        svg.split(tag)
+            .skip(1)
+            .filter_map(|piece| piece.split('"').next()?.parse::<f64>().ok())
+            .collect::<Vec<_>>()
+    };
+    let xs: Vec<f64> = numbers("x1=\"")
+        .into_iter()
+        .chain(numbers("x2=\""))
+        .collect();
+    let ys: Vec<f64> = numbers("y1=\"")
+        .into_iter()
+        .chain(numbers("y2=\""))
+        .collect();
+    assert!(
+        xs.len() > 40,
+        "too few branches to mean anything: {}",
+        xs.len()
+    );
+
+    let rect = svg
+        .split("<clipPath")
+        .nth(1)
+        .and_then(|piece| piece.split("<rect ").nth(1))
+        .expect("the track is clipped");
+    let of = |name: &str| {
+        rect.split(&format!("{name}=\""))
+            .nth(1)
+            .and_then(|piece| piece.split('"').next())
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("the clip carries this")
+    };
+    let (left, top) = (of("x"), of("y"));
+    let (right, bottom) = (left + of("width"), top + of("height"));
+
+    let (x0, x1) = (
+        xs.iter().copied().fold(f64::MAX, f64::min),
+        xs.iter().copied().fold(f64::MIN, f64::max),
+    );
+    let (y0, y1) = (
+        ys.iter().copied().fold(f64::MAX, f64::min),
+        ys.iter().copied().fold(f64::MIN, f64::max),
+    );
+    assert!(
+        x0 >= left - 0.5 && x1 <= right + 0.5 && y0 >= top - 0.5 && y1 <= bottom + 0.5,
+        "the drawing runs outside its band: x {x0}..{x1} and y {y0}..{y1} in {left}..{right} by {top}..{bottom}"
+    );
+    // Centred within a pixel, not merely inside.
+    let slack = 1.0;
+    assert!(
+        ((x0 + x1) / 2.0 - (left + right) / 2.0).abs() < slack
+            && ((y0 + y1) / 2.0 - (top + bottom) / 2.0).abs() < slack,
+        "the drawing is off centre: middle ({}, {}) against band middle ({}, {})",
+        (x0 + x1) / 2.0,
+        (y0 + y1) / 2.0,
+        (left + right) / 2.0,
+        (top + bottom) / 2.0
+    );
+}
+
+#[test]
+fn an_unrooted_tree_moves_its_names_to_a_ring_only_once_they_would_collide() {
+    // Measured on forty five trees of eight to forty tips: with the names at
+    // the tips, every figure that really had two names touching had its
+    // closest pair under eight tenths of a body, so that is where the drawing
+    // gives up on tip names and gathers them onto a circle with a leader each.
+    let leaders = |tips: usize| {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(TreeTrack::new(balanced(tips)).unrooted())
+            .to_svg();
+        svg.matches("stroke-width=\"0.8\"").count()
+    };
+    assert_eq!(leaders(6), 0, "six names fit at their own tips");
+    assert!(
+        leaders(128) >= 128,
+        "a hundred and twenty eight names cannot fit at their tips and must be gathered"
+    );
+}
