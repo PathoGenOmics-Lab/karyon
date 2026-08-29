@@ -11,6 +11,99 @@ fn region() -> Region {
 }
 
 #[test]
+fn a_row_cap_collapses_until_the_tree_fits_and_keeps_every_tip() {
+    // The point of collapsing rather than cutting the list: a pileup that
+    // meets its cap counts the reads it left out, and a tree cannot, because
+    // a tip is not interchangeable with the tip below it.
+    let tree = balanced(64);
+    let rows = |cap: Option<usize>| {
+        let svg = Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).max_rows(cap))
+            .to_svg();
+        let mut drawn = 0usize;
+        let mut held = 0usize;
+        for piece in svg.split("<text").skip(1) {
+            let body = piece
+                .split('>')
+                .nth(1)
+                .unwrap_or("")
+                .split('<')
+                .next()
+                .unwrap_or("");
+            if let Some(open) = body.rfind(" (") {
+                if let Some(count) = body[open + 2..]
+                    .split(' ')
+                    .next()
+                    .and_then(|word| word.replace(',', "").parse::<usize>().ok())
+                {
+                    drawn += 1;
+                    held += count;
+                    continue;
+                }
+            }
+            if body.starts_with('t') && body[1..].chars().all(|c| c.is_ascii_digit()) {
+                drawn += 1;
+                held += 1;
+            }
+        }
+        (drawn, held)
+    };
+
+    assert_eq!(
+        rows(None),
+        (64, 64),
+        "no cap draws every tip on its own row"
+    );
+    for cap in [8usize, 16, 32] {
+        let (drawn, held) = rows(Some(cap));
+        assert_eq!(drawn, cap, "a cap of {cap} should draw {cap} rows");
+        assert_eq!(held, 64, "a cap of {cap} lost tips: {held} of 64");
+    }
+}
+
+#[test]
+fn a_row_cap_bounds_a_height_nothing_else_could_bound() {
+    let tree = balanced(512);
+    let height = |cap: Option<usize>| {
+        TreeTrack::new(tree.clone())
+            .max_rows(cap)
+            .height(&Scale::new(
+                &Region::new("phylo", 0, 1).unwrap(),
+                0.0,
+                900.0,
+            ))
+    };
+    // row_height floors at 2.0, so without a cap this is the least tall the
+    // tree can be drawn, and it is still several screens.
+    assert!(
+        height(None) > 1000.0,
+        "512 tips is a tall figure: {}",
+        height(None)
+    );
+    assert!(height(Some(40)) < height(None) / 4.0);
+    assert!(height(Some(40)) < height(Some(200)));
+}
+
+/// A balanced tree of `tips` leaves named t0 upwards, for the cap tests.
+fn balanced(tips: usize) -> Tree {
+    let mut level: Vec<String> = (0..tips).map(|i| format!("t{i}:0.1")).collect();
+    while level.len() > 1 {
+        level = level
+            .chunks(2)
+            .map(|pair| {
+                if pair.len() == 2 {
+                    format!("({},{}):0.1", pair[0], pair[1])
+                } else {
+                    pair[0].clone()
+                }
+            })
+            .collect();
+    }
+    let root = level[0].rsplit_once(':').map(|(head, _)| head).unwrap();
+    Tree::parse_newick(&format!("{root};")).unwrap()
+}
+
+#[test]
 fn a_clade_of_one_is_one_tip() {
     // Four places in this module counted tips and all four wrote "1 tips".
     // Every assertion in this file used a clade of two, so none of them

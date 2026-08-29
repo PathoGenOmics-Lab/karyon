@@ -143,7 +143,11 @@ TRACK OPTIONS, each describing the track before it
                          and a row too short for a name shrinks the name with it
     --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
                          molecule grid is drawn before it stops and counts the
-                         rest; 40 by default, and all lifts it
+                         rest; 40 by default, and all lifts it. A tree takes it
+                         too and answers differently: it collapses the smallest
+                         clades until it fits, so every tip is still on the
+                         figure inside a triangle saying how many it holds, and
+                         it has no cap unless one is asked for
     --no-names           leave out the name written on or beside each thing a
                          track draws, which is not the track's own name in the
                          gutter: that one is --label

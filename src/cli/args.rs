@@ -402,13 +402,20 @@ impl Kind {
 
     /// Whether `--max-rows` means anything here.
     ///
-    /// The four tracks that stack one row per record and cap themselves. A
-    /// track whose rows come from its data rather than from a cap, a feature
-    /// track packing what fits, is not one of them: it has no cap to move.
+    /// The tracks that stack one row per record and cap themselves. A track
+    /// whose rows come from its data rather than from a cap, a feature track
+    /// packing what fits, is not one of them: it has no cap to move.
+    ///
+    /// A tree is here and answers differently from the other four. They stop
+    /// opening rows and count what they left out, which a tree cannot do: a
+    /// tip is not interchangeable with the tip below it and cutting the list
+    /// would cut a clade in half. So it collapses the smallest clades instead
+    /// until it fits, and every tip stays on the figure inside a triangle that
+    /// says how many it holds.
     fn takes_max_rows(self) -> bool {
         matches!(
             self,
-            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite
+            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite | Kind::Tree
         )
     }
 
@@ -1937,6 +1944,11 @@ mod tests {
             "--msa a.fa",
             "--snps a.fa",
             "--bisulfite c.txt",
+            // A tree takes it and answers differently: it collapses the
+            // smallest clades until it fits rather than dropping the rest,
+            // because a tip is not interchangeable with the tip below it and
+            // cutting the list would cut a clade in half.
+            "--tree t.nwk",
         ] {
             let line = format!("chr1:1-1000 {good} --max-rows 5");
             assert!(parse(&args(&line)).is_ok(), "{good} should take --max-rows");
@@ -1947,7 +1959,7 @@ mod tests {
             "--features g.bed",
             "--coverage d.bg",
             "--logo a.fa",
-            "--tree t.nwk",
+            "--tanglegram t.nwk",
         ] {
             let line = format!("chr1:1-1000 {bad} --max-rows 5");
             let error = parse(&args(&line)).unwrap_err();

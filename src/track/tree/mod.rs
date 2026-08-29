@@ -851,6 +851,7 @@ pub struct TreeTrack {
     branch_interval_layers: Vec<BranchIntervalLayer>,
     ancestral_state_layers: Vec<AncestralStateLayer>,
     collapsed: BTreeSet<usize>,
+    max_rows: Option<usize>,
     show_nodes: bool,
     show_root: bool,
     support_style: SupportStyle,
@@ -957,6 +958,7 @@ impl TreeTrack {
             branch_interval_layers: Vec::new(),
             ancestral_state_layers: Vec::new(),
             collapsed: BTreeSet::new(),
+            max_rows: None,
             show_nodes: false,
             show_root: false,
             support_style: SupportStyle::None,
@@ -1088,6 +1090,7 @@ impl TreeTrack {
     pub fn reroot(mut self, node: usize) -> Self {
         if self.tree.reroot(node) {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1097,6 +1100,7 @@ impl TreeTrack {
         if let Some(node) = self.tree.node_named(name) {
             if self.tree.reroot(node) {
                 self.show_root = true;
+                self.fold_to_fit();
             }
         }
         self
@@ -1121,6 +1125,7 @@ impl TreeTrack {
         }
         if self.tree.reroot_outgroup(&nodes).is_some() {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1131,6 +1136,7 @@ impl TreeTrack {
     pub fn reroot_midpoint(mut self) -> Self {
         if self.tree.reroot_midpoint().is_some() {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1337,6 +1343,89 @@ impl TreeTrack {
             self.collapsed.insert(node);
         }
         self
+    }
+
+    /// Caps how many rows the tree draws, by collapsing clades until it fits.
+    ///
+    /// A phylogeny is the one track here that laid a row per tip and never
+    /// stopped. Sixty thousand tips drew a figure nine hundred thousand pixels
+    /// tall, and there was no way to ask for less: `row_height` floors at two,
+    /// so twenty thousand tips could not be brought under forty thousand
+    /// pixels by any setting.
+    ///
+    /// Nothing is dropped. A pileup that meets its cap stops opening rows and
+    /// counts the reads it left out; a tree cannot, because a tip is not
+    /// interchangeable with the tip below it and cutting the list would cut a
+    /// clade in half. So it collapses instead, and every tip is inside a
+    /// triangle that says how many it holds.
+    ///
+    /// Smallest first, so the shape survives: collapsing a cherry costs one
+    /// row and hides two names, and collapsing near the root costs nothing and
+    /// hides the tree. `None` lifts the cap, which is the default, because a
+    /// tree of three hundred tips is an ordinary figure and capping it by
+    /// default would fold figures nobody asked to fold.
+    pub fn max_rows(mut self, rows: Option<usize>) -> Self {
+        self.max_rows = rows.map(|rows| rows.max(1));
+        self.fold_to_fit();
+        self
+    }
+
+    /// Collapses the smallest clades until the visible terminals fit the cap.
+    ///
+    /// Called again after every rerooting, because rerooting moves the tips
+    /// about and a fold worked out against the old shape would collapse the
+    /// wrong clades.
+    fn fold_to_fit(&mut self) {
+        let Some(cap) = self.max_rows else {
+            return;
+        };
+        let nodes = self.tree.nodes();
+        // How many rows each node contributes as things stand, which is one
+        // for a leaf or an already collapsed clade and the sum of its children
+        // otherwise. Kept as we go, so collapsing a clade whose own children
+        // were folded does not count their rows twice.
+        let mut rows = vec![1usize; nodes.len()];
+        for node in postorder_nodes(&self.tree) {
+            if nodes[node].is_leaf() || self.collapsed.contains(&node) {
+                continue;
+            }
+            rows[node] = nodes[node].children.iter().map(|child| rows[*child]).sum();
+        }
+        let root = self.tree.root();
+        let mut total = rows[root];
+        if total <= cap {
+            return;
+        }
+
+        // Smallest clade first, and the index breaks a tie, so the same tree
+        // folds the same way every time. Going up in size also means a node's
+        // ancestors are always still open when it is reached, so no collapse
+        // here can sit inside another.
+        let mut candidates: Vec<usize> = (0..nodes.len())
+            .filter(|node| !nodes[*node].is_leaf() && *node != root)
+            .collect();
+        candidates.sort_by_key(|node| (self.tree.clade_size(*node), *node));
+
+        for node in candidates {
+            if total <= cap {
+                break;
+            }
+            if rows[node] <= 1 {
+                continue;
+            }
+            let saved = rows[node] - 1;
+            self.collapsed.insert(node);
+            rows[node] = 1;
+            total -= saved;
+            // The rows this clade used to contribute have to come off every
+            // node above it, or a later ancestor would be credited with rows
+            // that are no longer drawn.
+            let mut above = nodes[node].parent;
+            while let Some(parent) = above {
+                rows[parent] -= saved;
+                above = nodes[parent].parent;
+            }
+        }
     }
 
     /// Draws or hides a point at every visible internal node.

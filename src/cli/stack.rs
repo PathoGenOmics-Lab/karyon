@@ -716,6 +716,9 @@ fn track(
                 cause,
             })?;
             let mut track = TreeTrack::new(tree);
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }

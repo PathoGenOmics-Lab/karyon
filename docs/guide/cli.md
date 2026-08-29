@@ -175,7 +175,7 @@ because most of them are a setting only some tracks have.
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
 | `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
-| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite` | 40, and each of them says how many it left out |
+| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four, and each says how many it left out; no cap on a tree |
 | `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
@@ -237,6 +237,26 @@ still writes the line saying nothing was dropped, and no cap at all does not.
 The other row tracks are not here because they have no cap to move. A feature
 track packs into as many rows as the features need and no more, so there is
 nothing to raise or lower.
+
+A tree takes the same flag and answers it differently. The four above stop
+opening rows and count what they left out, which a tree cannot do: a tip is not
+interchangeable with the tip below it, and cutting the list would cut a clade in
+half. So a tree collapses instead, smallest clade first, until it fits, and
+every tip is still on the figure inside a triangle that says how many it holds:
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 200 --label phylogeny
+```
+
+Sixty thousand tips draw a figure 900,058 pixels tall without it, which is a
+thousand screens, and there is no other way down: `--row-height` floors at two
+pixels, so twenty thousand tips cannot be brought under forty thousand pixels by
+any setting. With `--max-rows 200` the same tree is 3,058 pixels and 102
+kilobytes, and all sixty thousand tips are accounted for on it.
+
+A tree has no cap unless one is asked for, because a phylogeny of three hundred
+tips is an ordinary figure and folding it by default would fold figures nobody
+asked to fold.
 
 ### Which row the others are read against
 
