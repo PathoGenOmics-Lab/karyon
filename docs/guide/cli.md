@@ -151,6 +151,14 @@ A ruler is added at the bottom without being asked for. `--axis` puts one where
 the flag sits and cancels the automatic one, so writing `--axis` first is a
 ruler on top and nothing at the bottom. `--no-axis` leaves it out entirely.
 
+It is added where something is measured against it. A phylogeny is not: its x is
+a branch length, and the window it is handed exists because every figure has one
+rather than because the tree is drawn in it, so `karyon tree:1-1 --tree big.nwk`
+used to come with a rule the width of the figure carrying a single tick labelled
+`1`. A figure holding nothing but trees or tanglegrams now gets no ruler; put
+anything on the coordinates beside one and the ruler is back, because then it is
+measuring something. `--axis` still puts one wherever it is asked for.
+
 A track flag takes the word after it as its file, whatever that word is, so a
 forgotten path swallows the next flag and the error arrives a word or two later
 than the mistake.
@@ -173,10 +181,15 @@ because most of them are a setting only some tracks have.
 | `--analysis <NAME>` | `Pfam`, `PANTHER`, any member database | `--domains` | the one the file holds, and refused where it holds several |
 | `--ploidy <COPIES>` | a number of copies, as in `2` | `--copy-number` | none, and it is required |
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
-| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
+| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
-| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite` | 40, and each of them says how many it left out |
+| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four, and each says how many it left out; no cap on a tree |
 | `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | rectangular |
+| `--focus <NAME[,NAME]>` | a clade label, a tip name, or two tip names | `--tree` | the whole tree |
+| `--color-by <KEY>` | a column of the sheet, or an annotation the file carries | `--tree` | one colour for every branch |
+| `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | tooltips only |
+| `--scale-bar` | none | `--tree` | no bar |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
@@ -238,6 +251,89 @@ The other row tracks are not here because they have no cap to move. A feature
 track packs into as many rows as the features need and no more, so there is
 nothing to raise or lower.
 
+A tree takes the same flag and answers it differently. The four above stop
+opening rows and count what they left out, which a tree cannot do: a tip is not
+interchangeable with the tip below it, and cutting the list would cut a clade in
+half. So a tree collapses instead, smallest clade first, until it fits, and
+every tip is still on the figure inside a triangle that says how many it holds:
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 200 --label phylogeny
+```
+
+Sixty thousand tips draw a figure 900,058 pixels tall without it, which is a
+thousand screens, and there is no other way down: `--row-height` floors at two
+pixels, so twenty thousand tips cannot be brought under forty thousand pixels by
+any setting. With `--max-rows 200` the same tree is 3,058 pixels and 102
+kilobytes, and all sixty thousand tips are accounted for on it.
+
+A tree has no cap unless one is asked for, because a phylogeny of three hundred
+tips is an ordinary figure and folding it by default would fold figures nobody
+asked to fold.
+
+### One clade of a tree
+
+`--focus` draws one clade and nothing else. It takes a clade's own label, a tip
+inside it, or the two tips a clade spans:
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --focus outbreak
+karyon phylo:1-1 --no-axis --tree big.nwk --focus L4_D001,L4_H148
+```
+
+The pair is not something to work out by hand. A folded triangle says it: rest
+a pointer on one and it reads `clade (13 tips), L4_D001 to L4_H148`, and the two
+names at the end are what opens it. The tips under a node are a run, so the
+first and the last of them pick out one clade and no other.
+
+A name the tree has not got is refused against the names it has, rather than
+quietly drawing the whole tree.
+
+The [tree viewer](../tree.md) is this flag with a hand on it. Dragging and
+rolling the wheel move a transform, which costs a composite and never a render,
+so the picture keeps up on a million tips exactly as it does on a hundred. When
+the hand stops, the rows the view is looking at are read back, the clade holding
+them is worked out, and the program is asked for that clade: a wheel gesture
+takes twenty thousand tips to eight thousand, then four, then two, each drawn in
+full. Pulling back out returns a level at a time. Clicking a triangle is the
+same thing done in one step, `--focus` on the pair that triangle prints.
+
+### The shape a phylogeny is laid out in
+
+`--projection` takes `rectangular`, `circular` or `unrooted`.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --projection circular
+```
+
+A circle sizes itself so its tip labels clear each other, up to the width of the
+figure, so a big tree wants a wider one or fewer rows. An unrooted drawing puts
+each name at the end of its own branch while they fit, and gathers them onto a
+ring with a leader each once they would touch.
+
+### What a phylogeny knows about itself
+
+Three things a tree carries that the library has always drawn and the command
+line could not ask for.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
+  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
+```
+
+`--color-by` takes a column of the sheet or an annotation the Newick already
+carries, and colours each branch by it. A clade whose tips all agree takes that
+colour as well, so a lineage comes out as a coloured clade rather than a fringe
+of coloured tips: on a two hundred tip tree that is 588 of 597 branches, the nine
+left plain being the backbone where the lineages genuinely mix.
+
+`--support-style` makes support readable without hovering, since it is in the
+tooltips whatever you choose. `--threshold` hides the weak ones.
+
+`--scale-bar` draws a rule in the tree's own branch-length units. It is not the
+ruler along the bottom of the figure, which measures the region and is left out
+of a figure holding nothing but phylogenies.
+
 ### Which row the others are read against
 
 An alignment draws only the cells that disagree, and a variable-site panel keeps
@@ -279,10 +375,25 @@ a phylogeny attached to the track reorders the strips with it. Nothing in the
 sheet is at a coordinate, so panning and zooming leave the strips where they
 are.
 
-Six tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
-`--clades`, `--domains` and `--loci`. A pileup has rows too, and they are reads
-rather than samples, so `--traits` is refused there rather than accepted and
-ignored.
+Seven tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
+`--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows too, and they
+are reads rather than samples, so `--traits` is refused there rather than
+accepted and ignored.
+
+A phylogeny takes one the same way, and two things about it are worth knowing.
+The strips sit to the right of the tip names on a rectangular tree and become
+rings outside the tips on a circular or unrooted one, and asking for them on an
+unrooted tree gathers its names onto a ring, since rings need every tip at one
+radius to line up against. And a folded clade says what its tips agree on: a
+clade whose samples are all one lineage is drawn as that lineage, one holding
+two is left empty rather than shown as either, and one tip with nothing recorded
+is enough to withhold it, because a clade cannot be called uniform on the
+strength of the members that happen to have been typed.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
+  --traits samples.tsv --columns lineage,country
+```
 
 Two refusals are worth knowing before they happen. A sheet whose names match
 none of the rows is refused, naming the first few it did hold, because the

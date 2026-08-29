@@ -1,0 +1,178 @@
+/* The tree viewer. Material supplies the palette; this only lays things out. */
+
+.tv-drop,
+.tv-app {
+  margin-top: 1rem;
+}
+
+.tv-drop {
+  border: 1px dashed var(--md-default-fg-color--lighter);
+  border-radius: 0.3rem;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.tv-drop textarea {
+  width: 100%;
+  font-family: var(--md-code-font-family);
+  font-size: 0.7rem;
+}
+
+.tv-file input {
+  display: none;
+}
+
+.tv-file {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tv-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.tv-group {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.tv-btn {
+  border: 1px solid var(--md-default-fg-color--lighter);
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  border-radius: 0.2rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.tv-btn[aria-pressed="true"] {
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color, #fff);
+  border-color: var(--md-accent-fg-color);
+}
+
+.tv-rows {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+}
+
+.tv-search {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.2rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.tv-timing,
+.tv-command {
+  font-size: 0.65rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.tv-trail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+/* A trail of clades opened, each one back to where it was. */
+.tv-crumb {
+  border: 0;
+  background: none;
+  color: var(--md-typeset-a-color);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.1rem 0.2rem;
+}
+
+.tv-crumb + .tv-crumb::before {
+  content: "\203A";
+  margin-right: 0.35rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* A window onto the tree, not a scrolling document: the stage inside it is
+   moved by a transform, so the picture keeps up with the hand whatever the
+   tree costs to draw. */
+.tv-plot {
+  position: relative;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.3rem;
+  overflow: hidden;
+  height: 74vh;
+  min-height: 20rem;
+  touch-action: none;
+  cursor: grab;
+  overscroll-behavior: contain;
+}
+
+.tv-plot.tv-dragging { cursor: grabbing; }
+
+.tv-stage {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.tv-hud {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+}
+
+.tv-zoom {
+  font-variant-numeric: tabular-nums;
+  color: var(--md-default-fg-color--light);
+  min-width: 2.6rem;
+  text-align: right;
+}
+
+.tv-sheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.tv-hint {
+  font-size: 0.65rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0.4rem 0 0;
+}
+
+/* A triangle is a clade waiting to be opened, so it says so. */
+.tv-plot g:has(> title) {
+  cursor: pointer;
+}
+
+.tv-plot svg {
+  display: block;
+  max-width: 100%;
+}
+
+.tv-error {
+  font-family: var(--md-code-font-family);
+  font-size: 0.7rem;
+  color: var(--md-typeset-del-color, #c00);
+}

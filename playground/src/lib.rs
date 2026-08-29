@@ -34,9 +34,11 @@
 //! disagree with: a file may hold any byte, a path may hold a space, and a
 //! command line word may hold both.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use karyon::cli::{args, stack};
+use karyon::Tree;
 
 /// Hands the caller a buffer of `len` bytes to write into.
 ///
@@ -105,24 +107,84 @@ fn run(mut input: &[u8]) -> Result<String, String> {
         args::Request::Version => return Err(format!("karyon {}", karyon::VERSION)),
     };
 
-    stack::build(&invocation, |source| match source {
-        args::Source::Path(path) => {
-            let name = path.display().to_string();
-            files.get(&name).cloned().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    // The one error this front end phrases differently from a
-                    // shell, because a page's files are a list a reader can see
-                    // rather than a directory they have to go and look in.
-                    format!("no such file here; this page holds {}", named(&files)),
-                )
-            })
-        }
-        // There is no pipe into a browser tab. Saying so is better than
-        // answering with the empty string, which reads as an empty file.
-        args::Source::Stdin => Err(std::io::Error::other("nothing is piped into a page")),
-    })
+    stack::build_with(
+        &invocation,
+        |source| match source {
+            args::Source::Path(path) => {
+                let name = path.display().to_string();
+                files.get(&name).cloned().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        // The one error this front end phrases differently from
+                        // a shell, because a page's files are a list a reader
+                        // can see rather than a directory they have to go and
+                        // look in.
+                        format!("no such file here; this page holds {}", named(&files)),
+                    )
+                })
+            }
+            // There is no pipe into a browser tab. Saying so is better than
+            // answering with the empty string, which reads as an empty file.
+            args::Source::Stdin => Err(std::io::Error::other("nothing is piped into a page")),
+        },
+        remembered,
+    )
     .map_err(|error| error.to_string())
+}
+
+/// The phylogenies read lately, kept for the next call.
+///
+/// A shell runs the program once and reads each file once. A page runs it again
+/// on every move, and reading the file is most of the work: a million tip tree
+/// takes 361 ms to read of a 578 ms figure in a browser, against 189 for
+/// folding it and drawing sixty rows of it.
+///
+/// Two of them, because the figures that take a phylogeny at all take either
+/// one or two, and a single slot would have a tanglegram evicting its own left
+/// tree with its right one on every frame and never hitting.
+///
+/// The text is kept beside the tree and compared in full rather than hashed. A
+/// hash of twenty four megabytes costs about what it saves, and the failure it
+/// would leave behind is the worst kind: the tree you had before, drawn under
+/// the name of the one you asked for. Comparing is a length check and a
+/// memcmp, and it is exact.
+const KEPT: usize = 2;
+
+/// Below this a tree is read again rather than kept.
+///
+/// Keeping one costs a copy of the text and a copy of the tree, which is worth
+/// paying when reading it is a third of a second and not when it is a tenth of
+/// a millisecond. The playground's own examples are all far under this, so
+/// nothing there pays for a viewer's benefit.
+const WORTH_KEEPING: usize = 1 << 20;
+
+thread_local! {
+    static TREES: RefCell<Vec<(String, String, Tree)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Answers with a tree already read, when it is the same one.
+fn remembered(name: &str, text: &str) -> Option<Tree> {
+    if text.len() < WORTH_KEEPING {
+        return None;
+    }
+    TREES.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some(at) = kept
+            .iter()
+            .position(|(had, body, _)| had == name && body == text)
+        {
+            // Most recently used first, so two trees in turn both stay.
+            let entry = kept.remove(at);
+            let tree = entry.2.clone();
+            kept.insert(0, entry);
+            return Some(tree);
+        }
+        let tree = Tree::parse_newick(text).ok()?;
+        let answer = tree.clone();
+        kept.insert(0, (name.to_string(), text.to_string(), tree));
+        kept.truncate(KEPT);
+        Some(answer)
+    })
 }
 
 /// The files a page is holding, for the error that says one is missing.
@@ -250,5 +312,65 @@ mod tests {
         };
         assert_eq!(ok, 1);
         assert_eq!(body, "<svg/>");
+    }
+
+    /// The one way a cache of files can be wrong is by answering with the
+    /// wrong file, and the way it happens is a name reused for new contents.
+    /// So the text is compared and not only the name, and this checks it in
+    /// both directions: the same text is answered from memory, and a different
+    /// text under the same name is not.
+    #[test]
+    fn a_tree_is_only_reused_when_the_text_is_the_same() {
+        let long = |tips: usize, prefix: &str| {
+            let mut parts: Vec<String> = (0..tips).map(|i| format!("{prefix}{i}:0.1")).collect();
+            while parts.len() > 1 {
+                let mut up = Vec::new();
+                let mut at = 0;
+                while at + 1 < parts.len() {
+                    up.push(format!("({},{}):0.1", parts[at], parts[at + 1]));
+                    at += 2;
+                }
+                if parts.len() % 2 == 1 {
+                    up.push(parts[parts.len() - 1].clone());
+                }
+                parts = up;
+            }
+            format!("{};", parts[0])
+        };
+        // Over the size worth keeping, or nothing is kept at all.
+        let first = long(90_000, "a");
+        let second = long(90_000, "b");
+        assert!(
+            first.len() > WORTH_KEEPING,
+            "the fixture has to be big enough"
+        );
+
+        let names = |tree: &Tree| tree.leaf_names().join(",");
+        let one = remembered("t.nwk", &first).expect("a tree comes back");
+        let again = remembered("t.nwk", &first).expect("and comes back again");
+        assert_eq!(names(&one), names(&again), "the same text is the same tree");
+
+        let other = remembered("t.nwk", &second).expect("a different text is read afresh");
+        assert!(
+            names(&other).starts_with('b'),
+            "the same name with new contents must not answer with the old tree"
+        );
+
+        // Two of them stay, which is what a tanglegram needs: it hands over a
+        // left tree and a right tree on every frame, and one slot would have
+        // each evicting the other and never hitting. Asked from outside, a
+        // miss and a hit both answer with the right tree, so the store itself
+        // is what says which happened.
+        let held = TREES.with(|kept| kept.borrow().len());
+        assert_eq!(held, 2, "both trees are kept, not just the last");
+        let back = remembered("t.nwk", &first).expect("the first is still held");
+        assert!(
+            names(&back).starts_with('a'),
+            "and it is still the right one"
+        );
+
+        // And a small one is not kept, so nothing pays for a copy it will not
+        // use.
+        assert!(remembered("small.nwk", "((a:0.1,b:0.1):0.1,c:0.1);").is_none());
     }
 }

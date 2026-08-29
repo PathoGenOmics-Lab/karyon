@@ -6,6 +6,7 @@
 //! how they turn that into coordinates, not in what they turn.
 
 use super::*;
+use crate::track::axis::group_thousands;
 
 pub(super) struct TreeScene {
     pub(super) placements: Vec<Option<Placement>>,
@@ -140,12 +141,89 @@ pub(super) fn postorder_nodes(tree: &Tree) -> Vec<usize> {
     order
 }
 
-pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
+/// How many tips a clade holds, written the way a reader would say it.
+///
+/// One tip is a tip. Four places in this module counted them and all four wrote
+/// "1 tips", which is the tree being the odd one out: nine other tracks here
+/// pluralise. Grouped as well, because a collapsed clade can hold thousands
+/// once `max_rows` starts folding them.
+pub(super) fn tip_count(tips: usize) -> String {
+    format!(
+        "{} tip{}",
+        group_thousands(tips as u64),
+        if tips == 1 { "" } else { "s" }
+    )
+}
+
+/// The first tip under a node, in the order the tree lists its children.
+///
+/// Which is the topmost row of a collapsed clade, so a reader looking for it
+/// finds it at the top of the triangle rather than somewhere inside.
+fn first_tip(tree: &Tree, node: usize) -> Option<&str> {
+    let mut at = node;
+    loop {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            return clade.name.as_deref();
+        }
+        at = *clade.children.first()?;
+    }
+}
+
+fn last_tip(tree: &Tree, node: usize) -> Option<&str> {
+    let mut at = node;
+    loop {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            return clade.name.as_deref();
+        }
+        at = *clade.children.last()?;
+    }
+}
+
+/// What a folded clade's triangle says when a pointer rests on it.
+///
+/// The two tips at its ends rather than only the count, because they are what
+/// names the clade: the tips inside a node form a run, so the first and the
+/// last of them pick out one clade and no other. A reader gets to see which
+/// part of the tree the triangle stands for, and anything driving the program
+/// gets an address it can hand back as `--focus first,last` to open it.
+pub(super) fn collapsed_title(tree: &Tree, node: usize) -> String {
     let name = tree.nodes()[node].name.as_deref().unwrap_or("clade");
-    if collapsed.contains(&node) {
-        format!("{} ({} tips)", name, tree.clade_size(node))
-    } else {
-        name.to_string()
+    let held = format!("{} ({})", name, tip_count(tree.clade_size(node)));
+    match (first_tip(tree, node), last_tip(tree, node)) {
+        (Some(first), Some(last)) if first != last => format!("{held}, {first} to {last}"),
+        _ => held,
+    }
+}
+
+pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
+    if !collapsed.contains(&node) {
+        return tree.nodes()[node]
+            .name
+            .as_deref()
+            .unwrap_or("clade")
+            .to_string();
+    }
+    let held = tree.clade_size(node);
+    // A named clade says its name. Most do not have one: an internal label in
+    // a Newick out of RAxML or IQ-TREE is a support value and is parsed as
+    // one, so `name` is None and every folded row read "clade (128 tips)",
+    // which tells a reader how big it is and nothing at all about which part
+    // of the tree it is.
+    //
+    // So an unnamed clade is named after a tip it holds, the topmost one, and
+    // says how many others came with it. That is a member a reader can look
+    // up, and it claims nothing about the rest of them.
+    match tree.nodes()[node].name.as_deref() {
+        Some(name) => format!("{} ({})", name, tip_count(held)),
+        None => match first_tip(tree, node) {
+            Some(tip) if held > 1 => {
+                format!("{} +{} more", tip, group_thousands((held - 1) as u64))
+            }
+            Some(tip) => tip.to_string(),
+            None => format!("clade ({})", tip_count(held)),
+        },
     }
 }
 

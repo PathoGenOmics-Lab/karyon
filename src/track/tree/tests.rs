@@ -11,6 +11,150 @@ fn region() -> Region {
 }
 
 #[test]
+fn a_row_cap_collapses_until_the_tree_fits_and_keeps_every_tip() {
+    // The point of collapsing rather than cutting the list: a pileup that
+    // meets its cap counts the reads it left out, and a tree cannot, because
+    // a tip is not interchangeable with the tip below it.
+    let tree = balanced(64);
+    let rows = |cap: Option<usize>| {
+        let svg = Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).max_rows(cap))
+            .to_svg();
+        let mut drawn = 0usize;
+        let mut held = 0usize;
+        for piece in svg.split("<text").skip(1) {
+            let body = piece
+                .split('>')
+                .nth(1)
+                .unwrap_or("")
+                .split('<')
+                .next()
+                .unwrap_or("");
+            // A collapsed clade says how many tips it stands for, either as
+            // "NAME (12 tips)" when the clade is named or "t0 +11 more" when
+            // it is not and the first tip has to speak for it.
+            let folded = body
+                .rfind(" (")
+                .map(|open| (open + 2, 0usize))
+                .or_else(|| body.rfind(" +").map(|open| (open + 2, 1usize)));
+            if let Some((start, extra)) = folded {
+                if let Some(count) = body[start..]
+                    .split(' ')
+                    .next()
+                    .and_then(|word| word.replace(',', "").parse::<usize>().ok())
+                {
+                    drawn += 1;
+                    held += count + extra;
+                    continue;
+                }
+            }
+            if body.starts_with('t') && body[1..].chars().all(|c| c.is_ascii_digit()) {
+                drawn += 1;
+                held += 1;
+            }
+        }
+        (drawn, held)
+    };
+
+    assert_eq!(
+        rows(None),
+        (64, 64),
+        "no cap draws every tip on its own row"
+    );
+    for cap in [8usize, 16, 32] {
+        let (drawn, held) = rows(Some(cap));
+        assert_eq!(drawn, cap, "a cap of {cap} should draw {cap} rows");
+        assert_eq!(held, 64, "a cap of {cap} lost tips: {held} of 64");
+    }
+}
+
+#[test]
+fn a_row_cap_bounds_a_height_nothing_else_could_bound() {
+    let tree = balanced(512);
+    let height = |cap: Option<usize>| {
+        TreeTrack::new(tree.clone())
+            .max_rows(cap)
+            .height(&Scale::new(
+                &Region::new("phylo", 0, 1).unwrap(),
+                0.0,
+                900.0,
+            ))
+    };
+    // row_height floors at 2.0, so without a cap this is the least tall the
+    // tree can be drawn, and it is still several screens.
+    assert!(
+        height(None) > 1000.0,
+        "512 tips is a tall figure: {}",
+        height(None)
+    );
+    assert!(height(Some(40)) < height(None) / 4.0);
+    assert!(height(Some(40)) < height(Some(200)));
+}
+
+/// A balanced tree of `tips` leaves named t0 upwards, for the cap tests.
+fn balanced(tips: usize) -> Tree {
+    let mut level: Vec<String> = (0..tips).map(|i| format!("t{i}:0.1")).collect();
+    while level.len() > 1 {
+        level = level
+            .chunks(2)
+            .map(|pair| {
+                if pair.len() == 2 {
+                    format!("({},{}):0.1", pair[0], pair[1])
+                } else {
+                    pair[0].clone()
+                }
+            })
+            .collect();
+    }
+    let root = level[0].rsplit_once(':').map(|(head, _)| head).unwrap();
+    Tree::parse_newick(&format!("{root};")).unwrap()
+}
+
+#[test]
+fn a_clade_of_one_is_one_tip() {
+    // Four places in this module counted tips and all four wrote "1 tips".
+    // Every assertion in this file used a clade of two, so none of them
+    // ever saw it.
+    let tree = Tree::parse_newick("((ONLY:0.1):0.2,(A:0.1,B:0.1,C:0.1):0.2,OUT:0.4);").unwrap();
+    let of_size = |want: usize| {
+        (0..tree.nodes().len())
+            .find(|node| !tree.nodes()[*node].is_leaf() && tree.clade_size(*node) == want)
+            .unwrap_or_else(|| panic!("no clade of {want}"))
+    };
+    let svg = |node: usize| {
+        Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).collapse(node))
+            .to_svg()
+    };
+    assert!(
+        svg(of_size(1)).contains("(1 tip)"),
+        "a clade of one is one tip"
+    );
+    assert!(!svg(of_size(1)).contains("1 tips"));
+    assert!(svg(of_size(3)).contains("(3 tips)"));
+}
+
+#[test]
+fn a_tip_name_shrinks_with_the_row_it_sits_on() {
+    // The help for --row-height promises this in as many words, and both
+    // the gutter measurement and the drawing have to agree on the size or
+    // the gutter is held open for text that is no longer that big.
+    let tree = Tree::parse_newick("((one:0.1,two:0.1):0.2,(three:0.1,four:0.1):0.2);").unwrap();
+    let drawn = |row_height: f64| {
+        Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).row_height(row_height))
+            .to_svg()
+    };
+    assert!(
+        drawn(2.0).contains(r#"font-size="2""#),
+        "a two pixel row wants a two pixel name"
+    );
+    assert!(drawn(6.0).contains(r#"font-size="6""#));
+    // And it stops shrinking upwards: a tall row keeps the theme's size.
+    assert!(!drawn(40.0).contains(r#"font-size="40""#));
+}
+
+#[test]
 fn height_follows_the_leaf_count() {
     let scale = Scale::new(&region(), 0.0, 100.0);
     assert_eq!(TreeTrack::new(tree()).height(&scale), 4.0 * 15.0);
@@ -812,7 +956,12 @@ fn circular_collapse_is_a_non_destructive_wedge() {
         .show_region_label(false)
         .push(track)
         .to_svg();
-    assert!(svg.contains("<title>outbreak (2 tips)</title>"), "{svg}");
+    // The triangle names the clade it stands for, ends included, so a reader
+    // sees which part of the tree it is and not only how big.
+    assert!(
+        svg.contains("<title>outbreak (2 tips), A to B</title>"),
+        "{svg}"
+    );
     assert!(svg.contains("fill-opacity=\"0.28\""), "{svg}");
 }
 
@@ -998,4 +1147,457 @@ fn every_node_glyph_and_highlight_projects_without_losing_data() {
         assert!(svg.contains("group; 2 tips"), "{projection:?}: {svg}");
         assert!(!svg.contains("NaN"), "{projection:?}: {svg}");
     }
+}
+
+#[test]
+fn the_tips_beyond_an_edge_are_counted_the_same_whether_walked_or_looked_up() {
+    // The unrooted layout used to answer "how many tips lie that way" by
+    // walking that way and counting, once per edge, which made a large tree
+    // quadratic: 121 ms at 500 rows but 2836 at 8000, while the other two
+    // projections stayed flat. ComponentTerminals answers the same question
+    // from one pass. This is the check that the two answers agree, on every
+    // directed edge, for shapes that break lazy reasoning: a star has one
+    // node adjacent to everything, a caterpillar is as deep as it is wide,
+    // and a hidden clade can leave the visible edges in disconnected pieces,
+    // where a count taken across pieces would be wrong.
+    let walked = |start: usize,
+                  blocked: usize,
+                  adjacency: &[Vec<(usize, f64)>],
+                  terminals: &BTreeSet<usize>| {
+        let mut count = 0usize;
+        let mut stack = vec![(start, blocked)];
+        while let Some((node, parent)) = stack.pop() {
+            count += usize::from(terminals.contains(&node));
+            for (next, _) in &adjacency[node] {
+                if *next != parent {
+                    stack.push((*next, node));
+                }
+            }
+        }
+        count
+    };
+
+    let shapes = [
+        (
+            "star",
+            Tree::parse_newick("(a:0.1,b:0.2,c:0.3,d:0.4,e:0.5,f:0.6);").unwrap(),
+        ),
+        (
+            "caterpillar",
+            Tree::parse_newick(&format!("{}t8:0.1{};", "(t0:0.1,".repeat(8), ")".repeat(8)))
+                .unwrap(),
+        ),
+        ("one tip", Tree::parse_newick("(only:0.5);").unwrap()),
+        ("balanced", balanced(64)),
+    ];
+
+    let mut edges = 0usize;
+    for (name, tree) in shapes {
+        // Nothing collapsed, then every other internal node, then all of
+        // them: collapsing is what hides nodes, and hidden nodes are what can
+        // leave the visible edges in disconnected pieces.
+        let internal: Vec<usize> = (0..tree.nodes().len())
+            .filter(|node| !tree.nodes()[*node].is_leaf())
+            .collect();
+        let folds: [BTreeSet<usize>; 3] = [
+            BTreeSet::new(),
+            internal.iter().copied().step_by(2).collect(),
+            internal.iter().copied().collect(),
+        ];
+        for (fold, collapsed) in folds.into_iter().enumerate() {
+            let cap = fold;
+            let visibility = visible_nodes(&tree, &collapsed);
+            let terminals: BTreeSet<usize> =
+                visible_terminals(&tree, &collapsed).into_iter().collect();
+            let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); tree.nodes().len()];
+            for (node, clade) in tree.nodes().iter().enumerate() {
+                let Some(parent) = clade.parent else { continue };
+                if !visibility[node] || !visibility[parent] {
+                    continue;
+                }
+                adjacency[parent].push((node, 1.0));
+                adjacency[node].push((parent, 1.0));
+            }
+
+            let counts = ComponentTerminals::new(&adjacency, &terminals);
+            for node in 0..adjacency.len() {
+                for (next, _) in &adjacency[node] {
+                    let want = walked(*next, node, &adjacency, &terminals);
+                    assert_eq!(
+                        counts.beyond(*next, node),
+                        want,
+                        "{name} at cap {cap:?}: beyond({next}, {node})"
+                    );
+                    edges += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        edges > 200,
+        "only {edges} edges checked, too few to mean much"
+    );
+}
+
+#[test]
+fn an_unrooted_tree_is_centred_on_its_own_drawing_and_stays_inside_the_band() {
+    // The layout's origin is whichever node the walk started from, and a tree
+    // hangs off that node however its branches happen to fall. Fitting the
+    // drawing by its distance from that origin left it off centre and small:
+    // measured against the binary built before the fix, a two hundred tip tree
+    // sat 47.8 px off the middle of its band and its branches spanned 454 px
+    // of an 866 px band, and a tree with one long branch sat 82.3 px off and
+    // spanned 74 px of 566. The same two are now 0.0 px off and 692 px, and
+    // 5.8 px off and 174 px. Neither ran outside the clip; an earlier note
+    // here said they did, which came from measuring the scale bar, a rule
+    // drawn the full width of the figure, as though it were a branch.
+    // One long branch, so the drawing is lopsided while the walk still starts
+    // from the middle of the chain: the starting node is picked by how many
+    // tips lie each way, which a long branch does not change, so the origin
+    // and the middle of the picture are in different places.
+    let caterpillar = Tree::parse_newick(&format!(
+        "{}t24:40.0{};",
+        "(t0:0.4,".repeat(24),
+        ")".repeat(24)
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .width(600.0)
+        .show_region_label(false)
+        .push(TreeTrack::new(caterpillar).unrooted())
+        .to_svg();
+
+    let numbers = |tag: &str| {
+        svg.split(tag)
+            .skip(1)
+            .filter_map(|piece| piece.split('"').next()?.parse::<f64>().ok())
+            .collect::<Vec<_>>()
+    };
+    let xs: Vec<f64> = numbers("x1=\"")
+        .into_iter()
+        .chain(numbers("x2=\""))
+        .collect();
+    let ys: Vec<f64> = numbers("y1=\"")
+        .into_iter()
+        .chain(numbers("y2=\""))
+        .collect();
+    assert!(
+        xs.len() > 40,
+        "too few branches to mean anything: {}",
+        xs.len()
+    );
+
+    let rect = svg
+        .split("<clipPath")
+        .nth(1)
+        .and_then(|piece| piece.split("<rect ").nth(1))
+        .expect("the track is clipped");
+    let of = |name: &str| {
+        rect.split(&format!("{name}=\""))
+            .nth(1)
+            .and_then(|piece| piece.split('"').next())
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("the clip carries this")
+    };
+    let (left, top) = (of("x"), of("y"));
+    let (right, bottom) = (left + of("width"), top + of("height"));
+
+    let (x0, x1) = (
+        xs.iter().copied().fold(f64::MAX, f64::min),
+        xs.iter().copied().fold(f64::MIN, f64::max),
+    );
+    let (y0, y1) = (
+        ys.iter().copied().fold(f64::MAX, f64::min),
+        ys.iter().copied().fold(f64::MIN, f64::max),
+    );
+    assert!(
+        x0 >= left - 0.5 && x1 <= right + 0.5 && y0 >= top - 0.5 && y1 <= bottom + 0.5,
+        "the drawing runs outside its band: x {x0}..{x1} and y {y0}..{y1} in {left}..{right} by {top}..{bottom}"
+    );
+    // Centred within a pixel, not merely inside.
+    let slack = 1.0;
+    assert!(
+        ((x0 + x1) / 2.0 - (left + right) / 2.0).abs() < slack
+            && ((y0 + y1) / 2.0 - (top + bottom) / 2.0).abs() < slack,
+        "the drawing is off centre: middle ({}, {}) against band middle ({}, {})",
+        (x0 + x1) / 2.0,
+        (y0 + y1) / 2.0,
+        (left + right) / 2.0,
+        (top + bottom) / 2.0
+    );
+}
+
+#[test]
+fn an_unrooted_tree_moves_its_names_to_a_ring_only_once_they_would_collide() {
+    // Measured on forty five trees of eight to forty tips: with the names at
+    // the tips, every figure that really had two names touching had its
+    // closest pair under eight tenths of a body, so that is where the drawing
+    // gives up on tip names and gathers them onto a circle with a leader each.
+    let leaders = |tips: usize| {
+        let svg = Figure::new(region())
+            .width(700.0)
+            .show_region_label(false)
+            .push(TreeTrack::new(balanced(tips)).unrooted())
+            .to_svg();
+        svg.matches("stroke-width=\"0.8\"").count()
+    };
+    assert_eq!(leaders(6), 0, "six names fit at their own tips");
+    assert!(
+        leaders(128) >= 128,
+        "a hundred and twenty eight names cannot fit at their tips and must be gathered"
+    );
+}
+
+#[test]
+fn folding_ranks_clades_by_the_same_size_the_tree_would_report() {
+    // Folding takes the smallest clade first, and it used to ask the tree for
+    // each clade's size from inside the sort. That call collects the whole
+    // subtree into a vector to count the leaves in it, so ranking n clades is
+    // n traversals and a sort asks for a key more than once each: a hundred
+    // thousand tip tree took 785 ms to reach sixty rows, against 69 ms to draw
+    // all hundred thousand with no cap at all. The sizes now come off the walk
+    // that is already being made, and these are the folds that ranking picks.
+    // On a balanced sixty four they are exact: four rows is the four sixteens,
+    // and nothing else adds up to it smallest first.
+    let folds = |cap: usize| {
+        let svg = Figure::new(region())
+            .push(TreeTrack::new(balanced(64)).max_rows(Some(cap)))
+            .to_svg();
+        let mut folded: Vec<usize> = svg
+            .split("<text")
+            .skip(1)
+            .filter_map(|piece| {
+                let body = piece.split('>').nth(1)?.split('<').next()?;
+                let at = body.rfind(" +")?;
+                body[at + 2..]
+                    .split(' ')
+                    .next()?
+                    .parse::<usize>()
+                    .ok()
+                    .map(|more| more + 1)
+            })
+            .collect();
+        folded.sort_unstable();
+        folded
+    };
+    assert_eq!(folds(4), vec![16, 16, 16, 16]);
+    assert_eq!(folds(9), vec![4, 4, 8, 8, 8, 8, 8, 8, 8]);
+    assert_eq!(folds(31), [vec![2; 30], vec![4]].concat());
+    // Whatever it folds, no tip is lost and the cap is met exactly.
+    for cap in [4usize, 9, 31] {
+        let folded = folds(cap);
+        let saved: usize = folded.iter().map(|size| size - 1).sum();
+        assert_eq!(64 - saved, cap, "a cap of {cap} did not land on {cap} rows");
+    }
+}
+
+#[test]
+fn a_folded_triangle_names_the_clade_it_stands_for() {
+    // A tooltip that said "clade (128 tips)" told a reader how big the
+    // triangle is and nothing about which part of the tree it is. The two tips
+    // at its ends name it instead: the tips under a node are a run, so the
+    // first and the last of them pick out one clade and no other, which is
+    // also an address anything driving the program can hand back to open it.
+    let tree = balanced(64);
+    let svg = Figure::new(region())
+        .push(TreeTrack::new(tree.clone()).max_rows(Some(4)))
+        .to_svg();
+    let titles: Vec<&str> = svg
+        .split("<title>")
+        .skip(1)
+        .filter_map(|piece| piece.split("</title>").next())
+        .filter(|title| title.contains(" to "))
+        .collect();
+    assert_eq!(titles.len(), 4, "four folds, four addresses: {svg}");
+    assert_eq!(
+        titles[0], "clade (16 tips), t0 to t15",
+        "the first triangle holds the first sixteen tips"
+    );
+    assert_eq!(titles[3], "clade (16 tips), t48 to t63");
+
+    // And a one tip fold has nothing to span, so it says its size alone.
+    let pair = Tree::parse_newick("((a:0.1,b:0.1):0.1,c:0.1);").unwrap();
+    let one = Figure::new(region())
+        .push(TreeTrack::new(pair).max_rows(Some(2)))
+        .to_svg();
+    assert!(
+        one.contains("<title>clade (2 tips), a to b</title>"),
+        "{one}"
+    );
+}
+
+#[test]
+fn the_tree_viewer_can_read_the_address_a_triangle_prints() {
+    // The viewer opens a folded clade by reading the pair of tips out of its
+    // tooltip and handing them back as --focus. That is one fact written in
+    // two places, so both are checked here: the pattern the page matches with,
+    // and a tooltip the program really produced taken apart the same way.
+    let viewer = include_str!("../../../docs/assets/tree-viewer.js");
+    assert!(
+        viewer.contains(r"var SPAN = /^(.*) \((.+)\), (.+) to (.+)$/;"),
+        "the viewer's pattern has changed; check it still reads what a triangle prints"
+    );
+
+    let svg = Figure::new(region())
+        .push(TreeTrack::new(balanced(32)).max_rows(Some(4)))
+        .to_svg();
+    let title = svg
+        .split("<title>")
+        .skip(1)
+        .filter_map(|piece| piece.split("</title>").next())
+        .find(|title| title.contains(" to "))
+        .expect("a folded tree has a triangle");
+
+    // The same four pieces the page takes, taken by hand: everything up to the
+    // bracket, what is in it, and the two names after the comma.
+    let (label, rest) = title.split_once(" (").expect("a bracket");
+    let (held, span) = rest.split_once("), ").expect("a close and a comma");
+    let (first, last) = span.split_once(" to ").expect("two names");
+    assert_eq!(label, "clade");
+    assert_eq!(held, "8 tips");
+    assert_eq!((first, last), ("t0", "t7"));
+
+    // And what the page builds from them is a command the parser accepts.
+    let line = format!("tree:1-1 --tree t.nwk --focus {first},{last}");
+    let words: Vec<String> = line.split_whitespace().map(String::from).collect();
+    match crate::cli::args::parse(&words).expect("the viewer's command parses") {
+        crate::cli::args::Request::Draw(invocation) => assert_eq!(
+            invocation.tracks[0].focus,
+            Some(vec![first.to_string(), last.to_string()])
+        ),
+        other => panic!("expected a figure, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_round_tree_is_as_tall_as_the_band_it_is_given_is_wide() {
+    // The disc is drawn into the shorter of the band's two sides, so the height
+    // reserved for it has to come from the same number the drawing gets. It
+    // used to come from the figure's inner right edge instead, which never
+    // moves: the height stayed put while the band narrowed under it, and the
+    // disc shrank inside a reservation it no longer filled. Two hundred tips at
+    // 900 px kept a height of 905.515 px while the disc went from radius 339.40
+    // to 283.40 with nothing changed but the length of this track's own gutter
+    // label, closing the gap between names from 10.66 px to 8.90 against an
+    // 11 px body.
+    let band = |label: &str| {
+        let svg = Figure::new(region())
+            .width(900.0)
+            .show_region_label(false)
+            .push(TreeTrack::new(balanced(400)).circular().label(label))
+            .to_svg();
+        let rect = svg
+            .split("<clipPath")
+            .nth(1)
+            .and_then(|piece| piece.split("<rect ").nth(1))
+            .expect("the track is clipped");
+        let of = |name: &str| {
+            rect.split(&format!("{name}=\""))
+                .nth(1)
+                .and_then(|piece| piece.split('"').next())
+                .and_then(|value| value.parse::<f64>().ok())
+                .expect("the clip carries this")
+        };
+        (of("width"), of("height"))
+    };
+
+    // Square, because the disc wants more room than the band has and takes all
+    // of it in both directions.
+    for label in ["t", "a rather longer name for this track"] {
+        let (wide, tall) = band(label);
+        assert!(
+            (wide - tall).abs() < 0.01,
+            "{label:?}: the band is {wide} by {tall}, so the disc does not fill what was reserved"
+        );
+    }
+
+    // And the band really does move with the label, or the check above would
+    // be measuring one case twice.
+    let (short, _) = band("t");
+    let (long, _) = band("a rather longer name for this track");
+    assert!(
+        long < short - 50.0,
+        "a longer gutter label should leave a narrower band: {short} then {long}"
+    );
+}
+
+#[test]
+fn a_folded_clade_is_drawn_in_the_colour_its_value_earns() {
+    // A cell with a value and no colour to draw it in is an empty outline, and
+    // an empty outline is how this figure says it knows nothing. The colours
+    // come from a domain built by walking the drawn nodes, and a folded row's
+    // value belongs to none of them: it is what its tips agree on. So the
+    // domain is fed the row values too, or forty rows of lineage come out as
+    // forty empty outlines with forty tooltips that each name a lineage.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&group=one]:0.1,b[&group=one]:0.1):0.1,",
+        "(c[&group=two]:0.1,d[&group=two]:0.1):0.1);"
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(
+            TreeTrack::new(tree)
+                .max_rows(Some(2))
+                .trait_categorical("group"),
+        )
+        .to_svg();
+
+    // Both rows are folded, both clades agree, and the two values are
+    // different, so two cells are filled and they are not the same colour.
+    let filled: Vec<&str> = svg
+        .split("<rect")
+        .skip(1)
+        .filter_map(|piece| piece.split("fill=\"").nth(1)?.split('"').next())
+        .filter(|fill| fill.starts_with('#') && *fill != "#ffffff")
+        .collect();
+    assert_eq!(filled.len(), 2, "one filled cell per folded row: {svg}");
+    assert_ne!(
+        filled[0], filled[1],
+        "two clades that agree on different values are two colours: {svg}"
+    );
+    assert!(svg.contains("a +1 more; group one"), "{svg}");
+    assert!(svg.contains("c +1 more; group two"), "{svg}");
+}
+
+#[test]
+fn a_clade_whose_tips_agree_is_coloured_as_that_clade() {
+    // Colouring by an annotation keyed on sample names reaches the tips and
+    // stops there, because a branch above them carries no sample's value: a
+    // two hundred tip tree coloured by lineage had its two hundred terminal
+    // branches in six colours and all three hundred and ninety seven internal
+    // ones left plain, which says the clades are of unknown lineage when every
+    // tip in them says otherwise. A branch now takes the value its descendants
+    // agree on, and a branch above two lineages stays plain, which is true.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&group=one]:0.1,b[&group=one]:0.1):0.1,",
+        "(c[&group=two]:0.1,d[&group=two]:0.1):0.1);"
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(TreeTrack::new(tree).color_by("group"))
+        .to_svg();
+
+    let strokes: Vec<&str> = svg
+        .split("<line")
+        .skip(1)
+        .filter_map(|piece| piece.split("stroke=\"").nth(1)?.split('"').next())
+        .filter(|stroke| stroke.starts_with('#'))
+        .collect();
+    let coloured: Vec<&&str> = strokes
+        .iter()
+        .filter(|stroke| **stroke != "#1b1f23" && **stroke != "#d7dce2")
+        .collect();
+    assert!(
+        coloured.len() >= 6,
+        "each pair and the branch holding it takes a colour: {strokes:?}"
+    );
+    let hues: std::collections::BTreeSet<&&str> = coloured.into_iter().collect();
+    assert_eq!(hues.len(), 2, "two groups, two colours: {svg}");
+    // And the root, which holds both groups, is not either of them.
+    assert!(
+        strokes.contains(&"#1b1f23"),
+        "the branch above two groups stays plain: {svg}"
+    );
 }

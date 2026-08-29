@@ -254,6 +254,22 @@ pub trait Track {
         0.0
     }
 
+    /// Whether this track is drawn against the shared coordinate axis.
+    ///
+    /// Nearly every track is, which is what makes a figure a figure: the ruler
+    /// along the bottom measures the window, and each track lays its data on
+    /// that same window. So the default is yes, and a track that is not has to
+    /// say so.
+    ///
+    /// A phylogeny is not. Its x is a branch length or a depth in the tree, and
+    /// the window it is handed exists only because a figure needs one, so the
+    /// ruler under it was measuring nothing: `tree:1-1` drew a rule the width
+    /// of the figure with a single tick labelled `1`. A plot appends its axis
+    /// only where something is measured against it.
+    fn on_coordinates(&self) -> bool {
+        true
+    }
+
     /// Draws the track inside `ctx.band`.
     fn draw(&self, ctx: &mut DrawContext<'_>);
 }

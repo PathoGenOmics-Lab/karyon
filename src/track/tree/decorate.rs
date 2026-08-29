@@ -19,7 +19,7 @@ pub(super) fn highlight_title(tree: &Tree, highlight: &CladeHighlight) -> String
         .as_deref()
         .or_else(|| tree.nodes()[highlight.node].name.as_deref())
         .unwrap_or("clade");
-    format!("{name}; {} tips", tree.clade_size(highlight.node))
+    format!("{name}; {}", tip_count(tree.clade_size(highlight.node)))
 }
 
 pub(super) fn highlight_color(highlight: &CladeHighlight, index: usize, theme: &Theme) -> String {

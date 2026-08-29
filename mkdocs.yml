@@ -164,6 +164,7 @@ extra:
 # through the catalogue ends at.
 nav:
   - Home: index.md
+  - Tree viewer: tree.md
   - Playground: playground.md
   - Plots:
       - Overview: plots/index.md

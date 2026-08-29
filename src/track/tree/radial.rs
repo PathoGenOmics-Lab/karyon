@@ -179,7 +179,6 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         ctx.theme,
         track.line_width,
     );
-    let styled_colors: Vec<String> = styles.iter().map(|style| style.color.clone()).collect();
 
     draw_radial_clade_highlights(track, ctx, &scene, &geometry);
     if !track.homoplasy_layers.is_empty() {
@@ -223,7 +222,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
             draw_root_marker(ctx, x, y);
         }
     }
-    draw_radial_collapsed(track, ctx, &scene, &geometry, &styled_colors);
+    draw_radial_collapsed(track, ctx, &scene, &geometry, &styles);
     draw_trait_rings(track, ctx, &scene, &geometry);
     draw_radial_labels(track, ctx, &scene, &geometry);
     draw_trait_ring_headings(track, ctx);
@@ -265,8 +264,8 @@ pub(super) fn draw_radial_branches(
     ctx: &mut DrawContext<'_>,
     scene: &TreeScene,
     geometry: &RadialGeometry,
-    styles: &[BranchStyle],
-    colors: &[String],
+    styles: &BranchStyles<'_>,
+    colors: &PerNode<String>,
 ) {
     for placement in scene.placements.iter().flatten() {
         let node = &track.tree.nodes()[placement.node];
@@ -294,7 +293,7 @@ pub(super) fn draw_radial_branches(
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
-        let style = &styles[placement.node];
+        let style = styles.get(placement.node);
         ctx.svg
             .line_pattern(x0, y0, x1, y1, &style.color, style.width, style.pattern);
         if title.is_some() {
@@ -368,7 +367,7 @@ pub(super) fn draw_radial_branches(
             let connector = connector_style(
                 track.dnds.as_ref(),
                 ctx.theme,
-                &colors[placement.node],
+                colors.get(placement.node),
                 track.line_width,
             );
             ctx.svg.path_stroked_pattern(
@@ -392,7 +391,7 @@ pub(super) fn draw_radial_branches(
                 x,
                 y,
                 support,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 track.support_style,
             );
         } else if track.show_nodes {
@@ -400,7 +399,7 @@ pub(super) fn draw_radial_branches(
                 x,
                 y,
                 ctx.theme.tokens.marker_radius * 0.65,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             );
@@ -526,7 +525,7 @@ pub(super) fn draw_radial_collapsed(
     ctx: &mut DrawContext<'_>,
     scene: &TreeScene,
     geometry: &RadialGeometry,
-    colors: &[String],
+    styles: &BranchStyles<'_>,
 ) {
     for (row, node) in scene.terminals.iter().enumerate() {
         if track.tree.nodes()[*node].is_leaf() {
@@ -564,13 +563,9 @@ pub(super) fn draw_radial_collapsed(
             num(right_x),
             num(right_y)
         );
-        let title = format!(
-            "{} ({} tips)",
-            track.tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-            track.tree.clade_size(*node)
-        );
+        let title = collapsed_title(&track.tree, *node);
         ctx.svg.begin_titled(&title);
-        ctx.svg.path(&d, &colors[*node], 0.28);
+        ctx.svg.path(&d, &styles.get(*node).color, 0.28);
         ctx.svg.end_group();
     }
 }
@@ -698,11 +693,23 @@ pub(super) fn draw_trait_rings(
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
             .iter()
-            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
             .collect();
-        let domain = TraitDomain::new(scene.placements.iter().flatten().filter_map(|placement| {
-            inherited_annotation(&track.tree, placement.node, &column.key)
-        }));
+        // Chained with the values the rows are drawn with, so a folded clade
+        // that agrees on a value has a colour for it. See the note in
+        // rectangular.rs.
+        let domain = TraitDomain::new(
+            scene
+                .placements
+                .iter()
+                .flatten()
+                .filter_map(|placement| {
+                    inherited_annotation(&track.tree, placement.node, &column.key)
+                })
+                .chain(scene.terminals.iter().filter_map(|node| {
+                    row_annotation(&track.tree, *node, &column.key, &track.collapsed)
+                })),
+        );
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };

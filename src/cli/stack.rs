@@ -30,7 +30,7 @@ use crate::{
     TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec};
+use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
 use crate::read;
 use crate::track::traits::Traits;
 
@@ -278,7 +278,27 @@ impl std::error::Error for BuildError {}
 /// by [`crate::cli::args::parse`], so everything here is about the data.
 pub fn build(
     invocation: &Invocation,
+    open: impl FnMut(&Source) -> io::Result<String>,
+) -> Result<String, BuildError> {
+    build_with(invocation, open, |_, _| None)
+}
+
+/// The same, for a caller that has already read one of these trees.
+///
+/// `parsed` is offered the name and the text of every phylogeny before it is
+/// read, and may answer with one it made earlier. A shell never can: it runs
+/// once and reads each file once. A page driving the program on every move
+/// does, and the difference is most of the work: reading a million tip tree
+/// takes 361 ms of a 578 ms figure in a browser, where folding it and drawing
+/// sixty rows of it take 189 between them.
+///
+/// # Errors
+///
+/// The same as [`build`].
+pub fn build_with(
+    invocation: &Invocation,
     mut open: impl FnMut(&Source) -> io::Result<String>,
+    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
     let region = &invocation.region;
     let mut plot = Plot::over(region.clone());
@@ -312,7 +332,7 @@ pub fn build(
             plot = axis.done();
             continue;
         }
-        plot = plot.add_boxed(track(spec, region, &mut open)?);
+        plot = plot.add_boxed(track(spec, region, &mut open, &mut parsed)?);
     }
     Ok(plot.to_svg())
 }
@@ -503,6 +523,7 @@ fn track(
     spec: &TrackSpec,
     region: &Region,
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<Box<dyn Track>, BuildError> {
     let (text, path) = slurp(spec, open)?;
     let name = spec.kind.flag();
@@ -710,12 +731,132 @@ fn track(
             Box::new(named(track, label, ManhattanTrack::label))
         }
         Kind::Tree => {
-            let tree = Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                flag: "--tree",
-                path: path.clone(),
-                cause,
-            })?;
+            let tree = match parsed(&path, text.trim()) {
+                Some(tree) => tree,
+                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                    flag: "--tree",
+                    path: path.clone(),
+                    cause,
+                })?,
+            };
+            let tree = match &spec.focus {
+                None => tree,
+                Some(names) => {
+                    let mut found = Vec::with_capacity(names.len());
+                    for name in names {
+                        let Some(node) = tree.node_named(name) else {
+                            // Every tip and every labelled clade, so a
+                            // misspelling can be seen against what is there
+                            // rather than guessed at. Capped, because a
+                            // million tip tree would otherwise answer a typo
+                            // with a million names.
+                            let mut held: Vec<String> =
+                                tree.leaf_names().into_iter().take(24).collect();
+                            if tree.leaf_count() > held.len() {
+                                held.push(format!("and {} more", tree.leaf_count() - held.len()));
+                            }
+                            return Err(BuildError::Unnamed {
+                                track: "tree",
+                                path: path.clone(),
+                                what: "tip or clade",
+                                wanted: name.clone(),
+                                held,
+                            });
+                        };
+                        found.push(node);
+                    }
+                    // One name is that clade, or the clade a tip sits in,
+                    // since a tip on its own is not a subtree anyone can read.
+                    // Two names are the smallest clade holding both, which is
+                    // how a folded triangle names itself in its tooltip.
+                    let at = if found.len() == 1 {
+                        let node = found[0];
+                        if tree.nodes()[node].is_leaf() {
+                            tree.nodes()[node].parent.unwrap_or(node)
+                        } else {
+                            node
+                        }
+                    } else {
+                        tree.mrca(&found).unwrap_or_else(|| tree.root())
+                    };
+                    tree.subtree(at).unwrap_or(tree)
+                }
+            };
+            // A sheet has to be joined against the tree that will be drawn,
+            // which is the one `--focus` left behind and not the one the file
+            // held, or the join would be checked against tips this figure does
+            // not have.
+            let mut tree = tree;
+            let leaves = tree.leaf_names();
+            let columns = match strip(spec, sheet.as_ref(), &leaves)? {
+                None => Vec::new(),
+                Some(held) => {
+                    // Every other track hands the sheet to the track and the
+                    // track draws from it. A tree reads its strips out of its
+                    // own annotations instead, walking up for a value a tip
+                    // does not carry, so the sheet is copied onto the tips it
+                    // names and the drawing needs no new path. A tip the sheet
+                    // says nothing about keeps whatever the file gave it.
+                    for name in &leaves {
+                        let (Some(values), Some(node)) = (held.values(name), tree.node_named(name))
+                        else {
+                            continue;
+                        };
+                        let values: Vec<(String, crate::AnnotationValue)> = values
+                            .iter()
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect();
+                        if let Some(into) = tree.annotations_mut(node) {
+                            for (key, value) in values {
+                                into.insert(key, value);
+                            }
+                        }
+                    }
+                    // Widened to fit their own headings. `Traits::spread`
+                    // gives every column 14 px, which is right for the tracks
+                    // that write the heading up the side of the strip, and a
+                    // tree writes it across the top: at 14 px "lineage" came
+                    // out as "li…" and "country" as "c…". The heading is drawn
+                    // two points under the body size, and the widest a name is
+                    // allowed to make a column is capped so that a sheet with
+                    // a long column name cannot eat the tree it sits beside.
+                    held.columns()
+                        .iter()
+                        .map(|column| {
+                            let heading = crate::svg::text_width(column.heading(), 9.0) + 8.0;
+                            column.clone().width(heading.clamp(14.0, 72.0))
+                        })
+                        .collect()
+                }
+            };
+
             let mut track = TreeTrack::new(tree);
+            for column in columns {
+                track = track.trait_column(column);
+            }
+            if let Some(projection) = spec.projection {
+                track = track.projection(projection);
+            }
+            if let Some(key) = &spec.color_by {
+                track = track.color_by(key.clone());
+            }
+            if let Some(style) = spec.support_style {
+                track = track.support_style(match style {
+                    TreeSupport::None => crate::SupportStyle::None,
+                    TreeSupport::Symbols => crate::SupportStyle::Symbols,
+                    TreeSupport::Labels => crate::SupportStyle::Labels,
+                    TreeSupport::Both => crate::SupportStyle::SymbolsAndLabels,
+                });
+            }
+            if let Some(minimum) = spec.threshold {
+                track = track.support_threshold(minimum);
+            }
+            if spec.scale_bar {
+                track = track.scale_bar();
+            }
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }
@@ -733,12 +874,13 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (other, right_path) = fetch(name, source, open)?;
-            let parse = |text: &str, flag, path: &str| {
-                Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+            let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
+                Some(tree) => Ok(tree),
+                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
                     flag,
                     path: path.to_string(),
                     cause,
-                })
+                }),
             };
             let left = parse(&text, "--tanglegram", &path)?;
             let right = parse(&other, "--against", &right_path)?;
@@ -952,11 +1094,14 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (newick, tree_path) = fetch(name, source, open)?;
-            let tree = Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
-                flag: "--with-tree",
-                path: tree_path,
-                cause,
-            })?;
+            let tree = match parsed(&tree_path, newick.trim()) {
+                Some(tree) => tree,
+                None => Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
+                    flag: "--with-tree",
+                    path: tree_path,
+                    cause,
+                })?,
+            };
 
             let found = wrap(name, &path, read::clade::blocks(&text, region))?;
             if found.records == 0 {
@@ -1944,6 +2089,16 @@ B\t0\t400\tg2\t0\t+
     }
 
     /// One region, one track flag and one path, which may hold spaces.
+    /// A whole command line, for the tests that need more than a track and a
+    /// file.
+    fn sheeted(line: &str) -> Invocation {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        }
+    }
+
     fn over(locus: &str, flag: &str, path: &str) -> Invocation {
         let args = vec![locus.to_string(), flag.to_string(), path.to_string()];
         match parse(&args).unwrap() {
@@ -2153,6 +2308,104 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         assert_eq!(
             error.to_string(),
             format!("--tree {path}: invalid Newick tree: unbalanced parentheses")
+        );
+    }
+    /// A page that runs the program on every move reads the same file every
+    /// time, and reading it is most of the work. `build_with` lets such a
+    /// caller answer with a tree it made earlier, and this is the contract:
+    /// the text is offered before it is read, an answer is taken as given, and
+    /// no answer means the file is read as usual.
+    #[test]
+    fn a_caller_may_answer_with_a_tree_it_read_earlier() {
+        const ON_DISK: &str = "((ondisk_a:0.1,ondisk_b:0.1):0.1,ondisk_c:0.1);";
+        let held = Tree::parse_newick("((kept_a:0.1,kept_b:0.1):0.1,kept_c:0.1);").unwrap();
+
+        // Offered, and taken.
+        let mut seen = Vec::new();
+        let svg = build_with(
+            &over("tree:1-1", "--tree", "t.nwk"),
+            |_| Ok(ON_DISK.to_string()),
+            |name, text| {
+                seen.push((name.to_string(), text.to_string()));
+                Some(held.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(seen.len(), 1, "offered once, for the one tree");
+        assert_eq!(seen[0].0, "t.nwk", "offered under the name it was asked by");
+        assert_eq!(seen[0].1, ON_DISK, "offered the text, trimmed");
+        assert!(svg.contains("kept_a"), "the answer was drawn: {svg}");
+        assert!(!svg.contains("ondisk_a"), "and the file was not: {svg}");
+
+        // Declined, and the file is read.
+        let svg = build_with(
+            &over("tree:1-1", "--tree", "t.nwk"),
+            |_| Ok(ON_DISK.to_string()),
+            |_, _| None,
+        )
+        .unwrap();
+        assert!(svg.contains("ondisk_a"), "{svg}");
+
+        // And `build` is the same thing with nothing held, so a shell is not
+        // paying for a viewer's convenience.
+        let plain = build(&over("tree:1-1", "--tree", "t.nwk"), |_| {
+            Ok(ON_DISK.to_string())
+        })
+        .unwrap();
+        assert_eq!(plain, svg);
+    }
+    /// A sheet reaches a tree by a different road from every other track. The
+    /// others hand the sheet to the track and the track draws out of it; a tree
+    /// reads its strips out of its own annotations, so the sheet is copied onto
+    /// the tips it names. This is the check that the road arrives.
+    #[test]
+    fn a_sheet_of_metadata_becomes_strips_beside_a_tree() {
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        const SHEET: &str = "name\tlineage\tdepth\na\tL4\t30\nb\tL4\t50\nc\tL2\t70\nd\tL1\t90\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".nwk") => TREE.to_string(),
+                _ => SHEET.to_string(),
+            })
+        };
+
+        let svg = build(&sheeted("tree:1-1 --tree t.nwk --traits s.tsv"), open).unwrap();
+        // Every tip gets its own value, and the heading is written out rather
+        // than cut to one letter, which is what a fourteen pixel column did.
+        assert!(svg.contains("a; lineage L4"), "{svg}");
+        assert!(svg.contains("d; depth 90"), "{svg}");
+        assert!(
+            svg.contains(">lineage</text>"),
+            "the heading is legible: {svg}"
+        );
+    }
+
+    /// A folded row is an internal node and carries nobody's metadata, so the
+    /// strip beside it can only say what its tips agree on. Both directions,
+    /// because saying nothing and picking one of two are the two ways to be
+    /// wrong here.
+    #[test]
+    fn a_folded_clade_says_what_its_tips_agree_on_and_nothing_when_they_differ() {
+        // (a, b) are both L4 and agree; (c, d) are L2 and L1 and do not.
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        const SHEET: &str = "name\tlineage\na\tL4\nb\tL4\nc\tL2\nd\tL1\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".nwk") => TREE.to_string(),
+                _ => SHEET.to_string(),
+            })
+        };
+
+        let invocation = sheeted("tree:1-1 --tree t.nwk --traits s.tsv --max-rows 2");
+        let svg = build(&invocation, open).unwrap();
+
+        assert!(
+            svg.contains("a +1 more; lineage L4"),
+            "a clade of two L4 tips is an L4 clade: {svg}"
+        );
+        assert!(
+            svg.contains("c +1 more; lineage missing"),
+            "a clade holding L2 and L1 is neither of them: {svg}"
         );
     }
 }

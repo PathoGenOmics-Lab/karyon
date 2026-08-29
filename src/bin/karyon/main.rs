@@ -37,7 +37,9 @@ USAGE
 The region comes first, as a 1-based inclusive locus string. Each track flag
 starts a track and the flags after it describe that one, so the order of the
 flags is the order of the stack. A coordinate ruler is added at the bottom
-unless --axis puts one elsewhere or --no-axis leaves it out. Any track file
+unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
+in the figure is laid on the coordinates: a phylogeny is not, so a stack of
+trees gets no ruler measuring a window it is not drawn in. Any track file
 may be - for standard input, and one track may take it.
 
 TRACKS
@@ -109,7 +111,10 @@ TRACK OPTIONS, each describing the track before it
     --sample <NAME>      which sample of a segment table holding several
     --traits <FILE>      a sample sheet drawn as strips beside the rows, for
                          the tracks that have rows: a header, names in column
-                         one, one column per thing known about them
+                         one, one column per thing known about them. A tree
+                         takes one too, as strips beside its tips or as rings
+                         around them, and a folded clade shows what its tips
+                         agree on and nothing where they differ
     --columns <A,B,C>    which columns of that sheet to draw, in this order;
                          every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows
@@ -117,7 +122,31 @@ TRACK OPTIONS, each describing the track before it
                          the line a scan is read against, in the units the
                          file is in; genome-wide is -log10(5e-8), which is a
                          correction for a million tests and wrong wherever a
-                         million were not run
+                         million were not run. On a phylogeny it is the least
+                         support worth showing, and hides the weaker values
+                         --support-style would otherwise draw
+    --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
+                         A circle sizes itself so its tip labels clear each
+                         other, up to the width of the figure, so a big tree
+                         wants a wider one or fewer rows
+    --color-by <KEY>     colour each branch of a phylogeny by one column of its
+                         --traits sheet, or by an annotation the file already
+                         carries. A clade whose tips all agree takes that
+                         colour too, so a lineage is a coloured clade and not
+                         only a fringe of coloured tips
+    --support-style <HOW>
+                         none, symbols, labels or both, for the support values
+                         a phylogeny carries; support is always in the tooltips
+                         and this is what makes it readable without hovering
+    --scale-bar          a rule in the tree's own branch-length units, which is
+                         not the ruler along the bottom: that one measures the
+                         region, and is left out of a figure holding nothing
+                         but phylogenies
+    --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
+                         by its own label, by a tip inside it, or by two tips
+                         it spans. A folded triangle says the pair it spans in
+                         its tooltip, so what a figure calls a clade is what
+                         opens it
     --compare-to <NAME>  the row every other row is read against, named as its
                          FASTA header names it. An alignment compares against
                          the consensus without it and a variable-site panel
@@ -143,7 +172,11 @@ TRACK OPTIONS, each describing the track before it
                          and a row too short for a name shrinks the name with it
     --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
                          molecule grid is drawn before it stops and counts the
-                         rest; 40 by default, and all lifts it
+                         rest; 40 by default, and all lifts it. A tree takes it
+                         too and answers differently: it collapses the smallest
+                         clades until it fits, so every tip is still on the
+                         figure inside a triangle saying how many it holds, and
+                         it has no cap unless one is asked for
     --no-names           leave out the name written on or beside each thing a
                          track draws, which is not the track's own name in the
                          gutter: that one is --label
@@ -271,6 +304,57 @@ mod tests {
             if let Some(flag) = kind.second_flag() {
                 assert!(HELP.contains(flag), "{flag} is undocumented");
             }
+        }
+    }
+
+    /// Every flag the parser answers to, against the help text and the guide.
+    ///
+    /// The track flags above are taken from a list the parser exports, and the
+    /// modifiers are not: they are match arms, and nothing but this reads them.
+    /// So they are read here, out of the source, and both places that describe
+    /// them are checked against the one place that implements them. Without
+    /// this, `--projection` was added to the program and reached neither the
+    /// help text nor the guide, and nothing said so.
+    #[test]
+    fn the_help_text_and_the_guide_name_every_flag_the_parser_answers_to() {
+        const PARSER: &str = include_str!("../../cli/args.rs");
+        const GUIDE: &str = include_str!("../../../docs/guide/cli.md");
+        // A match arm on a flag, at the indentation the parse loop is written
+        // at, so a flag named in a comment or a message is not mistaken for one
+        // the parser answers to.
+        let mut flags: Vec<String> = Vec::new();
+        for line in PARSER.lines() {
+            let Some(rest) = line.strip_prefix("            \"--") else {
+                continue;
+            };
+            let Some(arms) = rest.split(" =>").next() else {
+                continue;
+            };
+            if arms.len() == rest.len() {
+                continue;
+            }
+            let whole = format!("\"--{arms}");
+            for piece in whole.split(" | ") {
+                let flag = piece.trim().trim_matches('"').to_string();
+                if flag.starts_with("--") && !flags.contains(&flag) {
+                    flags.push(flag);
+                }
+            }
+        }
+        assert!(
+            flags.len() > 40,
+            "only {} flags found; the parse loop has been rewritten and this no longer reads it",
+            flags.len()
+        );
+        for flag in &flags {
+            assert!(
+                HELP.contains(flag.as_str()),
+                "{flag} is not in the help text"
+            );
+            assert!(
+                GUIDE.contains(flag.as_str()),
+                "{flag} is not in docs/guide/cli.md"
+            );
         }
     }
 

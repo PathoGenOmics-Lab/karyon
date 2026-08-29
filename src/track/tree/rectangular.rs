@@ -105,7 +105,7 @@ pub(super) fn draw_tree_scene(
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
-        let style = &styles[placement.node];
+        let style = styles.get(placement.node);
         match branch_geometry {
             BranchGeometry::Curved => ctx.svg.path_stroked_pattern(
                 &rectangular_curve_path(start, end),
@@ -171,7 +171,7 @@ pub(super) fn draw_tree_scene(
             if let Some(title) = &title {
                 ctx.svg.begin_titled(title);
             }
-            let connector = connector_style(dnds, ctx.theme, &colors[placement.node], width);
+            let connector = connector_style(dnds, ctx.theme, colors.get(placement.node), width);
             ctx.svg.line_pattern(
                 x,
                 y_of(top),
@@ -196,7 +196,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 support,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 support_style,
             );
             ctx.svg.end_group();
@@ -205,7 +205,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 ctx.theme.tokens.marker_radius * 0.65,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             );
@@ -232,13 +232,9 @@ pub(super) fn draw_tree_scene(
                 num(far.max(start + 2.0)),
                 num(y + half)
             );
-            let title = format!(
-                "{} ({} tips)",
-                tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-                tree.clade_size(*node)
-            );
+            let title = collapsed_title(tree, *node);
             ctx.svg.begin_titled(&title);
-            ctx.svg.path(&d, &styles[*node].color, 0.28);
+            ctx.svg.path(&d, &styles.get(*node).color, 0.28);
             ctx.svg.end_group();
         }
     }
@@ -274,26 +270,76 @@ fn rectangular_curve_path(start: (f64, f64), end: (f64, f64)) -> String {
     )
 }
 
-pub(super) fn branch_styles(
-    tree: &Tree,
-    colors: &[String],
-    dnds: Option<&DnDsLayer>,
-    theme: &Theme,
+/// One value for every node, where almost every node has the same one.
+///
+/// A million tip tree is two million nodes, and giving each its own `String`
+/// is two million allocations to say the same colour two million times, which
+/// was 130 of the 190 ms such a tree spent drawing sixty rows. The nodes that
+/// differ are the ones the figure was asked to colour, and a figure that
+/// colours every node of a million tip tree has nothing to say either way.
+#[derive(Debug, Clone)]
+pub(super) struct PerNode<T> {
+    common: T,
+    apart: BTreeMap<usize, T>,
+}
+
+impl<T> PerNode<T> {
+    pub(super) fn shared(common: T) -> Self {
+        PerNode {
+            common,
+            apart: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn set(&mut self, node: usize, value: T) {
+        self.apart.insert(node, value);
+    }
+
+    pub(super) fn get(&self, node: usize) -> &T {
+        self.apart.get(&node).unwrap_or(&self.common)
+    }
+}
+
+/// The styles branches are drawn with, worked out as each branch is reached.
+///
+/// Held rather than built because building it meant one `BranchStyle` per node
+/// whether or not the node is drawn, and a folded tree draws a few hundred of
+/// its two million.
+pub(super) struct BranchStyles<'a> {
+    tree: &'a Tree,
+    colors: &'a PerNode<String>,
+    dnds: Option<&'a DnDsLayer>,
+    theme: &'a Theme,
     width: f64,
-) -> Vec<BranchStyle> {
-    (0..tree.nodes().len())
-        .map(|node| match dnds {
-            Some(dnds) => dnds_branch_style(tree, node, dnds, theme, width),
+}
+
+impl BranchStyles<'_> {
+    pub(super) fn get(&self, node: usize) -> BranchStyle {
+        match self.dnds {
+            Some(dnds) => dnds_branch_style(self.tree, node, dnds, self.theme, self.width),
             None => BranchStyle {
-                color: colors
-                    .get(node)
-                    .cloned()
-                    .unwrap_or_else(|| theme.foreground.clone()),
-                width,
+                color: self.colors.get(node).clone(),
+                width: self.width,
                 pattern: LinePattern::Solid,
             },
-        })
-        .collect()
+        }
+    }
+}
+
+pub(super) fn branch_styles<'a>(
+    tree: &'a Tree,
+    colors: &'a PerNode<String>,
+    dnds: Option<&'a DnDsLayer>,
+    theme: &'a Theme,
+    width: f64,
+) -> BranchStyles<'a> {
+    BranchStyles {
+        tree,
+        colors,
+        dnds,
+        theme,
+        width,
+    }
 }
 
 pub(super) fn connector_style(
@@ -398,14 +444,12 @@ pub(super) fn branch_colors(
     key: Option<&str>,
     theme: &Theme,
     default_color: &str,
-) -> Vec<String> {
-    let mut colors = vec![default_color.to_string(); tree.nodes().len()];
+) -> PerNode<String> {
+    let mut colors = PerNode::shared(default_color.to_string());
     let Some(key) = key else {
         return colors;
     };
-    let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
-        .map(|node| inherited_annotation(tree, node, key))
-        .collect();
+    let values = branch_values(tree, key);
     let visible: Vec<usize> = scene
         .placements
         .iter()
@@ -437,7 +481,7 @@ pub(super) fn branch_colors(
                 } else {
                     (value - minimum) / (maximum - minimum)
                 };
-                colors[node] = mix(&theme.muted, &theme.accent, fraction);
+                colors.set(node, mix(&theme.muted, &theme.accent, fraction));
             }
         }
     } else {
@@ -454,7 +498,7 @@ pub(super) fn branch_colors(
             let value = value.to_string();
             let next = categories.len();
             let index = *categories.entry(value).or_insert(next);
-            colors[node] = theme.color(index).to_string();
+            colors.set(node, theme.color(index).to_string());
         }
     }
     colors
@@ -470,6 +514,106 @@ pub(super) fn inherited_annotation<'a>(
             .into_iter()
             .find_map(|ancestor| tree.annotation(ancestor, key))
     })
+}
+
+/// The value every node takes its colour from, worked out in one pass.
+///
+/// A node's own annotation first, then one inherited from an ancestor, which is
+/// how a tree out of BEAST carries a state down a lineage. Failing both, what
+/// its descendants agree on, which is how a sheet keyed by sample name reaches
+/// the branches above the tips: without it a tree coloured by lineage had its
+/// two hundred terminal branches in six colours and all three hundred and
+/// ninety seven internal ones left black, which says the clades are of unknown
+/// lineage when every tip in them says otherwise.
+///
+/// One post-order pass and not a walk per node. Asking each node separately
+/// what its descendants agree on is a traversal per node, which is the shape
+/// this crate has spent a good deal of effort removing.
+pub(super) fn branch_values<'a>(tree: &'a Tree, key: &str) -> Vec<Option<&'a AnnotationValue>> {
+    let nodes = tree.nodes();
+    let mut agreed: Vec<Option<&AnnotationValue>> = vec![None; nodes.len()];
+    let mut settled = vec![false; nodes.len()];
+    for node in postorder_nodes(tree) {
+        if nodes[node].is_leaf() {
+            agreed[node] = tree.annotation(node, key);
+            settled[node] = agreed[node].is_some();
+            continue;
+        }
+        let mut value: Option<&AnnotationValue> = None;
+        let mut uniform = !nodes[node].children.is_empty();
+        for child in &nodes[node].children {
+            if !settled[*child] {
+                uniform = false;
+                break;
+            }
+            match value {
+                None => value = agreed[*child],
+                Some(had) if Some(had) == agreed[*child] => {}
+                Some(_) => {
+                    uniform = false;
+                    break;
+                }
+            }
+        }
+        agreed[node] = if uniform { value } else { None };
+        settled[node] = uniform && value.is_some();
+    }
+    (0..nodes.len())
+        .map(|node| inherited_annotation(tree, node, key).or(agreed[node]))
+        .collect()
+}
+
+/// What a folded clade can honestly show in a metadata strip.
+///
+/// A folded row is an internal node, and an internal node carries no sample's
+/// metadata, so reading it the ordinary way gives nothing: a tree drawn to
+/// sixty rows had every cell of every strip empty, which is what a figure looks
+/// like when it read the wrong file. What it can say is what its tips agree on.
+/// A clade whose samples are all L4 is an L4 clade and the strip says so; a
+/// clade holding two lineages is not either of them and the strip stays empty
+/// rather than picking one.
+///
+/// One tip with nothing recorded is enough to withhold it. A clade cannot be
+/// called uniform on the strength of the members that happen to have been
+/// typed, and a strip that quietly ignored the untyped ones would be claiming
+/// more than the sheet says.
+pub(super) fn agreed_annotation<'a>(
+    tree: &'a Tree,
+    node: usize,
+    key: &str,
+) -> Option<&'a AnnotationValue> {
+    let mut agreed: Option<&AnnotationValue> = None;
+    let mut stack = vec![node];
+    while let Some(at) = stack.pop() {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            let value = inherited_annotation(tree, at, key)?;
+            match agreed {
+                None => agreed = Some(value),
+                Some(had) if had == value => {}
+                Some(_) => return None,
+            }
+            continue;
+        }
+        for child in &clade.children {
+            stack.push(*child);
+        }
+    }
+    agreed
+}
+
+/// The value a drawn row stands for, folded or not.
+pub(super) fn row_annotation<'a>(
+    tree: &'a Tree,
+    node: usize,
+    key: &str,
+    collapsed: &BTreeSet<usize>,
+) -> Option<&'a AnnotationValue> {
+    if collapsed.contains(&node) {
+        agreed_annotation(tree, node, key)
+    } else {
+        inherited_annotation(tree, node, key)
+    }
 }
 
 pub(super) fn branch_title(
@@ -564,12 +708,25 @@ pub(super) fn draw_trait_columns(
         // The domain is every placement and not only the terminals, because a
         // value inherited from an internal node is a value this column has and
         // a level nobody drew still has to keep its colour.
-        let domain =
-            TraitDomain::new(
-                scene.placements.iter().flatten().filter_map(|placement| {
-                    inherited_annotation(tree, placement.node, &column.key)
-                }),
-            );
+        // Every placement, and then every value a row will actually be drawn
+        // with. The first half is why a level nobody drew still keeps its
+        // colour; the second half is because a folded row shows what its tips
+        // agree on, and that value is not attached to any node the walk above
+        // passes, so without it the cell has a value and no colour to draw it
+        // in: forty rows of lineage came out as forty empty outlines.
+        let domain = TraitDomain::new(
+            scene
+                .placements
+                .iter()
+                .flatten()
+                .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
+                .chain(
+                    scene
+                        .terminals
+                        .iter()
+                        .filter_map(|node| row_annotation(tree, *node, &column.key, collapsed)),
+                ),
+        );
         let rows: Vec<TraitRow<'_>> = names
             .iter()
             .zip(&scene.terminals)
@@ -578,7 +735,7 @@ pub(super) fn draw_trait_columns(
                 name,
                 top: area.y + row as f64 * row_pitch + 1.0,
                 height: (row_pitch - 2.0).max(1.0),
-                value: inherited_annotation(tree, *node, &column.key),
+                value: row_annotation(tree, *node, &column.key, collapsed),
             })
             .collect();
         draw_column(ctx, column, &domain, x, Some(area.y - 5.0), &rows);

@@ -851,6 +851,7 @@ pub struct TreeTrack {
     branch_interval_layers: Vec<BranchIntervalLayer>,
     ancestral_state_layers: Vec<AncestralStateLayer>,
     collapsed: BTreeSet<usize>,
+    max_rows: Option<usize>,
     show_nodes: bool,
     show_root: bool,
     support_style: SupportStyle,
@@ -911,7 +912,8 @@ struct RadialLayout {
     sweep_degrees: f64,
     direction: RadialDirection,
     inner_radius: f64,
-    size: f64,
+    /// The diameter asked for, or `None` to work one out from the tips.
+    size: Option<f64>,
 }
 
 impl Default for RadialLayout {
@@ -921,7 +923,7 @@ impl Default for RadialLayout {
             sweep_degrees: 360.0,
             direction: RadialDirection::Outward,
             inner_radius: 0.08,
-            size: 440.0,
+            size: None,
         }
     }
 }
@@ -933,6 +935,12 @@ struct TimeAxis {
     unit: Option<String>,
     show_axis: bool,
 }
+
+/// The disc a radial or unrooted tree is drawn on when nothing asks for a size
+/// and its tips fit. Trees larger than this grow past it; smaller ones stay
+/// here, because the number this replaced was a fixed 440 and a figure that
+/// suddenly shrinks reads as a bug even when the labels still fit.
+const RADIAL_DIAMETER: f64 = 440.0;
 
 impl TreeTrack {
     /// A track drawing `tree`.
@@ -957,6 +965,7 @@ impl TreeTrack {
             branch_interval_layers: Vec::new(),
             ancestral_state_layers: Vec::new(),
             collapsed: BTreeSet::new(),
+            max_rows: None,
             show_nodes: false,
             show_root: false,
             support_style: SupportStyle::None,
@@ -1058,11 +1067,7 @@ impl TreeTrack {
 
     /// Sets the requested height of the circular drawing in pixels.
     pub fn radial_size(mut self, size: f64) -> Self {
-        self.radial.size = if size.is_finite() {
-            size.max(120.0)
-        } else {
-            440.0
-        };
+        self.radial.size = size.is_finite().then(|| size.max(120.0));
         self
     }
 
@@ -1088,6 +1093,7 @@ impl TreeTrack {
     pub fn reroot(mut self, node: usize) -> Self {
         if self.tree.reroot(node) {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1097,6 +1103,7 @@ impl TreeTrack {
         if let Some(node) = self.tree.node_named(name) {
             if self.tree.reroot(node) {
                 self.show_root = true;
+                self.fold_to_fit();
             }
         }
         self
@@ -1121,6 +1128,7 @@ impl TreeTrack {
         }
         if self.tree.reroot_outgroup(&nodes).is_some() {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1131,6 +1139,7 @@ impl TreeTrack {
     pub fn reroot_midpoint(mut self) -> Self {
         if self.tree.reroot_midpoint().is_some() {
             self.show_root = true;
+            self.fold_to_fit();
         }
         self
     }
@@ -1339,6 +1348,123 @@ impl TreeTrack {
         self
     }
 
+    /// Caps how many rows the tree draws, by collapsing clades until it fits.
+    ///
+    /// A phylogeny is the one track here that laid a row per tip and never
+    /// stopped. Sixty thousand tips drew a figure nine hundred thousand pixels
+    /// tall, and there was no way to ask for less: `row_height` floors at two,
+    /// so twenty thousand tips could not be brought under forty thousand
+    /// pixels by any setting.
+    ///
+    /// Nothing is dropped. A pileup that meets its cap stops opening rows and
+    /// counts the reads it left out; a tree cannot, because a tip is not
+    /// interchangeable with the tip below it and cutting the list would cut a
+    /// clade in half. So it collapses instead, and every tip is inside a
+    /// triangle that says how many it holds.
+    ///
+    /// Smallest first, so the shape survives: collapsing a cherry costs one
+    /// row and hides two names, and collapsing near the root costs nothing and
+    /// hides the tree. `None` lifts the cap, which is the default, because a
+    /// tree of three hundred tips is an ordinary figure and capping it by
+    /// default would fold figures nobody asked to fold.
+    pub fn max_rows(mut self, rows: Option<usize>) -> Self {
+        self.max_rows = rows.map(|rows| rows.max(1));
+        self.fold_to_fit();
+        self
+    }
+
+    /// Collapses the smallest clades until the visible terminals fit the cap.
+    ///
+    /// Called again after every rerooting, because rerooting moves the tips
+    /// about and a fold worked out against the old shape would collapse the
+    /// wrong clades.
+    fn fold_to_fit(&mut self) {
+        let Some(cap) = self.max_rows else {
+            return;
+        };
+        let nodes = self.tree.nodes();
+        // How many rows each node contributes as things stand, which is one
+        // for a leaf or an already collapsed clade and the sum of its children
+        // otherwise. Kept as we go, so collapsing a clade whose own children
+        // were folded does not count their rows twice.
+        let order = postorder_nodes(&self.tree);
+        let mut rows = vec![1usize; nodes.len()];
+        // Tips below each node, which is what the clades are ranked by. It
+        // comes off the same walk because asking the tree for it one node at a
+        // time does not: `clade_size` collects the whole subtree into a vector
+        // and counts the leaves in it, so ranking every clade that way is a
+        // full traversal per clade, and the sort asks more than once each. A
+        // hundred thousand tip tree spent 785 ms getting to sixty rows, more
+        // than the 69 ms it took to draw all hundred thousand uncapped.
+        let mut tips = vec![1usize; nodes.len()];
+        for node in &order {
+            if nodes[*node].is_leaf() {
+                continue;
+            }
+            tips[*node] = nodes[*node].children.iter().map(|child| tips[*child]).sum();
+            if self.collapsed.contains(node) {
+                continue;
+            }
+            rows[*node] = nodes[*node].children.iter().map(|child| rows[*child]).sum();
+        }
+        let root = self.tree.root();
+        let mut total = rows[root];
+        if total <= cap {
+            return;
+        }
+
+        // Smallest clade first, and the index breaks a tie, so the same tree
+        // folds the same way every time. Going up in size also means a node's
+        // ancestors are always still open when it is reached, so no collapse
+        // here can sit inside another.
+        let mut candidates: Vec<usize> = (0..nodes.len())
+            .filter(|node| !nodes[*node].is_leaf() && *node != root)
+            .collect();
+        candidates.sort_by_key(|node| (tips[*node], *node));
+
+        // Folds are recorded in a flat vector and only the outermost ones are
+        // kept. Folding smallest first means a clade is often folded and then
+        // swallowed by an ancestor folded later, and those inner folds are
+        // inside something already collapsed, so nothing ever draws them. A
+        // million tip tree made a million of them and spent 131 of its 168 ms
+        // putting them into an ordered set, to keep about sixty that matter.
+        let mut folded = vec![false; nodes.len()];
+        for node in candidates {
+            if total <= cap {
+                break;
+            }
+            if self.collapsed.contains(&node) {
+                continue;
+            }
+            // Smallest first means every child of this clade has already been
+            // through the loop, so its row count is final and this one can be
+            // added up here. The rows a fold saves used to be walked off every
+            // node above it instead, which is the depth of the tree per fold
+            // and was 131 of the 168 ms a million tip tree spent folding.
+            let current: usize = nodes[node].children.iter().map(|child| rows[*child]).sum();
+            rows[node] = current;
+            if current <= 1 {
+                continue;
+            }
+            folded[node] = true;
+            rows[node] = 1;
+            total -= current - 1;
+        }
+
+        // Parents before children, so a fold is kept only when nothing above
+        // it was folded too.
+        let mut inside = vec![false; nodes.len()];
+        for node in order.iter().rev() {
+            let above = nodes[*node].parent.is_some_and(|parent| {
+                inside[parent] || folded[parent] || self.collapsed.contains(&parent)
+            });
+            inside[*node] = above;
+            if folded[*node] && !above {
+                self.collapsed.insert(*node);
+            }
+        }
+    }
+
     /// Draws or hides a point at every visible internal node.
     pub fn show_nodes(mut self, show: bool) -> Self {
         self.show_nodes = show;
@@ -1489,19 +1615,28 @@ impl TreeTrack {
     }
 
     /// Width the tip names need.
+    /// How much of the band the tip names need.
+    ///
+    /// The size here and the size the names are drawn at have to be the one
+    /// number, or the gutter is held open for text that is not that big. They
+    /// were both a flat `font_size - 1.0`, so a row two pixels tall carried an
+    /// eleven pixel name: five rows of them through each other, and the last
+    /// few sliced off by the track's own clip. Seven tracks here already clamp
+    /// a row's text to the row, and the help for `--row-height` already says a
+    /// row too short for a name shrinks the name with it.
+    fn tip_size(&self, theme: &Theme) -> f64 {
+        (theme.font_size - 1.0).min(self.row_height)
+    }
+
     fn tip_width(&self, theme: &Theme, scene: &TreeScene) -> f64 {
         if !self.show_tips {
             return 0.0;
         }
+        let size = self.tip_size(theme);
         scene
             .terminals
             .iter()
-            .map(|node| {
-                text_width(
-                    &terminal_label(&self.tree, *node, &self.collapsed),
-                    theme.font_size - 1.0,
-                )
-            })
+            .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
             .fold(0.0f64, f64::max)
             + 6.0
     }
@@ -1545,6 +1680,84 @@ impl TreeTrack {
         } else {
             22.0
         }
+    }
+
+    /// How wide across the circular and unrooted projections are drawn.
+    ///
+    /// A rectangular tree is as tall as its rows, so it grows with its data.
+    /// The disc did not: it was a flat 440 pixels whatever the tree, which is
+    /// generous for thirty tips and a solid band at six hundred, and the one
+    /// number that decided whether it could be read was not reachable from a
+    /// command line at all.
+    ///
+    /// It sizes itself now. The tips sit at equal angles on a circle, so the
+    /// space between two neighbouring labels is the circumference at the label
+    /// radius divided by the number of them, and measured against the real
+    /// drawing that comes to `2.75 * diameter / tips` on a full turn. Turning
+    /// that round gives the diameter at which a label of the theme's size
+    /// still clears its neighbour. A fan draws the same tips on a fraction of
+    /// the turn and needs the radius back in proportion.
+    ///
+    /// The figure's width is the ceiling, because the disc is drawn inside
+    /// `min(width, height)` and a taller band would only add white above and
+    /// below a circle the width already decided. A tree with more tips than
+    /// that width can separate is drawn dense rather than drawn wrong, and the
+    /// two ways out are the reader's: a wider figure, or `--max-rows`.
+    fn radial_diameter(&self, scale: &Scale, theme: &Theme) -> f64 {
+        if let Some(size) = self.radial.size {
+            return size;
+        }
+        let terminals = visible_terminals(&self.tree, &self.collapsed);
+        let tips = terminals.len().max(1) as f64;
+        let size = (theme.font_size - 1.0).min(self.row_height.max(1.0));
+
+        // The room the labels take out of the radius, which is what a fitted
+        // proportion gets wrong at the small end: it is a fixed number of
+        // pixels, so on a small disc it is most of the radius and on a large
+        // one it is a rim.
+        let extent = if self.show_tips {
+            terminals
+                .iter()
+                .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
+                .fold(0.0f64, f64::max)
+                + 6.0
+        } else {
+            4.0
+        };
+
+        // Two neighbours on a circle of radius r, `turn / tips` of a turn
+        // apart, are `2 r sin(pi turn / tips)` from each other. Ask for that to
+        // be the height of a label and read the radius back out.
+        let turn = (self.radial.sweep_degrees.abs() / 360.0).clamp(0.05, 1.0);
+        let step = (std::f64::consts::PI * turn / tips).max(1e-6);
+        let radius = size / (2.0 * step.sin());
+        let wanted = 2.0 * (radius + extent);
+        // Only ever larger. This rule exists so a tree with more tips than the
+        // old fixed disc could hold gets the room it needs, and a tree with
+        // three tips needs less room than that but does not want less: shrunk
+        // to what its labels strictly require, its branches got short enough
+        // to start ellipsising the labels drawn along them.
+        // The ceiling is the width of the band this track is given, because
+        // that is what the drawing fits the disc into: it takes the shorter of
+        // the band's two sides, so a height past the band's width is whitespace
+        // and a disc narrower than the height reserved for it is a disc that
+        // stopped clearing its own labels.
+        //
+        // This was `x0 + width` for a while, which is the figure's inner right
+        // edge and never moves. It reserved a height the drawing then did not
+        // use: on the same two hundred tips at 900 px, changing nothing but
+        // this track's own gutter label, the height stayed at 905.515 px while
+        // the disc went from radius 339.40 to 283.40 and the gap between names
+        // closed from 10.66 px to 8.90 against an 11 px body, which is the
+        // collision the sizing exists to prevent.
+        //
+        // The cost is real and is the reason it was written the other way
+        // first: the width of a band is shared, so a track stacked underneath
+        // that asks for a wider gutter or a wider value axis narrows every band
+        // and this tree gets shorter with it. The height of a round tree
+        // genuinely follows the width it is given, and the alternative is a
+        // figure whose names collide, so the width wins.
+        wanted.clamp(RADIAL_DIAMETER, scale.width().max(RADIAL_DIAMETER))
     }
 
     fn rectangular_glyph_padding(&self) -> (f64, f64) {
@@ -1627,12 +1840,37 @@ impl TreeTrack {
         }
 
         if self.show_tips {
-            let size = ctx.theme.font_size - 1.0;
+            let size = self.tip_size(ctx.theme);
+            let names_at = area.right() + glyph_x + 4.0;
             for (row, node) in scene.terminals.iter().enumerate() {
+                let middle = area.y + self.row_height / 2.0 + row as f64 * self.row_height;
+                // A leader from the branch to the name it belongs to. Without
+                // one the names all sit flush at the right while the branches
+                // end wherever their lengths put them, so on a phylogram the
+                // reader has to guess which name is which: measured on forty
+                // tips, the median gap was 649 pixels and the widest 840, the
+                // whole of the band a branch can occupy.
+                //
+                // The two other projections have drawn one all along. This is
+                // the same hairline and the same threshold: a gap under half a
+                // pixel is not a line, it is a smudge on the end of a branch.
+                if let Some(placement) = scene.placements[*node] {
+                    let ends = scene.x(area, placement.depth);
+                    if names_at - ends > 0.5 {
+                        ctx.svg.line(
+                            ends,
+                            middle,
+                            names_at,
+                            middle,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
+                        );
+                    }
+                }
                 let name = terminal_label(&self.tree, *node, &self.collapsed);
                 ctx.svg.text(
-                    area.right() + glyph_x + 4.0,
-                    area.y + self.row_height / 2.0 + row as f64 * self.row_height + size * 0.35,
+                    names_at,
+                    middle + size * 0.35,
                     &name,
                     &ctx.theme.muted,
                     size,
@@ -1661,7 +1899,7 @@ impl TreeTrack {
 }
 
 impl Track for TreeTrack {
-    fn height(&self, _scale: &Scale) -> f64 {
+    fn height(&self, scale: &Scale) -> f64 {
         match self.projection {
             TreeProjection::Rectangular => {
                 let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
@@ -1680,13 +1918,18 @@ impl Track for TreeTrack {
                     }
                     + self.annotation_header_room()
             }
-            TreeProjection::Circular => self.radial.size + self.annotation_header_room(),
-            TreeProjection::Unrooted => self.radial.size + self.annotation_header_room(),
+            TreeProjection::Circular | TreeProjection::Unrooted => {
+                self.radial_diameter(scale, &Theme::default()) + self.annotation_header_room()
+            }
         }
     }
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    fn on_coordinates(&self) -> bool {
+        false
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {

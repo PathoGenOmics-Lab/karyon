@@ -51,6 +51,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::read::locus::Identity;
+use crate::track::tree::TreeProjection;
 use crate::track::MsaDisplay;
 use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle};
 
@@ -385,30 +386,48 @@ impl Kind {
         matches!(self, Kind::Coverage)
     }
 
-    /// Whether the track has a height of its own, rather than one that follows
-    /// from how many rows its data needs.
     /// Whether a sheet of metadata means anything to this track.
     ///
     /// The tracks drawn as a row per named thing, which are the ones a strip
     /// can sit beside and line up with. A pileup has rows too, and they are
     /// reads rather than samples: nobody keeps a sheet keyed by read name, and
     /// a flag accepted there would be a flag that draws nothing.
+    ///
+    /// A phylogeny is one of them and was refused for a while, which was the
+    /// flag being wrong rather than the tree: the library has drawn strips and
+    /// rings beside a tree since the trait columns were written, and the
+    /// documented figures use them. What the tree reads them from is its own
+    /// annotations rather than a sheet, so the sheet is copied onto the tips it
+    /// names, which is done in `stack.rs` where the tree is already owned.
     pub fn takes_traits(self) -> bool {
         matches!(
             self,
-            Kind::Matrix | Kind::Msa | Kind::Snps | Kind::Clades | Kind::Domains | Kind::Loci
+            Kind::Matrix
+                | Kind::Msa
+                | Kind::Snps
+                | Kind::Clades
+                | Kind::Domains
+                | Kind::Loci
+                | Kind::Tree
         )
     }
 
     /// Whether `--max-rows` means anything here.
     ///
-    /// The four tracks that stack one row per record and cap themselves. A
-    /// track whose rows come from its data rather than from a cap, a feature
-    /// track packing what fits, is not one of them: it has no cap to move.
+    /// The tracks that stack one row per record and cap themselves. A track
+    /// whose rows come from its data rather than from a cap, a feature track
+    /// packing what fits, is not one of them: it has no cap to move.
+    ///
+    /// A tree is here and answers differently from the other four. They stop
+    /// opening rows and count what they left out, which a tree cannot do: a
+    /// tip is not interchangeable with the tip below it and cutting the list
+    /// would cut a clade in half. So it collapses the smallest clades instead
+    /// until it fits, and every tip stays on the figure inside a triangle that
+    /// says how many it holds.
     fn takes_max_rows(self) -> bool {
         matches!(
             self,
-            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite
+            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite | Kind::Tree
         )
     }
 
@@ -454,6 +473,31 @@ impl Kind {
     /// what stands above it. The other numbers that decide what a track
     /// believes are floors on the data rather than a line on the figure, and
     /// giving them the same name would say they were the same thing.
+    /// Whether `--projection` means anything here.
+    ///
+    /// One track. A tanglegram is two trees facing each other and a clade
+    /// track paints spans onto one, and both of those are rectangular by
+    /// construction: there is no second axis to bend into a circle.
+    fn takes_projection(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
+    /// Whether `--color-by`, `--support-style` and `--scale-bar` mean anything
+    /// here.
+    ///
+    /// All three are a phylogeny's own, and all three were reachable only from
+    /// the library until now: a branch coloured by an annotation, a support
+    /// value made visible, and a rule in the tree's own units rather than the
+    /// genomic ruler underneath it.
+    fn takes_tree_marks(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
+    /// Whether `--focus` means anything here.
+    fn takes_focus(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
     /// Whether `--compare-to` means anything here.
     ///
     /// The two tracks that read every row against one of them. An alignment
@@ -521,7 +565,7 @@ impl Kind {
     }
 
     fn takes_threshold(self) -> bool {
-        matches!(self, Kind::Manhattan)
+        matches!(self, Kind::Manhattan | Kind::Tree)
     }
 
     fn takes_height(self) -> bool {
@@ -782,6 +826,24 @@ fn article(track: &str) -> &'static str {
     }
 }
 
+/// What `--support-style` was given.
+///
+/// A parallel to [`crate::track::tree::SupportStyle`] rather than the thing
+/// itself, for the reason the other CLI enums are parallels: the words a
+/// command line takes are its own, and `both` reads better at a shell than the
+/// library's `SymbolsAndLabels`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeSupport {
+    /// Tooltips only, which is the default.
+    None,
+    /// A node marker scaled by its support.
+    Symbols,
+    /// The value printed beside the node.
+    Labels,
+    /// Both.
+    Both,
+}
+
 /// What `--max-rows` was given.
 ///
 /// The tracks that stack rows cap themselves, at forty, and say how many they
@@ -857,6 +919,16 @@ pub struct TrackSpec {
     pub threshold: Option<f64>,
     /// `--compare-to`, the row every other row is read against.
     pub compare_to: Option<String>,
+    /// `--projection`, the shape a phylogeny is laid out in.
+    pub projection: Option<TreeProjection>,
+    /// `--focus`, the one clade of a phylogeny to draw.
+    pub focus: Option<Vec<String>>,
+    /// `--color-by`, the annotation each branch takes its colour from.
+    pub color_by: Option<String>,
+    /// `--support-style`, how a node's support value is shown.
+    pub support_style: Option<TreeSupport>,
+    /// `--scale-bar`, a rule in the tree's own branch-length units.
+    pub scale_bar: bool,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -903,6 +975,11 @@ impl TrackSpec {
             threshold: None,
             row_height: None,
             compare_to: None,
+            projection: None,
+            focus: None,
+            color_by: None,
+            support_style: None,
+            scale_bar: false,
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1181,6 +1258,98 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.max_rows = Some(cap);
+            }
+            "--projection" => {
+                let text = value("--projection")?;
+                let projection = match text.as_str() {
+                    "rectangular" => TreeProjection::Rectangular,
+                    "circular" => TreeProjection::Circular,
+                    "unrooted" => TreeProjection::Unrooted,
+                    _ => {
+                        return Err(ArgError::BadValue {
+                            flag: "--projection",
+                            given: text.clone(),
+                            expected: "rectangular, circular or unrooted",
+                        })
+                    }
+                };
+                let track = last(&mut tracks, "--projection")?;
+                if !track.kind.takes_projection() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--projection",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.projection = Some(projection);
+            }
+            "--color-by" => {
+                let key = value("--color-by")?.clone();
+                let track = last(&mut tracks, "--color-by")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--color-by",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.color_by = Some(key);
+            }
+            "--support-style" => {
+                let text = value("--support-style")?;
+                let style = match text.as_str() {
+                    "none" => TreeSupport::None,
+                    "symbols" => TreeSupport::Symbols,
+                    "labels" => TreeSupport::Labels,
+                    "both" => TreeSupport::Both,
+                    _ => {
+                        return Err(ArgError::BadValue {
+                            flag: "--support-style",
+                            given: text.clone(),
+                            expected: "none, symbols, labels or both",
+                        })
+                    }
+                };
+                let track = last(&mut tracks, "--support-style")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--support-style",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.support_style = Some(style);
+            }
+            "--scale-bar" => {
+                let track = last(&mut tracks, "--scale-bar")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--scale-bar",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.scale_bar = true;
+            }
+            "--focus" => {
+                let text = value("--focus")?;
+                let names: Vec<String> = text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if names.is_empty() || names.len() > 2 {
+                    return Err(ArgError::BadValue {
+                        flag: "--focus",
+                        given: text.clone(),
+                        expected: "a clade name, a tip name, or two tip names separated by a comma",
+                    });
+                }
+                let track = last(&mut tracks, "--focus")?;
+                if !track.kind.takes_focus() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--focus",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.focus = Some(names);
             }
             "--compare-to" => {
                 let name = value("--compare-to")?.clone();
@@ -1937,6 +2106,11 @@ mod tests {
             "--msa a.fa",
             "--snps a.fa",
             "--bisulfite c.txt",
+            // A tree takes it and answers differently: it collapses the
+            // smallest clades until it fits rather than dropping the rest,
+            // because a tip is not interchangeable with the tip below it and
+            // cutting the list would cut a clade in half.
+            "--tree t.nwk",
         ] {
             let line = format!("chr1:1-1000 {good} --max-rows 5");
             assert!(parse(&args(&line)).is_ok(), "{good} should take --max-rows");
@@ -1947,7 +2121,7 @@ mod tests {
             "--features g.bed",
             "--coverage d.bg",
             "--logo a.fa",
-            "--tree t.nwk",
+            "--tanglegram t.nwk",
         ] {
             let line = format!("chr1:1-1000 {bad} --max-rows 5");
             let error = parse(&args(&line)).unwrap_err();
@@ -2181,6 +2355,10 @@ mod tests {
             "chr1:1-1000 --clades b.gff --with-tree t.nwk --traits s.tsv",
             "chr1:1-1000 --domains d.tsv --traits s.tsv",
             "chr1:1-1000 --loci l.gff --links h.tsv --traits s.tsv",
+            // A phylogeny is a row per named thing like the rest of them, and
+            // the library has drawn strips beside one since the trait columns
+            // were written.
+            "chr1:1-1000 --tree t.nwk --traits s.tsv",
         ] {
             let it = draw(line);
             assert_eq!(
@@ -2613,5 +2791,85 @@ mod tests {
     fn a_missing_region_is_its_own_message() {
         let err = parse(&args("--coverage d.bg")).unwrap_err();
         assert!(err.to_string().contains("the first argument is the region"));
+    }
+    #[test]
+    fn focus_takes_a_clade_a_tip_or_a_pair_and_refuses_the_rest() {
+        let focus = |value: &str| {
+            parse(&args(&format!("tree:1-1 --tree t.nwk --focus {value}"))).map(|request| {
+                match request {
+                    Request::Draw(invocation) => invocation.tracks[0].focus.clone(),
+                    other => panic!("expected a figure, got {other:?}"),
+                }
+            })
+        };
+        assert_eq!(
+            focus("outbreak").unwrap(),
+            Some(vec!["outbreak".to_string()])
+        );
+        assert_eq!(
+            focus("A,B").unwrap(),
+            Some(vec!["A".to_string(), "B".to_string()])
+        );
+        // Spaces round a comma survive, for the reader who quotes them. It
+        // is spelled out as one word here because a shell would have done
+        // that, and a helper that splits on spaces would not.
+        let spaced: Vec<String> = ["tree:1-1", "--tree", "t.nwk", "--focus", "A, B"]
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        match parse(&spaced).unwrap() {
+            Request::Draw(invocation) => assert_eq!(
+                invocation.tracks[0].focus,
+                Some(vec!["A".to_string(), "B".to_string()])
+            ),
+            other => panic!("expected a figure, got {other:?}"),
+        }
+        // Three names name no clade: two pick one out and a third can only
+        // agree or contradict.
+        let refused = focus("A,B,C").unwrap_err().to_string();
+        assert!(refused.contains("--focus"), "{refused}");
+        assert!(
+            refused.contains("two tip names"),
+            "the refusal says what it wanted: {refused}"
+        );
+        assert!(focus(",").is_err(), "a comma alone names nothing");
+    }
+
+    #[test]
+    fn focus_means_nothing_to_a_track_that_is_not_a_tree() {
+        let refused = parse(&args(
+            "NC_000962.3:1-1000 --coverage depth.bedgraph --focus A",
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(refused.contains("--focus"), "{refused}");
+        assert!(refused.contains("coverage"), "{refused}");
+    }
+    #[test]
+    fn the_three_marks_a_phylogeny_carries_land_only_on_a_phylogeny() {
+        let it = draw(concat!(
+            "tree:1-1 --tree t.nwk --color-by lineage ",
+            "--support-style both --threshold 0.9 --scale-bar"
+        ));
+        assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
+        assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
+        assert_eq!(it.tracks[0].threshold, Some(0.9));
+        assert!(it.tracks[0].scale_bar);
+
+        for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {
+            let line = format!("chr1:1-1000 --coverage d.bg {flag}");
+            let refused = parse(&args(&line)).unwrap_err().to_string();
+            assert!(refused.contains("coverage"), "{line}: {refused}");
+        }
+
+        // A word the styles do not have is refused against the ones they do,
+        // rather than quietly drawing nothing.
+        let refused = parse(&args("tree:1-1 --tree t.nwk --support-style loud"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("none, symbols, labels or both"),
+            "{refused}"
+        );
     }
 }
