@@ -30,7 +30,7 @@ use crate::{
     TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec};
+use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
 use crate::read;
 use crate::track::traits::Traits;
 
@@ -836,6 +836,23 @@ fn track(
             }
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);
+            }
+            if let Some(key) = &spec.color_by {
+                track = track.color_by(key.clone());
+            }
+            if let Some(style) = spec.support_style {
+                track = track.support_style(match style {
+                    TreeSupport::None => crate::SupportStyle::None,
+                    TreeSupport::Symbols => crate::SupportStyle::Symbols,
+                    TreeSupport::Labels => crate::SupportStyle::Labels,
+                    TreeSupport::Both => crate::SupportStyle::SymbolsAndLabels,
+                });
+            }
+            if let Some(minimum) = spec.threshold {
+                track = track.support_threshold(minimum);
+            }
+            if spec.scale_bar {
+                track = track.scale_bar();
             }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());

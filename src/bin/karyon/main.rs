@@ -120,11 +120,26 @@ TRACK OPTIONS, each describing the track before it
                          the line a scan is read against, in the units the
                          file is in; genome-wide is -log10(5e-8), which is a
                          correction for a million tests and wrong wherever a
-                         million were not run
+                         million were not run. On a phylogeny it is the least
+                         support worth showing, and hides the weaker values
+                         --support-style would otherwise draw
     --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
                          A circle sizes itself so its tip labels clear each
                          other, up to the width of the figure, so a big tree
                          wants a wider one or fewer rows
+    --color-by <KEY>     colour each branch of a phylogeny by one column of its
+                         --traits sheet, or by an annotation the file already
+                         carries. A clade whose tips all agree takes that
+                         colour too, so a lineage is a coloured clade and not
+                         only a fringe of coloured tips
+    --support-style <HOW>
+                         none, symbols, labels or both, for the support values
+                         a phylogeny carries; support is always in the tooltips
+                         and this is what makes it readable without hovering
+    --scale-bar          a rule in the tree's own branch-length units. It is
+                         not the ruler along the bottom, which measures the
+                         region and means nothing under a tree: --no-axis
+                         removes that one
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
                          by its own label, by a tip inside it, or by two tips
                          it spans. A folded triangle says the pair it spans in

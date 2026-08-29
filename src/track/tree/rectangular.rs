@@ -449,9 +449,7 @@ pub(super) fn branch_colors(
     let Some(key) = key else {
         return colors;
     };
-    let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
-        .map(|node| inherited_annotation(tree, node, key))
-        .collect();
+    let values = branch_values(tree, key);
     let visible: Vec<usize> = scene
         .placements
         .iter()
@@ -516,6 +514,53 @@ pub(super) fn inherited_annotation<'a>(
             .into_iter()
             .find_map(|ancestor| tree.annotation(ancestor, key))
     })
+}
+
+/// The value every node takes its colour from, worked out in one pass.
+///
+/// A node's own annotation first, then one inherited from an ancestor, which is
+/// how a tree out of BEAST carries a state down a lineage. Failing both, what
+/// its descendants agree on, which is how a sheet keyed by sample name reaches
+/// the branches above the tips: without it a tree coloured by lineage had its
+/// two hundred terminal branches in six colours and all three hundred and
+/// ninety seven internal ones left black, which says the clades are of unknown
+/// lineage when every tip in them says otherwise.
+///
+/// One post-order pass and not a walk per node. Asking each node separately
+/// what its descendants agree on is a traversal per node, which is the shape
+/// this crate has spent a good deal of effort removing.
+pub(super) fn branch_values<'a>(tree: &'a Tree, key: &str) -> Vec<Option<&'a AnnotationValue>> {
+    let nodes = tree.nodes();
+    let mut agreed: Vec<Option<&AnnotationValue>> = vec![None; nodes.len()];
+    let mut settled = vec![false; nodes.len()];
+    for node in postorder_nodes(tree) {
+        if nodes[node].is_leaf() {
+            agreed[node] = tree.annotation(node, key);
+            settled[node] = agreed[node].is_some();
+            continue;
+        }
+        let mut value: Option<&AnnotationValue> = None;
+        let mut uniform = !nodes[node].children.is_empty();
+        for child in &nodes[node].children {
+            if !settled[*child] {
+                uniform = false;
+                break;
+            }
+            match value {
+                None => value = agreed[*child],
+                Some(had) if Some(had) == agreed[*child] => {}
+                Some(_) => {
+                    uniform = false;
+                    break;
+                }
+            }
+        }
+        agreed[node] = if uniform { value } else { None };
+        settled[node] = uniform && value.is_some();
+    }
+    (0..nodes.len())
+        .map(|node| inherited_annotation(tree, node, key).or(agreed[node]))
+        .collect()
 }
 
 /// What a folded clade can honestly show in a metadata strip.

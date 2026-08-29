@@ -179,6 +179,9 @@ because most of them are a setting only some tracks have.
 | `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | rectangular |
 | `--focus <NAME[,NAME]>` | a clade label, a tip name, or two tip names | `--tree` | the whole tree |
+| `--color-by <KEY>` | a column of the sheet, or an annotation the file carries | `--tree` | one colour for every branch |
+| `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | tooltips only |
+| `--scale-bar` | none | `--tree` | no bar |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
@@ -299,6 +302,29 @@ A circle sizes itself so its tip labels clear each other, up to the width of the
 figure, so a big tree wants a wider one or fewer rows. An unrooted drawing puts
 each name at the end of its own branch while they fit, and gathers them onto a
 ring with a leader each once they would touch.
+
+### What a phylogeny knows about itself
+
+Three things a tree carries that the library has always drawn and the command
+line could not ask for.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
+  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
+```
+
+`--color-by` takes a column of the sheet or an annotation the Newick already
+carries, and colours each branch by it. A clade whose tips all agree takes that
+colour as well, so a lineage comes out as a coloured clade rather than a fringe
+of coloured tips: on a two hundred tip tree that is 588 of 597 branches, the nine
+left plain being the backbone where the lineages genuinely mix.
+
+`--support-style` makes support readable without hovering, since it is in the
+tooltips whatever you choose. `--threshold` hides the weak ones.
+
+`--scale-bar` draws a rule in the tree's own branch-length units. It is not the
+ruler along the bottom of the figure: that one measures the region, and a region
+means nothing under a phylogeny, so `--no-axis` is usually wanted with it.
 
 ### Which row the others are read against
 

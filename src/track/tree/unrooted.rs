@@ -731,9 +731,7 @@ pub(super) fn unrooted_branch_colors(
     let Some(key) = key else {
         return colors;
     };
-    let values: Vec<Option<&AnnotationValue>> = (0..tree.nodes().len())
-        .map(|node| inherited_annotation(tree, node, key))
-        .collect();
+    let values = branch_values(tree, key);
     let numeric: Vec<f64> = scene
         .visible
         .iter()

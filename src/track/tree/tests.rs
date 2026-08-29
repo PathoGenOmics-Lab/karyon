@@ -1559,3 +1559,45 @@ fn a_folded_clade_is_drawn_in_the_colour_its_value_earns() {
     assert!(svg.contains("a +1 more; group one"), "{svg}");
     assert!(svg.contains("c +1 more; group two"), "{svg}");
 }
+
+#[test]
+fn a_clade_whose_tips_agree_is_coloured_as_that_clade() {
+    // Colouring by an annotation keyed on sample names reaches the tips and
+    // stops there, because a branch above them carries no sample's value: a
+    // two hundred tip tree coloured by lineage had its two hundred terminal
+    // branches in six colours and all three hundred and ninety seven internal
+    // ones left plain, which says the clades are of unknown lineage when every
+    // tip in them says otherwise. A branch now takes the value its descendants
+    // agree on, and a branch above two lineages stays plain, which is true.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&group=one]:0.1,b[&group=one]:0.1):0.1,",
+        "(c[&group=two]:0.1,d[&group=two]:0.1):0.1);"
+    ))
+    .unwrap();
+    let svg = Figure::new(region())
+        .show_region_label(false)
+        .push(TreeTrack::new(tree).color_by("group"))
+        .to_svg();
+
+    let strokes: Vec<&str> = svg
+        .split("<line")
+        .skip(1)
+        .filter_map(|piece| piece.split("stroke=\"").nth(1)?.split('"').next())
+        .filter(|stroke| stroke.starts_with('#'))
+        .collect();
+    let coloured: Vec<&&str> = strokes
+        .iter()
+        .filter(|stroke| **stroke != "#1b1f23" && **stroke != "#d7dce2")
+        .collect();
+    assert!(
+        coloured.len() >= 6,
+        "each pair and the branch holding it takes a colour: {strokes:?}"
+    );
+    let hues: std::collections::BTreeSet<&&str> = coloured.into_iter().collect();
+    assert_eq!(hues.len(), 2, "two groups, two colours: {svg}");
+    // And the root, which holds both groups, is not either of them.
+    assert!(
+        strokes.contains(&"#1b1f23"),
+        "the branch above two groups stays plain: {svg}"
+    );
+}

@@ -482,6 +482,17 @@ impl Kind {
         matches!(self, Kind::Tree)
     }
 
+    /// Whether `--color-by`, `--support-style` and `--scale-bar` mean anything
+    /// here.
+    ///
+    /// All three are a phylogeny's own, and all three were reachable only from
+    /// the library until now: a branch coloured by an annotation, a support
+    /// value made visible, and a rule in the tree's own units rather than the
+    /// genomic ruler underneath it.
+    fn takes_tree_marks(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
     /// Whether `--focus` means anything here.
     fn takes_focus(self) -> bool {
         matches!(self, Kind::Tree)
@@ -554,7 +565,7 @@ impl Kind {
     }
 
     fn takes_threshold(self) -> bool {
-        matches!(self, Kind::Manhattan)
+        matches!(self, Kind::Manhattan | Kind::Tree)
     }
 
     fn takes_height(self) -> bool {
@@ -815,6 +826,24 @@ fn article(track: &str) -> &'static str {
     }
 }
 
+/// What `--support-style` was given.
+///
+/// A parallel to [`crate::track::tree::SupportStyle`] rather than the thing
+/// itself, for the reason the other CLI enums are parallels: the words a
+/// command line takes are its own, and `both` reads better at a shell than the
+/// library's `SymbolsAndLabels`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeSupport {
+    /// Tooltips only, which is the default.
+    None,
+    /// A node marker scaled by its support.
+    Symbols,
+    /// The value printed beside the node.
+    Labels,
+    /// Both.
+    Both,
+}
+
 /// What `--max-rows` was given.
 ///
 /// The tracks that stack rows cap themselves, at forty, and say how many they
@@ -894,6 +923,12 @@ pub struct TrackSpec {
     pub projection: Option<TreeProjection>,
     /// `--focus`, the one clade of a phylogeny to draw.
     pub focus: Option<Vec<String>>,
+    /// `--color-by`, the annotation each branch takes its colour from.
+    pub color_by: Option<String>,
+    /// `--support-style`, how a node's support value is shown.
+    pub support_style: Option<TreeSupport>,
+    /// `--scale-bar`, a rule in the tree's own branch-length units.
+    pub scale_bar: bool,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -942,6 +977,9 @@ impl TrackSpec {
             compare_to: None,
             projection: None,
             focus: None,
+            color_by: None,
+            support_style: None,
+            scale_bar: false,
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1243,6 +1281,51 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.projection = Some(projection);
+            }
+            "--color-by" => {
+                let key = value("--color-by")?.clone();
+                let track = last(&mut tracks, "--color-by")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--color-by",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.color_by = Some(key);
+            }
+            "--support-style" => {
+                let text = value("--support-style")?;
+                let style = match text.as_str() {
+                    "none" => TreeSupport::None,
+                    "symbols" => TreeSupport::Symbols,
+                    "labels" => TreeSupport::Labels,
+                    "both" => TreeSupport::Both,
+                    _ => {
+                        return Err(ArgError::BadValue {
+                            flag: "--support-style",
+                            given: text.clone(),
+                            expected: "none, symbols, labels or both",
+                        })
+                    }
+                };
+                let track = last(&mut tracks, "--support-style")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--support-style",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.support_style = Some(style);
+            }
+            "--scale-bar" => {
+                let track = last(&mut tracks, "--scale-bar")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--scale-bar",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.scale_bar = true;
             }
             "--focus" => {
                 let text = value("--focus")?;
@@ -2761,5 +2844,32 @@ mod tests {
         .to_string();
         assert!(refused.contains("--focus"), "{refused}");
         assert!(refused.contains("coverage"), "{refused}");
+    }
+    #[test]
+    fn the_three_marks_a_phylogeny_carries_land_only_on_a_phylogeny() {
+        let it = draw(concat!(
+            "tree:1-1 --tree t.nwk --color-by lineage ",
+            "--support-style both --threshold 0.9 --scale-bar"
+        ));
+        assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
+        assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
+        assert_eq!(it.tracks[0].threshold, Some(0.9));
+        assert!(it.tracks[0].scale_bar);
+
+        for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {
+            let line = format!("chr1:1-1000 --coverage d.bg {flag}");
+            let refused = parse(&args(&line)).unwrap_err().to_string();
+            assert!(refused.contains("coverage"), "{line}: {refused}");
+        }
+
+        // A word the styles do not have is refused against the ones they do,
+        // rather than quietly drawing nothing.
+        let refused = parse(&args("tree:1-1 --tree t.nwk --support-style loud"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("none, symbols, labels or both"),
+            "{refused}"
+        );
     }
 }
