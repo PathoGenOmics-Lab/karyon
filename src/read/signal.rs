@@ -73,6 +73,28 @@ pub fn spans(
     region: &Region,
     format: Option<Format>,
 ) -> Result<Vec<(u64, u64, f64)>, ReadError> {
+    let mut found = Vec::new();
+    fold_spans(text, region, format, |start, end, value| {
+        found.push((start, end, value))
+    })?;
+    Ok(found)
+}
+
+/// The same reading as [`spans`], handing each span to `each` as the line it
+/// came from is read instead of collecting them, and answering how many there
+/// were.
+///
+/// `samtools depth` writes a line per base, so collecting first costs
+/// twenty-four bytes per base of the window before a single one is used. Over
+/// ten million bases that was 231 MB standing beside the 152 MB of file text
+/// it was read from and the 76 MB of the track being built out of it, and the
+/// caller here paints each span as it arrives and never holds the middle one.
+pub(crate) fn fold_spans(
+    text: &str,
+    region: &Region,
+    format: Option<Format>,
+    mut each: impl FnMut(u64, u64, f64),
+) -> Result<usize, ReadError> {
     let asked = match format {
         Some(Format::BedGraph) => Some(Shape::BedGraph),
         Some(Format::Depth) => Some(Shape::Depth),
@@ -94,7 +116,7 @@ pub fn spans(
     // tells them apart, and a file that changes count halfway is a file whose
     // positions cannot be trusted rather than one to guess at line by line.
     let mut shape = asked;
-    let mut found: Vec<(u64, u64, f64)> = Vec::new();
+    let mut read = 0usize;
     // Where the next bare value lands, that shape carrying no position of its own.
     let mut next = region.start();
     // How far the last bedGraph interval reached, which is what says whether
@@ -196,7 +218,8 @@ pub fn spans(
                 let from = start.max(region.start());
                 let to = end.min(region.end());
                 if to > from {
-                    found.push((from, to, value));
+                    each(from, to, value);
+                    read += 1;
                 }
             }
             Shape::Depth => {
@@ -214,7 +237,8 @@ pub fn spans(
                 // 1-based inclusive to 0-based.
                 let pos = pos - 1;
                 if region.contains(pos) {
-                    found.push((pos, pos + 1, depth));
+                    each(pos, pos + 1, depth);
+                    read += 1;
                 }
             }
             Shape::Values => {
@@ -222,13 +246,14 @@ pub fn spans(
                 let pos = next;
                 next += 1;
                 if region.contains(pos) {
-                    found.push((pos, pos + 1, value));
+                    each(pos, pos + 1, value);
+                    read += 1;
                 }
             }
         }
     }
 
-    Ok(found)
+    Ok(read)
 }
 
 /// Reads intervals with a value each, for a window track.

@@ -491,12 +491,24 @@ fn track(
 
     let built: Box<dyn Track> = match spec.kind {
         Kind::Coverage => {
-            let spans = wrap(name, &path, read::signal::spans(&text, region, spec.format))?;
-            if spans.is_empty() {
+            // Painted span by span rather than through `from_spans`, which
+            // wants the list. `samtools depth` writes a line per base, and a
+            // ten million base window cost 231 MB of spans standing beside the
+            // 152 MB of text they were read from and the 76 MB track they were
+            // about to become.
+            let mut painted = CoverageTrack::new(region.start(), vec![0.0; region.len() as usize]);
+            let spans = wrap(
+                name,
+                &path,
+                read::signal::fold_spans(&text, region, spec.format, |start, end, value| {
+                    painted.paint(start, end, value)
+                }),
+            )?;
+            drop(text);
+            if spans == 0 {
                 return Err(empty("values"));
             }
-            let mut track = CoverageTrack::from_spans(region, spans)
-                .aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
+            let mut track = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
             if let Some(style) = spec.style.and_then(|style| style.coverage()) {
                 track = track.style(style);
             }
