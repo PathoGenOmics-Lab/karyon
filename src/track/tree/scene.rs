@@ -6,6 +6,7 @@
 //! how they turn that into coordinates, not in what they turn.
 
 use super::*;
+use crate::track::axis::group_thousands;
 
 pub(super) struct TreeScene {
     pub(super) placements: Vec<Option<Placement>>,
@@ -140,10 +141,24 @@ pub(super) fn postorder_nodes(tree: &Tree) -> Vec<usize> {
     order
 }
 
+/// How many tips a clade holds, written the way a reader would say it.
+///
+/// One tip is a tip. Four places in this module counted them and all four wrote
+/// "1 tips", which is the tree being the odd one out: nine other tracks here
+/// pluralise. Grouped as well, because a collapsed clade can hold thousands
+/// once `max_rows` starts folding them.
+pub(super) fn tip_count(tips: usize) -> String {
+    format!(
+        "{} tip{}",
+        group_thousands(tips as u64),
+        if tips == 1 { "" } else { "s" }
+    )
+}
+
 pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
     let name = tree.nodes()[node].name.as_deref().unwrap_or("clade");
     if collapsed.contains(&node) {
-        format!("{} ({} tips)", name, tree.clade_size(node))
+        format!("{} ({})", name, tip_count(tree.clade_size(node)))
     } else {
         name.to_string()
     }

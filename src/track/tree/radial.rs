@@ -565,9 +565,9 @@ pub(super) fn draw_radial_collapsed(
             num(right_y)
         );
         let title = format!(
-            "{} ({} tips)",
+            "{} ({})",
             track.tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-            track.tree.clade_size(*node)
+            tip_count(track.tree.clade_size(*node))
         );
         ctx.svg.begin_titled(&title);
         ctx.svg.path(&d, &colors[*node], 0.28);

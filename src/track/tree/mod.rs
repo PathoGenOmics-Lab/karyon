@@ -1489,19 +1489,28 @@ impl TreeTrack {
     }
 
     /// Width the tip names need.
+    /// How much of the band the tip names need.
+    ///
+    /// The size here and the size the names are drawn at have to be the one
+    /// number, or the gutter is held open for text that is not that big. They
+    /// were both a flat `font_size - 1.0`, so a row two pixels tall carried an
+    /// eleven pixel name: five rows of them through each other, and the last
+    /// few sliced off by the track's own clip. Seven tracks here already clamp
+    /// a row's text to the row, and the help for `--row-height` already says a
+    /// row too short for a name shrinks the name with it.
+    fn tip_size(&self, theme: &Theme) -> f64 {
+        (theme.font_size - 1.0).min(self.row_height)
+    }
+
     fn tip_width(&self, theme: &Theme, scene: &TreeScene) -> f64 {
         if !self.show_tips {
             return 0.0;
         }
+        let size = self.tip_size(theme);
         scene
             .terminals
             .iter()
-            .map(|node| {
-                text_width(
-                    &terminal_label(&self.tree, *node, &self.collapsed),
-                    theme.font_size - 1.0,
-                )
-            })
+            .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
             .fold(0.0f64, f64::max)
             + 6.0
     }
@@ -1627,7 +1636,7 @@ impl TreeTrack {
         }
 
         if self.show_tips {
-            let size = ctx.theme.font_size - 1.0;
+            let size = self.tip_size(ctx.theme);
             for (row, node) in scene.terminals.iter().enumerate() {
                 let name = terminal_label(&self.tree, *node, &self.collapsed);
                 ctx.svg.text(

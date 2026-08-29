@@ -233,9 +233,9 @@ pub(super) fn draw_tree_scene(
                 num(y + half)
             );
             let title = format!(
-                "{} ({} tips)",
+                "{} ({})",
                 tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-                tree.clade_size(*node)
+                tip_count(tree.clade_size(*node))
             );
             ctx.svg.begin_titled(&title);
             ctx.svg.path(&d, &styles[*node].color, 0.28);

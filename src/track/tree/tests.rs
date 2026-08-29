@@ -11,6 +11,50 @@ fn region() -> Region {
 }
 
 #[test]
+fn a_clade_of_one_is_one_tip() {
+    // Four places in this module counted tips and all four wrote "1 tips".
+    // Every assertion in this file used a clade of two, so none of them
+    // ever saw it.
+    let tree = Tree::parse_newick("((ONLY:0.1):0.2,(A:0.1,B:0.1,C:0.1):0.2,OUT:0.4);").unwrap();
+    let of_size = |want: usize| {
+        (0..tree.nodes().len())
+            .find(|node| !tree.nodes()[*node].is_leaf() && tree.clade_size(*node) == want)
+            .unwrap_or_else(|| panic!("no clade of {want}"))
+    };
+    let svg = |node: usize| {
+        Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).collapse(node))
+            .to_svg()
+    };
+    assert!(
+        svg(of_size(1)).contains("(1 tip)"),
+        "a clade of one is one tip"
+    );
+    assert!(!svg(of_size(1)).contains("1 tips"));
+    assert!(svg(of_size(3)).contains("(3 tips)"));
+}
+
+#[test]
+fn a_tip_name_shrinks_with_the_row_it_sits_on() {
+    // The help for --row-height promises this in as many words, and both
+    // the gutter measurement and the drawing have to agree on the size or
+    // the gutter is held open for text that is no longer that big.
+    let tree = Tree::parse_newick("((one:0.1,two:0.1):0.2,(three:0.1,four:0.1):0.2);").unwrap();
+    let drawn = |row_height: f64| {
+        Figure::new(Region::new("phylo", 0, 1).unwrap())
+            .push(TreeTrack::new(tree.clone()).row_height(row_height))
+            .to_svg()
+    };
+    assert!(
+        drawn(2.0).contains(r#"font-size="2""#),
+        "a two pixel row wants a two pixel name"
+    );
+    assert!(drawn(6.0).contains(r#"font-size="6""#));
+    // And it stops shrinking upwards: a tall row keeps the theme's size.
+    assert!(!drawn(40.0).contains(r#"font-size="40""#));
+}
+
+#[test]
 fn height_follows_the_leaf_count() {
     let scale = Scale::new(&region(), 0.0, 100.0);
     assert_eq!(TreeTrack::new(tree()).height(&scale), 4.0 * 15.0);
