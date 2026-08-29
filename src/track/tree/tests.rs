@@ -1337,3 +1337,46 @@ fn an_unrooted_tree_moves_its_names_to_a_ring_only_once_they_would_collide() {
         "a hundred and twenty eight names cannot fit at their tips and must be gathered"
     );
 }
+
+#[test]
+fn folding_ranks_clades_by_the_same_size_the_tree_would_report() {
+    // Folding takes the smallest clade first, and it used to ask the tree for
+    // each clade's size from inside the sort. That call collects the whole
+    // subtree into a vector to count the leaves in it, so ranking n clades is
+    // n traversals and a sort asks for a key more than once each: a hundred
+    // thousand tip tree took 785 ms to reach sixty rows, against 69 ms to draw
+    // all hundred thousand with no cap at all. The sizes now come off the walk
+    // that is already being made, and these are the folds that ranking picks.
+    // On a balanced sixty four they are exact: four rows is the four sixteens,
+    // and nothing else adds up to it smallest first.
+    let folds = |cap: usize| {
+        let svg = Figure::new(region())
+            .push(TreeTrack::new(balanced(64)).max_rows(Some(cap)))
+            .to_svg();
+        let mut folded: Vec<usize> = svg
+            .split("<text")
+            .skip(1)
+            .filter_map(|piece| {
+                let body = piece.split('>').nth(1)?.split('<').next()?;
+                let at = body.rfind(" +")?;
+                body[at + 2..]
+                    .split(' ')
+                    .next()?
+                    .parse::<usize>()
+                    .ok()
+                    .map(|more| more + 1)
+            })
+            .collect();
+        folded.sort_unstable();
+        folded
+    };
+    assert_eq!(folds(4), vec![16, 16, 16, 16]);
+    assert_eq!(folds(9), vec![4, 4, 8, 8, 8, 8, 8, 8, 8]);
+    assert_eq!(folds(31), [vec![2; 30], vec![4]].concat());
+    // Whatever it folds, no tip is lost and the cap is met exactly.
+    for cap in [4usize, 9, 31] {
+        let folded = folds(cap);
+        let saved: usize = folded.iter().map(|size| size - 1).sum();
+        assert_eq!(64 - saved, cap, "a cap of {cap} did not land on {cap} rows");
+    }
+}

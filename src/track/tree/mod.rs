@@ -1387,12 +1387,25 @@ impl TreeTrack {
         // for a leaf or an already collapsed clade and the sum of its children
         // otherwise. Kept as we go, so collapsing a clade whose own children
         // were folded does not count their rows twice.
+        let order = postorder_nodes(&self.tree);
         let mut rows = vec![1usize; nodes.len()];
-        for node in postorder_nodes(&self.tree) {
-            if nodes[node].is_leaf() || self.collapsed.contains(&node) {
+        // Tips below each node, which is what the clades are ranked by. It
+        // comes off the same walk because asking the tree for it one node at a
+        // time does not: `clade_size` collects the whole subtree into a vector
+        // and counts the leaves in it, so ranking every clade that way is a
+        // full traversal per clade, and the sort asks more than once each. A
+        // hundred thousand tip tree spent 785 ms getting to sixty rows, more
+        // than the 69 ms it took to draw all hundred thousand uncapped.
+        let mut tips = vec![1usize; nodes.len()];
+        for node in &order {
+            if nodes[*node].is_leaf() {
                 continue;
             }
-            rows[node] = nodes[node].children.iter().map(|child| rows[*child]).sum();
+            tips[*node] = nodes[*node].children.iter().map(|child| tips[*child]).sum();
+            if self.collapsed.contains(node) {
+                continue;
+            }
+            rows[*node] = nodes[*node].children.iter().map(|child| rows[*child]).sum();
         }
         let root = self.tree.root();
         let mut total = rows[root];
@@ -1407,7 +1420,7 @@ impl TreeTrack {
         let mut candidates: Vec<usize> = (0..nodes.len())
             .filter(|node| !nodes[*node].is_leaf() && *node != root)
             .collect();
-        candidates.sort_by_key(|node| (self.tree.clade_size(*node), *node));
+        candidates.sort_by_key(|node| (tips[*node], *node));
 
         for node in candidates {
             if total <= cap {
