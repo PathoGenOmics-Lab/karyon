@@ -287,6 +287,57 @@ mod tests {
         }
     }
 
+    /// Every flag the parser answers to, against the help text and the guide.
+    ///
+    /// The track flags above are taken from a list the parser exports, and the
+    /// modifiers are not: they are match arms, and nothing but this reads them.
+    /// So they are read here, out of the source, and both places that describe
+    /// them are checked against the one place that implements them. Without
+    /// this, `--projection` was added to the program and reached neither the
+    /// help text nor the guide, and nothing said so.
+    #[test]
+    fn the_help_text_and_the_guide_name_every_flag_the_parser_answers_to() {
+        const PARSER: &str = include_str!("../../cli/args.rs");
+        const GUIDE: &str = include_str!("../../../docs/guide/cli.md");
+        // A match arm on a flag, at the indentation the parse loop is written
+        // at, so a flag named in a comment or a message is not mistaken for one
+        // the parser answers to.
+        let mut flags: Vec<String> = Vec::new();
+        for line in PARSER.lines() {
+            let Some(rest) = line.strip_prefix("            \"--") else {
+                continue;
+            };
+            let Some(arms) = rest.split(" =>").next() else {
+                continue;
+            };
+            if arms.len() == rest.len() {
+                continue;
+            }
+            let whole = format!("\"--{arms}");
+            for piece in whole.split(" | ") {
+                let flag = piece.trim().trim_matches('"').to_string();
+                if flag.starts_with("--") && !flags.contains(&flag) {
+                    flags.push(flag);
+                }
+            }
+        }
+        assert!(
+            flags.len() > 40,
+            "only {} flags found; the parse loop has been rewritten and this no longer reads it",
+            flags.len()
+        );
+        for flag in &flags {
+            assert!(
+                HELP.contains(flag.as_str()),
+                "{flag} is not in the help text"
+            );
+            assert!(
+                GUIDE.contains(flag.as_str()),
+                "{flag} is not in docs/guide/cli.md"
+            );
+        }
+    }
+
     /// The same loop for the words `--style` takes, against the parser's own
     /// list. A style wired up and left out of the help is a value a reader has
     /// no way to discover.

@@ -177,6 +177,8 @@ because most of them are a setting only some tracks have.
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four, and each says how many it left out; no cap on a tree |
 | `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | rectangular |
+| `--focus <NAME[,NAME]>` | a clade label, a tip name, or two tip names | `--tree` | the whole tree |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
@@ -257,6 +259,41 @@ kilobytes, and all sixty thousand tips are accounted for on it.
 A tree has no cap unless one is asked for, because a phylogeny of three hundred
 tips is an ordinary figure and folding it by default would fold figures nobody
 asked to fold.
+
+### One clade of a tree
+
+`--focus` draws one clade and nothing else. It takes a clade's own label, a tip
+inside it, or the two tips a clade spans:
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --focus outbreak
+karyon phylo:1-1 --no-axis --tree big.nwk --focus L4_D001,L4_H148
+```
+
+The pair is not something to work out by hand. A folded triangle says it: rest
+a pointer on one and it reads `clade (13 tips), L4_D001 to L4_H148`, and the two
+names at the end are what opens it. The tips under a node are a run, so the
+first and the last of them pick out one clade and no other.
+
+A name the tree has not got is refused against the names it has, rather than
+quietly drawing the whole tree.
+
+The [tree viewer](../tree.md) is this flag with a pointer: it runs the same
+program on every move, and clicking a triangle is `--focus` on the pair that
+triangle prints.
+
+### The shape a phylogeny is laid out in
+
+`--projection` takes `rectangular`, `circular` or `unrooted`.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --projection circular
+```
+
+A circle sizes itself so its tip labels clear each other, up to the width of the
+figure, so a big tree wants a wider one or fewer rows. An unrooted drawing puts
+each name at the end of its own branch while they fit, and gathers them onto a
+ring with a leader each once they would touch.
 
 ### Which row the others are read against
 
