@@ -113,6 +113,11 @@ TRACK OPTIONS, each describing the track before it
     --columns <A,B,C>    which columns of that sheet to draw, in this order;
                          every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows
+    --threshold <V|genome-wide>
+                         the line a scan is read against, in the units the
+                         file is in; genome-wide is -log10(5e-8), which is a
+                         correction for a million tests and wrong wherever a
+                         million were not run
     --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
                          molecule grid is drawn before it stops and counts the
                          rest; 40 by default, and all lifts it
@@ -280,7 +285,11 @@ mod tests {
         let seconds: Vec<&str> = args::Kind::ALL
             .iter()
             .filter_map(|kind| kind.second_flag())
-            .chain(args::Kind::ALL.iter().filter_map(|kind| kind.optional_second()))
+            .chain(
+                args::Kind::ALL
+                    .iter()
+                    .filter_map(|kind| kind.optional_second()),
+            )
             .collect();
         let selectors: Vec<&str> = args::Kind::ALL
             .iter()

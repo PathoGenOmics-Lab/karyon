@@ -447,6 +447,16 @@ impl Kind {
         )
     }
 
+    /// Whether `--threshold` means anything here.
+    ///
+    /// One track, because one track draws a line across itself and colours
+    /// what stands above it. The other numbers that decide what a track
+    /// believes are floors on the data rather than a line on the figure, and
+    /// giving them the same name would say they were the same thing.
+    fn takes_threshold(self) -> bool {
+        matches!(self, Kind::Manhattan)
+    }
+
     fn takes_height(self) -> bool {
         matches!(
             self,
@@ -735,6 +745,8 @@ pub struct TrackSpec {
     /// `--no-names`, which leaves out the names a track writes beside or on
     /// what it draws. Not the track's own name, which is `--label`.
     pub no_names: bool,
+    /// `--threshold`, the line a scan is read against.
+    pub threshold: Option<f64>,
     /// `--ploidy`, where balanced sits on a copy number ladder.
     pub ploidy: Option<f64>,
     /// `--sample`, for a file holding more than one.
@@ -765,6 +777,7 @@ impl TrackSpec {
             selects: None,
             max_rows: None,
             no_names: false,
+            threshold: None,
             ploidy: None,
             sample: None,
             traits: None,
@@ -993,6 +1006,37 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.no_names = true;
+            }
+            "--threshold" => {
+                let text = value("--threshold")?;
+                // The word is here because the number behind it is
+                // -log10(5e-8), which nobody types from memory, and because
+                // asking for it by name is the only way to ask for it: the
+                // track has no default threshold, deliberately, since a
+                // Bonferroni correction for a million tests is the wrong
+                // number wherever a million tests were not run.
+                let value = if text == "genome-wide" {
+                    -(5e-8f64).log10()
+                } else {
+                    match text.parse::<f64>() {
+                        Ok(number) if number.is_finite() => number,
+                        _ => {
+                            return Err(ArgError::BadValue {
+                                flag: "--threshold",
+                                given: text.clone(),
+                                expected: "a number, or genome-wide",
+                            })
+                        }
+                    }
+                };
+                let track = last(&mut tracks, "--threshold")?;
+                if !track.kind.takes_threshold() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--threshold",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.threshold = Some(value);
             }
             "--max-rows" => {
                 let text = value("--max-rows")?;
@@ -1330,6 +1374,42 @@ mod tests {
         let it = draw("chr1:1-1000 --features g.bed --coverage d.bg --variants v.vcf");
         let kinds: Vec<Kind> = it.tracks.iter().map(|t| t.kind).collect();
         assert_eq!(kinds, vec![Kind::Features, Kind::Coverage, Kind::Variants]);
+    }
+
+    #[test]
+    fn a_threshold_is_a_number_or_the_convention_by_name() {
+        let it = draw("chr1:1-1000 --manhattan a.tsv --threshold 5.5");
+        assert_eq!(it.tracks[0].threshold, Some(5.5));
+
+        // The word is worth having only if it is the number the field means by
+        // it, so this pins the number and not just that a word was accepted.
+        let named = draw("chr1:1-1000 --manhattan a.tsv --threshold genome-wide");
+        let wanted = -(5e-8f64).log10();
+        assert!((named.tracks[0].threshold.unwrap() - wanted).abs() < 1e-12);
+        assert!((wanted - 7.301_029_995_663_981).abs() < 1e-9);
+
+        assert_eq!(
+            draw("chr1:1-1000 --manhattan a.tsv").tracks[0].threshold,
+            None
+        );
+    }
+
+    #[test]
+    fn a_threshold_that_is_not_a_number_is_refused() {
+        for word in ["lots", "genome_wide", "genomewide", "inf", "NaN", ""] {
+            let line = format!("chr1:1-1000 --manhattan a.tsv --threshold {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::BadValue { flag, .. } if *flag == "--threshold")
+                    || matches!(&error, ArgError::MissingValue { .. }),
+                "{word:?} should be refused, got {error:?}"
+            );
+        }
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --threshold 5")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--threshold"),
+            "{error:?}"
+        );
     }
 
     #[test]

@@ -662,6 +662,9 @@ fn track(
                 return Err(empty("association statistics"));
             }
             let mut track = ManhattanTrack::new(points);
+            if let Some(threshold) = spec.threshold {
+                track = track.threshold(threshold);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
