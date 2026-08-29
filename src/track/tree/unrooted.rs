@@ -53,6 +53,10 @@ impl UnrootedScene {
             adjacency[node].push((parent, length));
         }
 
+        // Every edge asks how many tips lie beyond it, and the answers all
+        // come from this one pass.
+        let components = ComponentTerminals::new(&adjacency, &terminal_set);
+
         let candidates: Vec<usize> = visible
             .iter()
             .copied()
@@ -63,9 +67,7 @@ impl UnrootedScene {
             .min_by_key(|candidate| {
                 let largest = adjacency[*candidate]
                     .iter()
-                    .map(|(next, _)| {
-                        component_terminal_count(*next, *candidate, &adjacency, &terminal_set)
-                    })
+                    .map(|(next, _)| components.beyond(*next, *candidate))
                     .max()
                     .unwrap_or(0);
                 (
@@ -104,14 +106,7 @@ impl UnrootedScene {
             let children: Vec<(usize, f64, usize)> = adjacency[task.node]
                 .iter()
                 .filter(|(next, _)| Some(*next) != task.parent)
-                .map(|(next, length)| {
-                    (
-                        *next,
-                        *length,
-                        component_terminal_count(*next, task.node, &adjacency, &terminal_set)
-                            .max(1),
-                    )
-                })
+                .map(|(next, length)| (*next, *length, components.beyond(*next, task.node).max(1)))
                 .collect();
             let total: usize = children.iter().map(|(_, _, count)| *count).sum();
             if total == 0 {
@@ -164,23 +159,90 @@ impl UnrootedScene {
     }
 }
 
-pub(super) fn component_terminal_count(
-    start: usize,
-    blocked: usize,
-    adjacency: &[Vec<(usize, f64)>],
-    terminals: &BTreeSet<usize>,
-) -> usize {
-    let mut count = 0usize;
-    let mut stack = vec![(start, blocked)];
-    while let Some((node, parent)) = stack.pop() {
-        count += usize::from(terminals.contains(&node));
-        for (next, _) in &adjacency[node] {
-            if *next != parent {
-                stack.push((*next, node));
+/// How many terminals lie on each side of each edge, worked out once.
+///
+/// An unrooted layout asks, for every edge it walks, how many tips are out
+/// that way, and it asked by walking out that way and counting: order n work
+/// at every one of n nodes. Measured on a twenty thousand tip tree capped to
+/// rows, it took 79 ms at 500 rows, 94 at 1000, 162 at 2000 and 596 at 4000,
+/// which is the shape of a square. The other two projections stayed flat.
+///
+/// The adjacency is a tree, so the question has a closed answer. Root it
+/// anywhere, count the terminals under every node once from the bottom up, and
+/// then the tips beyond an edge are either that subtree or everything else.
+pub(super) struct ComponentTerminals {
+    /// Terminals under each node, in the arbitrary rooting used here.
+    under: Vec<usize>,
+    /// That rooting's parent for each node.
+    parent: Vec<usize>,
+    /// Every node's share of the whole, which is its own component's total
+    /// and not the tree's: hiding a clade can leave the visible edges in
+    /// several disconnected pieces, and a count taken across pieces would be
+    /// wrong in a way nothing else would catch.
+    whole: Vec<usize>,
+}
+
+impl ComponentTerminals {
+    pub(super) fn new(adjacency: &[Vec<(usize, f64)>], terminals: &BTreeSet<usize>) -> Self {
+        let n = adjacency.len();
+        let mut under = vec![0usize; n];
+        let mut parent = vec![usize::MAX; n];
+        let mut whole = vec![0usize; n];
+        let mut seen = vec![false; n];
+        for root in 0..n {
+            if seen[root] {
+                continue;
+            }
+            // One depth-first walk fixes a rooting and an order for this
+            // piece, then the counts come back up that order without walking
+            // anything a second time.
+            let mut order = Vec::new();
+            let mut stack = vec![root];
+            seen[root] = true;
+            while let Some(node) = stack.pop() {
+                order.push(node);
+                for (next, _) in &adjacency[node] {
+                    if !seen[*next] {
+                        seen[*next] = true;
+                        parent[*next] = node;
+                        stack.push(*next);
+                    }
+                }
+            }
+            for node in order.iter().rev() {
+                under[*node] += usize::from(terminals.contains(node));
+                if parent[*node] != usize::MAX {
+                    let up = parent[*node];
+                    under[up] += under[*node];
+                }
+            }
+            let total = under[root];
+            for node in &order {
+                whole[*node] = total;
             }
         }
+        ComponentTerminals {
+            under,
+            parent,
+            whole,
+        }
     }
-    count
+
+    /// The terminals reachable from `start` without going back through
+    /// `blocked`.
+    pub(super) fn beyond(&self, start: usize, blocked: usize) -> usize {
+        if self.parent.get(start).copied() == Some(blocked) {
+            self.under.get(start).copied().unwrap_or(0)
+        } else {
+            // `blocked` is below `start`, so what lies beyond is this whole
+            // piece less that side of it.
+            self.whole
+                .get(start)
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(self.under.get(blocked).copied().unwrap_or(0))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

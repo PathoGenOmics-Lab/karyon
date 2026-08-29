@@ -1144,3 +1144,92 @@ fn every_node_glyph_and_highlight_projects_without_losing_data() {
     }
 }
 
+#[test]
+fn the_tips_beyond_an_edge_are_counted_the_same_whether_walked_or_looked_up() {
+    // The unrooted layout used to answer "how many tips lie that way" by
+    // walking that way and counting, once per edge, which made a large tree
+    // quadratic: 121 ms at 500 rows but 2836 at 8000, while the other two
+    // projections stayed flat. ComponentTerminals answers the same question
+    // from one pass. This is the check that the two answers agree, on every
+    // directed edge, for shapes that break lazy reasoning: a star has one
+    // node adjacent to everything, a caterpillar is as deep as it is wide,
+    // and a hidden clade can leave the visible edges in disconnected pieces,
+    // where a count taken across pieces would be wrong.
+    let walked = |start: usize,
+                  blocked: usize,
+                  adjacency: &[Vec<(usize, f64)>],
+                  terminals: &BTreeSet<usize>| {
+        let mut count = 0usize;
+        let mut stack = vec![(start, blocked)];
+        while let Some((node, parent)) = stack.pop() {
+            count += usize::from(terminals.contains(&node));
+            for (next, _) in &adjacency[node] {
+                if *next != parent {
+                    stack.push((*next, node));
+                }
+            }
+        }
+        count
+    };
+
+    let shapes = [
+        (
+            "star",
+            Tree::parse_newick("(a:0.1,b:0.2,c:0.3,d:0.4,e:0.5,f:0.6);").unwrap(),
+        ),
+        (
+            "caterpillar",
+            Tree::parse_newick(&format!("{}t8:0.1{};", "(t0:0.1,".repeat(8), ")".repeat(8)))
+                .unwrap(),
+        ),
+        ("one tip", Tree::parse_newick("(only:0.5);").unwrap()),
+        ("balanced", balanced(64)),
+    ];
+
+    let mut edges = 0usize;
+    for (name, tree) in shapes {
+        // Nothing collapsed, then every other internal node, then all of
+        // them: collapsing is what hides nodes, and hidden nodes are what can
+        // leave the visible edges in disconnected pieces.
+        let internal: Vec<usize> = (0..tree.nodes().len())
+            .filter(|node| !tree.nodes()[*node].is_leaf())
+            .collect();
+        let folds: [BTreeSet<usize>; 3] = [
+            BTreeSet::new(),
+            internal.iter().copied().step_by(2).collect(),
+            internal.iter().copied().collect(),
+        ];
+        for (fold, collapsed) in folds.into_iter().enumerate() {
+            let cap = fold;
+            let visibility = visible_nodes(&tree, &collapsed);
+            let terminals: BTreeSet<usize> =
+                visible_terminals(&tree, &collapsed).into_iter().collect();
+            let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); tree.nodes().len()];
+            for (node, clade) in tree.nodes().iter().enumerate() {
+                let Some(parent) = clade.parent else { continue };
+                if !visibility[node] || !visibility[parent] {
+                    continue;
+                }
+                adjacency[parent].push((node, 1.0));
+                adjacency[node].push((parent, 1.0));
+            }
+
+            let counts = ComponentTerminals::new(&adjacency, &terminals);
+            for node in 0..adjacency.len() {
+                for (next, _) in &adjacency[node] {
+                    let want = walked(*next, node, &adjacency, &terminals);
+                    assert_eq!(
+                        counts.beyond(*next, node),
+                        want,
+                        "{name} at cap {cap:?}: beyond({next}, {node})"
+                    );
+                    edges += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        edges > 200,
+        "only {edges} edges checked, too few to mean much"
+    );
+}
