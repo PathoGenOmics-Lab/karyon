@@ -164,7 +164,7 @@ because most of them are a setting only some tracks have.
 |:-----|:------|:-----------|:--------|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a path, or `-` | `--tanglegram` | none, and it is required |
-| `--with-sequence <FILE>` | a path, or `-` | `--dynseq` | none, and it is required |
+| `--with-sequence <FILE>` | a path, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`, optional for `--pileup` |
 | `--with-tree <FILE>` | a path, or `-` | `--clades` | none, and it is required |
 | `--links <FILE>` | a path, or `-` | `--loci` | none, and it is required |
 | `--identity <UNIT>` | `percent`, `fraction` | `--loci` | worked out from the values, and refused where they cannot say |
@@ -175,6 +175,9 @@ because most of them are a setting only some tracks have.
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
 | `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
+| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite` | 40, and each of them says how many it left out |
+| `--no-names` | none | `--features`, `--msa`, `--snps`, `--matrix`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | the names are drawn |
+| `--threshold <V\|genome-wide>` | a number, or `genome-wide` | `--manhattan` | no line, on purpose |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows`; `lollipop`, `tick` for `--variants` | `--coverage`, `--windows`, `--variants` | `area`, `steps` and `lollipop` |
@@ -202,6 +205,33 @@ twelfth of the time and a fifth of the memory. What you give up is the value,
 which a tick does not show, and the tooltip, which a mark nobody can point at
 alone was never going to carry. Colours are kept: two categories on one column
 are two ticks.
+
+### How deep a stack is drawn
+
+Four tracks lay one row per record: `--pileup` a row per read, `--msa` and
+`--snps` a row per sequence, `--bisulfite` a row per molecule. A pile a thousand
+reads deep is a figure a thousand rows tall, which is not a figure, so each of
+them stops at forty rows and says how many it left out.
+
+Forty is a guess about the reader's screen rather than about their data, and
+`--max-rows` is how it is moved:
+
+```bash
+karyon chr1:1-400 --pileup reads.sam --max-rows 10 --label reads
+karyon chr1:1-400 --pileup reads.sam --max-rows all --label reads
+```
+
+On a three hundred read pileup over four hundred bases those come out 204 and
+820 pixels tall against the 534 the default gives, and only the first two carry
+the line saying what was dropped, because the third dropped nothing.
+
+`all` is the word for no cap at all, and it is a word rather than a very large
+number because those are not the same thing: a cap that happens not to bite
+still writes the line saying nothing was dropped, and no cap at all does not.
+
+The other row tracks are not here because they have no cap to move. A feature
+track packs into as many rows as the features need and no more, so there is
+nothing to raise or lower.
 
 ### What is known about the rows
 
@@ -239,10 +269,10 @@ karyon: --matrix samples.tsv has no column called linage; it has lineage, drug, 
 
 ### A track whose data is not one file
 
-Four modifiers carry a file rather than a setting, for the four tracks whose
-data is two files. A `--<track>` flag takes one path, so the second is named,
-and it is named by what it means rather than by where it sits, which is the
-rule every other modifier follows:
+Four modifiers carry a file rather than a setting, for the tracks whose data is
+two files. A `--<track>` flag takes one path, so the second is named, and it is
+named by what it means rather than by where it sits, which is the rule every
+other modifier follows:
 
 | Track | The first file | The second |
 |:------|:---------------|:-----------|
@@ -250,6 +280,25 @@ rule every other modifier follows:
 | `--clades` | the blocks and their taxa | `--with-tree`, the phylogeny they are painted onto |
 | `--loci` | the genes of each genome | `--links`, what joins one row to the next |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
+| `--pileup` | the aligned reads | `--with-sequence`, the reference they are compared against |
+
+The last of those is the one that is optional. The first four tracks cannot be
+drawn without their second file and are refused without it. A pileup can: given
+no reference it draws every read agreeing, because a mismatch is a base that
+differs from something, and without a reference there is nothing for a base to
+differ from. Give it one and it colours what disagrees:
+
+```bash
+samtools view aln.bam NC_000962.3:761000-763000 \
+  | karyon NC_000962.3:761,000-763,000 \
+      --sequence H37Rv.fa --label reference \
+      --pileup - --with-sequence H37Rv.fa --label reads -o pileup.svg
+```
+
+The same FASTA twice is not a mistake. The first draws the reference as a track
+of its own, so the letters are on the page; the second hands the same letters to
+the pileup, which is what lets it tell a mismatch from a match. Either is useful
+without the other.
 
 A tanglegram is two phylogenies:
 

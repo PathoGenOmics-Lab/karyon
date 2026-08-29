@@ -91,7 +91,7 @@ window.karyon = (function () {
   // after it, and that word is not the region however much it looks like one:
   // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
   // drag then rewrote the label and left the figure where it was.
-  var ALONE = ["--axis", "--log", "--no-axis", "--no-region-label"];
+  var ALONE = ["--axis", "--log", "--no-axis", "--no-names", "--no-region-label"];
 
   // The region a command names, which is its one positional word.
   function locus(text) {

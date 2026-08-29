@@ -527,36 +527,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let (fasta, ref_path) = fetch(name, source, open)?;
-            let records = wrap(name, &ref_path, read::seq::fasta(&fasta))?;
-            if records.is_empty() {
-                return Err(BuildError::Empty {
-                    track: name,
-                    path: ref_path.clone(),
-                    wanted: "sequence",
-                });
-            }
-            // One record in the file is the record the file is about, whatever
-            // its header calls it. More than one is a genome, and then the
-            // region picks: one chromosome's letters under another chromosome's
-            // scores is a figure that is wrong everywhere and looks right.
-            let bases = if records.len() == 1 {
-                records.into_iter().next().map(|(_, bases)| bases)
-            } else {
-                records
-                    .iter()
-                    .find(|(named, _)| named == region.seq())
-                    .map(|(_, bases)| bases.clone())
-            };
-            let Some(bases) = bases else {
-                return Err(BuildError::Unjoined {
-                    track: name,
-                    path: ref_path.clone(),
-                    what: "record",
-                    against: "the sequence the region names",
-                    examples: Vec::new(),
-                });
-            };
+            let bases = second_sequence(name, source, region, open)?;
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -644,6 +615,9 @@ fn track(
                 return Err(empty("features"));
             }
             let mut track = FeatureTrack::new(features);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(color) = &spec.color {
                 track = track.color(color);
             }
@@ -688,6 +662,9 @@ fn track(
                 return Err(empty("association statistics"));
             }
             let mut track = ManhattanTrack::new(points);
+            if let Some(threshold) = spec.threshold {
+                track = track.threshold(threshold);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -784,6 +761,9 @@ fn track(
                 });
             }
             let mut track = StructuralTrack::new(found.variants);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -806,7 +786,10 @@ fn track(
                     region: region.to_string(),
                 });
             }
-            let track = SplitReadTrack::new(found.reads);
+            let mut track = SplitReadTrack::new(found.reads);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             Box::new(named(track, label, SplitReadTrack::label))
         }
         // One row per molecule and one column per site. The reader builds the
@@ -837,7 +820,13 @@ fn track(
                 });
             }
 
-            let track = BisulfiteTrack::new(found.sites, found.molecules);
+            let mut track = BisulfiteTrack::new(found.sites, found.molecules);
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             Box::new(match label {
                 Some(label) => track.label(label),
                 None => track.label(context),
@@ -884,6 +873,9 @@ fn track(
 
             let names: Vec<String> = found.rows.iter().map(|row| row.name.clone()).collect();
             let mut track = DomainTrack::new(found.rows);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -954,6 +946,9 @@ fn track(
 
             let names: Vec<String> = leaves.iter().cloned().collect();
             let mut track = CladeTrack::new(tree, found.blocks);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -1010,6 +1005,9 @@ fn track(
 
             let names: Vec<String> = found.loci.iter().map(|locus| locus.name.clone()).collect();
             let mut track = LocusTrack::new(found.loci).links(joined.links);
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -1083,6 +1081,12 @@ fn track(
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
             let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
             let mut track = MsaTrack::new(sequences);
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -1092,6 +1096,12 @@ fn track(
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
             let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
             let mut track = SnpTrack::from_alignment(0, &sequences);
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
+            if spec.no_names {
+                track = track.show_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -1170,6 +1180,9 @@ fn track(
             }
             let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
             let mut track = MatrixTrack::new(sites, rows);
+            if spec.no_names {
+                track = track.show_row_names(false);
+            }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 track = track.traits(traits);
             }
@@ -1180,7 +1193,21 @@ fn track(
             if reads.is_empty() {
                 return Err(empty("reads"));
             }
-            Box::new(named(PileupTrack::new(reads), label, PileupTrack::label))
+            let mut track = PileupTrack::new(reads);
+            // Without this the track draws every base agreeing, because a
+            // mismatch is a base that differs from a reference it was never
+            // given. The letters are clipped to the window and the start is the
+            // window's, which is the same arrangement the sequence and dynseq
+            // tracks use, so a read hanging over the left edge is compared
+            // against nothing rather than against the wrong base.
+            if let Some(source) = spec.second.as_ref() {
+                let bases = second_sequence(name, source, region, open)?;
+                track = track.reference(region.start(), clip(&bases, region));
+            }
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
+            Box::new(named(track, label, PileupTrack::label))
         }
         Kind::Axis => unreachable!("the ruler is added by build"),
     };
@@ -1226,6 +1253,44 @@ fn msa(
 ///
 /// A FASTA record is the whole sequence and the figure is a window on it, so
 /// the bases the region names are the ones the track gets.
+/// The reference letters a second FASTA holds for this region.
+///
+/// One record in the file is the record the file is about, whatever its header
+/// calls it. More than one is a genome, and then the region picks: one
+/// chromosome's letters under another chromosome's scores, or beside another
+/// chromosome's reads, is a figure that is wrong everywhere and looks right.
+fn second_sequence(
+    track: &'static str,
+    source: &Source,
+    region: &Region,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> Result<Vec<u8>, BuildError> {
+    let (fasta, path) = fetch(track, source, open)?;
+    let records = wrap(track, &path, read::seq::fasta(&fasta))?;
+    if records.is_empty() {
+        return Err(BuildError::Empty {
+            track,
+            path,
+            wanted: "sequence",
+        });
+    }
+    let bases = if records.len() == 1 {
+        records.into_iter().next().map(|(_, bases)| bases)
+    } else {
+        records
+            .iter()
+            .find(|(named, _)| named == region.seq())
+            .map(|(_, bases)| bases.clone())
+    };
+    bases.ok_or(BuildError::Unjoined {
+        track,
+        path,
+        what: "record",
+        against: "the sequence the region names",
+        examples: Vec::new(),
+    })
+}
+
 fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
     let start = region.start() as usize;
     if start >= bases.len() {

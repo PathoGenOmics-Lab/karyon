@@ -58,7 +58,8 @@ TRACKS
     --snps <FILE>        the variable sites of an alignment, aligned FASTA
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
     --matrix <FILE>      a value per sample per site, a table
-    --pileup <FILE>      aligned reads, SAM text from samtools view
+    --pileup <FILE>      aligned reads, SAM text from samtools view; takes
+                         --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
                          minimap2; the most-aligned target is drawn and named
     --dotplot <FILE>     the same PAF as a dot plot
@@ -88,8 +89,10 @@ TRACKS
 TRACK OPTIONS, each describing the track before it
     --label <TEXT>       the name in the left gutter
     --against <FILE>     the right-hand tree of a tanglegram
-    --with-sequence <FILE> the reference a dynseq track draws its letters
-                         from, FASTA
+    --with-sequence <FILE> the reference, FASTA. A dynseq track draws its
+                         letters from it and cannot do without one; a pileup
+                         colours the bases that disagree with it, and draws
+                         every read agreeing when it is not given
     --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names
@@ -110,6 +113,17 @@ TRACK OPTIONS, each describing the track before it
     --columns <A,B,C>    which columns of that sheet to draw, in this order;
                          every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows
+    --threshold <V|genome-wide>
+                         the line a scan is read against, in the units the
+                         file is in; genome-wide is -log10(5e-8), which is a
+                         correction for a million tests and wrong wherever a
+                         million were not run
+    --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
+                         molecule grid is drawn before it stops and counts the
+                         rest; 40 by default, and all lifts it
+    --no-names           leave out the name written on or beside each thing a
+                         track draws, which is not the track's own name in the
+                         gutter: that one is --label
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants
@@ -266,9 +280,16 @@ mod tests {
         // A second-path flag is named inside the track it belongs to, since
         // that is where a reader looks for it. Taken from the parser rather
         // than written out, so a third spelling does not have to be added here.
+        // Both halves of it: the file a track cannot be drawn without, and the
+        // one it will take and can do without. A pileup names the second kind.
         let seconds: Vec<&str> = args::Kind::ALL
             .iter()
             .filter_map(|kind| kind.second_flag())
+            .chain(
+                args::Kind::ALL
+                    .iter()
+                    .filter_map(|kind| kind.optional_second()),
+            )
             .collect();
         let selectors: Vec<&str> = args::Kind::ALL
             .iter()
@@ -276,6 +297,9 @@ mod tests {
             .collect();
         let mut found = 0;
         for word in tracks.split_whitespace() {
+            // A flag named mid sentence carries the sentence's punctuation, and
+            // the flag is the word rather than the comma after it.
+            let word = word.trim_end_matches([',', ';', '.']);
             if !word.starts_with("--") {
                 continue;
             }

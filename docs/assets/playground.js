@@ -566,6 +566,11 @@
           options: ["CpG", "CHG", "CHH"] },
         { kind: "data", param: "molecules", value: 24, label: "Molecules sequenced",
           options: [8, 24, 60] },
+        { kind: "choice", flag: "--max-rows", after: "--bisulfite",
+          label: "How many rows before it stops and counts the rest",
+          options: ["8", "40", "all"] },
+        { kind: "toggle", flag: "--no-names", after: "--bisulfite",
+          label: "Leave out the name beside each row" },
         { kind: "toggle", flag: "--no-axis", label: "Leave out the coordinate ruler" },
       ],
       group: "Reads and molecules",
@@ -744,6 +749,10 @@
           options: [500, 2500, 8000], says: "More tests, and the null climbs with them" },
         { kind: "data", param: "signal", value: "two loci and some singletons", label: "What is under the peaks",
           options: ["nothing but noise", "one locus", "two loci and some singletons"] },
+        { kind: "choice", flag: "--threshold", after: "--manhattan",
+          label: "The line it is read against",
+          options: ["5", "genome-wide", "9"],
+          says: "genome-wide is a correction for a million tests" },
         { kind: "choice", flag: "--height", after: "--manhattan",
           label: "How tall the scan is drawn", options: ["80", "160", "300"] },
       ],
@@ -849,9 +858,18 @@
           says: "The track stacks 40 rows and counts the rest" },
         { kind: "data", param: "reach", value: "a mix", label: "How far each read reaches",
           options: ["55 bases", "120 bases", "a mix"] },
+        { kind: "data", param: "carrying", value: "one variant",
+          label: "What the reads disagree about",
+          options: ["nothing", "one variant", "a strand artefact"],
+          says: "A base is coloured only where it differs from the reference" },
+        { kind: "choice", flag: "--max-rows", after: "--pileup",
+          label: "How deep it is drawn before it counts the rest",
+          options: ["10", "40", "120", "all"] },
       ],
       group: "Reads and molecules",
-      command: "chr1:1-400 --sequence ref.fa --label reference --pileup reads.sam --label reads",
+      command:
+        "chr1:1-400 --sequence ref.fa --label reference \\\n" +
+        "  --pileup reads.sam --with-sequence ref.fa --label reads",
       files: [
         { name: "ref.fa", body: "" },
         { name: "reads.sam", body: "" },
@@ -862,19 +880,30 @@
       // opening rows there and counts the rest, rather than drawing off the
       // bottom of the figure.
       //
-      // There is no control here for mismatches, and that is not an oversight.
-      // The pileup colours a base that disagrees with the reference, and the
-      // reference reaches the track through `PileupTrack::reference`, which the
-      // command line never calls: the arm in src/cli/stack.rs builds
-      // `PileupTrack::new(reads)` and stops. So from a command line, and
-      // therefore from this page, every base agrees and the track's own
-      // headline cannot be shown at all.
+      // The reference is given twice on purpose: once as a track of its own,
+      // so the letters are on the page, and once to the pileup, which is what
+      // lets it colour a base that disagrees. Until --with-sequence reached a
+      // pileup the second of those was impossible and every read agreed, which
+      // is a picture of the track doing nothing.
+      //
+      // A variant every read carries is a variant. One only the forward reads
+      // carry is the shape of an artefact, and telling those two apart is what
+      // drawing the reads is for.
       make: function (p) {
         var ref = reference(1600);
         var copies = p && p.copies ? p.copies : 3;
         var reach = (p && p.reach) || "55 bases";
+        var carrying = (p && p.carrying) || "one variant";
+        var swap = { A: "G", C: "T", G: "A", T: "C" };
+        var sites = carrying === "nothing" ? [] : [97, 184, 320];
+        var forwardOnly = carrying === "a strand artefact";
         var sam = "";
         var n = 0;
+        // Which reads carry the variant is drawn rather than counted. Keying
+        // it on the read number put it in step with the strand whenever the
+        // depth was even, since both alternate, and then "one variant" and "a
+        // strand artefact" wrote the same file and drew the same figure.
+        var next = rolls(902117);
         for (var at = 1; at < 1540; at += 6) {
           for (var copy = 0; copy < copies; copy++) {
             var len = reach === "120 bases" ? 120
@@ -882,8 +911,16 @@
                     : 55 + ((at + copy * 7) % 12);
             if (at - 1 + len > ref.length) len = ref.length - at + 1;
             if (len < 5) continue;
-            sam += "r" + (n++) + "\t" + (copy % 2 === 0 ? 0 : 16) + "\tchr1\t" + at +
-                   "\t60\t" + len + "M\t*\t0\t0\t" + ref.slice(at - 1, at - 1 + len) + "\t*\n";
+            var forward = (copy % 2) === 0;
+            var seq = ref.slice(at - 1, at - 1 + len).split("");
+            for (var v = 0; v < sites.length; v++) {
+              var off = sites[v] - at;
+              if (off < 0 || off >= len) continue;
+              var carries = forwardOnly ? forward : next() < 0.5;
+              if (carries) seq[off] = swap[seq[off]] || "N";
+            }
+            sam += "r" + (n++) + "\t" + (forward ? 0 : 16) + "\tchr1\t" + at +
+                   "\t60\t" + len + "M\t*\t0\t0\t" + seq.join("") + "\t*\n";
           }
         }
         return [
@@ -1047,6 +1084,11 @@
           options: [6, 18, 40, 90], says: "Every one is a row, and nothing caps them" },
         { kind: "data", param: "columns", value: 900, label: "Columns it is long",
           options: [300, 900, 2400] },
+        { kind: "choice", flag: "--max-rows", after: "--msa",
+          label: "How many rows before it stops and counts the rest",
+          options: ["8", "40", "all"] },
+        { kind: "toggle", flag: "--no-names", after: "--msa",
+          label: "Leave out the name beside each row" },
         { kind: "choice", flag: "--columns", after: "--traits",
           label: "Which strips to draw, in this order",
           options: ["lineage", "lineage,drug", "drug,year,source", "source"] },
@@ -1079,6 +1121,11 @@
           options: [6, 18, 40, 90] },
         { kind: "data", param: "columns", value: 300, label: "Columns the alignment is long",
           options: [150, 300, 600], says: "The panel keeps only the ones that disagree" },
+        { kind: "choice", flag: "--max-rows", after: "--snps",
+          label: "How many rows before it stops and counts the rest",
+          options: ["8", "40", "all"] },
+        { kind: "toggle", flag: "--no-names", after: "--snps",
+          label: "Leave out the name beside each row" },
         { kind: "choice", flag: "--columns", after: "--traits",
           label: "Which strips to draw, in this order",
           options: ["lineage", "lineage,drug", "drug,year,source", "source"] },
