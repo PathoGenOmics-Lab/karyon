@@ -1422,24 +1422,45 @@ impl TreeTrack {
             .collect();
         candidates.sort_by_key(|node| (tips[*node], *node));
 
+        // Folds are recorded in a flat vector and only the outermost ones are
+        // kept. Folding smallest first means a clade is often folded and then
+        // swallowed by an ancestor folded later, and those inner folds are
+        // inside something already collapsed, so nothing ever draws them. A
+        // million tip tree made a million of them and spent 131 of its 168 ms
+        // putting them into an ordered set, to keep about sixty that matter.
+        let mut folded = vec![false; nodes.len()];
         for node in candidates {
             if total <= cap {
                 break;
             }
-            if rows[node] <= 1 {
+            if self.collapsed.contains(&node) {
                 continue;
             }
-            let saved = rows[node] - 1;
-            self.collapsed.insert(node);
+            // Smallest first means every child of this clade has already been
+            // through the loop, so its row count is final and this one can be
+            // added up here. The rows a fold saves used to be walked off every
+            // node above it instead, which is the depth of the tree per fold
+            // and was 131 of the 168 ms a million tip tree spent folding.
+            let current: usize = nodes[node].children.iter().map(|child| rows[*child]).sum();
+            rows[node] = current;
+            if current <= 1 {
+                continue;
+            }
+            folded[node] = true;
             rows[node] = 1;
-            total -= saved;
-            // The rows this clade used to contribute have to come off every
-            // node above it, or a later ancestor would be credited with rows
-            // that are no longer drawn.
-            let mut above = nodes[node].parent;
-            while let Some(parent) = above {
-                rows[parent] -= saved;
-                above = nodes[parent].parent;
+            total -= current - 1;
+        }
+
+        // Parents before children, so a fold is kept only when nothing above
+        // it was folded too.
+        let mut inside = vec![false; nodes.len()];
+        for node in order.iter().rev() {
+            let above = nodes[*node].parent.is_some_and(|parent| {
+                inside[parent] || folded[parent] || self.collapsed.contains(&parent)
+            });
+            inside[*node] = above;
+            if folded[*node] && !above {
+                self.collapsed.insert(*node);
             }
         }
     }
