@@ -27,7 +27,7 @@
 //! are printed in the corner of the band rather than left to be asked for,
 //! since nothing else on the figure would look any different.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
@@ -177,9 +177,19 @@ impl CladeTrack {
     /// A track over `tree`, painting `blocks` onto it.
     pub fn new(tree: Tree, blocks: Vec<CladeBlock>) -> Self {
         let rows = row_of_leaf(&tree);
+        // Name to row, built once. `place` used to walk the whole leaf list
+        // looking for each taxon of each block, which is the tip count times
+        // the taxon count times the block count, and a tree of eight hundred
+        // tips under two thousand blocks spent most of its time in that walk.
+        // The first row wins where a name appears twice, which is what a scan
+        // from the front gave.
+        let mut index: BTreeMap<&str, usize> = BTreeMap::new();
+        for (row, name) in rows.iter().enumerate() {
+            index.entry(name.as_str()).or_insert(row);
+        }
         let placed: Vec<Option<Placed>> = blocks
             .iter()
-            .map(|block| place(block, &rows, tree.leaf_count()))
+            .map(|block| place(block, &index, tree.leaf_count()))
             .collect();
 
         // Widest clade first, so a block on a tip paints over the one on the
@@ -364,6 +374,11 @@ impl Track for CladeTrack {
             ..ctx.band
         };
         let theme = ctx.theme;
+        // Once for the whole drawing. `Tree::leaf_names` clones every name in
+        // the tree, and this method used to ask for a fresh copy in four
+        // separate places, one of them inside a loop over every row of every
+        // block.
+        let names = self.tree.leaf_names();
         let rows = self.tree.leaf_count();
         if rows == 0 {
             return;
@@ -394,7 +409,7 @@ impl Track for CladeTrack {
         }
 
         if self.show_names {
-            for (row, name) in self.tree.leaf_names().iter().enumerate() {
+            for (row, name) in names.iter().enumerate() {
                 ctx.svg.text(
                     ctx.axis.right() - strip - 4.0,
                     self.row_centre(band, row) + name_size * 0.35,
@@ -423,7 +438,7 @@ impl Track for CladeTrack {
                 .color
                 .clone()
                 .unwrap_or_else(|| theme.color(slot).to_string());
-            self.draw_block(ctx, block, placed, &color);
+            self.draw_block(ctx, block, placed, &color, &names);
         }
 
         let mut notes: Vec<String> = Vec::new();
@@ -444,10 +459,9 @@ impl Track for CladeTrack {
             );
         }
 
-        let placed: Vec<(String, f64, f64)> = self
-            .tree
-            .leaf_names()
-            .into_iter()
+        let placed: Vec<(String, f64, f64)> = names
+            .iter()
+            .cloned()
             .enumerate()
             .map(|(row, name)| {
                 (
@@ -512,6 +526,7 @@ impl CladeTrack {
         block: &CladeBlock,
         placed: Placed,
         color: &str,
+        rows: &[String],
     ) {
         let band = ctx.band;
         let theme = ctx.theme;
@@ -546,12 +561,12 @@ impl CladeTrack {
         // than as an absence.
         let mut row = placed.first;
         while row <= placed.last {
-            if self.carries(block, row) {
+            if Self::carries(block, rows, row) {
                 row += 1;
                 continue;
             }
             let first = row;
-            while row <= placed.last && !self.carries(block, row) {
+            while row <= placed.last && !Self::carries(block, rows, row) {
                 row += 1;
             }
             let last = row - 1;
@@ -610,10 +625,14 @@ impl CladeTrack {
     }
 
     /// Whether the leaf on `row` is one of the block's taxa.
-    fn carries(&self, block: &CladeBlock, row: usize) -> bool {
-        self.tree
-            .leaf_names()
-            .get(row)
+    ///
+    /// The names are handed in rather than asked for. This used to call
+    /// `Tree::leaf_names`, which clones every name in the tree, in order to
+    /// read one of them, and the cutting loop asks it once per row of every
+    /// block: two thousand blocks over eight hundred tips spent forty-five
+    /// seconds building name lists it threw away.
+    fn carries(block: &CladeBlock, rows: &[String], row: usize) -> bool {
+        rows.get(row)
             .map(|name| block.taxa.iter().any(|taxon| taxon == name))
             .unwrap_or(false)
     }
@@ -625,14 +644,14 @@ fn row_of_leaf(tree: &Tree) -> Vec<String> {
 }
 
 /// The row span a block covers, or `None` when the tree names none of its taxa.
-fn place(block: &CladeBlock, rows: &[String], leaves: usize) -> Option<Placed> {
+fn place(block: &CladeBlock, rows: &BTreeMap<&str, usize>, leaves: usize) -> Option<Placed> {
     let mut first = usize::MAX;
     let mut last = 0usize;
     let mut carried: BTreeSet<usize> = BTreeSet::new();
     let mut missing = 0usize;
 
     for taxon in &block.taxa {
-        match rows.iter().position(|name| name == taxon) {
+        match rows.get(taxon.as_str()).copied() {
             Some(row) if row < leaves => {
                 first = first.min(row);
                 last = last.max(row);
