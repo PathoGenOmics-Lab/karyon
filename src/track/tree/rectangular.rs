@@ -518,6 +518,59 @@ pub(super) fn inherited_annotation<'a>(
     })
 }
 
+/// What a folded clade can honestly show in a metadata strip.
+///
+/// A folded row is an internal node, and an internal node carries no sample's
+/// metadata, so reading it the ordinary way gives nothing: a tree drawn to
+/// sixty rows had every cell of every strip empty, which is what a figure looks
+/// like when it read the wrong file. What it can say is what its tips agree on.
+/// A clade whose samples are all L4 is an L4 clade and the strip says so; a
+/// clade holding two lineages is not either of them and the strip stays empty
+/// rather than picking one.
+///
+/// One tip with nothing recorded is enough to withhold it. A clade cannot be
+/// called uniform on the strength of the members that happen to have been
+/// typed, and a strip that quietly ignored the untyped ones would be claiming
+/// more than the sheet says.
+pub(super) fn agreed_annotation<'a>(
+    tree: &'a Tree,
+    node: usize,
+    key: &str,
+) -> Option<&'a AnnotationValue> {
+    let mut agreed: Option<&AnnotationValue> = None;
+    let mut stack = vec![node];
+    while let Some(at) = stack.pop() {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            let value = inherited_annotation(tree, at, key)?;
+            match agreed {
+                None => agreed = Some(value),
+                Some(had) if had == value => {}
+                Some(_) => return None,
+            }
+            continue;
+        }
+        for child in &clade.children {
+            stack.push(*child);
+        }
+    }
+    agreed
+}
+
+/// The value a drawn row stands for, folded or not.
+pub(super) fn row_annotation<'a>(
+    tree: &'a Tree,
+    node: usize,
+    key: &str,
+    collapsed: &BTreeSet<usize>,
+) -> Option<&'a AnnotationValue> {
+    if collapsed.contains(&node) {
+        agreed_annotation(tree, node, key)
+    } else {
+        inherited_annotation(tree, node, key)
+    }
+}
+
 pub(super) fn branch_title(
     tree: &Tree,
     node: usize,
@@ -624,7 +677,7 @@ pub(super) fn draw_trait_columns(
                 name,
                 top: area.y + row as f64 * row_pitch + 1.0,
                 height: (row_pitch - 2.0).max(1.0),
-                value: inherited_annotation(tree, *node, &column.key),
+                value: row_annotation(tree, *node, &column.key, collapsed),
             })
             .collect();
         draw_column(ctx, column, &domain, x, Some(area.y - 5.0), &rows);

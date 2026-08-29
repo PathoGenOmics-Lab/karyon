@@ -789,7 +789,7 @@ pub(super) fn draw_unrooted_trait_rings(
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
             .iter()
-            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
             .collect();
         let domain = TraitDomain::new(
             scene

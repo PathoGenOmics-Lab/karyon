@@ -782,7 +782,58 @@ fn track(
                     tree.subtree(at).unwrap_or(tree)
                 }
             };
+            // A sheet has to be joined against the tree that will be drawn,
+            // which is the one `--focus` left behind and not the one the file
+            // held, or the join would be checked against tips this figure does
+            // not have.
+            let mut tree = tree;
+            let leaves = tree.leaf_names();
+            let columns = match strip(spec, sheet.as_ref(), &leaves)? {
+                None => Vec::new(),
+                Some(held) => {
+                    // Every other track hands the sheet to the track and the
+                    // track draws from it. A tree reads its strips out of its
+                    // own annotations instead, walking up for a value a tip
+                    // does not carry, so the sheet is copied onto the tips it
+                    // names and the drawing needs no new path. A tip the sheet
+                    // says nothing about keeps whatever the file gave it.
+                    for name in &leaves {
+                        let (Some(values), Some(node)) = (held.values(name), tree.node_named(name))
+                        else {
+                            continue;
+                        };
+                        let values: Vec<(String, crate::AnnotationValue)> = values
+                            .iter()
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect();
+                        if let Some(into) = tree.annotations_mut(node) {
+                            for (key, value) in values {
+                                into.insert(key, value);
+                            }
+                        }
+                    }
+                    // Widened to fit their own headings. `Traits::spread`
+                    // gives every column 14 px, which is right for the tracks
+                    // that write the heading up the side of the strip, and a
+                    // tree writes it across the top: at 14 px "lineage" came
+                    // out as "li…" and "country" as "c…". The heading is drawn
+                    // two points under the body size, and the widest a name is
+                    // allowed to make a column is capped so that a sheet with
+                    // a long column name cannot eat the tree it sits beside.
+                    held.columns()
+                        .iter()
+                        .map(|column| {
+                            let heading = crate::svg::text_width(column.heading(), 9.0) + 8.0;
+                            column.clone().width(heading.clamp(14.0, 72.0))
+                        })
+                        .collect()
+                }
+            };
+
             let mut track = TreeTrack::new(tree);
+            for column in columns {
+                track = track.trait_column(column);
+            }
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);
             }
@@ -2021,6 +2072,16 @@ B\t0\t400\tg2\t0\t+
     }
 
     /// One region, one track flag and one path, which may hold spaces.
+    /// A whole command line, for the tests that need more than a track and a
+    /// file.
+    fn sheeted(line: &str) -> Invocation {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        }
+    }
+
     fn over(locus: &str, flag: &str, path: &str) -> Invocation {
         let args = vec![locus.to_string(), flag.to_string(), path.to_string()];
         match parse(&args).unwrap() {
@@ -2275,5 +2336,59 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         })
         .unwrap();
         assert_eq!(plain, svg);
+    }
+    /// A sheet reaches a tree by a different road from every other track. The
+    /// others hand the sheet to the track and the track draws out of it; a tree
+    /// reads its strips out of its own annotations, so the sheet is copied onto
+    /// the tips it names. This is the check that the road arrives.
+    #[test]
+    fn a_sheet_of_metadata_becomes_strips_beside_a_tree() {
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        const SHEET: &str = "name\tlineage\tdepth\na\tL4\t30\nb\tL4\t50\nc\tL2\t70\nd\tL1\t90\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".nwk") => TREE.to_string(),
+                _ => SHEET.to_string(),
+            })
+        };
+
+        let svg = build(&sheeted("tree:1-1 --tree t.nwk --traits s.tsv"), open).unwrap();
+        // Every tip gets its own value, and the heading is written out rather
+        // than cut to one letter, which is what a fourteen pixel column did.
+        assert!(svg.contains("a; lineage L4"), "{svg}");
+        assert!(svg.contains("d; depth 90"), "{svg}");
+        assert!(
+            svg.contains(">lineage</text>"),
+            "the heading is legible: {svg}"
+        );
+    }
+
+    /// A folded row is an internal node and carries nobody's metadata, so the
+    /// strip beside it can only say what its tips agree on. Both directions,
+    /// because saying nothing and picking one of two are the two ways to be
+    /// wrong here.
+    #[test]
+    fn a_folded_clade_says_what_its_tips_agree_on_and_nothing_when_they_differ() {
+        // (a, b) are both L4 and agree; (c, d) are L2 and L1 and do not.
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        const SHEET: &str = "name\tlineage\na\tL4\nb\tL4\nc\tL2\nd\tL1\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".nwk") => TREE.to_string(),
+                _ => SHEET.to_string(),
+            })
+        };
+
+        let invocation = sheeted("tree:1-1 --tree t.nwk --traits s.tsv --max-rows 2");
+        let svg = build(&invocation, open).unwrap();
+
+        assert!(
+            svg.contains("a +1 more; lineage L4"),
+            "a clade of two L4 tips is an L4 clade: {svg}"
+        );
+        assert!(
+            svg.contains("c +1 more; lineage missing"),
+            "a clade holding L2 and L1 is neither of them: {svg}"
+        );
     }
 }

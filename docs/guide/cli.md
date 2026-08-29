@@ -173,7 +173,7 @@ because most of them are a setting only some tracks have.
 | `--analysis <NAME>` | `Pfam`, `PANTHER`, any member database | `--domains` | the one the file holds, and refused where it holds several |
 | `--ploidy <COPIES>` | a number of copies, as in `2` | `--copy-number` | none, and it is required |
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
-| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
+| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four, and each says how many it left out; no cap on a tree |
 | `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
@@ -341,10 +341,25 @@ a phylogeny attached to the track reorders the strips with it. Nothing in the
 sheet is at a coordinate, so panning and zooming leave the strips where they
 are.
 
-Six tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
-`--clades`, `--domains` and `--loci`. A pileup has rows too, and they are reads
-rather than samples, so `--traits` is refused there rather than accepted and
-ignored.
+Seven tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
+`--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows too, and they
+are reads rather than samples, so `--traits` is refused there rather than
+accepted and ignored.
+
+A phylogeny takes one the same way, and two things about it are worth knowing.
+The strips sit to the right of the tip names on a rectangular tree and become
+rings outside the tips on a circular or unrooted one, and asking for them on an
+unrooted tree gathers its names onto a ring, since rings need every tip at one
+radius to line up against. And a folded clade says what its tips agree on: a
+clade whose samples are all one lineage is drawn as that lineage, one holding
+two is left empty rather than shown as either, and one tip with nothing recorded
+is enough to withhold it, because a clade cannot be called uniform on the
+strength of the members that happen to have been typed.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
+  --traits samples.tsv --columns lineage,country
+```
 
 Two refusals are worth knowing before they happen. A sheet whose names match
 none of the rows is refused, naming the first few it did hold, because the

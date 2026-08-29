@@ -693,7 +693,7 @@ pub(super) fn draw_trait_rings(
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
             .iter()
-            .map(|node| inherited_annotation(&track.tree, *node, &column.key))
+            .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
             .collect();
         let domain = TraitDomain::new(scene.placements.iter().flatten().filter_map(|placement| {
             inherited_annotation(&track.tree, placement.node, &column.key)

@@ -109,7 +109,10 @@ TRACK OPTIONS, each describing the track before it
     --sample <NAME>      which sample of a segment table holding several
     --traits <FILE>      a sample sheet drawn as strips beside the rows, for
                          the tracks that have rows: a header, names in column
-                         one, one column per thing known about them
+                         one, one column per thing known about them. A tree
+                         takes one too, as strips beside its tips or as rings
+                         around them, and a folded clade shows what its tips
+                         agree on and nothing where they differ
     --columns <A,B,C>    which columns of that sheet to draw, in this order;
                          every column of it by default
     --height <PX>        for the tracks that do not size themselves by rows

@@ -386,18 +386,29 @@ impl Kind {
         matches!(self, Kind::Coverage)
     }
 
-    /// Whether the track has a height of its own, rather than one that follows
-    /// from how many rows its data needs.
     /// Whether a sheet of metadata means anything to this track.
     ///
     /// The tracks drawn as a row per named thing, which are the ones a strip
     /// can sit beside and line up with. A pileup has rows too, and they are
     /// reads rather than samples: nobody keeps a sheet keyed by read name, and
     /// a flag accepted there would be a flag that draws nothing.
+    ///
+    /// A phylogeny is one of them and was refused for a while, which was the
+    /// flag being wrong rather than the tree: the library has drawn strips and
+    /// rings beside a tree since the trait columns were written, and the
+    /// documented figures use them. What the tree reads them from is its own
+    /// annotations rather than a sheet, so the sheet is copied onto the tips it
+    /// names, which is done in `stack.rs` where the tree is already owned.
     pub fn takes_traits(self) -> bool {
         matches!(
             self,
-            Kind::Matrix | Kind::Msa | Kind::Snps | Kind::Clades | Kind::Domains | Kind::Loci
+            Kind::Matrix
+                | Kind::Msa
+                | Kind::Snps
+                | Kind::Clades
+                | Kind::Domains
+                | Kind::Loci
+                | Kind::Tree
         )
     }
 
@@ -2261,6 +2272,10 @@ mod tests {
             "chr1:1-1000 --clades b.gff --with-tree t.nwk --traits s.tsv",
             "chr1:1-1000 --domains d.tsv --traits s.tsv",
             "chr1:1-1000 --loci l.gff --links h.tsv --traits s.tsv",
+            // A phylogeny is a row per named thing like the rest of them, and
+            // the library has drawn strips beside one since the trait columns
+            // were written.
+            "chr1:1-1000 --tree t.nwk --traits s.tsv",
         ] {
             let it = draw(line);
             assert_eq!(
