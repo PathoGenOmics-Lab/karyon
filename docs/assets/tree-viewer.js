@@ -25,6 +25,8 @@
   // --focus takes and what to show in the trail.
   var trail = [];
   var tree = { name: "tree.nwk", body: "" };
+  // A sheet of metadata, drawn as strips beside the tips or rings around them.
+  var sheet = null;
   var rows = 60;
   var projection = "rectangular";
   var pending = null;
@@ -52,8 +54,17 @@
     argv = argv.concat(["--max-rows", String(rows)]);
     var at = path[path.length - 1];
     if (at) argv = argv.concat(["--focus", at.focus]);
+    if (sheet) argv = argv.concat(["--traits", sheet.name]);
     argv.push("--no-region-label");
     return argv;
+  }
+
+  // What the program is given to read. A sheet is a second file and not a
+  // second program: the same command line a shell would type names both.
+  function files() {
+    var list = [{ name: tree.name, body: tree.body }];
+    if (sheet) list.push({ name: sheet.name, body: sheet.body });
+    return list;
   }
 
   function draw() {
@@ -61,7 +72,7 @@
     var argv = command();
     var room = el.plot.clientWidth - 24;
     if (room < 40) room = 900;
-    var answer = K.run(K.join(argv), [{ name: tree.name, body: tree.body }], room);
+    var answer = K.run(K.join(argv), files(), room);
     if (answer.ok) {
       el.stage.innerHTML = answer.body;
       reset();
@@ -335,7 +346,7 @@
       // exactly what was already on screen has wasted the gesture.
       var answer = K.run(
         K.join(command(trail.concat([{ focus: focus, label: "" }]))),
-        [{ name: tree.name, body: tree.body }],
+        files(),
         el.plot.clientWidth - 24
       );
       if (!answer.ok || tipsAccountedFor(answer.body) >= was) continue;
@@ -411,6 +422,13 @@
     });
 
     el.fit.addEventListener("click", reset);
+    if (el.dropSheet) {
+      el.dropSheet.addEventListener("click", function () {
+        sheet = null;
+        paintSheet();
+        later();
+      });
+    }
 
     // A drag that happened to end on a triangle is a drag, not a click on it.
     el.plot.addEventListener(
@@ -462,7 +480,7 @@
     // The program answers whether the name is there, and says what is when it
     // is not, so there is no index here to fall out of step with the file.
     var argv = ["tree:1-1", "--tree", tree.name, "--focus", wanted, "--max-rows", "2"];
-    var answer = K.run(K.join(argv), [{ name: tree.name, body: tree.body }], 320);
+    var answer = K.run(K.join(argv), files(), 320);
     if (!answer.ok) {
       el.error.textContent = answer.body;
       el.error.hidden = false;
@@ -470,6 +488,36 @@
     }
     trail.push({ focus: wanted, label: wanted });
     later();
+  }
+
+  // Which of the two kinds of file this is, decided by looking at it rather
+  // than by the name on it: a phylogeny comes out of a hundred programs under a
+  // hundred suffixes, and a sheet is a table.
+  function looksLikeATree(text) {
+    var head = text.slice(0, 4096);
+    return head.indexOf("(") >= 0 && head.indexOf(";") >= 0;
+  }
+
+  function take(text, name) {
+    if (looksLikeATree(text)) {
+      load(text, name);
+      return;
+    }
+    if (!tree.body) {
+      el.error.textContent =
+        "that reads as a table rather than a tree; drop the phylogeny first and the sheet after it";
+      el.error.hidden = false;
+      return;
+    }
+    sheet = { name: name || "traits.tsv", body: text };
+    paintSheet();
+    later();
+  }
+
+  function paintSheet() {
+    if (!el.sheet) return;
+    el.sheet.hidden = !sheet;
+    if (sheet) el.sheetName.textContent = sheet.name;
   }
 
   function load(text, name) {
@@ -493,6 +541,8 @@
       return;
     }
     trail = [];
+    sheet = null;
+    paintSheet();
     el.drop.hidden = true;
     el.app.hidden = false;
     el.error.hidden = true;
@@ -532,7 +582,7 @@
   }
 
   function start() {
-    ["plot", "stage", "trail", "search", "rows", "rowsOut", "command", "timing", "error", "drop", "app", "file", "paste", "usePaste", "fit", "zoom"].forEach(
+    ["plot", "stage", "trail", "search", "rows", "rowsOut", "command", "timing", "error", "drop", "app", "file", "paste", "usePaste", "fit", "zoom", "sheet", "sheetName", "dropSheet"].forEach(
       function (name) {
         el[name] = document.getElementById("tv-" + name.toLowerCase());
       }
@@ -572,7 +622,7 @@
     el.file.addEventListener("change", function () {
       var file = el.file.files[0];
       if (!file) return;
-      file.text().then(function (text) { load(text, file.name); });
+      file.text().then(function (text) { take(text, file.name); });
     });
     document.querySelectorAll("[data-example]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -589,7 +639,7 @@
       });
     });
     el.usePaste.addEventListener("click", function () {
-      if (el.paste.value.trim()) load(el.paste.value.trim(), "pasted.nwk");
+      if (el.paste.value.trim()) take(el.paste.value.trim(), "pasted.nwk");
     });
 
     ["dragover", "drop"].forEach(function (kind) {
@@ -597,7 +647,7 @@
     });
     document.addEventListener("drop", function (event) {
       var file = event.dataTransfer && event.dataTransfer.files[0];
-      if (file) file.text().then(function (text) { load(text, file.name); });
+      if (file) file.text().then(function (text) { take(text, file.name); });
     });
 
     K.onScheme(later);

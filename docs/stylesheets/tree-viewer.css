@@ -147,6 +147,14 @@
   text-align: right;
 }
 
+.tv-sheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+}
+
 .tv-hint {
   font-size: 0.65rem;
   color: var(--md-default-fg-color--light);

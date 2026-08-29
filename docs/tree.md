@@ -22,7 +22,8 @@ hide:
   </p>
   <p>Drop a Newick file anywhere on this page, or
   <label class="tv-file">choose one<input type="file" id="tv-file" accept=".nwk,.newick,.tree,.tre,.txt"></label>.
-  Nothing leaves your browser.</p>
+  Nothing leaves your browser. Drop a second file with a header and one row per tip and it is drawn as
+  strips beside the names.</p>
   <details>
     <summary>Or paste one</summary>
     <textarea id="tv-paste" rows="4" placeholder="((A:0.1,B:0.2):0.3,C:0.4);"></textarea>
@@ -43,6 +44,10 @@ hide:
     </label>
     <input class="tv-search" id="tv-search" type="search" placeholder="Find a tip, then Enter">
     <output class="tv-timing" id="tv-timing"></output>
+    <span class="tv-sheet" id="tv-sheet" hidden>
+      <span id="tv-sheetname"></span>
+      <button class="tv-btn" id="tv-dropsheet" type="button" title="Draw the tree without it">Drop</button>
+    </span>
   </div>
 
   <nav class="tv-trail" id="tv-trail" aria-label="Where you are"></nav>
