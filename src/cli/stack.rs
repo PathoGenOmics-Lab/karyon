@@ -278,7 +278,27 @@ impl std::error::Error for BuildError {}
 /// by [`crate::cli::args::parse`], so everything here is about the data.
 pub fn build(
     invocation: &Invocation,
+    open: impl FnMut(&Source) -> io::Result<String>,
+) -> Result<String, BuildError> {
+    build_with(invocation, open, |_, _| None)
+}
+
+/// The same, for a caller that has already read one of these trees.
+///
+/// `parsed` is offered the name and the text of every phylogeny before it is
+/// read, and may answer with one it made earlier. A shell never can: it runs
+/// once and reads each file once. A page driving the program on every move
+/// does, and the difference is most of the work: reading a million tip tree
+/// takes 361 ms of a 578 ms figure in a browser, where folding it and drawing
+/// sixty rows of it take 189 between them.
+///
+/// # Errors
+///
+/// The same as [`build`].
+pub fn build_with(
+    invocation: &Invocation,
     mut open: impl FnMut(&Source) -> io::Result<String>,
+    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
     let region = &invocation.region;
     let mut plot = Plot::over(region.clone());
@@ -312,7 +332,7 @@ pub fn build(
             plot = axis.done();
             continue;
         }
-        plot = plot.add_boxed(track(spec, region, &mut open)?);
+        plot = plot.add_boxed(track(spec, region, &mut open, &mut parsed)?);
     }
     Ok(plot.to_svg())
 }
@@ -503,6 +523,7 @@ fn track(
     spec: &TrackSpec,
     region: &Region,
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<Box<dyn Track>, BuildError> {
     let (text, path) = slurp(spec, open)?;
     let name = spec.kind.flag();
@@ -710,11 +731,14 @@ fn track(
             Box::new(named(track, label, ManhattanTrack::label))
         }
         Kind::Tree => {
-            let tree = Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                flag: "--tree",
-                path: path.clone(),
-                cause,
-            })?;
+            let tree = match parsed(&path, text.trim()) {
+                Some(tree) => tree,
+                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                    flag: "--tree",
+                    path: path.clone(),
+                    cause,
+                })?,
+            };
             let tree = match &spec.focus {
                 None => tree,
                 Some(names) => {
@@ -782,12 +806,13 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (other, right_path) = fetch(name, source, open)?;
-            let parse = |text: &str, flag, path: &str| {
-                Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
+            let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
+                Some(tree) => Ok(tree),
+                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
                     flag,
                     path: path.to_string(),
                     cause,
-                })
+                }),
             };
             let left = parse(&text, "--tanglegram", &path)?;
             let right = parse(&other, "--against", &right_path)?;
@@ -1001,11 +1026,14 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (newick, tree_path) = fetch(name, source, open)?;
-            let tree = Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
-                flag: "--with-tree",
-                path: tree_path,
-                cause,
-            })?;
+            let tree = match parsed(&tree_path, newick.trim()) {
+                Some(tree) => tree,
+                None => Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
+                    flag: "--with-tree",
+                    path: tree_path,
+                    cause,
+                })?,
+            };
 
             let found = wrap(name, &path, read::clade::blocks(&text, region))?;
             if found.records == 0 {
@@ -2203,5 +2231,49 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             error.to_string(),
             format!("--tree {path}: invalid Newick tree: unbalanced parentheses")
         );
+    }
+    /// A page that runs the program on every move reads the same file every
+    /// time, and reading it is most of the work. `build_with` lets such a
+    /// caller answer with a tree it made earlier, and this is the contract:
+    /// the text is offered before it is read, an answer is taken as given, and
+    /// no answer means the file is read as usual.
+    #[test]
+    fn a_caller_may_answer_with_a_tree_it_read_earlier() {
+        const ON_DISK: &str = "((ondisk_a:0.1,ondisk_b:0.1):0.1,ondisk_c:0.1);";
+        let held = Tree::parse_newick("((kept_a:0.1,kept_b:0.1):0.1,kept_c:0.1);").unwrap();
+
+        // Offered, and taken.
+        let mut seen = Vec::new();
+        let svg = build_with(
+            &over("tree:1-1", "--tree", "t.nwk"),
+            |_| Ok(ON_DISK.to_string()),
+            |name, text| {
+                seen.push((name.to_string(), text.to_string()));
+                Some(held.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(seen.len(), 1, "offered once, for the one tree");
+        assert_eq!(seen[0].0, "t.nwk", "offered under the name it was asked by");
+        assert_eq!(seen[0].1, ON_DISK, "offered the text, trimmed");
+        assert!(svg.contains("kept_a"), "the answer was drawn: {svg}");
+        assert!(!svg.contains("ondisk_a"), "and the file was not: {svg}");
+
+        // Declined, and the file is read.
+        let svg = build_with(
+            &over("tree:1-1", "--tree", "t.nwk"),
+            |_| Ok(ON_DISK.to_string()),
+            |_, _| None,
+        )
+        .unwrap();
+        assert!(svg.contains("ondisk_a"), "{svg}");
+
+        // And `build` is the same thing with nothing held, so a shell is not
+        // paying for a viewer's convenience.
+        let plain = build(&over("tree:1-1", "--tree", "t.nwk"), |_| {
+            Ok(ON_DISK.to_string())
+        })
+        .unwrap();
+        assert_eq!(plain, svg);
     }
 }
