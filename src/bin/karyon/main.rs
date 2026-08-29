@@ -122,6 +122,11 @@ TRACK OPTIONS, each describing the track before it
                          A circle sizes itself so its tip labels clear each
                          other, up to the width of the figure, so a big tree
                          wants a wider one or fewer rows
+    --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
+                         by its own label, by a tip inside it, or by two tips
+                         it spans. A folded triangle says the pair it spans in
+                         its tooltip, so what a figure calls a clade is what
+                         opens it
     --compare-to <NAME>  the row every other row is read against, named as its
                          FASTA header names it. An alignment compares against
                          the consensus without it and a variable-site panel

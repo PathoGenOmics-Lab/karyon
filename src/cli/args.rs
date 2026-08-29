@@ -471,6 +471,11 @@ impl Kind {
         matches!(self, Kind::Tree)
     }
 
+    /// Whether `--focus` means anything here.
+    fn takes_focus(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
     /// Whether `--compare-to` means anything here.
     ///
     /// The two tracks that read every row against one of them. An alignment
@@ -876,6 +881,8 @@ pub struct TrackSpec {
     pub compare_to: Option<String>,
     /// `--projection`, the shape a phylogeny is laid out in.
     pub projection: Option<TreeProjection>,
+    /// `--focus`, the one clade of a phylogeny to draw.
+    pub focus: Option<Vec<String>>,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -923,6 +930,7 @@ impl TrackSpec {
             row_height: None,
             compare_to: None,
             projection: None,
+            focus: None,
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1224,6 +1232,30 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.projection = Some(projection);
+            }
+            "--focus" => {
+                let text = value("--focus")?;
+                let names: Vec<String> = text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if names.is_empty() || names.len() > 2 {
+                    return Err(ArgError::BadValue {
+                        flag: "--focus",
+                        given: text.clone(),
+                        expected: "a clade name, a tip name, or two tip names separated by a comma",
+                    });
+                }
+                let track = last(&mut tracks, "--focus")?;
+                if !track.kind.takes_focus() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--focus",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.focus = Some(names);
             }
             "--compare-to" => {
                 let name = value("--compare-to")?.clone();
@@ -2661,5 +2693,58 @@ mod tests {
     fn a_missing_region_is_its_own_message() {
         let err = parse(&args("--coverage d.bg")).unwrap_err();
         assert!(err.to_string().contains("the first argument is the region"));
+    }
+    #[test]
+    fn focus_takes_a_clade_a_tip_or_a_pair_and_refuses_the_rest() {
+        let focus = |value: &str| {
+            parse(&args(&format!("tree:1-1 --tree t.nwk --focus {value}"))).map(|request| {
+                match request {
+                    Request::Draw(invocation) => invocation.tracks[0].focus.clone(),
+                    other => panic!("expected a figure, got {other:?}"),
+                }
+            })
+        };
+        assert_eq!(
+            focus("outbreak").unwrap(),
+            Some(vec!["outbreak".to_string()])
+        );
+        assert_eq!(
+            focus("A,B").unwrap(),
+            Some(vec!["A".to_string(), "B".to_string()])
+        );
+        // Spaces round a comma survive, for the reader who quotes them. It
+        // is spelled out as one word here because a shell would have done
+        // that, and a helper that splits on spaces would not.
+        let spaced: Vec<String> = ["tree:1-1", "--tree", "t.nwk", "--focus", "A, B"]
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        match parse(&spaced).unwrap() {
+            Request::Draw(invocation) => assert_eq!(
+                invocation.tracks[0].focus,
+                Some(vec!["A".to_string(), "B".to_string()])
+            ),
+            other => panic!("expected a figure, got {other:?}"),
+        }
+        // Three names name no clade: two pick one out and a third can only
+        // agree or contradict.
+        let refused = focus("A,B,C").unwrap_err().to_string();
+        assert!(refused.contains("--focus"), "{refused}");
+        assert!(
+            refused.contains("two tip names"),
+            "the refusal says what it wanted: {refused}"
+        );
+        assert!(focus(",").is_err(), "a comma alone names nothing");
+    }
+
+    #[test]
+    fn focus_means_nothing_to_a_track_that_is_not_a_tree() {
+        let refused = parse(&args(
+            "NC_000962.3:1-1000 --coverage depth.bedgraph --focus A",
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(refused.contains("--focus"), "{refused}");
+        assert!(refused.contains("coverage"), "{refused}");
     }
 }

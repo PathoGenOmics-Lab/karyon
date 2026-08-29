@@ -715,6 +715,49 @@ fn track(
                 path: path.clone(),
                 cause,
             })?;
+            let tree = match &spec.focus {
+                None => tree,
+                Some(names) => {
+                    let mut found = Vec::with_capacity(names.len());
+                    for name in names {
+                        let Some(node) = tree.node_named(name) else {
+                            // Every tip and every labelled clade, so a
+                            // misspelling can be seen against what is there
+                            // rather than guessed at. Capped, because a
+                            // million tip tree would otherwise answer a typo
+                            // with a million names.
+                            let mut held: Vec<String> =
+                                tree.leaf_names().into_iter().take(24).collect();
+                            if tree.leaf_count() > held.len() {
+                                held.push(format!("and {} more", tree.leaf_count() - held.len()));
+                            }
+                            return Err(BuildError::Unnamed {
+                                track: "tree",
+                                path: path.clone(),
+                                what: "tip or clade",
+                                wanted: name.clone(),
+                                held,
+                            });
+                        };
+                        found.push(node);
+                    }
+                    // One name is that clade, or the clade a tip sits in,
+                    // since a tip on its own is not a subtree anyone can read.
+                    // Two names are the smallest clade holding both, which is
+                    // how a folded triangle names itself in its tooltip.
+                    let at = if found.len() == 1 {
+                        let node = found[0];
+                        if tree.nodes()[node].is_leaf() {
+                            tree.nodes()[node].parent.unwrap_or(node)
+                        } else {
+                            node
+                        }
+                    } else {
+                        tree.mrca(&found).unwrap_or_else(|| tree.root())
+                    };
+                    tree.subtree(at).unwrap_or(tree)
+                }
+            };
             let mut track = TreeTrack::new(tree);
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);

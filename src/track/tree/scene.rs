@@ -170,6 +170,33 @@ fn first_tip(tree: &Tree, node: usize) -> Option<&str> {
     }
 }
 
+fn last_tip(tree: &Tree, node: usize) -> Option<&str> {
+    let mut at = node;
+    loop {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            return clade.name.as_deref();
+        }
+        at = *clade.children.last()?;
+    }
+}
+
+/// What a folded clade's triangle says when a pointer rests on it.
+///
+/// The two tips at its ends rather than only the count, because they are what
+/// names the clade: the tips inside a node form a run, so the first and the
+/// last of them pick out one clade and no other. A reader gets to see which
+/// part of the tree the triangle stands for, and anything driving the program
+/// gets an address it can hand back as `--focus first,last` to open it.
+pub(super) fn collapsed_title(tree: &Tree, node: usize) -> String {
+    let name = tree.nodes()[node].name.as_deref().unwrap_or("clade");
+    let held = format!("{} ({})", name, tip_count(tree.clade_size(node)));
+    match (first_tip(tree, node), last_tip(tree, node)) {
+        (Some(first), Some(last)) if first != last => format!("{held}, {first} to {last}"),
+        _ => held,
+    }
+}
+
 pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
     if !collapsed.contains(&node) {
         return tree.nodes()[node]

@@ -563,11 +563,7 @@ pub(super) fn draw_radial_collapsed(
             num(right_x),
             num(right_y)
         );
-        let title = format!(
-            "{} ({})",
-            track.tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-            tip_count(track.tree.clade_size(*node))
-        );
+        let title = collapsed_title(&track.tree, *node);
         ctx.svg.begin_titled(&title);
         ctx.svg.path(&d, &styles.get(*node).color, 0.28);
         ctx.svg.end_group();

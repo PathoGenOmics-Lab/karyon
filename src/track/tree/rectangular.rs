@@ -232,11 +232,7 @@ pub(super) fn draw_tree_scene(
                 num(far.max(start + 2.0)),
                 num(y + half)
             );
-            let title = format!(
-                "{} ({})",
-                tree.nodes()[*node].name.as_deref().unwrap_or("clade"),
-                tip_count(tree.clade_size(*node))
-            );
+            let title = collapsed_title(tree, *node);
             ctx.svg.begin_titled(&title);
             ctx.svg.path(&d, &styles.get(*node).color, 0.28);
             ctx.svg.end_group();

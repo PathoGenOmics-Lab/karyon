@@ -956,7 +956,12 @@ fn circular_collapse_is_a_non_destructive_wedge() {
         .show_region_label(false)
         .push(track)
         .to_svg();
-    assert!(svg.contains("<title>outbreak (2 tips)</title>"), "{svg}");
+    // The triangle names the clade it stands for, ends included, so a reader
+    // sees which part of the tree it is and not only how big.
+    assert!(
+        svg.contains("<title>outbreak (2 tips), A to B</title>"),
+        "{svg}"
+    );
     assert!(svg.contains("fill-opacity=\"0.28\""), "{svg}");
 }
 
@@ -1379,4 +1384,39 @@ fn folding_ranks_clades_by_the_same_size_the_tree_would_report() {
         let saved: usize = folded.iter().map(|size| size - 1).sum();
         assert_eq!(64 - saved, cap, "a cap of {cap} did not land on {cap} rows");
     }
+}
+
+#[test]
+fn a_folded_triangle_names_the_clade_it_stands_for() {
+    // A tooltip that said "clade (128 tips)" told a reader how big the
+    // triangle is and nothing about which part of the tree it is. The two tips
+    // at its ends name it instead: the tips under a node are a run, so the
+    // first and the last of them pick out one clade and no other, which is
+    // also an address anything driving the program can hand back to open it.
+    let tree = balanced(64);
+    let svg = Figure::new(region())
+        .push(TreeTrack::new(tree.clone()).max_rows(Some(4)))
+        .to_svg();
+    let titles: Vec<&str> = svg
+        .split("<title>")
+        .skip(1)
+        .filter_map(|piece| piece.split("</title>").next())
+        .filter(|title| title.contains(" to "))
+        .collect();
+    assert_eq!(titles.len(), 4, "four folds, four addresses: {svg}");
+    assert_eq!(
+        titles[0], "clade (16 tips), t0 to t15",
+        "the first triangle holds the first sixteen tips"
+    );
+    assert_eq!(titles[3], "clade (16 tips), t48 to t63");
+
+    // And a one tip fold has nothing to span, so it says its size alone.
+    let pair = Tree::parse_newick("((a:0.1,b:0.1):0.1,c:0.1);").unwrap();
+    let one = Figure::new(region())
+        .push(TreeTrack::new(pair).max_rows(Some(2)))
+        .to_svg();
+    assert!(
+        one.contains("<title>clade (2 tips), a to b</title>"),
+        "{one}"
+    );
 }
