@@ -221,9 +221,17 @@ pub fn molecules(text: &str, region: &Region, wanted: &str) -> Result<Calls, Rea
     for name in order {
         let calls = &per_read[&name];
         let mut row = vec![None; found.sites.len()];
-        for (at, site) in found.sites.iter().enumerate() {
-            if let Some(call) = calls.get(site) {
-                row[at] = *call;
+        // The molecule's own calls, each finding its column, rather than every
+        // column asking this molecule whether it was reached. A fragment
+        // covers a few dozen sites and the window holds tens of thousands, so
+        // asking the other way round was twenty thousand molecules times
+        // thirty thousand sites of lookups to place a million calls, and 2.12
+        // of the 2.38 seconds the figure took. Every position here was put
+        // into the site list by the same line that put it here, so the search
+        // finds it.
+        for (site, call) in calls {
+            if let Ok(column) = found.sites.binary_search(site) {
+                row[column] = *call;
             }
         }
         found.molecules.push(Molecule::new(name, row));

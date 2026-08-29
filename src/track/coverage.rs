@@ -140,21 +140,32 @@ impl CoverageTrack {
     /// [`CoverageTrack::from_pairs`], because that is what a depth of nought
     /// means and what a bedGraph leaves out.
     pub fn from_spans(region: &Region, spans: impl IntoIterator<Item = (u64, u64, f64)>) -> Self {
-        let mut values = vec![0.0; region.len() as usize];
+        let mut track = CoverageTrack::new(region.start(), vec![0.0; region.len() as usize]);
         for (start, end, value) in spans {
-            let first = start.max(region.start()) - region.start();
-            let last = end.min(region.end()).saturating_sub(region.start());
-            let Ok(first) = usize::try_from(first) else {
-                continue;
-            };
-            let last = usize::try_from(last)
-                .unwrap_or(values.len())
-                .min(values.len());
-            for slot in values.iter_mut().take(last).skip(first) {
-                *slot = value;
-            }
+            track.paint(start, end, value);
         }
-        CoverageTrack::new(region.start(), values)
+        track
+    }
+
+    /// Writes `value` over the bases from `start` up to `end`, clamped to what
+    /// this track covers.
+    ///
+    /// This is what [`CoverageTrack::from_spans`] does to each span in turn,
+    /// separated out so a reader can hand over one span at a time and never
+    /// hold the whole list. `samtools depth` writes a line per base, and over
+    /// ten million bases collecting them first cost 231 MB for a track of 76.
+    pub(crate) fn paint(&mut self, start: u64, end: u64, value: f64) {
+        let first = start.max(self.start) - self.start;
+        let last = end.saturating_sub(self.start);
+        let Ok(first) = usize::try_from(first) else {
+            return;
+        };
+        let last = usize::try_from(last)
+            .unwrap_or(self.values.len())
+            .min(self.values.len());
+        for slot in self.values.iter_mut().take(last).skip(first) {
+            *slot = value;
+        }
     }
 
     /// The value at a 0-based position, or `None` outside what this track holds.
