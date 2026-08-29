@@ -290,6 +290,29 @@
     settling = setTimeout(refine, 220);
   }
 
+  // The windows worth asking about, widest first.
+  //
+  // Two rows next to each other on the page can be as far apart in the tree as
+  // two rows get: the clade holding a run that straddles its own deepest split
+  // is the clade you are already looking at, and asking for it draws the same
+  // figure again. That is what made a disc stop resolving after two gestures.
+  // So when the whole of the view names nothing smaller, the middle of it is
+  // tried, then the middle of that. The reader is looking at the middle.
+  function windows(run) {
+    var out = [];
+    var seen = {};
+    [run.length, Math.ceil(run.length / 2), Math.ceil(run.length / 4)].forEach(function (want) {
+      var wide = Math.max(1, Math.min(run.length, want));
+      var at = Math.floor((run.length - wide) / 2);
+      var slice = run.slice(at, at + wide);
+      var key = slice[0].name + "," + slice[slice.length - 1].name;
+      if (seen[key]) return;
+      seen[key] = 1;
+      out.push(slice);
+    });
+    return out;
+  }
+
   function refine() {
     settling = null;
     if (view.k < 2) return;
@@ -298,33 +321,33 @@
     // Nothing to gain when most of the picture is still on screen, and nothing
     // to name when none of it is.
     if (!on.length || on.length > tips.length * 0.6) return;
-    var first = on[0].name;
-    var last = on[on.length - 1].name;
-    var focus = first === last ? first : first + "," + last;
-    var at = trail[trail.length - 1];
-    if (at && at.focus === focus) {
-      reset();
-      return;
-    }
 
-    // Asked for before it is committed to. The clade holding two rows can be
-    // very much bigger than the two rows, up to the whole tree when the view
-    // straddles the deepest split there is, and a step in the trail that draws
-    // exactly what was already on screen is a step that wasted the gesture.
     var was = tipsAccountedFor(el.stage.innerHTML);
-    var trying = trail.concat([{ focus: focus, label: "" }]);
-    var argv = command(trying);
-    var answer = K.run(K.join(argv), [{ name: tree.name, body: tree.body }], el.plot.clientWidth - 24);
-    if (!answer.ok || tipsAccountedFor(answer.body) >= was) {
-      // The view spans more of the tree than any one clade below the current
-      // one, so magnifying is all there is; leave the transform alone.
+    var here = trail.length ? trail[trail.length - 1].focus : null;
+    var tries = windows(on);
+    for (var i = 0; i < tries.length; i++) {
+      var slice = tries[i];
+      var first = slice[0].name;
+      var last = slice[slice.length - 1].name;
+      var focus = first === last ? first : first + "," + last;
+      if (focus === here) continue;
+      // Asked for before it is committed to: a step in the trail that draws
+      // exactly what was already on screen has wasted the gesture.
+      var answer = K.run(
+        K.join(command(trail.concat([{ focus: focus, label: "" }]))),
+        [{ name: tree.name, body: tree.body }],
+        el.plot.clientWidth - 24
+      );
+      if (!answer.ok || tipsAccountedFor(answer.body) >= was) continue;
+      trail.push({
+        focus: focus,
+        label: first === last ? first : first + " to " + last,
+      });
+      later();
       return;
     }
-    trail.push({
-      focus: focus,
-      label: first === last ? first : first + " to " + last,
-    });
-    later();
+    // Every window names the clade already on screen, so there is nothing
+    // below this to open and magnifying is all that is left.
   }
 
   // --------------------------------------------------------------- the hand  // --------------------------------------------------------------- the hand
