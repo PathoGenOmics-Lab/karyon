@@ -127,12 +127,30 @@ pub enum BuildError {
     Unnamed {
         /// Which track wanted it.
         track: &'static str,
-        /// What the sheet was called.
+        /// What the file was called.
         path: String,
-        /// The column that is not in it.
+        /// What kind of thing was being named, as a reader would say it.
+        what: &'static str,
+        /// The one that is not in the file.
         wanted: String,
-        /// The columns that are.
+        /// The ones that are.
         held: Vec<String>,
+    },
+    /// A name meant to pick one thing out of a file that holds several of it.
+    ///
+    /// Picking the first would be a figure drawn against something the caller
+    /// did not choose, and looking like the one they asked for.
+    Repeated {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What the file was called.
+        path: String,
+        /// What kind of thing was being named.
+        what: &'static str,
+        /// The name that picks more than one.
+        name: String,
+        /// How many it picks.
+        held: usize,
     },
     /// A copy number track with no ploidy to read its levels against.
     ///
@@ -218,12 +236,23 @@ impl fmt::Display for BuildError {
             BuildError::Unnamed {
                 track,
                 path,
+                what,
                 wanted,
                 held,
             } => write!(
                 f,
-                "--{track} {path} has no column called {wanted}; it has {}",
+                "--{track} {path} has no {what} called {wanted}; it has {}",
                 held.join(", ")
+            ),
+            BuildError::Repeated {
+                track,
+                path,
+                what,
+                name,
+                held,
+            } => write!(
+                f,
+                "--{track} {path} has {held} {what}s called {name}, so the name does not pick one"
             ),
             BuildError::MissingPloidy { track } => write!(
                 f,
@@ -331,6 +360,7 @@ fn strip(
             for column in named {
                 if !held.columns.contains(column) {
                     return Err(BuildError::Unnamed {
+                        what: "column",
                         track,
                         path: path.clone(),
                         wanted: column.clone(),
@@ -585,6 +615,12 @@ fn track(
             }
 
             let mut track = JunctionTrack::new(found.junctions);
+            if spec.no_counts {
+                track = track.show_counts(false);
+            }
+            if let Some(reads) = spec.min_reads {
+                track = track.min_reads(reads);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -615,6 +651,9 @@ fn track(
                 return Err(empty("features"));
             }
             let mut track = FeatureTrack::new(features);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if spec.no_names {
                 track = track.show_names(false);
             }
@@ -676,7 +715,11 @@ fn track(
                 path: path.clone(),
                 cause,
             })?;
-            Box::new(named(TreeTrack::new(tree), label, TreeTrack::label))
+            let mut track = TreeTrack::new(tree);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
+            Box::new(named(track, label, TreeTrack::label))
         }
         // Two trees, and the grammar gives one path per flag, so the second
         // arrives by name: --tanglegram left.nwk --against right.nwk. The
@@ -702,8 +745,11 @@ fn track(
             // Named, because two phylogenies side by side with nothing over
             // them do not say which is which, and which is which is the whole
             // of what a tanglegram is read for.
-            let track =
+            let mut track =
                 TanglegramTrack::new(left, right).names(shortened(&path), shortened(&right_path));
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             Box::new(named(track, label, TanglegramTrack::label))
         }
         // One bedMethyl is one track only when it counted one modification. A
@@ -733,6 +779,9 @@ fn track(
             }
 
             let mut track = MethylationTrack::new(found.sites);
+            if let Some(reads) = spec.min_reads {
+                track = track.min_coverage(reads);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -787,6 +836,9 @@ fn track(
                 });
             }
             let mut track = SplitReadTrack::new(found.reads);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if spec.no_names {
                 track = track.show_names(false);
             }
@@ -821,6 +873,9 @@ fn track(
             }
 
             let mut track = BisulfiteTrack::new(found.sites, found.molecules);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
             }
@@ -873,6 +928,9 @@ fn track(
 
             let names: Vec<String> = found.rows.iter().map(|row| row.name.clone()).collect();
             let mut track = DomainTrack::new(found.rows);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if spec.no_names {
                 track = track.show_names(false);
             }
@@ -946,6 +1004,9 @@ fn track(
 
             let names: Vec<String> = leaves.iter().cloned().collect();
             let mut track = CladeTrack::new(tree, found.blocks);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if spec.no_names {
                 track = track.show_names(false);
             }
@@ -1065,7 +1126,10 @@ fn track(
         Kind::Orfs => {
             let records = wrap(name, &path, read::seq::fasta(&text))?;
             let (_, bases) = records.into_iter().next().ok_or_else(|| empty("orfs"))?;
-            let track = OrfTrack::new(region.start(), clip(&bases, region));
+            let mut track = OrfTrack::new(region.start(), clip(&bases, region));
+            if let Some(px) = spec.row_height {
+                track = track.lane_height(px);
+            }
             Box::new(named(track, label, OrfTrack::label))
         }
         Kind::Logo => {
@@ -1081,6 +1145,15 @@ fn track(
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
             let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
             let mut track = MsaTrack::new(sequences);
+            if let Some(index) = compared_row(name, &path, &names, &spec.compare_to)? {
+                track = track.compare_to(index);
+            }
+            if let Some(display) = spec.style.and_then(Style::msa) {
+                track = track.display(display);
+            }
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
             }
@@ -1095,7 +1168,14 @@ fn track(
         Kind::Snps => {
             let sequences = msa(wrap(name, &path, read::seq::alignment(&text))?, &empty)?;
             let names: Vec<String> = sequences.iter().map(|row| row.name.clone()).collect();
-            let mut track = SnpTrack::from_alignment(0, &sequences);
+            let reference = compared_row(name, &path, &names, &spec.compare_to)?.unwrap_or(0);
+            let mut track = SnpTrack::from_alignment(reference, &sequences);
+            if spec.no_counts {
+                track = track.show_counts(false);
+            }
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
             }
@@ -1180,6 +1260,9 @@ fn track(
             }
             let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
             let mut track = MatrixTrack::new(sites, rows);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
             if spec.no_names {
                 track = track.show_row_names(false);
             }
@@ -1194,6 +1277,12 @@ fn track(
                 return Err(empty("reads"));
             }
             let mut track = PileupTrack::new(reads);
+            if spec.fade_by_mapq {
+                track = track.fade_by_quality(true);
+            }
+            if let Some(px) = spec.row_height {
+                track = track.read_height(px);
+            }
             // Without this the track draws every base agreeing, because a
             // mismatch is a base that differs from a reference it was never
             // given. The letters are clipped to the window and the start is the
@@ -1289,6 +1378,46 @@ fn second_sequence(
         against: "the sequence the region names",
         examples: Vec::new(),
     })
+}
+
+/// Turns `--compare-to` into a row index, or refuses.
+///
+/// Refused here rather than passed on, because both builders take a `usize` and
+/// neither complains about one out of range: an alignment falls back to the
+/// consensus and a variable-site panel comes out empty, and both look like
+/// figures. A misspelt name would be answered with a confident wrong picture.
+fn compared_row(
+    track: &'static str,
+    path: &str,
+    names: &[String],
+    wanted: &Option<String>,
+) -> Result<Option<usize>, BuildError> {
+    let Some(wanted) = wanted else {
+        return Ok(None);
+    };
+    let found: Vec<usize> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| *name == wanted)
+        .map(|(index, _)| index)
+        .collect();
+    match found.as_slice() {
+        [index] => Ok(Some(*index)),
+        [] => Err(BuildError::Unnamed {
+            track,
+            path: path.to_string(),
+            what: "row",
+            wanted: wanted.clone(),
+            held: names.to_vec(),
+        }),
+        many => Err(BuildError::Repeated {
+            track,
+            path: path.to_string(),
+            what: "row",
+            name: wanted.clone(),
+            held: many.len(),
+        }),
+    }
 }
 
 fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
@@ -1821,6 +1950,88 @@ B\t0\t400\tg2\t0\t+
             Request::Draw(invocation) => *invocation,
             other => panic!("expected a figure, got {other:?}"),
         }
+    }
+
+    /// A name that picks nothing, or picks two things, is refused rather than
+    /// passed on. Both builders take a `usize` and neither complains about one
+    /// out of range: `MsaTrack::compare_to` falls back to the consensus and
+    /// `SnpTrack::from_alignment` returns an empty track, and both of those
+    /// are figures. A misspelt name would be answered with a picture.
+    #[test]
+    fn a_row_to_compare_against_is_refused_where_the_name_picks_wrong() {
+        const ALIGNED: &str = "\
+>H37Rv
+ACGTACGTACGTACGTACGTACGTACGTACGT
+>iso1
+ACGTACGTACGTACGTACGTACGTACGTAAGT
+>iso2
+ACGTACGTAAGTACGTACGTACGTACGTACGT
+";
+        const TWICE: &str = "\
+>H37Rv
+ACGTACGTACGTACGTACGTACGTACGTACGT
+>iso1
+ACGTACGTACGTACGTACGTACGTACGTAAGT
+>H37Rv
+ACGTACGTAAGTACGTACGTACGTACGTACGT
+";
+        let line = |extra: &[&str]| {
+            let mut args = vec![
+                "aln:1-32".to_string(),
+                "--msa".to_string(),
+                "a.fa".to_string(),
+            ];
+            args.extend(extra.iter().map(|word| word.to_string()));
+            match parse(&args).unwrap() {
+                Request::Draw(invocation) => *invocation,
+                other => panic!("expected a figure, got {other:?}"),
+            }
+        };
+
+        // A name that is there draws.
+        assert!(build(
+            &line(&["--compare-to", "iso1"]),
+            |_| Ok(ALIGNED.to_string())
+        )
+        .is_ok());
+
+        let missing = build(
+            &line(&["--compare-to", "iso9"]),
+            |_| Ok(ALIGNED.to_string()),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            missing,
+            "--msa a.fa has no row called iso9; it has H37Rv, iso1, iso2"
+        );
+
+        let twice = build(&line(&["--compare-to", "H37Rv"]), |_| Ok(TWICE.to_string()))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            twice,
+            "--msa a.fa has 2 rows called H37Rv, so the name does not pick one"
+        );
+
+        // And the same on a variable-site panel, which fails differently
+        // without the check: an out of range index gives an empty track.
+        let mut args: Vec<String> = "aln:1-32 --snps a.fa --compare-to iso9"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        args.truncate(5);
+        let panel = match parse(&args).unwrap() {
+            Request::Draw(invocation) => *invocation,
+            other => panic!("expected a figure, got {other:?}"),
+        };
+        let refused = build(&panel, |_| Ok(ALIGNED.to_string()))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.starts_with("--snps a.fa has no row called iso9"),
+            "{refused}"
+        );
     }
 
     #[test]
