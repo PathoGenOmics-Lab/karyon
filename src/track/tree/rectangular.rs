@@ -105,7 +105,7 @@ pub(super) fn draw_tree_scene(
         if let Some(title) = &title {
             ctx.svg.begin_titled(title);
         }
-        let style = &styles[placement.node];
+        let style = styles.get(placement.node);
         match branch_geometry {
             BranchGeometry::Curved => ctx.svg.path_stroked_pattern(
                 &rectangular_curve_path(start, end),
@@ -171,7 +171,7 @@ pub(super) fn draw_tree_scene(
             if let Some(title) = &title {
                 ctx.svg.begin_titled(title);
             }
-            let connector = connector_style(dnds, ctx.theme, &colors[placement.node], width);
+            let connector = connector_style(dnds, ctx.theme, colors.get(placement.node), width);
             ctx.svg.line_pattern(
                 x,
                 y_of(top),
@@ -196,7 +196,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 support,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 support_style,
             );
             ctx.svg.end_group();
@@ -205,7 +205,7 @@ pub(super) fn draw_tree_scene(
                 x,
                 y_of(placement.row),
                 ctx.theme.tokens.marker_radius * 0.65,
-                &styles[placement.node].color,
+                &styles.get(placement.node).color,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             );
@@ -238,7 +238,7 @@ pub(super) fn draw_tree_scene(
                 tip_count(tree.clade_size(*node))
             );
             ctx.svg.begin_titled(&title);
-            ctx.svg.path(&d, &styles[*node].color, 0.28);
+            ctx.svg.path(&d, &styles.get(*node).color, 0.28);
             ctx.svg.end_group();
         }
     }
@@ -274,26 +274,76 @@ fn rectangular_curve_path(start: (f64, f64), end: (f64, f64)) -> String {
     )
 }
 
-pub(super) fn branch_styles(
-    tree: &Tree,
-    colors: &[String],
-    dnds: Option<&DnDsLayer>,
-    theme: &Theme,
+/// One value for every node, where almost every node has the same one.
+///
+/// A million tip tree is two million nodes, and giving each its own `String`
+/// is two million allocations to say the same colour two million times, which
+/// was 130 of the 190 ms such a tree spent drawing sixty rows. The nodes that
+/// differ are the ones the figure was asked to colour, and a figure that
+/// colours every node of a million tip tree has nothing to say either way.
+#[derive(Debug, Clone)]
+pub(super) struct PerNode<T> {
+    common: T,
+    apart: BTreeMap<usize, T>,
+}
+
+impl<T> PerNode<T> {
+    pub(super) fn shared(common: T) -> Self {
+        PerNode {
+            common,
+            apart: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn set(&mut self, node: usize, value: T) {
+        self.apart.insert(node, value);
+    }
+
+    pub(super) fn get(&self, node: usize) -> &T {
+        self.apart.get(&node).unwrap_or(&self.common)
+    }
+}
+
+/// The styles branches are drawn with, worked out as each branch is reached.
+///
+/// Held rather than built because building it meant one `BranchStyle` per node
+/// whether or not the node is drawn, and a folded tree draws a few hundred of
+/// its two million.
+pub(super) struct BranchStyles<'a> {
+    tree: &'a Tree,
+    colors: &'a PerNode<String>,
+    dnds: Option<&'a DnDsLayer>,
+    theme: &'a Theme,
     width: f64,
-) -> Vec<BranchStyle> {
-    (0..tree.nodes().len())
-        .map(|node| match dnds {
-            Some(dnds) => dnds_branch_style(tree, node, dnds, theme, width),
+}
+
+impl BranchStyles<'_> {
+    pub(super) fn get(&self, node: usize) -> BranchStyle {
+        match self.dnds {
+            Some(dnds) => dnds_branch_style(self.tree, node, dnds, self.theme, self.width),
             None => BranchStyle {
-                color: colors
-                    .get(node)
-                    .cloned()
-                    .unwrap_or_else(|| theme.foreground.clone()),
-                width,
+                color: self.colors.get(node).clone(),
+                width: self.width,
                 pattern: LinePattern::Solid,
             },
-        })
-        .collect()
+        }
+    }
+}
+
+pub(super) fn branch_styles<'a>(
+    tree: &'a Tree,
+    colors: &'a PerNode<String>,
+    dnds: Option<&'a DnDsLayer>,
+    theme: &'a Theme,
+    width: f64,
+) -> BranchStyles<'a> {
+    BranchStyles {
+        tree,
+        colors,
+        dnds,
+        theme,
+        width,
+    }
 }
 
 pub(super) fn connector_style(
@@ -398,8 +448,8 @@ pub(super) fn branch_colors(
     key: Option<&str>,
     theme: &Theme,
     default_color: &str,
-) -> Vec<String> {
-    let mut colors = vec![default_color.to_string(); tree.nodes().len()];
+) -> PerNode<String> {
+    let mut colors = PerNode::shared(default_color.to_string());
     let Some(key) = key else {
         return colors;
     };
@@ -437,7 +487,7 @@ pub(super) fn branch_colors(
                 } else {
                     (value - minimum) / (maximum - minimum)
                 };
-                colors[node] = mix(&theme.muted, &theme.accent, fraction);
+                colors.set(node, mix(&theme.muted, &theme.accent, fraction));
             }
         }
     } else {
@@ -454,7 +504,7 @@ pub(super) fn branch_colors(
             let value = value.to_string();
             let next = categories.len();
             let index = *categories.entry(value).or_insert(next);
-            colors[node] = theme.color(index).to_string();
+            colors.set(node, theme.color(index).to_string());
         }
     }
     colors

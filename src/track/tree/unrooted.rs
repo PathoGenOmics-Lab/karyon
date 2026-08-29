@@ -607,7 +607,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         }
         let (x0, y0) = geometry.node(from);
         let (x1, y1) = geometry.node(to);
-        let style = &styles[owner];
+        let style = styles.get(owner);
         ctx.svg
             .line_pattern(x0, y0, x1, y1, &style.color, style.width, style.pattern);
         if title.is_some() {
@@ -669,7 +669,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                     x,
                     y,
                     support,
-                    &styles[*node].color,
+                    &styles.get(*node).color,
                     track.support_style,
                 );
             } else if track.show_nodes {
@@ -677,7 +677,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                     x,
                     y,
                     ctx.theme.tokens.marker_radius * 0.65,
-                    &styles[*node].color,
+                    &styles.get(*node).color,
                     &ctx.theme.background,
                     ctx.theme.tokens.hairline,
                 );
@@ -726,8 +726,8 @@ pub(super) fn unrooted_branch_colors(
     key: Option<&str>,
     theme: &Theme,
     default_color: &str,
-) -> Vec<String> {
-    let mut colors = vec![default_color.to_string(); tree.nodes().len()];
+) -> PerNode<String> {
+    let mut colors = PerNode::shared(default_color.to_string());
     let Some(key) = key else {
         return colors;
     };
@@ -754,7 +754,7 @@ pub(super) fn unrooted_branch_colors(
                 } else {
                     (value - minimum) / (maximum - minimum)
                 };
-                colors[*node] = mix(&theme.muted, &theme.accent, fraction);
+                colors.set(*node, mix(&theme.muted, &theme.accent, fraction));
             }
         }
     } else {
@@ -766,7 +766,7 @@ pub(super) fn unrooted_branch_colors(
             let value = value.to_string();
             let next = categories.len();
             let index = *categories.entry(value).or_insert(next);
-            colors[*node] = theme.color(index).to_string();
+            colors.set(*node, theme.color(index).to_string());
         }
     }
     colors
