@@ -1036,11 +1036,52 @@ fn the_theme_changes_no_geometry() {
     }
 }
 
+/// The width of the plotting band, which every track is given and which the
+/// gutter and the value axis take out of the figure.
+fn band_width(svg: &str) -> Option<f64> {
+    svg.split("<clipPath")
+        .nth(1)?
+        .split("<rect ")
+        .nth(1)?
+        .split("width=\"")
+        .nth(1)?
+        .split('"')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn figure_height(svg: &str) -> f64 {
+    svg.split("height=\"")
+        .nth(1)
+        .and_then(|piece| piece.split('"').next())
+        .and_then(|value| value.parse().ok())
+        .expect("a figure states its height")
+}
+
 #[test]
 fn a_track_is_drawn_the_same_whatever_is_stacked_under_it() {
     // Reordering is not the property, since the bands move. What must hold is
     // that a track added below cannot change the one above: a figure whose
     // first track depends on its last has a track reading another's data.
+    //
+    // Held at equal band width, and that qualification is the whole of what
+    // this test learned. The width of a band is shared: a track stacked
+    // underneath that asks for a wider gutter or a wider value axis narrows
+    // every band in the figure, and a round tree sizes its disc to the band it
+    // is given, so it gets shorter with it. That is deliberate. Tying the
+    // disc's height to a number that never moves reserved a height the drawing
+    // then did not use, and the disc shrank inside it until the names
+    // collided: two hundred tips at 900 px kept a height of 905.515 while the
+    // disc went from radius 339.40 to 283.40 and the gap between names closed
+    // from 10.66 px to 8.90 against an 11 px body.
+    //
+    // So the comparison is made where it means something. When the two figures
+    // give their tracks the same band, nothing below may shorten what is
+    // above; when the band moved, the width is doing the work and the pair
+    // says nothing about neighbours reading each other.
+    let mut compared = 0usize;
+    let mut widths_moved = 0usize;
     for seed in 0..ROUNDS {
         let mut rng = Lcg::new(seed);
         let window = region(&mut rng);
@@ -1050,7 +1091,7 @@ fn a_track_is_drawn_the_same_whatever_is_stacked_under_it() {
         let alone = Figure::new(window.clone())
             .show_region_label(false)
             .push_boxed(first)
-            .dimensions();
+            .to_svg();
 
         // The same first track again, since a boxed one cannot be cloned.
         let mut rng = Lcg::new(seed);
@@ -1060,13 +1101,32 @@ fn a_track_is_drawn_the_same_whatever_is_stacked_under_it() {
             .show_region_label(false)
             .push_boxed(first)
             .push_boxed(second)
-            .dimensions();
+            .to_svg();
 
+        let (Some(alone_band), Some(company_band)) =
+            (band_width(&alone), band_width(&with_company))
+        else {
+            continue;
+        };
+        if (alone_band - company_band).abs() > 0.001 {
+            widths_moved += 1;
+            continue;
+        }
+        compared += 1;
         assert!(
-            with_company.1 >= alone.1,
-            "seed {seed}: adding a track under made the figure shorter, {alone:?} then {with_company:?}"
+            figure_height(&with_company) >= figure_height(&alone),
+            "seed {seed}: on the same {alone_band} px band, adding a track under made the figure \
+             shorter, {} then {}",
+            figure_height(&alone),
+            figure_height(&with_company)
         );
     }
+    // Not vacuous: the qualification must not have swallowed the test.
+    assert!(
+        compared as u64 * 4 > ROUNDS,
+        "only {compared} of {ROUNDS} pairs shared a band, so this checks almost nothing \
+         ({widths_moved} moved the width)"
+    );
 }
 
 // ---------------------------------------------------------------------------

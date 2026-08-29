@@ -1737,16 +1737,27 @@ impl TreeTrack {
         // three tips needs less room than that but does not want less: shrunk
         // to what its labels strictly require, its branches got short enough
         // to start ellipsising the labels drawn along them.
-        // The ceiling is the figure's own inner width, because the drawing
-        // fits the disc into the shorter of the band's two sides and height
-        // beyond that is whitespace. It is spelt `x0 + width` rather than
-        // `width` because a track stacked underneath can widen the gutter and
-        // narrow every band: measured on the same fourteen tip tree, `width`
-        // read 866 alone and 808.269 with company while the sum read 882 both
-        // times, and a figure that gets shorter when you add a track to it is
-        // a track reading its neighbour's data.
-        let figure = scale.x0() + scale.width();
-        wanted.clamp(RADIAL_DIAMETER, figure.max(RADIAL_DIAMETER))
+        // The ceiling is the width of the band this track is given, because
+        // that is what the drawing fits the disc into: it takes the shorter of
+        // the band's two sides, so a height past the band's width is whitespace
+        // and a disc narrower than the height reserved for it is a disc that
+        // stopped clearing its own labels.
+        //
+        // This was `x0 + width` for a while, which is the figure's inner right
+        // edge and never moves. It reserved a height the drawing then did not
+        // use: on the same two hundred tips at 900 px, changing nothing but
+        // this track's own gutter label, the height stayed at 905.515 px while
+        // the disc went from radius 339.40 to 283.40 and the gap between names
+        // closed from 10.66 px to 8.90 against an 11 px body, which is the
+        // collision the sizing exists to prevent.
+        //
+        // The cost is real and is the reason it was written the other way
+        // first: the width of a band is shared, so a track stacked underneath
+        // that asks for a wider gutter or a wider value axis narrows every band
+        // and this tree gets shorter with it. The height of a round tree
+        // genuinely follows the width it is given, and the alternative is a
+        // figure whose names collide, so the width wins.
+        wanted.clamp(RADIAL_DIAMETER, scale.width().max(RADIAL_DIAMETER))
     }
 
     fn rectangular_glyph_padding(&self) -> (f64, f64) {

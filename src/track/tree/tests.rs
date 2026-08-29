@@ -1468,3 +1468,55 @@ fn the_tree_viewer_can_read_the_address_a_triangle_prints() {
         other => panic!("expected a figure, got {other:?}"),
     }
 }
+
+#[test]
+fn a_round_tree_is_as_tall_as_the_band_it_is_given_is_wide() {
+    // The disc is drawn into the shorter of the band's two sides, so the height
+    // reserved for it has to come from the same number the drawing gets. It
+    // used to come from the figure's inner right edge instead, which never
+    // moves: the height stayed put while the band narrowed under it, and the
+    // disc shrank inside a reservation it no longer filled. Two hundred tips at
+    // 900 px kept a height of 905.515 px while the disc went from radius 339.40
+    // to 283.40 with nothing changed but the length of this track's own gutter
+    // label, closing the gap between names from 10.66 px to 8.90 against an
+    // 11 px body.
+    let band = |label: &str| {
+        let svg = Figure::new(region())
+            .width(900.0)
+            .show_region_label(false)
+            .push(TreeTrack::new(balanced(400)).circular().label(label))
+            .to_svg();
+        let rect = svg
+            .split("<clipPath")
+            .nth(1)
+            .and_then(|piece| piece.split("<rect ").nth(1))
+            .expect("the track is clipped");
+        let of = |name: &str| {
+            rect.split(&format!("{name}=\""))
+                .nth(1)
+                .and_then(|piece| piece.split('"').next())
+                .and_then(|value| value.parse::<f64>().ok())
+                .expect("the clip carries this")
+        };
+        (of("width"), of("height"))
+    };
+
+    // Square, because the disc wants more room than the band has and takes all
+    // of it in both directions.
+    for label in ["t", "a rather longer name for this track"] {
+        let (wide, tall) = band(label);
+        assert!(
+            (wide - tall).abs() < 0.01,
+            "{label:?}: the band is {wide} by {tall}, so the disc does not fill what was reserved"
+        );
+    }
+
+    // And the band really does move with the label, or the check above would
+    // be measuring one case twice.
+    let (short, _) = band("t");
+    let (long, _) = band("a rather longer name for this track");
+    assert!(
+        long < short - 50.0,
+        "a longer gutter label should leave a narrower band: {short} then {long}"
+    );
+}
