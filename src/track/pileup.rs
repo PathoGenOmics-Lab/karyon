@@ -35,6 +35,7 @@
 //! mapping quality.
 
 use std::fmt::Write as _;
+use std::sync::Mutex;
 
 use crate::region::Region;
 use crate::scale::Scale;
@@ -314,7 +315,7 @@ pub enum ReadColoring {
 ///     .to_svg();
 /// assert!(svg.contains("<rect"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PileupTrack {
     reads: Vec<Read>,
     reference_start: u64,
@@ -331,6 +332,69 @@ pub struct PileupTrack {
     show_mismatches: bool,
     mismatch_threshold: f64,
     letter_threshold: f64,
+    /// The last row assignment, and what it was computed for. See [`Placed`].
+    placed: Mutex<Option<Placed>>,
+}
+
+/// A remembered row assignment, and the inputs it answers for.
+///
+/// A figure asks the track how tall it is and then asks it to draw, and both
+/// answers come from [`PileupTrack::layout`], so it ran twice and half of it
+/// was thrown away: 42 of the 180 milliseconds a three hundred thousand read
+/// pileup took to render.
+///
+/// The key is every input the row assignment reads. `Read::overlaps` compares
+/// against the first and last base of the region and nothing else, `x_at` is
+/// affine so the two ends of the view and the width they are spread over pin
+/// every horizontal position, and the row cap decides which reads find no room.
+/// Where the figure puts its left edge is not in here: two reads collide when
+/// one ends within three pixels of the next, and moving both by the same
+/// offset does not change that.
+#[derive(Debug)]
+struct Placed {
+    region_start: u64,
+    region_end: u64,
+    width: f64,
+    view_start: f64,
+    view_end: f64,
+    max_rows: Option<usize>,
+    layout: PileupLayout,
+}
+
+impl Placed {
+    fn answers(&self, scale: &Scale, region: &Region, max_rows: Option<usize>) -> bool {
+        self.region_start == region.start()
+            && self.region_end == region.end()
+            && self.width == scale.width()
+            && self.view_start == scale.pos_at_x(scale.x0())
+            && self.view_end == scale.pos_at_x(scale.x0() + scale.width())
+            && self.max_rows == max_rows
+    }
+}
+
+// Derived by hand because a `Mutex` is not `Clone`, and because a clone should
+// start out with nothing remembered rather than carry a lock across.
+impl Clone for PileupTrack {
+    fn clone(&self) -> Self {
+        PileupTrack {
+            reads: self.reads.clone(),
+            reference_start: self.reference_start,
+            reference: self.reference.clone(),
+            label: self.label.clone(),
+            read_height: self.read_height,
+            row_gap: self.row_gap,
+            max_rows: self.max_rows,
+            coloring: self.coloring,
+            color: self.color.clone(),
+            forward_color: self.forward_color.clone(),
+            reverse_color: self.reverse_color.clone(),
+            fade_by_quality: self.fade_by_quality,
+            show_mismatches: self.show_mismatches,
+            mismatch_threshold: self.mismatch_threshold,
+            letter_threshold: self.letter_threshold,
+            placed: Mutex::new(None),
+        }
+    }
 }
 
 impl PileupTrack {
@@ -344,6 +408,7 @@ impl PileupTrack {
             read_height: 9.0,
             row_gap: 2.0,
             max_rows: Some(40),
+            placed: Mutex::new(None),
             coloring: ReadColoring::Uniform,
             color: None,
             forward_color: None,
@@ -460,6 +525,30 @@ impl PileupTrack {
     /// cap. Only reads on screen take part, so the packing is as tight as the
     /// view allows.
     pub fn layout(&self, scale: &Scale, region: &Region) -> PileupLayout {
+        // A poisoned lock means a previous assignment panicked. There is
+        // nothing unsafe to recover from here, so take the value through the
+        // poison and carry on rather than bringing the whole render down.
+        let mut slot = self.placed.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = slot.as_ref() {
+            if cached.answers(scale, region, self.max_rows) {
+                return cached.layout.clone();
+            }
+        }
+        let layout = self.assign_rows(scale, region);
+        *slot = Some(Placed {
+            region_start: region.start(),
+            region_end: region.end(),
+            width: scale.width(),
+            view_start: scale.pos_at_x(scale.x0()),
+            view_end: scale.pos_at_x(scale.x0() + scale.width()),
+            max_rows: self.max_rows,
+            layout: layout.clone(),
+        });
+        layout
+    }
+
+    /// The row assignment itself, with nothing remembered.
+    fn assign_rows(&self, scale: &Scale, region: &Region) -> PileupLayout {
         let mut visible: Vec<usize> = (0..self.reads.len())
             .filter(|i| self.reads[*i].overlaps(region))
             .collect();
@@ -859,6 +948,93 @@ mod tests {
 
     fn scale(region: &Region) -> Scale {
         Scale::new(region, 0.0, 800.0)
+    }
+
+    // Two reads one base apart, which collides at one pixel per base and
+    // clears the three pixels of breathing room at four. Every test below
+    // moves one part of the remembered key and nothing else, so each of them
+    // fails on its own if that part stops being compared.
+    fn adjacent() -> PileupTrack {
+        PileupTrack::new(vec![Read::aligned(150, 10), Read::aligned(161, 10)])
+    }
+
+    #[test]
+    fn a_narrower_figure_reassigns_rows() {
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = adjacent();
+        let wide = Scale::new(&region, 0.0, 800.0);
+        let narrow = Scale::new(&region, 0.0, 200.0);
+        assert_eq!(track.layout(&wide, &region).rows, 1);
+        assert_eq!(track.layout(&narrow, &region).rows, 2);
+        assert_eq!(track.layout(&wide, &region).rows, 1);
+    }
+
+    #[test]
+    fn a_view_starting_later_reassigns_rows() {
+        // Both views end at base 200 and are drawn at the same width, so where
+        // the view starts is the only thing separating them.
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = adjacent();
+        let whole = Scale::new(&region, 0.0, 200.0);
+        let tail = Scale::new(&Region::new("chr1", 150, 200).unwrap(), 0.0, 200.0);
+        assert_eq!(track.layout(&whole, &region).rows, 2);
+        assert_eq!(track.layout(&tail, &region).rows, 1);
+        assert_eq!(track.layout(&whole, &region).rows, 2);
+    }
+
+    #[test]
+    fn a_view_ending_earlier_reassigns_rows() {
+        // Both views start at base 0 and are drawn at the same width.
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = adjacent();
+        let whole = Scale::new(&region, 0.0, 200.0);
+        let head = Scale::new(&Region::new("chr1", 0, 50).unwrap(), 0.0, 200.0);
+        assert_eq!(track.layout(&whole, &region).rows, 2);
+        assert_eq!(track.layout(&head, &region).rows, 1);
+        assert_eq!(track.layout(&whole, &region).rows, 2);
+    }
+
+    #[test]
+    fn a_shorter_region_hides_the_reads_outside_it() {
+        // The scale stays put and only the region moves, which is what decides
+        // whether a read is in the picture at all.
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = PileupTrack::new(vec![Read::aligned(0, 20), Read::aligned(150, 20)]);
+        let fixed = Scale::new(&region, 0.0, 800.0);
+        let clipped = Region::new("chr1", 0, 30).unwrap();
+        assert_eq!(track.layout(&fixed, &region).placed.len(), 2);
+        assert_eq!(track.layout(&fixed, &clipped).placed.len(), 1);
+        assert_eq!(track.layout(&fixed, &region).placed.len(), 2);
+    }
+
+    #[test]
+    fn a_region_starting_later_hides_the_reads_before_it() {
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = PileupTrack::new(vec![Read::aligned(0, 20), Read::aligned(150, 20)]);
+        let fixed = Scale::new(&region, 0.0, 800.0);
+        let tail = Region::new("chr1", 100, 200).unwrap();
+        assert_eq!(track.layout(&fixed, &region).placed.len(), 2);
+        assert_eq!(track.layout(&fixed, &tail).placed.len(), 1);
+        assert_eq!(track.layout(&fixed, &region).placed.len(), 2);
+    }
+
+    #[test]
+    fn lowering_the_row_cap_reassigns_rows() {
+        // The builders hand back a new value carrying whatever the old one had
+        // remembered, so the cap is part of what a remembered assignment
+        // answers for.
+        let region = Region::new("chr1", 0, 200).unwrap();
+        let track = PileupTrack::new(vec![
+            Read::aligned(0, 100),
+            Read::aligned(10, 100),
+            Read::aligned(20, 100),
+        ])
+        .max_rows(None);
+        assert_eq!(track.layout(&scale(&region), &region).rows, 3);
+        let capped = track.max_rows(Some(1));
+        let layout = capped.layout(&scale(&region), &region);
+        assert_eq!(layout.rows, 1);
+        assert_eq!(layout.hidden, 2);
     }
 
     #[test]
