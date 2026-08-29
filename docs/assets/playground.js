@@ -23,10 +23,10 @@
 
   // The reference the sequence, ORF and pileup examples share, so the reads
   // carry the bases they are aligned to rather than a different string.
-  function reference() {
+  function reference(bases) {
     var unit = "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAGG";
     var out = "";
-    for (var i = 0; i < 300; i++) out += unit[i % 61];
+    for (var i = 0; i < (bases || 300); i++) out += unit[i % 61];
     return out;
   }
 
@@ -34,6 +34,165 @@
     var out = ">" + name + "\n";
     for (var i = 0; i < seq.length; i += 60) out += seq.slice(i, i + 60) + "\n";
     return out;
+  }
+
+  // A deterministic alignment with something in it, shared by the three
+  // examples that read one. It was four sequences of sixty-one bases, pasted
+  // out three times, and each of those figures was a picture of a track with
+  // nothing to draw.
+  //
+  // What is in it and why. Three lineages, so a metadata strip has something to
+  // say and a variable site can be diagnostic of one rather than scattered. A
+  // conserved core where the letters of a logo stand full height and a
+  // hypervariable stretch where they collapse, because a logo whose columns are
+  // all one height is not showing anything. A deletion carried by one lineage,
+  // so the alignment has gaps rather than being a rectangle of letters. And
+  // sites that vary within a lineage as well as between them, so the
+  // variable-sites panel is not just the lineage tree written out again.
+  //
+  // No Math.random. The same knobs give the same figure here and on the cards,
+  // which is the promise the renderer itself makes.
+  // One seeded generator for every example that needs a stream of numbers, so
+  // the same knobs give the same figure here, on the cards and in a
+  // screenshot. Math.random would make each of those a different picture.
+  function rolls(seed) {
+    var state = seed >>> 0;
+    return function () {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      return state / 0x7fffffff;
+    };
+  }
+
+  function alignment(rows, columns) {
+    rows = rows || 18;
+    columns = columns || 900;
+    var bases = "ACGT";
+    var seed = 20260829;
+    function next() {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    }
+    var core = [Math.round(columns * 0.34), Math.round(columns * 0.55)];
+    var wild = [Math.round(columns * 0.66), Math.round(columns * 0.83)];
+    var gap = [Math.round(columns * 0.13), Math.round(columns * 0.20)];
+
+    var root = "";
+    for (var c = 0; c < columns; c++) root += bases[Math.floor(next() * 4)];
+
+    // Sites that tell one lineage from the others, spread over the whole length
+    // so that panning finds them rather than one screen holding all of them.
+    var marks = [[], [], []];
+    for (var m = 0; m < 36; m++) marks[m % 3].push(Math.floor(next() * columns));
+
+    var out = "";
+    var names = [];
+    for (var r = 0; r < rows; r++) {
+      var lineage = r % 3;
+      var seq = root.split("");
+      for (var k = 0; k < marks[lineage].length; k++) {
+        var at = marks[lineage][k];
+        seq[at] = bases[(bases.indexOf(seq[at]) + 1) % 4];
+      }
+      for (var c2 = 0; c2 < columns; c2++) {
+        var chance = c2 >= core[0] && c2 < core[1] ? 0.002
+                   : c2 >= wild[0] && c2 < wild[1] ? 0.22
+                   : 0.02;
+        if (next() < chance) seq[c2] = bases[Math.floor(next() * 4)];
+      }
+      if (lineage === 1) {
+        for (var g = gap[0]; g < gap[1]; g++) seq[g] = "-";
+      }
+      var name = "L" + (lineage + 1) + "_" + ("00" + (r + 1)).slice(-3);
+      names.push(name);
+      out += fastaOf(name, seq.join(""));
+    }
+    return { fasta: out, names: names, columns: columns };
+  }
+
+  // The sheet those names join to, drawn as strips beside the rows. What is
+  // known about a sample is not a coordinate, so it is not a track of its own;
+  // it hangs off the one that has the rows.
+  function sheetFor(names, columns, lineageOf) {
+    var out = "name\t" + columns.join("\t") + "\n";
+    for (var i = 0; i < names.length; i++) {
+      // The join is by name and never by row order, so the sheet has to carry
+      // the names the track already knows. Where the name does not say which
+      // group a row is in, the caller says.
+      var lineage = lineageOf ? lineageOf(i, names[i]) : names[i].slice(0, 2);
+      var cells = [];
+      for (var c = 0; c < columns.length; c++) {
+        var column = columns[c];
+        cells.push(column === "lineage" ? lineage
+                 : column === "source" ? (i % 3 === 0 ? "sputum" : i % 3 === 1 ? "culture" : "survey")
+                 : column === "drug" ? (i % 4 === 0 ? "resistant" : "sensitive")
+                 : column === "year" ? String(2014 + (i % 9))
+                 : "");
+      }
+      out += names[i] + "\t" + cells.join("\t") + "\n";
+    }
+    return out;
+  }
+
+  // One alignment, written once and read twice: as ribbons between two
+  // sequences and as a dot plot of the same blocks. The nine rows it used to
+  // hold were all forward and all in order, so neither figure had anything in
+  // it that the other could disagree about.
+  //
+  // What is in it now, in the order a reader meets it: a colinear opening, an
+  // inversion, a stretch with no alignment at all, a translocation that lands
+  // back near the start of the target, a resumption, and a duplication that
+  // puts one piece of query on two places of target. Those are the four things
+  // a synteny figure is for, and the dot plot shows the same four as a rising
+  // diagonal, an anti-diagonal crossing it, a break, and a second diagonal
+  // parallel to the first.
+  function synteny(shape) {
+    var next = rolls(400913);
+    var rows = [];
+    function block(qFrom, qTo, tFrom, tTo, strand, identity) {
+      var span = Math.abs(qTo - qFrom);
+      var matches = Math.round(span * identity);
+      rows.push(["ctg1", 240000, qFrom, qTo, strand, "chrA", 300000,
+                 Math.min(tFrom, tTo), Math.max(tFrom, tTo),
+                 matches, span, 60].join("\t"));
+    }
+    var q = 0, t = 20000;
+    for (var i = 0; i < 10; i++) {
+      block(q, q + 5200, t, t + 5200, "+", 0.99 - i * 0.003);
+      q += 6000; t += 6000;
+    }
+    if (shape !== "colinear only") {
+      // An inversion: the query runs on while the target runs backwards.
+      var it = 100000;
+      for (var v = 0; v < 4; v++) {
+        block(62000 + v * 6000, 62000 + v * 6000 + 5200, it, it - 5200, "-", 0.97);
+        it -= 6000;
+      }
+      // Then nothing at all from 86,000 to 100,000 of the query.
+      var tq = 100000, tt = 4000;
+      for (var w = 0; w < 5; w++) {
+        block(tq, tq + 5200, tt, tt + 5200, "+", 0.98);
+        tq += 6000; tt += 6000;
+      }
+      var rq = 132000, rt = 152000;
+      for (var r = 0; r < 6; r++) {
+        block(rq, rq + 5200, rt, rt + 5200, "+", 0.96);
+        rq += 6000; rt += 6000;
+      }
+    }
+    if (shape === "everything") {
+      // One piece of query against two places of target, which is what a
+      // duplication looks like from the query's side.
+      for (var d = 0; d < 3; d++) {
+        block(170000 + d * 6000, 170000 + d * 6000 + 5200, 232000 + d * 6000, 232000 + d * 6000 + 5200, "+", 0.95);
+        block(170000 + d * 6000, 170000 + d * 6000 + 5200, 60000 + d * 6000, 60000 + d * 6000 + 5200, "+", 0.93);
+      }
+      for (var x = 0; x < 6; x++) {
+        var qq = 200000 + x * 5000;
+        var tt2 = Math.floor(next() * 280000);
+        block(qq, qq + 1400, tt2, tt2 + 1400, next() > 0.5 ? "+" : "-", 0.90);
+      }
+    }
+    return rows.join("\n") + "\n";
   }
 
   var EXAMPLES = [
@@ -45,6 +204,10 @@
         { kind: "choice", flag: "--aggregate", after: "--coverage", label: "How a pixel that covers many bases chooses", options: ["max", "mean", "min"] },
         { kind: "choice", flag: "--style", after: "--coverage", label: "The shape of the signal", options: ["area", "line", "bars"] },
         { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
+        { kind: "choice", flag: "--style", after: "--variants",
+          label: "How a call is drawn", options: ["tick", "lollipop"] },
+        { kind: "choice", flag: "--height", after: "--coverage",
+          label: "How tall the depth track is", options: ["60", "110", "180"] },
       ],
       group: "Signal and annotation",
       command:
@@ -65,10 +228,18 @@
       // here rather than pasted because a reader wants to move it, not read it.
       make: function () {
         var depth = "", genes = "##gff-version 3\n", calls = "";
-        for (var at = 757000; at < 767000; at += 100) {
-          var dip = at > 761890 && at < 762030 ? 0.06 : 1;
-          depth += "NC_000962.3 " + at + " " + (at + 100) + " " +
-                   Math.round((56 + 8 * Math.sin((at - 757000) / 900)) * dip) + "\n";
+        var next = rolls(761000);
+        // Per base rather than in hundred base bins. A bin wider than a pixel
+        // does the aggregating before the program gets to, so --aggregate had
+        // nothing left to decide; the deletion at 761,890 is 140 bases, which
+        // is under a pixel at this width, and whether it shows at all is
+        // exactly the question the flag answers.
+        for (var at = 757000; at < 767000; at += 1) {
+          var level = 52 + Math.round((next() - 0.5) * 14);
+          if (at >= 761890 && at < 762030) level = 0;
+          else if (at >= 759100 && at < 759400) level = Math.round(level * 0.45);
+          else if (at >= 764200 && at < 764260) level = Math.round(level * 6.5);
+          depth += "NC_000962.3 " + at + " " + (at + 1) + " " + level + "\n";
         }
         genes += "NC_000962.3 . gene 759807 763325 . + . Name=rpoB\n";
         genes += "NC_000962.3 . gene 761082 761162 . + . Name=RRDR\n";
@@ -101,31 +272,54 @@
       bounds: { from: 1, to: 2000000, min: 60 },
       controls: [
         { kind: "region" },
-        { kind: "choice", flag: "--aggregate", after: "--coverage", label: "How a pixel that covers many bases chooses", options: ["max", "mean", "min"] },
+        { kind: "choice", flag: "--aggregate", after: "--coverage",
+          label: "How a pixel that covers many bases chooses",
+          options: ["max", "mean", "min"],
+          says: "At this width one pixel covers two kilobases" },
         { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
+        { kind: "choice", flag: "--style", after: "--coverage",
+          label: "The shape of the depth signal", options: ["area", "line", "bars"] },
+        { kind: "choice", flag: "--style", after: "--windows",
+          label: "How the windowed statistic is drawn", options: ["steps", "line"] },
       ],
       group: "Signal and annotation",
+      // The depth used to be a sine wave with one dip in it, which made the
+      // aggregate control nearly meaningless: a smooth curve looks much the
+      // same whichever of the three a pixel picks. It is not smooth now. There
+      // is a homozygous deletion at zero, a heterozygous loss at half depth, a
+      // duplication, and eight single-bin repeat spikes at ten times baseline,
+      // and those spikes are the whole point of the control: at two thousand
+      // bases a pixel `max` draws them and `min` erases them, and neither is
+      // wrong, which is why the program will not choose for you.
       command:
         "chr1:1-2,000,000 --coverage depth.bg --label depth --aggregate min \\\n" +
         "  --windows gc.bg --label 'GC content' --style steps",
       files: [
-        { name: "depth.bg", body: "# generated below\n" },
-        { name: "gc.bg", body: "# generated below\n" },
+        { name: "depth.bg", body: "" },
+        { name: "gc.bg", body: "" },
       ],
-      // Two thousand rows written here rather than typed out, so the example
-      // is one a reader can pan and zoom rather than one they can read.
       make: function () {
-        var depth = "";
-        var gc = "";
-        for (var i = 0; i < 2000; i++) {
-          var at = i * 1000;
-          var dip = i > 900 && i < 1000 ? 0.25 : 1;
-          depth +=
-            "chr1\t" + at + "\t" + (at + 1000) + "\t" +
-            Math.round((40 + 18 * Math.sin(i / 40)) * dip) + "\n";
-          gc +=
-            "chr1\t" + at + "\t" + (at + 1000) + "\t" +
-            (0.42 + 0.11 * Math.sin(i / 17)).toFixed(3) + "\n";
+        var next = rolls(120449);
+        var depth = "", gc = "";
+        // A hundred base bins, not a thousand. At nine hundred pixels a bin of
+        // a thousand puts two of them under each pixel, and two numbers is not
+        // enough for max, mean and min to disagree by much: the control was
+        // there and it barely moved the picture. At a hundred bases a pixel
+        // holds twenty-odd bins and the three answers come apart.
+        var bins = 20000, wide = 100;
+        var spikes = [1800, 4020, 6550, 8300, 10950, 13100, 15800, 18880];
+        for (var i = 0; i < bins; i++) {
+          var at = i * wide;
+          var level = 38 + Math.round((next() - 0.5) * 18);
+          if (i >= 9000 && i < 9600) level = 0;
+          else if (i >= 12000 && i < 13200) level = Math.round(level * 0.5);
+          else if (i >= 15000 && i < 15900) level = Math.round(level * 2.1);
+          if (spikes.indexOf(i) >= 0) level = 430;
+          depth += "chr1\t" + at + "\t" + (at + wide) + "\t" + level + "\n";
+          if (i % 10 === 0) {
+            gc += "chr1\t" + at + "\t" + (at + wide * 10) + "\t" +
+                  (0.42 + 0.11 * Math.sin(i / 170) + (next() - 0.5) * 0.03).toFixed(3) + "\n";
+          }
         }
         return [
           { name: "depth.bg", body: depth },
@@ -137,200 +331,561 @@
       name: "Two trees",
       bounds: { from: 1, to: 1000, min: 60 },
       controls: [
-        { kind: "note", label: "Two phylogenies face to face. The axis is not a coordinate, so panning it would mean nothing; what changes a tanglegram is which trees you give it." },
+        { kind: "note", label: "Two phylogenies face to face, with a tie from each tip to the tip of the same name opposite. The ties are the figure; the trees are there to put the tips in the order each of them argues for. The axis is not a coordinate, so panning it would mean nothing." },
+        { kind: "data", param: "tips", value: 20, label: "Taxa in both trees", options: [8, 20, 44] },
+        { kind: "data", param: "disagreement", value: "both, and one taxon missing", label: "How much the two trees disagree",
+          options: ["none", "a local swap", "a long jump", "both, and one taxon missing"] },
         { kind: "toggle", flag: "--no-axis", label: "The coordinate ruler, which measures nothing here" },
       ],
       group: "Phylogeny",
-      command: "tangle:1-1000 --no-axis --tanglegram before.nwk --against after.nwk",
+      // Four taxa cannot cross. The badge over the figure counts the crossings,
+      // the linked tips and the unmatched ones, and with two tips a side there
+      // was nothing for any of those three numbers to say.
+      //
+      // The two kinds of disagreement are drawn apart on purpose: a swap
+      // between neighbouring tips is a short tie that crosses one other, and a
+      // taxon that jumps across the figure is one long tie through everything,
+      // and a tanglegram is read by telling those apart. The names are the join,
+      // so a taxon only one tree has is drawn unmatched rather than dropped.
+      command: "tangle:1-1000 --no-axis --tanglegram core.nwk --against accessory.nwk",
       files: [
-        { name: "before.nwk", body: "((a:1,b:1):1,(c:1,d:1):1);\n" },
-        { name: "after.nwk", body: "((a:1,c:1):1,(b:1,d:1):1);\n" },
+        { name: "core.nwk", body: "" },
+        { name: "accessory.nwk", body: "" },
       ],
+      make: function (p) {
+        var tips = (p && p.tips) || 20;
+        var how = (p && p.disagreement) || "both, and one taxon missing";
+        var names = [];
+        for (var i = 0; i < tips; i++) {
+          names.push("L" + (Math.floor(i / Math.ceil(tips / 4)) + 1) + "_" + ((i % Math.ceil(tips / 4)) + 1));
+        }
+        function newick(order, extra) {
+          var groups = [];
+          var per = Math.ceil(order.length / 4);
+          for (var g = 0; g < order.length; g += per) {
+            var members = order.slice(g, g + per).map(function (n) { return n + ":" + (0.4 + (n.length % 3) * 0.2).toFixed(2); });
+            groups.push("(" + members.join(",") + "):1.0");
+          }
+          if (extra) groups.push(extra + ":1.6");
+          return "(" + groups.join(",") + ");\n";
+        }
+        var left = names.slice();
+        var right = names.slice();
+        if (how === "a local swap" || how.indexOf("both") === 0) {
+          var a = Math.floor(tips / 4), b = a + 1;
+          var keep = right[a]; right[a] = right[b]; right[b] = keep;
+        }
+        if (how === "a long jump" || how.indexOf("both") === 0) {
+          var from = Math.floor(tips / 2), to = tips - 2;
+          var moved = right.splice(from, 1)[0];
+          right.splice(to, 0, moved);
+        }
+        var only = how.indexOf("missing") >= 0 ? "L1_x" : null;
+        return [
+          { name: "core.nwk", body: newick(left, only) },
+          { name: "accessory.nwk", body: newick(right, null) },
+        ];
+      },
     },
     {
       name: "Gene neighbourhoods",
-      bounds: { from: 1, to: 4000, min: 1001 },
+      bounds: { from: 1, to: 19000, min: 1200 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "genomes", value: 5, label: "Genomes stacked",
+          options: [2, 5, 9] },
+        { kind: "data", param: "losses", value: "a deletion and an insertion each", label: "What the genomes are missing",
+          options: ["nothing", "one deletion", "a deletion and an insertion each"] },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["clade", "clade,vaccine", "vaccine,year"] },
       ],
       group: "Comparisons across genomes",
-      command: "ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1'",
+      // Three rows of three genes could not show what a locus track is for. The
+      // figure is read by looking down a column of orthologues and finding the
+      // one row where it is not there, so the region has to hold enough genes
+      // for a column to exist and enough rows for the gap to be a gap.
+      //
+      // This is the ESX-1 locus across five genomes. BCG has lost the six genes
+      // of RD1, which is the deletion the vaccine strain is defined by, and the
+      // strip beside the rows says which of them is a vaccine strain, so the
+      // reader can check that the gap and the label agree.
+      command: "ESX-1:1-9,000 --loci loci.bed --links hits.tsv --label 'ESX-1' --traits genomes.tsv --columns clade",
       files: [
-        {
-          name: "loci.bed",
-          body:
-            "H37Rv\t0\t1200\tespA\t0\t+\n" +
-            "H37Rv\t1300\t2100\tespC\t0\t+\n" +
-            "H37Rv\t2200\t3000\tespD\t0\t-\n" +
-            "CDC1551\t0\t1200\tespA2\t0\t+\n" +
-            "CDC1551\t2200\t3000\tespD2\t0\t-\n" +
-            "Erdman\t0\t1200\tespA3\t0\t+\n" +
-            "Erdman\t1300\t2100\tespC3\t0\t+\n",
-        },
-        {
-          name: "hits.tsv",
-          body: "espA\tespA2\t99.1\nespD\tespD2\t97.4\nespA2\tespA3\t96.2\n",
-        },
+        { name: "loci.bed", body: "" },
+        { name: "hits.tsv", body: "" },
+        { name: "genomes.tsv", body: "" },
       ],
+      make: function (p) {
+        var count = (p && p.genomes) || 5;
+        var losses = (p && p.losses) || "a deletion and an insertion each";
+        var genes = ["PE35", "PPE68", "esxB", "esxA", "espI", "eccD1", "espJ", "espK",
+                     "espB", "mycP1", "eccB1", "eccCa1", "eccCb1", "eccE1", "espL", "espR"];
+        var rd1 = ["PPE68", "esxB", "esxA", "espI", "eccD1", "espJ"];
+        // BCG second on purpose. The losses control has nothing to say unless
+        // a genome that lost something is on the page, and at two genomes it
+        // was two complete rows and a knob that did nothing.
+        var all = ["H37Rv", "BCG_Pasteur", "CDC1551", "Erdman", "M_microti",
+                   "H37Ra", "Beijing", "Haarlem", "M_bovis"];
+        var names = all.slice(0, count);
+        var next = rolls(190822);
+        var bed = "", links = "";
+        for (var g = 0; g < names.length; g++) {
+          var at = 600;
+          var previous = null;
+          for (var i = 0; i < genes.length; i++) {
+            var gene = genes[i];
+            var gone = losses !== "nothing" &&
+                       ((names[g] === "BCG_Pasteur" && rd1.indexOf(gene) >= 0) ||
+                        (names[g] === "M_microti" && ["esxB", "esxA", "espI"].indexOf(gene) >= 0) ||
+                        (names[g] === "M_bovis" && gene === "espK"));
+            var wide = 500 + Math.floor(next() * 700);
+            if (!gone) {
+              var here = gene + (g === 0 ? "" : "_" + (g + 1));
+              bed += names[g] + "\t" + at + "\t" + (at + wide) + "\t" + here +
+                     "\t0\t" + (i % 3 === 2 ? "-" : "+") + "\n";
+              if (previous !== null) {
+                links += previous + "\t" + here + "\t" + (94 + next() * 5.5).toFixed(1) + "\n";
+              }
+              previous = here;
+            }
+            at += wide + 200;
+          }
+          if (losses === "a deletion and an insertion each" && g > 0) {
+            // Something only this genome has, so the unmatched outline is
+            // exercised in the middle of the stack and not only at the bottom.
+            bed += names[g] + "\t" + (7900 + g * 40) + "\t" + (9300 + g * 40) +
+                   "\tIS6110_" + (g + 1) + "\t0\t+\n";
+          }
+        }
+        // The links join gene to gene down the stack, so they are written from
+        // one row to the next rather than from the first to all.
+        var chain = "";
+        for (var i2 = 0; i2 < genes.length; i2++) {
+          for (var g2 = 0; g2 + 1 < names.length; g2++) {
+            var from = genes[i2] + (g2 === 0 ? "" : "_" + (g2 + 1));
+            var to = genes[i2] + "_" + (g2 + 2);
+            if (bed.indexOf("\t" + from + "\t") < 0 || bed.indexOf("\t" + to + "\t") < 0) continue;
+            chain += from + "\t" + to + "\t" + (94 + next() * 5.5).toFixed(1) + "\n";
+          }
+        }
+        return [
+          { name: "loci.bed", body: bed },
+          { name: "hits.tsv", body: chain },
+          { name: "genomes.tsv", body: "name\tclade\tvaccine\tyear\n" +
+              names.map(function (n, i) {
+                return n + "\t" + (i % 2 ? "animal" : "human") + "\t" +
+                       (n.indexOf("BCG") === 0 ? "yes" : "no") + "\t" + (1998 + i * 3) + "\n";
+              }).join("") },
+        ];
+      },
     },
     {
       name: "Protein domains",
-      bounds: { from: 1, to: 700, min: 233 },
+      bounds: { from: 1, to: 1400, min: 100 },
       controls: [
         { kind: "region" },
-        { kind: "choice", flag: "--analysis", after: "--domains", label: "Which member database annotated it", options: ["Pfam"] },
+        { kind: "choice", flag: "--analysis", after: "--domains",
+          label: "Which member database to believe",
+          options: ["Pfam", "SUPERFAMILY", "SMART", "PANTHER"] },
+        { kind: "data", param: "proteins", value: 11, label: "Proteins stacked",
+          options: [3, 11] },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["family", "family,essential", "essential"] },
       ],
       group: "Comparisons across genomes",
-      command: "protein:1-700 --domains domains.tsv --analysis Pfam",
+      // One protein and one database. The flag that picks a database had one
+      // option, which is a control that cannot be wrong and therefore cannot
+      // teach anything, and the shared residue axis had nothing to be shared
+      // between.
+      //
+      // Eleven kinases across four databases is the figure the flag exists for:
+      // the same protein gets different boundaries from different callers, and
+      // switching between them is the fastest way to see that a domain call is
+      // an opinion rather than a coordinate.
+      command: "protein:1-700 --domains domains.tsv --analysis Pfam --traits proteins.tsv --columns family",
       files: [
-        {
-          name: "domains.tsv",
-          body:
-            "PknB\tmd5\t626\tPfam\tPF00069\tProtein kinase domain\t11\t275\t1e-40\tT\t01-01-2026\n" +
-            "PknB\tmd5\t626\tPfam\tPF03793\tPASTA domain\t341\t400\t3e-10\tT\t01-01-2026\n" +
-            "PknB\tmd5\t626\tPfam\tPF03793\tPASTA domain\t410\t468\t4e-10\tT\t01-01-2026\n" +
-            "PknD\tmd5\t664\tPfam\tPF00069\tProtein kinase domain\t14\t277\t9e-40\tT\t01-01-2026\n" +
-            "PknE\tmd5\t565\tPfam\tPF00069\tProtein kinase domain\t16\t280\t3e-39\tT\t01-01-2026\n" +
-            "PknE\tmd5\t565\tPfam\tPF03793\tPASTA domain\t400\t458\t7e-09\tT\t01-01-2026\n",
-        },
+        { name: "domains.tsv", body: "" },
+        { name: "proteins.tsv", body: "" },
       ],
+      make: function (p) {
+        var count = (p && p.proteins) || 11;
+        var kinases = [
+          ["PknA", 431], ["PknB", 626], ["PknD", 664], ["PknE", 565], ["PknF", 472],
+          ["PknG", 750], ["PknH", 626], ["PknI", 585], ["PknJ", 583], ["PknK", 1317],
+          ["PknL", 429],
+        ].slice(0, count);
+        var next = rolls(551903);
+        var out = "";
+        function row(name, length, database, accession, label, from, to) {
+          out += [name, "md5", length, database, accession, label, from, to,
+                  "1e-" + (10 + Math.floor(next() * 40)), "T", "01-01-2026"].join("\t") + "\n";
+        }
+        for (var k = 0; k < kinases.length; k++) {
+          var name = kinases[k][0], length = kinases[k][1];
+          // The same kinase domain, called four ways, with the boundaries
+          // deliberately disagreeing by a few dozen residues.
+          row(name, length, "Pfam", "PF00069", "Protein kinase domain", 11, 275);
+          row(name, length, "SUPERFAMILY", "SSF56112", "Protein kinase-like", 4, 291);
+          row(name, length, "SMART", "SM00220", "S_TKc", 17, 268);
+          row(name, length, "PANTHER", "PTHR24347", "Serine/threonine-protein kinase", 1, 320);
+          if (name === "PknB" || name === "PknE" || name === "PknJ") {
+            var repeats = name === "PknB" ? 4 : 1;
+            for (var r = 0; r < repeats; r++) {
+              row(name, length, "Pfam", "PF03793", "PASTA domain", 341 + r * 70, 400 + r * 70);
+              row(name, length, "SMART", "SM00740", "PASTA", 336 + r * 70, 405 + r * 70);
+            }
+          }
+          if (name === "PknG") {
+            row(name, length, "Pfam", "PF00301", "Rubredoxin", 74, 140);
+            row(name, length, "Pfam", "PF13424", "TPR repeat", 480, 660);
+            row(name, length, "PANTHER", "PTHR24347", "Kinase, TPR region", 470, 700);
+          }
+          if (name === "PknK") {
+            row(name, length, "Pfam", "PF13191", "AAA domain", 420, 620);
+            row(name, length, "Pfam", "PF00196", "LuxR-type HTH", 1180, 1270);
+            row(name, length, "SUPERFAMILY", "SSF52540", "P-loop NTPase", 405, 640);
+          }
+          if (name === "PknD") row(name, length, "Pfam", "PF13360", "PQQ-like propeller", 400, 640);
+          if (name === "PknH") row(name, length, "Pfam", "PF14589", "Extracellular domain", 420, 560);
+        }
+        return [
+          { name: "domains.tsv", body: out },
+          { name: "proteins.tsv", body: "name\tfamily\tessential\n" +
+              kinases.map(function (k, i) {
+                return k[0] + "\t" + (i % 3 === 0 ? "PASTA" : i % 3 === 1 ? "soluble" : "membrane") +
+                       "\t" + (k[0] === "PknA" || k[0] === "PknB" ? "yes" : "no") + "\n";
+              }).join("") },
+        ];
+      },
     },
     {
       name: "One molecule at a time",
-      bounds: { from: 1, to: 200, min: 60 },
+      bounds: { from: 900, to: 4900, min: 400 },
       controls: [
         { kind: "region" },
-        { kind: "choice", flag: "--context", after: "--bisulfite", label: "Which cytosine context", options: ["CpG"] },
+        { kind: "choice", flag: "--context", after: "--bisulfite",
+          label: "Which cytosine context was called",
+          options: ["CpG", "CHG", "CHH"] },
+        { kind: "data", param: "molecules", value: 24, label: "Molecules sequenced",
+          options: [8, 24, 60] },
+        { kind: "toggle", flag: "--no-axis", label: "Leave out the coordinate ruler" },
       ],
       group: "Reads and molecules",
-      command: "chr11:1-200 --bisulfite calls.txt --context CpG --label 'H19 ICR'",
-      files: [
-        {
-          name: "calls.txt",
-          body: (function () {
-            var out = "";
-            var sites = [12, 31, 48, 66, 89, 104, 127, 151, 168];
-            for (var r = 1; r <= 10; r++) {
-              var on = r <= 5;
-              for (var s = 0; s < sites.length; s++) {
-                if (r === 6 && s < 3) continue;
-                var call = on ? "Z" : "z";
-                out += "read" + r + "/1\t" + (on ? "+" : "-") + "\tchr11\t" +
-                  (sites[s] + 1) + "\t" + call + "\n";
-              }
-            }
-            return out;
-          })(),
-        },
-      ],
+      // Ten reads over nine sites, all of them called in one context, is a
+      // picture with nothing in it: half the molecules were methylated
+      // everywhere and half nowhere, and --context had one setting because the
+      // file held one context.
+      //
+      // What is here now is an imprinting control region: an island where the
+      // molecules split cleanly into methylated and unmethylated stripes, and a
+      // shore outside it where the same molecules are confetti. That contrast
+      // is what the track exists to show, and it needs a window wide enough to
+      // hold both, which is why the region runs to 4,900 rather than 200.
+      //
+      // The molecules start and end in different places, so the left and right
+      // edges of the grid are ragged. An open circle is a site the molecule
+      // covered and did not modify, and no circle at all is a site it never
+      // reached, and those are two different statements that a rectangular grid
+      // cannot tell apart.
+      command: "chr11:1,400-3,400 --bisulfite calls.txt --context CpG --label 'H19 ICR'",
+      files: [{ name: "calls.txt", body: "" }],
+      make: function (p) {
+        var molecules = (p && p.molecules) || 24;
+        var next = rolls(3400291);
+        var island = [1005, 2600];
+        var sites = [];
+        for (var at = 1005; at < 4800; ) {
+          sites.push(at);
+          at += at < island[1] ? 18 + Math.floor(next() * 24) : 60 + Math.floor(next() * 80);
+        }
+        var chg = [], chh = [];
+        for (var c = 950; c < 4880; c += 150) chg.push(c);
+        for (var h = 930; h < 4880; h += 90) chh.push(h);
+
+        var out = "";
+        for (var m = 0; m < molecules; m++) {
+          var name = "read" + (m + 1);
+          var methylated = m % 2 === 0;
+          var from = 950 + Math.floor(next() * 700);
+          var to = 4200 + Math.floor(next() * 650);
+          function row(pos, on) {
+            // Column two is the case of the call written out again, and the
+            // reader refuses the file where the two disagree, so they are
+            // written from one decision rather than two.
+            out += name + "\t" + (on ? "+" : "-") + "\tchr11\t" + pos + "\t";
+          }
+          for (var i = 0; i < sites.length; i++) {
+            var pos = sites[i];
+            if (pos < from || pos > to) continue;
+            var inside = pos >= island[0] && pos < island[1];
+            var on = inside ? (methylated ? next() > 0.05 : next() < 0.05)
+                            : next() < 0.35;
+            row(pos, on);
+            out += (on ? "Z" : "z") + "\n";
+          }
+          for (var g = 0; g < chg.length; g++) {
+            if (chg[g] < from || chg[g] > to) continue;
+            var gon = next() < 0.04;
+            row(chg[g], gon);
+            out += (gon ? "X" : "x") + "\n";
+          }
+          for (var e = 0; e < chh.length; e++) {
+            if (chh[e] < from || chh[e] > to) continue;
+            var eon = next() < 0.02;
+            row(chh[e], eon);
+            out += (eon ? "H" : "h") + "\n";
+          }
+        }
+        return [{ name: "calls.txt", body: out }];
+      },
     },
     {
       name: "Reference bases",
-      bounds: { from: 1, to: 300, min: 60 },
+      bounds: { from: 1, to: 1500, min: 60 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "orf", value: "one long reading frame", label: "What is in the sequence",
+          options: ["one long reading frame", "stops everywhere", "two frames overlapping"] },
+        { kind: "toggle", flag: "--no-region-label",
+          label: "Leave out the locus printed at the top right" },
       ],
       group: "Signal and annotation",
-      command: "chr1:1-120 --axis --sequence ref.fa --label reference --orfs ref.fa --label 'reading frames'",
-      files: [
-        { name: "ref.fa", body:
-            ">chr1\n" +
-            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "GACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAA\n" +
-            "GGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTA\n" +
-            "AGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTT\n" +
-            "AAGGACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCT\n" },
-      ],
+      // Three hundred bases of a repeating unit gave six frame lanes that were
+      // all the same, because a sequence that repeats every sixty-one bases has
+      // stops in the same places in every frame. There is a designed open
+      // reading frame in here now, so one lane carries a long bar and the other
+      // five are broken up, which is the difference the track is drawn to show.
+      //
+      // The window matters too: below about five pixels a base the letters give
+      // way to coloured blocks and then to a single line, which is the sequence
+      // track choosing what it can afford rather than drawing letters nobody
+      // could read.
+      command: "chr1:150-750 --axis --sequence ref.fa --label reference --orfs ref.fa --label 'reading frames'",
+      files: [{ name: "ref.fa", body: "" }],
+      make: function (p) {
+        var telling = (p && p.orf) || "one long reading frame";
+        var next = rolls(140277);
+        var bases = "ACGT";
+        var stops = ["TAA", "TAG", "TGA"];
+        function filler(n, stopRate) {
+          var out = "";
+          for (var i = 0; i < n; i += 3) {
+            if (next() < stopRate) out += stops[Math.floor(next() * 3)];
+            else {
+              var codon = "";
+              for (var b = 0; b < 3; b++) codon += bases[Math.floor(next() * 4)];
+              out += stops.indexOf(codon) >= 0 ? "CTG" : codon;
+            }
+          }
+          return out.slice(0, n);
+        }
+        function orf(codons) {
+          var out = "ATG";
+          for (var c = 1; c < codons - 1; c++) {
+            var codon = "";
+            for (var b = 0; b < 3; b++) codon += bases[Math.floor(next() * 4)];
+            out += stops.indexOf(codon) >= 0 ? "GCT" : codon;
+          }
+          return out + "TAA";
+        }
+        var seq;
+        if (telling === "stops everywhere") {
+          seq = filler(1500, 0.5);
+        } else if (telling === "two frames overlapping") {
+          seq = filler(299, 0.35) + orf(120) + "A" + orf(90) + filler(1500, 0.35);
+        } else {
+          seq = filler(299, 0.35) + orf(134) + filler(1500, 0.35);
+        }
+        return [{ name: "ref.fa", body: fastaOf("chr1", seq.slice(0, 1500)) }];
+      },
     },
     {
       name: "A cytogenetic ideogram",
-      bounds: { from: 1, to: 2000000, min: 60 },
+      bounds: { from: 1, to: 46709983, min: 100000 },
       controls: [
         { kind: "region" },
+        { kind: "choice", flag: "--height", after: "--ideogram",
+          label: "How thick the chromosome is drawn", options: ["18", "34", "70"] },
+        { kind: "toggle", flag: "--no-region-label",
+          label: "Leave out the locus printed at the top right" },
       ],
       group: "Signal and annotation",
-      command: "chr1:1-2,000,000 --ideogram bands.txt --label chromosome",
-      files: [
-        { name: "bands.txt", body:
-            "chr1 0 200000 p11 gneg\n" +
-            "chr1 200000 400000 p10 gpos25\n" +
-            "chr1 400000 600000 p9 gpos50\n" +
-            "chr1 600000 800000 p8 gpos75\n" +
-            "chr1 800000 1000000 p7 gpos100\n" +
-            "chr1 1000000 1200000 q1 acen\n" +
-            "chr1 1200000 1400000 q2 gvar\n" +
-            "chr1 1400000 1600000 q3 stalk\n" +
-            "chr1 1600000 1800000 q4 gneg\n" +
-            "chr1 1800000 2000000 q5 gpos50\n" },
-      ],
+      // Ten bands of equal width over two megabases drew a ramp, which is what
+      // a cytoBand table looks like when nobody gave it a chromosome. This is
+      // the shape of a real acrocentric: a short arm of stalk and variable
+      // heterochromatin, an off-centre waist, and a long arm whose bands run
+      // from under two megabases to over eight. Panning it is the point, since
+      // a band is the one annotation whose width is the whole of its meaning.
+      command: "chr21:1-46,709,983 --ideogram bands.txt --label chr21",
+      files: [{ name: "bands.txt", body: "" }],
+      make: function () {
+        var bands = [
+          [0, 3100000, "p13", "gvar"], [3100000, 6800000, "p12", "stalk"],
+          [6800000, 10900000, "p11.2", "gvar"], [10900000, 11700000, "p11.1", "acen"],
+          [11700000, 12400000, "q11.1", "acen"], [12400000, 14300000, "q11.2", "gneg"],
+          [14300000, 20200000, "q21.1", "gpos100"], [20200000, 24100000, "q21.2", "gneg"],
+          [24100000, 28800000, "q21.3", "gpos75"], [28800000, 32400000, "q22.11", "gneg"],
+          [32400000, 36100000, "q22.12", "gpos50"], [36100000, 38400000, "q22.13", "gneg"],
+          [38400000, 46709983 - 8300000, "q22.2", "gpos25"],
+          [46709983 - 8300000, 46709983, "q22.3", "gneg"],
+        ];
+        var out = "";
+        for (var i = 0; i < bands.length; i++) {
+          out += "chr21\t" + bands[i][0] + "\t" + bands[i][1] + "\t" +
+                 bands[i][2] + "\t" + bands[i][3] + "\n";
+        }
+        return [{ name: "bands.txt", body: out }];
+      },
     },
     {
       name: "A genome-wide scan",
-      bounds: { from: 1, to: 1000000, min: 1997 },
+      bounds: { from: 1, to: 1000000, min: 5000 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "markers", value: 2500, label: "Markers tested",
+          options: [500, 2500, 8000], says: "More tests, and the null climbs with them" },
+        { kind: "data", param: "signal", value: "two loci and some singletons", label: "What is under the peaks",
+          options: ["nothing but noise", "one locus", "two loci and some singletons"] },
+        { kind: "choice", flag: "--height", after: "--manhattan",
+          label: "How tall the scan is drawn", options: ["80", "160", "300"] },
       ],
       group: "Association and genotype",
+      // The point of the marker control is the thing a Manhattan plot is
+      // usually read wrongly for: with five hundred draws the highest point of
+      // pure noise is around three, and with eight thousand it is over four, so
+      // the height of the tallest bar means nothing until you know how many
+      // tests were run. Turning the knob moves the noise floor while the two
+      // real peaks stay where they are.
       command: "chr1:1-1,000,000 --manhattan assoc.tsv --label association",
-      files: [
-        { name: "assoc.tsv", body: "" },
-      ],
-      // Five hundred rows built here rather than pasted, so the example is one
-      // a reader can pan across rather than one they can read.
-      make: function () {
-        var rows = "pos\tp\n";
-        for (var i = 0; i < 500; i++) {
-          var peak = 6 * Math.exp(-Math.pow(i - 250, 2) / 900);
-          var p = Math.pow(10, -(1 + peak + 0.6 * Math.sin(i)));
-          rows += (i * 2000 + 1) + "\t" + p.toPrecision(4) + "\n";
+      files: [{ name: "assoc.tsv", body: "" }],
+      make: function (p) {
+        var markers = (p && p.markers) || 2500;
+        var signal = (p && p.signal) || "two loci and some singletons";
+        var next = rolls(880021);
+        var step = Math.floor(1000000 / markers);
+        var out = "pos\tneglog10p\n";
+        for (var i = 0; i < markers; i++) {
+          var at = 1 + i * step;
+          var u = Math.max(1e-5, next());
+          var value = -Math.log(u) / Math.LN10;
+          if (signal !== "nothing but noise") {
+            var d1 = (at - 615000) / 6000;
+            value = Math.max(value, 11.5 * Math.exp(-d1 * d1 / 2));
+          }
+          if (signal === "two loci and some singletons") {
+            var d2 = (at - 240000) / 2500;
+            value = Math.max(value, 8.2 * Math.exp(-d2 * d2 / 2));
+            if (i % Math.max(1, Math.floor(markers / 4)) === 7) value = 5.6 + next() * 0.8;
+          }
+          out += at + "\t" + value.toFixed(3) + "\n";
         }
-        return [{ name: "assoc.tsv", body: rows }];
+        return [{ name: "assoc.tsv", body: out }];
       },
     },
     {
       name: "A genotype matrix",
-      bounds: { from: 1, to: 400, min: 60 },
+      bounds: { from: 1, to: 30500, min: 800 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "samples", value: 32, label: "Samples in the matrix",
+          options: [12, 32, 80] },
+        { kind: "data", param: "structure", value: "three clades", label: "What the samples are",
+          options: ["one population", "three clades", "three clades and a mixture"] },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["lineage", "lineage,drug", "drug,year,source", "source"] },
       ],
       group: "Association and genotype",
-      command: "chr1:1-400 --matrix geno.tsv --label 'allele fraction'",
+      // Twelve rows by seven columns of alternating 0.95 and 0.05 was a
+      // chequerboard, and a chequerboard is the one pattern a genotype matrix
+      // cannot mean anything by. The sites are irregular now, the way variant
+      // sites are, and the samples fall into blocks that a strip beside them
+      // names, so the question the figure answers is whether the blocks in the
+      // matrix agree with the labels on the rows.
+      command: "chr1:1-12,000 --matrix geno.tsv --label 'allele fraction' --traits samples.tsv --columns lineage",
       files: [
-        { name: "geno.tsv", body:
-            "sample\t51\t97\t149\t203\t258\t311\t355\n" +
-            "S01\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" +
-            "S02\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" +
-            "S03\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
-            "S04\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
-            "S05\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\tNA\n" +
-            "S06\t0.95\t0.05\t0.95\t0.05\t0.95\tNA\t0.95\n" +
-            "S07\t0.95\t0.05\t0.95\t0.05\tNA\t0.05\t0.95\n" +
-            "S08\t0.95\t0.05\t0.95\tNA\t0.95\t0.05\t0.95\n" +
-            "S09\t0.05\t0.95\tNA\t0.95\t0.05\t0.95\t0.05\n" +
-            "S10\t0.05\tNA\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
-            "S11\tNA\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\n" +
-            "S12\t0.95\t0.05\t0.95\t0.05\t0.95\t0.05\t0.95\n" },
+        { name: "geno.tsv", body: "" },
+        { name: "samples.tsv", body: "" },
       ],
+      make: function (p) {
+        var samples = (p && p.samples) || 32;
+        var structure = (p && p.structure) || "three clades";
+        var next = rolls(720113);
+        var sites = [];
+        for (var at = 150; at < 30400; at += 200 + Math.floor(next() * 140)) sites.push(at);
+
+        var names = [];
+        for (var i = 0; i < samples; i++) names.push("ERR" + ("00" + (i + 1)).slice(-3));
+        var clade = function (i) {
+          if (structure === "one population") return 0;
+          var per = Math.ceil(samples / 3);
+          return Math.floor(i / per);
+        };
+        var out = "sample\t" + sites.join("\t") + "\n";
+        for (var r = 0; r < samples; r++) {
+          var mine = clade(r);
+          var mixed = structure.indexOf("mixture") >= 0 && r % 11 === 5;
+          var row = [names[r]];
+          for (var c = 0; c < sites.length; c++) {
+            var derived = (c % 3) === mine || (mine === 1 && c >= 28 && c < 48);
+            if (mixed) derived = next() < 0.5;
+            var value = derived ? 0.9 + next() * 0.1 : next() * 0.1;
+            row.push(next() < 0.02 ? "NA" : value.toFixed(2));
+          }
+          out += row.join("\t") + "\n";
+        }
+        return [
+          { name: "geno.tsv", body: out },
+          { name: "samples.tsv", body: sheetFor(names, ["lineage", "drug", "year", "source"],
+              function (i) { return "L" + (clade(i) + 1); }) },
+        ];
+      },
     },
     {
       name: "A read pileup",
-      bounds: { from: 1, to: 300, min: 60 },
+      bounds: { from: 1, to: 1600, min: 60 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "copies", value: 8, label: "Reads starting at each step",
+          options: [1, 3, 8, 20], unit: "x",
+          says: "The track stacks 40 rows and counts the rest" },
+        { kind: "data", param: "reach", value: "a mix", label: "How far each read reaches",
+          options: ["55 bases", "120 bases", "a mix"] },
       ],
       group: "Reads and molecules",
-      command: "chr1:1-300 --sequence ref.fa --label reference --pileup reads.sam --label reads",
+      command: "chr1:1-400 --sequence ref.fa --label reference --pileup reads.sam --label reads",
       files: [
         { name: "ref.fa", body: "" },
         { name: "reads.sam", body: "" },
       ],
-      make: function () {
-        var ref = reference();
+      // What a pileup answers to is how many reads there are and how far each
+      // one reaches, so those are the two controls. Coverage deep enough to
+      // reach the forty row cap is the thing worth watching: the track stops
+      // opening rows there and counts the rest, rather than drawing off the
+      // bottom of the figure.
+      //
+      // There is no control here for mismatches, and that is not an oversight.
+      // The pileup colours a base that disagrees with the reference, and the
+      // reference reaches the track through `PileupTrack::reference`, which the
+      // command line never calls: the arm in src/cli/stack.rs builds
+      // `PileupTrack::new(reads)` and stops. So from a command line, and
+      // therefore from this page, every base agrees and the track's own
+      // headline cannot be shown at all.
+      make: function (p) {
+        var ref = reference(1600);
+        var copies = p && p.copies ? p.copies : 3;
+        var reach = (p && p.reach) || "55 bases";
         var sam = "";
         var n = 0;
-        for (var at = 1; at < 260; at += 6) {
-          for (var copy = 0; copy < 3; copy++) {
-            var len = 55 + ((at + copy * 7) % 12);
+        for (var at = 1; at < 1540; at += 6) {
+          for (var copy = 0; copy < copies; copy++) {
+            var len = reach === "120 bases" ? 120
+                    : reach === "a mix" ? 30 + ((at + copy * 13) % 110)
+                    : 55 + ((at + copy * 7) % 12);
+            if (at - 1 + len > ref.length) len = ref.length - at + 1;
+            if (len < 5) continue;
             sam += "r" + (n++) + "\t" + (copy % 2 === 0 ? 0 : 16) + "\tchr1\t" + at +
                    "\t60\t" + len + "M\t*\t0\t0\t" + ref.slice(at - 1, at - 1 + len) + "\t*\n";
           }
@@ -343,291 +898,635 @@
     },
     {
       name: "One molecule in pieces",
-      bounds: { from: 1, to: 9000, min: 200 },
+      bounds: { from: 1, to: 12000, min: 400 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "molecules", value: 44, label: "Molecules in the file",
+          options: [12, 44, 90] },
+        { kind: "data", param: "kinds", value: "everything, including three-piece molecules", label: "What the pieces did",
+          options: ["forward hops only", "hops and inversions", "everything, including three-piece molecules"] },
+        { kind: "choice", flag: "--height", after: "--split-reads",
+          label: "How much room the rows get", options: ["80", "160", "300"] },
       ],
       group: "Reads and molecules",
-      command: "chr1:1-9,000 --split-reads split.sam --label 'split reads'",
+      // Thirty molecules that all hopped forwards, all in two pieces, all the
+      // same distance. A split read is worth drawing because the pieces can go
+      // backwards, land on the other strand, or come in threes, and none of
+      // those was in the file.
+      command: "chr1:1-5,000 --split-reads split.sam --label 'split reads'",
       files: [{ name: "split.sam", body: "" }],
-      make: function () {
+      make: function (p) {
+        var molecules = (p && p.molecules) || 44;
+        var kinds = (p && p.kinds) || "everything, including three-piece molecules";
+        var next = rolls(311017);
         var sam = "";
-        for (var i = 0; i < 30; i++) {
-          var a = 200 + i * 280;
-          var b = a + 900 + (i % 5) * 120;
-          var back = i % 3 === 0;
+        for (var i = 0; i < molecules; i++) {
+          var a = 300 + Math.floor(i * (11200 / molecules));
+          var which = kinds === "forward hops only" ? 0
+                    : kinds === "hops and inversions" ? (i % 2)
+                    : (i % 4);
+          if (which === 2) {
+            // Three pieces, so "segment 2 of 3" exists at all.
+            var b = a + 1400 + Math.floor(next() * 900);
+            var c = b + 1300 + Math.floor(next() * 700);
+            sam += "m" + i + "\t0\tchr1\t" + a + "\t60\t400M900S\t*\t0\t0\t*\t*\tSA:Z:chr1," +
+                   b + ",+,400S450M450S,60,0;chr1," + c + ",+,850S450M,60,0;\n";
+            continue;
+          }
+          var back = which === 3;
+          var far = back ? a - 1500 - Math.floor(next() * 600) : a + 1600 + Math.floor(next() * 900);
+          if (far < 1) far = a + 1600;
+          var reverse = which === 1;
           sam += "m" + i + "\t0\tchr1\t" + a + "\t60\t600M700S\t*\t0\t0\t*\t*\t" +
-                 "SA:Z:chr1," + b + "," + (back ? "-" : "+") + ",600S700M,60,0;\n";
+                 "SA:Z:chr1," + far + "," + (reverse ? "-" : "+") + ",600S700M,60,0;\n";
         }
         return [{ name: "split.sam", body: sam }];
       },
     },
     {
       name: "Modified bases",
-      bounds: { from: 1, to: 1000, min: 60 },
+      bounds: { from: 1, to: 10000, min: 300 },
       controls: [
         { kind: "region" },
-        { kind: "choice", flag: "--modification", after: "--methylation", label: "Which modified base to draw", options: ["m"] },
+        { kind: "choice", flag: "--modification", after: "--methylation",
+          label: "Which modified base was counted", options: ["m", "h"] },
+        { kind: "choice", flag: "--height", after: "--methylation",
+          label: "How much room the two strand lanes get",
+          options: ["60", "120", "220"] },
+        { kind: "data", param: "depth", value: "mixed", label: "How deeply the sites were covered",
+          options: ["thin", "mixed", "deep"],
+          says: "Calls under 5x are dropped and counted" },
+        { kind: "toggle", flag: "--no-axis", label: "Leave out the coordinate ruler" },
       ],
       group: "Reads and molecules",
-      command: "chr1:1-1,000 --methylation calls.bed --modification m --label '5mC'",
-      files: [
-        { name: "calls.bed", body: "" },
-      ],
-      make: function () {
-        var rows = "";
-        for (var p = 20; p < 980; p += 24) {
-          var pct = p < 400 ? 90 : 12;
-          var mod = Math.round(40 * pct / 100);
-          rows += "chr1 " + p + " " + (p + 1) + " m 40 + " + p + " " + (p + 1) +
-                  " 0,0,0 40 " + pct.toFixed(2) + " " + mod + " " + (40 - mod) +
-                  " 0 0 0 0 0\n";
+      // The file used to hold one modification code, one strand and one
+      // coverage, so the lower lane was empty, the strand pair was never seen,
+      // the fade never varied and the note the track prints when it drops thin
+      // calls never appeared. Four of the things the track does could not be
+      // seen at all.
+      //
+      // Now both strands are called, the shore between 4,000 and 4,800 is
+      // hemimethylated so the two lanes disagree, and 5hmC is a different
+      // picture rather than the same one recoloured. The coverage knob is what
+      // makes the 5x filter visible: on "thin" the figure says how many calls
+      // it left out.
+      command: "chr1:1,500-5,000 --methylation calls.bed --modification m --label '5mC'",
+      files: [{ name: "calls.bed", body: "" }],
+      make: function (p) {
+        var depth = (p && p.depth) || "mixed";
+        var pool = depth === "thin" ? [2, 3, 4, 5, 7, 9]
+                 : depth === "deep" ? [28, 40, 55, 70, 90, 120]
+                 : [3, 4, 6, 12, 28, 40, 55, 70];
+        var next = rolls(778211);
+        var out = "";
+        for (var at = 60; at < 9900; at += 30 + Math.floor(next() * 60)) {
+          var island = at >= 2000 && at < 4000;
+          var shore = at >= 4000 && at < 4800;
+          for (var strand = 0; strand < 2; strand++) {
+            var reverse = strand === 1;
+            for (var code = 0; code < 2; code++) {
+              var which = code === 0 ? "m" : "h";
+              var base = which === "h" ? 8
+                       : island ? 88
+                       : shore ? (reverse ? 10 : 55)
+                       : 9;
+              var pct = Math.max(0, Math.min(100, base + (next() - 0.5) * 12));
+              var cov = pool[Math.floor(next() * pool.length)];
+              out += "chr1\t" + at + "\t" + (at + 1) + "\t" + which + "\t" + cov + "\t" +
+                     (reverse ? "-" : "+") + "\t" + at + "\t" + (at + 1) + "\t0,0,0\t" +
+                     cov + "\t" + pct.toFixed(2) + "\t1\t1\t0\t0\t0\t0\t0\n";
+            }
+          }
         }
-        return [{ name: "calls.bed", body: rows }];
+        return [{ name: "calls.bed", body: out }];
       },
     },
     {
       name: "Alignment ribbons",
-      bounds: { from: 1, to: 40000, min: 60 },
+      bounds: { from: 1, to: 240000, min: 8000 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "shape", value: "everything", label: "What the two sequences did",
+          options: ["colinear only", "with an inversion and a jump", "everything"] },
+        { kind: "choice", flag: "--height", after: "--synteny",
+          label: "How much room the ribbons get", options: ["80", "160", "300"] },
       ],
       group: "Alignments and rearrangements",
-      command: "ctg1:1-40,000 --synteny aln.paf --label 'against chrA'",
-      files: [
-        { name: "aln.paf", body:
-            "ctg1\t40000\t0\t3600\t-\tchrA\t60000\t5000\t8600\t3400\t3600\t60\n" +
-            "ctg1\t40000\t4000\t7600\t+\tchrA\t60000\t9200\t12800\t3400\t3600\t60\n" +
-            "ctg1\t40000\t8000\t11600\t+\tchrA\t60000\t13400\t17000\t3400\t3600\t60\n" +
-            "ctg1\t40000\t12000\t15600\t-\tchrA\t60000\t17600\t21200\t3400\t3600\t60\n" +
-            "ctg1\t40000\t16000\t19600\t+\tchrA\t60000\t21800\t25400\t3400\t3600\t60\n" +
-            "ctg1\t40000\t20000\t23600\t+\tchrA\t60000\t26000\t29600\t3400\t3600\t60\n" +
-            "ctg1\t40000\t24000\t27600\t-\tchrA\t60000\t30200\t33800\t3400\t3600\t60\n" +
-            "ctg1\t40000\t28000\t31600\t+\tchrA\t60000\t34400\t38000\t3400\t3600\t60\n" +
-            "ctg1\t40000\t32000\t35600\t+\tchrA\t60000\t38600\t42200\t3400\t3600\t60\n" },
-      ],
+      // Nine forward blocks in order was a picture of two sequences agreeing,
+      // which is the one case where ribbons have nothing to say. The alignment
+      // is the same one the dot plot below reads, so the two figures can be
+      // opened side by side and compared, which is the reason both are here.
+      command: "ctg1:1-190,000 --synteny aln.paf --label 'against chrA'",
+      files: [{ name: "aln.paf", body: "" }],
+      make: function (p) {
+        return [{ name: "aln.paf", body: synteny((p && p.shape) || "everything") }];
+      },
     },
     {
       name: "The same PAF as a dot plot",
-      bounds: { from: 1, to: 40000, min: 60 },
+      bounds: { from: 1, to: 240000, min: 8000 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "shape", value: "everything", label: "What the two sequences did",
+          options: ["colinear only", "with an inversion and a jump", "everything"] },
       ],
       group: "Alignments and rearrangements",
-      command: "ctg1:1-40,000 --dotplot aln.paf --label 'dot plot'",
-      files: [
-        { name: "aln.paf", body:
-            "ctg1\t40000\t0\t3600\t-\tchrA\t60000\t5000\t8600\t3400\t3600\t60\n" +
-            "ctg1\t40000\t4000\t7600\t+\tchrA\t60000\t9200\t12800\t3400\t3600\t60\n" +
-            "ctg1\t40000\t8000\t11600\t+\tchrA\t60000\t13400\t17000\t3400\t3600\t60\n" +
-            "ctg1\t40000\t12000\t15600\t-\tchrA\t60000\t17600\t21200\t3400\t3600\t60\n" +
-            "ctg1\t40000\t16000\t19600\t+\tchrA\t60000\t21800\t25400\t3400\t3600\t60\n" +
-            "ctg1\t40000\t20000\t23600\t+\tchrA\t60000\t26000\t29600\t3400\t3600\t60\n" +
-            "ctg1\t40000\t24000\t27600\t-\tchrA\t60000\t30200\t33800\t3400\t3600\t60\n" +
-            "ctg1\t40000\t28000\t31600\t+\tchrA\t60000\t34400\t38000\t3400\t3600\t60\n" +
-            "ctg1\t40000\t32000\t35600\t+\tchrA\t60000\t38600\t42200\t3400\t3600\t60\n" },
-      ],
+      // The same file as the ribbons above, which is the point of having both.
+      // A rising diagonal is colinearity; the anti-diagonal crossing it is the
+      // inversion; the diagonal that restarts near the bottom is the piece that
+      // moved; and two diagonals at the same query is one piece of it living in
+      // two places of the target.
+      command: "ctg1:1-240,000 --dotplot aln.paf --label 'dot plot'",
+      files: [{ name: "aln.paf", body: "" }],
+      make: function (p) {
+        return [{ name: "aln.paf", body: synteny((p && p.shape) || "everything") }];
+      },
     },
     {
       name: "A multiple alignment",
-      bounds: { from: 1, to: 61, min: 60 },
+      bounds: { from: 1, to: 900, min: 60 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "rows", value: 18, label: "Sequences in the alignment",
+          options: [6, 18, 40, 90], says: "Every one is a row, and nothing caps them" },
+        { kind: "data", param: "columns", value: 900, label: "Columns it is long",
+          options: [300, 900, 2400] },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["lineage", "lineage,drug", "drug,year,source", "source"] },
       ],
       group: "Sequence alignment",
-      command: "aln:1-61 --msa aln.fa --label alignment",
+      // The window is the thing to move. Zoomed out the alignment is a block of
+      // agreement with a few columns of disagreement running down it, and the
+      // deletion the second lineage carries is a hole in the middle of it.
+      // Zoomed in far enough the letters arrive, which is the track deciding
+      // for itself what it can afford to draw.
+      command: "aln:1-400 --msa aln.fa --label alignment --traits meta.tsv --columns lineage",
       files: [
-        { name: "aln.fa", body:
-            ">sample1\n" +
-            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample2\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample3\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample4\n" +
-            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" },
+        { name: "aln.fa", body: "" },
+        { name: "meta.tsv", body: "" },
       ],
+      make: function (p) {
+        var made = alignment(p && p.rows, p && p.columns);
+        return [
+          { name: "aln.fa", body: made.fasta },
+          { name: "meta.tsv", body: sheetFor(made.names, ["lineage", "drug", "year", "source"]) },
+        ];
+      },
     },
     {
       name: "Only the variable sites",
-      bounds: { from: 1, to: 61, min: 60 },
+      bounds: { from: 1, to: 900, min: 60 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "rows", value: 18, label: "Sequences in the alignment",
+          options: [6, 18, 40, 90] },
+        { kind: "data", param: "columns", value: 300, label: "Columns the alignment is long",
+          options: [150, 300, 600], says: "The panel keeps only the ones that disagree" },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["lineage", "lineage,drug", "drug,year,source", "source"] },
       ],
       group: "Sequence alignment",
-      command: "aln:1-61 --snps aln.fa --label 'variable sites'",
+      // The same alignment as the one above, which is why both are here. This
+      // panel throws away every column where nothing disagrees, so hundreds of
+      // columns become a few dozen and the three lineages fall into stripes
+      // that the strips beside them name.
+      command: "aln:1-400 --snps aln.fa --label 'variable sites' --traits meta.tsv --columns lineage",
       files: [
-        { name: "aln.fa", body:
-            ">sample1\n" +
-            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample2\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample3\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample4\n" +
-            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" },
+        { name: "aln.fa", body: "" },
+        { name: "meta.tsv", body: "" },
       ],
+      make: function (p) {
+        var made = alignment(p && p.rows, p && p.columns);
+        return [
+          { name: "aln.fa", body: made.fasta },
+          { name: "meta.tsv", body: sheetFor(made.names, ["lineage", "drug", "year", "source"]) },
+        ];
+      },
     },
     {
       name: "A sequence logo",
-      bounds: { from: 1, to: 61, min: 60 },
+      bounds: { from: 1, to: 900, min: 60 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "rows", value: 18, label: "Sequences the logo is built from",
+          options: [6, 18, 40, 90],
+          says: "Few sequences make every column look certain" },
+        { kind: "data", param: "columns", value: 900, label: "Columns it is long",
+          options: [300, 900, 2400] },
       ],
       group: "Sequence alignment",
-      command: "aln:1-61 --logo aln.fa --label logo",
-      files: [
-        { name: "aln.fa", body:
-            ">sample1\n" +
-            "ACGTTGCAACGTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample2\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample3\n" +
-            "ACGTTGCAACTTATGCCGATTACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" +
-            ">sample4\n" +
-            "ACGTTGCAACGTATGCCGATGACGGCATGCATTAGCCGGATCGATCGTTAAGGCCTTAAG\n" +
-            "G\n" },
-      ],
+      // The alignment has a conserved core and a hypervariable stretch on
+      // purpose, because that difference is the whole of what a logo says. Move
+      // the window from one to the other and the letters go from full height to
+      // a scatter of stubs. The sequence count is the other half of it: six
+      // sequences agreeing looks exactly like certainty, and ninety agreeing
+      // is certainty, and the logo is drawn from a count that cannot tell them
+      // apart unless somebody says how many there were.
+      command: "aln:1-400 --logo aln.fa --label 'information content'",
+      files: [{ name: "aln.fa", body: "" }],
+      make: function (p) {
+        var made = alignment(p && p.rows, p && p.columns);
+        return [{ name: "aln.fa", body: made.fasta }];
+      },
     },
     {
       name: "A phylogeny",
       bounds: { from: 1, to: 100, min: 60 },
       controls: [
-        { kind: "note", label: "A phylogeny has no coordinates, so there is nothing to pan across. What it has is a shape." },
+        { kind: "note", label: "A phylogeny has no coordinates, so there is nothing to pan across. What it has is a shape, and support values that live in the tooltips: hover a node." },
+        { kind: "data", param: "tips", value: 24, label: "Taxa in the tree", options: [8, 24, 60] },
+        { kind: "data", param: "support", value: "bootstraps", label: "Node support",
+          options: ["none", "bootstraps"], says: "Hover an internal node to read it" },
         { kind: "toggle", flag: "--no-axis", label: "The coordinate ruler, which measures nothing here" },
       ],
       group: "Phylogeny",
+      // Six tips and no support values. The tree layout puts support in the
+      // tooltips rather than on the branches by default, which is the right
+      // choice for a printed figure and means the reader of a live page has
+      // something to hover, so long as the file carries any. This one does.
       command: "tree:1-100 --no-axis --tree tree.nwk --label phylogeny",
-      files: [
-        { name: "tree.nwk", body:
-            "(((s1:0.01,s2:0.012):0.02,(s3:0.008,s4:0.011):0.018):0.03,(s5:0.02,s6:0.017):0.025);\n" },
-      ],
+      files: [{ name: "tree.nwk", body: "" }],
+      make: function (p) {
+        var tips = (p && p.tips) || 24;
+        var carrying = (p && p.support) !== "none";
+        var next = rolls(66041);
+        var supports = [98, 100, 72, 89, 55, 100, 94, 63, 100, 81, 77, 96];
+        var used = 0;
+        function label() { return carrying ? String(supports[used++ % supports.length]) : ""; }
+        var per = Math.ceil(tips / 4);
+        var groups = [];
+        for (var g = 0; g < 4; g++) {
+          var members = [];
+          for (var i = 0; i < per && g * per + i < tips; i++) {
+            var name = "L" + (g + 1) + "_" + ("0" + (i + 1)).slice(-2);
+            members.push(name + ":" + (0.2 + next() * 0.5).toFixed(3));
+          }
+          // Nest half of each group one level deeper, so the tree has a shape
+          // rather than being a comb.
+          var half = Math.max(1, Math.floor(members.length / 2));
+          var inner = "(" + members.slice(0, half).join(",") + ")" + label() + ":0.4";
+          var rest = members.slice(half);
+          groups.push("(" + [inner].concat(rest).join(",") + ")" + label() + ":0.8");
+        }
+        return [{ name: "tree.nwk", body: "(" + groups.join(",") + ")" + label() + ";\n" }];
+      },
     },
     {
       name: "Recombination on a tree",
-      bounds: { from: 1, to: 8000, min: 1701 },
+      bounds: { from: 1, to: 60000, min: 2000 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "blocks", value: 21, label: "Blocks the caller found",
+          options: [6, 21, 48] },
+        { kind: "data", param: "clades", value: "one block that is not a clade", label: "Who carries them",
+          options: ["clades only", "one block that is not a clade"],
+          says: "A block whose taxa are not a clade is drawn row by row" },
+        { kind: "choice", flag: "--columns", after: "--traits",
+          label: "Which strips to draw, in this order",
+          options: ["lineage", "lineage,source", "source"] },
       ],
       group: "Phylogeny",
-      command: "NC_011900.1:1-8,000 --clades gubbins.gff --with-tree tree.nwk --label recombination",
+      // Four blocks over six taxa. The whole claim a clade track makes is that
+      // one rectangle stands for one event on one branch, and the module spends
+      // most of itself refusing to make that claim when the taxa carrying a
+      // block are not a clade. With four blocks there was never a case where it
+      // had to refuse, so the reader never saw the thing it is careful about.
+      command: "NC_011900.1:1-20,000 --clades gubbins.gff --with-tree tree.nwk --label recombination --traits taxa.tsv --columns lineage",
       files: [
-        { name: "gubbins.gff", body:
-            "##gff-version 3\n" +
-            "SEQUENCE\tGUBBINS\tCDS\t500\t1500\t0.000\t.\t0\tnode=\"N7\";taxa=\"s1 s2 s3\";\n" +
-            "SEQUENCE\tGUBBINS\tCDS\t3000\t4200\t0.000\t.\t0\tnode=\"N2\";taxa=\"s5 s6\";\n" +
-            "SEQUENCE\tGUBBINS\tCDS\t6000\t6800\t0.000\t.\t0\tnode=\"N9\";taxa=\"s3 s4\";\n" },
-        { name: "tree.nwk", body:
-            "(((s1:0.01,s2:0.012):0.02,(s3:0.008,s4:0.011):0.018):0.03,(s5:0.02,s6:0.017):0.025);\n" },
+        { name: "gubbins.gff", body: "" },
+        { name: "tree.nwk", body: "" },
+        { name: "taxa.tsv", body: "" },
       ],
+      make: function (p) {
+        var count = (p && p.blocks) || 21;
+        var awkward = (p && p.clades) !== "clades only";
+        var next = rolls(220517);
+        var names = [];
+        for (var g = 0; g < 4; g++) {
+          for (var i = 0; i < 5; i++) names.push("L" + (g + 1) + "_" + ("0" + (i + 1)).slice(-2));
+        }
+        var groups = [];
+        for (var q = 0; q < 4; q++) {
+          var members = names.slice(q * 5, q * 5 + 5).map(function (n) {
+            return n + ":" + (0.2 + next() * 0.4).toFixed(3);
+          });
+          groups.push("(" + members.join(",") + ")" + (70 + Math.floor(next() * 30)) + ":0.9");
+        }
+        var tree = "(" + groups.join(",") + ");\n";
+
+        var gff = "##gff-version 3\n";
+        var at = 800;
+        for (var b = 0; b < count; b++) {
+          var wide = 600 + Math.floor(next() * 2300);
+          var lineage = b % 4;
+          var size = 2 + Math.floor(next() * 4);
+          var taxa = names.slice(lineage * 5, lineage * 5 + Math.min(5, size));
+          if (awkward && b === 1) {
+            // Two taxa from two different lineages, which is not a clade. The
+            // track will not draw one rectangle over them.
+            taxa = [names[0], names[12]];
+          }
+          gff += "SEQUENCE\tGUBBINS\tCDS\t" + at + "\t" + (at + wide) +
+                 "\t0.000\t.\t0\tnode=\"N" + b + "\";taxa=\"" + taxa.join(" ") + "\";\n";
+          at += wide + 200 + Math.floor(next() * 1200);
+          if (at > 58000) at = 800 + Math.floor(next() * 400);
+        }
+        return [
+          { name: "gubbins.gff", body: gff },
+          { name: "tree.nwk", body: tree },
+          { name: "taxa.tsv", body: sheetFor(names, ["lineage", "source"]) },
+        ];
+      },
     },
     {
       name: "Structural variants",
-      bounds: { from: 1, to: 200000, min: 2097 },
+      bounds: { from: 1, to: 200000, min: 4000 },
       controls: [
         { kind: "region" },
+        { kind: "data", param: "kinds", value: "everything, including a breakend", label: "What the caller found",
+          options: ["deletions only", "the four span types", "everything, including a breakend"] },
+        { kind: "data", param: "support", value: "a wide range", label: "Reads behind each call",
+          options: ["thin, 4 to 12", "a wide range", "deep, 40 to 90"],
+          says: "The arc's weight is the support, so a flat range draws flat arcs" },
+        { kind: "choice", flag: "--style", after: "--coverage",
+          label: "The shape of the depth profile", options: ["area", "line", "bars"] },
       ],
       group: "Alignments and rearrangements",
-      command: "chr1:1-200,000 --structural sv.vcf --label 'structural variants'",
-      files: [{ name: "sv.vcf", body: "" }],
-      make: function () {
-        var kinds = ["DEL", "DUP", "INV"];
+      // Forty calls of four types at even spacing, with support drawn from a
+      // narrow range, drew forty arcs of much the same weight. The weight is
+      // the measurement, so a narrow range is a figure with the measurement
+      // taken out of it, and that is what the support control is for.
+      //
+      // The depth track underneath is the other half. A deletion should be a
+      // hole in the coverage and a duplication a step up in it, and an arc that
+      // does not line up with one is the reason to doubt the call.
+      command:
+        "chr1:1-70,000 --coverage depth.bg --label depth \\\n" +
+        "  --structural sv.vcf --label 'structural variants'",
+      files: [
+        { name: "depth.bg", body: "" },
+        { name: "sv.vcf", body: "" },
+      ],
+      make: function (p) {
+        var kinds = (p && p.kinds) || "everything, including a breakend";
+        var range = (p && p.support) || "a wide range";
+        var next = rolls(660311);
+        var calls = [
+          ["DEL", 4000, 9200], ["DUP", 14000, 19500], ["INV", 24000, 31000],
+          ["INS", 34000, 34850], ["DEL", 41000, 42200], ["BND", 52000, 141000],
+          ["DUP", 61000, 88000], ["INV", 96000, 99000], ["DEL", 104000, 152000],
+          ["INS", 120000, 120600], ["DEL", 160000, 161500], ["INV", 166000, 168500],
+          ["DUP", 172000, 178000], ["DEL", 182000, 186400], ["DEL", 190000, 196000],
+        ];
         var vcf = "";
-        for (var i = 0; i < 40; i++) {
-          var at = 2000 + i * 4900;
-          var len = 1200 + (i % 7) * 900;
-          var k = kinds[i % 3];
-          vcf += "chr1\t" + at + "\t.\tN\t<" + k + ">\t.\t.\tSVTYPE=" + k +
-                 ";END=" + (at + len) + ";SVLEN=" + len + "\n";
+        var copy = [];
+        for (var i = 0; i < calls.length; i++) {
+          var type = calls[i][0], from = calls[i][1], to = calls[i][2];
+          if (kinds === "deletions only" && type !== "DEL") continue;
+          if (kinds !== "everything, including a breakend" && type === "BND") continue;
+          var reads = range === "thin, 4 to 12" ? 4 + Math.floor(next() * 9)
+                    : range === "deep, 40 to 90" ? 40 + Math.floor(next() * 51)
+                    : 5 + Math.floor(next() * 80);
+          if (type === "BND") {
+            vcf += "chr1\t" + from + "\tbnd" + i + "\tN\tt[chr1:" + to + "[\t.\t.\tSVTYPE=BND;SUPPORT=" + reads + "\n";
+          } else {
+            vcf += "chr1\t" + from + "\tsv" + i + "\tN\t<" + type + ">\t.\t.\tSVTYPE=" + type +
+                   ";END=" + to + ";SVLEN=" + (to - from) + ";SUPPORT=" + reads + "\n";
+          }
+          if (type === "DEL" || type === "DUP") copy.push([from, to, type]);
         }
-        return [{ name: "sv.vcf", body: vcf }];
+        // Depth that agrees with the calls, so an arc has something under it to
+        // be read against.
+        var depth = "";
+        for (var b = 0; b < 200000; b += 500) {
+          var level = 42;
+          for (var c = 0; c < copy.length; c++) {
+            if (b >= copy[c][0] && b < copy[c][1]) level = copy[c][2] === "DEL" ? 3 : 78;
+          }
+          depth += "chr1\t" + b + "\t" + (b + 500) + "\t" + (level + Math.floor(next() * 8)) + "\n";
+        }
+        return [
+          { name: "depth.bg", body: depth },
+          { name: "sv.vcf", body: vcf },
+        ];
       },
     },
     {
       name: "Segmented copy number",
-      bounds: { from: 1, to: 2000000, min: 2097 },
+      bounds: { from: 1, to: 2000000, min: 20000 },
       controls: [
+        { kind: "note", label: "A caller's segments, drawn against the ploidy the flag names. Balanced is where the ladder says it is, not where the data averages out, which is why --ploidy is required and not guessed." },
         { kind: "region" },
-        { kind: "note", label: "The ploidy is not in the file, which is why --ploidy is required rather than defaulted: a log ratio only becomes copies once you say what two copies means here." },
+        { kind: "choice", flag: "--sample", after: "--copy-number",
+          label: "Which sample of the table to draw",
+          options: ["diagnosis", "relapse"] },
+        { kind: "choice", flag: "--ploidy", after: "--copy-number",
+          label: "Where balanced sits on the ladder", options: ["2", "3", "4"] },
       ],
       group: "Signal and annotation",
-      command:
-        "chr8:1-2,000,000 --copy-number segments.cns --ploidy 2 \\\n" +
-        "  --label 'copy number'",
-      files: [
-        { name: "segments.cns", body:
-          "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\n" +
-          "chr8\t0\t400000\t-\t0.02\t2\t1\t1\n" +
-          "chr8\t400000\t700000\tMYC\t1.70\t6\t4\t2\n" +
-          "chr8\t700000\t1000000\t-\t-1.00\t1\t1\t0\n" +
-          "chr8\t1000000\t1400000\t-\t0.00\t2\t1\t1\n" +
-          "chr8\t1400000\t1700000\t-\tNA\tNA\tNA\tNA\n" +
-          "chr8\t1700000\t2000000\t-\t0.58\t3\t2\t1\n" },
-      ],
+      // Seven segments in one sample could not show the two things this track
+      // is for. There are two samples now, from the same patient at two times,
+      // so the flag that picks one has something to pick between and the reader
+      // can watch an amplification deepen from six copies to nine and a loss go
+      // from one copy to none. A segment with cn1 at zero is drawn as
+      // heterozygosity lost, which is a different statement from a plain loss
+      // and needs both samples to be seen as a change.
+      command: "chr8:1-2,000,000 --copy-number segments.cns --ploidy 2 --sample diagnosis --label 'copy number'",
+      files: [{ name: "segments.cns", body: "" }],
+      make: function () {
+        var next = rolls(90124);
+        var edges = [0];
+        while (edges[edges.length - 1] < 2000000) {
+          edges.push(Math.min(2000000, edges[edges.length - 1] + 40000 + Math.floor(next() * 180000)));
+        }
+        var out = "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\tdepth\tweight\tsample\n";
+        function write(sample, plan) {
+          for (var i = 0; i + 1 < edges.length; i++) {
+            var from = edges[i], to = edges[i + 1];
+            var cn = plan(from, i);
+            var na = i === 4;
+            var log2 = na ? "NA" : (Math.log(Math.max(0.05, cn / 2)) / Math.LN2).toFixed(4);
+            var minor = cn === 0 ? 0 : cn <= 1 ? 0 : Math.floor(cn / 2);
+            out += "chr8\t" + from + "\t" + to + "\t" + (i === 6 ? "MYC" : "-") + "\t" +
+                   log2 + "\t" + (na ? "NA" : cn) + "\t" + (na ? "NA" : minor) + "\t" +
+                   (na ? "NA" : cn - minor) + "\t" +
+                   (30 + Math.floor(next() * 40)) + "\t" + (0.4 + next() * 0.6).toFixed(2) +
+                   "\t" + sample + "\n";
+          }
+        }
+        write("diagnosis", function (from, i) {
+          if (i >= 6 && i <= 8) return 6;
+          if (i >= 11 && i <= 13) return 1;
+          if (i >= 16) return 3;
+          return 2;
+        });
+        write("relapse", function (from, i) {
+          if (i >= 6 && i <= 8) return 9;
+          if (i >= 11 && i <= 13) return 0;
+          if (i >= 16) return 2;
+          return 2;
+        });
+        return [{ name: "segments.cns", body: out }];
+      },
     },
     {
       name: "Per-base model attribution",
-      bounds: { from: 1, to: 120, min: 40 },
+      bounds: { from: 1, to: 4000, min: 60 },
       controls: [
-        { kind: "region" },
         { kind: "note", label: "The bases themselves are the bars. A letter above the line is one the model leaned on, and one below is one it pulled away from, so the height is a signed score rather than a count." },
+        { kind: "region" },
+        { kind: "choice", flag: "--height", after: "--dynseq",
+          label: "How tall the band is, which is how tall a letter can get",
+          options: ["120", "200", "320"] },
+        { kind: "data", param: "gaps", value: "two", label: "Stretches the model never scored",
+          options: ["none", "two"], says: "A gap is a break in the rule, not a zero" },
       ],
       group: "Sequence alignment",
+      // A hundred and twenty bases is one screen, so the window slider had
+      // nowhere to go and the track's own ladder was never climbed. Over four
+      // thousand bases it is: zoomed out the figure is an envelope, part way in
+      // it is coloured bars, and close up the letters arrive, and those are
+      // three regimes rather than three sizes of the same drawing.
+      //
+      // The gaps are the other half. A base the model was never run over is
+      // absent from the file, and the track draws a break in the rule rather
+      // than a zero, because a score of nothing and a score of zero are two
+      // different statements about the model.
       command:
-        "promoter:1-120 --dynseq attribution.bg --with-sequence promoter.fa \\\n" +
+        "promoter:600-1,400 --dynseq attribution.bg --with-sequence promoter.fa \\\n" +
         "  --label attribution",
       files: [
         { name: "attribution.bg", body: "" },
         { name: "promoter.fa", body: "" },
       ],
-      make: function () {
-        var bg = "";
-        for (var i = 0; i < 120; i++) {
-          var v;
-          if (i >= 40 && i < 48) v = 0.9 - 0.05 * (i - 40);
-          else if (i >= 70 && i < 76) v = -0.6 + 0.08 * (i - 70);
-          else v = 0.06 * Math.sin(i / 5);
-          bg += "promoter\t" + i + "\t" + (i + 1) + "\t" + v.toFixed(3) + "\n";
+      make: function (p) {
+        var holes = (p && p.gaps) !== "none";
+        var next = rolls(410903);
+        var bases = "ACGT";
+        var motifs = [
+          [742, "TATAAAAG", 1.0], [1180, "CACGTG", 0.72], [1875, "GGGGCGGGGC", -0.85],
+          [2460, "TGACTCA", 0.64], [3120, "CAGGTG", -0.55], [3540, "TATAAAAG", 0.88],
+        ];
+        var seq = "";
+        for (var i = 0; i < 4000; i++) seq += bases[Math.floor(next() * 4)];
+        var letters = seq.split("");
+        for (var m = 0; m < motifs.length; m++) {
+          var at = motifs[m][0], word = motifs[m][1];
+          for (var c = 0; c < word.length; c++) letters[at + c] = word[c];
         }
-        // A fixed sequence rather than a random one, so the figure is the same
-        // every time the example is opened.
-        var bases = "GCTAAAGACAATTACATAACATACACGTCAGCACGAAACTTATAAAAGCAGTGTGAATCG" +
-                    "TTGCACCGATTAGGCATCAGTACCGGATTACAGCTTAAGCCGGATTCAGTACCGATTAGC";
-        var fa = ">promoter\n" + bases.slice(0, 60) + "\n" + bases.slice(60) + "\n";
+        seq = letters.join("");
+
+        var gaps = holes ? [[600, 660], [2800, 2960]] : [];
+        var scores = "";
+        for (var b = 0; b < 4000; b++) {
+          var skip = false;
+          for (var g = 0; g < gaps.length; g++) {
+            if (b >= gaps[g][0] && b < gaps[g][1]) skip = true;
+          }
+          if (skip) continue;
+          var value = 0.05 * Math.sin(b / 37) + 0.03 * Math.sin(b / 9.5);
+          for (var k = 0; k < motifs.length; k++) {
+            var from = motifs[k][0], width = motifs[k][1].length, peak = motifs[k][2];
+            if (b >= from && b < from + width) {
+              value = peak * (0.75 + 0.25 * Math.sin((b - from) / width * Math.PI));
+            }
+          }
+          scores += "promoter\t" + b + "\t" + (b + 1) + "\t" + value.toFixed(4) + "\n";
+        }
         return [
-          { name: "attribution.bg", body: bg },
-          { name: "promoter.fa", body: fa },
+          { name: "attribution.bg", body: scores },
+          { name: "promoter.fa", body: fastaOf("promoter", seq) },
         ];
       },
     },
     {
       name: "Splice junctions",
-      bounds: { from: 1, to: 7000, min: 200 },
+      bounds: { from: 1, to: 15500, min: 1500 },
       controls: [
-        { kind: "region" },
         { kind: "note", label: "An arc per intron, thicker for the junctions more reads crossed. Multi-mapping reads are counted separately and never added in: a read that mapped in four places is one read." },
+        { kind: "region" },
+        { kind: "choice", flag: "--style", after: "--coverage",
+          label: "The shape of the depth profile", options: ["area", "line", "bars"] },
+        { kind: "toggle", flag: "--log", after: "--coverage",
+          label: "A log scale, which is what shows the introns are not empty" },
+        { kind: "choice", flag: "--height", after: "--junctions",
+          label: "How much room the arcs get to miss each other",
+          options: ["60", "120", "240"] },
+        { kind: "data", param: "splicing", value: "the full picture", label: "What the gene is doing",
+          options: ["one transcript", "an exon skipped", "the full picture"] },
       ],
       group: "Reads and molecules",
-      command: "chr1:1-7,000 --junctions SJ.out.tab --label junctions",
+      // Five arcs over empty space was not a sashimi plot, it was a drawing of
+      // arcs. The figure the field reads junctions in is arcs over the coverage
+      // they came from, because the question is always which of two arcs over
+      // one exon carries more reads, and an arc alone cannot be compared to
+      // anything.
+      //
+      // So there are two tracks now, and the gene has eleven exons with enough
+      // room between them that two arcs fit in view at once. The weight
+      // encoding also needed the room: with five junctions the stroke widths
+      // spanned 1.58x for a count range of 7.4x, which is a measurement the
+      // reader cannot see.
+      command:
+        "chr1:1-9,500 --coverage depth.bg --label 'RNA-seq depth' \\\n" +
+        "  --junctions SJ.out.tab --label junctions",
       files: [
-        { name: "SJ.out.tab", body:
-          "chr1\t1200\t2400\t1\t2\t1\t46\t3\t38\n" +
-          "chr1\t1200\t3600\t1\t2\t0\t9\t1\t31\n" +
-          "chr1\t2700\t3600\t1\t2\t1\t52\t4\t40\n" +
-          "chr1\t4000\t5200\t2\t1\t1\t18\t0\t35\n" +
-          "chr1\t5600\t6400\t1\t2\t1\t7\t2\t29\n" },
+        { name: "depth.bg", body: "" },
+        { name: "SJ.out.tab", body: "" },
       ],
+      make: function (p) {
+        var telling = (p && p.splicing) || "the full picture";
+        var next = rolls(51221);
+        var exons = [];
+        var at = 300;
+        for (var e = 0; e < 11; e++) {
+          var wide = 300 + Math.floor(next() * 400);
+          exons.push([at, at + wide]);
+          at += wide + 800 + Math.floor(next() * 500);
+        }
+        var depth = "";
+        var last = exons[exons.length - 1][1];
+        for (var b = 0; b < 15500; b += 25) {
+          var over = 5;
+          for (var x = 0; x < exons.length; x++) {
+            if (b >= exons[x][0] && b < exons[x][1]) {
+              over = 900 - x * 60 + Math.floor(next() * 60);
+              break;
+            }
+          }
+          depth += "chr1\t" + b + "\t" + (b + 25) + "\t" + over + "\n";
+        }
+        // STAR's columns: chrom, first intron base, last intron base, strand,
+        // motif, annotated, unique reads, multi-mapping reads, overhang.
+        var sj = "";
+        function junction(from, to, unique, multi, annotated) {
+          sj += "chr1\t" + (from + 1) + "\t" + to + "\t1\t2\t" + (annotated ? 1 : 0) +
+                "\t" + unique + "\t" + multi + "\t" + (28 + Math.floor(next() * 12)) + "\n";
+        }
+        var counts = [910, 780, 620, 530, 455, 340, 300, 210, 160, 120];
+        for (var j = 0; j < exons.length - 1; j++) {
+          junction(exons[j][1], exons[j + 1][0], counts[j % counts.length], 0, true);
+        }
+        if (telling !== "one transcript") {
+          // Exon three skipped, which is the arc that has to be read against
+          // the two it spans rather than on its own.
+          junction(exons[1][1], exons[3][0], 96, 0, true);
+          junction(exons[8][1], exons[10][0], 143, 0, true);
+        }
+        if (telling === "the full picture") {
+          // An alternative donor a hundred and forty bases inside exon five,
+          // and one junction nobody has annotated, carried mostly by reads that
+          // mapped in more than one place.
+          junction(exons[4][0] + 140, exons[5][0], 41, 0, true);
+          junction(exons[6][1] + 120, exons[7][0] - 60, 7, 61, false);
+        }
+        return [
+          { name: "depth.bg", body: depth },
+          { name: "SJ.out.tab", body: sj },
+        ];
+      },
     },
   ];
 
@@ -638,11 +1537,26 @@
   // Not the same for every one, because the figures are not the same thing.
   // A window to slide is what a signal over a chromosome has and a tanglegram
   // has not, and offering the tanglegram one anyway would be a control that
-  // does nothing and says nothing about why. Every control is a flag, so
-  // turning one rewrites a word of the command and the command stays the thing
-  // that decides.
+  // does nothing and says nothing about why.
+  //
+  // Most controls are a flag, so turning one rewrites a word of the command and
+  // the command stays the thing that decides. The `data` kind is the exception,
+  // and it is here because of what the command line can and cannot say. It has
+  // 55 flags; the library behind it has some three hundred builder options, and
+  // 242 of those have no flag at all. Outside coverage, windows and variants
+  // there is almost nothing a flag can change, which is why twenty of these two
+  // dozen examples had a window slider and nothing else beside it.
+  //
+  // What those tracks answer to is the file. So a `data` control hands a value
+  // to the example's make(), which writes the file again, and the reader
+  // watches a pileup fill up or an alignment gain rows rather than reading that
+  // it would. It rewrites a file instead of a word of the command, and that is
+  // not a sleight of hand: the file tabs are editable, so it does in one
+  // gesture what the reader can already do by hand, and the command above goes
+  // on saying exactly what drew the figure.
 
   var current = null;
+  var params = {};
 
   function bounds() {
     return current && current.bounds ? current.bounds : null;
@@ -725,6 +1639,35 @@
         says.textContent = K.grouped(span) + " bases";
         wide.appendChild(says);
         strip.appendChild(wide);
+        return;
+      }
+
+      if (spec.kind === "data") {
+        name.textContent = spec.label || spec.param;
+        row.appendChild(name);
+
+        var vary = document.createElement("select");
+        spec.options.forEach(function (option) {
+          var o = document.createElement("option");
+          o.value = String(option);
+          o.textContent = String(option) + (spec.unit || "");
+          if (String(option) === String(params[spec.param])) o.selected = true;
+          vary.appendChild(o);
+        });
+        vary.setAttribute("aria-label", spec.label || spec.param);
+        vary.addEventListener("change", function () {
+          var value = Number(vary.value);
+          params[spec.param] = vary.value !== "" && !isNaN(value) ? value : vary.value;
+          regenerate();
+        });
+        row.appendChild(vary);
+
+        if (spec.says) {
+          var told = document.createElement("span");
+          told.className = "pg-control-says";
+          told.textContent = spec.says;
+          row.appendChild(told);
+        }
         return;
       }
 
@@ -966,13 +1909,32 @@
 
   var home = null;
 
+  // Writes the example's files again from the values its `data` controls hold,
+  // leaving the command alone. The reader may have panned somewhere, and losing
+  // that on every turn of a knob would make the knob not worth turning.
+  function regenerate() {
+    if (!current || !current.make) return;
+    showing = null;
+    files = current.make(params).map(function (file) {
+      return { name: file.name, body: file.body };
+    });
+    show(Math.min(active, files.length - 1));
+    draw();
+    retune();
+  }
+
   function load(example) {
     current = example;
+    params = {};
+    (example.controls || []).forEach(function (spec) {
+      if (spec.kind !== "data") return;
+      params[spec.param] = spec.value !== undefined ? spec.value : spec.options[0];
+    });
     el.command.value = example.command;
     // The editor is holding the last example's file, not this one's, so it
     // has nothing to save.
     showing = null;
-    files = (example.make ? example.make() : example.files).map(function (file) {
+    files = (example.make ? example.make(params) : example.files).map(function (file) {
       return { name: file.name, body: file.body };
     });
     active = 0;
@@ -1028,11 +1990,23 @@
     }
   }
 
+  // What an example opens as, which is what its card should show. Reading it
+  // from the controls rather than letting make() fall back to its own defaults
+  // is the only thing that keeps the card and the figure the same picture.
+  function opensAs(example) {
+    var chosen = {};
+    (example.controls || []).forEach(function (spec) {
+      if (spec.kind !== "data") return;
+      chosen[spec.param] = spec.value !== undefined ? spec.value : spec.options[0];
+    });
+    return chosen;
+  }
+
   function preview(example, into) {
     // Drawn by the program, out of the same files the example loads. A
     // thumbnail that is a picture of a figure is a different claim from the
-    // figure, and at a millisecond each there is no reason to make it.
-    var list = (example.make ? example.make() : example.files);
+    // figure.
+    var list = (example.make ? example.make(opensAs(example)) : example.files);
     var answer = K.run(example.command, list, 360);
     if (answer.ok) {
       into.innerHTML = answer.body;
@@ -1042,9 +2016,35 @@
     }
   }
 
+  // The previews used to be drawn as the cards were built, all two dozen of
+  // them, before the dialog painted anything. That was a millisecond each when
+  // every example carried a few hundred bytes; with data worth looking at it
+  // is closer to seventy, and the dialog took 1.7 seconds to open on a click.
+  //
+  // They are drawn a few at a time now, after the dialog is up, so the panel
+  // appears at once and the pictures arrive into it. A card with no picture yet
+  // still carries its name, its group and its flags, which is what the reader
+  // is reading while they wait.
+  var waiting = [];
+  var draining = 0;
+
+  function drain() {
+    if (draining) clearTimeout(draining);
+    draining = setTimeout(function () {
+      var until = Date.now() + 12;
+      while (waiting.length && Date.now() < until) {
+        var next = waiting.shift();
+        preview(next[0], next[1]);
+      }
+      draining = 0;
+      if (waiting.length) drain();
+    }, 0);
+  }
+
   function cards(filter) {
     var body = el.pickerBody;
     body.textContent = "";
+    waiting.length = 0;
     var needle = (filter || "").trim().toLowerCase();
     var shown = 0;
     var groups = [];
@@ -1118,15 +2118,17 @@
           load(example);
         });
         grid.appendChild(card);
-        // Drawn now rather than on the next frame. A preview is drawn at a
-        // fixed width and needs no layout to have happened, and a tab that is
-        // not on screen never gets a frame at all, so a panel opened in a
-        // background tab would have come up with every card empty.
-        if (shot) preview(example, shot);
+        // Queued rather than drawn here, and drained on a timer rather than on
+        // a frame. A preview needs no layout to have happened, and a tab that
+        // is not on screen never gets a frame at all, so a panel opened in a
+        // background tab would come up with every card empty; a timeout still
+        // fires there.
+        if (shot) waiting.push([example, shot]);
       });
       section.appendChild(grid);
       body.appendChild(section);
     });
+    drain();
   }
 
   function openPicker() {
