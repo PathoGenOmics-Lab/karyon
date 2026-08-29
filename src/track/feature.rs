@@ -31,6 +31,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
+use std::sync::Mutex;
 
 /// A span as a reader reads it: 1-based, inclusive, thousands separated.
 ///
@@ -224,7 +225,7 @@ impl Feature {
 ///     .to_svg();
 /// assert!(svg.contains("rpoB"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FeatureTrack {
     features: Vec<Feature>,
     label: Option<String>,
@@ -232,6 +233,63 @@ pub struct FeatureTrack {
     row_gap: f64,
     color: Option<String>,
     show_names: bool,
+    /// The last packing, and what it was computed for. See [`Packing`].
+    packing: Mutex<Option<Packing>>,
+}
+
+/// A remembered row assignment, and the inputs it answers for.
+///
+/// A figure asks each track how tall it is and then asks it to draw, and this
+/// track answers both by packing its features into rows. So the packing ran
+/// twice per figure and half of it was thrown away, which at four hundred
+/// thousand features was 58 of the 236 milliseconds the whole render took.
+///
+/// The two calls do not always ask the same question: `height` packs against
+/// the default theme on purpose, so a figure carrying a custom font size asks
+/// twice and gets two different answers, and it has to keep getting them. The
+/// key is therefore every input the packing reads. `x_at` is affine, so the
+/// first and last base in view and the width they are spread over pin every
+/// horizontal position, and the font size and the name flag pin the label
+/// widths reserved beside each feature. Where the figure puts its left edge is
+/// not in here: two features collide when one ends within four pixels of the
+/// next, and moving both by the same offset does not change that. A key that
+/// does not match is recomputed, and a `NaN` anywhere in it simply never
+/// matches, which is a miss rather than a wrong answer.
+#[derive(Debug)]
+struct Packing {
+    width: f64,
+    view_start: f64,
+    view_end: f64,
+    font_size: f64,
+    show_names: bool,
+    rows: Vec<usize>,
+    count: usize,
+}
+
+impl Packing {
+    fn answers(&self, scale: &Scale, theme: &Theme, show_names: bool) -> bool {
+        self.width == scale.width()
+            && self.view_start == scale.pos_at_x(scale.x0())
+            && self.view_end == scale.pos_at_x(scale.x0() + scale.width())
+            && self.font_size == theme.font_size
+            && self.show_names == show_names
+    }
+}
+
+// Derived by hand because a `Mutex` is not `Clone`, and because a clone should
+// start out with nothing remembered rather than carry a lock across.
+impl Clone for FeatureTrack {
+    fn clone(&self) -> Self {
+        FeatureTrack {
+            features: self.features.clone(),
+            label: self.label.clone(),
+            row_height: self.row_height,
+            row_gap: self.row_gap,
+            color: self.color.clone(),
+            show_names: self.show_names,
+            packing: Mutex::new(None),
+        }
+    }
 }
 
 impl FeatureTrack {
@@ -244,6 +302,7 @@ impl FeatureTrack {
             row_gap: 3.0,
             color: None,
             show_names: true,
+            packing: Mutex::new(None),
         }
     }
 
@@ -298,6 +357,30 @@ impl FeatureTrack {
     /// that merely overlaps an edge is kept, so its full pixel extent and its
     /// label room still count.
     fn layout(&self, scale: &Scale, theme: &Theme) -> (Vec<usize>, usize) {
+        // A poisoned lock means a previous packing panicked. There is nothing
+        // unsafe to recover from here, so take the value through the poison
+        // and carry on rather than bringing the whole render down.
+        let mut slot = self.packing.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = slot.as_ref() {
+            if cached.answers(scale, theme, self.show_names) {
+                return (cached.rows.clone(), cached.count);
+            }
+        }
+        let (rows, count) = self.pack(scale, theme);
+        *slot = Some(Packing {
+            width: scale.width(),
+            view_start: scale.pos_at_x(scale.x0()),
+            view_end: scale.pos_at_x(scale.x0() + scale.width()),
+            font_size: theme.font_size,
+            show_names: self.show_names,
+            rows: rows.clone(),
+            count,
+        });
+        (rows, count)
+    }
+
+    /// The packing itself, with nothing remembered.
+    fn pack(&self, scale: &Scale, theme: &Theme) -> (Vec<usize>, usize) {
         let mut rows = vec![0usize; self.features.len()];
         if self.features.is_empty() {
             return (rows, 1);
@@ -319,7 +402,7 @@ impl FeatureTrack {
 
         // Horizontal breathing room between two features on the same row.
         let padding = 4.0;
-        let mut row_ends: Vec<f64> = Vec::new();
+        let mut row_ends = Rows::with_capacity(order.len());
 
         for &i in &order {
             let feature = &self.features[i];
@@ -337,24 +420,95 @@ impl FeatureTrack {
                 }
             }
 
-            let mut placed = None;
-            for (row, end) in row_ends.iter_mut().enumerate() {
-                if *end + padding <= left {
-                    *end = right;
-                    placed = Some(row);
-                    break;
+            match row_ends.first_fit(left - padding) {
+                Some(row) => {
+                    row_ends.set(row, right);
+                    rows[i] = row;
                 }
-            }
-            match placed {
-                Some(row) => rows[i] = row,
-                None => {
-                    rows[i] = row_ends.len();
-                    row_ends.push(right);
-                }
+                None => rows[i] = row_ends.push(right),
             }
         }
 
         (rows, row_ends.len().max(1))
+    }
+}
+
+/// The lowest row a feature fits on, in logarithmic time.
+///
+/// First fit means the lowest row index whose last occupied pixel is far enough
+/// to the left, and finding it by walking the rows costs the feature count
+/// times the row count: fifty thousand features took 0.09 seconds, a hundred
+/// thousand 0.24, two hundred thousand 0.79 and four hundred thousand 2.88,
+/// which quadruples on every doubling and is the shape of a square rather than
+/// a line.
+///
+/// A heap keyed on the row ends would be faster and would answer a different
+/// question. The ends are not sorted by row: a first feature running the whole
+/// width takes row 0 and leaves its end far to the right, and a short second
+/// feature opens row 1 ending far to the left. A heap would hand out row 1
+/// where the scan hands out the first row that fits, and the two disagree about
+/// which row a feature lands on, which is the picture.
+///
+/// So this is a segment tree over row index holding the smallest end in each
+/// subtree, which answers "leftmost index whose end is small enough" directly
+/// and keeps the scan's answer exactly. The same four sizes then took 0.06,
+/// 0.11, 0.22 and 0.44 seconds, and every figure in `assets` came out byte for
+/// byte as before.
+struct Rows {
+    /// Smallest end under each node, in a complete binary tree over `size`
+    /// leaves. `f64::INFINITY` is a row that does not exist yet.
+    min_end: Vec<f64>,
+    size: usize,
+    open: usize,
+}
+
+impl Rows {
+    fn with_capacity(rows: usize) -> Self {
+        let size = rows.max(1).next_power_of_two();
+        Rows {
+            min_end: vec![f64::INFINITY; size * 2],
+            size,
+            open: 0,
+        }
+    }
+
+    /// The lowest existing row whose end leaves room to the left of `x`, or
+    /// `None` when every open row is still occupied there.
+    fn first_fit(&self, x: f64) -> Option<usize> {
+        if self.min_end[1] > x {
+            return None;
+        }
+        let mut node = 1;
+        while node < self.size {
+            node = if self.min_end[node * 2] <= x {
+                node * 2
+            } else {
+                node * 2 + 1
+            };
+        }
+        let row = node - self.size;
+        (row < self.open).then_some(row)
+    }
+
+    fn set(&mut self, row: usize, end: f64) {
+        let mut node = row + self.size;
+        self.min_end[node] = end;
+        while node > 1 {
+            node /= 2;
+            self.min_end[node] = self.min_end[node * 2].min(self.min_end[node * 2 + 1]);
+        }
+    }
+
+    /// Opens the next row and puts `end` on it, answering which row that was.
+    fn push(&mut self, end: f64) -> usize {
+        let row = self.open;
+        self.open += 1;
+        self.set(row, end);
+        row
+    }
+
+    fn len(&self) -> usize {
+        self.open
     }
 }
 
@@ -537,6 +691,27 @@ mod tests {
     }
 
     #[test]
+    fn a_feature_that_fits_two_rows_takes_the_lower_one() {
+        // The packing is first fit, so it hands out the lowest row index with
+        // room, and it is not the same as handing out the row that emptied
+        // soonest. The wide feature takes row 0 and leaves its end far to the
+        // right; the short one opens row 1 and leaves its end far to the left.
+        // The third fits on either, and first fit puts it back on row 0 while
+        // anything keyed on the row ends would send it to row 1. The two are
+        // different pictures, and this one is the picture.
+        let region = Region::new("chr1", 0, 1000).unwrap();
+        let track = FeatureTrack::new(vec![
+            Feature::new(0, 900),
+            Feature::new(10, 20),
+            Feature::new(950, 960),
+        ])
+        .show_names(false);
+        let (rows, count) = track.layout(&scale(&region), &Theme::default());
+        assert_eq!(count, 2);
+        assert_eq!(rows, vec![0, 1, 0]);
+    }
+
+    #[test]
     fn rows_are_assigned_in_input_order_not_sorted_order() {
         let region = Region::new("chr1", 0, 1000).unwrap();
         let track =
@@ -558,6 +733,89 @@ mod tests {
         let named = FeatureTrack::new(features);
         assert_eq!(unnamed.layout(&scale(&region), &Theme::default()).1, 1);
         assert_eq!(named.layout(&scale(&region), &Theme::default()).1, 2);
+    }
+
+    #[test]
+    fn turning_names_off_repacks_without_counting_them() {
+        // The builders hand back a new value carrying whatever the old one had
+        // remembered, so the name flag is part of what a remembered packing
+        // answers for. It is guarded here and not by clearing the packing in
+        // the builder, because a second guard there would hide the loss of
+        // this one.
+        let region = Region::new("chr1", 0, 1000).unwrap();
+        let features = vec![
+            Feature::new(0, 20).name("a_very_long_gene_name_here"),
+            Feature::new(30, 50).name("another_long_gene_name"),
+        ];
+        let named = FeatureTrack::new(features);
+        assert_eq!(named.layout(&scale(&region), &Theme::default()).1, 2);
+        let unnamed = named.show_names(false);
+        assert_eq!(unnamed.layout(&scale(&region), &Theme::default()).1, 1);
+    }
+
+    #[test]
+    fn a_larger_font_repacks_instead_of_reusing_the_remembered_rows() {
+        // `height` packs against the default theme and `draw` packs against
+        // the figure's own, so one track is asked twice with two font sizes and
+        // has to answer each one. The font size is part of what the remembered
+        // packing answers for.
+        let region = Region::new("chr1", 0, 1000).unwrap();
+        let track = FeatureTrack::new(vec![
+            Feature::new(0, 20).name("a_very_long_gene_name_here"),
+            Feature::new(300, 320).name("another_long_gene_name"),
+        ]);
+        let small = Theme::default();
+        let large = Theme {
+            font_size: 40.0,
+            ..Theme::default()
+        };
+        assert_eq!(track.layout(&scale(&region), &small).1, 1);
+        assert_eq!(track.layout(&scale(&region), &large).1, 2);
+        // And back, so a hit on the first key is not a stale second answer.
+        assert_eq!(track.layout(&scale(&region), &small).1, 1);
+    }
+
+    #[test]
+    fn a_deeper_zoom_on_the_same_last_base_repacks() {
+        // Both views end at the same base and are drawn at the same width, so
+        // the first base in view is the only thing that separates them.
+        let track = FeatureTrack::new(vec![Feature::new(900, 920), Feature::new(922, 940)])
+            .show_names(false);
+        let whole = Region::new("chr1", 0, 1000).unwrap();
+        let tail = Region::new("chr1", 900, 1000).unwrap();
+        assert_eq!(track.layout(&scale(&whole), &Theme::default()).1, 2);
+        assert_eq!(track.layout(&scale(&tail), &Theme::default()).1, 1);
+        assert_eq!(track.layout(&scale(&whole), &Theme::default()).1, 2);
+    }
+
+    #[test]
+    fn a_wider_figure_repacks() {
+        // The same region drawn wider spreads the features out, and no other
+        // part of the key notices: both views start and end at the same base,
+        // so the width has to be in there on its own.
+        let region = Region::new("chr1", 0, 1000).unwrap();
+        let track =
+            FeatureTrack::new(vec![Feature::new(0, 20), Feature::new(22, 40)]).show_names(false);
+        let narrow = Scale::new(&region, 0.0, 1000.0);
+        let wide = Scale::new(&region, 0.0, 5000.0);
+        assert_eq!(track.layout(&narrow, &Theme::default()).1, 2);
+        assert_eq!(track.layout(&wide, &Theme::default()).1, 1);
+        assert_eq!(track.layout(&narrow, &Theme::default()).1, 2);
+    }
+
+    #[test]
+    fn a_different_view_repacks() {
+        // Zooming changes every horizontal position, so the remembered packing
+        // answers for the view it was computed in and no other.
+        let wide = Region::new("chr1", 0, 1000).unwrap();
+        let narrow = Region::new("chr1", 0, 100).unwrap();
+        // Two bases apart, which is inside the four pixels of breathing room
+        // at one pixel per base and clear of it at ten.
+        let track =
+            FeatureTrack::new(vec![Feature::new(0, 20), Feature::new(22, 40)]).show_names(false);
+        assert_eq!(track.layout(&scale(&wide), &Theme::default()).1, 2);
+        assert_eq!(track.layout(&scale(&narrow), &Theme::default()).1, 1);
+        assert_eq!(track.layout(&scale(&wide), &Theme::default()).1, 2);
     }
 
     #[test]
