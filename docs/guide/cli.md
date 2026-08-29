@@ -151,6 +151,14 @@ A ruler is added at the bottom without being asked for. `--axis` puts one where
 the flag sits and cancels the automatic one, so writing `--axis` first is a
 ruler on top and nothing at the bottom. `--no-axis` leaves it out entirely.
 
+It is added where something is measured against it. A phylogeny is not: its x is
+a branch length, and the window it is handed exists because every figure has one
+rather than because the tree is drawn in it, so `karyon tree:1-1 --tree big.nwk`
+used to come with a rule the width of the figure carrying a single tick labelled
+`1`. A figure holding nothing but trees or tanglegrams now gets no ruler; put
+anything on the coordinates beside one and the ruler is back, because then it is
+measuring something. `--axis` still puts one wherever it is asked for.
+
 A track flag takes the word after it as its file, whatever that word is, so a
 forgotten path swallows the next flag and the error arrives a word or two later
 than the mistake.
@@ -323,8 +331,8 @@ left plain being the backbone where the lineages genuinely mix.
 tooltips whatever you choose. `--threshold` hides the weak ones.
 
 `--scale-bar` draws a rule in the tree's own branch-length units. It is not the
-ruler along the bottom of the figure: that one measures the region, and a region
-means nothing under a phylogeny, so `--no-axis` is usually wanted with it.
+ruler along the bottom of the figure, which measures the region and is left out
+of a figure holding nothing but phylogenies.
 
 ### Which row the others are read against
 

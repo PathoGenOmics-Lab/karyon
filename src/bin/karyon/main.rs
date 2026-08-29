@@ -37,7 +37,9 @@ USAGE
 The region comes first, as a 1-based inclusive locus string. Each track flag
 starts a track and the flags after it describe that one, so the order of the
 flags is the order of the stack. A coordinate ruler is added at the bottom
-unless --axis puts one elsewhere or --no-axis leaves it out. Any track file
+unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
+in the figure is laid on the coordinates: a phylogeny is not, so a stack of
+trees gets no ruler measuring a window it is not drawn in. Any track file
 may be - for standard input, and one track may take it.
 
 TRACKS
@@ -136,10 +138,10 @@ TRACK OPTIONS, each describing the track before it
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips
                          and this is what makes it readable without hovering
-    --scale-bar          a rule in the tree's own branch-length units. It is
-                         not the ruler along the bottom, which measures the
-                         region and means nothing under a tree: --no-axis
-                         removes that one
+    --scale-bar          a rule in the tree's own branch-length units, which is
+                         not the ruler along the bottom: that one measures the
+                         region, and is left out of a figure holding nothing
+                         but phylogenies
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
                          by its own label, by a tip inside it, or by two tips
                          it spans. A folded triangle says the pair it spans in

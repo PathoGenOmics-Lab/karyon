@@ -463,6 +463,10 @@ impl Track for TanglegramTrack {
         self.label.as_deref()
     }
 
+    fn on_coordinates(&self) -> bool {
+        false
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let color = self

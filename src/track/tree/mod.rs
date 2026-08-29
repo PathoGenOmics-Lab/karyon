@@ -1928,6 +1928,10 @@ impl Track for TreeTrack {
         self.label.as_deref()
     }
 
+    fn on_coordinates(&self) -> bool {
+        false
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         match self.projection {
             TreeProjection::Rectangular => self.draw_rectangular(ctx),

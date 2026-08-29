@@ -425,7 +425,11 @@ impl<T: Slot> Plot<T> {
     /// [`Figure`].
     pub fn into_figure(self) -> Figure {
         let plot = self.settle();
-        if plot.wants_axis {
+        // Appended where something is measured against it. A plot of a bare
+        // tree or a tanglegram used to get a ruler along the bottom with a
+        // single tick on it, measuring the window such a figure is handed
+        // because every figure has one, not because the tree is anywhere in it.
+        if plot.wants_axis && plot.figure.measures_coordinates() {
             plot.figure.push(AxisTrack::new())
         } else {
             plot.figure
@@ -1348,5 +1352,46 @@ mod tests {
             .add_squiggle_at(500, vec![50.0; 2_000])
             .to_svg();
         assert_eq!(shifted, shifted_by_hand);
+    }
+    /// The ruler along the bottom measures the window every track is laid on.
+    /// A phylogeny is not laid on it: its x is a branch length, and the window
+    /// it is handed exists because a figure needs one. So a plot holding
+    /// nothing but trees gets no ruler, and one holding anything that is on the
+    /// coordinates keeps it.
+    #[test]
+    fn the_axis_is_appended_where_something_is_measured_against_it() {
+        let tree = || Tree::parse_newick("((a:0.1,b:0.1):0.1,c:0.1);").unwrap();
+        let bare = plot("tree:1-1").unwrap().add_tree(tree()).into_figure();
+        assert_eq!(bare.track_count(), 1, "the tree, and no ruler under it");
+
+        let tangled = plot("tangle:1-1")
+            .unwrap()
+            .add_tanglegram(tree(), tree())
+            .into_figure();
+        assert_eq!(
+            tangled.track_count(),
+            1,
+            "a tanglegram has no coordinate either"
+        );
+
+        // Anything on the coordinates brings it back, including under a tree.
+        let mixed = plot("chr1:1-1000")
+            .unwrap()
+            .add_tree(tree())
+            .add_coverage(vec![30.0; 1000])
+            .into_figure();
+        assert_eq!(mixed.track_count(), 3, "tree, coverage and the ruler");
+
+        // And asking for one by name still puts one where it was asked for.
+        let asked = plot("tree:1-1")
+            .unwrap()
+            .add_tree(tree())
+            .add_axis()
+            .into_figure();
+        assert_eq!(asked.track_count(), 2, "the axis was put there on purpose");
+
+        // An empty plot is a window with nothing in it, and a window is worth
+        // showing.
+        assert_eq!(plot("chr1:1-1000").unwrap().into_figure().track_count(), 1);
     }
 }

@@ -285,6 +285,19 @@ impl Figure {
         self
     }
 
+    /// Whether a ruler along the bottom would be measuring anything.
+    ///
+    /// True unless everything in the figure says otherwise. A stack of
+    /// phylogenies says otherwise: a ruler under one measures a window that
+    /// exists because every figure is given one, and not because the tree is
+    /// anywhere in it.
+    ///
+    /// An empty figure is a window with nothing in it yet, and a window is
+    /// worth showing, so it keeps its ruler.
+    pub fn measures_coordinates(&self) -> bool {
+        self.tracks.is_empty() || self.tracks.iter().any(|track| track.on_coordinates())
+    }
+
     /// The region on display.
     pub fn region(&self) -> &Region {
         &self.region
