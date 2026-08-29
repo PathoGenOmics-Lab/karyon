@@ -176,11 +176,16 @@ because most of them are a setting only some tracks have.
 | `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` | no strip |
 | `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
 | `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite` | 40, and each of them says how many it left out |
+| `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
+| `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
+| `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
+| `--fade-by-mapq` | none | `--pileup` | every read at full strength |
 | `--no-names` | none | `--features`, `--msa`, `--snps`, `--matrix`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | the names are drawn |
 | `--threshold <V\|genome-wide>` | a number, or `genome-wide` | `--manhattan` | no line, on purpose |
 | `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
 | `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
-| `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows`; `lollipop`, `tick` for `--variants` | `--coverage`, `--windows`, `--variants` | `area`, `steps` and `lollipop` |
+| `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows`; `lollipop`, `tick` for `--variants`; `differences`, `all` for `--msa` | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
 | `--log` | none | `--coverage` | linear |
 | `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
@@ -232,6 +237,29 @@ still writes the line saying nothing was dropped, and no cap at all does not.
 The other row tracks are not here because they have no cap to move. A feature
 track packs into as many rows as the features need and no more, so there is
 nothing to raise or lower.
+
+### Which row the others are read against
+
+An alignment draws only the cells that disagree, and a variable-site panel keeps
+only the columns where something does. Both need something to disagree with. An
+alignment uses the consensus, which is a decision its own documentation calls
+deliberate; a panel uses whichever record the file happened to hold first, which
+is not a decision anyone made.
+
+`--compare-to` names it, spelled as the FASTA header spells it:
+
+```bash
+karyon aln:1-900 --msa aln.fa --compare-to H37Rv --label alignment
+```
+
+A name that is not in the file is refused, and so is one that two records share,
+because both builders take a row number and neither complains about a wrong one:
+an alignment quietly falls back to the consensus and a panel comes out empty, and
+both of those look like figures rather than mistakes.
+
+`--style all` is the other half of the same idea. It draws every cell rather than
+only the disagreements, which is what to reach for when the question is what the
+sequence is rather than where it differs.
 
 ### What is known about the rows
 
