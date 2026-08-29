@@ -25,6 +25,12 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
     let mut stack: Vec<usize> = Vec::new();
     let mut current: Option<usize> = None;
     let mut chars = text.chars().peekable();
+    // One buffer each for the pieces that are read and thrown away, rather
+    // than one per node. A million tip tree is two million nodes, so a `String`
+    // per branch length and per bracket is two million allocations that live
+    // for the length of a number.
+    let mut number = String::new();
+    let mut comment = String::new();
 
     while let Some(c) = chars.next() {
         match c {
@@ -60,7 +66,7 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
                 current = None;
             }
             ':' => {
-                let mut number = String::new();
+                number.clear();
                 while let Some(next) = chars.peek() {
                     if next.is_ascii_digit() || matches!(next, '.' | '-' | '+' | 'e' | 'E') {
                         number.push(*next);
@@ -86,7 +92,7 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
                 nodes[target].branch_length = Some(length);
             }
             '[' => {
-                let mut comment = String::new();
+                comment.clear();
                 for next in chars.by_ref() {
                     if next == ']' {
                         break;
