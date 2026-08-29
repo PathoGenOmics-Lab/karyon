@@ -1243,9 +1243,14 @@ fn the_tips_beyond_an_edge_are_counted_the_same_whether_walked_or_looked_up() {
 fn an_unrooted_tree_is_centred_on_its_own_drawing_and_stays_inside_the_band() {
     // The layout's origin is whichever node the walk started from, and a tree
     // hangs off that node however its branches happen to fall. Fitting the
-    // drawing by its distance from that origin put a two hundred tip tree a
-    // hundred and fifty pixels below the middle of its band and ran the
-    // branches out through all four sides of the clip.
+    // drawing by its distance from that origin left it off centre and small:
+    // measured against the binary built before the fix, a two hundred tip tree
+    // sat 47.8 px off the middle of its band and its branches spanned 454 px
+    // of an 866 px band, and a tree with one long branch sat 82.3 px off and
+    // spanned 74 px of 566. The same two are now 0.0 px off and 692 px, and
+    // 5.8 px off and 174 px. Neither ran outside the clip; an earlier note
+    // here said they did, which came from measuring the scale bar, a rule
+    // drawn the full width of the figure, as though it were a branch.
     // One long branch, so the drawing is lopsided while the walk still starts
     // from the middle of the chain: the starting node is picked by how many
     // tips lie each way, which a long branch does not change, so the origin
