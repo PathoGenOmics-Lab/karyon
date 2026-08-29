@@ -240,3 +240,27 @@ jobs:
           name: visual-gallery
           path: visual-gallery/*.png
           if-no-files-found: error
+
+  labels:
+    name: Every file has a label
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The part-of-the-project labels only answer "what does this pull request
+      # touch" if every part of the project is in .github/labeler.yml, and twice
+      # it has not been: the labeler config itself was uncovered until its rule
+      # was swept, and src/cli/, which is 93 per cent of the lines of
+      # the command line, was uncovered from the day it left the binary. Both were noticed by a person
+      # looking at an unlabelled pull request, which is not a thing that happens
+      # every time.
+      #
+      # So the coverage is run rather than read. The script also refuses the
+      # shape actions/labeler wanted before v5, because that shape does not
+      # fail: it matches nothing, quietly, for as long as nobody looks.
+      #
+      # This is here and not in labeler.yml because that workflow runs on
+      # pull_request_target with no checkout, and giving it one is exactly the
+      # thing its own comment says would make it unsafe.
+      - name: The labeler still covers the tree
+        run: python3 .github/scripts/labeler-coverage.py

@@ -7,8 +7,11 @@
 # The issue forms label their own issues, so this only has to cover pull
 # requests.
 #
-# Format is actions/labeler v5, which is not v4's: a bare list of globs under the
-# label name silently matches nothing.
+# Format is the one actions/labeler introduced in v5 and still reads in v7,
+# which is not v4's: a bare list of globs under the label name silently matches
+# nothing. The version is written that way rather than as whichever tag the
+# workflow pins, because Dependabot moves the pin: it went from v5 to v7 in one
+# of its group bumps and this note went on saying v5 until somebody checked.
 #
 # There is also no precedence between the rules below. Every label is matched
 # independently against the same list of changed files, so a broader glob does
@@ -18,13 +21,30 @@
 # would take `src/track/tree/` with it, and a change to how a phylogeny is
 # projected onto a circle is not a change to a track type.
 
-# The binary is the whole of the front end. The library parses no arguments,
-# reads no paths and prints nothing, so nothing outside src/bin/ can be a
-# command line change, and a command line change is always in there.
+# The command line is two places, and src/bin/ is the smaller one by a long way.
+# The binary is 293 lines that read argv, hand the grammar a closure which opens
+# paths, write the file and print what went wrong. The grammar itself is
+# src/cli/, which is 3,767 lines, so 93 per cent of the command line was outside
+# what this rule matched: args.rs parses the flags and stack.rs turns each
+# --<track> and the flags after it into the track it names.
+#
+# It is in the library on purpose. `pub mod cli` is what lets the playground
+# drive the same command line from a browser that has no filesystem, and it is
+# why a command line change is usually not in src/bin/ at all.
+#
+# This rule named only the binary until 2026-08-29, on the grounds that the
+# library parses no arguments, reads no paths and prints nothing. That was true
+# the day it was written, on 2026-08-16. It stopped being true ten days later,
+# when the grammar moved into the library so that a browser could reach it, and
+# this rule did not move with it: `karyon::cli::args` parses the flags, and
+# `karyon::cli::stack::open_from_disk` reads a path, though only because the
+# binary hands it in and `build` itself still takes the closure. Printing is the
+# one of the three that stayed put.
 cli:
   - changed-files:
       - any-glob-to-any-file:
           - "src/bin/**"
+          - "src/cli/**"
 
 # The track modules that sit directly under src/track/, one file per track type.
 # `*.rs` rather than `**` on purpose, per the note about precedence above.
@@ -43,10 +63,23 @@ tracks:
 # Newick and NEXUS parser and the layout that decides where every branch goes;
 # src/track/tree/ is the drawing of it, the rectangular, circular and unrooted
 # projections, the decorations and the scale bars; and two of the track modules
-# have a phylogeny for a subject rather than a coordinate axis. Those two match
-# the `tracks` rule as well and are meant to: a tanglegram is a track by
-# construction and a phylogeny by subject, and the phylogenetics label says
-# tanglegrams and clades on the tin.
+# cannot be built without a phylogeny. Those two match the `tracks` rule as well
+# and are meant to: a tanglegram is a track by construction and a phylogeny by
+# subject, and the phylogenetics label says tanglegrams and clades on the tin.
+#
+# Required, not subject, is what draws that line, and the constructors are where
+# it is checked. `CladeTrack::new` and `TanglegramTrack::new` both take a `Tree`,
+# so neither track exists without one. domain.rs, matrix.rs, msa.rs and snp.rs
+# hold an `Option<Tree>` and hang it in the strip they already reserve, to order
+# their rows, so they carry the label of the track type they are and the tree
+# drawing they call into is `src/track/tree/**`, which is in this rule already.
+# Adding those four would fire this label on most of the track work there is,
+# which is how a filter stops meaning anything.
+#
+# This said "have a phylogeny for a subject rather than a coordinate axis" until
+# 2026-08-29, and that does not separate them: clade.rs says in its own first
+# paragraph that a block is horizontally on the figure's shared scale at true
+# coordinates, which is exactly the arrangement the other four have.
 #
 # src/tree/parse.rs reads a file format and is still not `readers`. That label
 # says karyon::read and means it: the readers are the line based genomic formats,
@@ -65,17 +98,22 @@ phylogenetics:
 # The plain sample map and the phylogeographic one both live here, and so does
 # src/map/data/, which is the world coastline table. That table is data rather
 # than code and is still the thing that changes when a map comes out wrong, so
-# the glob covers the directory instead of the two Rust files in it.
+# the glob covers the directory rather than naming the Rust files beside it, of
+# which there are five.
 maps:
   - changed-files:
       - any-glob-to-any-file:
           - "src/map/**"
 
-# All nine text formats in one module, so one glob is the whole of it. That
-# includes src/read/audit.rs, which is the file of pinned known positions that
-# catches an off by one on the way in. It is a test by shape and a reader change
-# by consequence, and it is here rather than under `tests` because a wrong
-# coordinate convention is a reader bug wherever it is noticed.
+# Every text format the crate reads is in this one module, so one glob is the
+# whole of it. There is no count in this sentence on purpose: it said nine until
+# 2026-08-29 and src/read/ has gone from eight files to twenty since it was
+# written, and a number in a comment is a second copy of a fact that nobody
+# thinks to update. That includes src/read/audit.rs, which is the file of pinned
+# known positions that catches an off by one on the way in. It is a test by
+# shape and a reader change by consequence, and it is here rather than under
+# `tests` because a wrong coordinate convention is a reader bug wherever it is
+# noticed.
 readers:
   - changed-files:
       - any-glob-to-any-file:
@@ -87,8 +125,9 @@ readers:
 # goes through, the SVG writer, the theme and style vocabulary, the layout passes
 # in figure.rs, panels.rs and rings.rs, and the coordinate model in region.rs,
 # genome.rs and scale.rs. The coordinate model is not rendering by any strict
-# reading, but the label set has nothing closer and six files do not deserve a
-# label of their own, so it is filed with the layout it feeds.
+# reading, but the label set has nothing closer and region.rs, genome.rs and
+# scale.rs are three files, which is not enough to carry a label of their own, so
+# they are filed with the layout they feed.
 rendering:
   - changed-files:
       - any-glob-to-any-file:
@@ -97,9 +136,22 @@ rendering:
 # examples/ and assets/ are here rather than anywhere else because neither is
 # code the crate ships. Every example writes one of the committed SVG figures,
 # CI re-renders all of them and fails if a committed figure disagrees with the
-# code that draws it, and docs/assets/figures is a second copy of assets/ because
-# MkDocs only serves what is under docs/. A change to any of the three is a
-# change to what the project shows rather than to what it does.
+# code that draws it, and docs/assets/figures repeats assets/ because MkDocs only
+# serves what is under docs/. It holds one figure more than assets/ does:
+# example-live.svg is the still picture the playground replaces on the home page,
+# so no example draws it and CI does not re-render it. A change to any of these
+# is a change to what the project shows rather than to what it does.
+#
+# playground/ is here by that same reading and not by being prose. It is a Rust
+# crate, it is `publish = false`, it exists to compile the command line to wasm
+# so the site can run it in the page, and docs.yml is what builds it. Someone
+# who changes the wasm bridge changes what the project shows. They do not change
+# the command line anyone types, which is why it is not under `cli`.
+#
+# includes/ holds the abbreviation list that pymdownx.snippets appends to every
+# page. It is documentation that happens not to live under docs/, and it went in
+# on 2026-08-28 without anybody thinking of this file, which is the same way a
+# list of names ages as the sweep at the bottom of this file describes.
 documentation:
   - changed-files:
       - any-glob-to-any-file:
@@ -110,6 +162,8 @@ documentation:
           - "CHANGELOG.md"
           - "examples/**"
           - "assets/**"
+          - "includes/**"
+          - "playground/**"
 
 # Cargo.toml carries the version, the metadata a crates.io publish is built from
 # and the two empty dependency sections that are the crate's headline claim, so a
@@ -141,3 +195,20 @@ ci:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/**"
+
+# Two tracked files match nothing above, on purpose: LICENSE and .gitignore.
+# Neither is a part of the project anybody filters the pull request list for,
+# and a label that lied about them would be worse than none.
+#
+# The argument for putting LICENSE under `packaging` is that `cargo package
+# --list` carries it into the published crate. That is true and it is not
+# enough, because the same command carries .gitignore, and what `packaging`
+# means above is the metadata a publish is built from rather than everything
+# that ends up in the tarball. A maintainer who reads it the other way moves it
+# with one line, and this paragraph is here so that is a decision rather than an
+# oversight.
+#
+# Everything else is covered, and that is checked by running the globs over
+# `git ls-files` in .github/scripts/labeler-coverage.py, which CI runs on every
+# pull request. Reading this file is how both of the gaps it has had were
+# missed.
