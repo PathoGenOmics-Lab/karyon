@@ -162,7 +162,7 @@ impl fmt::Display for ArgError {
                 "{flag} describes the track before it, and no track has been given yet"
             ),
             ArgError::WrongTrack { flag, track } => {
-                write!(f, "{flag} means nothing to a {track} track")
+                write!(f, "{flag} means nothing to {} {track} track", article(track))
             }
             ArgError::BadRegion(error) => write!(f, "{error}"),
             ArgError::ExtraRegion(extra) => {
@@ -399,6 +399,54 @@ impl Kind {
         )
     }
 
+    /// Whether `--max-rows` means anything here.
+    ///
+    /// The four tracks that stack one row per record and cap themselves. A
+    /// track whose rows come from its data rather than from a cap, a feature
+    /// track packing what fits, is not one of them: it has no cap to move.
+    fn takes_max_rows(self) -> bool {
+        matches!(
+            self,
+            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite
+        )
+    }
+
+    /// Whether `--no-names` means anything here.
+    ///
+    /// The tracks that write a name for each thing they draw, which is not the
+    /// same set as the tracks that have rows: an ideogram writes a name on each
+    /// band and a feature track writes one on each feature. The builder behind
+    /// it is called `show_names` in most of them, `show_row_names` in the
+    /// matrix and `show_band_names` in the ideogram, and the flag is named for
+    /// what the reader sees rather than for what the three of them are called.
+    ///
+    /// A coverage track has nothing to name, and a track whose only name is the
+    /// one in the gutter is turned off with `--label ''` instead.
+    ///
+    /// An ideogram is not here, and it is the one case worth explaining.
+    /// `IdeogramTrack::show_band_names` defaults to false, so there are no band
+    /// names on the figure for this flag to take off, and accepting it would be
+    /// a flag that draws the same picture. What the ideogram is missing is the
+    /// opposite flag, one that turns the names on, and this grammar has no
+    /// positive form: `--no-axis` and `--no-region-label` both take away
+    /// something that is there by default. Adding one is a decision about the
+    /// shape of the grammar rather than about this flag.
+    fn takes_no_names(self) -> bool {
+        matches!(
+            self,
+            Kind::Features
+                | Kind::Msa
+                | Kind::Snps
+                | Kind::Matrix
+                | Kind::SplitReads
+                | Kind::Structural
+                | Kind::Bisulfite
+                | Kind::Domains
+                | Kind::Loci
+                | Kind::Clades
+        )
+    }
+
     fn takes_height(self) -> bool {
         matches!(
             self,
@@ -437,6 +485,23 @@ impl Kind {
     /// [`TrackSpec`] by hand, which is what a front end that is not a shell
     /// does, has to be able to ask which tracks want a second file and what to
     /// call the control that asks for it.
+    /// A second file this track will take and can do without.
+    ///
+    /// A pileup colours a base that disagrees with the reference, and the
+    /// reference is the only place it can learn what a base should be. Without
+    /// one it draws every read agreeing, which is a figure worth having and is
+    /// what every pileup this command line has ever drawn looks like, so the
+    /// file is offered rather than demanded. [`Kind::second_flag`] is the other
+    /// half of this: the tracks there are refused without their second file.
+    pub fn optional_second(self) -> Option<&'static str> {
+        match self {
+            Kind::Pileup => Some("--with-sequence"),
+            _ => None,
+        }
+    }
+
+    /// The flag that fills [`TrackSpec::second`] for a track that cannot be
+    /// drawn without it, and `None` for one that can.
     pub fn second_flag(self) -> Option<&'static str> {
         // Exhaustive for the reason `dashed` is. A fallback arm here does not
         // give a wrong error message, it gives a track drawn without a file it
@@ -582,6 +647,58 @@ impl Style {
     }
 }
 
+/// The article a track name takes, which is not decided by its first letter.
+///
+/// Most of them are plain: a coverage track, a features track. Four begin with
+/// a vowel and take `an`, and two more are read out letter by letter and begin
+/// with a vowel sound while beginning with a consonant on the page: an msa
+/// track is said "an em-ess-ay track", and an snps track "an ess-en-pees
+/// track". Spelling this from the first character alone gets those two wrong,
+/// which is why they are named here rather than derived.
+fn article(track: &str) -> &'static str {
+    let vowel = matches!(track.chars().next(), Some('a' | 'e' | 'i' | 'o' | 'u'));
+    if vowel || matches!(track, "msa" | "snps") {
+        "an"
+    } else {
+        "a"
+    }
+}
+
+/// What `--max-rows` was given.
+///
+/// The tracks that stack rows cap themselves, at forty, and say how many they
+/// left out. The cap is there because a pile a thousand deep draws off the
+/// bottom of the page, and it is worth moving because forty is a guess about
+/// the reader's screen rather than about their data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowCap {
+    /// A number of rows, at least one.
+    Rows(usize),
+    /// `all`, which lifts the cap and draws every row there is.
+    All,
+}
+
+impl RowCap {
+    /// Parses what `--max-rows` takes.
+    pub fn parse(word: &str) -> Option<RowCap> {
+        if word == "all" {
+            return Some(RowCap::All);
+        }
+        match word.parse::<usize>() {
+            Ok(rows) if rows >= 1 => Some(RowCap::Rows(rows)),
+            _ => None,
+        }
+    }
+
+    /// What the track builders take, where `None` is no cap at all.
+    pub fn rows(self) -> Option<usize> {
+        match self {
+            RowCap::Rows(rows) => Some(rows),
+            RowCap::All => None,
+        }
+    }
+}
+
 /// One track, and everything written about it before the next one started.
 #[derive(Debug, Clone)]
 pub struct TrackSpec {
@@ -613,6 +730,11 @@ pub struct TrackSpec {
     /// Which of the several things a file holds to draw, named by the flag
     /// [`Kind::selector`] gives this track.
     pub selects: Option<String>,
+    /// `--max-rows`, for the tracks that stack their data into rows.
+    pub max_rows: Option<RowCap>,
+    /// `--no-names`, which leaves out the names a track writes beside or on
+    /// what it draws. Not the track's own name, which is `--label`.
+    pub no_names: bool,
     /// `--ploidy`, where balanced sits on a copy number ladder.
     pub ploidy: Option<f64>,
     /// `--sample`, for a file holding more than one.
@@ -641,6 +763,8 @@ impl TrackSpec {
             format: None,
             identity: None,
             selects: None,
+            max_rows: None,
+            no_names: false,
             ploidy: None,
             sample: None,
             traits: None,
@@ -860,6 +984,32 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.columns = Some(wanted);
             }
+            "--no-names" => {
+                let track = last(&mut tracks, "--no-names")?;
+                if !track.kind.takes_no_names() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--no-names",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.no_names = true;
+            }
+            "--max-rows" => {
+                let text = value("--max-rows")?;
+                let cap = RowCap::parse(text).ok_or_else(|| ArgError::BadValue {
+                    flag: "--max-rows",
+                    given: text.clone(),
+                    expected: "a number of rows, or all",
+                })?;
+                let track = last(&mut tracks, "--max-rows")?;
+                if !track.kind.takes_max_rows() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--max-rows",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.max_rows = Some(cap);
+            }
             "--height" => {
                 let text = value("--height")?;
                 let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
@@ -992,7 +1142,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     Source::Path(PathBuf::from(word))
                 };
                 let track = last(&mut tracks, flag)?;
-                if track.kind.second_flag() != Some(flag) {
+                if track.kind.second_flag() != Some(flag)
+                    && track.kind.optional_second() != Some(flag)
+                {
                     return Err(ArgError::WrongTrack {
                         flag,
                         track: track.kind.flag(),
@@ -1178,6 +1330,146 @@ mod tests {
         let it = draw("chr1:1-1000 --features g.bed --coverage d.bg --variants v.vcf");
         let kinds: Vec<Kind> = it.tracks.iter().map(|t| t.kind).collect();
         assert_eq!(kinds, vec![Kind::Features, Kind::Coverage, Kind::Variants]);
+    }
+
+    #[test]
+    fn a_pileup_takes_a_reference_and_does_not_demand_one() {
+        // Every pileup drawn from a command line before now had no reference,
+        // so demanding one would refuse the commands that already exist.
+        let plain = draw("chr1:1-1000 --pileup r.sam");
+        assert_eq!(plain.tracks[0].second, None);
+
+        let with = draw("chr1:1-1000 --pileup r.sam --with-sequence ref.fa");
+        assert!(with.tracks[0].second.is_some());
+        assert_eq!(Kind::Pileup.optional_second(), Some("--with-sequence"));
+        assert_eq!(Kind::Pileup.second_flag(), None);
+
+        // A dynseq track is the other half: the same flag, and refused without.
+        assert_eq!(Kind::Dynseq.second_flag(), Some("--with-sequence"));
+        let error = parse(&args("chr1:1-1000 --dynseq s.bg")).unwrap_err();
+        assert!(matches!(error, ArgError::MissingSecond { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn a_second_file_still_lands_only_where_it_belongs() {
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --with-sequence ref.fa")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--with-sequence"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_names_the_track_with_the_right_article() {
+        let refusal = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        assert_eq!(
+            refusal("chr1:1-1000 --msa a.fa --aggregate max"),
+            "--aggregate means nothing to an msa track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --snps a.fa --aggregate max"),
+            "--aggregate means nothing to an snps track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --ideogram b.txt --no-names"),
+            "--no-names means nothing to an ideogram track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --logo a.fa --log"),
+            "--log means nothing to a logo track"
+        );
+    }
+
+    #[test]
+    fn only_the_tracks_that_write_names_take_no_names() {
+        for good in [
+            "--msa a.fa",
+            "--snps a.fa",
+            "--matrix m.tsv",
+            "--features g.bed",
+            "--split-reads s.sam",
+            "--structural v.vcf",
+            "--bisulfite c.txt",
+            "--domains d.tsv",
+        ] {
+            let line = format!("chr1:1-1000 {good} --no-names");
+            assert!(parse(&args(&line)).is_ok(), "{good} should take --no-names");
+        }
+        // A coverage track has nothing to name, and an ideogram draws no band
+        // names to begin with, so taking them off would draw the same figure.
+        for bad in [
+            "--coverage d.bg",
+            "--ideogram b.txt",
+            "--pileup r.sam",
+            "--logo a.fa",
+        ] {
+            let line = format!("chr1:1-1000 {bad} --no-names");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--no-names"),
+                "{bad} should refuse --no-names, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_cap_is_a_number_or_the_word_all() {
+        let it = draw("chr1:1-1000 --pileup r.sam --max-rows 12");
+        assert_eq!(it.tracks[0].max_rows, Some(RowCap::Rows(12)));
+        assert_eq!(it.tracks[0].max_rows.unwrap().rows(), Some(12));
+
+        let lifted = draw("chr1:1-1000 --pileup r.sam --max-rows all");
+        assert_eq!(lifted.tracks[0].max_rows, Some(RowCap::All));
+        // `None` is what the track builders take for no cap at all, so the
+        // word has to arrive as that and not as a very large number.
+        assert_eq!(lifted.tracks[0].max_rows.unwrap().rows(), None);
+
+        assert_eq!(draw("chr1:1-1000 --pileup r.sam").tracks[0].max_rows, None);
+    }
+
+    #[test]
+    fn a_row_cap_of_none_is_refused_rather_than_drawn_empty() {
+        // Zero rows is a figure with the data left out, and the caller almost
+        // certainly meant `all`. The builders clamp it to one, which would
+        // draw one row and say nothing about the other thousand.
+        for word in ["0", "-3", "lots", "40.5"] {
+            let error = parse(&args(&format!(
+                "chr1:1-1000 --pileup r.sam --max-rows {word}"
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--max-rows"),
+                "{word} should be refused, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_tracks_that_cap_themselves_take_a_row_cap() {
+        for good in [
+            "--pileup r.sam",
+            "--msa a.fa",
+            "--snps a.fa",
+            "--bisulfite c.txt",
+        ] {
+            let line = format!("chr1:1-1000 {good} --max-rows 5");
+            assert!(parse(&args(&line)).is_ok(), "{good} should take --max-rows");
+        }
+        // A feature track packs into as many rows as its data needs and has no
+        // cap to move, so the flag would be accepted and do nothing.
+        for bad in [
+            "--features g.bed",
+            "--coverage d.bg",
+            "--logo a.fa",
+            "--tree t.nwk",
+        ] {
+            let line = format!("chr1:1-1000 {bad} --max-rows 5");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--max-rows"),
+                "{bad} should refuse --max-rows, got {error:?}"
+            );
+        }
     }
 
     #[test]
