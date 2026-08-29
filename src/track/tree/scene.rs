@@ -155,12 +155,48 @@ pub(super) fn tip_count(tips: usize) -> String {
     )
 }
 
+/// The first tip under a node, in the order the tree lists its children.
+///
+/// Which is the topmost row of a collapsed clade, so a reader looking for it
+/// finds it at the top of the triangle rather than somewhere inside.
+fn first_tip(tree: &Tree, node: usize) -> Option<&str> {
+    let mut at = node;
+    loop {
+        let clade = &tree.nodes()[at];
+        if clade.is_leaf() {
+            return clade.name.as_deref();
+        }
+        at = *clade.children.first()?;
+    }
+}
+
 pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
-    let name = tree.nodes()[node].name.as_deref().unwrap_or("clade");
-    if collapsed.contains(&node) {
-        format!("{} ({})", name, tip_count(tree.clade_size(node)))
-    } else {
-        name.to_string()
+    if !collapsed.contains(&node) {
+        return tree.nodes()[node]
+            .name
+            .as_deref()
+            .unwrap_or("clade")
+            .to_string();
+    }
+    let held = tree.clade_size(node);
+    // A named clade says its name. Most do not have one: an internal label in
+    // a Newick out of RAxML or IQ-TREE is a support value and is parsed as
+    // one, so `name` is None and every folded row read "clade (128 tips)",
+    // which tells a reader how big it is and nothing at all about which part
+    // of the tree it is.
+    //
+    // So an unnamed clade is named after a tip it holds, the topmost one, and
+    // says how many others came with it. That is a member a reader can look
+    // up, and it claims nothing about the rest of them.
+    match tree.nodes()[node].name.as_deref() {
+        Some(name) => format!("{} ({})", name, tip_count(held)),
+        None => match first_tip(tree, node) {
+            Some(tip) if held > 1 => {
+                format!("{} +{} more", tip, group_thousands((held - 1) as u64))
+            }
+            Some(tip) => tip.to_string(),
+            None => format!("clade ({})", tip_count(held)),
+        },
     }
 }
 

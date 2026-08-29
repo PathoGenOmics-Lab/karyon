@@ -912,7 +912,8 @@ struct RadialLayout {
     sweep_degrees: f64,
     direction: RadialDirection,
     inner_radius: f64,
-    size: f64,
+    /// The diameter asked for, or `None` to work one out from the tips.
+    size: Option<f64>,
 }
 
 impl Default for RadialLayout {
@@ -922,7 +923,7 @@ impl Default for RadialLayout {
             sweep_degrees: 360.0,
             direction: RadialDirection::Outward,
             inner_radius: 0.08,
-            size: 440.0,
+            size: None,
         }
     }
 }
@@ -934,6 +935,12 @@ struct TimeAxis {
     unit: Option<String>,
     show_axis: bool,
 }
+
+/// The disc a radial or unrooted tree is drawn on when nothing asks for a size
+/// and its tips fit. Trees larger than this grow past it; smaller ones stay
+/// here, because the number this replaced was a fixed 440 and a figure that
+/// suddenly shrinks reads as a bug even when the labels still fit.
+const RADIAL_DIAMETER: f64 = 440.0;
 
 impl TreeTrack {
     /// A track drawing `tree`.
@@ -1060,11 +1067,7 @@ impl TreeTrack {
 
     /// Sets the requested height of the circular drawing in pixels.
     pub fn radial_size(mut self, size: f64) -> Self {
-        self.radial.size = if size.is_finite() {
-            size.max(120.0)
-        } else {
-            440.0
-        };
+        self.radial.size = size.is_finite().then(|| size.max(120.0));
         self
     }
 
@@ -1645,6 +1648,73 @@ impl TreeTrack {
         }
     }
 
+    /// How wide across the circular and unrooted projections are drawn.
+    ///
+    /// A rectangular tree is as tall as its rows, so it grows with its data.
+    /// The disc did not: it was a flat 440 pixels whatever the tree, which is
+    /// generous for thirty tips and a solid band at six hundred, and the one
+    /// number that decided whether it could be read was not reachable from a
+    /// command line at all.
+    ///
+    /// It sizes itself now. The tips sit at equal angles on a circle, so the
+    /// space between two neighbouring labels is the circumference at the label
+    /// radius divided by the number of them, and measured against the real
+    /// drawing that comes to `2.75 * diameter / tips` on a full turn. Turning
+    /// that round gives the diameter at which a label of the theme's size
+    /// still clears its neighbour. A fan draws the same tips on a fraction of
+    /// the turn and needs the radius back in proportion.
+    ///
+    /// The figure's width is the ceiling, because the disc is drawn inside
+    /// `min(width, height)` and a taller band would only add white above and
+    /// below a circle the width already decided. A tree with more tips than
+    /// that width can separate is drawn dense rather than drawn wrong, and the
+    /// two ways out are the reader's: a wider figure, or `--max-rows`.
+    fn radial_diameter(&self, scale: &Scale, theme: &Theme) -> f64 {
+        if let Some(size) = self.radial.size {
+            return size;
+        }
+        let terminals = visible_terminals(&self.tree, &self.collapsed);
+        let tips = terminals.len().max(1) as f64;
+        let size = (theme.font_size - 1.0).min(self.row_height.max(1.0));
+
+        // The room the labels take out of the radius, which is what a fitted
+        // proportion gets wrong at the small end: it is a fixed number of
+        // pixels, so on a small disc it is most of the radius and on a large
+        // one it is a rim.
+        let extent = if self.show_tips {
+            terminals
+                .iter()
+                .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
+                .fold(0.0f64, f64::max)
+                + 6.0
+        } else {
+            4.0
+        };
+
+        // Two neighbours on a circle of radius r, `turn / tips` of a turn
+        // apart, are `2 r sin(pi turn / tips)` from each other. Ask for that to
+        // be the height of a label and read the radius back out.
+        let turn = (self.radial.sweep_degrees.abs() / 360.0).clamp(0.05, 1.0);
+        let step = (std::f64::consts::PI * turn / tips).max(1e-6);
+        let radius = size / (2.0 * step.sin());
+        let wanted = 2.0 * (radius + extent);
+        // Only ever larger. This rule exists so a tree with more tips than the
+        // old fixed disc could hold gets the room it needs, and a tree with
+        // three tips needs less room than that but does not want less: shrunk
+        // to what its labels strictly require, its branches got short enough
+        // to start ellipsising the labels drawn along them.
+        // The ceiling is the figure's own inner width, because the drawing
+        // fits the disc into the shorter of the band's two sides and height
+        // beyond that is whitespace. It is spelt `x0 + width` rather than
+        // `width` because a track stacked underneath can widen the gutter and
+        // narrow every band: measured on the same fourteen tip tree, `width`
+        // read 866 alone and 808.269 with company while the sum read 882 both
+        // times, and a figure that gets shorter when you add a track to it is
+        // a track reading its neighbour's data.
+        let figure = scale.x0() + scale.width();
+        wanted.clamp(RADIAL_DIAMETER, figure.max(RADIAL_DIAMETER))
+    }
+
     fn rectangular_glyph_padding(&self) -> (f64, f64) {
         let (horizontal, vertical) =
             self.node_glyphs
@@ -1726,11 +1796,36 @@ impl TreeTrack {
 
         if self.show_tips {
             let size = self.tip_size(ctx.theme);
+            let names_at = area.right() + glyph_x + 4.0;
             for (row, node) in scene.terminals.iter().enumerate() {
+                let middle = area.y + self.row_height / 2.0 + row as f64 * self.row_height;
+                // A leader from the branch to the name it belongs to. Without
+                // one the names all sit flush at the right while the branches
+                // end wherever their lengths put them, so on a phylogram the
+                // reader has to guess which name is which: measured on forty
+                // tips, the median gap was 649 pixels and the widest 840, the
+                // whole of the band a branch can occupy.
+                //
+                // The two other projections have drawn one all along. This is
+                // the same hairline and the same threshold: a gap under half a
+                // pixel is not a line, it is a smudge on the end of a branch.
+                if let Some(placement) = scene.placements[*node] {
+                    let ends = scene.x(area, placement.depth);
+                    if names_at - ends > 0.5 {
+                        ctx.svg.line(
+                            ends,
+                            middle,
+                            names_at,
+                            middle,
+                            &ctx.theme.rule,
+                            ctx.theme.tokens.hairline,
+                        );
+                    }
+                }
                 let name = terminal_label(&self.tree, *node, &self.collapsed);
                 ctx.svg.text(
-                    area.right() + glyph_x + 4.0,
-                    area.y + self.row_height / 2.0 + row as f64 * self.row_height + size * 0.35,
+                    names_at,
+                    middle + size * 0.35,
                     &name,
                     &ctx.theme.muted,
                     size,
@@ -1759,7 +1854,7 @@ impl TreeTrack {
 }
 
 impl Track for TreeTrack {
-    fn height(&self, _scale: &Scale) -> f64 {
+    fn height(&self, scale: &Scale) -> f64 {
         match self.projection {
             TreeProjection::Rectangular => {
                 let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
@@ -1778,8 +1873,9 @@ impl Track for TreeTrack {
                     }
                     + self.annotation_header_room()
             }
-            TreeProjection::Circular => self.radial.size + self.annotation_header_room(),
-            TreeProjection::Unrooted => self.radial.size + self.annotation_header_room(),
+            TreeProjection::Circular | TreeProjection::Unrooted => {
+                self.radial_diameter(scale, &Theme::default()) + self.annotation_header_room()
+            }
         }
     }
 

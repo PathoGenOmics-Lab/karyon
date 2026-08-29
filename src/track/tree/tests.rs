@@ -30,14 +30,21 @@ fn a_row_cap_collapses_until_the_tree_fits_and_keeps_every_tip() {
                 .split('<')
                 .next()
                 .unwrap_or("");
-            if let Some(open) = body.rfind(" (") {
-                if let Some(count) = body[open + 2..]
+            // A collapsed clade says how many tips it stands for, either as
+            // "NAME (12 tips)" when the clade is named or "t0 +11 more" when
+            // it is not and the first tip has to speak for it.
+            let folded = body
+                .rfind(" (")
+                .map(|open| (open + 2, 0usize))
+                .or_else(|| body.rfind(" +").map(|open| (open + 2, 1usize)));
+            if let Some((start, extra)) = folded {
+                if let Some(count) = body[start..]
                     .split(' ')
                     .next()
                     .and_then(|word| word.replace(',', "").parse::<usize>().ok())
                 {
                     drawn += 1;
-                    held += count;
+                    held += count + extra;
                     continue;
                 }
             }
@@ -1136,3 +1143,4 @@ fn every_node_glyph_and_highlight_projects_without_losing_data() {
         assert!(!svg.contains("NaN"), "{projection:?}: {svg}");
     }
 }
+

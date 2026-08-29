@@ -51,6 +51,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::read::locus::Identity;
+use crate::track::tree::TreeProjection;
 use crate::track::MsaDisplay;
 use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle};
 
@@ -461,6 +462,15 @@ impl Kind {
     /// what stands above it. The other numbers that decide what a track
     /// believes are floors on the data rather than a line on the figure, and
     /// giving them the same name would say they were the same thing.
+    /// Whether `--projection` means anything here.
+    ///
+    /// One track. A tanglegram is two trees facing each other and a clade
+    /// track paints spans onto one, and both of those are rectangular by
+    /// construction: there is no second axis to bend into a circle.
+    fn takes_projection(self) -> bool {
+        matches!(self, Kind::Tree)
+    }
+
     /// Whether `--compare-to` means anything here.
     ///
     /// The two tracks that read every row against one of them. An alignment
@@ -864,6 +874,8 @@ pub struct TrackSpec {
     pub threshold: Option<f64>,
     /// `--compare-to`, the row every other row is read against.
     pub compare_to: Option<String>,
+    /// `--projection`, the shape a phylogeny is laid out in.
+    pub projection: Option<TreeProjection>,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -910,6 +922,7 @@ impl TrackSpec {
             threshold: None,
             row_height: None,
             compare_to: None,
+            projection: None,
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1188,6 +1201,29 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.max_rows = Some(cap);
+            }
+            "--projection" => {
+                let text = value("--projection")?;
+                let projection = match text.as_str() {
+                    "rectangular" => TreeProjection::Rectangular,
+                    "circular" => TreeProjection::Circular,
+                    "unrooted" => TreeProjection::Unrooted,
+                    _ => {
+                        return Err(ArgError::BadValue {
+                            flag: "--projection",
+                            given: text.clone(),
+                            expected: "rectangular, circular or unrooted",
+                        })
+                    }
+                };
+                let track = last(&mut tracks, "--projection")?;
+                if !track.kind.takes_projection() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--projection",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.projection = Some(projection);
             }
             "--compare-to" => {
                 let name = value("--compare-to")?.clone();

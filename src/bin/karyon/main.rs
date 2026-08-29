@@ -118,6 +118,10 @@ TRACK OPTIONS, each describing the track before it
                          file is in; genome-wide is -log10(5e-8), which is a
                          correction for a million tests and wrong wherever a
                          million were not run
+    --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
+                         A circle sizes itself so its tip labels clear each
+                         other, up to the width of the figure, so a big tree
+                         wants a wider one or fewer rows
     --compare-to <NAME>  the row every other row is read against, named as its
                          FASTA header names it. An alignment compares against
                          the consensus without it and a variable-site panel
