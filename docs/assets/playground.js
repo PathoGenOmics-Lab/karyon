@@ -204,8 +204,6 @@
         { kind: "choice", flag: "--aggregate", after: "--coverage", label: "How a pixel that covers many bases chooses", options: ["max", "mean", "min"] },
         { kind: "choice", flag: "--style", after: "--coverage", label: "The shape of the signal", options: ["area", "line", "bars"] },
         { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
-        { kind: "choice", flag: "--style", after: "--variants",
-          label: "How a call is drawn", options: ["tick", "lollipop"] },
         { kind: "choice", flag: "--height", after: "--coverage",
           label: "How tall the depth track is", options: ["60", "110", "180"] },
       ],
@@ -279,8 +277,6 @@
         { kind: "toggle", flag: "--log", after: "--coverage", label: "A log scale for the depth" },
         { kind: "choice", flag: "--style", after: "--coverage",
           label: "The shape of the depth signal", options: ["area", "line", "bars"] },
-        { kind: "choice", flag: "--style", after: "--windows",
-          label: "How the windowed statistic is drawn", options: ["steps", "line"] },
       ],
       group: "Signal and annotation",
       // The depth used to be a sine wave with one dip in it, which made the
@@ -1538,6 +1534,15 @@
   // A window to slide is what a signal over a chromosome has and a tanglegram
   // has not, and offering the tanglegram one anyway would be a control that
   // does nothing and says nothing about why.
+  //
+  // No example offers the same flag twice, and that is a limit rather than a
+  // choice. `after` says which track an option belongs to, but it only steers
+  // where a new word is inserted: setFlag, flagOf and hasFlag in karyon-wasm.js
+  // all find the flag with argv.indexOf and take the first one in the command.
+  // Setting --style on a variants track therefore deletes the --style the
+  // coverage track above it was carrying, and both selects read back the same
+  // value. Two --style controls in one example need those three made aware of
+  // `after` first.
   //
   // Most controls are a flag, so turning one rewrites a word of the command and
   // the command stays the thing that decides. The `data` kind is the exception,
