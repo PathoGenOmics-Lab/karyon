@@ -94,6 +94,61 @@ window.karyon = (function () {
   var ALONE = ["--axis", "--fade-by-mapq", "--log", "--no-axis", "--no-counts",
                "--no-names", "--no-region-label"];
 
+  // The flags that open a track. Everything between one of these and the next
+  // describes that track, which is what makes a command a stack rather than a
+  // set of settings, and it is the only way to tell one track's `--style` from
+  // another's.
+  //
+  // Written out rather than worked out, and the reason is worth having. The
+  // structural test is that a track flag is a `--word` followed by a file, and
+  // this page knows its own file names, but `--traits`, `--with-tree`,
+  // `--against`, `--links` and `--with-sequence` all take a file and describe
+  // the track before them rather than opening one. So that reading needs a
+  // list of its own exceptions, which is a second copy of a fact exactly as
+  // this is, and a worse one: when it falls behind, a modifier is mistaken for
+  // a track, a segment ends early, and a control quietly reads a flag off the
+  // wrong track. When this list falls behind, a Rust test fails by name.
+  //
+  // That test is `the_playground_knows_every_track_the_parser_does` in
+  // src/cli/args.rs, and it reads this file and compares both directions, the
+  // way the help text and `Kind::ALL` are already held together.
+  var TRACKS = [
+    "--coverage", "--copy-number", "--dynseq", "--junctions", "--sequence",
+    "--features", "--variants", "--windows", "--manhattan", "--tree",
+    "--msa", "--snps", "--ideogram", "--matrix", "--pileup",
+    "--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram",
+    "--clades", "--loci", "--methylation", "--structural", "--split-reads",
+    "--bisulfite", "--domains", "--axis",
+  ];
+
+  /// Where the words describing one track begin and end.
+  ///
+  /// `after` names the track a modifier belongs to, and the modifier can only
+  /// be the one written between that track's flag and the next track's. Two
+  /// tracks in a command may carry the same modifier with different values,
+  /// and without this every helper below found whichever came first.
+  ///
+  /// `null` where no track was named, which is what a figure option passes,
+  /// and then the whole command is the segment.
+  ///
+  /// A track that was named and is not in the command is an empty segment
+  /// rather than the whole of it. The reader can delete a track by hand while
+  /// its control is still on the page, and answering with some other track's
+  /// value would be the same mistake this function exists to stop.
+  function segment(argv, after) {
+    if (!after) return null;
+    var from = argv.indexOf(after);
+    if (from < 0) return [0, 0];
+    var to = argv.length;
+    for (var i = from + 1; i < argv.length; i++) {
+      if (TRACKS.indexOf(argv[i]) >= 0) {
+        to = i;
+        break;
+      }
+    }
+    return [from, to];
+  }
+
   // The region a command names, which is its one positional word.
   function locus(text) {
     var argv = words(text);
@@ -190,17 +245,21 @@ window.karyon = (function () {
   // the command and leaving every other word alone. The command stays the
   // thing that decides, and a reader watching it can see what a control did.
 
-  /// The value a flag was given, or null.
-  function flagOf(text, flag) {
+  /// The value a flag was given on the track `after` names, or null.
+  function flagOf(text, flag, after) {
     var argv = words(text);
-    for (var i = 0; i < argv.length; i++) {
+    var span = segment(argv, after) || [0, argv.length];
+    for (var i = span[0]; i < span[1]; i++) {
       if (argv[i] === flag) return i + 1 < argv.length ? argv[i + 1] : "";
     }
     return null;
   }
 
-  function hasFlag(text, flag) {
-    return words(text).indexOf(flag) >= 0;
+  /// Whether the track `after` names carries this flag.
+  function hasFlag(text, flag, after) {
+    var argv = words(text);
+    var span = segment(argv, after) || [0, argv.length];
+    return argv.slice(span[0], span[1]).indexOf(flag) >= 0;
   }
 
   /// Sets, replaces or removes a flag and its value.
@@ -213,8 +272,13 @@ window.karyon = (function () {
     var argv = words(text);
     var alone = ALONE.indexOf(flag) >= 0;
 
-    var at = argv.indexOf(flag);
-    if (at >= 0) argv.splice(at, alone ? 1 : 2);
+    // Taken out of the track it belongs to rather than out of the command.
+    // Removing the first one in the command deleted a coverage track's
+    // `--style area` on the way to setting a variants track's `--style tick`,
+    // and left both controls reading the same word back.
+    var span = segment(argv, after) || [0, argv.length];
+    var at = argv.indexOf(flag, span[0]);
+    if (at >= 0 && at < span[1]) argv.splice(at, alone ? 1 : 2);
     if (value === null || value === false) return join(argv);
 
     var piece = alone || value === true ? [flag] : [flag, String(value)];

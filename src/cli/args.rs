@@ -1849,6 +1849,55 @@ mod tests {
         }
     }
 
+    /// The playground's own list of the flags that open a track, held against
+    /// this one.
+    ///
+    /// `docs/assets/karyon-wasm.js` needs to know where one track's words end
+    /// and the next track's begin, or a control cannot tell one track's
+    /// `--style` from another's. It cannot ask the parser: the controls are
+    /// drawn before the program has finished loading, so the list is written
+    /// out there and this is what stops it falling behind. Both directions,
+    /// for the reason the help text is checked both ways: a track added to the
+    /// parser and not to the page fails here, and so does a spelling on the
+    /// page that the parser has never heard of.
+    #[test]
+    fn the_playground_knows_every_track_the_parser_does() {
+        const SHIM: &str = include_str!("../../docs/assets/karyon-wasm.js");
+
+        let opened = SHIM
+            .split_once("var TRACKS = [")
+            .expect("the playground has no TRACKS list")
+            .1
+            .split_once("];")
+            .expect("the TRACKS list does not end")
+            .0;
+        let listed: Vec<&str> = opened
+            .split('"')
+            .filter(|piece| piece.starts_with("--"))
+            .collect();
+
+        for kind in Kind::ALL {
+            assert!(
+                listed.contains(&kind.dashed()),
+                "the playground's TRACKS does not know {}",
+                kind.dashed()
+            );
+        }
+        for word in &listed {
+            assert!(
+                Kind::ALL.iter().any(|kind| kind.dashed() == *word),
+                "the playground's TRACKS has {word}, which opens no track here"
+            );
+        }
+        assert_eq!(
+            listed.len(),
+            Kind::ALL.len(),
+            "the playground lists {} tracks and the parser has {}",
+            listed.len(),
+            Kind::ALL.len()
+        );
+    }
+
     #[test]
     fn a_row_cap_is_a_number_or_the_word_all() {
         let it = draw("chr1:1-1000 --pileup r.sam --max-rows 12");
