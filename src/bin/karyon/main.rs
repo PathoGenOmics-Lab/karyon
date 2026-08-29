@@ -118,6 +118,29 @@ TRACK OPTIONS, each describing the track before it
                          file is in; genome-wide is -log10(5e-8), which is a
                          correction for a million tests and wrong wherever a
                          million were not run
+    --compare-to <NAME>  the row every other row is read against, named as its
+                         FASTA header names it. An alignment compares against
+                         the consensus without it and a variable-site panel
+                         against whichever record came first, which is not a
+                         decision anyone made
+    --no-counts          leave out the count printed beside each thing counted:
+                         the differences per sample on a variable-site panel,
+                         the reads over each junction arc. A count already too
+                         wide for its arc was never drawn, so a zoomed out
+                         figure does not change
+    --min-reads <COUNT>  the fewest reads behind a methylation site or across a
+                         junction for it to be drawn; how many were left out is
+                         printed on the track
+    --fade-by-mapq       draw a read at less than full strength the lower its
+                         mapping quality, since a read that could have come
+                         from anywhere should not look as solid as one that
+                         could not. A faded read is drawn square, without the
+                         arrowhead that says which way it ran, and its
+                         mismatches stay at full strength
+    --row-height <PX>    how tall one row is, for the tracks that size
+                         themselves by rows rather than by --height; each has
+                         a minimum of its own and will not be drawn under it,
+                         and a row too short for a name shrinks the name with it
     --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
                          molecule grid is drawn before it stops and counts the
                          rest; 40 by default, and all lifts it
@@ -126,7 +149,8 @@ TRACK OPTIONS, each describing the track before it
                          gutter: that one is --label
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line or bars for coverage, steps or line for
-                         windows, tick or lollipop for variants
+                         windows, tick or lollipop for variants, differences
+                         or all for an alignment
     --log                a log scale
     --color <HEX>        as in '#d55e00'
     --format <NAME>      bedgraph, depth, values, bed or gff3, when the file
@@ -255,8 +279,22 @@ mod tests {
     /// no way to discover.
     #[test]
     fn the_help_text_names_every_style() {
+        // Against the --style entry rather than the whole text. "all" occurs
+        // nine times in this help and "line" and "bars" occur elsewhere too,
+        // so a search of the whole thing passes for a style that is wired up
+        // and written nowhere, which is the one failure this test exists for.
+        let entry = HELP
+            .split_once("    --style <HOW>")
+            .expect("the help text has no --style entry")
+            .1
+            .split_once("\n    --")
+            .expect("the --style entry runs to the end of the help")
+            .0;
         for (_, word) in args::Style::ALL {
-            assert!(HELP.contains(word), "the help text does not mention {word}");
+            assert!(
+                entry.contains(word),
+                "the --style entry does not mention {word}"
+            );
         }
     }
 

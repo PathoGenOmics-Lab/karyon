@@ -51,6 +51,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::read::locus::Identity;
+use crate::track::MsaDisplay;
 use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle};
 
 /// What went wrong before anything was read.
@@ -453,6 +454,72 @@ impl Kind {
     /// what stands above it. The other numbers that decide what a track
     /// believes are floors on the data rather than a line on the figure, and
     /// giving them the same name would say they were the same thing.
+    /// Whether `--compare-to` means anything here.
+    ///
+    /// The two tracks that read every row against one of them. An alignment
+    /// compares against the consensus until told otherwise, which its own
+    /// documentation calls deliberate; a variable-site panel compares against
+    /// whichever record the file happened to hold first, which is not a
+    /// decision anyone made. A logo takes a nought in stack.rs too and is not
+    /// here: that nought is a start coordinate.
+    fn takes_compare_to(self) -> bool {
+        matches!(self, Kind::Msa | Kind::Snps)
+    }
+
+    /// Whether `--no-counts` means anything here.
+    ///
+    /// The two tracks that print a number beside the thing it counts: the
+    /// per-sample difference count down the right of a variable-site panel and
+    /// the read count over each junction arc. Named for what the reader sees,
+    /// the way `--no-names` is, and for the same reason: they are the same mark
+    /// on the page even where they count different things.
+    fn takes_no_counts(self) -> bool {
+        matches!(self, Kind::Snps | Kind::Junctions)
+    }
+
+    /// Whether `--min-reads` means anything here.
+    ///
+    /// The two tracks with a read floor of their own, both of which say how
+    /// many they dropped. The library calls them `min_coverage` and
+    /// `min_reads`, and the difference is only the local noun: after
+    /// `--methylation` the reads behind the site, after `--junctions` the reads
+    /// across the intron. A structural track is not here, because support is a
+    /// per-record setter there and the track has no floor, so the flag would
+    /// filter nothing.
+    fn takes_min_reads(self) -> bool {
+        matches!(self, Kind::Methylation | Kind::Junctions)
+    }
+
+    /// Whether `--row-height` means anything here.
+    ///
+    /// The tracks whose height is a number of rows times the height of one,
+    /// which is most of what `Kind::takes_height` refuses for that reason. The
+    /// builder is `row_height` in ten of them, `read_height` on a pileup and
+    /// `lane_height` on an ORF track, and the flag is named for what the
+    /// reader sees, the way `--no-names` is over its three spellings.
+    ///
+    /// A locus track is not here and is the case worth explaining. Its row is
+    /// two heights, `gene_height` and `link_height`, and one number cannot set
+    /// both without this flag deciding the ratio between them, which is a
+    /// decision about the figure rather than about its size.
+    fn takes_row_height(self) -> bool {
+        matches!(
+            self,
+            Kind::Features
+                | Kind::Msa
+                | Kind::Snps
+                | Kind::Matrix
+                | Kind::Pileup
+                | Kind::Orfs
+                | Kind::Tree
+                | Kind::Tanglegram
+                | Kind::Clades
+                | Kind::SplitReads
+                | Kind::Bisulfite
+                | Kind::Domains
+        )
+    }
+
     fn takes_threshold(self) -> bool {
         matches!(self, Kind::Manhattan)
     }
@@ -612,6 +679,14 @@ pub enum Style {
     Tick,
     /// A stem with a head, which only a variant track draws, and its default.
     Lollipop,
+    /// Only the cells that disagree with the row an alignment is compared
+    /// against, which is what it draws until it is told otherwise.
+    ///
+    /// Not to be confused with [`Style::ALL`], the associated constant one
+    /// keystroke away, which is the list of every style. This one is a style.
+    Differences,
+    /// Every cell of an alignment, agreements included.
+    All,
 }
 
 impl Style {
@@ -619,13 +694,15 @@ impl Style {
     ///
     /// Here rather than in the help text, so a style wired up and left out of
     /// the help is a failing test instead of a value nobody can find.
-    pub const ALL: [(Style, &'static str); 6] = [
+    pub const ALL: [(Style, &'static str); 8] = [
         (Style::Area, "area"),
         (Style::Line, "line"),
         (Style::Bars, "bars"),
         (Style::Steps, "steps"),
         (Style::Tick, "tick"),
         (Style::Lollipop, "lollipop"),
+        (Style::Differences, "differences"),
+        (Style::All, "all"),
     ];
 
     /// The coverage spelling, or `None` for a style coverage does not have.
@@ -634,7 +711,9 @@ impl Style {
             Style::Area => CoverageStyle::Area,
             Style::Line => CoverageStyle::Line,
             Style::Bars => CoverageStyle::Bars,
-            Style::Steps | Style::Tick | Style::Lollipop => return None,
+            Style::Steps | Style::Tick | Style::Lollipop | Style::Differences | Style::All => {
+                return None
+            }
         })
     }
 
@@ -643,7 +722,12 @@ impl Style {
         Some(match self {
             Style::Steps => WindowStyle::Steps,
             Style::Line => WindowStyle::Line,
-            Style::Area | Style::Bars | Style::Tick | Style::Lollipop => return None,
+            Style::Area
+            | Style::Bars
+            | Style::Tick
+            | Style::Lollipop
+            | Style::Differences
+            | Style::All => return None,
         })
     }
 
@@ -652,7 +736,31 @@ impl Style {
         Some(match self {
             Style::Tick => VariantStyle::Tick,
             Style::Lollipop => VariantStyle::Lollipop,
-            Style::Area | Style::Line | Style::Bars | Style::Steps => return None,
+            Style::Area
+            | Style::Line
+            | Style::Bars
+            | Style::Steps
+            | Style::Differences
+            | Style::All => return None,
+        })
+    }
+
+    /// The alignment spelling, or `None` for a style an alignment has not got.
+    ///
+    /// The word is `all` rather than the library's `Bases`, because the track
+    /// draws proteins as readily as nucleotides and the variant's own doc
+    /// comment says "every residue", which is the library correcting its own
+    /// name. A library name may be loose; a word a reader types may not.
+    pub fn msa(self) -> Option<MsaDisplay> {
+        Some(match self {
+            Style::Differences => MsaDisplay::Differences,
+            Style::All => MsaDisplay::Bases,
+            Style::Area
+            | Style::Line
+            | Style::Bars
+            | Style::Steps
+            | Style::Tick
+            | Style::Lollipop => return None,
         })
     }
 }
@@ -747,6 +855,21 @@ pub struct TrackSpec {
     pub no_names: bool,
     /// `--threshold`, the line a scan is read against.
     pub threshold: Option<f64>,
+    /// `--compare-to`, the row every other row is read against.
+    pub compare_to: Option<String>,
+    /// `--no-counts`, which leaves out the number printed beside the thing it
+    /// counts.
+    pub no_counts: bool,
+    /// `--min-reads`, the fewest reads behind a record for it to be drawn.
+    pub min_reads: Option<u32>,
+    /// `--fade-by-mapq`, which draws a read at less than full strength the
+    /// lower its mapping quality.
+    pub fade_by_mapq: bool,
+    /// `--row-height`, for the tracks whose height follows from their rows.
+    ///
+    /// The complement of [`TrackSpec::height`], and the two never both apply:
+    /// `Kind::takes_height` and `Kind::takes_row_height` are disjoint.
+    pub row_height: Option<f64>,
     /// `--ploidy`, where balanced sits on a copy number ladder.
     pub ploidy: Option<f64>,
     /// `--sample`, for a file holding more than one.
@@ -778,6 +901,11 @@ impl TrackSpec {
             max_rows: None,
             no_names: false,
             threshold: None,
+            row_height: None,
+            compare_to: None,
+            no_counts: false,
+            min_reads: None,
+            fade_by_mapq: false,
             ploidy: None,
             sample: None,
             traits: None,
@@ -1054,6 +1182,84 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.max_rows = Some(cap);
             }
+            "--compare-to" => {
+                let name = value("--compare-to")?.clone();
+                let track = last(&mut tracks, "--compare-to")?;
+                if !track.kind.takes_compare_to() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--compare-to",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.compare_to = Some(name);
+            }
+            "--no-counts" => {
+                let track = last(&mut tracks, "--no-counts")?;
+                if !track.kind.takes_no_counts() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--no-counts",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.no_counts = true;
+            }
+            "--min-reads" => {
+                let text = value("--min-reads")?;
+                let reads = text.parse::<u32>().map_err(|_| ArgError::BadValue {
+                    flag: "--min-reads",
+                    given: text.clone(),
+                    expected: "a number of reads",
+                })?;
+                let track = last(&mut tracks, "--min-reads")?;
+                if !track.kind.takes_min_reads() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--min-reads",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.min_reads = Some(reads);
+            }
+            "--fade-by-mapq" => {
+                // One track, so no predicate: the flags several kinds share
+                // have one, and the flags one kind has compare inline, the way
+                // `--ploidy` and `--identity` do.
+                let track = last(&mut tracks, "--fade-by-mapq")?;
+                if track.kind != Kind::Pileup {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--fade-by-mapq",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.fade_by_mapq = true;
+            }
+            "--row-height" => {
+                let text = value("--row-height")?;
+                let px = text
+                    .parse::<f64>()
+                    .ok()
+                    // Refused rather than clamped, and refused at both ends.
+                    // Every builder behind this flag ends in `height.max(n)`,
+                    // and `f64::max` lets an infinity through and answers with
+                    // the floor for a NaN. An infinite row height draws a
+                    // figure whose clip is one pixel tall and whose rows are
+                    // empty groups, and a NaN is indistinguishable from asking
+                    // for the minimum. Both exit nought, which is the worst
+                    // way for either to end.
+                    .filter(|px| px.is_finite() && *px > 0.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--row-height",
+                        given: text.clone(),
+                        expected: "a number of pixels above nought, as in 20",
+                    })?;
+                let track = last(&mut tracks, "--row-height")?;
+                if !track.kind.takes_row_height() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--row-height",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.row_height = Some(px);
+            }
             "--height" => {
                 let text = value("--height")?;
                 let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
@@ -1101,17 +1307,32 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         return Err(ArgError::BadValue {
                             flag: "--style",
                             given: text.clone(),
-                            expected: "area, line, bars, steps, tick or lollipop",
+                            expected: "area, line, bars, steps, tick, lollipop, differences or all",
                         })
                     }
                 };
                 let track = last(&mut tracks, "--style")?;
-                // The two tracks that take a style do not take the same words.
+                // A track with no styles at all is the wrong track for the
+                // flag rather than a track given the wrong word, and saying so
+                // needs a different error. It used to fall through to the one
+                // below and print `--style does not take "bars", only nothing:
+                // this track has no style`, which is not a sentence.
+                if !matches!(
+                    track.kind,
+                    Kind::Coverage | Kind::Windows | Kind::Variants | Kind::Msa
+                ) {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--style",
+                        track: track.kind.flag(),
+                    });
+                }
+                // The tracks that take a style do not take the same words.
                 let fits = match track.kind {
                     Kind::Coverage => style.coverage().is_some(),
                     Kind::Windows => style.window().is_some(),
                     Kind::Variants => style.variant().is_some(),
-                    _ => false,
+                    Kind::Msa => style.msa().is_some(),
+                    _ => unreachable!("every styled track is named above"),
                 };
                 if !fits {
                     return Err(ArgError::BadValue {
@@ -1121,7 +1342,8 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                             Kind::Coverage => "area, line or bars for a coverage track",
                             Kind::Windows => "steps or line for a window track",
                             Kind::Variants => "tick or lollipop for a variant track",
-                            _ => "nothing: this track has no style",
+                            Kind::Msa => "differences or all for an alignment track",
+                            _ => unreachable!("every styled track is named above"),
                         },
                     });
                 }
@@ -1374,6 +1596,141 @@ mod tests {
         let it = draw("chr1:1-1000 --features g.bed --coverage d.bg --variants v.vcf");
         let kinds: Vec<Kind> = it.tracks.iter().map(|t| t.kind).collect();
         assert_eq!(kinds, vec![Kind::Features, Kind::Coverage, Kind::Variants]);
+    }
+
+    #[test]
+    fn the_flags_that_take_no_value_land_only_where_they_mean_something() {
+        for (flag, good, bad) in [
+            (
+                "--no-counts",
+                ["--snps a.fa", "--junctions j.tab"],
+                ["--msa a.fa", "--coverage d.bg"],
+            ),
+            (
+                "--fade-by-mapq",
+                ["--pileup r.sam", "--pileup -"],
+                ["--msa a.fa", "--split-reads s.sam"],
+            ),
+        ] {
+            for track in good {
+                let line = format!("chr1:1-1000 {track} {flag}");
+                assert!(parse(&args(&line)).is_ok(), "{track} should take {flag}");
+            }
+            for track in bad {
+                let line = format!("chr1:1-1000 {track} {flag}");
+                let error = parse(&args(&line)).unwrap_err();
+                assert!(
+                    matches!(&error, ArgError::WrongTrack { flag: f, .. } if *f == flag),
+                    "{track} should refuse {flag}, got {error:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_read_floor_is_a_whole_number_of_reads() {
+        let it = draw("chr1:1-1000 --junctions j.tab --min-reads 12");
+        assert_eq!(it.tracks[0].min_reads, Some(12));
+        assert_eq!(
+            draw("chr1:1-1000 --junctions j.tab").tracks[0].min_reads,
+            None
+        );
+
+        for word in ["-1", "2.5", "many"] {
+            let line = format!("chr1:1-1000 --junctions j.tab --min-reads {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--min-reads"),
+                "{word} should be refused, got {error:?}"
+            );
+        }
+        let error = parse(&args("chr1:1-1000 --structural v.vcf --min-reads 5")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--min-reads"),
+            "a structural track has no floor to raise, {error:?}"
+        );
+    }
+
+    #[test]
+    fn an_alignment_takes_two_style_words_and_no_others() {
+        for word in ["differences", "all"] {
+            let line = format!("chr1:1-1000 --msa a.fa --style {word}");
+            assert!(
+                parse(&args(&line)).is_ok(),
+                "an alignment should take {word}"
+            );
+        }
+        for word in ["area", "bars", "tick", "steps"] {
+            let line = format!("chr1:1-1000 --msa a.fa --style {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--style"),
+                "{word} is not an alignment style, got {error:?}"
+            );
+        }
+        // A track with no styles at all is the wrong track for the flag, not a
+        // track handed the wrong word, and it used to be told the second thing
+        // in a sentence that did not parse as English.
+        let error = parse(&args("chr1:1-1000 --logo a.fa --style bars")).unwrap_err();
+        assert_eq!(error.to_string(), "--style means nothing to a logo track");
+    }
+
+    #[test]
+    fn only_the_tracks_that_compare_rows_take_a_row_to_compare_against() {
+        let it = draw("chr1:1-1000 --msa a.fa --compare-to H37Rv");
+        assert_eq!(it.tracks[0].compare_to.as_deref(), Some("H37Rv"));
+        for bad in ["--matrix m.tsv", "--logo a.fa", "--pileup r.sam"] {
+            let line = format!("chr1:1-1000 {bad} --compare-to X");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--compare-to"),
+                "{bad} should refuse --compare-to, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_height_is_a_finite_number_of_pixels_above_nought() {
+        let it = draw("chr1:1-1000 --msa a.fa --row-height 24");
+        assert_eq!(it.tracks[0].row_height, Some(24.0));
+        assert_eq!(draw("chr1:1-1000 --msa a.fa").tracks[0].row_height, None);
+
+        // All four are refused rather than clamped. Every builder behind this
+        // flag ends in `height.max(n)`, which lets an infinity through and
+        // answers with the floor for a NaN, so a clamp would draw a figure
+        // nobody asked for and say nothing.
+        for word in ["inf", "-inf", "NaN", "0", "-5", "tall"] {
+            let line = format!("chr1:1-1000 --msa a.fa --row-height {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--row-height"),
+                "{word} should be refused, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn height_and_row_height_do_not_overlap() {
+        // Two flags for one thing would be a grammar that cannot be read. A
+        // track sizes itself by rows or it takes a height, and no track does
+        // both, so every kind answers to exactly one of them or to neither.
+        for kind in Kind::ALL {
+            assert!(
+                !(kind.takes_height() && kind.takes_row_height()),
+                "{:?} takes both --height and --row-height",
+                kind
+            );
+        }
+        let error = parse(&args("chr1:1-1000 --coverage d.bg --row-height 20")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--row-height"),
+            "{error:?}"
+        );
+        let error = parse(&args("chr1:1-1000 --msa a.fa --height 200")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--height"),
+            "{error:?}"
+        );
     }
 
     #[test]
