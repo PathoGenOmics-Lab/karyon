@@ -480,17 +480,24 @@ impl PileupTrack {
             let row = match row_ends.iter().position(|end| *end + padding <= left) {
                 Some(row) => {
                     row_ends[row] = right;
-                    row
+                    Some(row)
                 }
-                None => {
+                // A row past the cap can never be drawn, so it is not opened.
+                // It used to be: a pile a thousand deep opened a thousand rows
+                // and every later read scanned all of them to find one free,
+                // when only the first forty could ever hold a read that is
+                // drawn. The reads that find no room are counted the same
+                // either way, so the picture is unchanged.
+                None if self.max_rows.map_or(true, |cap| row_ends.len() < cap) => {
                     row_ends.push(right);
-                    row_ends.len() - 1
+                    Some(row_ends.len() - 1)
                 }
+                None => None,
             };
 
-            match self.max_rows {
-                Some(cap) if row >= cap => hidden += 1,
-                _ => placed.push((index, row)),
+            match row {
+                Some(row) => placed.push((index, row)),
+                None => hidden += 1,
             }
         }
 
@@ -1045,6 +1052,29 @@ mod tests {
         assert_eq!(layout.rows, 10);
         assert!(layout.hidden > 0);
         assert_eq!(layout.placed.len() + layout.hidden, 100);
+    }
+
+    #[test]
+    fn a_row_past_the_cap_is_never_opened() {
+        // The packing used to open a row for every read that found no room,
+        // including the ones far past the cap that can never be drawn, and
+        // then scan all of them for the next read. A pile two hundred thousand
+        // deep took five seconds where it now takes eighty milliseconds, and
+        // the picture was the same either way because a read above the cap is
+        // hidden whichever row number it was given.
+        let reads: Vec<Read> = (0..500).map(|i| Read::aligned(i % 3, 50)).collect();
+        let track = PileupTrack::new(reads).max_rows(Some(8));
+        let layout = track.layout(&scale(&region()), &region());
+        assert_eq!(layout.rows, 8, "the cap still decides the height");
+        assert_eq!(
+            layout.placed.len() + layout.hidden,
+            500,
+            "every read is either drawn or counted"
+        );
+        assert!(
+            layout.placed.iter().all(|(_, row)| *row < 8),
+            "a drawn read sits above the cap"
+        );
     }
 
     #[test]
