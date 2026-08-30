@@ -106,6 +106,20 @@
     var dark = K.dark();
     theme.branch = dark ? "#e6edf3" : "#1b1f23";
     theme.muted = dark ? "#aab4c0" : "#4b5563";
+    // The rail stands behind the tree, so its ink is quieter than the tree's.
+    // Quieter is not invisible: the first pair tried here measured 1.96 to 1 on
+    // white, and a silhouette nobody can see is the whole point of the rail
+    // thrown away. These are 3.75 and 4.92.
+    theme.frame = dark ? "#30363d" : "#d7dbe0";
+    theme.faint = dark ? "#79838f" : "#7b8591";
+    // The mark is the one thing on the canvas that is not a branch, and it is
+    // the page's own accent rather than a fourth hue: the same colour the
+    // working bar uses to say which part of this is live.
+    theme.window = dark ? "rgba(232, 131, 58, 0.24)" : "rgba(213, 94, 0, 0.18)";
+    theme.edge = dark ? "#e8833a" : "#d55e00";
+    // Something for the dial to sit on, since the disc behind it would show
+    // through and the small tree would be read as part of the big one.
+    theme.plate = dark ? "#161a1d" : "#ffffff";
   }
 
   // Painted on the spot rather than on a frame callback: a browser does not
@@ -132,6 +146,7 @@
     var at = painter && painter.looking();
     var argv = ["tree:1-1", "--tree", tree.name];
     if (cladogram) argv = argv.concat(["--shape", "cladogram"]);
+    if (painter && painter.isRound()) argv = argv.concat(["--projection", "circular"]);
     if (at && at.first && at.last && at.first !== at.last) {
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
@@ -167,43 +182,104 @@
 
   function hand() {
     var dragging = false;
+    var scrubbing = false;
+    // Which pointer owns the gesture. Without it a second finger overwrites the
+    // first one's mode and the first release ends the gesture for both.
+    var owner = null;
     var from = { x: 0, y: 0 };
+
+    // Where a pointer is, in the canvas's own pixels. The canvas and not the
+    // box around it: that box carries a one pixel border, and measuring from it
+    // put every click on the rail a row of pixels low, which at two million
+    // rows is three thousand of them.
+    function at(event) {
+      var box = el.canvas.getBoundingClientRect();
+      return { x: event.clientX - box.left, y: event.clientY - box.top };
+    }
 
     el.plot.addEventListener(
       "wheel",
       function (event) {
         if (!painter.loaded()) return;
         event.preventDefault();
-        var box = el.plot.getBoundingClientRect();
         // A line-mode wheel reports a handful of lines where a pixel-mode one
         // reports tens of pixels, and treating them alike makes a mouse either
         // useless or violent next to a trackpad.
         var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-        painter.zoomAt(event.clientX - box.left, event.clientY - box.top, Math.exp(-step * 0.002));
+        var here = at(event);
+        var box = { wide: el.canvas.clientWidth, tall: el.canvas.clientHeight };
+        // On the rail a wheel does what a wheel does to a scrollbar: it moves
+        // the window on from where it is rather than changing how much of the
+        // tree is in it. A zoom there would be anchored on the wrong row, since
+        // the two sides of the canvas are at different scales.
+        if (painter.onMap(here.x, here.y)) {
+          // On the rail a wheel does what it does to a scrollbar. On the dial
+          // there is nothing to scroll, so it zooms the view it stands for,
+          // about the middle of that view rather than about the dial.
+          if (painter.isRound()) painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          else painter.panBy(0, -step);
+        } else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
         repaint();
       },
       { passive: false }
     );
 
     el.plot.addEventListener("pointerdown", function (event) {
-      if (event.button !== 0 || !painter.loaded()) return;
-      dragging = true;
+      if (event.button !== 0 || !painter.loaded() || owner !== null) return;
+      var here = at(event);
+      owner = event.pointerId;
+      // Which half of the canvas the gesture began on decides what it is for
+      // the whole of its life, so a drag that starts on the rail and wanders
+      // onto the tree goes on moving the window.
+      if (painter.onMap(here.x, here.y)) {
+        scrubbing = true;
+        painter.jumpTo(here.x, here.y);
+        repaint();
+      } else {
+        dragging = true;
+        el.plot.classList.add("tv-dragging");
+      }
       from = { x: event.clientX, y: event.clientY };
       el.plot.setPointerCapture(event.pointerId);
-      el.plot.classList.add("tv-dragging");
     });
 
     el.plot.addEventListener("pointermove", function (event) {
-      if (!dragging) return;
-      painter.panBy(event.clientX - from.x, event.clientY - from.y);
-      from = { x: event.clientX, y: event.clientY };
-      repaint();
+      if (owner !== null && event.pointerId !== owner) return;
+      if (scrubbing) {
+        var where = at(event);
+        painter.jumpTo(where.x, where.y);
+        repaint();
+        return;
+      }
+      if (dragging) {
+        painter.panBy(event.clientX - from.x, event.clientY - from.y);
+        from = { x: event.clientX, y: event.clientY };
+        repaint();
+        return;
+      }
+      // Not a gesture, just a hand passing over. The cursor says which of the
+      // two things underneath it would answer.
+      if (painter.loaded()) {
+        var over = at(event);
+        var onMap = painter.onMap(over.x, over.y);
+        el.plot.classList.toggle("tv-onrail", onMap && !painter.isRound());
+        el.plot.classList.toggle("tv-ondial", onMap && painter.isRound());
+      }
     });
 
-    ["pointerup", "pointercancel"].forEach(function (kind) {
+    // lostpointercapture as well as the two endings: capture can be taken away
+    // without either of them firing, and that used to strand a pan. Now it
+    // would strand a mode, which is worse.
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (kind) {
       el.plot.addEventListener(kind, function (event) {
-        if (!dragging) return;
+        if (owner !== null && event.pointerId !== owner) return;
+        if (!dragging && !scrubbing) {
+          owner = null;
+          return;
+        }
         dragging = false;
+        scrubbing = false;
+        owner = null;
         el.plot.classList.remove("tv-dragging");
         if (el.plot.hasPointerCapture(event.pointerId)) {
           el.plot.releasePointerCapture(event.pointerId);
@@ -212,8 +288,10 @@
     });
 
     el.plot.addEventListener("dblclick", function (event) {
-      var box = el.plot.getBoundingClientRect();
-      painter.zoomAt(event.clientX - box.left, event.clientY - box.top, 2.4);
+      var here = at(event);
+      if (!painter.loaded()) return;
+      if (painter.onMap(here.x, here.y)) return;
+      painter.zoomAt(here.x, here.y, 2.4);
       repaint();
     });
 
@@ -301,7 +379,7 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "shape"].forEach(function (name) {
+      "sheetName", "dropSheet", "shape", "round"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
     if (!el.canvas) return;
@@ -320,6 +398,16 @@
       } else {
         fail("no tip here is called " + wanted);
       }
+    });
+
+    el.round.addEventListener("click", function () {
+      // The layout does not change: the same rows and depths become angles and
+      // radii, so this never asks the program for anything.
+      var now = painter.shape(!painter.isRound());
+      el.round.setAttribute("aria-pressed", String(now));
+      el.round.textContent = now ? "Circular" : "Rectangular";
+      repaint();
+      say();
     });
 
     el.shape.addEventListener("click", function () {

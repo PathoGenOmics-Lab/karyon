@@ -12,17 +12,28 @@ const assert = require("assert");
 // draw so a test can ask what is on it.
 function fakeCanvas(wide, tall) {
   const strokes = [];
+  const rects = [];
+  const texts = [];
+  const arcs = [];
   const ctx = {
     setTransform() {}, clearRect() {}, beginPath() {}, stroke() {},
-    moveTo(x, y) { strokes.push(["move", x, y]); },
-    lineTo(x, y) { strokes.push(["line", x, y]); },
-    fillText() {},
+    moveTo(x, y) { strokes.push(["move", x, y, ctx.strokeStyle]); },
+    lineTo(x, y) { strokes.push(["line", x, y, ctx.strokeStyle]); },
+    fillRect(x, y, w, h) { rects.push({ kind: "fill", x, y, w, h, paint: ctx.fillStyle }); },
+    arc(x, y, r, a0, a1) { arcs.push({ x, y, r, a0, a1 }); },
+    drawImage() {},
+    strokeRect(x, y, w, h) { rects.push({ kind: "stroke", x, y, w, h, paint: ctx.strokeStyle }); },
+    fillText(t, x, y) { texts.push({ t, x, y }); },
+    measureText(t) { return { width: t.length * 6 }; },
     strokeStyle: "", fillStyle: "", lineWidth: 1, font: "", textBaseline: "",
   };
   return {
     width: wide, height: tall, clientWidth: wide, clientHeight: tall,
     getContext: () => ctx,
     strokes,
+    rects,
+    texts,
+    arcs,
   };
 }
 
@@ -75,19 +86,27 @@ function balanced(levels) {
   };
 }
 
-const theme = { branch: "#000", muted: "#666", font: "sans-serif" };
+const theme = {
+  branch: "#000", muted: "#666", font: "sans-serif",
+  frame: "#ccc", faint: "#999", window: "rgba(0,0,255,0.15)", edge: "#00f",
+  plate: "#fff",
+};
+
+// Wide enough for the rail, and narrow enough to be refused one.
+const WIDE = 900;
+const NARROW = 380;
 
 // ---------------------------------------------------------------- the test
 
 // The property: whatever is drawn is a tree. Every branch on screen but the
 // root's has the branch it hangs from on screen too, so the picture has a trunk
 // instead of being a hedge of loose strokes.
-function drawnSet(placed, tall) {
-  const canvas = fakeCanvas(420, tall);
+function drawnSet(placed, tall, wide) {
+  const canvas = fakeCanvas(wide || WIDE, tall);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
   const report = painter.paint(theme);
-  return { painter, report };
+  return { painter, report, canvas };
 }
 
 // A painter that keeps every row it is given, so the test can see what the
@@ -123,17 +142,24 @@ check("what is drawn hangs together, at every zoom", () => {
   for (const tall of [200, 800, 801, 1600]) {
     const { painter, report } = drawnSet(placed, tall);
     assert.ok(report.drawn > 0, `nothing drawn at ${tall} px`);
-    // Ask the painter what it put on the canvas by walking the same selection:
-    // every stroke pair is a branch, and the branch's own parent must be there.
+    // Every branch on screen hangs from a branch on screen, or from the root.
+    // A parent stepped over by the pixel test is not drawn as a branch of its
+    // own, so what has to be there is the end the branch was redirected to.
     const shown = painter.shown();
-    const on = new Set(shown);
+    const ends = new Set();
+    for (let i = 0; i < shown.count; i++) ends.add(shown.child[i]);
     let loose = 0;
-    for (const node of shown) {
-      if (placed.parent[node] === 0xffffffff) continue;
-      if (!on.has(placed.parent[node])) loose += 1;
+    for (let i = 0; i < shown.count; i++) {
+      const over = shown.up[i];
+      if (placed.parent[over] === 0xffffffff) continue;
+      if (!ends.has(over)) loose += 1;
     }
-    assert.strictEqual(loose, 0, `${loose} of ${shown.length} branches hang from nothing at ${tall} px`);
-    assert.ok(on.has(0), `the root is not drawn at ${tall} px`);
+    assert.strictEqual(loose, 0, `${loose} of ${shown.count} branches hang from nothing at ${tall} px`);
+    let root = false;
+    for (let i = 0; i < shown.count; i++) {
+      if (placed.parent[shown.up[i]] === 0xffffffff) root = true;
+    }
+    assert.ok(root, `nothing reaches the root at ${tall} px`);
   }
 });
 
@@ -160,13 +186,349 @@ check("the depth window holds the root and the deepest tip on screen", () => {
   const { painter } = drawnSet(placed, 800);
   const shown = painter.shown();
   let low = Infinity, high = -Infinity;
-  for (const node of shown) {
-    if (placed.x[node] < low) low = placed.x[node];
-    if (placed.x[node] > high) high = placed.x[node];
+  for (let i = 0; i < shown.count; i++) {
+    for (const node of [shown.child[i], shown.up[i]]) {
+      if (placed.x[node] < low) low = placed.x[node];
+      if (placed.x[node] > high) high = placed.x[node];
+    }
   }
   const window = painter.depth();
   assert.ok(window.x0 <= low + 1e-6, "the root is off the left edge");
   assert.ok(window.x1 >= high - 1e-6, "the deepest tip on screen is off the right edge");
+});
+
+// A ladder is the shape that used to make the walk to the root cost the whole
+// tree on every frame, so it is the shape the bound is checked on.
+function ladder(tips) {
+  const count = 2 * tips - 1;
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  const parent = new Uint32Array(count);
+  parent[0] = 0xffffffff;
+  // Node 0 is the root. Each internal node i has a tip and the next internal.
+  let spine = 0;
+  let row = 0;
+  for (let i = 1; i < count; i += 2) {
+    const tip = i, next = i + 1;
+    parent[tip] = spine;
+    x[tip] = x[spine] + 0.01;
+    y[tip] = row++;
+    if (next < count) {
+      parent[next] = spine;
+      x[next] = x[spine] + 0.005;
+      spine = next;
+    }
+  }
+  // The spine sits on the mean of what hangs below it, which for a ladder is
+  // near enough the middle of the rows still to come.
+  for (let i = count - 1; i >= 0; i--) if (!y[i] && i) y[i] = row / 2;
+  return { count, x, y, parent, start: new Uint32Array(count), length: new Uint32Array(count), names: new Uint8Array(0) };
+}
+
+check("a ladder cannot make one frame walk the whole tree", () => {
+  const placed = ladder(60000); // 119,999 nodes on one spine
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(
+    report.drawn < 20000,
+    `a ladder of ${placed.count} nodes drew ${report.drawn} branches in one frame`
+  );
+  for (let i = 0; i < 40; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  assert.ok(
+    close.drawn < 20000,
+    `zoomed in on a ladder it still drew ${close.drawn} branches`
+  );
+});
+
+check("and the check bites: without the pixel step a ladder walks all of it", () => {
+  const placed = ladder(60000);
+  // What the walk would cost with no step over ancestors that share a pixel:
+  // every tip hangs off the spine, so one walk is half the tree.
+  const byRow = Uint32Array.from(
+    Array.from({ length: placed.count }, (_, i) => i).sort((a, b) => placed.y[a] - placed.y[b])
+  );
+  const seen = new Uint8Array(placed.count);
+  let reached = 0;
+  for (let at = 0; at < placed.count; at += Math.ceil(placed.count / 800)) {
+    let walk = byRow[at];
+    while (walk !== 0xffffffff && !seen[walk]) { seen[walk] = 1; reached += 1; walk = placed.parent[walk]; }
+  }
+  assert.ok(reached > 50000, `expected the bare walk to reach most of the tree, it reached ${reached}`);
+});
+
+// ----------------------------------------------------------------- the rail
+
+check("the rail shows the whole tree, whatever the window holds", () => {
+  const placed = balanced(14);
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(report.rail, "no rail on a canvas with room for one");
+  const wide = report.rail.drawn;
+  // Fly all the way in. The rail is the whole tree and must not follow.
+  for (let i = 0; i < 60; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  assert.ok(close.drawn < 100, `expected to be deep in, ${close.drawn} branches on screen`);
+  assert.strictEqual(close.rail.drawn, wide, "the rail changed with the zoom");
+});
+
+check("and the check bites: a rail built from the window would follow it", () => {
+  const placed = balanced(14);
+  const { painter, report } = drawnSet(placed, 800);
+  for (let i = 0; i < 60; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  // What the main view drew is what a window-built rail would have held, and
+  // it is nothing like the whole tree, which is the point of the check above.
+  assert.notStrictEqual(close.drawn, report.rail.drawn);
+});
+
+check("the mark stays big enough to see and to catch", () => {
+  const placed = balanced(16); // 65,536 tips
+  const { painter } = drawnSet(placed, 800);
+  for (let i = 0; i < 80; i++) painter.zoomAt(200, 400, 1.3);
+  const report = painter.paint(theme);
+  const rows = painter.looking().rows;
+  assert.ok(rows < 20, `expected a handful of rows, got ${rows}`);
+  assert.ok(
+    report.rail.deep >= 4,
+    `the mark for ${rows} rows came out ${report.rail.deep.toFixed(3)} px deep`
+  );
+  assert.ok(report.rail.top >= 0, "the mark hangs off the top of the rail");
+  assert.ok(
+    report.rail.top + report.rail.deep <= 800 + 1e-6,
+    "the mark hangs off the bottom of the rail"
+  );
+});
+
+check("the mark is drawn, in the colours it was given", () => {
+  const placed = balanced(12);
+  const { canvas } = drawnSet(placed, 800);
+  const filled = canvas.rects.filter((r) => r.kind === "fill");
+  assert.strictEqual(filled.length, 1, "expected one filled mark");
+  assert.strictEqual(filled[0].paint, theme.window, "the mark is not the window colour");
+  assert.ok(canvas.rects.some((r) => r.kind === "stroke" && r.paint === theme.edge), "the mark has no edge");
+});
+
+check("a click on the rail puts those rows on screen", () => {
+  const placed = balanced(16);
+  const { painter } = drawnSet(placed, 800);
+  // Zoomed in, so the mark is small enough to be placed rather than clamped.
+  for (let i = 0; i < 20; i++) painter.zoomAt(200, 400, 1.3);
+  const before = painter.looking().rows;
+  for (const py of [120, 400, 600, 750]) {
+    painter.jumpTo(0, py);
+    const report = painter.paint(theme);
+    const middle = report.rail.top + report.rail.deep / 2;
+    assert.ok(
+      Math.abs(middle - py) < 3,
+      `clicked at ${py} px and the mark came out centred at ${middle.toFixed(1)}`
+    );
+    assert.ok(
+      Math.abs(painter.looking().rows - before) <= 2,
+      "the click changed how many rows are shown"
+    );
+  }
+});
+
+check("and the check bites: the rail's two directions are inverses", () => {
+  const placed = balanced(16);
+  const { painter } = drawnSet(placed, 800);
+  for (let i = 0; i < 20; i++) painter.zoomAt(200, 400, 1.3);
+  // A scrub to the very top and the very bottom must not land in the same
+  // place, which is what a dropped or constant mapping would do.
+  painter.jumpTo(0, 0);
+  const top = painter.paint(theme).rail.top;
+  painter.jumpTo(0, 800);
+  const foot = painter.paint(theme).rail.top;
+  assert.ok(foot - top > 700, `the whole rail moved the mark only ${(foot - top).toFixed(1)} px`);
+});
+
+check("the rail knows what belongs to it", () => {
+  const placed = balanced(12);
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(painter.onMap(report.rail.x0 + 2, 400), "a point on the rail was not claimed");
+  assert.ok(painter.onMap(WIDE - 1, 400), "the far edge was not claimed");
+  assert.ok(!painter.onMap(report.rail.x0 - 2, 400), "a point on the tree was claimed by the rail");
+  assert.ok(!painter.onMap(10, 400), "the root end was claimed by the rail");
+});
+
+check("a narrow canvas gets no rail, and all of its width", () => {
+  const placed = balanced(12);
+  const roomy = drawnSet(placed, 800, WIDE);
+  const tight = drawnSet(placed, 800, NARROW);
+  assert.ok(!tight.report.rail, "a phone width canvas was given a rail");
+  assert.ok(!tight.painter.onMap(NARROW - 1, 400), "the rail claims points on a canvas that has none");
+  assert.strictEqual(tight.canvas.rects.length, 0, "something was drawn where the rail would be");
+  assert.ok(roomy.report.rail, "a wide canvas was refused a rail");
+});
+
+// ----------------------------------------------------------------- the disc
+
+// The crate's own arithmetic, written out here from radial.rs rather than
+// borrowed from the module under test, so the check is a second opinion and
+// not an echo. A row of `terminals` goes to an angle starting at the top of
+// the circle and going all the way round; a depth goes to a fraction of the
+// way from a hole eight percent out to the rim.
+function crateAngle(row, lowY, terminals) {
+  return -Math.PI / 2 + (Math.PI * 2 * (row - lowY)) / terminals;
+}
+function crateRadius(depth, lowX, highX) {
+  const span = highX - lowX;
+  const part = span > 0 ? (depth - lowX) / span : 0;
+  return 0.08 + Math.min(1, Math.max(0, part)) * 0.92;
+}
+
+check("the disc puts a node where the crate would", () => {
+  const placed = balanced(10); // 1,024 tips
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape(true);
+  painter.paint(theme);
+
+  let lowY = Infinity, highY = -Infinity, lowX = Infinity, highX = -Infinity;
+  for (let i = 0; i < placed.count; i++) {
+    if (placed.y[i] < lowY) lowY = placed.y[i];
+    if (placed.y[i] > highY) highY = placed.y[i];
+    if (placed.x[i] < lowX) lowX = placed.x[i];
+    if (placed.x[i] > highX) highX = placed.x[i];
+  }
+  const terminals = highY - lowY + 1;
+  // At Fit the camera is the whole disc: half a canvas height over 1.1.
+  const scale = 800 / 2.2;
+  const midX = WIDE / 2, midY = 800 / 2;
+
+  let worst = 0;
+  for (const node of [0, 1, 2, 17, 500, placed.count - 1]) {
+    const angle = crateAngle(placed.y[node], lowY, terminals);
+    const radius = crateRadius(placed.x[node], lowX, highX) * scale;
+    const want = { x: midX + Math.cos(angle) * radius, y: midY + Math.sin(angle) * radius };
+    const got = painter.where(node);
+    worst = Math.max(worst, Math.abs(got.x - want.x), Math.abs(got.y - want.y));
+  }
+  assert.ok(worst < 0.001, `the canvas and the crate disagree by ${worst.toFixed(4)} px`);
+});
+
+check("and the check bites: the disc is not the rectangle in disguise", () => {
+  const placed = balanced(10);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const flat = painter.where(3);
+  painter.shape(true);
+  painter.paint(theme);
+  const bent = painter.where(3);
+  assert.ok(
+    Math.abs(flat.x - bent.x) > 1 || Math.abs(flat.y - bent.y) > 1,
+    "switching projection moved nothing"
+  );
+});
+
+check("switching projection asks the program for nothing", () => {
+  const placed = balanced(10);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const before = { x: placed.x.slice(), y: placed.y.slice(), parent: placed.parent.slice() };
+  painter.shape(true);
+  painter.paint(theme);
+  painter.shape(false);
+  painter.paint(theme);
+  // The layout is the same rows and depths whichever way it is drawn, so
+  // nothing here may have touched them.
+  assert.deepStrictEqual(Array.from(placed.x), Array.from(before.x), "the depths moved");
+  assert.deepStrictEqual(Array.from(placed.y), Array.from(before.y), "the rows moved");
+  assert.deepStrictEqual(Array.from(placed.parent), Array.from(before.parent), "the tree moved");
+});
+
+check("the walk gives up at the edge of the canvas", () => {
+  const placed = balanced(15); // 32,768 tips
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape(true);
+  const whole = painter.paint(theme).drawn;
+  // In on the rim, where the middle of the disc that every walk heads for is
+  // off the canvas.
+  for (let i = 0; i < 12; i++) painter.zoomAt(WIDE / 2 + 200, 400, 1.35);
+  const rim = painter.paint(theme).drawn;
+  assert.ok(rim < whole, `zoomed in on the rim it drew ${rim}, more than the ${whole} of the whole disc`);
+  assert.ok(rim > 0, "zoomed in on the rim it drew nothing at all");
+});
+
+check("and the check bites: without the edge the walk reaches the middle", () => {
+  const placed = balanced(15);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape(true);
+  painter.paint(theme);
+  for (let i = 0; i < 12; i++) painter.zoomAt(WIDE / 2 + 200, 400, 1.35);
+  painter.paint(theme);
+  // The root is what every walk is heading for, and at this zoom it is far
+  // outside the canvas: if the walk did not stop, it would be drawn.
+  const seen = painter.shown();
+  let root = 0;
+  for (let i = 0; i < placed.count; i++) if (placed.parent[i] === 0xffffffff) root = i;
+  const at = painter.where(root);
+  assert.ok(
+    at.x < -48 || at.x > WIDE + 48 || at.y < -48 || at.y > 848,
+    "the root is on the canvas, so this check proves nothing"
+  );
+  let drawnRoot = false;
+  for (let i = 0; i < seen.count; i++) if (seen.child[i] === root) drawnRoot = true;
+  assert.ok(!drawnRoot, "the root was drawn although it is off the canvas");
+});
+
+check("the dial is the whole disc, and it does not follow the zoom", () => {
+  const placed = balanced(12);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape(true);
+  const wide = painter.paint(theme).rail;
+  assert.ok(wide, "no dial on a canvas with room for one");
+  for (let i = 0; i < 20; i++) painter.zoomAt(WIDE / 2, 400, 1.3);
+  const close = painter.paint(theme).rail;
+  assert.strictEqual(close.drawn, wide.drawn, "the dial changed with the zoom");
+  assert.ok(close.wide <= wide.wide, "the window on the dial grew as the view shrank");
+  assert.ok(close.deep >= 4 && close.wide >= 4, "the window on the dial is too small to catch");
+});
+
+check("a click on the dial goes to that part of the disc", () => {
+  const placed = balanced(12);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape(true);
+  painter.paint(theme);
+  for (let i = 0; i < 14; i++) painter.zoomAt(WIDE / 2, 400, 1.3);
+  const spot = painter.paint(theme).rail;
+  const midX = spot.x0 + spot.side / 2, midY = spot.y0 + spot.side / 2;
+  for (const [dx, dy] of [[-30, -30], [30, -30], [30, 30], [-30, 30]]) {
+    painter.jumpTo(midX + dx, midY + dy);
+    const after = painter.paint(theme).rail;
+    const seen = [after.left + after.wide / 2 - midX, after.top + after.deep / 2 - midY];
+    assert.ok(
+      Math.abs(seen[0] - dx) < 4 && Math.abs(seen[1] - dy) < 4,
+      `clicked ${dx},${dy} from the middle and the window went to ${seen[0].toFixed(1)},${seen[1].toFixed(1)}`
+    );
+  }
+});
+
+check("the dial knows what belongs to it, and a narrow canvas gets none", () => {
+  const placed = balanced(12);
+  const roomy = canvasModule.make(fakeCanvas(WIDE, 800));
+  roomy.load(placed);
+  roomy.shape(true);
+  const spot = roomy.paint(theme).rail;
+  assert.ok(roomy.onMap(spot.x0 + 4, spot.y0 + 4), "a point on the dial was not claimed");
+  assert.ok(!roomy.onMap(spot.x0 - 4, spot.y0 - 4), "a point on the disc was claimed by the dial");
+  assert.ok(!roomy.onMap(WIDE / 2, 400), "the middle of the disc was claimed by the dial");
+
+  const tight = canvasModule.make(fakeCanvas(NARROW, 800));
+  tight.load(placed);
+  tight.shape(true);
+  assert.ok(!tight.paint(theme).rail, "a phone width canvas was given a dial");
+  assert.ok(!tight.onMap(NARROW - 4, 796), "the dial claims points on a canvas that has none");
 });
 
 process.exit(failures ? 1 : 0);
