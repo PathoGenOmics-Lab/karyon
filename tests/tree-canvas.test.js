@@ -675,6 +675,27 @@ check("a wheel cannot take the window off the drawing", () => {
   assert.ok(seen > 0, "the drawing ended up entirely behind the window");
 });
 
+check("a wheel into a gap between branches does not empty the canvas either", () => {
+  // The corners of a rootless drawing are the gaps between its spokes, so a
+  // window can sit squarely on the drawing and hold none of it. Checking the
+  // outline is not enough there; what the last paint drew has to be asked.
+  for (const [ax, ay] of [[WIDE * 0.9, 80], [WIDE * 0.1, 720]]) {
+    const { painter } = rootlessPainter(600);
+    painter.paint(theme);
+    for (let n = 0; n < 30; n++) {
+      painter.zoomAt(ax, ay, NOTCH);
+      // What a reader does: turn, look, and if there is nothing there step
+      // back. The page does the same in `repaint`.
+      let drawn = painter.paint(theme).drawn;
+      if (!drawn && painter.stepBack()) drawn = painter.paint(theme).drawn;
+      assert.ok(
+        drawn > 0,
+        `zooming at ${Math.round(ax)},${ay} emptied the canvas after ${n + 1} notches`
+      );
+    }
+  }
+});
+
 check("the rows a rootless view holds are its tips and not its coordinates", () => {
   const { painter, placed } = rootlessPainter(600);
   painter.paint(theme);
