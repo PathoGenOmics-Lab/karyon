@@ -33,7 +33,8 @@ use super::Tree;
 ///
 /// A bare `A123T` is a nucleotide change and has no gene. `S:D614G` is an amino
 /// acid change in a named gene. Both spellings are in use, sometimes in the
-/// same file, and both round-trip through [`Mutation::to_string`].
+/// same file, and both round-trip through the [`Display`][std::fmt::Display]
+/// rendering.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Mutation {
     /// The gene or segment, where the spelling names one.
