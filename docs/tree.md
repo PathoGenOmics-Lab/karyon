@@ -58,7 +58,8 @@ hide:
     says where you are: a rail down the right in the rectangular view, a dial in the corner in the circular one,
     with the part you are looking at marked on it. Clicking or dragging there goes straight to that part.
     Circular is the same tree in polar coordinates, with depth becoming radius and row becoming angle, so
-    switching never asks the program for anything. The layout is worked out once by
+    switching to it never asks the program for anything. Unrooted is a different walk with no root and no rows
+    at all, so that one is worked out again and then never again. The layout is worked out once by
     the program and never again: what moves is the window onto it, so a gesture costs a repaint of what is on
     screen and never a walk over the tree. Export hands the view back to the program and saves karyon's own
     figure of it.</p>

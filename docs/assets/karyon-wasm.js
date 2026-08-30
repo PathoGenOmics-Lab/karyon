@@ -457,7 +457,7 @@ self.karyon = (function () {
   //
   // The shape of the buffer is written down in playground/src/lib.rs, beside
   // the code that fills it.
-  function positions(name, body, cladogram) {
+  function positions(name, body, cladogram, rootless) {
     if (!wasm) return { ok: false, body: "the program has not arrived" };
     var parts = [];
     var total = 0;
@@ -476,6 +476,7 @@ self.karyon = (function () {
     str(name);
     str(body);
     u32(cladogram ? 1 : 0);
+    u32(rootless ? 1 : 0);
     var input = new Uint8Array(total);
     var at = 0;
     parts.forEach(function (part) {
@@ -517,8 +518,27 @@ self.karyon = (function () {
     var blobAt = base + count * 20;
     var blob = view.getUint32(blobAt - out, true);
     var names = new Uint8Array(wasm.memory.buffer.slice(blobAt + 4, blobAt + 4 + blob));
-    wasm.dealloc(out, 5 + count * 20 + 4 + blob);
-    return { ok: true, count: count, x: x, y: y, parent: parent, start: start, length: length, names: names };
+    // The order to read the terminals in, which only the rootless layout sends:
+    // it has no rows for the page to sort by, so if this does not come over the
+    // wire the page has no way to work it out.
+    var tipsAt = blobAt + 4 + blob;
+    var tips = view.getUint32(tipsAt - out, true);
+    var order = tips
+      ? new Uint32Array(wasm.memory.buffer.slice(tipsAt + 4, tipsAt + 4 + tips * 4))
+      : new Uint32Array(0);
+    wasm.dealloc(out, 5 + count * 20 + 4 + blob + 4 + tips * 4);
+    return {
+      ok: true,
+      count: count,
+      x: x,
+      y: y,
+      parent: parent,
+      start: start,
+      length: length,
+      names: names,
+      order: order,
+      rootless: !!rootless,
+    };
   }
 
   return {

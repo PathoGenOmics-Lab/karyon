@@ -28,6 +28,15 @@
   var worker = null;
   var asked = 0;
   var cladogram = false;
+  // Which of the three the reader has asked for. The first two are the same
+  // layout read two ways; the third is a different walk, so asking for it
+  // means asking the program again.
+  var projection = "rows";
+  var PROJECTIONS = [
+    { key: "rows", label: "Rectangular" },
+    { key: "disc", label: "Circular" },
+    { key: "spread", label: "Unrooted" },
+  ];
   var pending = null;
 
   // ------------------------------------------------------------- the program
@@ -75,6 +84,9 @@
         return;
       }
       painter.load(message);
+      // The rootless walk arrives as its own layout, so which projection the
+      // page is looking through is settled by which one came back.
+      painter.shape(projection);
       el.drop.hidden = true;
       el.app.hidden = false;
       el.error.hidden = true;
@@ -146,8 +158,12 @@
     var at = painter && painter.looking();
     var argv = ["tree:1-1", "--tree", tree.name];
     if (cladogram) argv = argv.concat(["--shape", "cladogram"]);
-    if (painter && painter.isRound()) argv = argv.concat(["--projection", "circular"]);
-    if (at && at.first && at.last && at.first !== at.last) {
+    if (projection === "disc") argv = argv.concat(["--projection", "circular"]);
+    if (projection === "spread") argv = argv.concat(["--projection", "unrooted"]);
+    // The rootless view holds the whole tree however far it is zoomed: there
+    // are no rows to have some of. Asking for a subtree there would hand back
+    // a figure of something else.
+    if (projection !== "spread" && at && at.first && at.last && at.first !== at.last) {
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
     argv = argv.concat(["--max-rows", String(Math.max(8, Math.min(2000, at ? at.rows : 60)))]);
@@ -216,7 +232,9 @@
           // On the rail a wheel does what it does to a scrollbar. On the dial
           // there is nothing to scroll, so it zooms the view it stands for,
           // about the middle of that view rather than about the dial.
-          if (painter.isRound()) painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          if (painter.shapeNow() !== "rows") {
+            painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          }
           else painter.panBy(0, -step);
         } else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
         repaint();
@@ -262,8 +280,9 @@
       if (painter.loaded()) {
         var over = at(event);
         var onMap = painter.onMap(over.x, over.y);
-        el.plot.classList.toggle("tv-onrail", onMap && !painter.isRound());
-        el.plot.classList.toggle("tv-ondial", onMap && painter.isRound());
+        var rows = painter.shapeNow() === "rows";
+        el.plot.classList.toggle("tv-onrail", onMap && rows);
+        el.plot.classList.toggle("tv-ondial", onMap && !rows);
       }
     });
 
@@ -342,7 +361,14 @@
     if (!tree.body) return;
     asked += 1;
     working(true);
-    send({ kind: "layout", id: asked, name: tree.name, body: tree.body, cladogram: cladogram });
+    send({
+      kind: "layout",
+      id: asked,
+      name: tree.name,
+      body: tree.body,
+      cladogram: cladogram,
+      rootless: projection === "spread",
+    });
   }
 
   // ------------------------------------------------------------- examples
@@ -401,13 +427,24 @@
     });
 
     el.round.addEventListener("click", function () {
-      // The layout does not change: the same rows and depths become angles and
-      // radii, so this never asks the program for anything.
-      var now = painter.shape(!painter.isRound());
-      el.round.setAttribute("aria-pressed", String(now));
-      el.round.textContent = now ? "Circular" : "Rectangular";
-      repaint();
-      say();
+      var at = 0;
+      for (var i = 0; i < PROJECTIONS.length; i++) {
+        if (PROJECTIONS[i].key === projection) at = i;
+      }
+      var next = PROJECTIONS[(at + 1) % PROJECTIONS.length];
+      var wasRootless = projection === "spread";
+      projection = next.key;
+      el.round.setAttribute("aria-pressed", String(projection !== "rows"));
+      el.round.textContent = next.label;
+      // Rectangular and circular are the same rows and depths read two ways, so
+      // one is a repaint. The rootless walk is a different walk and the program
+      // has to do it, so going in or out of it costs a round trip.
+      if (wasRootless || projection === "spread") relayout();
+      else {
+        painter.shape(projection);
+        repaint();
+        say();
+      }
     });
 
     el.shape.addEventListener("click", function () {

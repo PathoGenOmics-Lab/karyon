@@ -247,7 +247,10 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
         }
     }
 
-    let mut out = Vec::with_capacity(1 + 4 + count * 20 + 4 + names.len());
+    // Exactly the room the answer takes, because the caller frees it by that
+    // size: a Vec that had to grow would hand back a capacity the free does not
+    // match, and freeing a block by the wrong size traps the whole module.
+    let mut out = Vec::with_capacity(1 + 4 + count * 20 + 4 + names.len() + 4 + order.len() * 4);
     out.push(1u8);
     out.extend_from_slice(&(count as u32).to_le_bytes());
     for value in &x {
@@ -271,6 +274,11 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     for value in &order {
         out.extend_from_slice(&value.to_le_bytes());
     }
+    debug_assert_eq!(
+        out.len(),
+        out.capacity(),
+        "the answer is freed by its length"
+    );
     Ok(out)
 }
 

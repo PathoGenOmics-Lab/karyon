@@ -381,7 +381,7 @@ check("the disc puts a node where the crate would", () => {
   const canvas = fakeCanvas(WIDE, 800);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
-  painter.shape(true);
+  painter.shape("disc");
   painter.paint(theme);
 
   let lowY = Infinity, highY = -Infinity, lowX = Infinity, highX = -Infinity;
@@ -413,7 +413,7 @@ check("and the check bites: the disc is not the rectangle in disguise", () => {
   const painter = canvasModule.make(canvas);
   painter.load(placed);
   const flat = painter.where(3);
-  painter.shape(true);
+  painter.shape("disc");
   painter.paint(theme);
   const bent = painter.where(3);
   assert.ok(
@@ -428,9 +428,9 @@ check("switching projection asks the program for nothing", () => {
   const painter = canvasModule.make(canvas);
   painter.load(placed);
   const before = { x: placed.x.slice(), y: placed.y.slice(), parent: placed.parent.slice() };
-  painter.shape(true);
+  painter.shape("disc");
   painter.paint(theme);
-  painter.shape(false);
+  painter.shape("rows");
   painter.paint(theme);
   // The layout is the same rows and depths whichever way it is drawn, so
   // nothing here may have touched them.
@@ -444,7 +444,7 @@ check("the walk gives up at the edge of the canvas", () => {
   const canvas = fakeCanvas(WIDE, 800);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
-  painter.shape(true);
+  painter.shape("disc");
   const whole = painter.paint(theme).drawn;
   // In on the rim, where the middle of the disc that every walk heads for is
   // off the canvas.
@@ -459,7 +459,7 @@ check("and the check bites: without the edge the walk reaches the middle", () =>
   const canvas = fakeCanvas(WIDE, 800);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
-  painter.shape(true);
+  painter.shape("disc");
   painter.paint(theme);
   for (let i = 0; i < 12; i++) painter.zoomAt(WIDE / 2 + 200, 400, 1.35);
   painter.paint(theme);
@@ -483,7 +483,7 @@ check("the dial is the whole disc, and it does not follow the zoom", () => {
   const canvas = fakeCanvas(WIDE, 800);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
-  painter.shape(true);
+  painter.shape("disc");
   const wide = painter.paint(theme).rail;
   assert.ok(wide, "no dial on a canvas with room for one");
   for (let i = 0; i < 20; i++) painter.zoomAt(WIDE / 2, 400, 1.3);
@@ -498,7 +498,7 @@ check("a click on the dial goes to that part of the disc", () => {
   const canvas = fakeCanvas(WIDE, 800);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
-  painter.shape(true);
+  painter.shape("disc");
   painter.paint(theme);
   for (let i = 0; i < 14; i++) painter.zoomAt(WIDE / 2, 400, 1.3);
   const spot = painter.paint(theme).rail;
@@ -518,7 +518,7 @@ check("the dial knows what belongs to it, and a narrow canvas gets none", () => 
   const placed = balanced(12);
   const roomy = canvasModule.make(fakeCanvas(WIDE, 800));
   roomy.load(placed);
-  roomy.shape(true);
+  roomy.shape("disc");
   const spot = roomy.paint(theme).rail;
   assert.ok(roomy.onMap(spot.x0 + 4, spot.y0 + 4), "a point on the dial was not claimed");
   assert.ok(!roomy.onMap(spot.x0 - 4, spot.y0 - 4), "a point on the disc was claimed by the dial");
@@ -526,9 +526,160 @@ check("the dial knows what belongs to it, and a narrow canvas gets none", () => 
 
   const tight = canvasModule.make(fakeCanvas(NARROW, 800));
   tight.load(placed);
-  tight.shape(true);
+  tight.shape("disc");
   assert.ok(!tight.paint(theme).rail, "a phone width canvas was given a dial");
   assert.ok(!tight.onMap(NARROW - 4, 796), "the dial claims points on a canvas that has none");
+});
+
+// --------------------------------------------------------------- rootless
+
+// A layout with no root, in the shape the wire delivers one: positions in a
+// plane, what each branch hangs from once the tree is re-rooted at its middle,
+// and the order the terminals come round it. Two rings of tips off a middle,
+// so it has structure rather than being a wheel of spokes.
+function spread(spokes) {
+  const count = 1 + spokes * 2;
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  const parent = new Uint32Array(count);
+  parent[0] = 0xffffffff;
+  const order = new Uint32Array(spokes);
+  for (let i = 0; i < spokes; i++) {
+    const inner = 1 + i * 2;
+    const tip = inner + 1;
+    const turn = (Math.PI * 2 * i) / spokes;
+    x[inner] = Math.cos(turn) * (0.4 + (i % 3) * 0.05);
+    y[inner] = Math.sin(turn) * (0.4 + (i % 3) * 0.05);
+    x[tip] = Math.cos(turn) * (1 + (i % 5) * 0.1);
+    y[tip] = Math.sin(turn) * (1 + (i % 5) * 0.1);
+    parent[inner] = 0;
+    parent[tip] = inner;
+    order[i] = tip;
+  }
+  return {
+    count, x, y, parent, order,
+    start: new Uint32Array(count),
+    length: new Uint32Array(count),
+    names: new Uint8Array(0),
+  };
+}
+
+function rootlessPainter(spokes, wide, tall) {
+  const placed = spread(spokes || 600);
+  const canvas = fakeCanvas(wide || WIDE, tall || 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  return { painter, placed, canvas };
+}
+
+check("a rootless layout comes up rootless, and stays that way", () => {
+  const { painter } = rootlessPainter();
+  assert.ok(painter.rootless(), "the layout was not recognised as rootless");
+  assert.strictEqual(painter.shapeNow(), "spread", "it did not open in the projection it is for");
+  // The other two read rows and depths, which this layout does not have.
+  assert.strictEqual(painter.shape("rows"), "spread", "it agreed to be drawn as rows");
+  assert.strictEqual(painter.shape("disc"), "spread", "it agreed to be drawn as a disc");
+});
+
+check("and the check bites: a rooted layout refuses the rootless projection", () => {
+  const placed = balanced(10);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  assert.ok(!painter.rootless());
+  assert.strictEqual(painter.shape("spread"), "rows", "rows agreed to be drawn without a root");
+  assert.strictEqual(painter.shape("disc"), "disc", "and the one it can do was refused");
+});
+
+check("the drawing is the layout to scale, and not squashed", () => {
+  const { painter, placed } = rootlessPainter();
+  painter.paint(theme);
+  // A projection with no root is a similarity: every distance on the canvas is
+  // the distance in the layout times one number, the same number in both
+  // directions. Anything else has bent the tree.
+  const pairs = [[0, 2], [2, 4], [4, 200], [200, 601], [1, 999], [3, 1199]];
+  const ratios = [];
+  for (const [a, b] of pairs) {
+    const here = painter.where(a), there = painter.where(b);
+    const drawn = Math.hypot(here.x - there.x, here.y - there.y);
+    const laid = Math.hypot(placed.x[a] - placed.x[b], placed.y[a] - placed.y[b]);
+    if (laid < 1e-9) continue;
+    ratios.push(drawn / laid);
+  }
+  assert.ok(ratios.length >= 5, "not enough pairs to say anything");
+  const low = Math.min(...ratios), high = Math.max(...ratios);
+  assert.ok(
+    (high - low) / high < 1e-6,
+    `the same distance came out ${low.toFixed(3)} to ${high.toFixed(3)} times its size`
+  );
+});
+
+check("and the check bites: one axis at a different scale fails it", () => {
+  const { painter, placed } = rootlessPainter();
+  painter.paint(theme);
+  const a = painter.where(2), b = painter.where(2 + Math.floor(600 / 4) * 2);
+  // Two tips a quarter of the way round from each other are mostly apart in
+  // different directions, so a squashed drawing would show up between them.
+  assert.ok(Math.abs(a.x - b.x) > 1 && Math.abs(a.y - b.y) > 1, "these two do not test both axes");
+});
+
+check("the dial holds the whole tree, and the window shrinks into it", () => {
+  const { painter } = rootlessPainter();
+  const wide = painter.paint(theme).rail;
+  assert.ok(wide, "no dial on a canvas with room for one");
+  for (let i = 0; i < 16; i++) painter.zoomAt(WIDE / 2, 400, 1.3);
+  const close = painter.paint(theme).rail;
+  assert.strictEqual(close.drawn, wide.drawn, "the dial changed with the zoom");
+  assert.ok(close.wide < wide.wide && close.deep < wide.deep, "the window did not shrink");
+  assert.ok(close.wide >= 4 && close.deep >= 4, "the window is too small to catch");
+});
+
+check("nothing is drawn that could not cross the canvas", () => {
+  const { painter, placed } = rootlessPainter();
+  painter.paint(theme);
+  for (let i = 0; i < 10; i++) painter.zoomAt(WIDE / 2 + 260, 300, 1.3);
+  painter.paint(theme);
+  const seen = painter.shown();
+  const code = (q) => {
+    let out = 0;
+    if (q.x < -24) out |= 1;
+    if (q.x > WIDE + 24) out |= 2;
+    if (q.y < -24) out |= 4;
+    if (q.y > 824) out |= 8;
+    return out;
+  };
+  let impossible = 0;
+  for (let i = 0; i < seen.count; i++) {
+    if (code(painter.where(seen.child[i])) & code(painter.where(seen.up[i]))) impossible += 1;
+  }
+  assert.strictEqual(impossible, 0, `${impossible} of ${seen.count} branches cannot reach the canvas`);
+  assert.ok(seen.count > 0, "nothing was drawn at all");
+});
+
+check("and the check bites: the whole tree has branches that cannot reach it", () => {
+  const { painter } = rootlessPainter();
+  painter.paint(theme);
+  for (let i = 0; i < 10; i++) painter.zoomAt(WIDE / 2 + 260, 300, 1.3);
+  painter.paint(theme);
+  const code = (q) => {
+    let out = 0;
+    if (q.x < -24) out |= 1;
+    if (q.x > WIDE + 24) out |= 2;
+    if (q.y < -24) out |= 4;
+    if (q.y > 824) out |= 8;
+    return out;
+  };
+  // Over the whole tree, plenty of branches are off one side together. If the
+  // count above were zero for that reason rather than because they were
+  // dropped, this would be zero too.
+  let offscreen = 0;
+  const placed = spread(600);
+  for (let node = 1; node < placed.count; node++) {
+    const over = placed.parent[node];
+    if (over === 0xffffffff) continue;
+    if (code(painter.where(node)) & code(painter.where(over))) offscreen += 1;
+  }
+  assert.ok(offscreen > 100, `only ${offscreen} branches are off one side of the canvas together`);
 });
 
 process.exit(failures ? 1 : 0);
