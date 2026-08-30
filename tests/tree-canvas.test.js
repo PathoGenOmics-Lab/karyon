@@ -13,13 +13,15 @@ const assert = require("assert");
 function fakeCanvas(wide, tall) {
   const strokes = [];
   const rects = [];
+  const texts = [];
   const ctx = {
     setTransform() {}, clearRect() {}, beginPath() {}, stroke() {},
     moveTo(x, y) { strokes.push(["move", x, y, ctx.strokeStyle]); },
     lineTo(x, y) { strokes.push(["line", x, y, ctx.strokeStyle]); },
     fillRect(x, y, w, h) { rects.push({ kind: "fill", x, y, w, h, paint: ctx.fillStyle }); },
     strokeRect(x, y, w, h) { rects.push({ kind: "stroke", x, y, w, h, paint: ctx.strokeStyle }); },
-    fillText() {},
+    fillText(t, x, y) { texts.push({ t, x, y }); },
+    measureText(t) { return { width: t.length * 6 }; },
     strokeStyle: "", fillStyle: "", lineWidth: 1, font: "", textBaseline: "",
   };
   return {
@@ -27,6 +29,7 @@ function fakeCanvas(wide, tall) {
     getContext: () => ctx,
     strokes,
     rects,
+    texts,
   };
 }
 
@@ -134,17 +137,24 @@ check("what is drawn hangs together, at every zoom", () => {
   for (const tall of [200, 800, 801, 1600]) {
     const { painter, report } = drawnSet(placed, tall);
     assert.ok(report.drawn > 0, `nothing drawn at ${tall} px`);
-    // Ask the painter what it put on the canvas by walking the same selection:
-    // every stroke pair is a branch, and the branch's own parent must be there.
+    // Every branch on screen hangs from a branch on screen, or from the root.
+    // A parent stepped over by the pixel test is not drawn as a branch of its
+    // own, so what has to be there is the end the branch was redirected to.
     const shown = painter.shown();
-    const on = new Set(shown);
+    const ends = new Set();
+    for (let i = 0; i < shown.count; i++) ends.add(shown.child[i]);
     let loose = 0;
-    for (const node of shown) {
-      if (placed.parent[node] === 0xffffffff) continue;
-      if (!on.has(placed.parent[node])) loose += 1;
+    for (let i = 0; i < shown.count; i++) {
+      const over = shown.up[i];
+      if (placed.parent[over] === 0xffffffff) continue;
+      if (!ends.has(over)) loose += 1;
     }
-    assert.strictEqual(loose, 0, `${loose} of ${shown.length} branches hang from nothing at ${tall} px`);
-    assert.ok(on.has(0), `the root is not drawn at ${tall} px`);
+    assert.strictEqual(loose, 0, `${loose} of ${shown.count} branches hang from nothing at ${tall} px`);
+    let root = false;
+    for (let i = 0; i < shown.count; i++) {
+      if (placed.parent[shown.up[i]] === 0xffffffff) root = true;
+    }
+    assert.ok(root, `nothing reaches the root at ${tall} px`);
   }
 });
 
@@ -171,13 +181,74 @@ check("the depth window holds the root and the deepest tip on screen", () => {
   const { painter } = drawnSet(placed, 800);
   const shown = painter.shown();
   let low = Infinity, high = -Infinity;
-  for (const node of shown) {
-    if (placed.x[node] < low) low = placed.x[node];
-    if (placed.x[node] > high) high = placed.x[node];
+  for (let i = 0; i < shown.count; i++) {
+    for (const node of [shown.child[i], shown.up[i]]) {
+      if (placed.x[node] < low) low = placed.x[node];
+      if (placed.x[node] > high) high = placed.x[node];
+    }
   }
   const window = painter.depth();
   assert.ok(window.x0 <= low + 1e-6, "the root is off the left edge");
   assert.ok(window.x1 >= high - 1e-6, "the deepest tip on screen is off the right edge");
+});
+
+// A ladder is the shape that used to make the walk to the root cost the whole
+// tree on every frame, so it is the shape the bound is checked on.
+function ladder(tips) {
+  const count = 2 * tips - 1;
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  const parent = new Uint32Array(count);
+  parent[0] = 0xffffffff;
+  // Node 0 is the root. Each internal node i has a tip and the next internal.
+  let spine = 0;
+  let row = 0;
+  for (let i = 1; i < count; i += 2) {
+    const tip = i, next = i + 1;
+    parent[tip] = spine;
+    x[tip] = x[spine] + 0.01;
+    y[tip] = row++;
+    if (next < count) {
+      parent[next] = spine;
+      x[next] = x[spine] + 0.005;
+      spine = next;
+    }
+  }
+  // The spine sits on the mean of what hangs below it, which for a ladder is
+  // near enough the middle of the rows still to come.
+  for (let i = count - 1; i >= 0; i--) if (!y[i] && i) y[i] = row / 2;
+  return { count, x, y, parent, start: new Uint32Array(count), length: new Uint32Array(count), names: new Uint8Array(0) };
+}
+
+check("a ladder cannot make one frame walk the whole tree", () => {
+  const placed = ladder(60000); // 119,999 nodes on one spine
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(
+    report.drawn < 20000,
+    `a ladder of ${placed.count} nodes drew ${report.drawn} branches in one frame`
+  );
+  for (let i = 0; i < 40; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  assert.ok(
+    close.drawn < 20000,
+    `zoomed in on a ladder it still drew ${close.drawn} branches`
+  );
+});
+
+check("and the check bites: without the pixel step a ladder walks all of it", () => {
+  const placed = ladder(60000);
+  // What the walk would cost with no step over ancestors that share a pixel:
+  // every tip hangs off the spine, so one walk is half the tree.
+  const byRow = Uint32Array.from(
+    Array.from({ length: placed.count }, (_, i) => i).sort((a, b) => placed.y[a] - placed.y[b])
+  );
+  const seen = new Uint8Array(placed.count);
+  let reached = 0;
+  for (let at = 0; at < placed.count; at += Math.ceil(placed.count / 800)) {
+    let walk = byRow[at];
+    while (walk !== 0xffffffff && !seen[walk]) { seen[walk] = 1; reached += 1; walk = placed.parent[walk]; }
+  }
+  assert.ok(reached > 50000, `expected the bare walk to reach most of the tree, it reached ${reached}`);
 });
 
 // ----------------------------------------------------------------- the rail

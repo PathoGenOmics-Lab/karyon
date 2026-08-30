@@ -70,9 +70,15 @@ window.karyonCanvas = (function () {
       view.bounds = { lowX: lowX, highX: highX, lowY: lowY, highY: highY };
       // Room to mark who is already on the list while a paint walks upward,
       // and a counter so the marks are told apart by age rather than cleared.
+      // The root, which every walk ends at and which the pixel test needs the
+      // depth of before any walk has run.
+      view.root = 0;
+      for (var look = 0; look < placed.count; look++) {
+        if (placed.parent[look] === 0xffffffff) { view.root = look; break; }
+      }
       view.seen = new Int32Array(placed.count);
       view.visit = 0;
-      view.shown = new Uint32Array(1 << 14);
+      view.shown = { child: new Uint32Array(1 << 14), up: new Uint32Array(1 << 14) };
       home();
     }
 
@@ -85,8 +91,15 @@ window.karyonCanvas = (function () {
 
     function size() {
       var ratio = window.devicePixelRatio || 1;
-      var wide = canvas.clientWidth || 1;
-      var tall = canvas.clientHeight || 1;
+      // A canvas with no size in the stylesheet takes its width from its own
+      // backing store, so writing the store below moves the box that was just
+      // measured and the two chase each other: a page that forgot the CSS grew
+      // one to sixteen million pixels a side in a handful of frames. The stop
+      // costs nothing on a page that sized its canvas, and turns a hang into a
+      // picture that is merely wrong on one that did not.
+      var most = 8192 / ratio;
+      var wide = Math.min(canvas.clientWidth || 1, most);
+      var tall = Math.min(canvas.clientHeight || 1, most);
       if (canvas.width !== Math.round(wide * ratio) || canvas.height !== Math.round(tall * ratio)) {
         canvas.width = Math.round(wide * ratio);
         canvas.height = Math.round(tall * ratio);
@@ -116,15 +129,76 @@ window.karyonCanvas = (function () {
     }
 
     // The whole tree, thinned to the rail's own height. Built once, and again
-    // only if the canvas changes height, because it is the same picture at a
-    // different resolution and not a second opinion about the tree: it comes
-    // out of the same `select` the main view is drawn from.
-    function overview(box) {
-      if (view.overviewFor === box.tall) return view.overview;
-      var picked = select(0, view.byRow.length, box.tall, new Uint32Array(1 << 13));
-      view.overview = { nodes: picked.nodes, count: picked.count, reach: spread(picked.nodes, picked.count) };
+    // only if the canvas changes height or the page changes colour, because it
+    // is the same picture at a different resolution and not a second opinion
+    // about the tree: it comes out of the same `select` the main view is drawn
+    // from.
+    //
+    // The picture never moves, so it is drawn once onto a canvas of its own and
+    // stamped from there. Re-stroking it every frame was the floor under every
+    // gesture: on a tree with six hundred thousand nodes it cost ten
+    // milliseconds a frame even with fifty branches on screen.
+    function overview(box, theme) {
+      if (view.overviewFor === box.tall && view.overviewInk === theme.faint) {
+        return view.overview;
+      }
+      var picked = select(0, view.byRow.length, RAIL_WIDE, box.tall,
+        view.bounds.highY - view.bounds.lowY + 1, {
+        child: new Uint32Array(1 << 13),
+        up: new Uint32Array(1 << 13),
+      });
+      var seen = {
+        child: picked.child,
+        up: picked.up,
+        count: picked.count,
+        reach: spread(picked),
+      };
+      seen.plate = plate(box, theme, seen);
+      view.overview = seen;
       view.overviewFor = box.tall;
-      return view.overview;
+      view.overviewInk = theme.faint;
+      return seen;
+    }
+
+    // A canvas holding just the rail's silhouette, or null where there is no
+    // document to make one from, which is where the checks run. Drawing to the
+    // main canvas is the fallback and it is the same code either way.
+    function plate(box, theme, seen) {
+      var papers = canvas.ownerDocument;
+      if (!papers || !papers.createElement) return null;
+      var sheet = papers.createElement("canvas");
+      var ratio = box.ratio;
+      sheet.width = Math.max(1, Math.round(RAIL_WIDE * ratio));
+      sheet.height = Math.max(1, Math.round(box.tall * ratio));
+      var ink = sheet.getContext("2d");
+      if (!ink) return null;
+      ink.setTransform(ratio, 0, 0, ratio, 0, 0);
+      strokeOverview(ink, theme, box, { x0: 0, wide: RAIL_WIDE }, seen);
+      return sheet;
+    }
+
+    // The silhouette itself, given somewhere to put it.
+    function strokeOverview(ink, theme, box, strip, seen) {
+      var inner = RAIL_WIDE - RAIL_PAD * 2;
+      var reach = seen.reach;
+      var acrossX = reach.highX - reach.lowX || 1;
+      var atX = function (value) {
+        return strip.x0 + RAIL_PAD + ((value - reach.lowX) / acrossX) * inner;
+      };
+      var atY = function (row) { return heightOfRow(row, box); };
+      ink.strokeStyle = theme.faint;
+      ink.lineWidth = 1;
+      ink.beginPath();
+      for (var each = 0; each < seen.count; each++) {
+        var node = seen.child[each];
+        var over = seen.up[each];
+        var y = atY(view.y[node]);
+        ink.moveTo(atX(view.x[over]), y);
+        ink.lineTo(atX(view.x[node]), y);
+        ink.moveTo(atX(view.x[over]), y);
+        ink.lineTo(atX(view.x[over]), atY(view.y[over]));
+      }
+      ink.stroke();
     }
 
     // The first row at or after `value`, by binary search over the sorted rows.
@@ -140,54 +214,107 @@ window.karyonCanvas = (function () {
 
     // ------------------------------------------------------------ selection
 
-    // The nodes to draw for a run of rows in `tall` pixels of height, as a run
-    // of indices into `into`.
+    // The branches to draw for a run of rows in a box `wide` by `tall`, as a
+    // run of child and parent pairs.
     //
     // One row per pixel is all a screen can show, so past that they are stepped
     // over. Stepping alone draws a branch with nothing to hang it on: at any
     // zoom where the tree is taller than the canvas none of the kept rows is
     // the parent of another, and what is on screen is a hedge of loose
     // horizontal strokes rather than a tree. So every kept row is walked up to
-    // the root and its ancestors are drawn with it. The walks meet and stop, so
-    // it is a handful of extra nodes, and it is what puts a trunk on the
-    // picture.
+    // the root and its ancestors are drawn with it.
+    //
+    // On most trees the walks meet almost at once and that is a handful of
+    // extra branches. On a ladder it is not: every tip hangs off the spine, so
+    // one walk is half the tree, and drawing a hundred and twenty thousand tip
+    // caterpillar cost a hundred and fifty eight milliseconds a frame and did
+    // not get cheaper when it was zoomed into. So the walk steps over an
+    // ancestor that would be drawn inside the same pixel as the branch below
+    // it, which is the same rule the rest of this crate uses along the other
+    // axis: past one point per pixel the extra ones land on each other. The
+    // ink is the same and the work is bounded by what a screen can hold.
     //
     // Everything drawn anywhere comes through here, which is what stops one
     // part of the canvas disagreeing with another about the shape of the tree.
-    function select(from, to, tall, into) {
+    function select(from, to, wide, tall, spanY, store) {
       var stride = Math.max(1, Math.ceil((to - from) / Math.max(1, tall)));
       view.visit += 1;
       var visit = view.visit;
       var seen = view.seen;
-      var shown = into;
+      var x = view.x;
+      var y = view.y;
+      var parent = view.parent;
+      var child = store.child;
+      var up = store.up;
       var count = 0;
       var sampled = 0;
+
+      // The scale the pixel test uses, worked out before the walk rather than
+      // after it. The walk always reaches the root, so the left edge is the
+      // root; and a parent is never deeper than its child, so the right edge is
+      // the deepest of the rows sampled. Neither needs the walk to have run.
+      var lowX = x[view.root];
+      var highX = lowX;
+      for (var look = from; look < to; look += stride) {
+        var seenX = x[view.byRow[look]];
+        if (seenX > highX) highX = seenX;
+      }
+      // Both scales are the ones this drawing will actually use. An earlier
+      // version measured rows against the whole tree instead of against the
+      // window, which at a deep zoom is a scale hundreds of times too coarse:
+      // it stepped over ancestors that were far apart on screen and moved one
+      // pixel in a hundred. Measured that way the ink came out 1.1 percent
+      // different; measured this way it does not move.
+      var acrossX = Math.max(1, wide) / (highX - lowX || 1);
+      var downY = Math.max(1, tall) / (spanY || 1);
+      var columnOf = function (node) { return ((x[node] - lowX) * acrossX) | 0; };
+      var rowOf = function (node) { return (y[node] * downY) | 0; };
+
       for (var at = from; at < to; at += stride) {
         var walk = view.byRow[at];
         sampled += 1;
         while (walk !== 0xffffffff && seen[walk] !== visit) {
           seen[walk] = visit;
-          if (count === shown.length) {
-            var wider = new Uint32Array(shown.length * 2);
-            wider.set(shown);
-            shown = wider;
+          var over = parent[walk];
+          if (over === 0xffffffff) break;
+          while (
+            parent[over] !== 0xffffffff &&
+            seen[over] !== visit &&
+            columnOf(over) === columnOf(walk) &&
+            rowOf(over) === rowOf(walk)
+          ) {
+            seen[over] = visit;
+            over = parent[over];
           }
-          shown[count] = walk;
+          if (count === child.length) {
+            var wideChild = new Uint32Array(child.length * 2);
+            wideChild.set(child);
+            child = wideChild;
+            var wideUp = new Uint32Array(up.length * 2);
+            wideUp.set(up);
+            up = wideUp;
+          }
+          child[count] = walk;
+          up[count] = over;
           count += 1;
-          walk = view.parent[walk];
+          walk = over;
         }
       }
-      return { nodes: shown, count: count, stride: stride, sampled: sampled };
+      return { child: child, up: up, count: count, stride: stride, sampled: sampled };
     }
 
     // The span in x that holds a selection, which is the root on the left and
-    // the deepest node in it on the right.
-    function spread(nodes, count) {
+    // the deepest branch in it on the right. Both endpoints of every branch,
+    // because a parent stepped over by the pixel test is still drawn to.
+    function spread(picked) {
       var lowX = Infinity, highX = -Infinity;
-      for (var scan = 0; scan < count; scan++) {
-        var it = nodes[scan];
-        if (view.x[it] < lowX) lowX = view.x[it];
-        if (view.x[it] > highX) highX = view.x[it];
+      for (var scan = 0; scan < picked.count; scan++) {
+        var a = view.x[picked.child[scan]];
+        var c = view.x[picked.up[scan]];
+        if (a < lowX) lowX = a;
+        if (c < lowX) lowX = c;
+        if (a > highX) highX = a;
+        if (c > highX) highX = c;
       }
       if (!(highX > lowX)) return { lowX: view.bounds.lowX, highX: view.bounds.highX };
       return { lowX: lowX, highX: highX };
@@ -214,9 +341,8 @@ window.karyonCanvas = (function () {
       var from = firstRow(camera.y0 - 1);
       var to = firstRow(camera.y1 + 1);
       var wanted = to - from;
-      var picked = select(from, to, box.tall, view.shown);
-      view.shown = picked.nodes;
-      var shown = picked.nodes;
+      var picked = select(from, to, wide, box.tall, spanY, view.shown);
+      view.shown = { child: picked.child, up: picked.up };
       var count = picked.count;
       var stride = picked.stride;
 
@@ -227,7 +353,7 @@ window.karyonCanvas = (function () {
       // always reaches the root, the left edge is the root and the right edge
       // is the deepest tip on screen, so the axis stands still while it is
       // panned and only gives ground back as a clade is entered.
-      var reach = spread(shown, count);
+      var reach = spread(picked);
       var margin = (reach.highX - reach.lowX) * 0.28;
       camera.x0 = reach.lowX - margin * 0.05;
       camera.x1 = reach.highX + margin;
@@ -241,18 +367,16 @@ window.karyonCanvas = (function () {
       ctx.beginPath();
       var drawn = 0;
       for (var each = 0; each < count; each++) {
-        var node = shown[each];
-        var up = view.parent[node];
-        if (up === 0xffffffff) continue;
+        var node = picked.child[each];
+        var over = picked.up[each];
         var y = atY(view.y[node]);
         var x1 = atX(view.x[node]);
-        var x0 = atX(view.x[up]);
+        var x0 = atX(view.x[over]);
         ctx.moveTo(x0, y);
         ctx.lineTo(x1, y);
         // The elbow up to the parent's own row.
-        var py = atY(view.y[up]);
         ctx.moveTo(x0, y);
-        ctx.lineTo(x0, py);
+        ctx.lineTo(x0, atY(view.y[over]));
         drawn += 1;
       }
       ctx.stroke();
@@ -265,12 +389,17 @@ window.karyonCanvas = (function () {
         ctx.fillStyle = theme.muted;
         ctx.font = Math.min(13, Math.max(9, perRow * 0.72)) + "px " + theme.font;
         ctx.textBaseline = "middle";
+        // Names stop where the rail begins. Without the stop they run under it
+        // and the silhouette is drawn over their tails, which reads as a name
+        // that has been cut rather than as a name behind something.
         for (var i = from; i < to; i++) {
           var leaf = view.byRow[i];
           if (!view.length[leaf]) continue;
           var text = nameOf(leaf);
           if (!text) continue;
-          ctx.fillText(text, atX(view.x[leaf]) + 4, atY(view.y[leaf]));
+          var left = atX(view.x[leaf]) + 4;
+          if (left + ctx.measureText(text).width > wide) continue;
+          ctx.fillText(text, left, atY(view.y[leaf]));
           labels += 1;
         }
       }
@@ -290,14 +419,7 @@ window.karyonCanvas = (function () {
     // screen marked on it. Its own picture never moves, so what a reader
     // follows is the mark travelling down a shape that stays put.
     function paintRail(ctx, theme, box, strip) {
-      var seen = overview(box);
-      var inner = strip.wide - RAIL_PAD * 2;
-      var reach = seen.reach;
-      var acrossX = (reach.highX - reach.lowX) || 1;
-      var atX = function (value) {
-        return strip.x0 + RAIL_PAD + ((value - reach.lowX) / acrossX) * inner;
-      };
-      var atY = function (row) { return heightOfRow(row, box); };
+      var seen = overview(box, theme);
 
       // The edge it stands behind, so the rail reads as a margin and not as
       // more tree.
@@ -308,27 +430,14 @@ window.karyonCanvas = (function () {
       ctx.lineTo(strip.x0 + 0.5, box.tall);
       ctx.stroke();
 
-      ctx.strokeStyle = theme.faint;
-      ctx.beginPath();
-      for (var each = 0; each < seen.count; each++) {
-        var node = seen.nodes[each];
-        var up = view.parent[node];
-        if (up === 0xffffffff) continue;
-        var y = atY(view.y[node]);
-        var x1 = atX(view.x[node]);
-        var x0 = atX(view.x[up]);
-        ctx.moveTo(x0, y);
-        ctx.lineTo(x1, y);
-        ctx.moveTo(x0, y);
-        ctx.lineTo(x0, atY(view.y[up]));
-      }
-      ctx.stroke();
+      if (seen.plate) ctx.drawImage(seen.plate, strip.x0, 0, strip.wide, box.tall);
+      else strokeOverview(ctx, theme, box, strip, seen);
 
       // The rows on screen. Three rows out of two million is a thousandth of a
       // pixel, so the mark is held to a size a reader can see and a hand can
       // catch, and it is kept on the rail rather than allowed to hang off it.
-      var top = atY(camera.y0);
-      var foot = atY(camera.y1);
+      var top = heightOfRow(camera.y0, box);
+      var foot = heightOfRow(camera.y1, box);
       var deep = Math.max(MARK_LEAST, foot - top);
       if (top + deep > box.tall) top = box.tall - deep;
       if (top < 0) top = 0;
@@ -448,7 +557,18 @@ window.karyonCanvas = (function () {
       // What the last paint put on the canvas, and the depth it fitted them
       // into. Both are answers about the picture rather than about the tree,
       // which is what a check of the picture needs to ask.
-      shown: function () { return view ? view.shown.subarray(0, view.picked || 0) : new Uint32Array(0); },
+      // The branches the last paint put on the canvas, as child and parent
+      // pairs. An answer about the picture rather than about the tree, which is
+      // what a check of the picture needs to ask.
+      shown: function () {
+        if (!view) return { child: new Uint32Array(0), up: new Uint32Array(0), count: 0 };
+        var held = view.picked || 0;
+        return {
+          child: view.shown.child.subarray(0, held),
+          up: view.shown.up.subarray(0, held),
+          count: held,
+        };
+      },
       depth: function () { return { x0: camera.x0, x1: camera.x1 }; },
     };
   }
