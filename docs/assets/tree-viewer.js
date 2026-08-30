@@ -201,6 +201,10 @@
     if (!painter || !painter.loaded()) return;
     readTheme();
     var report = painter.paint(theme);
+    // A wheel notch that lands on nothing is a wheel notch that went too far,
+    // and only the drawing knows: a window can sit squarely on the tree and
+    // still hold the gap between two branches. One step back, once.
+    if (!report.drawn && painter.stepBack()) report = painter.paint(theme);
     var at = painter.looking();
     // How many rows are on screen, and not how many nodes fall inside them: a
     // parent sits on a row of its own between its children, so counting nodes

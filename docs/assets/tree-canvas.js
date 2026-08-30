@@ -473,6 +473,7 @@ window.karyonCanvas = (function () {
     var DISC_HOLE = 0.08;
 
     function terminals() {
+      if (view.rootless) return Math.max(1, view.byRow.length);
       var b = view.bounds;
       return Math.max(1, b.highY - b.lowY + 1);
     }
@@ -1057,14 +1058,60 @@ window.karyonCanvas = (function () {
         var seat = discBox(box);
         var atX = disc.cx + (px - seat.midX) / seat.scale;
         var atY = disc.cy + (py - seat.midY) / seat.scale;
+        // A map keeps whatever is under the hand under the hand. The middle of
+        // a disc is a hole with nothing in it, and it is exactly where a hand
+        // rests when the whole circle is on screen, so a wheel there converged
+        // on emptiness. Where there is nothing to hold on to, hold on to the
+        // nearest thing there is, which is the ring the root sits on.
+        if (mode === "disc") {
+          var out = Math.sqrt(atX * atX + atY * atY);
+          if (out < DISC_HOLE) {
+            if (out > 1e-9) {
+              atX = (atX / out) * DISC_HOLE;
+              atY = (atY / out) * DISC_HOLE;
+            } else {
+              // Dead on the middle there is no direction to push out along, so
+              // it goes to where the root sits. Any other bearing is a guess,
+              // and on a tree whose root is round the other side it is a guess
+              // at a piece of the ring with nothing on it.
+              var facing = angleOf(view.y[view.root]);
+              atX = Math.cos(facing) * DISC_HOLE;
+              atY = Math.sin(facing) * DISC_HOLE;
+            }
+          }
+        }
+        // The same two stops the rows have, read in the other geometry. Out as
+        // far as the whole drawing and half again, and in as far as three tips
+        // of rim, which is the circular reading of the three rows a run of them
+        // stops at. Without the second one the wheel went on going in for ever,
+        // long past anything being left to see.
         var half = disc.half / factor;
-        if (half > 1.4) half = 1.4;
-        if (half < 1e-5) half = 1e-5;
+        var widest = 1.1 * 1.5;
+        var closest = Math.max(1e-6, (Math.PI * 3) / terminals());
+        if (half > widest) half = widest;
+        if (half < closest) half = closest;
+        var wasHalf = disc.half, wasX = disc.cx, wasY = disc.cy;
+        // Kept so a frame that comes back with nothing on it can be undone.
+        // Whether a window holds any ink is not a question its outline can
+        // answer: a window can sit squarely on the drawing and land in the gap
+        // between two branches. The drawing itself knows, so the drawing is
+        // what decides, one frame later.
+        view.wasCamera = { cx: wasX, cy: wasY, half: wasHalf };
         disc.half = half;
         var after = discBox(box);
         disc.cx = atX - (px - after.midX) / after.scale;
         disc.cy = atY - (py - after.midY) / after.scale;
         settleDisc();
+        // And a wheel that takes the window off the drawing altogether has gone
+        // too far. The anchor above is what keeps the disc's middle from being
+        // a hole to fall into; this catches the other way out, which is zooming
+        // at the very edge until the drawing is behind you.
+        if (!anythingInView(box)) {
+          disc.half = wasHalf;
+          disc.cx = wasX;
+          disc.cy = wasY;
+          return false;
+        }
         return true;
       }
       var fy = py / box.tall;
@@ -1108,6 +1155,34 @@ window.karyonCanvas = (function () {
       }
       var span = camera.y1 - camera.y0;
       settle(camera.y0 - (dy / box.tall) * span, span);
+    }
+
+    // Whether the window still overlaps the drawing at all. This is a test of
+    // the outline and not of the ink: on the disc the ink lies between the hole
+    // and the rim, so a window wholly inside the one or wholly outside the
+    // other holds nothing for certain, and the rootless walk fills a box a
+    // window can miss entirely. A window that passes can still land in a gap
+    // between two branches, which is what any map does and what the projection
+    // itself puts there.
+    function anythingInView(box) {
+      var seat = discBox(box);
+      var x0 = disc.cx - seat.halfW, x1 = disc.cx + seat.halfW;
+      var y0 = disc.cy - disc.half, y1 = disc.cy + disc.half;
+      if (mode === "disc") {
+        // Cheapest first: the ink lies between the hole and the rim, so a
+        // window wholly inside the one or wholly outside the other holds
+        // nothing and there is no need to look further.
+        var nearX = Math.max(x0, Math.min(0, x1));
+        var nearY = Math.max(y0, Math.min(0, y1));
+        var farX = Math.max(Math.abs(x0), Math.abs(x1));
+        var farY = Math.max(Math.abs(y0), Math.abs(y1));
+        var nearest = Math.sqrt(nearX * nearX + nearY * nearY);
+        var farthest = Math.sqrt(farX * farX + farY * farY);
+        if (!(farthest >= DISC_HOLE && nearest <= 1)) return false;
+      } else if (!(x0 <= 1 && x1 >= -1 && y0 <= 1 && y1 >= -1)) {
+        return false;
+      }
+      return true;
     }
 
     // The disc can be pushed until the rim is off the canvas, but not until
@@ -1252,8 +1327,13 @@ window.karyonCanvas = (function () {
       // How many rows the window holds, not how many nodes fall inside them.
       // A parent sits on a row of its own between its children, so the node
       // count is about twice the row count and saying it was rows was wrong.
+      // How many rows the tree has. With a root that is the span of the row
+      // numbers; without one there are no row numbers at all, because `bounds`
+      // there holds coordinates, and the count is simply the terminals. Reading
+      // the coordinates as rows said a tree of twenty thousand tips had one,
+      // and the figure it asked for was folded to eight.
       var b = view.bounds;
-      var whole = b.highY - b.lowY + 1;
+      var whole = view.rootless ? view.byRow.length : b.highY - b.lowY + 1;
       var span;
       if (mode === "rows") {
         span = Math.min(camera.y1, b.highY + 0.5) - Math.max(camera.y0, b.lowY - 0.5);
@@ -1279,6 +1359,17 @@ window.karyonCanvas = (function () {
       panBy: panBy,
       onMap: onMap,
       jumpTo: jumpTo,
+      // Undo the last wheel notch, for a caller that has just painted with it
+      // and found nothing there. It can only be used once per notch, so a
+      // caller cannot walk itself backwards for ever.
+      stepBack: function () {
+        if (!view || mode === "rows" || !view.wasCamera) return false;
+        disc.cx = view.wasCamera.cx;
+        disc.cy = view.wasCamera.cy;
+        disc.half = view.wasCamera.half;
+        view.wasCamera = null;
+        return true;
+      },
       // Which projection is being looked through: "rows", "disc" or "spread".
       // The first two are the same layout read two ways and cost nothing to
       // change between. The third is a different walk and the page has to have
@@ -1321,7 +1412,17 @@ window.karyonCanvas = (function () {
           count: held,
         };
       },
-      depth: function () { return { x0: camera.x0, x1: camera.x1 }; },
+      // How far across the drawing the window reaches, in whatever the
+      // projection measures across in. There is no row camera in the two flat
+      // views, so asking for one there used to throw.
+      depth: function () {
+        if (!view) return null;
+        if (mode !== "rows") {
+          var seat = discBox(size());
+          return { x0: disc.cx - seat.halfW, x1: disc.cx + seat.halfW };
+        }
+        return { x0: camera.x0, x1: camera.x1 };
+      },
     };
   }
 

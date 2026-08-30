@@ -601,6 +601,110 @@ function rootlessPainter(spokes, wide, tall) {
   return { painter, placed, canvas };
 }
 
+// -------------------------------------------------------------- the wheel
+
+// One wheel notch as the page makes it, from `Math.exp(-deltaY * 0.002)`.
+const NOTCH = Math.exp(0.2);
+
+check("a wheel at the middle of a disc never empties it", () => {
+  const placed = balanced(14);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape("disc");
+  let least = Infinity;
+  for (let n = 0; n < 40; n++) {
+    painter.zoomAt(WIDE / 2, 400, NOTCH);
+    const drawn = painter.paint(theme).drawn;
+    if (drawn < least) least = drawn;
+    assert.ok(drawn > 0, `the canvas came up empty after ${n + 1} notches`);
+  }
+  assert.ok(least < 400, `it never got close in: the fewest branches was ${least}`);
+});
+
+check("and the check bites: the middle of a disc is a hole to fall into", () => {
+  // The crate leaves the middle eight per cent of the radius empty, and the
+  // camera starts 1.1 units tall. Turning the wheel in the middle without
+  // holding on to anything shrinks a window centred on nothing, and this is
+  // the notch at which every corner of it is inside that hole.
+  const wide = 1.1 * (WIDE / 800);
+  let fell = 0;
+  for (let n = 1; n <= 40; n++) {
+    const half = 1.1 / Math.pow(NOTCH, n);
+    const across = wide / Math.pow(NOTCH, n);
+    if (Math.sqrt(half * half + across * across) < 0.08) { fell = n; break; }
+  }
+  assert.ok(fell > 0 && fell < 40, `a plain zoom never falls into the hole, so the check above is empty`);
+});
+
+check("a wheel at the middle of a disc keeps narrowing what is in view", () => {
+  const placed = balanced(14);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.shape("disc");
+  painter.paint(theme);
+  const wide = painter.looking().rows;
+  for (let n = 0; n < 16; n++) painter.zoomAt(WIDE / 2, 400, NOTCH);
+  painter.paint(theme);
+  const close = painter.looking().rows;
+  assert.ok(
+    close < wide / 2,
+    `sixteen notches took ${wide} rows to ${close}, which is not going in`
+  );
+});
+
+check("a wheel cannot take the window off the drawing", () => {
+  const { painter } = rootlessPainter(600);
+  painter.paint(theme);
+  // At the very edge of the canvas, where the drawing is behind you rather
+  // than under you.
+  for (let n = 0; n < 30; n++) {
+    painter.zoomAt(WIDE - 45, 400, NOTCH);
+    painter.paint(theme);
+  }
+  const where = painter.depth();
+  assert.ok(where, "the camera came back as nothing");
+  // Something of the tree is still within reach of the window: the check is on
+  // the outline, so a gap between two branches is still a gap.
+  let seen = 0;
+  for (let node = 0; node < 1200; node++) {
+    const at = painter.where(node);
+    if (at.x > -600 && at.x < WIDE + 600 && at.y > -600 && at.y < 1400) seen += 1;
+  }
+  assert.ok(seen > 0, "the drawing ended up entirely behind the window");
+});
+
+check("a wheel into a gap between branches does not empty the canvas either", () => {
+  // The corners of a rootless drawing are the gaps between its spokes, so a
+  // window can sit squarely on the drawing and hold none of it. Checking the
+  // outline is not enough there; what the last paint drew has to be asked.
+  for (const [ax, ay] of [[WIDE * 0.9, 80], [WIDE * 0.1, 720]]) {
+    const { painter } = rootlessPainter(600);
+    painter.paint(theme);
+    for (let n = 0; n < 30; n++) {
+      painter.zoomAt(ax, ay, NOTCH);
+      // What a reader does: turn, look, and if there is nothing there step
+      // back. The page does the same in `repaint`.
+      let drawn = painter.paint(theme).drawn;
+      if (!drawn && painter.stepBack()) drawn = painter.paint(theme).drawn;
+      assert.ok(
+        drawn > 0,
+        `zooming at ${Math.round(ax)},${ay} emptied the canvas after ${n + 1} notches`
+      );
+    }
+  }
+});
+
+check("the rows a rootless view holds are its tips and not its coordinates", () => {
+  const { painter, placed } = rootlessPainter(600);
+  painter.paint(theme);
+  // Reading `bounds` as row numbers there gave 1, and the figure the page then
+  // asked the program for was folded to eight rows.
+  assert.strictEqual(painter.looking().rows, 600, "the tips were not counted");
+  assert.notStrictEqual(painter.looking().rows, 1);
+});
+
 check("a rootless layout comes up rootless, and stays that way", () => {
   const { painter } = rootlessPainter();
   assert.ok(painter.rootless(), "the layout was not recognised as rootless");
