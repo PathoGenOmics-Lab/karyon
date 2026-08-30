@@ -957,14 +957,46 @@
    figure at its natural size, and no wider.
    -------------------------------------------------------------------------- */
 
+/* Room down both sides, on every page.
+   Material gives the content box no horizontal padding of its own, so on a
+   wide window the prose began exactly where the navigation ended and the
+   landing page ran to within sixteen pixels of the bezel. Sixteen pixels is a
+   floor for a phone, not a margin: it is what stops text touching the glass,
+   and it was standing in for one everywhere.
+   The measure itself is set by `md-typeset`, so this does not change how long
+   a line is. It changes how much air is beside it. */
+/* Nothing here on a phone: Material already gives the box a side margin at
+   that width, and adding to it stacks two gutters and takes the line down to
+   two hundred and fifty nine pixels. The pages that cancel that margin to
+   centre themselves carry their own floor instead, below. */
+@media screen and (min-width: 45em) {
+  .md-content__inner {
+    padding-inline: 1.6rem;
+  }
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-content__inner {
+    padding-inline: 2.4rem;
+  }
+}
+
 .md-sidebar--secondary[hidden] ~ .md-content .md-content__inner,
 .md-content__inner:has(> .md-typeset > .grid.cards) {
   max-width: 60rem;
   margin-inline: auto;
-  /* A floor under the gutter. `margin-inline: auto` wins over Material's own
-     side margin, and on a narrow screen auto resolves to nothing, so on the
-     pages this rule reaches every control sat flush against the bezel. */
-  padding-inline: 0.8rem;
+}
+
+/* These two cancel Material's side margin to centre themselves, so on a phone
+   they would have none at all: text against the glass. Only on a phone, because
+   above it the site's own gutter applies and this selector is the more specific
+   of the two, so left unscoped it would hold the page at sixteen pixels on
+   every screen there is. */
+@media screen and (max-width: 44.9375em) {
+  .md-sidebar--secondary[hidden] ~ .md-content .md-content__inner,
+  .md-content__inner:has(> .md-typeset > .grid.cards) {
+    padding-inline: 0.8rem;
+  }
 }
 
 /* A phone has no room for two panes and no pointer to drag a splitter with. */
