@@ -193,6 +193,7 @@ because most of them are a setting only some tracks have.
 | `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | phylogram |
 | `--mutations <KEY>` | an annotation key the branches carry changes under | `--tree` | no mutations read |
 | `--carrying <CHANGE>` | a change, as the file spells it | `--tree`, after `--mutations` | nothing marked |
+| `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |

@@ -1600,9 +1600,15 @@ window.karyonCanvas = (function () {
       find: find,
       nextFound: nextFound,
       found: function () {
-        return view && view.found
-          ? { count: view.found.length, at: view.at || 0 }
-          : { count: 0, at: 0 };
+        if (!view || !view.found || !view.found.length) return { count: 0, at: 0, names: [] };
+        // The names, for a figure to be drawn with them marked. Capped, because
+        // a command line is a thing a person reads and a search can match a
+        // hundred thousand tips.
+        var names = [];
+        for (var each = 0; each < view.found.length && names.length < 12; each++) {
+          if (view.length[view.found[each]]) names.push(nameOf(view.found[each]));
+        }
+        return { count: view.found.length, at: view.at || 0, names: names };
       },
       at: at,
       focusOn: focusOn,

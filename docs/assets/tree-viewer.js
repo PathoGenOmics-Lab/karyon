@@ -275,6 +275,13 @@
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
     argv = argv.concat(["--max-rows", String(Math.max(8, Math.min(2000, at ? at.rows : 60)))]);
+    // What the reader searched for, marked on the figure they asked for. A
+    // search that matched a hundred thousand tips is not a highlight, so only a
+    // handful are carried and the rest stay a thing you look at on the page.
+    var hits = painter && painter.found ? painter.found() : { count: 0, names: [] };
+    if (hits.count && hits.names.length && hits.count <= 12) {
+      argv = argv.concat(["--highlight", hits.names.join(",")]);
+    }
     if (sheet) argv = argv.concat(["--traits", sheet.name]);
     argv.push("--no-region-label");
     return argv;

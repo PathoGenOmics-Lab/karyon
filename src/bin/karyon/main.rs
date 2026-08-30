@@ -141,6 +141,7 @@ TRACK OPTIONS, each describing the track before it
     --mutations <KEY>    the annotation each branch of a phylogeny keeps its
                          changes under, as an annotated Newick writes them:
                          A123T, S:D614G, or either with an nt: or aa: in front
+    --highlight <NAMES>  draw a band behind each named clade, comma separated
     --carrying <CHANGE>  mark everything at or below a branch where that change
                          happened, which is everything that carries it; needs
                          --mutations to say where the changes are, and colours
