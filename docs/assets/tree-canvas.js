@@ -95,6 +95,61 @@ window.karyonCanvas = (function () {
       return low;
     }
 
+    // ------------------------------------------------------------ selection
+
+    // The nodes to draw for a run of rows in `tall` pixels of height, as a run
+    // of indices into `into`.
+    //
+    // One row per pixel is all a screen can show, so past that they are stepped
+    // over. Stepping alone draws a branch with nothing to hang it on: at any
+    // zoom where the tree is taller than the canvas none of the kept rows is
+    // the parent of another, and what is on screen is a hedge of loose
+    // horizontal strokes rather than a tree. So every kept row is walked up to
+    // the root and its ancestors are drawn with it. The walks meet and stop, so
+    // it is a handful of extra nodes, and it is what puts a trunk on the
+    // picture.
+    //
+    // Everything drawn anywhere comes through here, which is what stops one
+    // part of the canvas disagreeing with another about the shape of the tree.
+    function select(from, to, tall, into) {
+      var stride = Math.max(1, Math.ceil((to - from) / Math.max(1, tall)));
+      view.visit += 1;
+      var visit = view.visit;
+      var seen = view.seen;
+      var shown = into;
+      var count = 0;
+      var sampled = 0;
+      for (var at = from; at < to; at += stride) {
+        var walk = view.byRow[at];
+        sampled += 1;
+        while (walk !== 0xffffffff && seen[walk] !== visit) {
+          seen[walk] = visit;
+          if (count === shown.length) {
+            var wider = new Uint32Array(shown.length * 2);
+            wider.set(shown);
+            shown = wider;
+          }
+          shown[count] = walk;
+          count += 1;
+          walk = view.parent[walk];
+        }
+      }
+      return { nodes: shown, count: count, stride: stride, sampled: sampled };
+    }
+
+    // The span in x that holds a selection, which is the root on the left and
+    // the deepest node in it on the right.
+    function spread(nodes, count) {
+      var lowX = Infinity, highX = -Infinity;
+      for (var scan = 0; scan < count; scan++) {
+        var it = nodes[scan];
+        if (view.x[it] < lowX) lowX = view.x[it];
+        if (view.x[it] > highX) highX = view.x[it];
+      }
+      if (!(highX > lowX)) return { lowX: view.bounds.lowX, highX: view.bounds.highX };
+      return { lowX: lowX, highX: highX };
+    }
+
     function paint(theme) {
       if (!view) return { drawn: 0, skipped: 0 };
       var box = size();
@@ -112,38 +167,11 @@ window.karyonCanvas = (function () {
       var from = firstRow(camera.y0 - 1);
       var to = firstRow(camera.y1 + 1);
       var wanted = to - from;
-      // One row per pixel is all a screen can show. Past that they land on each
-      // other, so they are stepped over.
-      var stride = Math.max(1, Math.ceil(wanted / Math.max(1, box.tall)));
-
-      // Stepping over rows on its own draws a branch with nothing to hang it
-      // on: at any zoom where the tree is taller than the canvas, none of the
-      // kept rows is the parent of another, and what is on screen is a hedge of
-      // loose horizontal strokes rather than a tree. So every kept row is
-      // walked up to the root and its ancestors are drawn with it. That is a
-      // handful of extra nodes, because the walks meet and stop, and it is what
-      // puts a trunk on the picture.
-      view.visit += 1;
-      var visit = view.visit;
-      var seen = view.seen;
-      var shown = view.shown;
-      var count = 0;
-      var sampled = 0;
-      for (var at = from; at < to; at += stride) {
-        var walk = view.byRow[at];
-        sampled += 1;
-        while (walk !== 0xffffffff && seen[walk] !== visit) {
-          seen[walk] = visit;
-          if (count === shown.length) {
-            var wider = new Uint32Array(shown.length * 2);
-            wider.set(shown);
-            shown = view.shown = wider;
-          }
-          shown[count] = walk;
-          count += 1;
-          walk = view.parent[walk];
-        }
-      }
+      var picked = select(from, to, box.tall, view.shown);
+      view.shown = picked.nodes;
+      var shown = picked.nodes;
+      var count = picked.count;
+      var stride = picked.stride;
 
       // The depth axis follows what is drawn rather than being zoomed alongside
       // the rows. Zooming both narrowed the window in x as well until it held
@@ -152,20 +180,10 @@ window.karyonCanvas = (function () {
       // always reaches the root, the left edge is the root and the right edge
       // is the deepest tip on screen, so the axis stands still while it is
       // panned and only gives ground back as a clade is entered.
-      var lowX = Infinity, highX = -Infinity;
-      for (var scan = 0; scan < count; scan++) {
-        var it = shown[scan];
-        if (view.x[it] < lowX) lowX = view.x[it];
-        if (view.x[it] > highX) highX = view.x[it];
-      }
-      if (!(highX > lowX)) {
-        var b = view.bounds;
-        lowX = b.lowX;
-        highX = b.highX;
-      }
-      var margin = (highX - lowX) * 0.28;
-      camera.x0 = lowX - margin * 0.05;
-      camera.x1 = highX + margin;
+      var reach = spread(shown, count);
+      var margin = (reach.highX - reach.lowX) * 0.28;
+      camera.x0 = reach.lowX - margin * 0.05;
+      camera.x1 = reach.highX + margin;
       spanX = camera.x1 - camera.x0 || 1;
       sx = box.wide / spanX;
 
@@ -209,7 +227,7 @@ window.karyonCanvas = (function () {
           labels += 1;
         }
       }
-      return { drawn: drawn, skipped: wanted - sampled, labels: labels, stride: stride, rowsInView: wanted };
+      return { drawn: drawn, skipped: wanted - picked.sampled, labels: labels, stride: stride, rowsInView: wanted };
     }
 
     // --------------------------------------------------------------- camera
