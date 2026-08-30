@@ -92,9 +92,11 @@ const theme = {
   plate: "#fff",
 };
 
-// Wide enough for the rail, and narrow enough to be refused one.
+// Wide enough for the rail, narrow enough to get only a thin one, and too
+// narrow to be given one at all.
 const WIDE = 900;
-const NARROW = 380;
+const SNUG = 380;
+const NARROW = 220;
 
 // ---------------------------------------------------------------- the test
 
@@ -350,14 +352,33 @@ check("the rail knows what belongs to it", () => {
   assert.ok(!painter.onMap(10, 400), "the root end was claimed by the rail");
 });
 
-check("a narrow canvas gets no rail, and all of its width", () => {
+check("a narrow canvas gets a thin rail, and a tiny one gets none", () => {
   const placed = balanced(12);
   const roomy = drawnSet(placed, 800, WIDE);
+  const snug = drawnSet(placed, 800, SNUG);
   const tight = drawnSet(placed, 800, NARROW);
-  assert.ok(!tight.report.rail, "a phone width canvas was given a rail");
+
+  assert.ok(roomy.report.rail, "a wide canvas was refused a rail");
+  assert.ok(snug.report.rail, "a phone width canvas was refused a rail");
+  assert.ok(
+    snug.report.rail.wide < roomy.report.rail.wide,
+    `the rail did not narrow with the canvas: ${snug.report.rail.wide} against ${roomy.report.rail.wide}`
+  );
+  assert.ok(snug.report.rail.wide >= 30, "the thin rail is too thin to read or to catch");
+
+  assert.ok(!tight.report.rail, "a canvas with no room at all was given a rail");
   assert.ok(!tight.painter.onMap(NARROW - 1, 400), "the rail claims points on a canvas that has none");
   assert.strictEqual(tight.canvas.rects.length, 0, "something was drawn where the rail would be");
-  assert.ok(roomy.report.rail, "a wide canvas was refused a rail");
+});
+
+check("and the check bites: a rail of a fixed width would not narrow", () => {
+  const placed = balanced(12);
+  const roomy = drawnSet(placed, 800, WIDE).report.rail;
+  const snug = drawnSet(placed, 800, SNUG).report.rail;
+  // The wide canvas is held at the cap, so if the rule were a constant these
+  // two would be equal and the check above would be about nothing.
+  assert.notStrictEqual(snug.wide, roomy.wide);
+  assert.ok(roomy.wide <= 78, "the rail grew past what it is capped at");
 });
 
 // ----------------------------------------------------------------- the disc
@@ -524,10 +545,18 @@ check("the dial knows what belongs to it, and a narrow canvas gets none", () => 
   assert.ok(!roomy.onMap(spot.x0 - 4, spot.y0 - 4), "a point on the disc was claimed by the dial");
   assert.ok(!roomy.onMap(WIDE / 2, 400), "the middle of the disc was claimed by the dial");
 
+  const snug = canvasModule.make(fakeCanvas(SNUG, 800));
+  snug.load(placed);
+  snug.shape("disc");
+  const small = snug.paint(theme).rail;
+  assert.ok(small, "a phone width canvas was refused a dial");
+  assert.ok(small.side < spot.side, "the dial did not shrink with the canvas");
+  assert.ok(small.side <= SNUG * 0.34 + 1, "the dial takes more than a third of the width");
+
   const tight = canvasModule.make(fakeCanvas(NARROW, 800));
   tight.load(placed);
   tight.shape("disc");
-  assert.ok(!tight.paint(theme).rail, "a phone width canvas was given a dial");
+  assert.ok(!tight.paint(theme).rail, "a canvas with no room at all was given a dial");
   assert.ok(!tight.onMap(NARROW - 4, 796), "the dial claims points on a canvas that has none");
 });
 

@@ -179,6 +179,11 @@
      is not 76vh of the screen. */
   height: min(76vh, calc(100vh - 21rem));
   min-height: 16rem;
+  /* A finger inside the plot moves the tree and does not scroll the page, the
+     way it works on any map. That is kept deliberately: it is the only way to
+     move the tree by touch, and the alternative is a picture a finger cannot
+     take hold of. What made it hurt was the plot taking most of a phone
+     screen, which the height above is what fixes. */
   touch-action: none;
   cursor: grab;
   overscroll-behavior: contain;
@@ -213,7 +218,11 @@
 .tv-working::after {
   content: "";
   position: absolute;
-  inset: auto 0 0 0;
+  /* At the top of the box rather than the bottom of it. Pinned to the bottom
+     edge of a plot that is most of a screen tall, the one sign that anything
+     was happening was below the fold, so a slow change looked like a button
+     that did nothing. */
+  inset: 0 0 auto 0;
   height: 2px;
   background: var(--md-accent-fg-color);
   opacity: 0.7;
@@ -227,7 +236,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tv-plot.tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
+  .tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
 }
 
 .tv-count,

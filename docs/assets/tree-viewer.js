@@ -491,6 +491,9 @@
     var reading = candidate || tree;
     if (!reading.body) return;
     fresh = !!candidate;
+    // The old refusal was about the old attempt. Leaving it up meant a second
+    // failure with the same words looked like nothing had happened at all.
+    el.error.hidden = true;
     asked += 1;
     working(true);
     send({

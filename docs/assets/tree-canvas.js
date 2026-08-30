@@ -26,8 +26,12 @@ window.karyonCanvas = (function () {
   // scrollbar that shows what it is scrolling through, so it is read at a
   // glance and never zoomed: it always holds the whole tree.
   var RAIL_WIDE = 78;
+  var RAIL_NARROW = 34;
   var RAIL_PAD = 5;
-  var RAIL_LEAST = 420;
+  // Narrow enough that a phone keeps one. It used to stand down below 420,
+  // which is every phone there is, so the reader with the least screen to know
+  // where they were in got the least help finding out.
+  var RAIL_LEAST = 260;
   // A window of three rows in two million is a thousandth of a pixel tall. The
   // mark for it stays this big so there is always something to see and to grab.
   var MARK_LEAST = 4;
@@ -150,7 +154,10 @@ window.karyonCanvas = (function () {
     // Where the rail is, or null on a canvas too narrow to give it the room.
     function rail(box) {
       if (!view || box.wide < RAIL_LEAST) return null;
-      return { x0: box.wide - RAIL_WIDE, wide: RAIL_WIDE, tall: box.tall };
+      // A share of the width, held between a size worth drawing and a size
+      // worth giving up for.
+      var wide = Math.max(RAIL_NARROW, Math.min(RAIL_WIDE, Math.round(box.wide * 0.14)));
+      return { x0: box.wide - wide, wide: wide, tall: box.tall };
     }
 
     // The rail holds every row there is, so a row maps to a height on it and a
@@ -179,7 +186,13 @@ window.karyonCanvas = (function () {
     // gesture: on a tree with six hundred thousand nodes it cost ten
     // milliseconds a frame even with fifty branches on screen.
     function overview(box, theme) {
-      if (view.overviewFor === box.tall && view.overviewInk === theme.faint) {
+      var strip = rail(box);
+      var across = strip ? strip.wide : RAIL_WIDE;
+      if (
+        view.overviewFor === box.tall &&
+        view.overviewInk === theme.faint &&
+        view.overviewWide === across
+      ) {
         return view.overview;
       }
       var runs = [[0, view.byRow.length]];
@@ -187,7 +200,7 @@ window.karyonCanvas = (function () {
       var picked = select(
         runs,
         box.tall,
-        rowPixels(runs, RAIL_WIDE, box.tall, view.bounds.highY - view.bounds.lowY + 1, stride),
+        rowPixels(runs, across, box.tall, view.bounds.highY - view.bounds.lowY + 1, stride),
         { child: new Uint32Array(1 << 13), up: new Uint32Array(1 << 13) }
       );
       var seen = {
@@ -196,10 +209,12 @@ window.karyonCanvas = (function () {
         count: picked.count,
         reach: spread(picked),
       };
+      seen.wide = across;
       seen.plate = plate(box, theme, seen);
       view.overview = seen;
       view.overviewFor = box.tall;
       view.overviewInk = theme.faint;
+      view.overviewWide = across;
       return seen;
     }
 
@@ -211,18 +226,18 @@ window.karyonCanvas = (function () {
       if (!papers || !papers.createElement) return null;
       var sheet = papers.createElement("canvas");
       var ratio = box.ratio;
-      sheet.width = Math.max(1, Math.round(RAIL_WIDE * ratio));
+      sheet.width = Math.max(1, Math.round(seen.wide * ratio));
       sheet.height = Math.max(1, Math.round(box.tall * ratio));
       var ink = sheet.getContext("2d");
       if (!ink) return null;
       ink.setTransform(ratio, 0, 0, ratio, 0, 0);
-      strokeOverview(ink, theme, box, { x0: 0, wide: RAIL_WIDE }, seen);
+      strokeOverview(ink, theme, box, { x0: 0, wide: seen.wide }, seen);
       return sheet;
     }
 
     // The silhouette itself, given somewhere to put it.
     function strokeOverview(ink, theme, box, strip, seen) {
-      var inner = RAIL_WIDE - RAIL_PAD * 2;
+      var inner = Math.max(4, seen.wide - RAIL_PAD * 2);
       var reach = seen.reach;
       var acrossX = reach.highX - reach.lowX || 1;
       var atX = function (value) {
@@ -259,9 +274,9 @@ window.karyonCanvas = (function () {
     // bottom, so the rail's bar does not fit it: what fits is the whole disc,
     // small, in a corner, with the window drawn on it. Same idea, shape
     // following the projection.
-    function dialPlate(theme) {
+    function dialPlate(theme, side) {
       var papers = canvas.ownerDocument;
-      var span = DIAL_SIDE / 2 / 1.1;
+      var span = side / 2 / 1.1;
       var budget = Math.max(64, Math.round(Math.PI * 2 * span));
       var stepA = budget / (Math.PI * 2);
       // The dial reads the same pixels the view it stands for does, at its own
@@ -286,12 +301,12 @@ window.karyonCanvas = (function () {
       if (!papers || !papers.createElement) return held;
       var sheet = papers.createElement("canvas");
       var ratio = window.devicePixelRatio || 1;
-      sheet.width = Math.round(DIAL_SIDE * ratio);
-      sheet.height = Math.round(DIAL_SIDE * ratio);
+      sheet.width = Math.round(side * ratio);
+      sheet.height = Math.round(side * ratio);
       var ink = sheet.getContext("2d");
       if (!ink) return held;
       ink.setTransform(ratio, 0, 0, ratio, 0, 0);
-      strokeDisc(ink, theme, held, DIAL_SIDE / 2, DIAL_SIDE / 2, span);
+      strokeDisc(ink, theme, held, side / 2, side / 2, span);
       held.plate = sheet;
       return held;
     }
@@ -336,20 +351,31 @@ window.karyonCanvas = (function () {
 
     function dial(box) {
       if (!view || box.wide < RAIL_LEAST) return null;
+      // Never more than about a third of either side, so a small canvas keeps
+      // a small dial rather than losing a third of its picture to one.
+      var side = Math.round(
+        Math.max(64, Math.min(DIAL_SIDE, box.wide * 0.34, box.tall * 0.34))
+      );
       return {
-        x0: box.wide - DIAL_SIDE - DIAL_EDGE,
-        y0: box.tall - DIAL_SIDE - DIAL_EDGE,
-        side: DIAL_SIDE,
+        x0: box.wide - side - DIAL_EDGE,
+        y0: box.tall - side - DIAL_EDGE,
+        side: side,
       };
     }
 
     function paintDial(ctx, theme, box, arc) {
       var spot = dial(box);
       if (!spot) return null;
-      if (!view.dial || view.dialInk !== theme.faint || view.dialMode !== mode) {
-        view.dial = dialPlate(theme);
+      if (
+        !view.dial ||
+        view.dialInk !== theme.faint ||
+        view.dialMode !== mode ||
+        view.dialSide !== spot.side
+      ) {
+        view.dial = dialPlate(theme, spot.side);
         view.dialInk = theme.faint;
         view.dialMode = mode;
+        view.dialSide = spot.side;
       }
       var held = view.dial;
 
@@ -1227,9 +1253,21 @@ window.karyonCanvas = (function () {
       // A parent sits on a row of its own between its children, so the node
       // count is about twice the row count and saying it was rows was wrong.
       var b = view.bounds;
-      var span = mode === "rows"
-        ? Math.min(camera.y1, b.highY + 0.5) - Math.max(camera.y0, b.lowY - 0.5)
-        : b.highY - b.lowY + 1;
+      var whole = b.highY - b.lowY + 1;
+      var span;
+      if (mode === "rows") {
+        span = Math.min(camera.y1, b.highY + 0.5) - Math.max(camera.y0, b.lowY - 0.5);
+      } else if (mode === "disc") {
+        // A wedge of the circle is a run of rows, so a reader zoomed into one
+        // is not looking at the whole tree and the figure they ask for should
+        // not be drawn as though they were.
+        var seen = arcInView(size());
+        span = seen ? (seen.span / (Math.PI * 2)) * whole : whole;
+      } else {
+        // The rootless walk holds every tip at every zoom: there is no run of
+        // rows to have only some of.
+        span = whole;
+      }
       return { first: first, last: last, rows: Math.max(0, Math.round(span)) };
     }
 
