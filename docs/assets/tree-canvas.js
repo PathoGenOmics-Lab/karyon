@@ -58,6 +58,11 @@ window.karyonCanvas = (function () {
       if (!(highX > lowX)) highX = lowX + 1;
       if (!(highY > lowY)) highY = lowY + 1;
       view.bounds = { lowX: lowX, highX: highX, lowY: lowY, highY: highY };
+      // Room to mark who is already on the list while a paint walks upward,
+      // and a counter so the marks are told apart by age rather than cleared.
+      view.seen = new Int32Array(placed.count);
+      view.visit = 0;
+      view.shown = new Uint32Array(1 << 14);
       home();
     }
 
@@ -111,19 +116,47 @@ window.karyonCanvas = (function () {
       // other, so they are stepped over.
       var stride = Math.max(1, Math.ceil(wanted / Math.max(1, box.tall)));
 
-      // The depth axis follows the rows in view rather than being zoomed
-      // alongside them. Zooming both narrowed the window in x as well until it
-      // held no branches at all: past fifty wheel notches on a million tip tree
-      // the canvas went blank while the rows were still there. A tree is read
-      // by scrolling through its tips with the whole depth of what is on screen
-      // in front of you, which is also what --focus gives a figure.
+      // Stepping over rows on its own draws a branch with nothing to hang it
+      // on: at any zoom where the tree is taller than the canvas, none of the
+      // kept rows is the parent of another, and what is on screen is a hedge of
+      // loose horizontal strokes rather than a tree. So every kept row is
+      // walked up to the root and its ancestors are drawn with it. That is a
+      // handful of extra nodes, because the walks meet and stop, and it is what
+      // puts a trunk on the picture.
+      view.visit += 1;
+      var visit = view.visit;
+      var seen = view.seen;
+      var shown = view.shown;
+      var count = 0;
+      var sampled = 0;
+      for (var at = from; at < to; at += stride) {
+        var walk = view.byRow[at];
+        sampled += 1;
+        while (walk !== 0xffffffff && seen[walk] !== visit) {
+          seen[walk] = visit;
+          if (count === shown.length) {
+            var wider = new Uint32Array(shown.length * 2);
+            wider.set(shown);
+            shown = view.shown = wider;
+          }
+          shown[count] = walk;
+          count += 1;
+          walk = view.parent[walk];
+        }
+      }
+
+      // The depth axis follows what is drawn rather than being zoomed alongside
+      // the rows. Zooming both narrowed the window in x as well until it held
+      // no branches at all: past fifty wheel notches on a million tip tree the
+      // canvas went blank while the rows were still there. Since the walk above
+      // always reaches the root, the left edge is the root and the right edge
+      // is the deepest tip on screen, so the axis stands still while it is
+      // panned and only gives ground back as a clade is entered.
       var lowX = Infinity, highX = -Infinity;
-      for (var scan = from; scan < to; scan += stride) {
-        var it = view.byRow[scan];
+      for (var scan = 0; scan < count; scan++) {
+        var it = shown[scan];
         if (view.x[it] < lowX) lowX = view.x[it];
         if (view.x[it] > highX) highX = view.x[it];
-        var over = view.parent[it];
-        if (over !== 0xffffffff && view.x[over] < lowX) lowX = view.x[over];
       }
       if (!(highX > lowX)) {
         var b = view.bounds;
@@ -136,12 +169,14 @@ window.karyonCanvas = (function () {
       spanX = camera.x1 - camera.x0 || 1;
       sx = box.wide / spanX;
 
+      view.picked = count;
+
       ctx.strokeStyle = theme.branch;
       ctx.lineWidth = 1;
       ctx.beginPath();
       var drawn = 0;
-      for (var at = from; at < to; at += stride) {
-        var node = view.byRow[at];
+      for (var each = 0; each < count; each++) {
+        var node = shown[each];
         var up = view.parent[node];
         if (up === 0xffffffff) continue;
         var y = atY(view.y[node]);
@@ -174,7 +209,7 @@ window.karyonCanvas = (function () {
           labels += 1;
         }
       }
-      return { drawn: drawn, skipped: wanted - drawn, labels: labels, stride: stride, rowsInView: wanted };
+      return { drawn: drawn, skipped: wanted - sampled, labels: labels, stride: stride, rowsInView: wanted };
     }
 
     // --------------------------------------------------------------- camera
@@ -196,11 +231,24 @@ window.karyonCanvas = (function () {
       return true;
     }
 
+    // Rows only. A drag sideways is taken and dropped: the depth axis is fitted
+    // to what is drawn on every paint, so nudging it would be undone before the
+    // frame was on screen.
     function panBy(dx, dy) {
       var box = size();
-      var byY = (dy / box.tall) * (camera.y1 - camera.y0);
-      camera.y0 -= byY;
-      camera.y1 -= byY;
+      var span = camera.y1 - camera.y0;
+      var byY = (dy / box.tall) * span;
+      var b = view.bounds;
+      // Half a screen of empty is as far as a drag goes. Without a stop the
+      // tree can be pushed off the canvas altogether, and white with no rows on
+      // it gives a reader nothing to drag back by.
+      var first = b.lowY - span * 0.5;
+      var last = b.highY - span * 0.5;
+      var y0 = camera.y0 - byY;
+      if (y0 < first) y0 = first;
+      if (y0 > last) y0 = last;
+      camera.y0 = y0;
+      camera.y1 = y0 + span;
     }
 
     // Puts a named tip in the middle, without changing how much is on screen.
@@ -249,6 +297,11 @@ window.karyonCanvas = (function () {
       looking: looking,
       loaded: function () { return !!view; },
       count: function () { return view ? view.count : 0; },
+      // What the last paint put on the canvas, and the depth it fitted them
+      // into. Both are answers about the picture rather than about the tree,
+      // which is what a check of the picture needs to ask.
+      shown: function () { return view ? view.shown.subarray(0, view.picked || 0) : new Uint32Array(0); },
+      depth: function () { return { x0: camera.x0, x1: camera.x1 }; },
     };
   }
 

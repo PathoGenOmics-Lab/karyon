@@ -120,7 +120,9 @@
       ? at.rows.toLocaleString() + (at.rows === 1 ? " row" : " rows") + " in view"
       : "";
     el.detail.textContent =
-      report.stride > 1 ? "1 row drawn in " + report.stride : report.labels + " names";
+      report.stride > 1
+        ? "1 row in " + report.stride + " and its ancestors"
+        : report.labels + " names";
     say();
   }
 
