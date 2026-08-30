@@ -18,8 +18,23 @@
   font-size: 0.7rem;
 }
 
+/* Out of the way of the eye and still in the way of a tab. `display: none`
+   took the only route to a file of one's own away from anyone not holding a
+   mouse. */
 .tv-file input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tv-file:focus-within {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
 }
 
 .tv-file {
@@ -73,16 +88,30 @@
   cursor: pointer;
 }
 
+/* The filled button is the only thing on the page saying which mode the viewer
+   is in, so its label has to be readable. It was `var(--md-accent-bg-color)`,
+   which Material does not define, so it fell back to white and measured 3.87
+   against the light accent and 2.71 against the dark one. The fill is the
+   darker ink the site keeps for an accent that has to be read rather than
+   looked at, and the label is white on it: 5.02. In the dark scheme that ink is
+   the bright accent, so the label goes dark instead: 6.45. */
 .tv-btn[aria-pressed="true"],
 .tv-btn[aria-checked="true"] {
-  background: var(--md-accent-fg-color);
-  color: var(--md-accent-bg-color, #fff);
-  border-color: var(--md-accent-fg-color);
+  background: var(--k-accent-ink);
+  color: #fff;
+  border-color: var(--k-accent-ink);
+}
+
+[data-md-color-scheme="slate"] .tv-btn[aria-pressed="true"],
+[data-md-color-scheme="slate"] .tv-btn[aria-checked="true"] {
+  color: #161a1d;
 }
 
 /* Somewhere to be while moving through them with a keyboard. Without this the
    only way to tell which button has the focus is to press it. */
-.tv-btn:focus-visible {
+.tv-btn:focus-visible,
+.tv-search:focus-visible,
+.tv-plot canvas:focus-visible {
   outline: 2px solid var(--md-accent-fg-color);
   outline-offset: 1px;
 }
@@ -216,8 +245,15 @@
   max-width: 100%;
 }
 
+/* A refusal is the most important thing this page ever says, and it was said in
+   `--md-typeset-del-color`, which Material defines as `#f5503d26`: fifteen per
+   cent alpha, a background wash for `<del>` rather than an ink. Used as text it
+   measured 1.20 against the page in light and 1.18 in dark, which is to say
+   invisibly. The playground had already found this and written it down; the
+   tree viewer had not been given the same fix. */
 .tv-error {
   font-family: var(--md-code-font-family);
   font-size: 0.7rem;
-  color: var(--md-typeset-del-color, #c00);
+  color: var(--k-accent-ink);
+  margin: 0 0 0.5rem;
 }

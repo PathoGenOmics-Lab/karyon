@@ -26,10 +26,13 @@ hide:
   strips beside the names.</p>
   <details>
     <summary>Or paste one</summary>
-    <textarea id="tv-paste" rows="4" placeholder="((A:0.1,B:0.2):0.3,C:0.4);"></textarea>
+    <textarea id="tv-paste" rows="4" aria-label="A tree in Newick"
+      placeholder="((A:0.1,B:0.2):0.3,C:0.4);"></textarea>
     <button class="tv-btn" id="tv-usepaste" type="button">Draw it</button>
   </details>
 </div>
+
+<p class="tv-error" id="tv-error" role="alert" hidden markdown="0"></p>
 
 <div class="tv-app" id="tv-app" hidden markdown="0">
   <div class="tv-bar">
@@ -47,7 +50,8 @@ hide:
       <button class="tv-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-projection="spread"
         title="No root and no rows: the topology laid out in a plane">Unrooted</button>
     </div>
-    <input class="tv-search" id="tv-search" type="search" placeholder="Find a tip, then Enter">
+    <input class="tv-search" id="tv-search" type="search" aria-label="Find a tip by name"
+      placeholder="Find a tip, then Enter">
     <output class="tv-count" id="tv-count"></output>
     <output class="tv-rows" id="tv-rowsout"></output>
     <output class="tv-detail" id="tv-detail"></output>
@@ -60,13 +64,14 @@ hide:
     <button class="tv-btn" id="tv-export" type="button" title="Save this view as karyon's own SVG">Export SVG</button>
   </div>
 
-  <p class="tv-error" id="tv-error" hidden></p>
-
   <div class="tv-plot" id="tv-plot">
-    <canvas id="tv-canvas"></canvas>
+    <canvas id="tv-canvas" tabindex="0" role="img"
+      aria-label="The phylogeny. Up and down move it, plus and minus zoom, Home fits it. In the circular and unrooted views the other two arrows move it as well."></canvas>
   </div>
 
-  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. The small picture of the whole tree
+  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. From a keyboard, tab to the picture
+    and use up and down to move, plus and minus to zoom and Home to fit; the circular and unrooted views
+    move sideways too. The small picture of the whole tree
     says where you are: a rail down the right in the rectangular view, a dial in the corner in the circular one,
     with the part you are looking at marked on it. Clicking or dragging there goes straight to that part.
     Circular is the same tree in polar coordinates, with depth becoming radius and row becoming angle, so

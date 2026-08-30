@@ -26,7 +26,11 @@
   var tree = { name: "tree.nwk", body: "" };
   var sheet = null;
   var worker = null;
+  // One counter for each kind of job. They shared one, so pressing Export
+  // while a layout was still in flight bumped it and the layout's answer was
+  // thrown away when it came back.
   var asked = 0;
+  var drawn = 0;
   var cladogram = false;
   // Which of the three the reader has asked for. The first two are the same
   // layout read two ways; the third is a different walk, so asking for it
@@ -52,6 +56,15 @@
     worker.addEventListener("message", function (event) {
       arrived(event.data);
     });
+    // A worker that cannot be started at all raises this and nothing else, and
+    // without it the page waited for an answer that was never coming.
+    worker.addEventListener("error", function (event) {
+      working(false);
+      fail(
+        "the program could not be started in this browser" +
+          (event && event.message ? ": " + event.message : "")
+      );
+    });
   }
 
   function send(job, giving) {
@@ -70,7 +83,8 @@
   }
 
   function arrived(message) {
-    if (message.id !== asked) return;
+    if (message.kind === "layout" && message.id !== asked) return;
+    if (message.kind === "drawn" && message.id !== drawn) return;
     working(false);
 
     if (message.kind === "layout") {
@@ -85,7 +99,7 @@
       el.drop.hidden = true;
       el.app.hidden = false;
       el.error.hidden = true;
-      el.count.textContent = message.count.toLocaleString() + " nodes";
+      el.count.textContent = message.count.toLocaleString("en") + " nodes";
       repaint();
       return;
     }
@@ -137,13 +151,18 @@
     readTheme();
     var report = painter.paint(theme);
     var at = painter.looking();
+    // How many rows are on screen, and not how many nodes fall inside them: a
+    // parent sits on a row of its own between its children, so counting nodes
+    // said 39,999 rows of a tree with 20,000 tips. The page is written in
+    // English, so the number is grouped in English wherever the browser is.
+    var rows = at ? at.rows : 0;
     el.rowsOut.textContent = at
-      ? at.rows.toLocaleString() + (at.rows === 1 ? " row" : " rows") + " in view"
+      ? rows.toLocaleString("en") + (rows === 1 ? " row" : " rows") + " in view"
       : "";
     el.detail.textContent =
       report.stride > 1
         ? "1 row in " + report.stride + " and its ancestors"
-        : report.labels + " names";
+        : report.labels + (report.labels === 1 ? " name" : " names");
     say();
   }
 
@@ -311,6 +330,38 @@
 
     el.fit.addEventListener("click", function () {
       painter.home();
+      repaint();
+    });
+
+    // Every gesture this viewer had was a pointer gesture, so a reader without
+    // one could reach the canvas and then do nothing with it. These are the
+    // same three moves the hand has: go somewhere, get closer, start again.
+    el.canvas.addEventListener("keydown", function (event) {
+      if (!painter.loaded()) return;
+      var box = el.canvas.getBoundingClientRect();
+      var step = event.shiftKey ? 0.4 : 0.12;
+      // Sideways does nothing in the rectangular view, where the depth axis is
+      // fitted to what is drawn on every paint, so those two keys are left for
+      // the browser to scroll the page with rather than swallowed.
+      var flat = painter.shapeNow() !== "rows";
+      var by = { x: 0, y: 0 };
+      if (event.key === "ArrowLeft") { if (!flat) return; by.x = box.width * step; }
+      else if (event.key === "ArrowRight") { if (!flat) return; by.x = -box.width * step; }
+      else if (event.key === "ArrowUp") by.y = box.height * step;
+      else if (event.key === "ArrowDown") by.y = -box.height * step;
+      else if (event.key === "PageUp") by.y = box.height * 0.9;
+      else if (event.key === "PageDown") by.y = -box.height * 0.9;
+      else if (event.key === "+" || event.key === "=") {
+        painter.zoomAt(box.width / 2, box.height / 2, 1.6);
+      } else if (event.key === "-" || event.key === "_") {
+        painter.zoomAt(box.width / 2, box.height / 2, 1 / 1.6);
+      } else if (event.key === "Home") {
+        painter.home();
+      } else {
+        return;
+      }
+      event.preventDefault();
+      if (by.x || by.y) painter.panBy(by.x, by.y);
       repaint();
     });
   }

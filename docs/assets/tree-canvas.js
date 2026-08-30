@@ -69,6 +69,7 @@ window.karyonCanvas = (function () {
       // A layout with no root sends the order to read its terminals in, since
       // it has no rows for the page to sort by. That order is what stands in
       // for rows here: it is what one is picked out of every few from.
+      view.found = null;
       view.rootless = !!(placed.order && placed.order.length);
       view.byRow = view.rootless ? placed.order : order(placed);
       mode = view.rootless ? "spread" : "rows";
@@ -635,6 +636,7 @@ window.karyonCanvas = (function () {
         ctx.textAlign = "left";
       }
 
+      markFound(ctx, theme, box);
       var marked = box.wide >= RAIL_LEAST ? paintDial(ctx, theme, box, arc) : null;
       return {
         drawn: drawn,
@@ -720,6 +722,7 @@ window.karyonCanvas = (function () {
         ctx.textAlign = "left";
       }
 
+      markFound(ctx, theme, box);
       var marked = box.wide >= RAIL_LEAST ? paintDial(ctx, theme, box, null) : null;
       return {
         drawn: drawn,
@@ -950,6 +953,7 @@ window.karyonCanvas = (function () {
           labels += 1;
         }
       }
+      markFound(ctx, theme, box);
       var marked = strip ? paintRail(ctx, theme, box, strip) : null;
 
       return {
@@ -1106,17 +1110,63 @@ window.karyonCanvas = (function () {
     }
 
     // Puts a named tip in the middle, without changing how much is on screen.
+    // Take the view to a tip by name, in whichever projection is being looked
+    // through. It used to move the row camera and nothing else, so in the two
+    // projections that are driven by the other camera a hit moved nothing at
+    // all and still reported success.
     function goTo(name) {
       if (!view) return false;
       for (var node = 0; node < view.count; node++) {
         if (!view.length[node]) continue;
         if (nameOf(node) !== name) continue;
-        var tall = camera.y1 - camera.y0;
-        camera.y0 = view.y[node] - tall * 0.5;
-        camera.y1 = view.y[node] + tall * 0.5;
+        view.found = node;
+        if (mode === "rows") {
+          // Close enough that the tip has a name beside it, rather than
+          // wherever the reader happened to be zoomed to.
+          var tall = Math.min(camera.y1 - camera.y0, 60);
+          camera.y0 = view.y[node] - tall * 0.5;
+          camera.y1 = view.y[node] + tall * 0.5;
+        } else {
+          disc.cx = unitX(node);
+          disc.cy = unitY(node);
+          if (disc.half > 0.08) disc.half = 0.08;
+          settleDisc();
+        }
         return true;
       }
       return false;
+    }
+
+    // Where the last search landed, so a paint can put a ring round it. A tip
+    // found and not marked is a tip the reader still has to hunt for.
+    function markFound(ctx, theme, box) {
+      if (view.found === undefined || view.found === null) return;
+      var at = whereOn(box, view.found);
+      if (!at) return;
+      if (at.x < -20 || at.x > box.wide + 20 || at.y < -20 || at.y > box.tall + 20) return;
+      ctx.strokeStyle = theme.edge;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    // Where a node lands, given a box already measured.
+    function whereOn(box, node) {
+      if (mode !== "rows") {
+        var seat = discBox(box);
+        return {
+          x: seat.midX + (unitX(node) - disc.cx) * seat.scale,
+          y: seat.midY + (unitY(node) - disc.cy) * seat.scale,
+        };
+      }
+      var strip = rail(box);
+      var wide = strip ? strip.x0 : box.wide;
+      return {
+        x: ((view.x[node] - camera.x0) / (camera.x1 - camera.x0 || 1)) * wide,
+        y: ((view.y[node] - camera.y0) / (camera.y1 - camera.y0 || 1)) * box.tall,
+      };
     }
 
     // What the window is looking at, in rows, which is what a figure of this
@@ -1148,7 +1198,14 @@ window.karyonCanvas = (function () {
         var end = view.byRow[back];
         if (view.length[end]) last = nameOf(end);
       }
-      return { first: first, last: last, rows: to - from };
+      // How many rows the window holds, not how many nodes fall inside them.
+      // A parent sits on a row of its own between its children, so the node
+      // count is about twice the row count and saying it was rows was wrong.
+      var b = view.bounds;
+      var span = mode === "rows"
+        ? Math.min(camera.y1, b.highY + 0.5) - Math.max(camera.y0, b.lowY - 0.5)
+        : b.highY - b.lowY + 1;
+      return { first: first, last: last, rows: Math.max(0, Math.round(span)) };
     }
 
     return {
@@ -1159,8 +1216,6 @@ window.karyonCanvas = (function () {
       panBy: panBy,
       onMap: onMap,
       jumpTo: jumpTo,
-      // Which projection is being looked through. The layout does not change:
-      // the same rows and depths become angles and radii.
       // Which projection is being looked through: "rows", "disc" or "spread".
       // The first two are the same layout read two ways and cost nothing to
       // change between. The third is a different walk and the page has to have
@@ -1178,26 +1233,11 @@ window.karyonCanvas = (function () {
       shapeNow: function () { return mode; },
       rootless: function () { return !!(view && view.rootless); },
       // Where a node sits on the canvas, in the projection being looked
-      // through. The one place that answers it, so a check of the disc can ask
-      // whether the canvas agrees with the crate's own arithmetic.
+      // through. The one place that answers it, so a check of a projection can
+      // ask whether the canvas agrees with the crate's own arithmetic.
       where: function (node) {
         if (!view) return null;
-        var box = size();
-        if (mode !== "rows") {
-          // Both flat projections put a node somewhere in the same two units,
-          // so there is one answer here and not two.
-          var seat = discBox(box);
-          return {
-            x: seat.midX + (unitX(node) - disc.cx) * seat.scale,
-            y: seat.midY + (unitY(node) - disc.cy) * seat.scale,
-          };
-        }
-        var strip = rail(box);
-        var wide = strip ? strip.x0 : box.wide;
-        return {
-          x: ((view.x[node] - camera.x0) / (camera.x1 - camera.x0 || 1)) * wide,
-          y: ((view.y[node] - camera.y0) / (camera.y1 - camera.y0 || 1)) * box.tall,
-        };
+        return whereOn(size(), node);
       },
       goTo: goTo,
       looking: looking,

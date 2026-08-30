@@ -97,5 +97,15 @@ self.onmessage = function (event) {
       // below it to open.
       answer({ kind: "chosen", id: job.id, focus: null });
     }
+  }).catch(function (cause) {
+    // A program that will not start is the end of the page, so it has to say
+    // so. Without this the promise was rejected into nothing and the viewer sat
+    // there for ever with a spinner and no reason.
+    answer({
+      kind: job.kind === "layout" ? "layout" : "drawn",
+      id: job.id,
+      ok: false,
+      body: "the program could not be loaded in this browser: " + (cause && cause.message ? cause.message : cause),
+    });
   });
 };
