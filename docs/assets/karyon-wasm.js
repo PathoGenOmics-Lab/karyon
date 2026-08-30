@@ -457,7 +457,7 @@ self.karyon = (function () {
   //
   // The shape of the buffer is written down in playground/src/lib.rs, beside
   // the code that fills it.
-  function positions(name, body, cladogram, rootless) {
+  function positions(name, body, cladogram, rootless, sheet) {
     if (!wasm) return { ok: false, body: "the program has not arrived" };
     var parts = [];
     var total = 0;
@@ -477,6 +477,8 @@ self.karyon = (function () {
     str(body);
     u32(cladogram ? 1 : 0);
     u32(rootless ? 1 : 0);
+    str(sheet && sheet.name ? sheet.name : "");
+    str(sheet && sheet.body ? sheet.body : "");
     var input = new Uint8Array(total);
     var at = 0;
     parts.forEach(function (part) {
@@ -526,7 +528,36 @@ self.karyon = (function () {
     var order = tips
       ? new Uint32Array(wasm.memory.buffer.slice(tipsAt + 4, tipsAt + 4 + tips * 4))
       : new Uint32Array(0);
-    wasm.dealloc(out, 5 + count * 20 + 4 + blob + 4 + tips * 4);
+
+    // The trait columns, resolved by the crate. One block per column: the key,
+    // the label, the levels with a colour for each scheme, and one level per
+    // node. The shape is written down in playground/src/lib.rs beside the code
+    // that fills it.
+    var walk = tipsAt + 4 + tips * 4;
+    function word() {
+      var len = view.getUint32(walk - out, true);
+      walk += 4;
+      var text = decoder.decode(new Uint8Array(wasm.memory.buffer, walk, len));
+      walk += len;
+      return text;
+    }
+    var columns = view.getUint32(walk - out, true);
+    walk += 4;
+    var strips = [];
+    for (var column = 0; column < columns; column++) {
+      var key = word();
+      var label = word();
+      var many = view.getUint32(walk - out, true);
+      walk += 4;
+      var levels = [];
+      for (var level = 0; level < many; level++) {
+        levels.push({ value: word(), light: word(), dark: word() });
+      }
+      var of = new Uint32Array(wasm.memory.buffer.slice(walk, walk + count * 4));
+      walk += count * 4;
+      strips.push({ key: key, label: label, levels: levels, of: of });
+    }
+    wasm.dealloc(out, walk - out);
     return {
       ok: true,
       count: count,
@@ -538,6 +569,7 @@ self.karyon = (function () {
       names: names,
       order: order,
       rootless: !!rootless,
+      strips: strips,
     };
   }
 

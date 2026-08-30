@@ -359,3 +359,42 @@
 
 /* Over a branch the hand can take, rather than over the empty canvas. */
 .tv-plot.tv-onnode { cursor: pointer; }
+
+/* Which colour is which. A strip without one is a row of colours that means
+   nothing, and the colours are the crate's own, so the key is too. */
+.tv-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.4rem;
+  margin: 0.5rem 0 0.3rem;
+  font-size: 0.68rem;
+}
+
+.tv-key-column {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.7rem;
+}
+
+.tv-key-column strong {
+  font-weight: 650;
+}
+
+.tv-key-column span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.tv-key-column i {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 0.12rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+}
+
+.tv-key-rest {
+  font-style: italic;
+}

@@ -685,10 +685,12 @@ window.karyonCanvas = (function () {
         ctx.textAlign = "left";
       }
 
+      var cells = paintRings(ctx, theme, box, seat, midX, midY, runs);
       markFound(ctx, theme, box);
       var marked = box.wide >= RAIL_LEAST ? paintDial(ctx, theme, box, arc) : null;
       return {
         drawn: drawn,
+        cells: cells,
         skipped: 0,
         labels: labels,
         stride: picked.stride,
@@ -905,6 +907,85 @@ window.karyonCanvas = (function () {
       return true;
     }
 
+    // ----------------------------------------------------------- the strips
+
+    // A column of traits is drawn beside the names in the rectangular view and
+    // as a ring outside the tips on the disc, which is what the crate does in
+    // an SVG. The colours are not chosen here: they arrive with the layout,
+    // resolved by the crate, so the strips on the canvas and the strips in the
+    // exported figure cannot disagree about which blue is which.
+    var STRIP_WIDE = 11;
+    var STRIP_GAP = 2;
+
+    function stripRoom() {
+      var many = view && view.strips ? view.strips.length : 0;
+      return many ? many * (STRIP_WIDE + STRIP_GAP) + STRIP_GAP : 0;
+    }
+
+    function stripInk(strip, node, dark) {
+      var at = strip.of[node];
+      if (at === 0xffffffff || at >= strip.levels.length) return null;
+      var level = strip.levels[at];
+      return dark ? level.dark : level.light;
+    }
+
+    // Beside the rows: one cell per column, at the row of every tip on screen.
+    // A row too short to see is still drawn, because a strip is a count as much
+    // as a picture and a gap in it says something.
+    function paintStrips(ctx, theme, box, from, to, atY, perRow, wide) {
+      var strips = view.strips;
+      if (!strips || !strips.length) return 0;
+      var tall = Math.max(1, perRow);
+      var drawn = 0;
+      for (var column = 0; column < strips.length; column++) {
+        var strip = strips[column];
+        var left = wide + STRIP_GAP + column * (STRIP_WIDE + STRIP_GAP);
+        for (var at = from; at < to; at++) {
+          var node = view.byRow[at];
+          if (!view.length[node]) continue;
+          var ink = stripInk(strip, node, theme.dark);
+          if (!ink) continue;
+          ctx.fillStyle = ink;
+          ctx.fillRect(left, atY(view.y[node]) - tall / 2, STRIP_WIDE, tall);
+          drawn += 1;
+        }
+      }
+      return drawn;
+    }
+
+    // Round the rim: one ring per column, a wedge per tip. The same cells bent,
+    // which is what the crate's trait rings are.
+    function paintRings(ctx, theme, box, seat, midX, midY, runs) {
+      var strips = view.strips;
+      if (!strips || !strips.length) return 0;
+      var many = terminals();
+      var step = (Math.PI * 2) / Math.max(1, many);
+      var drawn = 0;
+      for (var column = 0; column < strips.length; column++) {
+        var strip = strips[column];
+        var inner = seat.scale * (1.02 + column * 0.05);
+        var outer = seat.scale * (1.02 + column * 0.05 + 0.045);
+        if (outer - inner < 1) continue;
+        for (var run = 0; run < runs.length; run++) {
+          for (var at = runs[run][0]; at < runs[run][1]; at++) {
+            var node = view.byRow[at];
+            if (!view.length[node]) continue;
+            var ink = stripInk(strip, node, theme.dark);
+            if (!ink) continue;
+            var turn = angleOf(view.y[node]);
+            ctx.fillStyle = ink;
+            ctx.beginPath();
+            ctx.arc(midX, midY, outer, turn - step / 2, turn + step / 2);
+            ctx.arc(midX, midY, inner, turn + step / 2, turn - step / 2, true);
+            ctx.closePath();
+            ctx.fill();
+            drawn += 1;
+          }
+        }
+      }
+      return drawn;
+    }
+
     // ------------------------------------------------------------ selection
 
     // The branches to draw for a run of rows in a box `wide` by `tall`, as a
@@ -1042,8 +1123,9 @@ window.karyonCanvas = (function () {
       ctx.clearRect(0, 0, box.wide, box.tall);
 
       var strip = rail(box);
-      // The tree draws into what is left when the rail has taken its width.
-      var wide = strip ? strip.x0 : box.wide;
+      // The tree draws into what is left when the rail and the trait columns
+      // have taken theirs.
+      var wide = (strip ? strip.x0 : box.wide) - stripRoom();
 
       var spanX = camera.x1 - camera.x0 || 1;
       var spanY = camera.y1 - camera.y0 || 1;
@@ -1124,11 +1206,13 @@ window.karyonCanvas = (function () {
           labels += 1;
         }
       }
+      var cells = paintStrips(ctx, theme, box, from, to, atY, sy, wide);
       markFound(ctx, theme, box);
       var marked = strip ? paintRail(ctx, theme, box, strip) : null;
 
       return {
         drawn: drawn,
+        cells: cells,
         skipped: wanted - picked.sampled,
         labels: labels,
         stride: stride,
@@ -1490,8 +1574,11 @@ window.karyonCanvas = (function () {
           y: seat.midY + (unitY(node) - disc.cy) * seat.scale,
         };
       }
+      // The same width the paint drew into, trait columns taken off it as
+      // well: without that the hand would name a branch a little to the right
+      // of the one under it.
       var strip = rail(box);
-      var wide = strip ? strip.x0 : box.wide;
+      var wide = (strip ? strip.x0 : box.wide) - stripRoom();
       return {
         x: ((view.x[node] - camera.x0) / (camera.x1 - camera.x0 || 1)) * wide,
         y: ((view.y[node] - camera.y0) / (camera.y1 - camera.y0 || 1)) * box.tall,
@@ -1588,6 +1675,10 @@ window.karyonCanvas = (function () {
         return mode;
       },
       shapeNow: function () { return mode; },
+      // The columns as they were resolved, for a key beside the picture.
+      strips: function () {
+        return view && view.strips ? view.strips : [];
+      },
       rootless: function () { return !!(view && view.rootless); },
       // Where a node sits on the canvas, in the projection being looked
       // through. The one place that answers it, so a check of a projection can

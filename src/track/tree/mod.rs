@@ -1609,6 +1609,77 @@ impl TreeTrack {
         &self.tree
     }
 
+    /// The trait columns resolved the way a figure resolves them: which level
+    /// every node is at, and which colour that level was given.
+    ///
+    /// A caller drawing the strips itself, on a canvas rather than into an SVG,
+    /// needs this rather than the sheet. Working the levels out again from the
+    /// sheet would be a second opinion about which blue is which, and two
+    /// pictures of one tree that disagree about that are worse than one
+    /// picture.
+    ///
+    /// A continuous column has no levels of its own, so it is given sixteen
+    /// bands across its range. That is a choice this makes and the SVG does
+    /// not, and it is why the bands are named by the range they cover.
+    pub fn strips(&self, theme: &Theme) -> Vec<crate::TraitStrip> {
+        const BANDS: usize = 16;
+        let nodes = self.tree.nodes().len();
+        self.trait_columns
+            .iter()
+            .map(|column| {
+                let values = rectangular::branch_values(&self.tree, &column.key);
+                let domain = crate::track::traits::TraitDomain::new(
+                    values.iter().flatten().copied().collect::<Vec<_>>(),
+                );
+                let mut levels: Vec<crate::TraitLevel> = Vec::new();
+                let mut of: Vec<Option<usize>> = vec![None; nodes];
+                match column.scale {
+                    TraitScale::Continuous => {
+                        for band in 0..BANDS {
+                            let low = domain.minimum
+                                + (domain.maximum - domain.minimum) * band as f64 / BANDS as f64;
+                            let high = domain.minimum
+                                + (domain.maximum - domain.minimum) * (band + 1) as f64
+                                    / BANDS as f64;
+                            levels.push(crate::TraitLevel {
+                                value: format!("{low:.3} to {high:.3}"),
+                                color: crate::theme::mix(
+                                    &theme.muted,
+                                    &theme.accent,
+                                    band as f64 / (BANDS - 1) as f64,
+                                ),
+                            });
+                        }
+                        for (node, value) in values.iter().enumerate() {
+                            let Some(fraction) = domain.fraction(*value) else {
+                                continue;
+                            };
+                            let band = ((fraction * BANDS as f64) as usize).min(BANDS - 1);
+                            of[node] = Some(band);
+                        }
+                    }
+                    TraitScale::Categorical => {
+                        for (value, index) in domain.levels() {
+                            levels.push(crate::TraitLevel {
+                                value: value.to_string(),
+                                color: theme.color(index).to_string(),
+                            });
+                        }
+                        for (node, value) in values.iter().enumerate() {
+                            of[node] = domain.category(*value);
+                        }
+                    }
+                }
+                crate::TraitStrip {
+                    key: column.key.clone(),
+                    label: column.label.clone(),
+                    levels,
+                    of,
+                }
+            })
+            .collect()
+    }
+
     fn branch_scale(&self) -> Option<&ScaleBar> {
         self.scale_bar
             .as_ref()

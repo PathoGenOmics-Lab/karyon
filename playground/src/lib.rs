@@ -187,12 +187,84 @@ pub unsafe extern "C" fn layout(ptr: *const u8, len: usize) -> *mut u8 {
     }
 }
 
+/// One column of traits, resolved to what a figure would draw: the key, the
+/// label, the levels as (value, light colour, dark colour), and one level index
+/// per node with `u32::MAX` where a node carries nothing.
+struct Strip {
+    key: String,
+    label: String,
+    levels: Vec<(String, String, String)>,
+    of: Vec<u32>,
+}
+
+fn put_text(out: &mut Vec<u8>, text: &str) {
+    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+    out.extend_from_slice(text.as_bytes());
+}
+
+/// The sheet resolved against the tree the way the command line resolves it.
+///
+/// A tree reads its strips out of its own annotations, so the sheet is copied
+/// onto the tips it names first and the crate is then asked what it would draw.
+/// Working the levels out here instead would be a second opinion about which
+/// blue is which, and the whole point of this page is that it is not one.
+fn resolve_strips(tree: &Tree, body: &str) -> Vec<Strip> {
+    let Ok(held) = karyon::read::sheet::sheet(body) else {
+        return Vec::new();
+    };
+    let mut tree = tree.clone();
+    for name in tree.leaf_names() {
+        let (Some(values), Some(node)) = (held.rows.get(&name), tree.node_named(&name)) else {
+            continue;
+        };
+        let values: Vec<(String, karyon::AnnotationValue)> = values
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        if let Some(into) = tree.annotations_mut(node) {
+            for (key, value) in values {
+                into.insert(key, value);
+            }
+        }
+    }
+    let spread = karyon::track::traits::Traits::new(held.rows.clone()).spread(held.columns.clone());
+    let mut track = karyon::track::tree::TreeTrack::new(tree);
+    for column in spread.columns() {
+        track = track.trait_column(column.clone());
+    }
+    let light = track.strips(&karyon::Theme::light());
+    let dark = track.strips(&karyon::Theme::dark());
+    light
+        .into_iter()
+        .zip(dark)
+        .map(|(pale, deep)| Strip {
+            key: pale.key,
+            label: pale.label,
+            levels: pale
+                .levels
+                .iter()
+                .zip(deep.levels.iter())
+                .map(|(one, other)| (one.value.clone(), one.color.clone(), other.color.clone()))
+                .collect(),
+            of: pale
+                .of
+                .iter()
+                .map(|at| at.map_or(u32::MAX, |index| index as u32))
+                .collect(),
+        })
+        .collect()
+}
+
 /// The whole of what [`layout`] does, with the pointers already gone.
 fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     let name = text(&mut input).ok_or("the file name is not in the shape this expects")?;
     let body = text(&mut input).ok_or("the file body is not in the shape this expects")?;
     let cladogram = number(&mut input).unwrap_or(0) == 1;
     let rootless = number(&mut input).unwrap_or(0) == 1;
+    // The sheet, if one was dropped. Empty means there is none, which is not
+    // the same as one that turned out to hold nothing.
+    let _sheet_name = text(&mut input).unwrap_or_default();
+    let sheet_body = text(&mut input).unwrap_or_default();
 
     let tree = match remembered(&name, body.trim()) {
         Some(tree) => tree,
@@ -232,6 +304,15 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
             }
         }
     }
+
+    // The trait columns, resolved by the crate rather than by the page: which
+    // level every node is at and which colour that level gets, in both schemes,
+    // so the strips beside the names are the strips the figure would draw.
+    let strips = if sheet_body.trim().is_empty() {
+        Vec::new()
+    } else {
+        resolve_strips(&tree, &sheet_body)
+    };
 
     let mut names: Vec<u8> = Vec::new();
     let mut start = Vec::with_capacity(count);
@@ -274,6 +355,24 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     for value in &order {
         out.extend_from_slice(&value.to_le_bytes());
     }
+    out.extend_from_slice(&(strips.len() as u32).to_le_bytes());
+    for strip in &strips {
+        put_text(&mut out, &strip.key);
+        put_text(&mut out, &strip.label);
+        out.extend_from_slice(&(strip.levels.len() as u32).to_le_bytes());
+        for level in &strip.levels {
+            put_text(&mut out, &level.0);
+            put_text(&mut out, &level.1);
+            put_text(&mut out, &level.2);
+        }
+        for at in &strip.of {
+            out.extend_from_slice(&at.to_le_bytes());
+        }
+    }
+    // The caller frees this by its length, so the block it frees has to be
+    // exactly that long: a Vec with room to spare hands back a capacity the
+    // free does not match, and freeing by the wrong size traps the module.
+    out.shrink_to_fit();
     debug_assert_eq!(
         out.len(),
         out.capacity(),
@@ -523,6 +622,99 @@ mod tests {
         // use.
         assert!(remembered("small.nwk", "((a:0.1,b:0.1):0.1,c:0.1);").is_none());
     }
+    /// A sheet dropped on the page has to reach the canvas with the colours the
+    /// figure would give it, or the page draws one picture and exports another.
+    #[test]
+    fn a_sheet_comes_back_as_the_colours_the_figure_would_draw() {
+        const TREE: &str = "((a:1,b:1):1,c:1);";
+        const SHEET: &str = "name\tplace\na\tValencia\nb\tValencia\nc\tLisbon\n";
+        let mut input: Vec<u8> = Vec::new();
+        fn push(out: &mut Vec<u8>, text: &str) {
+            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            out.extend_from_slice(text.as_bytes());
+        }
+        push(&mut input, "t.nwk");
+        push(&mut input, TREE);
+        input.extend_from_slice(&0u32.to_le_bytes());
+        input.extend_from_slice(&0u32.to_le_bytes());
+        push(&mut input, "s.tsv");
+        push(&mut input, SHEET);
+
+        let out = positions(&input).expect("a tree and a sheet");
+        let mut at = 1usize;
+        let take = |at: &mut usize, out: &[u8]| {
+            let value = u32::from_le_bytes(out[*at..*at + 4].try_into().unwrap());
+            *at += 4;
+            value
+        };
+        let word = |at: &mut usize, out: &[u8]| {
+            let len = u32::from_le_bytes(out[*at..*at + 4].try_into().unwrap()) as usize;
+            *at += 4;
+            let text = String::from_utf8(out[*at..*at + len].to_vec()).unwrap();
+            *at += len;
+            text
+        };
+        let count = take(&mut at, &out) as usize;
+        at += count * 20;
+        let blob = take(&mut at, &out) as usize;
+        at += blob;
+        let tips = take(&mut at, &out) as usize;
+        at += tips * 4;
+
+        let columns = take(&mut at, &out) as usize;
+        assert_eq!(columns, 1, "one column in the sheet, one column back");
+        assert_eq!(word(&mut at, &out), "place");
+        assert_eq!(word(&mut at, &out), "place");
+        let levels = take(&mut at, &out) as usize;
+        assert_eq!(levels, 2, "two places");
+        let mut named = Vec::new();
+        for _ in 0..levels {
+            let value = word(&mut at, &out);
+            let light = word(&mut at, &out);
+            let dark = word(&mut at, &out);
+            assert!(
+                light.starts_with('#'),
+                "a light colour that is not one: {light}"
+            );
+            assert!(
+                dark.starts_with('#'),
+                "a dark colour that is not one: {dark}"
+            );
+            named.push((value, light, dark));
+        }
+        let mut of = Vec::with_capacity(count);
+        for _ in 0..count {
+            of.push(take(&mut at, &out));
+        }
+        assert_eq!(at, out.len(), "the buffer is exactly as long as it says");
+
+        // And the colours are the crate's own palette, in the order it hands
+        // them out, rather than any this file chose.
+        let light = karyon::Theme::light();
+        let dark = karyon::Theme::dark();
+        for (at, (_, pale, deep)) in named.iter().enumerate() {
+            assert_eq!(
+                pale,
+                light.color(at),
+                "level {at} is not the light palette's"
+            );
+            assert_eq!(deep, dark.color(at), "level {at} is not the dark palette's");
+        }
+
+        let tree = Tree::parse_newick(TREE).unwrap();
+        let a = tree.node_named("a").unwrap();
+        let b = tree.node_named("b").unwrap();
+        let c = tree.node_named("c").unwrap();
+        assert_ne!(of[a], u32::MAX, "a tip the sheet names carries nothing");
+        assert_eq!(
+            of[a], of[b],
+            "two tips in one place are at different levels"
+        );
+        assert_ne!(of[a], of[c], "two places share a level");
+        assert_eq!(named[of[a] as usize].0, "Valencia");
+        assert_eq!(named[of[c] as usize].0, "Lisbon");
+    }
+
     /// The coordinates a page flies over have to be the coordinates the crate
     /// The same buffer read the other way, which is the one the page has no
     /// other source for: an unrooted tree has no rows to sort by, so if the
@@ -576,6 +768,11 @@ mod tests {
         for _ in 0..tips {
             order.push(take(&mut at, &out) as usize);
         }
+        assert_eq!(
+            take(&mut at, &out),
+            0,
+            "no sheet was sent, so no strips come back"
+        );
         assert_eq!(at, out.len(), "the buffer is exactly as long as it says");
 
         let laid = tree.unrooted(false);
@@ -666,6 +863,8 @@ mod tests {
             tips, 0,
             "a rooted layout sends no tip order: the rows are one"
         );
+        let strips = take(&mut at, &out) as usize;
+        assert_eq!(strips, 0, "no sheet was sent, so no strips come back");
         assert_eq!(at, out.len(), "the buffer is exactly as long as it says");
 
         // Every coordinate is the one the crate worked out.

@@ -84,6 +84,8 @@ hide:
     screen and never a walk over the tree. Export hands the view back to the program and saves karyon's own
     figure of it.</p>
 
+  <div class="tv-key" id="tv-key" hidden></div>
+
   <p class="tv-note" id="tv-note" role="status" hidden></p>
 
   <p class="tv-command">The same view from a shell: <code id="tv-command"></code></p>

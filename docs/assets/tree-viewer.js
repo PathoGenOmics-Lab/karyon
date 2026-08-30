@@ -123,6 +123,7 @@
       // The rootless walk arrives as its own layout, so which projection the
       // page is looking through is settled by which one came back.
       painter.shape(projection);
+      paintKey();
       el.drop.hidden = true;
       el.app.hidden = false;
       el.error.hidden = true;
@@ -161,6 +162,42 @@
         fail("that view could not be saved: " + message.body);
       }
     }
+  }
+
+  // A key for the trait columns, in the order the palette went round, which is
+  // the order the crate handed them over in. Without it a strip is a row of
+  // colours that means nothing.
+  function paintKey() {
+    var strips = painter && painter.strips ? painter.strips() : [];
+    el.key.innerHTML = "";
+    el.key.hidden = !strips.length;
+    if (!strips.length) return;
+    var dark = K.dark();
+    strips.forEach(function (strip) {
+      var group = document.createElement("div");
+      group.className = "tv-key-column";
+      var name = document.createElement("strong");
+      name.textContent = strip.label;
+      group.appendChild(name);
+      // A column with more levels than a person reads at a glance names the
+      // first few and says how many are left, rather than printing a hundred
+      // swatches nobody looks at.
+      strip.levels.slice(0, 8).forEach(function (level) {
+        var one = document.createElement("span");
+        var swatch = document.createElement("i");
+        swatch.style.background = dark ? level.dark : level.light;
+        one.appendChild(swatch);
+        one.appendChild(document.createTextNode(level.value));
+        group.appendChild(one);
+      });
+      if (strip.levels.length > 8) {
+        var rest = document.createElement("span");
+        rest.className = "tv-key-rest";
+        rest.textContent = "and " + (strip.levels.length - 8) + " more";
+        group.appendChild(rest);
+      }
+      el.key.appendChild(group);
+    });
   }
 
   // What is under the hand, put beside it. Null clears it.
@@ -206,6 +243,8 @@
 
   function readTheme() {
     var dark = K.dark();
+    // Which scheme, so a strip can pick the colour the crate resolved for it.
+    theme.dark = dark;
     theme.branch = dark ? "#e6edf3" : "#1b1f23";
     theme.muted = dark ? "#aab4c0" : "#4b5563";
     // The rail stands behind the tree, so its ink is quieter than the tree's.
@@ -527,7 +566,9 @@
     sheet = { name: called, body: text };
     paintSheet();
     el.error.hidden = true;
-    say();
+    // The layout carries the strips now, resolved by the program, so a sheet is
+    // a thing to ask the program about rather than a note kept on the page.
+    relayout();
   }
 
   function paintSheet() {
@@ -567,6 +608,7 @@
       body: reading.body,
       cladogram: cladogram,
       rootless: projection === "spread",
+      sheet: sheet ? { name: sheet.name, body: sheet.body } : null,
     });
   }
 
@@ -604,7 +646,7 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "lengths", "projection", "note", "another", "tip"].forEach(function (name) {
+      "sheetName", "dropSheet", "lengths", "projection", "note", "another", "tip", "key"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
     if (!el.canvas || !el.lengths || !el.projection) return;
@@ -695,7 +737,9 @@
       el.dropSheet.addEventListener("click", function () {
         sheet = null;
         paintSheet();
-        say();
+        // The strips came with the layout, so putting the sheet down means
+        // asking for one without them.
+        relayout();
       });
     }
 
@@ -724,7 +768,7 @@
       if (file) file.text().then(function (text) { take(text, file.name); });
     });
 
-    K.onScheme(repaint);
+    K.onScheme(function () { paintKey(); repaint(); });
     window.addEventListener("resize", function () {
       if (pending) clearTimeout(pending);
       pending = setTimeout(repaint, 80);

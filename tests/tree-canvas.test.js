@@ -693,6 +693,122 @@ check("Enter again moves to the next of them, and comes round", () => {
   assert.ok(words.length > 0);
 });
 
+// ------------------------------------------------------------- the strips
+
+// A layout that arrives with its trait columns already resolved, in the shape
+// the wire delivers them: levels with a colour for each scheme, and one level
+// index per node.
+function striped(levels) {
+  // Named tips, because a strip is drawn against a row that has a name: an
+  // unnamed internal node is a branch, not a sample.
+  const placed = named(10).placed;
+  const many = levels || 3;
+  const of = new Uint32Array(placed.count);
+  for (let node = 0; node < placed.count; node++) {
+    // A quarter of the nodes carry nothing, which is what a sheet that names
+    // only some of the tips looks like.
+    of[node] = node % 4 === 3 ? 0xffffffff : node % many;
+  }
+  // Two sets that share nothing, so a check can tell which scheme was used.
+  const pale = ["#0072b2", "#009e73", "#d55e00", "#7b3294", "#b34f86"];
+  const deep = ["#1a1a1a", "#2b2b2b", "#3c3c3c", "#4d4d4d", "#5e5e5e"];
+  placed.strips = [
+    {
+      key: "place",
+      label: "place",
+      levels: Array.from({ length: many }, (_, at) => ({
+        value: "place " + at,
+        light: pale[at % pale.length],
+        dark: deep[at % deep.length],
+      })),
+      of,
+    },
+  ];
+  return placed;
+}
+
+check("a column of traits is drawn beside the rows, in the colours it arrived with", () => {
+  const placed = striped(3);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const report = painter.paint(theme);
+  assert.ok(report.cells > 0, "no trait cells were drawn");
+
+  const cells = canvas.rects.filter((r) => r.kind === "fill");
+  const inks = new Set(cells.map((r) => r.paint));
+  for (const level of placed.strips[0].levels) {
+    assert.ok(inks.has(level.light), `the colour ${level.light} was never used`);
+  }
+  // And nothing was invented.
+  const allowed = new Set(placed.strips[0].levels.map((l) => l.light).concat([theme.window]));
+  for (const cell of cells) {
+    assert.ok(allowed.has(cell.paint), `a cell was painted ${cell.paint}, which came from nowhere`);
+  }
+});
+
+check("and the check bites: a tree with no columns draws no cells", () => {
+  const placed = balanced(10);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const report = painter.paint(theme);
+  assert.strictEqual(report.cells, 0, "cells were drawn for a tree that has no columns");
+});
+
+check("a node the sheet says nothing about gets no cell", () => {
+  const placed = striped(3);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const report = painter.paint(theme);
+
+  // Exactly the named rows that carry a value, and not one more: at this zoom
+  // every row is in view, so the count is the whole of the answer.
+  let wanted = 0, silent = 0;
+  for (let node = 0; node < placed.count; node++) {
+    if (!placed.length[node]) continue;
+    if (placed.strips[0].of[node] === 0xffffffff) silent += 1;
+    else wanted += 1;
+  }
+  assert.ok(silent > 0, "the fixture has nothing the sheet is silent about");
+  assert.strictEqual(report.cells, wanted, `${report.cells} cells for ${wanted} values`);
+});
+
+check("the columns take their width from the tree, not from the rail", () => {
+  const bareTree = named(10).placed;
+  const bare = drawnSet(bareTree, 800, WIDE);
+  const withColumns = (() => {
+    const painter = canvasModule.make(fakeCanvas(WIDE, 800));
+    painter.load(striped(3));
+    painter.paint(theme);
+    return painter;
+  })();
+  // The tree is drawn into what is left once the strips have taken their room,
+  // so the deepest branch lands further left than it does without them.
+  const deep = (p, placed) => {
+    let node = 0;
+    for (let i = 0; i < placed.count; i++) if (placed.x[i] > placed.x[node]) node = i;
+    return p.where(node).x;
+  };
+  const plain = deep(bare.painter, bareTree);
+  const shifted = deep(withColumns, striped(3));
+  assert.ok(shifted < plain, `the strips took no room: ${shifted} against ${plain}`);
+});
+
+check("the dark scheme uses the dark colour it was given", () => {
+  const placed = striped(2);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(Object.assign({}, theme, { dark: true }));
+  const inks = new Set(canvas.rects.filter((r) => r.kind === "fill").map((r) => r.paint));
+  for (const level of placed.strips[0].levels) {
+    assert.ok(inks.has(level.dark), `the dark colour ${level.dark} was never used`);
+    assert.ok(!inks.has(level.light), `the light colour ${level.light} was used in the dark`);
+  }
+});
+
 // --------------------------------------------------------------- the hand
 
 check("the canvas says what is under a point, and nothing where there is none", () => {
