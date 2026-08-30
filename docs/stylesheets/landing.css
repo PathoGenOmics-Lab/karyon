@@ -32,6 +32,11 @@
 .md-content__inner:has(.k-hero) {
   max-width: 62rem;
   margin-inline: auto;
+  /* A floor under the gutter. `margin-inline: auto` wins over Material's own
+     side margin and resolves to nothing on a narrow screen, so without this
+     every paragraph, heading and card on the page sat flush against both
+     bezels of a phone. */
+  padding-inline: 0.8rem;
 }
 
 /* -------------------------------------------------------------------------
