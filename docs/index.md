@@ -349,23 +349,52 @@ stack. A phylogeny is a track and so are its sample traits. A circular
 chromosome and a world map are containers of their own, because a sequence with
 no ends cannot be drawn as a line without inventing one.
 
+<div class="track-gallery">
+  <a class="track-card" href="plots/reads-molecules/">
+    <img src="assets/figures/example-pileup.svg" alt="A read pileup with mismatches, insertions, deletions and spliced alignments" width="920" height="474" loading="lazy">
+    <span><strong>Reads</strong><small>Pileups and single molecules</small></span>
+  </a>
+  <a class="track-card" href="plots/annotation-coordinates/">
+    <img src="assets/figures/example-ideogram.svg" alt="A chromosome ideogram with its bands and a highlighted region" width="900" height="276" loading="lazy">
+    <span><strong>Annotation</strong><small>Ideograms, genes and coordinates</small></span>
+  </a>
+  <a class="track-card" href="plots/variation-association/">
+    <img src="assets/figures/example-association.svg" alt="Association statistics above a genotype matrix" width="940" height="349" loading="lazy">
+    <span><strong>Variation</strong><small>Association scans and genotypes</small></span>
+  </a>
+  <a class="track-card" href="plots/comparisons-alignments/">
+    <img src="assets/figures/example-synteny.svg" alt="A dotplot with synteny ribbons between two genomes" width="900" height="438" loading="lazy">
+    <span><strong>Comparisons</strong><small>Dotplots, synteny and alignments</small></span>
+  </a>
+  <a class="track-card" href="plots/phylogeny-clades/">
+    <img src="assets/figures/example-phylo-layouts.svg" alt="The same phylogeny drawn rectangular, circular and unrooted" width="1402" height="1232" loading="lazy">
+    <span><strong>Phylogeny</strong><small>Three projections of one tree</small></span>
+  </a>
+  <a class="track-card" href="plots/signal-sequence/">
+    <img src="assets/figures/example-methylation.svg" alt="Methylation calls across the origin of replication" width="880" height="198" loading="lazy">
+    <span><strong>Signal</strong><small>Coverage, methylation and squiggles</small></span>
+  </a>
+  <a class="track-card" href="plots/evolution-surveillance/">
+    <img src="assets/figures/example-circular.svg" alt="A circular chromosome with its rings" width="688" height="688" loading="lazy">
+    <span><strong>Circular</strong><small>Sequences with no ends</small></span>
+  </a>
+  <a class="track-card" href="plots/">
+    <img src="assets/figures/example-maps.svg" alt="Cases drawn on a world map beside a phylogeny" width="1402" height="974" loading="lazy">
+    <span><strong>Maps</strong><small>Where the samples came from</small></span>
+  </a>
+</div>
+
 <details class="track-overview">
-  <summary>Thirty-six track types, twenty-two panels, one sheet</summary>
+  <summary>All thirty-six on one sheet</summary>
   <img src="assets/figures/gallery.svg" loading="lazy" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="3472" height="1908">
 </details>
 
-Twenty-eight of the thirty-six are reachable from the command line. Twenty-seven
-of those have a file to read; the twenty-eighth is the coordinate ruler, which
-needs none. Trees drawn with metadata, maps and the selection views are
-library only. Where the library ends and the command begins is worth saying out
-loud, because it is the boundary readers walk into.
-
-The count is thirty-six because three were removed. Every track has to answer
-one question, *does drawing it read the shared scale*, and three that could not
-were taken out rather than kept for the sake of a longer list.
+Twenty-eight of the thirty-six are reachable from the command line; the rest are
+library only, which is a boundary worth saying out loud because it is the one
+readers walk into. The count is thirty-six because three were removed: every
+track has to answer *does drawing it read the shared scale*, and three that
+could not were taken out rather than kept for the sake of a longer list.
 [Extending](how-it-works/extending.md) has that test and what a new track owes.
-A library that says what it threw out is easier to believe than one that says
-how much it has.
 
 </section>
 
@@ -377,12 +406,59 @@ Several tracks encode a claim rather than a picture, and what they do when the
 data does not support the claim is what makes them worth having. The refusals
 are the interesting part.
 
-<ul class="k-refusal-list" markdown>
-<li markdown>A tanglegram is two phylogenies. Handed one file it would draw the tree against itself, which has no crossings, and no crossings is what a perfect result looks like. So it is refused by name: `karyon: a tanglegram track is drawn from two files, and --against names the second`. The two other tracks that take a second file are refused the same way.</li>
-<li markdown>A homology join that matched nothing would draw every gene in every genome outlined as having no counterpart, which reads as a discovery. It is refused instead, and the message names the first gene that found no match, since the names in a search result and the names in an annotation are routinely not the same strings.</li>
-<li markdown>`--identity` says whether a column is a percentage or a fraction. Left out it is worked out from the values, and a file whose values are all at or below one could be either, so it is refused by name rather than guessed at. Read the wrong way round, every ribbon in the figure becomes a perfect match and nothing fails.</li>
-<li markdown>Nought reads is not nought per cent. `modkit` writes a row for a position it could not call, with nought in every count, and passed through that is a mark on the baseline saying the cytosine is unmodified, which is a measurement. The position was not measured. Those rows are skipped and counted.</li>
-</ul>
+<div class="k-block-grid k-refusals-grid" markdown>
+
+<div class="k-block" markdown>
+
+### A tanglegram is two trees
+
+<p class="k-claim"><code>a tanglegram track is drawn from two files, and --against names the second</code></p>
+
+Handed one file it would draw the tree against itself, which has no crossings,
+and no crossings is what a perfect result looks like. The two other tracks that
+take a second file are refused the same way.
+
+</div>
+
+<div class="k-block" markdown>
+
+### A join that matched nothing
+
+<p class="k-claim">names the first gene that found no match</p>
+
+A homology join with no hits would outline every gene in every genome as having
+no counterpart, which reads as a discovery. The names in a search result and the
+names in an annotation are routinely not the same strings, so it says which one
+it looked for.
+
+</div>
+
+<div class="k-block" markdown>
+
+### A scale it cannot infer
+
+<p class="k-claim"><code>--identity</code> says whether a column is a percentage or a fraction</p>
+
+Left out it is worked out from the values, and a file whose values are all at or
+below one could be either. Read the wrong way round, every ribbon in the figure
+becomes a perfect match and nothing fails, so it is refused by name rather than
+guessed at.
+
+</div>
+
+<div class="k-block" markdown>
+
+### Nought reads is not nought per cent
+
+<p class="k-claim">skipped, and counted</p>
+
+`modkit` writes a row for a position it could not call, with nought in every
+count. Passed through, that is a mark on the baseline saying the cytosine is
+unmodified, which is a measurement. The position was not measured.
+
+</div>
+
+</div>
 
 All four are the same bug, and it has a name here: **a value given for the
 absence of a value**. It is the class this crate is written against, and it is
@@ -532,10 +608,14 @@ when a figure leans on them.
 </ul>
 
 [Citation](about/citation.md) has the whole list, the specifications behind
-every format the readers take included. Written by **Paula Ruiz-Rodriguez** and
-**Mireia Coscolla**, I²SysBio, University of Valencia-CSIC, FISABIO Joint
-Research Unit Infection and Public Health, Valencia, Spain. Released under
-[MIT](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+every format the readers take included.
+
+<div class="k-colophon" markdown>
+
+Built at I²SysBio, University of Valencia-CSIC, and the FISABIO Joint Research
+Unit Infection and Public Health, Valencia, Spain.
+
+</div>
 
 </section>
 
