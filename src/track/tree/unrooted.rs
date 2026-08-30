@@ -9,6 +9,8 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub(super) struct UnrootedScene {
+    /// The node the walk started from, which sits at the origin.
+    pub(super) centre: usize,
     pub(super) positions: Vec<Option<(f64, f64)>>,
     pub(super) parents: Vec<Option<usize>>,
     pub(super) angles: Vec<Option<f64>>,
@@ -155,6 +157,7 @@ impl UnrootedScene {
             bounds
         };
         UnrootedScene {
+            centre,
             positions,
             parents,
             angles,
@@ -162,6 +165,40 @@ impl UnrootedScene {
             visible,
             bounds,
         }
+    }
+}
+
+/// The unrooted layout on its own, with nothing folded and nothing drawn.
+///
+/// The projection has no root and therefore no rows, so it cannot be read off
+/// [`Placement`](crate::tree::Placement) the way the other two are. This is the
+/// same walk the drawing uses, handed over as coordinates.
+pub(crate) fn unrooted_layout(tree: &Tree, cladogram: bool) -> crate::tree::Unrooted {
+    let shape = if cladogram {
+        TreeShape::Cladogram
+    } else {
+        TreeShape::Phylogram
+    };
+    // The angle the first branch leaves at, which is the same default the
+    // circular projection starts from so the two agree about which way is up.
+    let scene = UnrootedScene::new(tree, shape, &BTreeSet::new(), -90.0);
+    let spots = scene
+        .positions
+        .iter()
+        .enumerate()
+        .filter_map(|(node, at)| {
+            at.map(|(x, y)| crate::tree::Spot {
+                node,
+                x,
+                y,
+                toward: scene.parents[node],
+            })
+        })
+        .collect();
+    crate::tree::Unrooted {
+        spots,
+        terminals: scene.terminals.clone(),
+        centre: scene.centre,
     }
 }
 
