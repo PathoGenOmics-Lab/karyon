@@ -138,6 +138,9 @@ TRACK OPTIONS, each describing the track before it
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips
                          and this is what makes it readable without hovering
+    --shape <HOW>        phylogram or cladogram, for a phylogeny: whether a
+                         branch is as long as its length says or every branch
+                         is one step, which is the shape to read a topology by
     --scale-bar          a rule in the tree's own branch-length units, which is
                          not the ruler along the bottom: that one measures the
                          region, and is left out of a figure holding nothing

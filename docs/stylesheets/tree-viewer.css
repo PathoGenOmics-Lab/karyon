@@ -104,22 +104,28 @@
   color: var(--md-default-fg-color--light);
 }
 
-/* A window onto the tree, not a scrolling document: the stage inside it is
-   moved by a transform, so the picture keeps up with the hand whatever the
-   tree costs to draw. */
+/* A window onto the tree. What moves is the camera, so nothing here scrolls
+   and nothing here is transformed. */
 .tv-plot {
   position: relative;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 0.3rem;
   overflow: hidden;
-  height: 74vh;
-  min-height: 20rem;
+  height: 76vh;
+  min-height: 22rem;
   touch-action: none;
   cursor: grab;
   overscroll-behavior: contain;
+  background: var(--md-default-bg-color);
 }
 
 .tv-plot.tv-dragging { cursor: grabbing; }
+
+.tv-plot canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
 /* A drawing is on its way. The picture stays put and stays usable, so this is
    a hint and not a curtain. */
@@ -143,39 +149,16 @@
   .tv-plot.tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
 }
 
-.tv-stage {
-  transform-origin: 0 0;
-  will-change: transform;
-}
-
-.tv-hud {
-  position: absolute;
-  right: 0.5rem;
-  bottom: 0.5rem;
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  background: var(--md-default-bg-color);
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.2rem;
-  padding: 0.2rem 0.35rem;
-  font-size: 0.7rem;
-}
-
-.tv-zoom {
+.tv-count,
+.tv-rows,
+.tv-detail {
+  font-family: var(--md-code-font-family);
+  font-size: 0.68rem;
+  color: var(--md-default-fg-color--light);
   font-variant-numeric: tabular-nums;
-  color: var(--md-default-fg-color--light);
-  min-width: 2.6rem;
-  text-align: right;
 }
 
-.tv-sheet {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.7rem;
-  color: var(--md-default-fg-color--light);
-}
+.tv-spacer { flex: 1; }
 
 .tv-hint {
   font-size: 0.65rem;

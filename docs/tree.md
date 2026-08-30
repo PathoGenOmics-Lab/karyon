@@ -33,42 +33,34 @@ hide:
 
 <div class="tv-app" id="tv-app" hidden markdown="0">
   <div class="tv-bar">
-    <div class="tv-group" role="group" aria-label="Projection">
-      <button class="tv-btn" type="button" data-projection="rectangular" aria-pressed="true">Rectangular</button>
-      <button class="tv-btn" type="button" data-projection="circular" aria-pressed="false">Circular</button>
-      <button class="tv-btn" type="button" data-projection="unrooted" aria-pressed="false">Unrooted</button>
-    </div>
-    <label class="tv-rows">
-      <input type="range" id="tv-rows" min="20" max="2000" step="20" value="400">
-      <output id="tv-rowsout">60 rows</output>
-    </label>
+    <button class="tv-btn" id="tv-shape" type="button" aria-pressed="false">Phylogram</button>
     <input class="tv-search" id="tv-search" type="search" placeholder="Find a tip, then Enter">
-    <output class="tv-timing" id="tv-timing"></output>
+    <output class="tv-count" id="tv-count"></output>
+    <output class="tv-rows" id="tv-rowsout"></output>
+    <output class="tv-detail" id="tv-detail"></output>
     <span class="tv-sheet" id="tv-sheet" hidden>
       <span id="tv-sheetname"></span>
-      <button class="tv-btn" id="tv-dropsheet" type="button" title="Draw the tree without it">Drop</button>
+      <button class="tv-btn" id="tv-dropsheet" type="button" title="Draw without it">Drop</button>
     </span>
+    <div class="tv-spacer"></div>
+    <button class="tv-btn" id="tv-fit" type="button">Fit</button>
+    <button class="tv-btn" id="tv-export" type="button" title="Save this view as karyon's own SVG">Export SVG</button>
   </div>
-
-  <nav class="tv-trail" id="tv-trail" aria-label="Where you are"></nav>
 
   <p class="tv-error" id="tv-error" hidden></p>
 
   <div class="tv-plot" id="tv-plot">
-    <div class="tv-stage" id="tv-stage"></div>
-    <div class="tv-hud">
-      <output class="tv-zoom" id="tv-zoom"></output>
-      <button class="tv-btn" id="tv-fit" type="button" disabled>Fit</button>
-    </div>
+    <canvas id="tv-canvas"></canvas>
   </div>
-  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in, and keep pulling the wheel back
-    to come out a level at a time. Eight times more of the tree is drawn than the window shows, so zooming
-    moves a camera over rows that are already there and asks the program for nothing; only once that detail
-    is used up is a deeper part of the tree drawn. The slider is how many rows go in at once, up to two
-    thousand.</p>
+
+  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. The layout is worked out once by
+    the program and never again: what moves is the window onto it, so a gesture costs a repaint of what is on
+    screen and never a walk over the tree. Export hands the view back to the program and saves karyon's own
+    figure of it.</p>
 
   <p class="tv-command">The same view from a shell: <code id="tv-command"></code></p>
 </div>
 
 <script src="../assets/karyon-wasm.js"></script>
+<script src="../assets/tree-canvas.js"></script>
 <script src="../assets/tree-viewer.js"></script>

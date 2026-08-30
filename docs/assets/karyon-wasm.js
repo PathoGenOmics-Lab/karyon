@@ -448,8 +448,82 @@ self.karyon = (function () {
     return total;
   }
 
+  // The coordinates a phylogeny is drawn at, rather than a drawing of it.
+  //
+  // A million tip tree has no SVG a browser will move under a hand, so a viewer
+  // of that size asks for the numbers and keeps a camera of its own. They are
+  // the numbers the figures are drawn from, so it is one layout seen two ways
+  // and not two layouts.
+  //
+  // The shape of the buffer is written down in playground/src/lib.rs, beside
+  // the code that fills it.
+  function positions(name, body, cladogram) {
+    if (!wasm) return { ok: false, body: "the program has not arrived" };
+    var parts = [];
+    var total = 0;
+    function u32(n) {
+      var b = new Uint8Array(4);
+      new DataView(b.buffer).setUint32(0, n, true);
+      parts.push(b);
+      total += 4;
+    }
+    function str(text) {
+      var bytes = encoder.encode(text);
+      u32(bytes.length);
+      parts.push(bytes);
+      total += bytes.length;
+    }
+    str(name);
+    str(body);
+    u32(cladogram ? 1 : 0);
+    var input = new Uint8Array(total);
+    var at = 0;
+    parts.forEach(function (part) {
+      input.set(part, at);
+      at += part.length;
+    });
+
+    var into = wasm.alloc(input.length);
+    new Uint8Array(wasm.memory.buffer, into, input.length).set(input);
+    var out = wasm.layout(into, input.length);
+    wasm.dealloc(into, input.length);
+
+    var head = new Uint8Array(wasm.memory.buffer, out, 5);
+    var ok = head[0] === 1;
+    var view = new DataView(wasm.memory.buffer, out);
+    if (!ok) {
+      var len = view.getUint32(1, true);
+      var message = decoder.decode(new Uint8Array(wasm.memory.buffer, out + 5, len));
+      wasm.dealloc(out, 5 + len);
+      return { ok: false, body: message };
+    }
+
+    var count = view.getUint32(1, true);
+    var base = out + 5;
+    // Copied out of the program's memory rather than pointed at it: the next
+    // call may grow that memory, and a view onto a buffer that has moved reads
+    // as an empty array with no error anywhere.
+    function floats(offset) {
+      return new Float32Array(wasm.memory.buffer.slice(base + offset, base + offset + count * 4));
+    }
+    function words(offset) {
+      return new Uint32Array(wasm.memory.buffer.slice(base + offset, base + offset + count * 4));
+    }
+    var x = floats(0);
+    var y = floats(count * 4);
+    var parent = words(count * 8);
+    var start = words(count * 12);
+    var length = words(count * 16);
+    var blobAt = base + count * 20;
+    var blob = view.getUint32(blobAt - out, true);
+    var names = new Uint8Array(wasm.memory.buffer.slice(blobAt + 4, blobAt + 4 + blob));
+    wasm.dealloc(out, 5 + count * 20 + 4 + blob);
+    return { ok: true, count: count, x: x, y: y, parent: parent, start: start, length: length, names: names };
+  }
+
   return {
     load: load,
+    positions: positions,
     tipsAccountedFor: tipsAccountedFor,
     ready: ready,
     run: run,

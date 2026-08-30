@@ -29,6 +29,40 @@ self.onmessage = function (event) {
   }
 
   karyon.load().then(function () {
+    if (job.kind === "layout") {
+      // The coordinates, handed over rather than copied: the arrays are given
+      // away with the message, so a million tip tree crosses once and costs
+      // nothing to cross.
+      var placed = karyon.positions(job.name, job.body, job.cladogram);
+      if (!placed.ok) {
+        answer({ kind: "layout", id: job.id, ok: false, body: placed.body });
+        return;
+      }
+      self.postMessage(
+        {
+          kind: "layout",
+          id: job.id,
+          ok: true,
+          count: placed.count,
+          x: placed.x,
+          y: placed.y,
+          parent: placed.parent,
+          start: placed.start,
+          length: placed.length,
+          names: placed.names,
+        },
+        [
+          placed.x.buffer,
+          placed.y.buffer,
+          placed.parent.buffer,
+          placed.start.buffer,
+          placed.length.buffer,
+          placed.names.buffer,
+        ]
+      );
+      return;
+    }
+
     if (job.kind === "draw") {
       var drawn = karyon.run(job.command, files, job.room);
       answer({ kind: "drawn", id: job.id, ok: drawn.ok, body: drawn.body, ms: drawn.ms });

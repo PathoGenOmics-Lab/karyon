@@ -33,6 +33,7 @@ use crate::{
 use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
 use crate::read;
 use crate::track::traits::Traits;
+use crate::TreeShape;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
@@ -853,6 +854,9 @@ fn track(
             }
             if spec.scale_bar {
                 track = track.scale_bar();
+            }
+            if spec.cladogram {
+                track = track.shape(TreeShape::Cladogram);
             }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());

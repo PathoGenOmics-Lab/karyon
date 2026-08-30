@@ -190,6 +190,7 @@ because most of them are a setting only some tracks have.
 | `--color-by <KEY>` | a column of the sheet, or an annotation the file carries | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | tooltips only |
 | `--scale-bar` | none | `--tree` | no bar |
+| `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | phylogram |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
@@ -330,7 +331,9 @@ left plain being the backbone where the lineages genuinely mix.
 `--support-style` makes support readable without hovering, since it is in the
 tooltips whatever you choose. `--threshold` hides the weak ones.
 
-`--scale-bar` draws a rule in the tree's own branch-length units. It is not the
+`--shape cladogram` throws the branch lengths away and makes every branch one
+step, which is the shape to read a topology by when the lengths are noise or
+absent. `--scale-bar` draws a rule in the tree's own branch-length units. It is not the
 ruler along the bottom of the figure, which measures the region and is left out
 of a figure holding nothing but phylogenies.
 
