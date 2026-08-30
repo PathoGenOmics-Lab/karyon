@@ -132,6 +132,8 @@ jobs:
       # nothing, so it is checked here by being run.
       - name: Check the page's canvas
         run: node tests/tree-canvas.test.js
+      - name: Check the page's controls
+        run: node tests/tree-radio.test.js
       - name: Docs
         run: cargo doc --no-deps
         env:

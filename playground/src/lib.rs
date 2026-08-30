@@ -153,13 +153,22 @@ fn run(mut input: &[u8]) -> Result<String, String> {
 /// ```text
 /// [u8 1]                     ok, or 0 and a message as `render` gives
 /// [u32 count]
-/// [f32 x]      x count       distance from the root, in branch length units
-/// [f32 y]      x count       the row: a leaf's own index, a parent's mean
-/// [u32 parent] x count       index of the parent, 0xFFFFFFFF at the root
+/// [f32 x]      x count       across: depth from the root, or a position
+/// [f32 y]      x count       down: the row, or a position
+/// [u32 parent] x count       what this hangs from, 0xFFFFFFFF where nothing
 /// [u32 start]  x count       where this node's name begins in the blob
 /// [u32 len]    x count       how long it is, zero where it has none
 /// [u32 bytes][u8 bytes]      the names, run together
+/// [u32 tips][u32 tip x tips] the order to read the terminals in, or none
 /// ```
+///
+/// The third number in is which projection to lay out for: 0 for the one with
+/// a root and 1 for the one without. They are the same arrays read two ways.
+/// Rooted, `x` is a depth, `y` is a row, and `parent` is the tree's own; the
+/// tip list is empty, because the rows already say what order to read them in.
+/// Unrooted, `x` and `y` are a position in the plane, `parent` is the
+/// neighbour on the way back to the middle, and the tip list is the order the
+/// terminals come round it, which is what stands in for rows there.
 ///
 /// # Safety
 ///
@@ -183,6 +192,7 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     let name = text(&mut input).ok_or("the file name is not in the shape this expects")?;
     let body = text(&mut input).ok_or("the file body is not in the shape this expects")?;
     let cladogram = number(&mut input).unwrap_or(0) == 1;
+    let rootless = number(&mut input).unwrap_or(0) == 1;
 
     let tree = match remembered(&name, body.trim()) {
         Some(tree) => tree,
@@ -190,18 +200,36 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
             Tree::parse_newick(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?
         }
     };
-    let placed = tree.layout(cladogram);
     let nodes = tree.nodes();
     let count = nodes.len();
 
-    // Placements come back in the order the walk made them, and the page wants
-    // them by node, so they go back where they belong.
+    // Both walks come back in the order they were made and the page wants them
+    // by node, so they go back where they belong.
     let mut x = vec![0f32; count];
     let mut y = vec![0f32; count];
-    for placement in &placed {
-        if placement.node < count {
-            x[placement.node] = placement.depth as f32;
-            y[placement.node] = placement.row as f32;
+    let mut hangs: Vec<u32> = nodes
+        .iter()
+        .map(|clade| clade.parent.map_or(u32::MAX, |at| at as u32))
+        .collect();
+    let mut order: Vec<u32> = Vec::new();
+    if rootless {
+        let laid = tree.unrooted(cladogram);
+        // A node with no position is one the walk could not reach, which means
+        // the file is in more than one piece. It keeps the parent it had.
+        for spot in &laid.spots {
+            if spot.node < count {
+                x[spot.node] = spot.x as f32;
+                y[spot.node] = spot.y as f32;
+                hangs[spot.node] = spot.toward.map_or(u32::MAX, |at| at as u32);
+            }
+        }
+        order = laid.terminals.iter().map(|tip| *tip as u32).collect();
+    } else {
+        for placement in &tree.layout(cladogram) {
+            if placement.node < count {
+                x[placement.node] = placement.depth as f32;
+                y[placement.node] = placement.row as f32;
+            }
         }
     }
 
@@ -219,7 +247,10 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
         }
     }
 
-    let mut out = Vec::with_capacity(1 + 4 + count * 20 + 4 + names.len());
+    // Exactly the room the answer takes, because the caller frees it by that
+    // size: a Vec that had to grow would hand back a capacity the free does not
+    // match, and freeing a block by the wrong size traps the whole module.
+    let mut out = Vec::with_capacity(1 + 4 + count * 20 + 4 + names.len() + 4 + order.len() * 4);
     out.push(1u8);
     out.extend_from_slice(&(count as u32).to_le_bytes());
     for value in &x {
@@ -228,8 +259,8 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     for value in &y {
         out.extend_from_slice(&value.to_le_bytes());
     }
-    for clade in nodes {
-        out.extend_from_slice(&clade.parent.map_or(u32::MAX, |at| at as u32).to_le_bytes());
+    for value in &hangs {
+        out.extend_from_slice(&value.to_le_bytes());
     }
     for value in &start {
         out.extend_from_slice(&value.to_le_bytes());
@@ -239,6 +270,15 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
     }
     out.extend_from_slice(&(names.len() as u32).to_le_bytes());
     out.extend_from_slice(&names);
+    out.extend_from_slice(&(order.len() as u32).to_le_bytes());
+    for value in &order {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    debug_assert_eq!(
+        out.len(),
+        out.capacity(),
+        "the answer is freed by its length"
+    );
     Ok(out)
 }
 
@@ -484,6 +524,89 @@ mod tests {
         assert!(remembered("small.nwk", "((a:0.1,b:0.1):0.1,c:0.1);").is_none());
     }
     /// The coordinates a page flies over have to be the coordinates the crate
+    /// The same buffer read the other way, which is the one the page has no
+    /// other source for: an unrooted tree has no rows to sort by, so if the
+    /// order of the terminals does not come over the wire it does not exist.
+    #[test]
+    fn the_rootless_layout_carries_what_rows_would_have() {
+        const TREE: &str = "[&U] (((a:1,b:1):1,c:1):1,(d:1,e:1):1,f:1);";
+        let mut input: Vec<u8> = Vec::new();
+        fn push(out: &mut Vec<u8>, text: &str) {
+            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            out.extend_from_slice(text.as_bytes());
+        }
+        push(&mut input, "u.nwk");
+        push(&mut input, TREE);
+        input.extend_from_slice(&0u32.to_le_bytes());
+        input.extend_from_slice(&1u32.to_le_bytes());
+
+        let out = positions(&input).expect("a tree this small lays out");
+        assert_eq!(out[0], 1);
+        let mut at = 1usize;
+        let take = |at: &mut usize, out: &[u8]| {
+            let value = u32::from_le_bytes(out[*at..*at + 4].try_into().unwrap());
+            *at += 4;
+            value
+        };
+        let count = take(&mut at, &out) as usize;
+        let tree = Tree::parse_annotated_newick(TREE).unwrap();
+        assert_eq!(count, tree.nodes().len());
+
+        let mut x = Vec::with_capacity(count);
+        for _ in 0..count {
+            x.push(f32::from_le_bytes(out[at..at + 4].try_into().unwrap()));
+            at += 4;
+        }
+        let mut y = Vec::with_capacity(count);
+        for _ in 0..count {
+            y.push(f32::from_le_bytes(out[at..at + 4].try_into().unwrap()));
+            at += 4;
+        }
+        let mut toward = Vec::with_capacity(count);
+        for _ in 0..count {
+            toward.push(take(&mut at, &out));
+        }
+        for _ in 0..count * 2 {
+            take(&mut at, &out);
+        }
+        let blob = take(&mut at, &out) as usize;
+        at += blob;
+        let tips = take(&mut at, &out) as usize;
+        let mut order = Vec::with_capacity(tips);
+        for _ in 0..tips {
+            order.push(take(&mut at, &out) as usize);
+        }
+        assert_eq!(at, out.len(), "the buffer is exactly as long as it says");
+
+        let laid = tree.unrooted(false);
+        assert_eq!(order, laid.terminals, "the tip order is not the crate's");
+        assert_eq!(tips, laid.terminals.len());
+        for spot in &laid.spots {
+            assert!((x[spot.node] as f64 - spot.x).abs() < 1e-5, "x moved");
+            assert!((y[spot.node] as f64 - spot.y).abs() < 1e-5, "y moved");
+            assert_eq!(
+                toward[spot.node],
+                spot.toward.map_or(u32::MAX, |at| at as u32),
+                "what the branch hangs from moved"
+            );
+        }
+        // Exactly one node has nothing to go toward, and it is the middle.
+        let loose: Vec<usize> = (0..count)
+            .filter(|node| toward[*node] == u32::MAX)
+            .collect();
+        assert_eq!(
+            loose,
+            vec![laid.centre],
+            "the middle is not the only loose end"
+        );
+        // And what comes over the wire is not the rooted layout wearing a hat.
+        let rooted = tree.layout(false);
+        let same = rooted
+            .iter()
+            .all(|placement| (y[placement.node] as f64 - placement.row).abs() < 1e-5);
+        assert!(!same, "the rootless layout came back as rows");
+    }
+
     /// draws at, or the canvas and the figure are two different pictures. This
     /// takes the buffer apart again and checks it against what `Tree::layout`
     /// says, which is the one place the shape is decided.
@@ -535,12 +658,15 @@ mod tests {
             length.push(take(&mut at, &out) as usize);
         }
         let blob = take(&mut at, &out) as usize;
-        let names = &out[at..at + blob];
+        let names = out[at..at + blob].to_vec();
+        at += blob;
+        let names = &names[..];
+        let tips = take(&mut at, &out) as usize;
         assert_eq!(
-            at + blob,
-            out.len(),
-            "the buffer is exactly as long as it says"
+            tips, 0,
+            "a rooted layout sends no tip order: the rows are one"
         );
+        assert_eq!(at, out.len(), "the buffer is exactly as long as it says");
 
         // Every coordinate is the one the crate worked out.
         for placement in tree.layout(false) {

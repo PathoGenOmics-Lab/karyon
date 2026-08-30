@@ -18,8 +18,23 @@
   font-size: 0.7rem;
 }
 
+/* Out of the way of the eye and still in the way of a tab. `display: none`
+   took the only route to a file of one's own away from anyone not holding a
+   mouse. */
 .tv-file input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tv-file:focus-within {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
 }
 
 .tv-file {
@@ -35,13 +50,39 @@
   margin-bottom: 0.5rem;
 }
 
+/* One decision, one row of buttons, the one you are in filled. A single button
+   that cycled through the states could not say whether its label was where you
+   are or where you would go. */
 .tv-group {
   display: flex;
-  gap: 0.2rem;
+}
+
+.tv-group .tv-btn {
+  border-radius: 0;
+  margin-left: -1px;
+  position: relative;
+}
+
+.tv-group .tv-btn:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+  margin-left: 0;
+}
+
+.tv-group .tv-btn:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
+}
+
+/* Over the neighbour it overlaps, so a filled or focused edge is not cut. */
+.tv-group .tv-btn[aria-checked="true"],
+.tv-group .tv-btn:focus-visible {
+  z-index: 1;
 }
 
 .tv-btn {
-  border: 1px solid var(--md-default-fg-color--lighter);
+  /* One token up from `--lighter`, which measured 1.17 against the page: a
+     control whose edge cannot be found is a control that is not there. This
+     one measures 4.61 and 5.12. */
+  border: 1px solid var(--md-default-fg-color--light);
   background: var(--md-default-bg-color);
   color: var(--md-default-fg-color);
   border-radius: 0.2rem;
@@ -50,10 +91,32 @@
   cursor: pointer;
 }
 
-.tv-btn[aria-pressed="true"] {
-  background: var(--md-accent-fg-color);
-  color: var(--md-accent-bg-color, #fff);
-  border-color: var(--md-accent-fg-color);
+/* The filled button is the only thing on the page saying which mode the viewer
+   is in, so its label has to be readable. It was `var(--md-accent-bg-color)`,
+   which Material does not define, so it fell back to white and measured 3.87
+   against the light accent and 2.71 against the dark one. The fill is the
+   darker ink the site keeps for an accent that has to be read rather than
+   looked at, and the label is white on it: 5.02. In the dark scheme that ink is
+   the bright accent, so the label goes dark instead: 6.45. */
+.tv-btn[aria-pressed="true"],
+.tv-btn[aria-checked="true"] {
+  background: var(--k-accent-ink);
+  color: #fff;
+  border-color: var(--k-accent-ink);
+}
+
+[data-md-color-scheme="slate"] .tv-btn[aria-pressed="true"],
+[data-md-color-scheme="slate"] .tv-btn[aria-checked="true"] {
+  color: #161a1d;
+}
+
+/* Somewhere to be while moving through them with a keyboard. Without this the
+   only way to tell which button has the focus is to press it. */
+.tv-btn:focus-visible,
+.tv-search:focus-visible,
+.tv-plot canvas:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 1px;
 }
 
 .tv-rows {
@@ -108,11 +171,19 @@
    and nothing here is transformed. */
 .tv-plot {
   position: relative;
-  border: 1px solid var(--md-default-fg-color--lightest);
+  border: 1px solid var(--md-default-fg-color--lighter);
   border-radius: 0.3rem;
   overflow: hidden;
-  height: 76vh;
-  min-height: 22rem;
+  /* Against the room actually left rather than against the whole window. On a
+     phone the toolbar takes most of the screen, and 76vh of what is left over
+     is not 76vh of the screen. */
+  height: min(76vh, calc(100vh - 21rem));
+  min-height: 16rem;
+  /* A finger inside the plot moves the tree and does not scroll the page, the
+     way it works on any map. That is kept deliberately: it is the only way to
+     move the tree by touch, and the alternative is a picture a finger cannot
+     take hold of. What made it hurt was the plot taking most of a phone
+     screen, which the height above is what fixes. */
   touch-action: none;
   cursor: grab;
   overscroll-behavior: contain;
@@ -137,11 +208,21 @@
 }
 
 /* A drawing is on its way. The picture stays put and stays usable, so this is
-   a hint and not a curtain. */
-.tv-plot.tv-working::after {
+   a hint and not a curtain. It sits on the panel as well as on the plot,
+   because before the first tree the plot is inside something hidden and the
+   whole of that wait showed nothing. */
+.tv-drop {
+  position: relative;
+}
+
+.tv-working::after {
   content: "";
   position: absolute;
-  inset: auto 0 0 0;
+  /* At the top of the box rather than the bottom of it. Pinned to the bottom
+     edge of a plot that is most of a screen tall, the one sign that anything
+     was happening was below the fold, so a slow change looked like a button
+     that did nothing. */
+  inset: 0 0 auto 0;
   height: 2px;
   background: var(--md-accent-fg-color);
   opacity: 0.7;
@@ -155,7 +236,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tv-plot.tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
+  .tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
 }
 
 .tv-count,
@@ -185,8 +266,64 @@
   max-width: 100%;
 }
 
+/* A refusal is the most important thing this page ever says, and it was said in
+   `--md-typeset-del-color`, which Material defines as `#f5503d26`: fifteen per
+   cent alpha, a background wash for `<del>` rather than an ink. Used as text it
+   measured 1.20 against the page in light and 1.18 in dark, which is to say
+   invisibly. The playground had already found this and written it down; the
+   tree viewer had not been given the same fix. */
 .tv-error {
   font-family: var(--md-code-font-family);
   font-size: 0.7rem;
-  color: var(--md-typeset-del-color, #c00);
+  color: var(--k-accent-ink);
+  margin: 0 0 0.5rem;
+}
+
+/* What just happened, where the reader is already looking. */
+.tv-note {
+  font-family: var(--md-code-font-family);
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0 0 0.3rem;
+}
+
+/* A file input dressed as a button, so there is a way to a second tree that
+   does not need a hand to drag one. */
+.tv-another {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tv-another input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tv-another:focus-within {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 1px;
+}
+
+/* The bar wraps on a narrow screen, and without this Fit and Export land on
+   different rows at opposite ends of it, reading as two unrelated controls.
+   The playground's own bar had the same trouble and the same answer. */
+@media screen and (max-width: 60em) {
+  .tv-spacer {
+    display: none;
+  }
+
+  .tv-detail {
+    flex-basis: 100%;
+  }
+}
+
+/* No room for the small picture means no sentences about it. */
+.tv-app.tv-nomap .tv-map-note {
+  display: none;
 }

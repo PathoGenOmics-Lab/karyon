@@ -54,6 +54,7 @@ mod rectangular;
 mod scale;
 mod scene;
 mod unrooted;
+pub(crate) use unrooted::unrooted_layout;
 
 #[cfg(test)]
 mod tests;

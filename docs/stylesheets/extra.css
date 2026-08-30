@@ -961,6 +961,10 @@
 .md-content__inner:has(> .md-typeset > .grid.cards) {
   max-width: 60rem;
   margin-inline: auto;
+  /* A floor under the gutter. `margin-inline: auto` wins over Material's own
+     side margin, and on a narrow screen auto resolves to nothing, so on the
+     pages this rule reaches every control sat flush against the bezel. */
+  padding-inline: 0.8rem;
 }
 
 /* A phone has no room for two panes and no pointer to drag a splitter with. */

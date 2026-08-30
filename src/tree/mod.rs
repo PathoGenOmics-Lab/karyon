@@ -172,6 +172,41 @@ impl Clade {
     }
 }
 
+/// Where one node sits once the tree has been laid out without a root.
+///
+/// Every other projection reads a [`Placement`], which is a depth and a row
+/// measured from a root. An unrooted tree has neither, so it is given a
+/// position in the plane instead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    /// Index of the node.
+    pub node: usize,
+    /// Distance across, in branch length units, from the node the walk started
+    /// at.
+    pub x: f64,
+    /// Distance down, in the same units.
+    pub y: f64,
+    /// The neighbour on the way back to the middle. This is not the tree's own
+    /// parent: laying a tree out without a root re-roots it at its middle, so
+    /// what a branch hangs from changes.
+    pub toward: Option<usize>,
+}
+
+/// A whole tree laid out without a root.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unrooted {
+    /// Every node that has a position, which is every node in a tree of one
+    /// piece.
+    pub spots: Vec<Spot>,
+    /// The terminal taxa, in the order their branches come round the middle.
+    /// An unrooted tree has no rows, but it does have this, and it is what
+    /// stands in for them when one has to be picked out of every few.
+    pub terminals: Vec<usize>,
+    /// The node the walk started from, which sits at the origin. It is chosen
+    /// to be as near the middle of the tree as a node can be.
+    pub centre: usize,
+}
+
 /// Where one node sits once the tree has been laid out.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
@@ -711,6 +746,18 @@ impl Tree {
         };
         *self = compact;
         true
+    }
+
+    /// The tree laid out without a root, as positions in the plane.
+    ///
+    /// [`layout`](Self::layout) measures a depth and a row from the root. This
+    /// one has no root to measure from: it starts at the node nearest the
+    /// middle of the tree, and divides the angle around each branch among the
+    /// terminals beyond it. It is the same walk the circular and rectangular
+    /// projections cannot do, and the same one the drawing uses, so a caller
+    /// that wants to place something itself gets what the figure got.
+    pub fn unrooted(&self, cladogram: bool) -> Unrooted {
+        crate::track::tree::unrooted_layout(self, cladogram)
     }
 
     /// Every node placed at a depth and a row.

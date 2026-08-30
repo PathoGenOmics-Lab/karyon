@@ -26,8 +26,23 @@
   var tree = { name: "tree.nwk", body: "" };
   var sheet = null;
   var worker = null;
+  // One counter for each kind of job. They shared one, so pressing Export
+  // while a layout was still in flight bumped it and the layout's answer was
+  // thrown away when it came back.
+  // A tree that has been read but not yet drawn. Not `pending`, which this file
+  // already spends on the resize timer.
+  var candidate = null;
+  // Whether the layout in flight is for a tree that is not on screen yet.
+  var fresh = true;
+  // What to put back once the tree that is being built has arrived.
+  var building = null;
   var asked = 0;
+  var drawn = 0;
   var cladogram = false;
+  // Which of the three the reader has asked for. The first two are the same
+  // layout read two ways; the third is a different walk, so asking for it
+  // means asking the program again.
+  var projection = "rows";
   var pending = null;
 
   // ------------------------------------------------------------- the program
@@ -48,6 +63,15 @@
     worker.addEventListener("message", function (event) {
       arrived(event.data);
     });
+    // A worker that cannot be started at all raises this and nothing else, and
+    // without it the page waited for an answer that was never coming.
+    worker.addEventListener("error", function (event) {
+      working(false);
+      fail(
+        "the program could not be started in this browser" +
+          (event && event.message ? ": " + event.message : "")
+      );
+    });
   }
 
   function send(job, giving) {
@@ -62,24 +86,65 @@
   }
 
   function working(yes) {
+    // On the plot once there is one, and on the panel before that. The sweep
+    // used to live only on the plot, which is inside the panel that stays
+    // hidden until a tree arrives, so the whole of the first wait showed
+    // nothing at all.
     el.plot.classList.toggle("tv-working", yes);
+    el.drop.classList.toggle("tv-working", yes);
   }
 
   function arrived(message) {
-    if (message.id !== asked) return;
+    if (message.kind === "layout" && message.id !== asked) return;
+    if (message.kind === "drawn" && message.id !== drawn) return;
     working(false);
 
     if (message.kind === "layout") {
       if (!message.ok) {
+        // What was on screen stays on screen and stays true, and the state
+        // keeps holding the tree that worked.
+        candidate = null;
         fail(message.body);
         return;
       }
-      painter.load(message);
+      var arrivedFresh = fresh;
+      if (candidate) {
+        tree = candidate;
+        candidate = null;
+        sheet = null;
+        paintSheet();
+      }
+      // A layout that came back for the tree already on screen keeps the
+      // window onto it.
+      painter.load(message, !arrivedFresh);
+      // The rootless walk arrives as its own layout, so which projection the
+      // page is looking through is settled by which one came back.
+      painter.shape(projection);
       el.drop.hidden = true;
       el.app.hidden = false;
       el.error.hidden = true;
-      el.count.textContent = message.count.toLocaleString() + " nodes";
+      el.count.textContent = message.count.toLocaleString("en") + " nodes";
       repaint();
+      if (building) {
+        building();
+        building = null;
+        // The panel the button was on has just been hidden, so a keyboard is
+        // otherwise left at the top of the document with no sign anything
+        // happened.
+        var landing = el.projection.querySelector('[aria-checked="true"]');
+        if (landing) landing.focus();
+      }
+      // A tree with no branch lengths draws as one flat line, and the control
+      // that fixes it is right there unremarked.
+      var measured = false;
+      for (var i = 0; i < message.count && !measured; i++) {
+        if (message.x[i] !== 0) measured = true;
+      }
+      say();
+      el.note.textContent = measured
+        ? ""
+        : "this file carries no branch lengths, so every tip sits at the root; Cladogram counts them instead";
+      el.note.hidden = measured;
       return;
     }
 
@@ -88,7 +153,9 @@
         save(message.body);
         el.error.hidden = true;
       } else {
-        fail(message.body);
+        // Named, because the same words twice running look like nothing
+        // happened at all.
+        fail("that view could not be saved: " + message.body);
       }
     }
   }
@@ -110,7 +177,10 @@
     // Quieter is not invisible: the first pair tried here measured 1.96 to 1 on
     // white, and a silhouette nobody can see is the whole point of the rail
     // thrown away. These are 3.75 and 4.92.
-    theme.frame = dark ? "#30363d" : "#d7dbe0";
+    // The rail and the dial are controls, so the line round them has to clear
+    // the three to one a boundary needs. The pair here was 1.4, which is a line
+    // nobody can find with a mouse; these measure 3.03 and 3.01.
+    theme.frame = dark ? "#62666b" : "#91959a";
     theme.faint = dark ? "#79838f" : "#7b8591";
     // The mark is the one thing on the canvas that is not a branch, and it is
     // the page's own accent rather than a fourth hue: the same colour the
@@ -119,7 +189,9 @@
     theme.edge = dark ? "#e8833a" : "#d55e00";
     // Something for the dial to sit on, since the disc behind it would show
     // through and the small tree would be read as part of the big one.
-    theme.plate = dark ? "#161a1d" : "#ffffff";
+    // A step off the page rather than exactly it, so the dial reads as a plate
+    // laid on the canvas and not as a hole cut in it.
+    theme.plate = dark ? "#1e2327" : "#f4f5f7";
   }
 
   // Painted on the spot rather than on a frame callback: a browser does not
@@ -130,13 +202,22 @@
     readTheme();
     var report = painter.paint(theme);
     var at = painter.looking();
+    // How many rows are on screen, and not how many nodes fall inside them: a
+    // parent sits on a row of its own between its children, so counting nodes
+    // said 39,999 rows of a tree with 20,000 tips. The page is written in
+    // English, so the number is grouped in English wherever the browser is.
+    var rows = at ? at.rows : 0;
     el.rowsOut.textContent = at
-      ? at.rows.toLocaleString() + (at.rows === 1 ? " row" : " rows") + " in view"
+      ? rows.toLocaleString("en") + (rows === 1 ? " row" : " rows") + " in view"
       : "";
+    // Below a certain width there is no room for the small picture, and the
+    // hint underneath went on describing one and telling the reader to click
+    // it. The paint says whether it drew one, so the page can stop claiming it.
+    el.app.classList.toggle("tv-nomap", !report.rail);
     el.detail.textContent =
       report.stride > 1
         ? "1 row in " + report.stride + " and its ancestors"
-        : report.labels + " names";
+        : report.labels + (report.labels === 1 ? " name" : " names");
     say();
   }
 
@@ -146,8 +227,12 @@
     var at = painter && painter.looking();
     var argv = ["tree:1-1", "--tree", tree.name];
     if (cladogram) argv = argv.concat(["--shape", "cladogram"]);
-    if (painter && painter.isRound()) argv = argv.concat(["--projection", "circular"]);
-    if (at && at.first && at.last && at.first !== at.last) {
+    if (projection === "disc") argv = argv.concat(["--projection", "circular"]);
+    if (projection === "spread") argv = argv.concat(["--projection", "unrooted"]);
+    // The rootless view holds the whole tree however far it is zoomed: there
+    // are no rows to have some of. Asking for a subtree there would hand back
+    // a figure of something else.
+    if (projection !== "spread" && at && at.first && at.last && at.first !== at.last) {
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
     argv = argv.concat(["--max-rows", String(Math.max(8, Math.min(2000, at ? at.rows : 60)))]);
@@ -161,17 +246,21 @@
   }
 
   function exportSvg() {
-    asked += 1;
+    drawn += 1;
     working(true);
-    send({ kind: "draw", id: asked, command: K.join(command()), room: 900 });
+    el.error.hidden = true;
+    send({ kind: "draw", id: drawn, command: K.join(command()), room: 900 });
   }
 
   function save(svg) {
     var blob = new Blob([svg], { type: "image/svg+xml" });
     var url = URL.createObjectURL(blob);
     var link = document.createElement("a");
+    var called = tree.name.replace(/\.[^.]*$/, "") + ".svg";
     link.href = url;
-    link.download = "tree.svg";
+    link.download = called;
+    el.note.textContent = "saved " + called;
+    el.note.hidden = false;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -216,7 +305,9 @@
           // On the rail a wheel does what it does to a scrollbar. On the dial
           // there is nothing to scroll, so it zooms the view it stands for,
           // about the middle of that view rather than about the dial.
-          if (painter.isRound()) painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          if (painter.shapeNow() !== "rows") {
+            painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          }
           else painter.panBy(0, -step);
         } else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
         repaint();
@@ -262,8 +353,9 @@
       if (painter.loaded()) {
         var over = at(event);
         var onMap = painter.onMap(over.x, over.y);
-        el.plot.classList.toggle("tv-onrail", onMap && !painter.isRound());
-        el.plot.classList.toggle("tv-ondial", onMap && painter.isRound());
+        var rows = painter.shapeNow() === "rows";
+        el.plot.classList.toggle("tv-onrail", onMap && rows);
+        el.plot.classList.toggle("tv-ondial", onMap && !rows);
       }
     });
 
@@ -299,17 +391,63 @@
       painter.home();
       repaint();
     });
+
+    // Every gesture this viewer had was a pointer gesture, so a reader without
+    // one could reach the canvas and then do nothing with it. These are the
+    // same three moves the hand has: go somewhere, get closer, start again.
+    el.canvas.addEventListener("keydown", function (event) {
+      if (!painter.loaded()) return;
+      var box = el.canvas.getBoundingClientRect();
+      var step = event.shiftKey ? 0.4 : 0.12;
+      // Sideways does nothing in the rectangular view, where the depth axis is
+      // fitted to what is drawn on every paint, so those two keys are left for
+      // the browser to scroll the page with rather than swallowed.
+      var flat = painter.shapeNow() !== "rows";
+      var by = { x: 0, y: 0 };
+      if (event.key === "ArrowLeft") { if (!flat) return; by.x = box.width * step; }
+      else if (event.key === "ArrowRight") { if (!flat) return; by.x = -box.width * step; }
+      else if (event.key === "ArrowUp") by.y = box.height * step;
+      else if (event.key === "ArrowDown") by.y = -box.height * step;
+      else if (event.key === "PageUp") by.y = box.height * 0.9;
+      else if (event.key === "PageDown") by.y = -box.height * 0.9;
+      else if (event.key === "+" || event.key === "=") {
+        painter.zoomAt(box.width / 2, box.height / 2, 1.6);
+      } else if (event.key === "-" || event.key === "_") {
+        painter.zoomAt(box.width / 2, box.height / 2, 1 / 1.6);
+      } else if (event.key === "Home") {
+        painter.home();
+      } else {
+        return;
+      }
+      event.preventDefault();
+      if (by.x || by.y) painter.panBy(by.x, by.y);
+      repaint();
+    });
   }
 
   // ------------------------------------------------------------- the files
 
-  function looksLikeATree(text) {
+  // Which of the two things a dropped file is. It used to ask whether the first
+  // four kilobytes held a bracket and a semicolon, so a tree it did not
+  // recognise was filed as a table without a word, and the command line then
+  // named the same file as both the tree and the traits. It asks the other way
+  // round now: a table is a first line of fields with no bracket in it, and
+  // anything else is offered to the parser, which can say what is wrong with it
+  // far better than two characters can.
+  function looksLikeATable(text) {
     var head = text.slice(0, 4096);
-    return head.indexOf("(") >= 0 && head.indexOf(";") >= 0;
+    var first = "";
+    var lines = head.split("\n");
+    for (var i = 0; i < lines.length && !first; i++) {
+      if (lines[i].trim()) first = lines[i];
+    }
+    if (!first) return false;
+    if (first.indexOf("(") >= 0) return false;
+    return first.indexOf("\t") >= 0 || first.indexOf(",") >= 0;
   }
 
   function take(text, name) {
-    if (looksLikeATree(text)) {
+    if (!looksLikeATable(text)) {
       load(text, name);
       return;
     }
@@ -317,8 +455,14 @@
       fail("that reads as a table rather than a tree; drop the phylogeny first and the sheet after it");
       return;
     }
-    sheet = { name: name || "traits.tsv", body: text };
+    var called = name || "traits.tsv";
+    if (called === tree.name) {
+      fail("that file is already the tree; a sheet of traits has to be a second file");
+      return;
+    }
+    sheet = { name: called, body: text };
     paintSheet();
+    el.error.hidden = true;
     say();
   }
 
@@ -329,20 +473,37 @@
   }
 
   function load(text, name) {
-    tree = { name: name || "tree.nwk", body: text };
-    sheet = null;
-    paintSheet();
-    asked += 1;
-    working(true);
-    send({ kind: "files", files: files() });
-    send({ kind: "layout", id: asked, name: tree.name, body: text, cladogram: cladogram });
+    // Held rather than committed. Writing the candidate into `tree` before
+    // anything had read it meant a file that turned out not to be a tree still
+    // counted as one: the guard that says "drop the phylogeny first" stopped
+    // firing, and the next thing dropped was taken as a sheet for a tree that
+    // did not exist.
+    candidate = { name: name || "tree.nwk", body: text };
+    send({ kind: "files", files: [{ name: candidate.name, body: candidate.body }] });
+    // Through the one place that knows which layout to ask for. Asking here as
+    // well left a new tree drawn with a root while the button and the exported
+    // command both said it had none, and the command under the picture has to
+    // be the picture.
+    relayout();
   }
 
   function relayout() {
-    if (!tree.body) return;
+    var reading = candidate || tree;
+    if (!reading.body) return;
+    fresh = !!candidate;
+    // The old refusal was about the old attempt. Leaving it up meant a second
+    // failure with the same words looked like nothing had happened at all.
+    el.error.hidden = true;
     asked += 1;
     working(true);
-    send({ kind: "layout", id: asked, name: tree.name, body: tree.body, cladogram: cladogram });
+    send({
+      kind: "layout",
+      id: asked,
+      name: reading.name,
+      body: reading.body,
+      cladogram: cladogram,
+      rootless: projection === "spread",
+    });
   }
 
   // ------------------------------------------------------------- examples
@@ -379,45 +540,64 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "shape", "round"].forEach(function (name) {
+      "sheetName", "dropSheet", "lengths", "projection", "note", "another"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
-    if (!el.canvas) return;
+    if (!el.canvas || !el.lengths || !el.projection) return;
 
     painter = window.karyonCanvas.make(el.canvas);
     hand();
+
+    el.search.addEventListener("input", function () {
+      // The refusal was about what was typed before, and what is typed now is
+      // different, so it stops being true the moment a key lands.
+      el.error.hidden = true;
+    });
 
     el.search.addEventListener("keydown", function (event) {
       if (event.key !== "Enter") return;
       event.preventDefault();
       var wanted = el.search.value.trim();
       if (!wanted) return;
-      if (painter.goTo(wanted)) {
+      // Exactly, then ignoring case, then whatever starts with it. A name
+      // typed from memory is rarely typed to the letter.
+      if (painter.goTo(wanted) || painter.goTo(wanted, "loose")) {
         el.error.hidden = true;
         repaint();
       } else {
-        fail("no tip here is called " + wanted);
+        fail("no tip here is called " + wanted + ", or starts with it");
       }
     });
 
-    el.round.addEventListener("click", function () {
-      // The layout does not change: the same rows and depths become angles and
-      // radii, so this never asks the program for anything.
-      var now = painter.shape(!painter.isRound());
-      el.round.setAttribute("aria-pressed", String(now));
-      el.round.textContent = now ? "Circular" : "Rectangular";
-      repaint();
-      say();
-    });
-
-    el.shape.addEventListener("click", function () {
-      cladogram = !cladogram;
-      el.shape.setAttribute("aria-pressed", String(cladogram));
-      el.shape.textContent = cladogram ? "Cladogram" : "Phylogram";
+    window.karyonRadio.make(el.lengths, "data-lengths", function (value) {
+      var wanted = value === "cladogram";
+      if (wanted === cladogram) return;
+      cladogram = wanted;
       relayout();
     });
 
+    window.karyonRadio.make(el.projection, "data-projection", function (value) {
+      if (value === projection) return;
+      var wasRootless = projection === "spread";
+      projection = value;
+      // Rectangular and circular are the same rows and depths read two ways, so
+      // one is a repaint. The rootless walk is a different walk and the program
+      // has to do it, so going in or out of it costs a round trip.
+      if (wasRootless || projection === "spread") relayout();
+      else {
+        painter.shape(projection);
+        repaint();
+        say();
+      }
+    });
+
     el.export.addEventListener("click", exportSvg);
+
+    el.another.addEventListener("change", function () {
+      var file = el.another.files[0];
+      if (file) file.text().then(function (text) { take(text, file.name); });
+      el.another.value = "";
+    });
 
     el.file.addEventListener("change", function () {
       var file = el.file.files[0];
@@ -440,11 +620,14 @@
         button.disabled = true;
         var was = button.textContent;
         button.textContent = "building " + was;
-        setTimeout(function () {
-          load(example(tips), tips + "-tips.nwk");
+        // Put back when the tree is drawn, not when the string is built: the
+        // string is the fast part, and restoring the label there made the
+        // button look finished while most of the wait was still to come.
+        building = function () {
           button.disabled = false;
           button.textContent = was;
-        }, 0);
+        };
+        setTimeout(function () { load(example(tips), tips + "-tips.nwk"); }, 0);
       });
     });
 

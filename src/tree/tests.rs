@@ -568,3 +568,127 @@ fn a_change_is_carried_by_everything_below_where_it_happened() {
         .collect();
     assert_eq!(path, ["S:D614G", "A1T"], "root to tip, in order");
 }
+
+/// Laying a tree out without a root is a different walk from laying it out
+/// with one, and the difference is the whole point: what a branch hangs from
+/// changes, because the tree is re-rooted at its middle.
+#[test]
+fn an_unrooted_layout_hangs_everything_off_the_middle() {
+    // A ladder, so the root sits at one end and the middle is somewhere else.
+    // A tree whose root already is its middle would let this pass without
+    // checking anything.
+    let tree = Tree::parse_newick("((((((a:1,b:1):1,c:1):1,d:1):1,e:1):1,f:1):1,g:1);").unwrap();
+    let laid = tree.unrooted(false);
+    assert_ne!(
+        laid.centre,
+        tree.root(),
+        "the middle is the root here, so this proves nothing"
+    );
+
+    assert_eq!(
+        laid.spots.len(),
+        tree.nodes().len(),
+        "a tree of one piece leaves nothing unplaced"
+    );
+
+    let mut toward = vec![None; tree.nodes().len()];
+    for spot in &laid.spots {
+        toward[spot.node] = Some(spot.toward);
+    }
+    let loose: Vec<usize> = (0..tree.nodes().len())
+        .filter(|node| toward[*node] == Some(None))
+        .collect();
+    assert_eq!(
+        loose,
+        vec![laid.centre],
+        "one loose end, and it is the middle"
+    );
+
+    // Follow what every node hangs from and it ends at the middle, which is
+    // what makes this a tree and not a heap of branches.
+    for node in 0..tree.nodes().len() {
+        let mut walk = node;
+        let mut steps = 0;
+        while let Some(Some(next)) = toward[walk] {
+            walk = next;
+            steps += 1;
+            assert!(steps <= tree.nodes().len(), "walking round in a circle");
+        }
+        assert_eq!(walk, laid.centre, "node {node} does not reach the middle");
+    }
+
+    // The terminals are the leaves, and no more.
+    let mut tips = laid.terminals.clone();
+    tips.sort_unstable();
+    let mut leaves = tree.leaves();
+    leaves.sort_unstable();
+    assert_eq!(tips, leaves, "the terminals are not the leaves");
+
+    // And the middle really is toward the middle: no branch off it leads to
+    // more than half the tips.
+    let mut beyond = vec![0usize; tree.nodes().len()];
+    for tip in &laid.terminals {
+        let mut walk = *tip;
+        while let Some(Some(next)) = toward[walk] {
+            if next == laid.centre {
+                beyond[walk] += 1;
+                break;
+            }
+            walk = next;
+        }
+    }
+    let most = beyond.iter().copied().max().unwrap_or(0);
+    assert!(
+        most * 2 <= laid.terminals.len() + 1,
+        "one branch off the middle holds {most} of {} tips",
+        laid.terminals.len()
+    );
+}
+
+/// A cladogram counts branches where a phylogram measures them, and without a
+/// root that shows up in how long each branch is drawn.
+#[test]
+fn an_unrooted_cladogram_counts_rather_than_measures() {
+    let tree =
+        Tree::parse_newick("(((a:0.01,b:5.0):0.2,c:1.0):0.5,(d:3.0,e:0.001):2.0,f:0.7);").unwrap();
+
+    let edges = |laid: &Unrooted| {
+        let mut at = vec![(0.0f64, 0.0f64); tree.nodes().len()];
+        for spot in &laid.spots {
+            at[spot.node] = (spot.x, spot.y);
+        }
+        let mut out = Vec::new();
+        for spot in &laid.spots {
+            if let Some(toward) = spot.toward {
+                let (ax, ay) = at[spot.node];
+                let (bx, by) = at[toward];
+                // The branch this node hangs by, whichever end the walk came
+                // from: unrooted, one of the two owns the length.
+                let length = tree.nodes()[spot.node]
+                    .branch_length
+                    .or(tree.nodes()[toward].branch_length)
+                    .unwrap_or(1.0);
+                out.push(((ax - bx).hypot(ay - by), length));
+            }
+        }
+        out
+    };
+
+    for (drawn, _) in edges(&tree.unrooted(true)) {
+        assert!(
+            (drawn - 1.0).abs() < 1e-9,
+            "counting branches drew one of them {drawn} long"
+        );
+    }
+    let measured = edges(&tree.unrooted(false));
+    assert!(
+        measured.iter().any(|(drawn, _)| (drawn - 1.0).abs() > 0.1),
+        "measuring branches drew them all the same length"
+    );
+    for (drawn, length) in &measured {
+        assert!(
+            (drawn - length).abs() < 1e-9,
+            "a branch of {length} was drawn {drawn} long"
+        );
+    }
+}
