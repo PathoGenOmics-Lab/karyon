@@ -32,11 +32,6 @@
   // layout read two ways; the third is a different walk, so asking for it
   // means asking the program again.
   var projection = "rows";
-  var PROJECTIONS = [
-    { key: "rows", label: "Rectangular" },
-    { key: "disc", label: "Circular" },
-    { key: "spread", label: "Unrooted" },
-  ];
   var pending = null;
 
   // ------------------------------------------------------------- the program
@@ -351,10 +346,12 @@
     tree = { name: name || "tree.nwk", body: text };
     sheet = null;
     paintSheet();
-    asked += 1;
-    working(true);
     send({ kind: "files", files: files() });
-    send({ kind: "layout", id: asked, name: tree.name, body: text, cladogram: cladogram });
+    // Through the one place that knows which layout to ask for. Asking here as
+    // well left a new tree drawn with a root while the button and the exported
+    // command both said it had none, and the command under the picture has to
+    // be the picture.
+    relayout();
   }
 
   function relayout() {
@@ -405,10 +402,10 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "shape", "round"].forEach(function (name) {
+      "sheetName", "dropSheet", "lengths", "projection"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
-    if (!el.canvas) return;
+    if (!el.canvas || !el.lengths || !el.projection) return;
 
     painter = window.karyonCanvas.make(el.canvas);
     hand();
@@ -426,16 +423,17 @@
       }
     });
 
-    el.round.addEventListener("click", function () {
-      var at = 0;
-      for (var i = 0; i < PROJECTIONS.length; i++) {
-        if (PROJECTIONS[i].key === projection) at = i;
-      }
-      var next = PROJECTIONS[(at + 1) % PROJECTIONS.length];
+    window.karyonRadio.make(el.lengths, "data-lengths", function (value) {
+      var wanted = value === "cladogram";
+      if (wanted === cladogram) return;
+      cladogram = wanted;
+      relayout();
+    });
+
+    window.karyonRadio.make(el.projection, "data-projection", function (value) {
+      if (value === projection) return;
       var wasRootless = projection === "spread";
-      projection = next.key;
-      el.round.setAttribute("aria-pressed", String(projection !== "rows"));
-      el.round.textContent = next.label;
+      projection = value;
       // Rectangular and circular are the same rows and depths read two ways, so
       // one is a repaint. The rootless walk is a different walk and the program
       // has to do it, so going in or out of it costs a round trip.
@@ -445,13 +443,6 @@
         repaint();
         say();
       }
-    });
-
-    el.shape.addEventListener("click", function () {
-      cladogram = !cladogram;
-      el.shape.setAttribute("aria-pressed", String(cladogram));
-      el.shape.textContent = cladogram ? "Cladogram" : "Phylogram";
-      relayout();
     });
 
     el.export.addEventListener("click", exportSvg);

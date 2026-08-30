@@ -35,9 +35,32 @@
   margin-bottom: 0.5rem;
 }
 
+/* One decision, one row of buttons, the one you are in filled. A single button
+   that cycled through the states could not say whether its label was where you
+   are or where you would go. */
 .tv-group {
   display: flex;
-  gap: 0.2rem;
+}
+
+.tv-group .tv-btn {
+  border-radius: 0;
+  margin-left: -1px;
+  position: relative;
+}
+
+.tv-group .tv-btn:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+  margin-left: 0;
+}
+
+.tv-group .tv-btn:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
+}
+
+/* Over the neighbour it overlaps, so a filled or focused edge is not cut. */
+.tv-group .tv-btn[aria-checked="true"],
+.tv-group .tv-btn:focus-visible {
+  z-index: 1;
 }
 
 .tv-btn {
@@ -50,10 +73,18 @@
   cursor: pointer;
 }
 
-.tv-btn[aria-pressed="true"] {
+.tv-btn[aria-pressed="true"],
+.tv-btn[aria-checked="true"] {
   background: var(--md-accent-fg-color);
   color: var(--md-accent-bg-color, #fff);
   border-color: var(--md-accent-fg-color);
+}
+
+/* Somewhere to be while moving through them with a keyboard. Without this the
+   only way to tell which button has the focus is to press it. */
+.tv-btn:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 1px;
 }
 
 .tv-rows {

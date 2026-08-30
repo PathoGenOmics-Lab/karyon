@@ -33,8 +33,20 @@ hide:
 
 <div class="tv-app" id="tv-app" hidden markdown="0">
   <div class="tv-bar">
-    <button class="tv-btn" id="tv-shape" type="button" aria-pressed="false">Phylogram</button>
-    <button class="tv-btn" id="tv-round" type="button" aria-pressed="false">Rectangular</button>
+    <div class="tv-group" id="tv-lengths" role="radiogroup" aria-label="Branch lengths">
+      <button class="tv-btn" type="button" role="radio" aria-checked="true" tabindex="0" data-lengths="phylogram"
+        title="Branches are drawn at the length the file gives them">Phylogram</button>
+      <button class="tv-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-lengths="cladogram"
+        title="Branches are counted rather than measured, and every tip lines up">Cladogram</button>
+    </div>
+    <div class="tv-group" id="tv-projection" role="radiogroup" aria-label="Projection">
+      <button class="tv-btn" type="button" role="radio" aria-checked="true" tabindex="0" data-projection="rows"
+        title="Root on the left, tips in rows on the right">Rectangular</button>
+      <button class="tv-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-projection="disc"
+        title="The same rows bent round a circle, with depth becoming radius">Circular</button>
+      <button class="tv-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-projection="spread"
+        title="No root and no rows: the topology laid out in a plane">Unrooted</button>
+    </div>
     <input class="tv-search" id="tv-search" type="search" placeholder="Find a tip, then Enter">
     <output class="tv-count" id="tv-count"></output>
     <output class="tv-rows" id="tv-rowsout"></output>
@@ -69,4 +81,5 @@ hide:
 
 <script src="../assets/karyon-wasm.js"></script>
 <script src="../assets/tree-canvas.js"></script>
+<script src="../assets/tree-radio.js"></script>
 <script src="../assets/tree-viewer.js"></script>
