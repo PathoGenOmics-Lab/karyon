@@ -36,6 +36,8 @@
   var fresh = true;
   // What to put back once the tree that is being built has arrived.
   var building = null;
+  // What the search box was last asked for, so asking again means the next one.
+  var lastSought = null;
   var asked = 0;
   var drawn = 0;
   var cladogram = false;
@@ -108,6 +110,7 @@
         return;
       }
       var arrivedFresh = fresh;
+      lastSought = null;
       if (candidate) {
         tree = candidate;
         candidate = null;
@@ -158,6 +161,38 @@
         fail("that view could not be saved: " + message.body);
       }
     }
+  }
+
+  // What is under the hand, put beside it. Null clears it.
+  function name(where) {
+    if (!where) {
+      el.tip.hidden = true;
+      el.plot.classList.remove("tv-onnode");
+      return;
+    }
+    var found = painter.at(where.x, where.y);
+    if (!found) {
+      el.tip.hidden = true;
+      el.plot.classList.remove("tv-onnode");
+      return;
+    }
+    var tips = found.tips === 1 ? "one tip" : found.tips.toLocaleString("en") + " tips";
+    el.tip.innerHTML = "";
+    var head = document.createElement("b");
+    head.textContent = found.name || (found.tips === 1 ? "an unnamed tip" : "a branch");
+    var under = document.createElement("small");
+    under.textContent = tips + " beyond it, at depth " + found.depth.toPrecision(3);
+    el.tip.appendChild(head);
+    el.tip.appendChild(under);
+    el.tip.hidden = false;
+    el.plot.classList.add("tv-onnode");
+    // Beside the pointer, and on whichever side has the room.
+    var box = el.plot.getBoundingClientRect();
+    var wide = el.tip.getBoundingClientRect().width;
+    var left = found.x + 14;
+    if (left + wide > box.width - 8) left = found.x - wide - 14;
+    el.tip.style.left = Math.max(4, left) + "px";
+    el.tip.style.top = Math.max(4, Math.min(box.height - 40, found.y + 12)) + "px";
   }
 
   function fail(text) {
@@ -240,6 +275,13 @@
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
     argv = argv.concat(["--max-rows", String(Math.max(8, Math.min(2000, at ? at.rows : 60)))]);
+    // What the reader searched for, marked on the figure they asked for. A
+    // search that matched a hundred thousand tips is not a highlight, so only a
+    // handful are carried and the rest stay a thing you look at on the page.
+    var hits = painter && painter.found ? painter.found() : { count: 0, names: [] };
+    if (hits.count && hits.names.length && hits.count <= 12) {
+      argv = argv.concat(["--highlight", hits.names.join(",")]);
+    }
     if (sheet) argv = argv.concat(["--traits", sheet.name]);
     argv.push("--no-region-label");
     return argv;
@@ -353,13 +395,14 @@
         return;
       }
       // Not a gesture, just a hand passing over. The cursor says which of the
-      // two things underneath it would answer.
+      // things underneath it would answer, and a branch says what it is.
       if (painter.loaded()) {
         var over = at(event);
         var onMap = painter.onMap(over.x, over.y);
         var rows = painter.shapeNow() === "rows";
         el.plot.classList.toggle("tv-onrail", onMap && rows);
         el.plot.classList.toggle("tv-ondial", onMap && !rows);
+        name(onMap ? null : over);
       }
     });
 
@@ -381,6 +424,23 @@
           el.plot.releasePointerCapture(event.pointerId);
         }
       });
+    });
+
+    // Off the canvas, so a name does not hang about over a picture the hand
+    // has left.
+    el.plot.addEventListener("pointerleave", function () { name(null); });
+
+    el.plot.addEventListener("click", function (event) {
+      if (!painter.loaded() || dragging || scrubbing) return;
+      var where = at(event);
+      if (painter.onMap(where.x, where.y)) return;
+      var found = painter.at(where.x, where.y);
+      if (!found) return;
+      // Take the clade. On a tree of two million this is the only way to get
+      // from the whole of it to one part without knowing a name to search for.
+      painter.focusOn(found.node);
+      repaint();
+      say();
     });
 
     el.plot.addEventListener("dblclick", function (event) {
@@ -544,7 +604,7 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "lengths", "projection", "note", "another"].forEach(function (name) {
+      "sheetName", "dropSheet", "lengths", "projection", "note", "another", "tip"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
     if (!el.canvas || !el.lengths || !el.projection) return;
@@ -563,13 +623,34 @@
       event.preventDefault();
       var wanted = el.search.value.trim();
       if (!wanted) return;
-      // Exactly, then ignoring case, then whatever starts with it. A name
-      // typed from memory is rarely typed to the letter.
-      if (painter.goTo(wanted) || painter.goTo(wanted, "loose")) {
+      // The same words again means the next one of them, not the first again.
+      if (wanted === lastSought) {
+        var moved = painter.nextFound(event.shiftKey ? -1 : 1);
+        if (moved) {
+          el.note.textContent =
+            moved.of.toLocaleString("en") + " tips match, at " + (moved.at + 1);
+          el.note.hidden = false;
+          repaint();
+          return;
+        }
+      }
+      lastSought = wanted;
+      // Exactly, then ignoring case, then a prefix, then anywhere in the name.
+      // A name typed from memory is rarely typed to the letter, and a reader
+      // looking for a lineage or a country is not typing a name at all.
+      var how = ["exact", "loose", "starts", "in"];
+      var got = false;
+      for (var i = 0; i < how.length && !got; i++) got = painter.goTo(wanted, how[i]);
+      if (got) {
+        var found = painter.found();
         el.error.hidden = true;
+        el.note.hidden = false;
+        el.note.textContent = found.count === 1
+          ? "one tip matches; Enter again to search elsewhere"
+          : found.count.toLocaleString("en") + " tips match, at 1; Enter again for the next";
         repaint();
       } else {
-        fail("no tip here is called " + wanted + ", or starts with it");
+        fail("no tip here is called " + wanted + ", or has it in its name");
       }
     });
 

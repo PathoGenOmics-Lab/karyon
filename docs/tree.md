@@ -50,8 +50,8 @@ hide:
       <button class="tv-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-projection="spread"
         title="No root and no rows: the topology laid out in a plane">Unrooted</button>
     </div>
-    <input class="tv-search" id="tv-search" type="search" aria-label="Find a tip by name"
-      placeholder="Find a tip, then Enter">
+    <input class="tv-search" id="tv-search" type="search" aria-label="Find tips by name; a part of a name works, and so does a list"
+      placeholder="Find tips, then Enter">
     <output class="tv-count" id="tv-count"></output>
     <output class="tv-rows" id="tv-rowsout"></output>
     <output class="tv-detail" id="tv-detail"></output>
@@ -67,6 +67,7 @@ hide:
   </div>
 
   <div class="tv-plot" id="tv-plot">
+    <output class="tv-tip" id="tv-tip" hidden></output>
     <canvas id="tv-canvas" tabindex="0" role="img"
       aria-label="The phylogeny. Up and down move it, plus and minus zoom, Home fits it. In the circular and unrooted views the other two arrows move it as well."></canvas>
   </div>

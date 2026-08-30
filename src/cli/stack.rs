@@ -883,6 +883,39 @@ fn track(
             }
 
             let mut track = TreeTrack::new(tree);
+            // Named before anything else is asked of the track, so a name that
+            // is not in the file stops the figure rather than quietly drawing
+            // one clade fewer than the command asked for. `highlight_named`
+            // does nothing when it cannot find the name, which for a library
+            // call is a choice and for a command line is a lie.
+            for wanted in &spec.highlight {
+                if track.tree().node_named(wanted).is_none() {
+                    let mut held: Vec<String> = track
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .filter_map(|clade| clade.name.clone())
+                        .take(24)
+                        .collect();
+                    let all = track
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .filter(|clade| clade.name.is_some())
+                        .count();
+                    if all > held.len() {
+                        held.push(format!("and {} more", all - held.len()));
+                    }
+                    return Err(BuildError::Unnamed {
+                        track: "tree",
+                        path: path.clone(),
+                        what: "clade",
+                        wanted: wanted.clone(),
+                        held,
+                    });
+                }
+                track = track.highlight_named(wanted);
+            }
             for column in columns {
                 track = track.trait_column(column);
             }
@@ -2562,5 +2595,22 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         .unwrap_err()
         .to_string();
         assert!(empty.contains("mutations under that key"), "{empty}");
+    }
+
+    /// `highlight_named` does nothing when it cannot find the name, which is a
+    /// choice for a library call and a lie for a command line: the figure comes
+    /// out with one clade fewer than was asked for and nothing says so.
+    #[test]
+    fn a_clade_that_is_not_there_is_refused_by_name() {
+        const TREE: &str = "((a:1,b:1):1,(c:1,d:1):1);";
+        let open = |_: &crate::cli::args::Source| Ok(TREE.to_string());
+        let drawn = build(&sheeted("tree:1-1 --tree t.nwk --highlight a,c"), open);
+        assert!(drawn.is_ok(), "two names that are there: {drawn:?}");
+
+        let refused = build(&sheeted("tree:1-1 --tree t.nwk --highlight a,zzz"), open)
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("no clade called zzz"), "{refused}");
+        assert!(refused.contains('a'), "and says what it has: {refused}");
     }
 }

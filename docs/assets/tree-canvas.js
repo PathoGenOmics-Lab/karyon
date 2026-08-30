@@ -49,6 +49,7 @@ window.karyonCanvas = (function () {
     var disc = null;
     var mode = "rows";
     var decoder = new TextDecoder();
+    var encoder = new TextEncoder();
 
     function nameOf(node) {
       var len = view.length[node];
@@ -80,6 +81,7 @@ window.karyonCanvas = (function () {
       // it has no rows for the page to sort by. That order is what stands in
       // for rows here: it is what one is picked out of every few from.
       view.found = null;
+      view.tipsBeyond = null;
       view.rootless = !!(placed.order && placed.order.length);
       view.byRow = view.rootless ? placed.order : order(placed);
       mode = view.rootless ? "spread" : "rows";
@@ -781,6 +783,128 @@ window.karyonCanvas = (function () {
       };
     }
 
+    // ------------------------------------------------------------- the hand
+
+    // How many terminals lie beyond each node, and the first and last row they
+    // sit on. Worked out the first time something asks rather than at load,
+    // because a tree nobody points at should not pay for it: on two million
+    // nodes it is three arrays and one pass.
+    //
+    // The pass is bottom up by counting children off, not by walking, so it
+    // does not care what order the nodes arrived in and cannot run out of
+    // stack on a ladder.
+    function beyond() {
+      if (view.tipsBeyond) return;
+      var count = view.count;
+      var parent = view.parent;
+      var kids = new Uint32Array(count);
+      var at;
+      for (at = 0; at < count; at++) {
+        if (parent[at] !== 0xffffffff) kids[parent[at]] += 1;
+      }
+      var tips = new Uint32Array(count);
+      var first = new Float32Array(count);
+      var last = new Float32Array(count);
+      var left = new Uint32Array(count);
+      var queue = new Uint32Array(count);
+      var head = 0, tail = 0;
+      for (at = 0; at < count; at++) {
+        left[at] = kids[at];
+        first[at] = view.y[at];
+        last[at] = view.y[at];
+        if (!kids[at]) {
+          tips[at] = 1;
+          queue[tail++] = at;
+        }
+      }
+      while (head < tail) {
+        var node = queue[head++];
+        var over = parent[node];
+        if (over === 0xffffffff) continue;
+        tips[over] += tips[node];
+        if (first[node] < first[over]) first[over] = first[node];
+        if (last[node] > last[over]) last[over] = last[node];
+        left[over] -= 1;
+        if (!left[over]) queue[tail++] = over;
+      }
+      view.tipsBeyond = tips;
+      view.firstBeyond = first;
+      view.lastBeyond = last;
+    }
+
+    // What is under a point, if anything is near enough to have been meant.
+    //
+    // The search is over what the last paint actually drew, which is both the
+    // right answer and a small one: a reader can only point at what is on the
+    // screen, and what is on the screen is a few thousand branches however many
+    // the tree has.
+    function at(px, py) {
+      if (!view || !view.picked) return null;
+      var box = size();
+      var child = view.shown.child;
+      var up = view.shown.up;
+      var held = view.picked;
+      var best = -1, near = 14 * 14;
+      for (var scan = 0; scan < held; scan++) {
+        for (var end = 0; end < 2; end++) {
+          var node = end ? up[scan] : child[scan];
+          var spot = whereOn(box, node);
+          var dx = spot.x - px, dy = spot.y - py;
+          var away = dx * dx + dy * dy;
+          if (away < near) { near = away; best = node; }
+        }
+      }
+      if (best < 0) return null;
+      beyond();
+      var spotted = whereOn(box, best);
+      return {
+        node: best,
+        name: view.length[best] ? nameOf(best) : null,
+        depth: view.x[best],
+        tips: view.tipsBeyond[best],
+        x: spotted.x,
+        y: spotted.y,
+      };
+    }
+
+    // Take the clade a node stands for: the rows its terminals sit on, or on
+    // the disc the wedge they sweep. Without rows there is nothing to take, so
+    // the rootless view goes to it instead.
+    function focusOn(node) {
+      if (!view || node === undefined || node === null) return false;
+      beyond();
+      var low = view.firstBeyond[node];
+      var high = view.lastBeyond[node];
+      var span = Math.max(3, (high - low) * 1.15);
+      var middle = (low + high) / 2;
+      if (mode === "rows") {
+        camera.y0 = middle - span / 2;
+        camera.y1 = middle + span / 2;
+        return true;
+      }
+      var box = size();
+      if (mode === "disc") {
+        // The wedge, plus the room its own depth needs, so a clade fills the
+        // window rather than sitting in a corner of it.
+        var sweep = (span / Math.max(1, terminals())) * Math.PI * 2;
+        var half = Math.max((Math.PI * 3) / terminals(), Math.min(1.1 * 1.5, sweep * 0.7));
+        var turn = angleOf(middle);
+        var out = (radiusOf(view.x[node]) + 1) / 2;
+        disc.half = half;
+        disc.cx = Math.cos(turn) * out;
+        disc.cy = Math.sin(turn) * out;
+        settleDisc();
+        return true;
+      }
+      var spot = whereOn(box, node);
+      var seat = discBox(box);
+      disc.cx += (spot.x - seat.midX) / seat.scale;
+      disc.cy += (spot.y - seat.midY) / seat.scale;
+      disc.half = Math.max(disc.half / 3, (Math.PI * 3) / terminals());
+      settleDisc();
+      return true;
+    }
+
     // ------------------------------------------------------------ selection
 
     // The branches to draw for a run of rows in a box `wide` by `tall`, as a
@@ -1235,46 +1359,125 @@ window.karyonCanvas = (function () {
     // through. It used to move the row camera and nothing else, so in the two
     // projections that are driven by the other camera a hit moved nothing at
     // all and still reported success.
-    // `how` of "loose" ignores case and takes the first name that starts with
-    // what was asked for, which is what a name typed from memory needs.
-    function goTo(name, how) {
-      if (!view) return false;
-      var loose = how === "loose";
-      var wanted = loose ? name.toLowerCase() : name;
-      for (var node = 0; node < view.count; node++) {
-        if (!view.length[node]) continue;
-        var here = nameOf(node);
-        if (loose ? here.toLowerCase().indexOf(wanted) !== 0 : here !== wanted) continue;
-        view.found = node;
-        if (mode === "rows") {
-          // Close enough that the tip has a name beside it, rather than
-          // wherever the reader happened to be zoomed to.
-          var tall = Math.min(camera.y1 - camera.y0, 60);
-          camera.y0 = view.y[node] - tall * 0.5;
-          camera.y1 = view.y[node] + tall * 0.5;
-        } else {
-          disc.cx = unitX(node);
-          disc.cy = unitY(node);
-          if (disc.half > 0.08) disc.half = 0.08;
-          settleDisc();
+    // Every tip whose name answers to `text`, as node indices in row order.
+    //
+    // Over the bytes rather than over strings: the names arrive as one blob and
+    // decoding each of a million of them to compare it took nearly two seconds,
+    // which is a search a reader gives up on. Comparing bytes allocates
+    // nothing, and folding ASCII case as it goes costs one branch.
+    //
+    // `how` is "exact", "loose" for case insensitive, "starts" for a prefix, or
+    // "in" for anywhere in the name. A list of names separated by commas,
+    // spaces or newlines is taken as a list and every one of them looked for.
+    function find(text, how) {
+      if (!view) return new Uint32Array(0);
+      var wanted = String(text || "").trim();
+      if (!wanted) return new Uint32Array(0);
+      var many = wanted.split(/[\s,]+/).filter(Boolean);
+      if (many.length > 1) {
+        var seen = new Uint8Array(view.count);
+        for (var each = 0; each < many.length; each++) {
+          var one = find(many[each], how);
+          for (var mark = 0; mark < one.length; mark++) seen[one[mark]] = 1;
         }
-        return true;
+        var all = [];
+        for (var walk = 0; walk < view.byRow.length; walk++) {
+          if (seen[view.byRow[walk]]) all.push(view.byRow[walk]);
+        }
+        return Uint32Array.from(all);
       }
-      return false;
+
+      var fold = how !== "exact";
+      var query = encoder.encode(fold ? wanted.toLowerCase() : wanted);
+      var names = view.names;
+      var start = view.start;
+      var length = view.length;
+      var hits = [];
+      var lower = function (byte) {
+        return byte >= 65 && byte <= 90 ? byte + 32 : byte;
+      };
+      for (var order = 0; order < view.byRow.length; order++) {
+        var node = view.byRow[order];
+        var len = length[node];
+        if (!len) continue;
+        var at = start[node];
+        if (how === "exact" || how === "loose") {
+          if (len !== query.length) continue;
+          var same = true;
+          for (var i = 0; i < len && same; i++) {
+            var here = fold ? lower(names[at + i]) : names[at + i];
+            if (here !== query[i]) same = false;
+          }
+          if (same) hits.push(node);
+          continue;
+        }
+        if (len < query.length) continue;
+        var last = how === "starts" ? 0 : len - query.length;
+        for (var from = 0; from <= last; from++) {
+          var run = true;
+          for (var step = 0; step < query.length && run; step++) {
+            if (lower(names[at + from + step]) !== query[step]) run = false;
+          }
+          if (run) { hits.push(node); break; }
+        }
+      }
+      return Uint32Array.from(hits);
+    }
+
+    // Take the view to a tip by name, in whichever projection is being looked
+    // through. It used to move the row camera and nothing else, so in the two
+    // projections that are driven by the other camera a hit moved nothing at
+    // all and still reported success.
+    function goTo(name, how) {
+      var hits = find(name, how || "exact");
+      if (!hits.length) return false;
+      view.found = hits;
+      view.at = 0;
+      settleOn(hits[0]);
+      return true;
+    }
+
+    // Move to the next of what the last search found, coming round at the end.
+    function nextFound(step) {
+      if (!view || !view.found || !view.found.length) return null;
+      var many = view.found.length;
+      view.at = ((view.at + (step || 1)) % many + many) % many;
+      settleOn(view.found[view.at]);
+      return { at: view.at, of: many };
+    }
+
+    function settleOn(node) {
+      if (mode === "rows") {
+        // Close enough that the tip has a name beside it, rather than
+        // wherever the reader happened to be zoomed to.
+        var tall = Math.min(camera.y1 - camera.y0, 60);
+        camera.y0 = view.y[node] - tall * 0.5;
+        camera.y1 = view.y[node] + tall * 0.5;
+        return;
+      }
+      disc.cx = unitX(node);
+      disc.cy = unitY(node);
+      if (disc.half > 0.08) disc.half = 0.08;
+      settleDisc();
     }
 
     // Where the last search landed, so a paint can put a ring round it. A tip
     // found and not marked is a tip the reader still has to hunt for.
     function markFound(ctx, theme, box) {
-      if (view.found === undefined || view.found === null) return;
-      var at = whereOn(box, view.found);
-      if (!at) return;
-      if (at.x < -20 || at.x > box.wide + 20 || at.y < -20 || at.y > box.tall + 20) return;
+      var hits = view.found;
+      if (!hits || !hits.length) return;
       ctx.strokeStyle = theme.edge;
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, 7, 0, Math.PI * 2);
-      ctx.stroke();
+      var drawn = 0;
+      for (var each = 0; each < hits.length && drawn < 400; each++) {
+        var at = whereOn(box, hits[each]);
+        if (!at) continue;
+        if (at.x < -20 || at.x > box.wide + 20 || at.y < -20 || at.y > box.tall + 20) continue;
+        ctx.beginPath();
+        ctx.arc(at.x, at.y, each === view.at ? 8 : 5, 0, Math.PI * 2);
+        ctx.stroke();
+        drawn += 1;
+      }
       ctx.lineWidth = 1;
     }
 
@@ -1394,6 +1597,21 @@ window.karyonCanvas = (function () {
         return whereOn(size(), node);
       },
       goTo: goTo,
+      find: find,
+      nextFound: nextFound,
+      found: function () {
+        if (!view || !view.found || !view.found.length) return { count: 0, at: 0, names: [] };
+        // The names, for a figure to be drawn with them marked. Capped, because
+        // a command line is a thing a person reads and a search can match a
+        // hundred thousand tips.
+        var names = [];
+        for (var each = 0; each < view.found.length && names.length < 12; each++) {
+          if (view.length[view.found[each]]) names.push(nameOf(view.found[each]));
+        }
+        return { count: view.found.length, at: view.at || 0, names: names };
+      },
+      at: at,
+      focusOn: focusOn,
       looking: looking,
       loaded: function () { return !!view; },
       count: function () { return view ? view.count : 0; },

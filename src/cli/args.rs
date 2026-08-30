@@ -935,6 +935,8 @@ pub struct TrackSpec {
     pub mutations: Option<String>,
     /// `--carrying`, the change to mark the carriers of.
     pub carrying: Option<String>,
+    /// `--highlight`, the clades to draw a band behind.
+    pub highlight: Vec<String>,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -989,6 +991,7 @@ impl TrackSpec {
             cladogram: false,
             mutations: None,
             carrying: None,
+            highlight: Vec::new(),
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1325,6 +1328,23 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.support_style = Some(style);
+            }
+            "--highlight" => {
+                let named = value("--highlight")?.clone();
+                let track = last(&mut tracks, "--highlight")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--highlight",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.highlight.extend(
+                    named
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_string),
+                );
             }
             "--mutations" => {
                 let key = value("--mutations")?.clone();
