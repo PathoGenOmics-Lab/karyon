@@ -79,7 +79,10 @@
 }
 
 .tv-btn {
-  border: 1px solid var(--md-default-fg-color--lighter);
+  /* One token up from `--lighter`, which measured 1.17 against the page: a
+     control whose edge cannot be found is a control that is not there. This
+     one measures 4.61 and 5.12. */
+  border: 1px solid var(--md-default-fg-color--light);
   background: var(--md-default-bg-color);
   color: var(--md-default-fg-color);
   border-radius: 0.2rem;
@@ -168,11 +171,14 @@
    and nothing here is transformed. */
 .tv-plot {
   position: relative;
-  border: 1px solid var(--md-default-fg-color--lightest);
+  border: 1px solid var(--md-default-fg-color--lighter);
   border-radius: 0.3rem;
   overflow: hidden;
-  height: 76vh;
-  min-height: 22rem;
+  /* Against the room actually left rather than against the whole window. On a
+     phone the toolbar takes most of the screen, and 76vh of what is left over
+     is not 76vh of the screen. */
+  height: min(76vh, calc(100vh - 21rem));
+  min-height: 16rem;
   touch-action: none;
   cursor: grab;
   overscroll-behavior: contain;
@@ -197,8 +203,14 @@
 }
 
 /* A drawing is on its way. The picture stays put and stays usable, so this is
-   a hint and not a curtain. */
-.tv-plot.tv-working::after {
+   a hint and not a curtain. It sits on the panel as well as on the plot,
+   because before the first tree the plot is inside something hidden and the
+   whole of that wait showed nothing. */
+.tv-drop {
+  position: relative;
+}
+
+.tv-working::after {
   content: "";
   position: absolute;
   inset: auto 0 0 0;
@@ -256,4 +268,53 @@
   font-size: 0.7rem;
   color: var(--k-accent-ink);
   margin: 0 0 0.5rem;
+}
+
+/* What just happened, where the reader is already looking. */
+.tv-note {
+  font-family: var(--md-code-font-family);
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0 0 0.3rem;
+}
+
+/* A file input dressed as a button, so there is a way to a second tree that
+   does not need a hand to drag one. */
+.tv-another {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tv-another input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tv-another:focus-within {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 1px;
+}
+
+/* The bar wraps on a narrow screen, and without this Fit and Export land on
+   different rows at opposite ends of it, reading as two unrelated controls.
+   The playground's own bar had the same trouble and the same answer. */
+@media screen and (max-width: 60em) {
+  .tv-spacer {
+    display: none;
+  }
+
+  .tv-detail {
+    flex-basis: 100%;
+  }
+}
+
+/* No room for the small picture means no sentences about it. */
+.tv-app.tv-nomap .tv-map-note {
+  display: none;
 }

@@ -64,7 +64,13 @@ window.karyonCanvas = (function () {
       return Uint32Array.from(sorted);
     }
 
-    function load(placed) {
+    // `keep` says this is the same tree laid out again, so the window onto it
+    // still means something. Without it a reader who had navigated into a
+    // clade lost it every time they pressed Cladogram.
+    function load(placed, keep) {
+      var was = keep && view && view.count === placed.count
+        ? { camera: camera, disc: disc, mode: mode }
+        : null;
       view = placed;
       // A layout with no root sends the order to read its terminals in, since
       // it has no rows for the page to sort by. That order is what stands in
@@ -99,6 +105,20 @@ window.karyonCanvas = (function () {
       view.shown = { child: new Uint32Array(1 << 14), up: new Uint32Array(1 << 14) };
       if (view.rootless) measureSpread();
       home();
+      if (was && was.mode === mode) {
+        // The rows are in the same order whichever way the branches are
+        // measured, so the window onto them still points at the same tips. The
+        // depths have moved, so the camera in x is left to be fitted again.
+        if (mode === "rows") {
+          camera.y0 = was.camera.y0;
+          camera.y1 = was.camera.y1;
+        } else if (was.disc) {
+          disc.cx = was.disc.cx;
+          disc.cy = was.disc.cy;
+          disc.half = was.disc.half;
+          settleDisc();
+        }
+      }
     }
 
     function home() {
@@ -1114,11 +1134,16 @@ window.karyonCanvas = (function () {
     // through. It used to move the row camera and nothing else, so in the two
     // projections that are driven by the other camera a hit moved nothing at
     // all and still reported success.
-    function goTo(name) {
+    // `how` of "loose" ignores case and takes the first name that starts with
+    // what was asked for, which is what a name typed from memory needs.
+    function goTo(name, how) {
       if (!view) return false;
+      var loose = how === "loose";
+      var wanted = loose ? name.toLowerCase() : name;
       for (var node = 0; node < view.count; node++) {
         if (!view.length[node]) continue;
-        if (nameOf(node) !== name) continue;
+        var here = nameOf(node);
+        if (loose ? here.toLowerCase().indexOf(wanted) !== 0 : here !== wanted) continue;
         view.found = node;
         if (mode === "rows") {
           // Close enough that the tip has a name beside it, rather than

@@ -62,6 +62,8 @@ hide:
     <div class="tv-spacer"></div>
     <button class="tv-btn" id="tv-fit" type="button">Fit</button>
     <button class="tv-btn" id="tv-export" type="button" title="Save this view as karyon's own SVG">Export SVG</button>
+    <label class="tv-btn tv-another" title="Read another Newick file">Another tree<input type="file" id="tv-another"
+      accept=".nwk,.newick,.tree,.tre,.txt"></label>
   </div>
 
   <div class="tv-plot" id="tv-plot">
@@ -71,15 +73,17 @@ hide:
 
   <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. From a keyboard, tab to the picture
     and use up and down to move, plus and minus to zoom and Home to fit; the circular and unrooted views
-    move sideways too. The small picture of the whole tree
-    says where you are: a rail down the right in the rectangular view, a dial in the corner in the circular one,
-    with the part you are looking at marked on it. Clicking or dragging there goes straight to that part.
+    move sideways too. <span class="tv-map-note">On a screen with the room for it, a small picture of the whole
+    tree says where you are: a rail down the right in the rectangular view, a dial in the corner in the other two,
+    with the part you are looking at marked on it. Clicking or dragging there goes straight to that part.</span>
     Circular is the same tree in polar coordinates, with depth becoming radius and row becoming angle, so
     switching to it never asks the program for anything. Unrooted is a different walk with no root and no rows
     at all, so that one is worked out again and then never again. The layout is worked out once by
     the program and never again: what moves is the window onto it, so a gesture costs a repaint of what is on
     screen and never a walk over the tree. Export hands the view back to the program and saves karyon's own
     figure of it.</p>
+
+  <p class="tv-note" id="tv-note" role="status" hidden></p>
 
   <p class="tv-command">The same view from a shell: <code id="tv-command"></code></p>
 </div>
