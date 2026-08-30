@@ -33,6 +33,8 @@ use crate::{
 use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
 use crate::read;
 use crate::track::traits::Traits;
+use crate::Mutations;
+use crate::TreeShape;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
@@ -733,11 +735,13 @@ fn track(
         Kind::Tree => {
             let tree = match parsed(&path, text.trim()) {
                 Some(tree) => tree,
-                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                    flag: "--tree",
-                    path: path.clone(),
-                    cause,
-                })?,
+                None => {
+                    Tree::parse_annotated_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                        flag: "--tree",
+                        path: path.clone(),
+                        cause,
+                    })?
+                }
             };
             let tree = match &spec.focus {
                 None => tree,
@@ -830,6 +834,54 @@ fn track(
                 }
             };
 
+            // Mutations are branch data the file keeps under a key, and
+            // asking who carries one is a question about the shape of the tree.
+            // The answer is written back onto the tree as an ordinary
+            // annotation, so the colouring, the folding and the strips all read
+            // it the way they read anything else and none of them needs to know
+            // what a mutation is.
+            if let Some(key) = &spec.mutations {
+                let found = Mutations::read(&tree, key);
+                if found.is_empty() {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path: path.clone(),
+                        wanted: "mutations under that key",
+                    });
+                }
+                if let Some(spelling) = &spec.carrying {
+                    let carriers = found.carriers(&tree, spelling);
+                    if carriers.is_empty() {
+                        let mut held: Vec<String> =
+                            found.spellings().take(24).map(str::to_string).collect();
+                        if found.distinct() > held.len() {
+                            held.push(format!("and {} more", found.distinct() - held.len()));
+                        }
+                        return Err(BuildError::Unnamed {
+                            track: "tree",
+                            path: path.clone(),
+                            what: "change",
+                            wanted: spelling.clone(),
+                            held,
+                        });
+                    }
+                    // Only the carriers are marked. Marking both sides makes
+                    // two categories, and the colours go in the order they are
+                    // first seen: the root does not carry anything, so "does
+                    // not" was always seen first and the majority of the tree
+                    // came out in the first colour while the answer to the
+                    // question sat in the second.
+                    for node in carriers {
+                        if let Some(into) = tree.annotations_mut(node) {
+                            into.insert(
+                                spelling.clone(),
+                                crate::AnnotationValue::Text("carries".to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+
             let mut track = TreeTrack::new(tree);
             for column in columns {
                 track = track.trait_column(column);
@@ -837,8 +889,12 @@ fn track(
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);
             }
-            if let Some(key) = &spec.color_by {
-                track = track.color_by(key.clone());
+            // Asking who carries a change is asking for it to be visible, so
+            // the answer is coloured by unless the command said to colour by
+            // something else.
+            let coloured = spec.color_by.clone().or_else(|| spec.carrying.clone());
+            if let Some(key) = coloured {
+                track = track.color_by(key);
             }
             if let Some(style) = spec.support_style {
                 track = track.support_style(match style {
@@ -853,6 +909,9 @@ fn track(
             }
             if spec.scale_bar {
                 track = track.scale_bar();
+            }
+            if spec.cladogram {
+                track = track.shape(TreeShape::Cladogram);
             }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
@@ -876,11 +935,13 @@ fn track(
             let (other, right_path) = fetch(name, source, open)?;
             let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
                 Some(tree) => Ok(tree),
-                None => Tree::parse_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                    flag,
-                    path: path.to_string(),
-                    cause,
-                }),
+                None => {
+                    Tree::parse_annotated_newick(text.trim()).map_err(|cause| BuildError::Tree {
+                        flag,
+                        path: path.to_string(),
+                        cause,
+                    })
+                }
             };
             let left = parse(&text, "--tanglegram", &path)?;
             let right = parse(&other, "--against", &right_path)?;
@@ -1096,10 +1157,12 @@ fn track(
             let (newick, tree_path) = fetch(name, source, open)?;
             let tree = match parsed(&tree_path, newick.trim()) {
                 Some(tree) => tree,
-                None => Tree::parse_newick(newick.trim()).map_err(|cause| BuildError::Tree {
-                    flag: "--with-tree",
-                    path: tree_path,
-                    cause,
+                None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| {
+                    BuildError::Tree {
+                        flag: "--with-tree",
+                        path: tree_path,
+                        cause,
+                    }
                 })?,
             };
 
@@ -2407,5 +2470,97 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             svg.contains("c +1 more; lineage missing"),
             "a clade holding L2 and L1 is neither of them: {svg}"
         );
+    }
+    /// The whole road: an annotated Newick in, a clade marked out.
+    ///
+    /// What this pins is the road and not the clade rule. Marking only the
+    /// branch a change happened on gives the same figure, because a colour is
+    /// inherited down the tree and a tip with nothing of its own takes its
+    /// ancestor's. The rule itself is pinned where it lives, in
+    /// `a_change_is_carried_by_everything_below_where_it_happened`, and it is
+    /// what anything asking the question directly gets back.
+    #[test]
+    fn asking_who_carries_a_change_marks_the_clade_that_does() {
+        const TREE: &str = concat!(
+            "((a[&muts=\"A1T\"]:0.1,b:0.1)[&muts=\"S:D614G\"]:0.1,",
+            "(c[&muts=\"S:D614G\"]:0.1,d:0.1):0.1);"
+        );
+        let open = |_: &Source| -> io::Result<String> { Ok(TREE.to_string()) };
+
+        let svg = build(
+            &sheeted("tree:1-1 --tree t.nwk --mutations muts --carrying S:D614G"),
+            open,
+        )
+        .unwrap();
+        // A branch's tooltip names the change and not the tip, so each tip is
+        // found by its label's own row and its branch read off at that height.
+        let row_of = |tip: &str| -> String {
+            let at = svg
+                .find(&format!(">{tip}</text>"))
+                .unwrap_or_else(|| panic!("{tip} is drawn: {svg}"));
+            let y = svg[..at]
+                .rmatch_indices("y=\"")
+                .next()
+                .map(|(start, _)| svg[start + 3..].split('"').next().unwrap_or("").to_string())
+                .expect("the label has a y");
+            // The label sits a third of a body below its own row.
+            let row = y.parse::<f64>().unwrap() - 3.85;
+            let mark = format!("y1=\"{row}\"");
+            let line = svg
+                .split(&mark)
+                .nth(1)
+                .unwrap_or_else(|| panic!("no branch at {tip}'s row {row}: {svg}"));
+            line.split("stroke=\"")
+                .nth(1)
+                .and_then(|piece| piece.split('"').next())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        // a and b are under the branch it happened on, and c has it directly.
+        // d is under neither.
+        let marked = row_of("a");
+        assert_ne!(marked, "#1b1f23", "a's branch is marked, not plain: {svg}");
+        assert_eq!(row_of("b"), marked, "b is under the same branch: {svg}");
+        assert_eq!(row_of("c"), marked, "c has it of its own: {svg}");
+        assert_eq!(
+            row_of("d"),
+            "#1b1f23",
+            "d carries nothing and stays plain: {svg}"
+        );
+
+        // The tree the file holds is read with its annotations. It was read
+        // without them for a long while, which meant --color-by and this could
+        // never see anything a file said.
+        let plain = build(&sheeted("tree:1-1 --tree t.nwk"), open).unwrap();
+        assert!(
+            !plain.contains("carries"),
+            "nothing is marked unasked: {plain}"
+        );
+
+        // A change the tree has not got is refused against the ones it has,
+        // rather than drawing a tree with nothing marked on it.
+        let refused = build(
+            &sheeted("tree:1-1 --tree t.nwk --mutations muts --carrying Z9Z"),
+            open,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(refused.contains("no change called Z9Z"), "{refused}");
+        assert!(
+            refused.contains("S:D614G"),
+            "and says what it has: {refused}"
+        );
+
+        // And a key with no changes under it is refused too, since a figure
+        // with nothing marked looks like a figure of a tree that carries
+        // nothing.
+        let empty = build(
+            &sheeted("tree:1-1 --tree t.nwk --mutations nothing --carrying S:D614G"),
+            open,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(empty.contains("mutations under that key"), "{empty}");
     }
 }

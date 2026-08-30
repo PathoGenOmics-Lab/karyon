@@ -132,6 +132,116 @@ fn run(mut input: &[u8]) -> Result<String, String> {
     .map_err(|error| error.to_string())
 }
 
+/// Hands back the coordinates a phylogeny is drawn at, rather than a drawing.
+///
+/// # Why a second way out
+///
+/// The figures this crate draws are SVG, and an SVG of a million tips is not a
+/// thing a browser will move under a hand: the elements alone run to millions.
+/// A viewer that wants to fly over such a tree needs the positions and a camera
+/// of its own, which is what every viewer of that size has.
+///
+/// What it does not need is a second layout. The numbers below are the ones
+/// `Tree::layout` works out and the ones an SVG of the same tree is drawn from,
+/// so a canvas and a figure from a shell are the same picture at different
+/// resolutions, and there is still one place where a tree's shape is decided.
+///
+/// # The shape of the answer
+///
+/// One buffer, little-endian, every array `count` long:
+///
+/// ```text
+/// [u8 1]                     ok, or 0 and a message as `render` gives
+/// [u32 count]
+/// [f32 x]      x count       distance from the root, in branch length units
+/// [f32 y]      x count       the row: a leaf's own index, a parent's mean
+/// [u32 parent] x count       index of the parent, 0xFFFFFFFF at the root
+/// [u32 start]  x count       where this node's name begins in the blob
+/// [u32 len]    x count       how long it is, zero where it has none
+/// [u32 bytes][u8 bytes]      the names, run together
+/// ```
+///
+/// # Safety
+///
+/// As [`render`].
+#[no_mangle]
+pub unsafe extern "C" fn layout(ptr: *const u8, len: usize) -> *mut u8 {
+    let input = std::slice::from_raw_parts(ptr, len);
+    match positions(input) {
+        Ok(buffer) => {
+            let mut out = buffer;
+            let at = out.as_mut_ptr();
+            std::mem::forget(out);
+            at
+        }
+        Err(message) => answer(false, &message),
+    }
+}
+
+/// The whole of what [`layout`] does, with the pointers already gone.
+fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
+    let name = text(&mut input).ok_or("the file name is not in the shape this expects")?;
+    let body = text(&mut input).ok_or("the file body is not in the shape this expects")?;
+    let cladogram = number(&mut input).unwrap_or(0) == 1;
+
+    let tree = match remembered(&name, body.trim()) {
+        Some(tree) => tree,
+        None => {
+            Tree::parse_newick(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?
+        }
+    };
+    let placed = tree.layout(cladogram);
+    let nodes = tree.nodes();
+    let count = nodes.len();
+
+    // Placements come back in the order the walk made them, and the page wants
+    // them by node, so they go back where they belong.
+    let mut x = vec![0f32; count];
+    let mut y = vec![0f32; count];
+    for placement in &placed {
+        if placement.node < count {
+            x[placement.node] = placement.depth as f32;
+            y[placement.node] = placement.row as f32;
+        }
+    }
+
+    let mut names: Vec<u8> = Vec::new();
+    let mut start = Vec::with_capacity(count);
+    let mut length = Vec::with_capacity(count);
+    for clade in nodes {
+        start.push(names.len() as u32);
+        match &clade.name {
+            Some(text) => {
+                length.push(text.len() as u32);
+                names.extend_from_slice(text.as_bytes());
+            }
+            None => length.push(0u32),
+        }
+    }
+
+    let mut out = Vec::with_capacity(1 + 4 + count * 20 + 4 + names.len());
+    out.push(1u8);
+    out.extend_from_slice(&(count as u32).to_le_bytes());
+    for value in &x {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in &y {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    for clade in nodes {
+        out.extend_from_slice(&clade.parent.map_or(u32::MAX, |at| at as u32).to_le_bytes());
+    }
+    for value in &start {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in &length {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out.extend_from_slice(&(names.len() as u32).to_le_bytes());
+    out.extend_from_slice(&names);
+    Ok(out)
+}
+
 /// The phylogenies read lately, kept for the next call.
 ///
 /// A shell runs the program once and reads each file once. A page runs it again
@@ -372,5 +482,97 @@ mod tests {
         // And a small one is not kept, so nothing pays for a copy it will not
         // use.
         assert!(remembered("small.nwk", "((a:0.1,b:0.1):0.1,c:0.1);").is_none());
+    }
+    /// The coordinates a page flies over have to be the coordinates the crate
+    /// draws at, or the canvas and the figure are two different pictures. This
+    /// takes the buffer apart again and checks it against what `Tree::layout`
+    /// says, which is the one place the shape is decided.
+    #[test]
+    fn the_layout_buffer_says_what_the_crate_says() {
+        const TREE: &str = "((a:0.5,b:0.25):0.25,c:1.0);";
+        let mut input: Vec<u8> = Vec::new();
+        fn push(out: &mut Vec<u8>, text: &str) {
+            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            out.extend_from_slice(text.as_bytes());
+        }
+        push(&mut input, "t.nwk");
+        push(&mut input, TREE);
+        input.extend_from_slice(&0u32.to_le_bytes());
+
+        let out = positions(&input).expect("a tree this small lays out");
+        assert_eq!(out[0], 1, "the first byte says it worked");
+        let mut at = 1usize;
+        let take = |at: &mut usize, out: &[u8]| {
+            let value = u32::from_le_bytes(out[*at..*at + 4].try_into().unwrap());
+            *at += 4;
+            value
+        };
+        let count = take(&mut at, &out) as usize;
+
+        let tree = Tree::parse_newick(TREE).unwrap();
+        assert_eq!(count, tree.nodes().len());
+
+        let mut x = Vec::with_capacity(count);
+        for _ in 0..count {
+            x.push(f32::from_le_bytes(out[at..at + 4].try_into().unwrap()));
+            at += 4;
+        }
+        let mut y = Vec::with_capacity(count);
+        for _ in 0..count {
+            y.push(f32::from_le_bytes(out[at..at + 4].try_into().unwrap()));
+            at += 4;
+        }
+        let mut parent = Vec::with_capacity(count);
+        for _ in 0..count {
+            parent.push(take(&mut at, &out));
+        }
+        let mut start = Vec::with_capacity(count);
+        for _ in 0..count {
+            start.push(take(&mut at, &out) as usize);
+        }
+        let mut length = Vec::with_capacity(count);
+        for _ in 0..count {
+            length.push(take(&mut at, &out) as usize);
+        }
+        let blob = take(&mut at, &out) as usize;
+        let names = &out[at..at + blob];
+        assert_eq!(
+            at + blob,
+            out.len(),
+            "the buffer is exactly as long as it says"
+        );
+
+        // Every coordinate is the one the crate worked out.
+        for placement in tree.layout(false) {
+            assert!(
+                (x[placement.node] as f64 - placement.depth).abs() < 1e-5,
+                "node {} depth",
+                placement.node
+            );
+            assert!(
+                (y[placement.node] as f64 - placement.row).abs() < 1e-5,
+                "node {} row",
+                placement.node
+            );
+        }
+        // And so is every parent and every name.
+        for (node, clade) in tree.nodes().iter().enumerate() {
+            assert_eq!(parent[node], clade.parent.map_or(u32::MAX, |at| at as u32));
+            let held =
+                std::str::from_utf8(&names[start[node]..start[node] + length[node]]).unwrap();
+            assert_eq!(
+                held,
+                clade.name.as_deref().unwrap_or(""),
+                "node {node} name"
+            );
+        }
+
+        // A cladogram is a different question and gives a different answer.
+        let mut asked: Vec<u8> = Vec::new();
+        push(&mut asked, "t.nwk");
+        push(&mut asked, TREE);
+        asked.extend_from_slice(&1u32.to_le_bytes());
+        let flat = positions(&asked).expect("a cladogram lays out too");
+        assert_ne!(flat, out, "asking for a cladogram changes the depths");
     }
 }

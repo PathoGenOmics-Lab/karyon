@@ -190,6 +190,9 @@ because most of them are a setting only some tracks have.
 | `--color-by <KEY>` | a column of the sheet, or an annotation the file carries | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | tooltips only |
 | `--scale-bar` | none | `--tree` | no bar |
+| `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | phylogram |
+| `--mutations <KEY>` | an annotation key the branches carry changes under | `--tree` | no mutations read |
+| `--carrying <CHANGE>` | a change, as the file spells it | `--tree`, after `--mutations` | nothing marked |
 | `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
 | `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
@@ -330,9 +333,38 @@ left plain being the backbone where the lineages genuinely mix.
 `--support-style` makes support readable without hovering, since it is in the
 tooltips whatever you choose. `--threshold` hides the weak ones.
 
-`--scale-bar` draws a rule in the tree's own branch-length units. It is not the
+`--shape cladogram` throws the branch lengths away and makes every branch one
+step, which is the shape to read a topology by when the lengths are noise or
+absent. `--scale-bar` draws a rule in the tree's own branch-length units. It is not the
 ruler along the bottom of the figure, which measures the region and is left out
 of a figure holding nothing but phylogenies.
+
+### Who carries a change
+
+A phylogeny of an outbreak is read as much by its mutations as by its shape, and
+the question is usually not what a clade looks like but who carries something.
+An annotated Newick keeps the changes on the branches:
+
+```text
+(a[&mutations="A123T,S:D614G"]:0.1,b:0.2)[&mutations="C241T"]:0.3;
+```
+
+`--mutations` says which key they are under, because the tools that write these
+files do not agree on one: `mutations`, `muts` and `aa_muts` are all in the wild,
+and a file may carry two of them for nucleotide and amino acid changes. The
+spellings `A123T`, `S:D614G` and either with `nt:` or `aa:` in front are all
+read; a piece that is not a change is skipped rather than guessed at.
+
+```bash
+karyon phylo:1-1 --no-axis --tree big.nwk --mutations mutations \
+  --carrying S:D614G
+```
+
+`--carrying` marks everything at or below a branch where that change happened,
+which is everything that carries it: a change is on a branch and every tip under
+it has that change, so the answer is a clade and not a branch. A change that
+arose twice marks both clades, which is what makes it worth asking about. A
+change the tree has not got is refused against the ones it has.
 
 ### Which row the others are read against
 

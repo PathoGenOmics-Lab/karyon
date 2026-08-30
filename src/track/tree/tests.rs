@@ -1427,17 +1427,12 @@ fn a_folded_triangle_names_the_clade_it_stands_for() {
 }
 
 #[test]
-fn the_tree_viewer_can_read_the_address_a_triangle_prints() {
-    // The viewer opens a folded clade by reading the pair of tips out of its
-    // tooltip and handing them back as --focus. That is one fact written in
-    // two places, so both are checked here: the pattern the page matches with,
-    // and a tooltip the program really produced taken apart the same way.
-    let viewer = include_str!("../../../docs/assets/tree-viewer.js");
-    assert!(
-        viewer.contains(r"var SPAN = /^(.*) \((.+)\), (.+) to (.+)$/;"),
-        "the viewer's pattern has changed; check it still reads what a triangle prints"
-    );
-
+fn a_triangle_prints_an_address_the_focus_flag_takes() {
+    // The viewer used to read this off the page and hand it back, and does not
+    // any more: it flies over coordinates the crate works out, so there are no
+    // triangles in it to click. The address is still what a reader gets from a
+    // figure and types at a shell, so the two halves are still checked against
+    // each other here.
     let svg = Figure::new(region())
         .push(TreeTrack::new(balanced(32)).max_rows(Some(4)))
         .to_svg();
@@ -1448,8 +1443,6 @@ fn the_tree_viewer_can_read_the_address_a_triangle_prints() {
         .find(|title| title.contains(" to "))
         .expect("a folded tree has a triangle");
 
-    // The same four pieces the page takes, taken by hand: everything up to the
-    // bracket, what is in it, and the two names after the comma.
     let (label, rest) = title.split_once(" (").expect("a bracket");
     let (held, span) = rest.split_once("), ").expect("a close and a comma");
     let (first, last) = span.split_once(" to ").expect("two names");
@@ -1457,10 +1450,9 @@ fn the_tree_viewer_can_read_the_address_a_triangle_prints() {
     assert_eq!(held, "8 tips");
     assert_eq!((first, last), ("t0", "t7"));
 
-    // And what the page builds from them is a command the parser accepts.
     let line = format!("tree:1-1 --tree t.nwk --focus {first},{last}");
     let words: Vec<String> = line.split_whitespace().map(String::from).collect();
-    match crate::cli::args::parse(&words).expect("the viewer's command parses") {
+    match crate::cli::args::parse(&words).expect("the address parses as a flag") {
         crate::cli::args::Request::Draw(invocation) => assert_eq!(
             invocation.tracks[0].focus,
             Some(vec![first.to_string(), last.to_string()])

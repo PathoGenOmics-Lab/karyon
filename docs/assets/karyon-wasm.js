@@ -9,14 +9,27 @@
 // crate has no dependencies, and a page that needed a bundler to demonstrate a
 // program that needs nothing would be making the wrong point.
 
-window.karyon = (function () {
+self.karyon = (function () {
   "use strict";
 
   // Worked out from where this script itself was loaded from, rather than
   // written down. The site is served from a sub-path on GitHub Pages and from
   // the root on a laptop, and a page under a folder resolves a bare relative
   // path against the folder rather than against the site.
-  var here = (document.currentScript && document.currentScript.src) || "";
+  // Worked out from where this script itself was loaded from, rather than
+  // written down. The site is served from a sub-path on GitHub Pages and from
+  // the root on a laptop, and a page under a folder resolves a bare relative
+  // path against the folder rather than against the site.
+  //
+  // Two homes, because this also runs inside a worker, where there is no
+  // document to ask: a worker knows its own URL instead, and the wasm sits
+  // beside it either way.
+  var here = "";
+  if (typeof document !== "undefined" && document.currentScript) {
+    here = document.currentScript.src;
+  } else if (typeof self !== "undefined" && self.location) {
+    here = self.location.href;
+  }
   var WASM = here
     ? here.replace(/[^/]*$/, "karyon_playground.wasm")
     : "karyon_playground.wasm";
@@ -307,6 +320,7 @@ window.karyon = (function () {
   // Material writes the palette onto `body`, and a figure drawn light on a dark
   // page is not a figure with a light theme, it is a hole in the page.
   function dark() {
+    if (typeof document === "undefined" || !document.body) return false;
     return document.body.getAttribute("data-md-color-scheme") === "slate";
   }
 
@@ -399,14 +413,118 @@ window.karyon = (function () {
   // Calls `then` whenever the reader changes the site's light or dark setting,
   // which Material does by rewriting an attribute rather than by reloading.
   function onScheme(then) {
+    if (typeof document === "undefined" || !document.body) return;
     new MutationObserver(then).observe(document.body, {
       attributes: true,
       attributeFilter: ["data-md-color-scheme"],
     });
   }
 
+  // How many tips a figure accounts for, read back out of the SVG it wrote.
+  //
+  // Here rather than in the pages that want it, for the reason the protocol is
+  // here: it is a fact about what the program prints, and a second copy of one
+  // of those is a thing that drifts. A row is either a tip, or a folded clade
+  // saying how many it stands for.
+  function tipsAccountedFor(svg) {
+    var total = 0;
+    var pieces = svg.split("<text");
+    for (var i = 1; i < pieces.length; i++) {
+      var at = pieces[i].indexOf(">");
+      if (at < 0) continue;
+      var body = pieces[i].slice(at + 1).split("<")[0].trim();
+      var more = / \+([\d,]+) more$/.exec(body);
+      if (more) {
+        total += Number(more[1].replace(/,/g, "")) + 1;
+        continue;
+      }
+      var held = / \(([\d,]+) tips?\)$/.exec(body);
+      if (held) {
+        total += Number(held[1].replace(/,/g, ""));
+        continue;
+      }
+      if (body && !/^[\d.,]+$/.test(body)) total += 1;
+    }
+    return total;
+  }
+
+  // The coordinates a phylogeny is drawn at, rather than a drawing of it.
+  //
+  // A million tip tree has no SVG a browser will move under a hand, so a viewer
+  // of that size asks for the numbers and keeps a camera of its own. They are
+  // the numbers the figures are drawn from, so it is one layout seen two ways
+  // and not two layouts.
+  //
+  // The shape of the buffer is written down in playground/src/lib.rs, beside
+  // the code that fills it.
+  function positions(name, body, cladogram) {
+    if (!wasm) return { ok: false, body: "the program has not arrived" };
+    var parts = [];
+    var total = 0;
+    function u32(n) {
+      var b = new Uint8Array(4);
+      new DataView(b.buffer).setUint32(0, n, true);
+      parts.push(b);
+      total += 4;
+    }
+    function str(text) {
+      var bytes = encoder.encode(text);
+      u32(bytes.length);
+      parts.push(bytes);
+      total += bytes.length;
+    }
+    str(name);
+    str(body);
+    u32(cladogram ? 1 : 0);
+    var input = new Uint8Array(total);
+    var at = 0;
+    parts.forEach(function (part) {
+      input.set(part, at);
+      at += part.length;
+    });
+
+    var into = wasm.alloc(input.length);
+    new Uint8Array(wasm.memory.buffer, into, input.length).set(input);
+    var out = wasm.layout(into, input.length);
+    wasm.dealloc(into, input.length);
+
+    var head = new Uint8Array(wasm.memory.buffer, out, 5);
+    var ok = head[0] === 1;
+    var view = new DataView(wasm.memory.buffer, out);
+    if (!ok) {
+      var len = view.getUint32(1, true);
+      var message = decoder.decode(new Uint8Array(wasm.memory.buffer, out + 5, len));
+      wasm.dealloc(out, 5 + len);
+      return { ok: false, body: message };
+    }
+
+    var count = view.getUint32(1, true);
+    var base = out + 5;
+    // Copied out of the program's memory rather than pointed at it: the next
+    // call may grow that memory, and a view onto a buffer that has moved reads
+    // as an empty array with no error anywhere.
+    function floats(offset) {
+      return new Float32Array(wasm.memory.buffer.slice(base + offset, base + offset + count * 4));
+    }
+    function words(offset) {
+      return new Uint32Array(wasm.memory.buffer.slice(base + offset, base + offset + count * 4));
+    }
+    var x = floats(0);
+    var y = floats(count * 4);
+    var parent = words(count * 8);
+    var start = words(count * 12);
+    var length = words(count * 16);
+    var blobAt = base + count * 20;
+    var blob = view.getUint32(blobAt - out, true);
+    var names = new Uint8Array(wasm.memory.buffer.slice(blobAt + 4, blobAt + 4 + blob));
+    wasm.dealloc(out, 5 + count * 20 + 4 + blob);
+    return { ok: true, count: count, x: x, y: y, parent: parent, start: start, length: length, names: names };
+  }
+
   return {
     load: load,
+    positions: positions,
+    tipsAccountedFor: tipsAccountedFor,
     ready: ready,
     run: run,
     words: words,

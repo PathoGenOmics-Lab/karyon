@@ -479,3 +479,92 @@ fn a_deep_ladder_does_not_overflow_the_stack() {
     assert_eq!(tree.leaf_count(), 10_001);
     assert_eq!(tree.layout(true).len(), tree.nodes().len());
 }
+
+#[test]
+fn a_mutation_is_read_however_the_file_spells_it() {
+    // The spellings in the wild, and what each one means. A gene name may hold
+    // a colon of its own, so the gene is everything before the last one.
+    for (text, gene, position, from, to) in [
+        ("A123T", None, 123u64, "A", "T"),
+        ("S:D614G", Some("S"), 614, "D", "G"),
+        ("nt:C241T", None, 241, "C", "T"),
+        ("aa:S:D614G", Some("S"), 614, "D", "G"),
+        ("ORF1ab:nsp3:P822L", Some("ORF1ab:nsp3"), 822, "P", "L"),
+        ("s:d614g", Some("s"), 614, "D", "G"),
+        ("N:R203*", Some("N"), 203, "R", "*"),
+    ] {
+        let read = Mutation::parse(text).unwrap_or_else(|| panic!("{text} should read"));
+        assert_eq!(read.gene.as_deref(), gene, "{text}");
+        assert_eq!(read.position, position, "{text}");
+        assert_eq!(read.from, from, "{text}");
+        assert_eq!(read.to, to, "{text}");
+    }
+
+    // And what is not a mutation is not guessed at, because a figure drawn from
+    // a misread file looks exactly like one drawn from a good file.
+    for text in [
+        "", "hello", "123", "A123", "123T", "A12.5T", "S:", ":D614G", "A123-4T",
+    ] {
+        assert!(
+            Mutation::parse(text).is_none(),
+            "{text:?} should not read as a mutation"
+        );
+    }
+
+    // A list, however the file separated it, and a note among them costs
+    // nothing.
+    let list = Mutation::parse_list("A123T, S:D614G;C241T|  N:R203K   and some words");
+    assert_eq!(
+        list.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        ["A123T", "S:D614G", "C241T", "N:R203K"]
+    );
+}
+
+#[test]
+fn a_change_is_carried_by_everything_below_where_it_happened() {
+    // The whole point of the index. A mutation is on a branch, and every tip
+    // under that branch has it: asking who carries one is a question about the
+    // shape of the tree, not a search through the tips.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&muts=\"A1T\"]:0.1,b:0.1)[&muts=\"S:D614G\"]:0.1,",
+        "(c[&muts=\"S:D614G\"]:0.1,d:0.1):0.1);"
+    ))
+    .unwrap();
+    let found = Mutations::read(&tree, "muts");
+
+    assert_eq!(
+        found.distinct(),
+        2,
+        "two spellings: {:?}",
+        found.spellings().collect::<Vec<_>>()
+    );
+
+    // S:D614G happened twice, on two separate branches, which is what makes it
+    // worth asking about at all.
+    assert_eq!(found.happened_on("S:D614G").len(), 2);
+
+    let named = |nodes: Vec<usize>| {
+        let mut names: Vec<String> = nodes
+            .iter()
+            .filter_map(|node| tree.nodes()[*node].name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    // a and b are under the first branch it happened on; c has it directly.
+    assert_eq!(named(found.carriers(&tree, "S:D614G")), ["a", "b", "c"]);
+    assert_eq!(named(found.carriers(&tree, "A1T")), ["a"]);
+    assert!(
+        found.carriers(&tree, "Z9Z").is_empty(),
+        "a change nothing carries"
+    );
+
+    // And a tip's own genotype is what happened on the way down to it.
+    let a = tree.node_named("a").unwrap();
+    let path: Vec<String> = found
+        .path(&tree, a)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(path, ["S:D614G", "A1T"], "root to tip, in order");
+}

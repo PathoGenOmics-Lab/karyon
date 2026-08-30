@@ -127,6 +127,11 @@ jobs:
           cargo test --manifest-path playground/Cargo.toml
           cargo build --release --target wasm32-unknown-unknown \
             --manifest-path playground/Cargo.toml
+      # The page draws its own picture of a tree, in JavaScript that no Rust
+      # test reaches. It went a whole branch drawing branches that hung from
+      # nothing, so it is checked here by being run.
+      - name: Check the page's canvas
+        run: node tests/tree-canvas.test.js
       - name: Docs
         run: cargo doc --no-deps
         env:
