@@ -32,11 +32,16 @@
 .md-content__inner:has(.k-hero) {
   max-width: 62rem;
   margin-inline: auto;
-  /* A floor under the gutter. `margin-inline: auto` wins over Material's own
-     side margin and resolves to nothing on a narrow screen, so without this
-     every paragraph, heading and card on the page sat flush against both
-     bezels of a phone. */
-  padding-inline: 0.8rem;
+}
+
+/* Centring cancels the margin Material would have given it, so without a floor
+   the landing page runs to the bezel on a phone. Only on a phone: above it the
+   site's own gutter in extra.css applies, and this selector is the more
+   specific of the two. */
+@media screen and (max-width: 44.9375em) {
+  .md-content__inner:has(.k-hero) {
+    padding-inline: 0.8rem;
+  }
 }
 
 /* -------------------------------------------------------------------------
