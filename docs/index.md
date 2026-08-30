@@ -608,10 +608,18 @@ when a figure leans on them.
 </ul>
 
 [Citation](about/citation.md) has the whole list, the specifications behind
-every format the readers take included. Written by **Paula Ruiz-Rodriguez** and
-**Mireia Coscolla**, I²SysBio, University of Valencia-CSIC, FISABIO Joint
-Research Unit Infection and Public Health, Valencia, Spain. Released under
-[MIT](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+every format the readers take included.
+
+<div class="k-colophon" markdown>
+
+**karyon** is written by Paula Ruiz-Rodriguez and Mireia Coscolla.
+
+I²SysBio, University of Valencia-CSIC, and the FISABIO Joint Research Unit
+Infection and Public Health, Valencia, Spain.
+
+Released under [MIT](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+
+</div>
 
 </section>
 

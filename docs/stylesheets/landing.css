@@ -609,6 +609,32 @@
   line-height: 1.55;
 }
 
+/* The page used to end by running out: the last thing on it was one paragraph
+   with the citation link, the authors, two institutions and the licence run
+   together. A closing block is not more of the page, it is the page saying it
+   has finished. */
+.md-typeset .k-colophon {
+  margin: 2rem 0 0;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--md-default-fg-color--lighter);
+}
+
+.md-typeset .k-colophon p {
+  margin: 0 0 0.35rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.md-typeset .k-colophon p:first-child {
+  color: var(--md-default-fg-color);
+  font-size: 0.78rem;
+}
+
+.md-typeset .k-colophon p:last-child {
+  margin-bottom: 0;
+}
+
 /* -------------------------------------------------------------------------
    Narrow pages
    ------------------------------------------------------------------------- */
