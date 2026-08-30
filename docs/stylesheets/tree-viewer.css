@@ -327,3 +327,35 @@
 .tv-app.tv-nomap .tv-map-note {
   display: none;
 }
+
+/* What is under the hand. It follows the pointer, so it never covers the thing
+   it is naming: the side it sits on flips when the pointer nears the right
+   edge, which is where a fixed offset would push it off the canvas. */
+.tv-tip {
+  position: absolute;
+  z-index: 2;
+  max-width: 18rem;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid var(--md-default-fg-color--light);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  font-family: var(--md-code-font-family);
+  font-size: 0.66rem;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tv-tip b {
+  font-weight: 650;
+}
+
+.tv-tip small {
+  display: block;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.62rem;
+}
+
+/* Over a branch the hand can take, rather than over the empty canvas. */
+.tv-plot.tv-onnode { cursor: pointer; }

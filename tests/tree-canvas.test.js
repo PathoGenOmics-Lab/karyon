@@ -601,6 +601,188 @@ function rootlessPainter(spokes, wide, tall) {
   return { painter, placed, canvas };
 }
 
+// ------------------------------------------------------------- the search
+
+// A balanced tree whose tips carry names, since the search is about names and
+// the fixture above has none.
+function named(levels) {
+  const placed = balanced(levels);
+  const words = [];
+  const start = new Uint32Array(placed.count);
+  const length = new Uint32Array(placed.count);
+  let blob = "";
+  for (let node = 0; node < placed.count; node++) {
+    // A leaf is a node nothing points to as a parent, and in this fixture the
+    // back half of the array is exactly that.
+    if (node < (placed.count - 1) / 2) continue;
+    const lineage = node % 3 === 0 ? "L2" : node % 3 === 1 ? "L4.9" : "L1";
+    const text = lineage + "_" + String(node).padStart(5, "0");
+    start[node] = blob.length;
+    length[node] = text.length;
+    blob += text;
+    words.push(text);
+  }
+  placed.start = start;
+  placed.length = length;
+  placed.names = new TextEncoder().encode(blob);
+  return { placed, words };
+}
+
+function searcher(levels) {
+  const { placed, words } = named(levels || 10);
+  const painter = canvasModule.make(fakeCanvas(WIDE, 800));
+  painter.load(placed);
+  painter.paint(theme);
+  return { painter, placed, words };
+}
+
+check("the search answers with every tip that matches, not the first", () => {
+  const { painter, words } = searcher(10);
+  const lineage = words.filter((w) => w.indexOf("L4.9") === 0).length;
+  assert.ok(lineage > 10, `the fixture has only ${lineage} tips in that lineage`);
+  const hits = painter.find("L4.9", "starts");
+  assert.strictEqual(hits.length, lineage, `found ${hits.length} of ${lineage}`);
+  // And one name is one hit.
+  assert.strictEqual(painter.find(words[0], "exact").length, 1);
+});
+
+check("and the check bites: a search that stopped at the first would find one", () => {
+  const { painter } = searcher(10);
+  assert.ok(painter.find("L4.9", "starts").length > 1, "the set has one thing in it");
+});
+
+check("it ignores case, takes a part of a name, and takes a list", () => {
+  const { painter, words } = searcher(10);
+  const one = words[0];
+  assert.strictEqual(painter.find(one.toLowerCase(), "loose").length, 1, "case was not folded");
+  assert.strictEqual(painter.find(one, "exact").length, 1);
+  // The number in the middle of a name, which no prefix search would find.
+  const middle = one.slice(3);
+  assert.ok(painter.find(middle, "in").length >= 1, "a part of a name found nothing");
+  assert.strictEqual(painter.find(middle, "starts").length, 0, "a prefix search matched the middle");
+  // A list, separated however it was pasted.
+  const list = painter.find(words[0] + ", " + words[1] + "\n" + words[2], "exact");
+  assert.strictEqual(list.length, 3, `a list of three found ${list.length}`);
+});
+
+check("what it finds comes back in row order", () => {
+  const { painter, placed } = searcher(10);
+  const hits = painter.find("L", "starts");
+  assert.ok(hits.length > 20, "not enough hits to say anything about their order");
+  for (let i = 1; i < hits.length; i++) {
+    assert.ok(
+      placed.y[hits[i]] >= placed.y[hits[i - 1]],
+      `hit ${i} sits above the one before it`
+    );
+  }
+});
+
+check("Enter again moves to the next of them, and comes round", () => {
+  const { painter, words } = searcher(10);
+  assert.ok(painter.goTo("L4.9", "starts"), "the search found nothing");
+  const many = painter.found().count;
+  assert.ok(many > 3, `only ${many} to step through`);
+  assert.strictEqual(painter.found().at, 0);
+  assert.deepStrictEqual(painter.nextFound(1), { at: 1, of: many });
+  assert.deepStrictEqual(painter.nextFound(1), { at: 2, of: many });
+  assert.deepStrictEqual(painter.nextFound(-1), { at: 1, of: many });
+  // Round the end from the start.
+  painter.nextFound(-1);
+  assert.strictEqual(painter.found().at, 0);
+  assert.strictEqual(painter.nextFound(-1).at, many - 1, "it did not come round");
+  assert.ok(words.length > 0);
+});
+
+// --------------------------------------------------------------- the hand
+
+check("the canvas says what is under a point, and nothing where there is none", () => {
+  const placed = balanced(12); // 4,096 tips
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(theme);
+
+  // Ask about a branch by asking where one is first, so the check is about the
+  // answer and not about guessing a coordinate.
+  const shown = painter.shown();
+  const wanted = shown.child[Math.floor(shown.count / 2)];
+  const spot = painter.where(wanted);
+  const found = painter.at(spot.x, spot.y);
+  assert.ok(found, "nothing was found where a branch was drawn");
+  assert.strictEqual(found.node, wanted, "it named a different branch");
+  assert.ok(found.tips >= 1, `a branch with ${found.tips} tips beyond it`);
+
+  // Far from anything drawn.
+  assert.strictEqual(painter.at(-500, -500), null, "it found something off the canvas");
+});
+
+check("and the check bites: it does not answer for whatever is nearest", () => {
+  const placed = balanced(12);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(theme);
+  const shown = painter.shown();
+  const wanted = shown.child[10];
+  const spot = painter.where(wanted);
+  // Half the canvas away from any branch, so an answer here would mean it
+  // returns the nearest thing however far off it is.
+  assert.strictEqual(painter.at(spot.x + 400, spot.y + 400) === null ||
+    painter.at(spot.x + 400, spot.y + 400).node !== wanted, true);
+  assert.strictEqual(painter.at(spot.x, spot.y).node, wanted, "and it still finds the near one");
+});
+
+check("how many tips lie beyond a branch is what the tree says", () => {
+  const placed = balanced(10); // 1,024 tips, so the answers are round
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(theme);
+  const root = (() => { for (let i = 0; i < placed.count; i++) if (placed.parent[i] === 0xffffffff) return i; })();
+  const spot = painter.where(root);
+  const found = painter.at(spot.x, spot.y);
+  assert.ok(found, "the root was not found where it was drawn");
+  assert.strictEqual(found.tips, 1024, `the root has ${found.tips} tips beyond it, not 1024`);
+  // Each of the root's two children carries half of them.
+  const half = painter.at(painter.where(1).x, painter.where(1).y);
+  assert.ok(half && half.tips === 512, `a child of the root has ${half && half.tips}, not 512`);
+});
+
+check("taking a clade puts that clade on the screen", () => {
+  const placed = balanced(13); // 8,192 tips
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(theme);
+  const whole = painter.looking().rows;
+  // Node 3 is a quarter of the tree in a balanced one.
+  const found = painter.at(painter.where(3).x, painter.where(3).y) || { node: 3, tips: 0 };
+  painter.focusOn(3);
+  painter.paint(theme);
+  const close = painter.looking().rows;
+  assert.ok(close < whole / 3, `taking a quarter of the tree left ${close} of ${whole} rows`);
+  assert.ok(close > 1, "it took nothing at all");
+});
+
+check("and the check bites: taking the root changes nothing", () => {
+  const placed = balanced(13);
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  painter.paint(theme);
+  const whole = painter.looking().rows;
+  let root = 0;
+  for (let i = 0; i < placed.count; i++) if (placed.parent[i] === 0xffffffff) root = i;
+  painter.focusOn(root);
+  painter.paint(theme);
+  // The root's clade is the tree, so this is the control: a focus that reported
+  // a big change here would be reporting the zoom and not the clade.
+  assert.ok(
+    Math.abs(painter.looking().rows - whole) < whole * 0.3,
+    `taking the whole tree went from ${whole} rows to ${painter.looking().rows}`
+  );
+});
+
 // -------------------------------------------------------------- the wheel
 
 // One wheel notch as the page makes it, from `Math.exp(-deltaY * 0.002)`.
