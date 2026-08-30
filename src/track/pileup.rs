@@ -40,6 +40,7 @@ use std::sync::Mutex;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{finite_within, text_width, Anchor};
+use crate::theme::mix;
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
 use crate::track::feature::{span_label, strand_color, strand_label, Strand};
@@ -604,7 +605,16 @@ impl PileupTrack {
 
     fn read_color(&self, read: &Read, theme: &Theme) -> String {
         match self.coloring {
-            ReadColoring::Uniform => self.color.clone().unwrap_or_else(|| "#b3bcc6".to_string()),
+            // A wash of the theme's own quiet ink rather than one grey for
+            // both themes. The grey it used to be measured 1.92 against a white
+            // page, which is a read a reader has to hunt for, and 9.27 against
+            // a dark one, which is a read shouting. This lands at 3.2 and 4.3,
+            // which is what a filled shape needs, and it follows a theme the
+            // caller brought rather than only the two shipped here.
+            ReadColoring::Uniform => self
+                .color
+                .clone()
+                .unwrap_or_else(|| mix(&theme.background, &theme.muted, 0.65)),
             ReadColoring::Strand => match read.strand {
                 Strand::Reverse => self
                     .reverse_color
@@ -1501,6 +1511,43 @@ mod tests {
         );
     }
 
+    /// A read body is a large filled shape, and a large filled shape needs
+    /// three to one against the page to be a shape at all. It used to be one
+    /// grey for both themes, which measured 1.92 against a white page: a
+    /// pileup a reader had to hunt for, in the theme that is the default.
+    #[test]
+    fn a_read_body_can_be_seen_in_either_theme() {
+        fn contrast(one: &str, other: &str) -> f64 {
+            fn channel(value: f64) -> f64 {
+                if value <= 0.03928 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            }
+            fn luminance(color: &str) -> f64 {
+                let parse = |at: usize| {
+                    u8::from_str_radix(&color[at..at + 2], 16).unwrap_or(0) as f64 / 255.0
+                };
+                0.2126 * channel(parse(1)) + 0.7152 * channel(parse(3)) + 0.0722 * channel(parse(5))
+            }
+            let (a, b) = (luminance(one), luminance(other));
+            let (high, low) = if a > b { (a, b) } else { (b, a) };
+            (high + 0.05) / (low + 0.05)
+        }
+
+        for theme in [Theme::light(), Theme::dark()] {
+            let track = PileupTrack::new(vec![Read::aligned(10, 40)]);
+            let body = track.read_color(&Read::aligned(10, 40), &theme);
+            let against = contrast(&body, &theme.background);
+            assert!(
+                against >= 3.0,
+                "a read body at {against:.2} against the page: {body} on {}",
+                theme.background
+            );
+        }
+    }
+
     #[test]
     fn a_read_thinner_than_a_pixel_is_drawn_but_not_named() {
         // Ten megabases across the figure puts a 150 bp read at a hundredth of
@@ -1512,7 +1559,10 @@ mod tests {
             .push(PileupTrack::new(reads))
             .to_svg();
         assert!(!svg.contains("<title>read,"), "{svg}");
-        assert!(svg.contains("#b3bcc6"), "the read is still drawn");
+        // The colour the theme gives a read body, worked out here rather than
+        // written down, so this says "it is drawn" and not "it is that grey".
+        let body = mix(&Theme::light().background, &Theme::light().muted, 0.65);
+        assert!(svg.contains(&body), "the read is still drawn: {svg}");
     }
 
     #[test]

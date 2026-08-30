@@ -609,8 +609,14 @@ impl Track for SnpTrack {
             top += self.row_height + self.row_gap;
         }
 
-        if self.show_positions {
-            let size = ctx.theme.font_size - 2.0;
+        // A label is stood on end, so what it needs across the column is not its
+        // length but its height, and two columns narrower than that put their
+        // labels through each other. Below it they were drawn anyway: fourteen
+        // hundred sites gave fourteen hundred rotated labels in a panel eight
+        // hundred pixels wide, every one of them through its neighbours, which
+        // is the same mistake the letters above already avoid.
+        let size = ctx.theme.font_size - 2.0;
+        if self.show_positions && cell_width >= size {
             for (index, site) in self.sites.iter().enumerate() {
                 // The column is the datum here, not the cell: one column is one
                 // site, and the cells in it are one site seen once per sample.
@@ -1084,5 +1090,39 @@ mod tests {
             .to_svg();
         assert!(svg.starts_with("<svg "));
         assert!(!svg.contains("NaN"));
+    }
+    /// A position label is stood on end, so what it needs across its column is
+    /// its height. Below that the labels go through each other, and a panel of
+    /// fourteen hundred sites drew fourteen hundred of them.
+    #[test]
+    fn a_column_too_narrow_for_its_label_does_not_get_one() {
+        let sites: Vec<SnpSite> = (0..400)
+            .map(|at| SnpSite::new(1_000 + at * 10, b'A', vec![b'C', b'A']))
+            .collect();
+        let crowded = Figure::new(Region::new("chr1", 1_000, 5_000).unwrap())
+            .show_region_label(false)
+            .push(SnpTrack::new(
+                vec!["iso1".to_string(), "iso2".to_string()],
+                sites.clone(),
+            ))
+            .to_svg();
+        let rotated = crowded.matches("rotate(").count();
+        assert!(
+            rotated < 40,
+            "{rotated} labels under four hundred columns eight hundred pixels wide"
+        );
+
+        // And a handful of columns, which have the room, still get theirs.
+        let roomy = Figure::new(Region::new("chr1", 1_000, 5_000).unwrap())
+            .show_region_label(false)
+            .push(SnpTrack::new(
+                vec!["iso1".to_string(), "iso2".to_string()],
+                sites[..6].to_vec(),
+            ))
+            .to_svg();
+        assert!(
+            roomy.matches("rotate(").count() >= 6,
+            "six wide columns lost their labels too"
+        );
     }
 }
