@@ -617,7 +617,10 @@
 /* The page used to end by running out: the last thing on it was one paragraph
    with the citation link, the authors, two institutions and the licence run
    together. A closing block is not more of the page, it is the page saying it
-   has finished. */
+   has finished. It carries only what the footer underneath does not, which is
+   where the work was done: the footer already gives the authors and the
+   licence, and saying either of them twice two lines apart is worse than not
+   closing the page at all. */
 .md-typeset .k-colophon {
   margin: 2rem 0 0;
   padding-top: 1.1rem;
@@ -629,11 +632,6 @@
   color: var(--md-default-fg-color--light);
   font-size: 0.72rem;
   line-height: 1.6;
-}
-
-.md-typeset .k-colophon p:first-child {
-  color: var(--md-default-fg-color);
-  font-size: 0.78rem;
 }
 
 .md-typeset .k-colophon p:last-child {

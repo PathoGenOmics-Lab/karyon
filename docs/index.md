@@ -612,12 +612,8 @@ every format the readers take included.
 
 <div class="k-colophon" markdown>
 
-**karyon** is written by Paula Ruiz-Rodriguez and Mireia Coscolla.
-
-I²SysBio, University of Valencia-CSIC, and the FISABIO Joint Research Unit
-Infection and Public Health, Valencia, Spain.
-
-Released under [MIT](https://github.com/PathoGenOmics-Lab/karyon/blob/main/LICENSE).
+Built at I²SysBio, University of Valencia-CSIC, and the FISABIO Joint Research
+Unit Infection and Public Health, Valencia, Spain.
 
 </div>
 
