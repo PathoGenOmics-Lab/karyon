@@ -27,7 +27,7 @@
   var tree = { name: "tree.nwk", body: "" };
   // A sheet of metadata, drawn as strips beside the tips or rings around them.
   var sheet = null;
-  var rows = 60;
+  var rows = 400;
   var projection = "rectangular";
   var pending = null;
   // Where the hand has put the picture since it was last drawn: a scale about
@@ -36,8 +36,24 @@
   // render of the tree.
   var view = { k: 1, tx: 0, ty: 0 };
   var settling = null;
-  var ZOOM_MIN = 1;
-  var ZOOM_MAX = 60;
+  // The camera's range. The floor is whatever scale makes the whole drawing
+  // fit the window, worked out after each drawing rather than fixed, and the
+  // ceiling is well past life size so a reader can get inside a cherry.
+  var fit = 1;
+  var ZOOM_MAX = 8;
+
+  // The most rows worth putting in the page at once.
+  //
+  // Drawing is charged for the walk over the tree and barely at all for the
+  // rows it ends up writing: on a two hundred thousand tip tree, sixty rows
+  // took about 500 ms and two thousand took 502. What two thousand does cost is
+  // the page itself, 16,005 elements and 87 ms to put them in, and five
+  // thousand costs 323 ms, which is where it stops being worth it.
+  //
+  // This is the whole of why the viewer is not a slideshow. All of it is in the
+  // page, the camera moves over rows that are already there, and the program is
+  // asked for nothing until the reader has used that detail up.
+  var DETAIL_CAP = 2000;
   // How hard the reader has pulled against the far end of the zoom, and when
   // that last took them up a level.
   var pull = 0;
@@ -48,10 +64,16 @@
 
   // The command line this view would be drawn by, which is also the one to
   // copy into a terminal and get the same figure.
+  // How many rows the window would show at the size they are drawn, which is
+  // what the reader's own setting means, and how many are actually drawn.
+  function drawnRows() {
+    return Math.min(DETAIL_CAP, Math.max(8, Math.round(rows)));
+  }
+
   function command(steps) {
     var path = steps || trail;
     var argv = ["tree:1-1", "--tree", tree.name, "--projection", projection];
-    argv = argv.concat(["--max-rows", String(rows)]);
+    argv = argv.concat(["--max-rows", String(drawnRows())]);
     var at = path[path.length - 1];
     if (at) argv = argv.concat(["--focus", at.focus]);
     if (sheet) argv = argv.concat(["--traits", sheet.name]);
@@ -67,22 +89,101 @@
     return list;
   }
 
+  // ------------------------------------------------------------- the program
+
+  // It runs in a worker. Drawing is not free: a million tip figure takes a
+  // couple of seconds, and on this thread those are seconds in which the wheel
+  // does not turn and the drag does not land. Measured before it moved: one
+  // drawing froze the page for 77 ms at twenty thousand tips, 346 at two
+  // hundred thousand and 2,183 at a million, and a zoom asks for up to three.
+  //
+  // The files go over once and stay there, because posting megabytes of Newick
+  // with every request puts the copying back on this thread, which is the cost
+  // being removed.
+  var worker = null;
+  var asked = 0;
+  var showing = 0;
+
+  function start_worker() {
+    worker = new Worker(here("tree-worker.js"));
+    worker.addEventListener("message", function (event) {
+      arrived(event.data);
+    });
+  }
+
+  // The worker sits beside this script, wherever the site is served from.
+  function here(name) {
+    var src = (document.currentScript && document.currentScript.src) || "";
+    if (!src) {
+      var all = document.getElementsByTagName("script");
+      for (var i = 0; i < all.length; i++) {
+        if (/tree-viewer\.js/.test(all[i].src)) src = all[i].src;
+      }
+    }
+    return src ? src.replace(/[^/]*$/, name) : name;
+  }
+
+  function send(job) {
+    if (!worker) start_worker();
+    worker.postMessage(job);
+  }
+
+  function sendFiles() {
+    send({ kind: "files", files: files() });
+  }
+
+  // An answer that is not the newest is thrown away. A drag can outrun a
+  // drawing, and painting an old one over a new one is worse than waiting.
+  function arrived(message) {
+    if (message.id !== asked) return;
+    working(false);
+
+    if (message.kind === "drawn") {
+      if (message.ok) {
+        el.stage.innerHTML = message.body;
+        reset();
+        el.error.hidden = true;
+        showing = message.id;
+        el.timing.textContent = Math.round(message.ms) + " ms";
+      } else {
+        el.error.textContent = message.body;
+        el.error.hidden = false;
+        if (message.onFailure === "pop") {
+          trail.pop();
+          paintTrail();
+        }
+      }
+      return;
+    }
+
+    if (message.kind === "chosen") {
+      if (!message.focus) return;
+      trail.push({ focus: message.focus, label: message.label });
+      el.stage.innerHTML = message.body;
+      reset();
+      el.error.hidden = true;
+      el.timing.textContent = Math.round(message.ms) + " ms";
+      // The line under the figure is what a shell would type to get it, so it
+      // has to be the line that drew what is on screen. A zoom that chose its
+      // own clade used to leave the previous one written there.
+      el.command.textContent = K.join(command());
+      paintTrail();
+    }
+  }
+
+  function working(yes) {
+    el.plot.classList.toggle("tv-working", yes);
+  }
+
   function draw() {
-    if (!K.ready() || !tree.body) return;
+    if (!tree.body) return;
     var argv = command();
     var room = el.plot.clientWidth - 24;
     if (room < 40) room = 900;
-    var answer = K.run(K.join(argv), files(), room);
-    if (answer.ok) {
-      el.stage.innerHTML = answer.body;
-      reset();
-      el.error.hidden = true;
-    } else {
-      el.error.textContent = answer.body;
-      el.error.hidden = false;
-    }
+    asked += 1;
+    working(true);
+    send({ kind: "draw", id: asked, command: K.join(argv), room: room });
     el.command.textContent = K.join(argv);
-    el.timing.textContent = Math.round(answer.ms) + " ms";
     paintTrail();
   }
 
@@ -140,12 +241,21 @@
   function apply() {
     el.stage.style.transform =
       "translate(" + view.tx + "px," + view.ty + "px) scale(" + view.k + ")";
-    el.zoom.textContent = view.k > 1.02 ? "\u00d7" + view.k.toFixed(1) : "";
-    el.fit.disabled = view.k <= 1.001 && Math.abs(view.tx) < 1 && Math.abs(view.ty) < 1;
+    var times = view.k / fit;
+    el.zoom.textContent = times > 1.02 ? "\u00d7" + (times < 10 ? times.toFixed(1) : Math.round(times)) : "";
+    el.fit.disabled = times <= 1.001 && Math.abs(view.tx) < 1 && Math.abs(view.ty) < 1;
   }
 
+  // Back to seeing all of it. The whole drawing is more than the window holds,
+  // so this is a scale and not an identity.
   function reset() {
-    view = { k: 1, tx: 0, ty: 0 };
+    var box = el.plot.getBoundingClientRect();
+    var tall = el.stage.offsetHeight || 1;
+    var wide = el.stage.offsetWidth || 1;
+    fit = Math.min(1, box.height / tall, box.width / wide);
+    if (!isFinite(fit) || fit <= 0) fit = 1;
+    view = { k: fit, tx: 0, ty: 0 };
+    contain();
     apply();
   }
 
@@ -164,7 +274,7 @@
   }
 
   function zoomAt(px, py, factor) {
-    var next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.k * factor));
+    var next = Math.min(ZOOM_MAX, Math.max(fit, view.k * factor));
     if (next === view.k) {
       // Already as far out as the picture goes, so the gesture means the level
       // above rather than nothing at all. It has to be pulled against, though:
@@ -270,30 +380,6 @@
     return best.len > 0 ? tips.slice(best.at, best.at + best.len) : [];
   }
 
-  // How many tips a figure accounts for, which is what says whether a zoom
-  // achieved anything.
-  function tipsAccountedFor(svg) {
-    var total = 0;
-    var pieces = svg.split("<text");
-    for (var i = 1; i < pieces.length; i++) {
-      var at = pieces[i].indexOf(">");
-      if (at < 0) continue;
-      var body = pieces[i].slice(at + 1).split("<")[0].trim();
-      var more = / \+([\d,]+) more$/.exec(body);
-      if (more) {
-        total += Number(more[1].replace(/,/g, "")) + 1;
-        continue;
-      }
-      var held = / \(([\d,]+) tips?\)$/.exec(body);
-      if (held) {
-        total += Number(held[1].replace(/,/g, ""));
-        continue;
-      }
-      if (body && !/^[\d.,]+$/.test(body)) total += 1;
-    }
-    return total;
-  }
-
   // After the hand stops: if the view has closed in on part of the picture,
   // ask the program for that part instead of magnifying what is already drawn.
   function settle() {
@@ -326,39 +412,50 @@
 
   function refine() {
     settling = null;
-    if (view.k < 2) return;
+    // Only once the detail already in the page has been used up. The point of
+    // drawing eight times what the window holds is that most gestures need
+    // nothing from the program: a reader who has zoomed twice is still looking
+    // at rows that are already drawn, and asking for them again would replace
+    // a picture with the same picture.
+    if (view.k < fit * 4) return;
     var tips = visibleTips();
     var on = longestRun(tips);
-    // Nothing to gain when most of the picture is still on screen, and nothing
-    // to name when none of it is.
-    if (!on.length || on.length > tips.length * 0.6) return;
+    // Nothing to name when none of it is on screen, and nothing to gain until
+    // the view has closed right in on the rows that are drawn.
+    if (!on.length || on.length > tips.length * 0.12) return;
 
-    var was = tipsAccountedFor(el.stage.innerHTML);
-    var here = trail.length ? trail[trail.length - 1].focus : null;
-    var tries = windows(on);
-    for (var i = 0; i < tries.length; i++) {
-      var slice = tries[i];
+    var here_now = trail.length ? trail[trail.length - 1].focus : null;
+    var candidates = [];
+    windows(on).forEach(function (slice) {
       var first = slice[0].name;
       var last = slice[slice.length - 1].name;
       var focus = first === last ? first : first + "," + last;
-      if (focus === here) continue;
-      // Asked for before it is committed to: a step in the trail that draws
-      // exactly what was already on screen has wasted the gesture.
-      var answer = K.run(
-        K.join(command(trail.concat([{ focus: focus, label: "" }]))),
-        files(),
-        el.plot.clientWidth - 24
-      );
-      if (!answer.ok || tipsAccountedFor(answer.body) >= was) continue;
-      trail.push({
+      if (focus === here_now) return;
+      candidates.push({
         focus: focus,
         label: first === last ? first : first + " to " + last,
+        command: K.join(command(trail.concat([{ focus: focus, label: "" }]))),
       });
-      later();
+    });
+    if (!candidates.length) {
+      reset();
       return;
     }
-    // Every window names the clade already on screen, so there is nothing
-    // below this to open and magnifying is all that is left.
+
+    // The choosing happens in the worker. It is up to three drawings, and the
+    // clade holding two rows can be the clade already on screen, so a step that
+    // drew exactly what was there would waste the gesture.
+    var room = el.plot.clientWidth - 24;
+    if (room < 40) room = 900;
+    asked += 1;
+    working(true);
+    send({
+      kind: "choose",
+      id: asked,
+      candidates: candidates,
+      was: K.tipsAccountedFor(el.stage.innerHTML),
+      room: room,
+    });
   }
 
   // --------------------------------------------------------------- the hand  // --------------------------------------------------------------- the hand
@@ -426,6 +523,7 @@
       el.dropSheet.addEventListener("click", function () {
         sheet = null;
         paintSheet();
+        sendFiles();
         later();
       });
     }
@@ -477,17 +575,25 @@
   function find() {
     var wanted = el.search.value.trim();
     if (!wanted) return;
-    // The program answers whether the name is there, and says what is when it
-    // is not, so there is no index here to fall out of step with the file.
-    var argv = ["tree:1-1", "--tree", tree.name, "--focus", wanted, "--max-rows", "2"];
-    var answer = K.run(K.join(argv), files(), 320);
-    if (!answer.ok) {
-      el.error.textContent = answer.body;
-      el.error.hidden = false;
-      return;
-    }
+    // Asked for, and taken back if the program has never heard of it. The
+    // program is the only thing that knows which names the file holds, and it
+    // says what it does hold when it does not hold this one, so there is no
+    // index here to fall out of step with the file.
     trail.push({ focus: wanted, label: wanted });
-    later();
+    var argv = command();
+    var room = el.plot.clientWidth - 24;
+    if (room < 40) room = 900;
+    asked += 1;
+    working(true);
+    send({
+      kind: "draw",
+      id: asked,
+      command: K.join(argv),
+      room: room,
+      onFailure: "pop",
+    });
+    el.command.textContent = K.join(argv);
+    paintTrail();
   }
 
   // Which of the two kinds of file this is, decided by looking at it rather
@@ -511,6 +617,7 @@
     }
     sheet = { name: name || "traits.tsv", body: text };
     paintSheet();
+    sendFiles();
     later();
   }
 
@@ -522,30 +629,17 @@
 
   function load(text, name) {
     tree = { name: name || "tree.nwk", body: text };
-    // Drawn once at the smallest cap there is, purely to find out whether the
-    // program can read the file at all: a refusal here is a refusal a reader
-    // can act on, and one after the viewer has opened looks like the viewer.
-    //
-    // No tip count is taken from it. Counting them in this page means parsing
-    // Newick twice and disagreeing with the program over a quoted label, and
-    // the counts that matter are the ones each clade already carries in its
-    // own tooltip.
-    var answer = K.run(
-      K.join(["tree:1-1", "--tree", tree.name, "--max-rows", "2", "--no-region-label"]),
-      [{ name: tree.name, body: text }],
-      320
-    );
-    if (!answer.ok) {
-      el.error.textContent = answer.body;
-      el.error.hidden = false;
-      return;
-    }
+    // Whether the program can read the file at all is answered by the first
+    // drawing rather than by a check of its own: a refusal arrives in the same
+    // place either way, and asking twice is asking a million tip tree to be
+    // read twice.
     trail = [];
     sheet = null;
     paintSheet();
     el.drop.hidden = true;
     el.app.hidden = false;
     el.error.hidden = true;
+    sendFiles();
     later();
   }
 
@@ -651,10 +745,11 @@
     });
 
     K.onScheme(later);
-    K.load().then(function () {
-      el.drop.hidden = false;
-      window.addEventListener("resize", later);
-    });
+    // The page does not fetch the program any more: the worker does, once, and
+    // this thread only ever builds command lines and moves a transform.
+    start_worker();
+    el.drop.hidden = false;
+    window.addEventListener("resize", later);
   }
 
   if (document.readyState === "loading") {

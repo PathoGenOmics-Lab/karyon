@@ -121,6 +121,28 @@
 
 .tv-plot.tv-dragging { cursor: grabbing; }
 
+/* A drawing is on its way. The picture stays put and stays usable, so this is
+   a hint and not a curtain. */
+.tv-plot.tv-working::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--md-accent-fg-color);
+  opacity: 0.7;
+  animation: tv-sweep 900ms ease-in-out infinite;
+}
+
+@keyframes tv-sweep {
+  0% { transform: scaleX(0); transform-origin: left; }
+  50% { transform: scaleX(1); transform-origin: left; }
+  100% { transform: scaleX(0); transform-origin: right; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-plot.tv-working::after { animation: none; transform: scaleX(1); opacity: 0.35; }
+}
+
 .tv-stage {
   transform-origin: 0 0;
   will-change: transform;

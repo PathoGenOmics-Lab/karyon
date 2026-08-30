@@ -9,14 +9,27 @@
 // crate has no dependencies, and a page that needed a bundler to demonstrate a
 // program that needs nothing would be making the wrong point.
 
-window.karyon = (function () {
+self.karyon = (function () {
   "use strict";
 
   // Worked out from where this script itself was loaded from, rather than
   // written down. The site is served from a sub-path on GitHub Pages and from
   // the root on a laptop, and a page under a folder resolves a bare relative
   // path against the folder rather than against the site.
-  var here = (document.currentScript && document.currentScript.src) || "";
+  // Worked out from where this script itself was loaded from, rather than
+  // written down. The site is served from a sub-path on GitHub Pages and from
+  // the root on a laptop, and a page under a folder resolves a bare relative
+  // path against the folder rather than against the site.
+  //
+  // Two homes, because this also runs inside a worker, where there is no
+  // document to ask: a worker knows its own URL instead, and the wasm sits
+  // beside it either way.
+  var here = "";
+  if (typeof document !== "undefined" && document.currentScript) {
+    here = document.currentScript.src;
+  } else if (typeof self !== "undefined" && self.location) {
+    here = self.location.href;
+  }
   var WASM = here
     ? here.replace(/[^/]*$/, "karyon_playground.wasm")
     : "karyon_playground.wasm";
@@ -307,6 +320,7 @@ window.karyon = (function () {
   // Material writes the palette onto `body`, and a figure drawn light on a dark
   // page is not a figure with a light theme, it is a hole in the page.
   function dark() {
+    if (typeof document === "undefined" || !document.body) return false;
     return document.body.getAttribute("data-md-color-scheme") === "slate";
   }
 
@@ -399,14 +413,44 @@ window.karyon = (function () {
   // Calls `then` whenever the reader changes the site's light or dark setting,
   // which Material does by rewriting an attribute rather than by reloading.
   function onScheme(then) {
+    if (typeof document === "undefined" || !document.body) return;
     new MutationObserver(then).observe(document.body, {
       attributes: true,
       attributeFilter: ["data-md-color-scheme"],
     });
   }
 
+  // How many tips a figure accounts for, read back out of the SVG it wrote.
+  //
+  // Here rather than in the pages that want it, for the reason the protocol is
+  // here: it is a fact about what the program prints, and a second copy of one
+  // of those is a thing that drifts. A row is either a tip, or a folded clade
+  // saying how many it stands for.
+  function tipsAccountedFor(svg) {
+    var total = 0;
+    var pieces = svg.split("<text");
+    for (var i = 1; i < pieces.length; i++) {
+      var at = pieces[i].indexOf(">");
+      if (at < 0) continue;
+      var body = pieces[i].slice(at + 1).split("<")[0].trim();
+      var more = / \+([\d,]+) more$/.exec(body);
+      if (more) {
+        total += Number(more[1].replace(/,/g, "")) + 1;
+        continue;
+      }
+      var held = / \(([\d,]+) tips?\)$/.exec(body);
+      if (held) {
+        total += Number(held[1].replace(/,/g, ""));
+        continue;
+      }
+      if (body && !/^[\d.,]+$/.test(body)) total += 1;
+    }
+    return total;
+  }
+
   return {
     load: load,
+    tipsAccountedFor: tipsAccountedFor,
     ready: ready,
     run: run,
     words: words,

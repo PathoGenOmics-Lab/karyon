@@ -39,7 +39,7 @@ hide:
       <button class="tv-btn" type="button" data-projection="unrooted" aria-pressed="false">Unrooted</button>
     </div>
     <label class="tv-rows">
-      <input type="range" id="tv-rows" min="8" max="400" step="4" value="60">
+      <input type="range" id="tv-rows" min="20" max="2000" step="20" value="400">
       <output id="tv-rowsout">60 rows</output>
     </label>
     <input class="tv-search" id="tv-search" type="search" placeholder="Find a tip, then Enter">
@@ -62,8 +62,10 @@ hide:
     </div>
   </div>
   <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in, and keep pulling the wheel back
-    to come out a level at a time. Stop moving and the tree is redrawn at the detail the view is asking
-    for, so five gestures take twenty thousand tips down to five hundred with every name legible.</p>
+    to come out a level at a time. Eight times more of the tree is drawn than the window shows, so zooming
+    moves a camera over rows that are already there and asks the program for nothing; only once that detail
+    is used up is a deeper part of the tree drawn. The slider is how many rows go in at once, up to two
+    thousand.</p>
 
   <p class="tv-command">The same view from a shell: <code id="tv-command"></code></p>
 </div>
