@@ -33,7 +33,7 @@ self.onmessage = function (event) {
       // The coordinates, handed over rather than copied: the arrays are given
       // away with the message, so a million tip tree crosses once and costs
       // nothing to cross.
-      var placed = karyon.positions(job.name, job.body, job.cladogram, job.rootless);
+      var placed = karyon.positions(job.name, job.body, job.cladogram, job.rootless, job.sheet);
       if (!placed.ok) {
         answer({ kind: "layout", id: job.id, ok: false, body: placed.body });
         return;
@@ -52,6 +52,10 @@ self.onmessage = function (event) {
           names: placed.names,
           order: placed.order,
           rootless: placed.rootless,
+          // Strings and small arrays, so they are copied rather than handed
+          // over: a column of levels is a few hundred bytes beside a layout of
+          // tens of megabytes.
+          strips: placed.strips,
         },
         [
           placed.x.buffer,

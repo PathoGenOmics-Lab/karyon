@@ -1593,3 +1593,78 @@ fn a_clade_whose_tips_agree_is_coloured_as_that_clade() {
         "the branch above two groups stays plain: {svg}"
     );
 }
+
+/// The canvas draws the strips itself, so it has to be told what the figure
+/// would draw rather than working it out again from the sheet. Two pictures of
+/// one tree disagreeing about which blue is which is worse than one picture.
+#[test]
+fn resolved_strips_say_what_the_figure_would_draw() {
+    let tree = Tree::parse_annotated_newick(
+        "((a[&place=\"Valencia\"]:1,b[&place=\"Valencia\"]:1):1,c[&place=\"Lisbon\"]:1);",
+    )
+    .unwrap();
+    let theme = Theme::light();
+    let track = TreeTrack::new(tree).trait_column(TraitColumn::categorical("place"));
+    let strips = track.strips(&theme);
+
+    assert_eq!(strips.len(), 1, "one column in, one column out");
+    let strip = &strips[0];
+    assert_eq!(strip.key, "place");
+    assert_eq!(strip.levels.len(), 2, "two places, two levels");
+
+    // The colours are the theme's own, in the order the palette went round.
+    for (at, level) in strip.levels.iter().enumerate() {
+        assert_eq!(
+            level.color,
+            theme.color(at),
+            "level {at} is not the palette's"
+        );
+    }
+
+    let named = |name: &str| {
+        let node = track.tree().node_named(name).unwrap();
+        strip.of[node].map(|at| strip.levels[at].value.clone())
+    };
+    assert_eq!(named("a").as_deref(), Some("Valencia"));
+    assert_eq!(named("b").as_deref(), Some("Valencia"));
+    assert_eq!(named("c").as_deref(), Some("Lisbon"));
+    assert_ne!(
+        strip.of[track.tree().node_named("a").unwrap()],
+        strip.of[track.tree().node_named("c").unwrap()],
+        "two places share a level"
+    );
+
+    // The parent of a and b agrees with both, which is how a sheet keyed by
+    // sample name reaches a branch at all.
+    let parent = track.tree().nodes()[track.tree().node_named("a").unwrap()]
+        .parent
+        .unwrap();
+    assert_eq!(
+        strip.of[parent],
+        strip.of[track.tree().node_named("a").unwrap()],
+        "the branch above two Valencias is not Valencia"
+    );
+}
+
+/// A continuous column has no levels of its own, so it is given bands. That is
+/// a choice the canvas makes and the SVG does not, and it has to be a choice
+/// that still puts the low values at one end and the high at the other.
+#[test]
+fn a_continuous_column_comes_back_in_bands() {
+    let tree =
+        Tree::parse_annotated_newick("((a[&depth=0.0]:1,b[&depth=50.0]:1):1,c[&depth=100.0]:1);")
+            .unwrap();
+    let track = TreeTrack::new(tree).trait_column(TraitColumn::continuous("depth"));
+    let strips = track.strips(&Theme::light());
+    let strip = &strips[0];
+    assert_eq!(strip.levels.len(), 16, "sixteen bands");
+
+    let band = |name: &str| strip.of[track.tree().node_named(name).unwrap()].unwrap();
+    assert_eq!(band("a"), 0, "the smallest value is not in the first band");
+    assert_eq!(band("c"), 15, "the largest value is not in the last band");
+    assert!(
+        band("a") < band("b") && band("b") < band("c"),
+        "the bands do not follow the values"
+    );
+    assert_ne!(strip.levels[0].color, strip.levels[15].color);
+}

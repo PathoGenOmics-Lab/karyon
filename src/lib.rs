@@ -185,6 +185,6 @@ pub use crate::track::{
     VariantTrack, Window, WindowStyle, WindowTrack,
 };
 pub use crate::tree::{
-    AnnotationValue, Annotations, Clade, Mutation, Mutations, Placement, Spot, TimeDirection, Tree,
-    Unrooted,
+    AnnotationValue, Annotations, Clade, Mutation, Mutations, Placement, Spot, TimeDirection,
+    TraitLevel, TraitStrip, Tree, Unrooted,
 };

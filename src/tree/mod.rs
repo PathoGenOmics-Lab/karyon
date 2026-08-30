@@ -172,6 +172,36 @@ impl Clade {
     }
 }
 
+/// One level of a trait column, with the colour a figure gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitLevel {
+    /// The value as the sheet or the annotation spells it, or the band a
+    /// continuous column falls in.
+    pub value: String,
+    /// The colour, as the figure would draw it.
+    pub color: String,
+}
+
+/// One column of trait values, resolved the way a figure resolves them.
+///
+/// A caller that wants to draw the strips itself, on a canvas rather than in an
+/// SVG, needs the same answer the figure gets: which level a node is at, and
+/// which colour that level was given. Working either out again from the sheet
+/// would be a second opinion, and two pictures of the same tree disagreeing
+/// about which blue is which is worse than one picture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitStrip {
+    /// The annotation key the column reads.
+    pub key: String,
+    /// What the column is called on the figure.
+    pub label: String,
+    /// The levels, in the order the palette went round.
+    pub levels: Vec<TraitLevel>,
+    /// One index into `levels` per node, or `None` where the node carries
+    /// nothing for this column.
+    pub of: Vec<Option<usize>>,
+}
+
 /// Where one node sits once the tree has been laid out without a root.
 ///
 /// Every other projection reads a [`Placement`], which is a depth and a row
