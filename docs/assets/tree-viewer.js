@@ -106,6 +106,12 @@
     var dark = K.dark();
     theme.branch = dark ? "#e6edf3" : "#1b1f23";
     theme.muted = dark ? "#aab4c0" : "#4b5563";
+    // The rail stands behind the tree, so its ink is quieter than the tree's
+    // and its mark is the one thing on the canvas that is not a branch.
+    theme.frame = dark ? "#30363d" : "#d7dbe0";
+    theme.faint = dark ? "#5b6672" : "#b3bac2";
+    theme.window = dark ? "rgba(121, 192, 255, 0.22)" : "rgba(30, 100, 200, 0.16)";
+    theme.edge = dark ? "#79c0ff" : "#1e64c8";
   }
 
   // Painted on the spot rather than on a frame callback: a browser does not
@@ -167,7 +173,14 @@
 
   function hand() {
     var dragging = false;
+    var scrubbing = false;
     var from = { x: 0, y: 0 };
+
+    // Where a pointer is, in the canvas's own pixels.
+    function at(event) {
+      var box = el.plot.getBoundingClientRect();
+      return { x: event.clientX - box.left, y: event.clientY - box.top };
+    }
 
     el.plot.addEventListener(
       "wheel",
@@ -179,7 +192,13 @@
         // reports tens of pixels, and treating them alike makes a mouse either
         // useless or violent next to a trackpad.
         var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-        painter.zoomAt(event.clientX - box.left, event.clientY - box.top, Math.exp(-step * 0.002));
+        var here = { x: event.clientX - box.left, y: event.clientY - box.top };
+        // On the rail a wheel does what a wheel does to a scrollbar: it moves
+        // the window on from where it is rather than changing how much of the
+        // tree is in it. A zoom there would be anchored on the wrong row, since
+        // the two sides of the canvas are at different scales.
+        if (painter.onRail(here.x)) painter.panBy(0, -step);
+        else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
         repaint();
       },
       { passive: false }
@@ -187,23 +206,46 @@
 
     el.plot.addEventListener("pointerdown", function (event) {
       if (event.button !== 0 || !painter.loaded()) return;
-      dragging = true;
+      var here = at(event);
+      // Which half of the canvas the gesture began on decides what it is for
+      // the whole of its life, so a drag that starts on the rail and wanders
+      // onto the tree goes on moving the window.
+      if (painter.onRail(here.x)) {
+        scrubbing = true;
+        painter.scrubTo(here.y);
+        repaint();
+      } else {
+        dragging = true;
+        el.plot.classList.add("tv-dragging");
+      }
       from = { x: event.clientX, y: event.clientY };
       el.plot.setPointerCapture(event.pointerId);
-      el.plot.classList.add("tv-dragging");
     });
 
     el.plot.addEventListener("pointermove", function (event) {
-      if (!dragging) return;
-      painter.panBy(event.clientX - from.x, event.clientY - from.y);
-      from = { x: event.clientX, y: event.clientY };
-      repaint();
+      if (scrubbing) {
+        painter.scrubTo(at(event).y);
+        repaint();
+        return;
+      }
+      if (dragging) {
+        painter.panBy(event.clientX - from.x, event.clientY - from.y);
+        from = { x: event.clientX, y: event.clientY };
+        repaint();
+        return;
+      }
+      // Not a gesture, just a hand passing over. The cursor says which of the
+      // two things underneath it would answer.
+      if (painter.loaded()) {
+        el.plot.classList.toggle("tv-onrail", painter.onRail(at(event).x));
+      }
     });
 
     ["pointerup", "pointercancel"].forEach(function (kind) {
       el.plot.addEventListener(kind, function (event) {
-        if (!dragging) return;
+        if (!dragging && !scrubbing) return;
         dragging = false;
+        scrubbing = false;
         el.plot.classList.remove("tv-dragging");
         if (el.plot.hasPointerCapture(event.pointerId)) {
           el.plot.releasePointerCapture(event.pointerId);
@@ -212,8 +254,9 @@
     });
 
     el.plot.addEventListener("dblclick", function (event) {
-      var box = el.plot.getBoundingClientRect();
-      painter.zoomAt(event.clientX - box.left, event.clientY - box.top, 2.4);
+      var here = at(event);
+      if (painter.onRail(here.x)) return;
+      painter.zoomAt(here.x, here.y, 2.4);
       repaint();
     });
 

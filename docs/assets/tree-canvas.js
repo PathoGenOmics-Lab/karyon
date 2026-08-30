@@ -22,6 +22,16 @@ window.karyonCanvas = (function () {
 
   var LABEL_ROOM = 9;
 
+  // The rail down the right, and the narrowest canvas that gets one. It is a
+  // scrollbar that shows what it is scrolling through, so it is read at a
+  // glance and never zoomed: it always holds the whole tree.
+  var RAIL_WIDE = 78;
+  var RAIL_PAD = 5;
+  var RAIL_LEAST = 420;
+  // A window of three rows in two million is a thousandth of a pixel tall. The
+  // mark for it stays this big so there is always something to see and to grab.
+  var MARK_LEAST = 4;
+
   function make(canvas) {
     var view = null;
     var camera = null;
@@ -82,6 +92,39 @@ window.karyonCanvas = (function () {
         canvas.height = Math.round(tall * ratio);
       }
       return { wide: wide, tall: tall, ratio: ratio };
+    }
+
+    // Where the rail is, or null on a canvas too narrow to give it the room.
+    function rail(box) {
+      if (!view || box.wide < RAIL_LEAST) return null;
+      return { x0: box.wide - RAIL_WIDE, wide: RAIL_WIDE, tall: box.tall };
+    }
+
+    // The rail holds every row there is, so a row maps to a height on it and a
+    // height back to a row. This is the only arithmetic the rail needs, and it
+    // is the inverse of itself.
+    function rowAtHeight(py, box) {
+      var b = view.bounds;
+      var span = b.highY - b.lowY + 1;
+      return b.lowY + (py / Math.max(1, box.tall)) * span;
+    }
+
+    function heightOfRow(row, box) {
+      var b = view.bounds;
+      var span = b.highY - b.lowY + 1;
+      return ((row - b.lowY) / span) * box.tall;
+    }
+
+    // The whole tree, thinned to the rail's own height. Built once, and again
+    // only if the canvas changes height, because it is the same picture at a
+    // different resolution and not a second opinion about the tree: it comes
+    // out of the same `select` the main view is drawn from.
+    function overview(box) {
+      if (view.overviewFor === box.tall) return view.overview;
+      var picked = select(0, view.byRow.length, box.tall, new Uint32Array(1 << 13));
+      view.overview = { nodes: picked.nodes, count: picked.count, reach: spread(picked.nodes, picked.count) };
+      view.overviewFor = box.tall;
+      return view.overview;
     }
 
     // The first row at or after `value`, by binary search over the sorted rows.
@@ -157,9 +200,13 @@ window.karyonCanvas = (function () {
       ctx.setTransform(box.ratio, 0, 0, box.ratio, 0, 0);
       ctx.clearRect(0, 0, box.wide, box.tall);
 
+      var strip = rail(box);
+      // The tree draws into what is left when the rail has taken its width.
+      var wide = strip ? strip.x0 : box.wide;
+
       var spanX = camera.x1 - camera.x0 || 1;
       var spanY = camera.y1 - camera.y0 || 1;
-      var sx = box.wide / spanX;
+      var sx = wide / spanX;
       var sy = box.tall / spanY;
       var atX = function (value) { return (value - camera.x0) * sx; };
       var atY = function (value) { return (value - camera.y0) * sy; };
@@ -185,7 +232,7 @@ window.karyonCanvas = (function () {
       camera.x0 = reach.lowX - margin * 0.05;
       camera.x1 = reach.highX + margin;
       spanX = camera.x1 - camera.x0 || 1;
-      sx = box.wide / spanX;
+      sx = wide / spanX;
 
       view.picked = count;
 
@@ -227,7 +274,70 @@ window.karyonCanvas = (function () {
           labels += 1;
         }
       }
-      return { drawn: drawn, skipped: wanted - picked.sampled, labels: labels, stride: stride, rowsInView: wanted };
+      var marked = strip ? paintRail(ctx, theme, box, strip) : null;
+
+      return {
+        drawn: drawn,
+        skipped: wanted - picked.sampled,
+        labels: labels,
+        stride: stride,
+        rowsInView: wanted,
+        rail: marked,
+      };
+    }
+
+    // The rail: the whole tree at the height of the canvas, with the rows on
+    // screen marked on it. Its own picture never moves, so what a reader
+    // follows is the mark travelling down a shape that stays put.
+    function paintRail(ctx, theme, box, strip) {
+      var seen = overview(box);
+      var inner = strip.wide - RAIL_PAD * 2;
+      var reach = seen.reach;
+      var acrossX = (reach.highX - reach.lowX) || 1;
+      var atX = function (value) {
+        return strip.x0 + RAIL_PAD + ((value - reach.lowX) / acrossX) * inner;
+      };
+      var atY = function (row) { return heightOfRow(row, box); };
+
+      // The edge it stands behind, so the rail reads as a margin and not as
+      // more tree.
+      ctx.strokeStyle = theme.frame;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(strip.x0 + 0.5, 0);
+      ctx.lineTo(strip.x0 + 0.5, box.tall);
+      ctx.stroke();
+
+      ctx.strokeStyle = theme.faint;
+      ctx.beginPath();
+      for (var each = 0; each < seen.count; each++) {
+        var node = seen.nodes[each];
+        var up = view.parent[node];
+        if (up === 0xffffffff) continue;
+        var y = atY(view.y[node]);
+        var x1 = atX(view.x[node]);
+        var x0 = atX(view.x[up]);
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x0, atY(view.y[up]));
+      }
+      ctx.stroke();
+
+      // The rows on screen. Three rows out of two million is a thousandth of a
+      // pixel, so the mark is held to a size a reader can see and a hand can
+      // catch, and it is kept on the rail rather than allowed to hang off it.
+      var top = atY(camera.y0);
+      var foot = atY(camera.y1);
+      var deep = Math.max(MARK_LEAST, foot - top);
+      if (top + deep > box.tall) top = box.tall - deep;
+      if (top < 0) top = 0;
+      ctx.fillStyle = theme.window;
+      ctx.fillRect(strip.x0 + 1, top, strip.wide - 1, deep);
+      ctx.strokeStyle = theme.edge;
+      ctx.strokeRect(strip.x0 + 1.5, top + 0.5, strip.wide - 2, Math.max(1, deep - 1));
+
+      return { x0: strip.x0, wide: strip.wide, top: top, deep: deep, drawn: seen.count };
     }
 
     // --------------------------------------------------------------- camera
@@ -249,24 +359,42 @@ window.karyonCanvas = (function () {
       return true;
     }
 
+    // Half a screen of empty is as far as the rows go. Without a stop the tree
+    // can be pushed off the canvas altogether, and white with no rows on it
+    // gives a reader nothing to drag back by.
+    function settle(y0, span) {
+      var b = view.bounds;
+      var first = b.lowY - span * 0.5;
+      var last = b.highY - span * 0.5;
+      if (y0 < first) y0 = first;
+      if (y0 > last) y0 = last;
+      camera.y0 = y0;
+      camera.y1 = y0 + span;
+    }
+
     // Rows only. A drag sideways is taken and dropped: the depth axis is fitted
     // to what is drawn on every paint, so nudging it would be undone before the
     // frame was on screen.
     function panBy(dx, dy) {
       var box = size();
       var span = camera.y1 - camera.y0;
-      var byY = (dy / box.tall) * span;
-      var b = view.bounds;
-      // Half a screen of empty is as far as a drag goes. Without a stop the
-      // tree can be pushed off the canvas altogether, and white with no rows on
-      // it gives a reader nothing to drag back by.
-      var first = b.lowY - span * 0.5;
-      var last = b.highY - span * 0.5;
-      var y0 = camera.y0 - byY;
-      if (y0 < first) y0 = first;
-      if (y0 > last) y0 = last;
-      camera.y0 = y0;
-      camera.y1 = y0 + span;
+      settle(camera.y0 - (dy / box.tall) * span, span);
+    }
+
+    // Is this point, in canvas pixels, on the rail rather than on the tree?
+    function onRail(px) {
+      var strip = view ? rail(size()) : null;
+      return !!strip && px >= strip.x0;
+    }
+
+    // Put the rows on screen where this height on the rail points, keeping how
+    // many of them there are. A click and a drag are the same gesture: the
+    // window follows the hand rather than being nudged by it.
+    function scrubTo(py) {
+      if (!view) return;
+      var box = size();
+      var span = camera.y1 - camera.y0;
+      settle(rowAtHeight(py, box) - span / 2, span);
     }
 
     // Puts a named tip in the middle, without changing how much is on screen.
@@ -311,6 +439,8 @@ window.karyonCanvas = (function () {
       home: home,
       zoomAt: zoomAt,
       panBy: panBy,
+      onRail: onRail,
+      scrubTo: scrubTo,
       goTo: goTo,
       looking: looking,
       loaded: function () { return !!view; },

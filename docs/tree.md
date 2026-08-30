@@ -53,7 +53,9 @@ hide:
     <canvas id="tv-canvas"></canvas>
   </div>
 
-  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. The layout is worked out once by
+  <p class="tv-hint">Drag to move, wheel to zoom, double-click to zoom in. The rail down the right is the whole
+    tree at once: the block on it is the part you are looking at, and clicking or dragging there goes straight
+    to those rows. The layout is worked out once by
     the program and never again: what moves is the window onto it, so a gesture costs a repaint of what is on
     screen and never a walk over the tree. Export hands the view back to the program and saves karyon's own
     figure of it.</p>

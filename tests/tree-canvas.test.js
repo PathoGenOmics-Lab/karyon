@@ -12,10 +12,13 @@ const assert = require("assert");
 // draw so a test can ask what is on it.
 function fakeCanvas(wide, tall) {
   const strokes = [];
+  const rects = [];
   const ctx = {
     setTransform() {}, clearRect() {}, beginPath() {}, stroke() {},
-    moveTo(x, y) { strokes.push(["move", x, y]); },
-    lineTo(x, y) { strokes.push(["line", x, y]); },
+    moveTo(x, y) { strokes.push(["move", x, y, ctx.strokeStyle]); },
+    lineTo(x, y) { strokes.push(["line", x, y, ctx.strokeStyle]); },
+    fillRect(x, y, w, h) { rects.push({ kind: "fill", x, y, w, h, paint: ctx.fillStyle }); },
+    strokeRect(x, y, w, h) { rects.push({ kind: "stroke", x, y, w, h, paint: ctx.strokeStyle }); },
     fillText() {},
     strokeStyle: "", fillStyle: "", lineWidth: 1, font: "", textBaseline: "",
   };
@@ -23,6 +26,7 @@ function fakeCanvas(wide, tall) {
     width: wide, height: tall, clientWidth: wide, clientHeight: tall,
     getContext: () => ctx,
     strokes,
+    rects,
   };
 }
 
@@ -75,19 +79,26 @@ function balanced(levels) {
   };
 }
 
-const theme = { branch: "#000", muted: "#666", font: "sans-serif" };
+const theme = {
+  branch: "#000", muted: "#666", font: "sans-serif",
+  frame: "#ccc", faint: "#999", window: "rgba(0,0,255,0.15)", edge: "#00f",
+};
+
+// Wide enough for the rail, and narrow enough to be refused one.
+const WIDE = 900;
+const NARROW = 380;
 
 // ---------------------------------------------------------------- the test
 
 // The property: whatever is drawn is a tree. Every branch on screen but the
 // root's has the branch it hangs from on screen too, so the picture has a trunk
 // instead of being a hedge of loose strokes.
-function drawnSet(placed, tall) {
-  const canvas = fakeCanvas(420, tall);
+function drawnSet(placed, tall, wide) {
+  const canvas = fakeCanvas(wide || WIDE, tall);
   const painter = canvasModule.make(canvas);
   painter.load(placed);
   const report = painter.paint(theme);
-  return { painter, report };
+  return { painter, report, canvas };
 }
 
 // A painter that keeps every row it is given, so the test can see what the
@@ -167,6 +178,110 @@ check("the depth window holds the root and the deepest tip on screen", () => {
   const window = painter.depth();
   assert.ok(window.x0 <= low + 1e-6, "the root is off the left edge");
   assert.ok(window.x1 >= high - 1e-6, "the deepest tip on screen is off the right edge");
+});
+
+// ----------------------------------------------------------------- the rail
+
+check("the rail shows the whole tree, whatever the window holds", () => {
+  const placed = balanced(14);
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(report.rail, "no rail on a canvas with room for one");
+  const wide = report.rail.drawn;
+  // Fly all the way in. The rail is the whole tree and must not follow.
+  for (let i = 0; i < 60; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  assert.ok(close.drawn < 100, `expected to be deep in, ${close.drawn} branches on screen`);
+  assert.strictEqual(close.rail.drawn, wide, "the rail changed with the zoom");
+});
+
+check("and the check bites: a rail built from the window would follow it", () => {
+  const placed = balanced(14);
+  const { painter, report } = drawnSet(placed, 800);
+  for (let i = 0; i < 60; i++) painter.zoomAt(200, 400, 1.3);
+  const close = painter.paint(theme);
+  // What the main view drew is what a window-built rail would have held, and
+  // it is nothing like the whole tree, which is the point of the check above.
+  assert.notStrictEqual(close.drawn, report.rail.drawn);
+});
+
+check("the mark stays big enough to see and to catch", () => {
+  const placed = balanced(16); // 65,536 tips
+  const { painter } = drawnSet(placed, 800);
+  for (let i = 0; i < 80; i++) painter.zoomAt(200, 400, 1.3);
+  const report = painter.paint(theme);
+  const rows = painter.looking().rows;
+  assert.ok(rows < 20, `expected a handful of rows, got ${rows}`);
+  assert.ok(
+    report.rail.deep >= 4,
+    `the mark for ${rows} rows came out ${report.rail.deep.toFixed(3)} px deep`
+  );
+  assert.ok(report.rail.top >= 0, "the mark hangs off the top of the rail");
+  assert.ok(
+    report.rail.top + report.rail.deep <= 800 + 1e-6,
+    "the mark hangs off the bottom of the rail"
+  );
+});
+
+check("the mark is drawn, in the colours it was given", () => {
+  const placed = balanced(12);
+  const { canvas } = drawnSet(placed, 800);
+  const filled = canvas.rects.filter((r) => r.kind === "fill");
+  assert.strictEqual(filled.length, 1, "expected one filled mark");
+  assert.strictEqual(filled[0].paint, theme.window, "the mark is not the window colour");
+  assert.ok(canvas.rects.some((r) => r.kind === "stroke" && r.paint === theme.edge), "the mark has no edge");
+});
+
+check("a click on the rail puts those rows on screen", () => {
+  const placed = balanced(16);
+  const { painter } = drawnSet(placed, 800);
+  // Zoomed in, so the mark is small enough to be placed rather than clamped.
+  for (let i = 0; i < 20; i++) painter.zoomAt(200, 400, 1.3);
+  const before = painter.looking().rows;
+  for (const py of [120, 400, 600, 750]) {
+    painter.scrubTo(py);
+    const report = painter.paint(theme);
+    const middle = report.rail.top + report.rail.deep / 2;
+    assert.ok(
+      Math.abs(middle - py) < 3,
+      `clicked at ${py} px and the mark came out centred at ${middle.toFixed(1)}`
+    );
+    assert.ok(
+      Math.abs(painter.looking().rows - before) <= 2,
+      "the click changed how many rows are shown"
+    );
+  }
+});
+
+check("and the check bites: the rail's two directions are inverses", () => {
+  const placed = balanced(16);
+  const { painter } = drawnSet(placed, 800);
+  for (let i = 0; i < 20; i++) painter.zoomAt(200, 400, 1.3);
+  // A scrub to the very top and the very bottom must not land in the same
+  // place, which is what a dropped or constant mapping would do.
+  painter.scrubTo(0);
+  const top = painter.paint(theme).rail.top;
+  painter.scrubTo(800);
+  const foot = painter.paint(theme).rail.top;
+  assert.ok(foot - top > 700, `the whole rail moved the mark only ${(foot - top).toFixed(1)} px`);
+});
+
+check("the rail knows what belongs to it", () => {
+  const placed = balanced(12);
+  const { painter, report } = drawnSet(placed, 800);
+  assert.ok(painter.onRail(report.rail.x0 + 2), "a point on the rail was not claimed");
+  assert.ok(painter.onRail(WIDE - 1), "the far edge was not claimed");
+  assert.ok(!painter.onRail(report.rail.x0 - 2), "a point on the tree was claimed by the rail");
+  assert.ok(!painter.onRail(10), "the root end was claimed by the rail");
+});
+
+check("a narrow canvas gets no rail, and all of its width", () => {
+  const placed = balanced(12);
+  const roomy = drawnSet(placed, 800, WIDE);
+  const tight = drawnSet(placed, 800, NARROW);
+  assert.ok(!tight.report.rail, "a phone width canvas was given a rail");
+  assert.ok(!tight.painter.onRail(NARROW - 1), "the rail claims points on a canvas that has none");
+  assert.strictEqual(tight.canvas.rects.length, 0, "something was drawn where the rail would be");
+  assert.ok(roomy.report.rail, "a wide canvas was refused a rail");
 });
 
 process.exit(failures ? 1 : 0);
