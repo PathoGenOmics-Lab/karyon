@@ -138,6 +138,13 @@ TRACK OPTIONS, each describing the track before it
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips
                          and this is what makes it readable without hovering
+    --mutations <KEY>    the annotation each branch of a phylogeny keeps its
+                         changes under, as an annotated Newick writes them:
+                         A123T, S:D614G, or either with an nt: or aa: in front
+    --carrying <CHANGE>  mark everything at or below a branch where that change
+                         happened, which is everything that carries it; needs
+                         --mutations to say where the changes are, and colours
+                         by the answer unless --color-by says otherwise
     --shape <HOW>        phylogram or cladogram, for a phylogeny: whether a
                          branch is as long as its length says or every branch
                          is one step, which is the shape to read a topology by

@@ -184,4 +184,6 @@ pub use crate::track::{
     TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack, Variant, VariantStyle,
     VariantTrack, Window, WindowStyle, WindowTrack,
 };
-pub use crate::tree::{AnnotationValue, Annotations, Clade, Placement, TimeDirection, Tree};
+pub use crate::tree::{
+    AnnotationValue, Annotations, Clade, Mutation, Mutations, Placement, TimeDirection, Tree,
+};

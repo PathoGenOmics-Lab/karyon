@@ -931,6 +931,10 @@ pub struct TrackSpec {
     pub scale_bar: bool,
     /// `--shape`, whether branch lengths are drawn or every branch is one step.
     pub cladogram: bool,
+    /// `--mutations`, the annotation each branch keeps its changes under.
+    pub mutations: Option<String>,
+    /// `--carrying`, the change to mark the carriers of.
+    pub carrying: Option<String>,
     /// `--no-counts`, which leaves out the number printed beside the thing it
     /// counts.
     pub no_counts: bool,
@@ -983,6 +987,8 @@ impl TrackSpec {
             support_style: None,
             scale_bar: false,
             cladogram: false,
+            mutations: None,
+            carrying: None,
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
@@ -1319,6 +1325,28 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.support_style = Some(style);
+            }
+            "--mutations" => {
+                let key = value("--mutations")?.clone();
+                let track = last(&mut tracks, "--mutations")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--mutations",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.mutations = Some(key);
+            }
+            "--carrying" => {
+                let spelling = value("--carrying")?.clone();
+                let track = last(&mut tracks, "--carrying")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--carrying",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.carrying = Some(spelling);
             }
             "--shape" => {
                 let text = value("--shape")?;
