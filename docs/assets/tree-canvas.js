@@ -32,9 +32,17 @@ window.karyonCanvas = (function () {
   // mark for it stays this big so there is always something to see and to grab.
   var MARK_LEAST = 4;
 
+  // The dial: the whole disc, small, in the corner furthest from the middle of
+  // the canvas, and the gap it keeps from the edge.
+  var DIAL_SIDE = 132;
+  var DIAL_EDGE = 10;
+
   function make(canvas) {
     var view = null;
     var camera = null;
+    // The disc's own camera, and which of the two is being looked through.
+    var disc = null;
+    var round = false;
     var decoder = new TextDecoder();
 
     function nameOf(node) {
@@ -83,6 +91,7 @@ window.karyonCanvas = (function () {
     }
 
     function home() {
+      if (round) { discHome(); return; }
       var b = view.bounds;
       // A margin on the right for the names, which are drawn outward from the
       // tip and are not in the coordinates.
@@ -142,7 +151,7 @@ window.karyonCanvas = (function () {
       if (view.overviewFor === box.tall && view.overviewInk === theme.faint) {
         return view.overview;
       }
-      var picked = select(0, view.byRow.length, RAIL_WIDE, box.tall,
+      var picked = select([[0, view.byRow.length]], RAIL_WIDE, box.tall,
         view.bounds.highY - view.bounds.lowY + 1, {
         child: new Uint32Array(1 << 13),
         up: new Uint32Array(1 << 13),
@@ -212,6 +221,339 @@ window.karyonCanvas = (function () {
       return low;
     }
 
+    // The disc's own way of saying where you are. A circle has no top and
+    // bottom, so the rail's bar does not fit it: what fits is the whole disc,
+    // small, in a corner, with the window drawn on it. Same idea, shape
+    // following the projection.
+    function dialPlate(theme) {
+      var papers = canvas.ownerDocument;
+      var span = DIAL_SIDE / 2 / 1.1;
+      var picked = select([[0, view.byRow.length]], DIAL_SIDE,
+        Math.max(64, Math.round(Math.PI * 2 * span)), terminals(),
+        { child: new Uint32Array(1 << 12), up: new Uint32Array(1 << 12) });
+      var held = { child: picked.child, up: picked.up, count: picked.count, span: span };
+      if (!papers || !papers.createElement) return held;
+      var sheet = papers.createElement("canvas");
+      var ratio = window.devicePixelRatio || 1;
+      sheet.width = Math.round(DIAL_SIDE * ratio);
+      sheet.height = Math.round(DIAL_SIDE * ratio);
+      var ink = sheet.getContext("2d");
+      if (!ink) return held;
+      ink.setTransform(ratio, 0, 0, ratio, 0, 0);
+      strokeDisc(ink, theme, held, DIAL_SIDE / 2, DIAL_SIDE / 2, span);
+      held.plate = sheet;
+      return held;
+    }
+
+    function strokeDisc(ink, theme, held, midX, midY, span) {
+      ink.strokeStyle = theme.faint;
+      ink.lineWidth = 1;
+      ink.beginPath();
+      for (var each = 0; each < held.count; each++) {
+        var node = held.child[each];
+        var over = held.up[each];
+        var turn = angleOf(view.y[node]);
+        var back = angleOf(view.y[over]);
+        var inward = radiusOf(view.x[over]) * span;
+        var out = radiusOf(view.x[node]) * span;
+        var alongX = midX + Math.cos(turn) * inward;
+        var alongY = midY + Math.sin(turn) * inward;
+        if ((inward * (turn - back) * (turn - back)) / 8 < 0.5) {
+          ink.moveTo(midX + Math.cos(back) * inward, midY + Math.sin(back) * inward);
+          ink.lineTo(alongX, alongY);
+        } else {
+          ink.moveTo(midX + Math.cos(back) * inward, midY + Math.sin(back) * inward);
+          ink.arc(midX, midY, inward, back, turn, turn < back);
+        }
+        ink.moveTo(alongX, alongY);
+        ink.lineTo(midX + Math.cos(turn) * out, midY + Math.sin(turn) * out);
+      }
+      ink.stroke();
+    }
+
+    function dial(box) {
+      if (!view || box.wide < RAIL_LEAST) return null;
+      return {
+        x0: box.wide - DIAL_SIDE - DIAL_EDGE,
+        y0: box.tall - DIAL_SIDE - DIAL_EDGE,
+        side: DIAL_SIDE,
+      };
+    }
+
+    function paintDial(ctx, theme, box, arc) {
+      var spot = dial(box);
+      if (!spot) return null;
+      if (!view.dial || view.dialInk !== theme.faint) {
+        view.dial = dialPlate(theme);
+        view.dialInk = theme.faint;
+      }
+      var held = view.dial;
+
+      ctx.fillStyle = theme.plate;
+      ctx.fillRect(spot.x0, spot.y0, spot.side, spot.side);
+      ctx.strokeStyle = theme.frame;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(spot.x0 + 0.5, spot.y0 + 0.5, spot.side - 1, spot.side - 1);
+
+      var midX = spot.x0 + spot.side / 2;
+      var midY = spot.y0 + spot.side / 2;
+      if (held.plate) ctx.drawImage(held.plate, spot.x0, spot.y0, spot.side, spot.side);
+      else strokeDisc(ctx, theme, held, midX, midY, held.span);
+
+      // The window, on the disc. At the far end of a zoom it is a speck, so it
+      // is held to a size a reader can see and a hand can catch, the way the
+      // rail holds its bar.
+      var seat = discBox(box);
+      var wide = Math.max(MARK_LEAST, 2 * seat.halfW * held.span);
+      var tall = Math.max(MARK_LEAST, 2 * disc.half * held.span);
+      var left = midX + (disc.cx - seat.halfW) * held.span;
+      var top = midY + (disc.cy - disc.half) * held.span;
+      if (wide > spot.side) { left = spot.x0; wide = spot.side; }
+      if (tall > spot.side) { top = spot.y0; tall = spot.side; }
+      if (left < spot.x0) left = spot.x0;
+      if (top < spot.y0) top = spot.y0;
+      if (left + wide > spot.x0 + spot.side) left = spot.x0 + spot.side - wide;
+      if (top + tall > spot.y0 + spot.side) top = spot.y0 + spot.side - tall;
+      ctx.fillStyle = theme.window;
+      ctx.fillRect(left, top, wide, tall);
+      ctx.strokeStyle = theme.edge;
+      ctx.strokeRect(left + 0.5, top + 0.5, Math.max(1, wide - 1), Math.max(1, tall - 1));
+
+      return {
+        x0: spot.x0, y0: spot.y0, side: spot.side,
+        top: top, left: left, deep: tall, wide: wide,
+        drawn: held.count,
+        arc: arc ? arc.span : Math.PI * 2,
+      };
+    }
+
+    // ----------------------------------------------------------------- disc
+
+    // The circular projection is the rectangular one in polar coordinates: the
+    // same rows, with depth becoming radius and row becoming angle. The crate
+    // says exactly that in radial.rs, and this is its arithmetic rather than
+    // another one that looks similar, so the canvas and the figure agree. The
+    // three constants are the crate's own defaults: the sweep starts at the top
+    // of the circle, goes all the way round, and leaves a hole in the middle
+    // eight percent of the way out.
+    var DISC_START = -Math.PI / 2;
+    var DISC_SWEEP = Math.PI * 2;
+    var DISC_HOLE = 0.08;
+
+    function terminals() {
+      var b = view.bounds;
+      return Math.max(1, b.highY - b.lowY + 1);
+    }
+
+    function angleOf(row) {
+      var b = view.bounds;
+      var many = terminals();
+      if (many <= 1) return DISC_START;
+      return DISC_START + (DISC_SWEEP * (row - b.lowY)) / many;
+    }
+
+    function rowAtAngle(angle) {
+      var b = view.bounds;
+      return b.lowY + ((angle - DISC_START) / DISC_SWEEP) * terminals();
+    }
+
+    // Depth as a fraction of the way from the hole to the rim, which is what
+    // the crate's `radius` does with the scene's own minimum and maximum.
+    function radiusOf(depth) {
+      var b = view.bounds;
+      var across = b.highX - b.lowX;
+      var part = across > 0 ? (depth - b.lowX) / across : 0;
+      if (part < 0) part = 0;
+      if (part > 1) part = 1;
+      return DISC_HOLE + part * (1 - DISC_HOLE);
+    }
+
+    // The disc is drawn in a space where the rim is one unit from the middle,
+    // and the camera is a box over that space rather than a run of rows. A
+    // circle has no top and bottom to scroll between, so what moves is a
+    // window over a map.
+    function discHome() {
+      disc = { cx: 0, cy: 0, half: 1.1 };
+    }
+
+    function discBox(box) {
+      var scale = box.tall / (2 * disc.half);
+      return {
+        scale: scale,
+        midX: box.wide / 2,
+        midY: box.tall / 2,
+        halfW: disc.half * (box.wide / box.tall),
+      };
+    }
+
+    // Which angles the window can see. Null means all of them, which is what a
+    // window holding the middle of the disc sees however small it is.
+    function arcInView(box) {
+      var seat = discBox(box);
+      var x0 = disc.cx - seat.halfW, x1 = disc.cx + seat.halfW;
+      var y0 = disc.cy - disc.half, y1 = disc.cy + disc.half;
+      if (x0 <= 0 && x1 >= 0 && y0 <= 0 && y1 >= 0) return null;
+      var bearings = [];
+      var steps = 24;
+      for (var i = 0; i <= steps; i++) {
+        var t = i / steps;
+        bearings.push(Math.atan2(y0, x0 + (x1 - x0) * t));
+        bearings.push(Math.atan2(y1, x0 + (x1 - x0) * t));
+        bearings.push(Math.atan2(y0 + (y1 - y0) * t, x0));
+        bearings.push(Math.atan2(y0 + (y1 - y0) * t, x1));
+      }
+      bearings.sort(function (a, b) { return a - b; });
+      // The widest gap between one angle and the next is the part of the circle
+      // the window cannot see, so what it can see is everything else.
+      var gap = bearings[0] + Math.PI * 2 - bearings[bearings.length - 1];
+      var at = bearings.length - 1;
+      for (var k = 0; k + 1 < bearings.length; k++) {
+        var wideEnough = bearings[k + 1] - bearings[k];
+        if (wideEnough > gap) { gap = wideEnough; at = k; }
+      }
+      var from = bearings[(at + 1) % bearings.length];
+      var to = bearings[at];
+      if (to < from) to += Math.PI * 2;
+      return { from: from, to: to, span: to - from };
+    }
+
+    // The rows those angles stand for, as spans of `byRow`. A window that
+    // straddles the place where the circle's ends meet gets two.
+    function runsForArc(arc) {
+      var everything = [[0, view.byRow.length]];
+      if (!arc) return everything;
+      var b = view.bounds;
+      var many = terminals();
+      var first = rowAtAngle(arc.from) - 1;
+      var last = rowAtAngle(arc.to) + 1;
+      if (last - first >= many) return everything;
+      if (first < b.lowY) {
+        return [[firstRow(first + many), view.byRow.length], [0, firstRow(last)]];
+      }
+      if (last > b.highY) {
+        return [[firstRow(first), view.byRow.length], [0, firstRow(last - many)]];
+      }
+      return [[firstRow(first), firstRow(last)]];
+    }
+
+    // The disc, drawn. A branch is the same elbow the rectangular view draws,
+    // bent: an arc at the parent's radius from the parent's angle round to the
+    // child's, then a straight run outward at the child's angle.
+    function paintDisc(theme) {
+      var box = size();
+      var ctx = canvas.getContext("2d");
+      ctx.setTransform(box.ratio, 0, 0, box.ratio, 0, 0);
+      ctx.clearRect(0, 0, box.wide, box.tall);
+
+      var seat = discBox(box);
+      var midX = seat.midX - disc.cx * seat.scale;
+      var midY = seat.midY - disc.cy * seat.scale;
+      var arc = arcInView(box);
+      var runs = runsForArc(arc);
+
+      // A screen can tell apart as many angles as the widest circle it can see
+      // has pixels along the part of it in view, which is the circular reading
+      // of one row per pixel. The widest circle it can see is not always the
+      // rim: zoomed in on the middle of the disc the rim is off the canvas
+      // entirely, and measuring against it asked for six thousand samples of a
+      // region that can hold a few hundred.
+      var farX = Math.max(Math.abs(disc.cx - seat.halfW), Math.abs(disc.cx + seat.halfW));
+      var farY = Math.max(Math.abs(disc.cy - disc.half), Math.abs(disc.cy + disc.half));
+      var outermost = Math.min(1, Math.sqrt(farX * farX + farY * farY));
+      var rim = (arc ? arc.span : Math.PI * 2) * outermost * seat.scale;
+      var budget = Math.max(64, Math.min(4000, Math.round(rim)));
+      var limits = {
+        stop: inside > 0 ? function (node) { return radiusOf(view.x[node]) < inside; } : null,
+        skip: outermost < 1
+          ? function (node) { return radiusOf(view.x[node]) > outermost; }
+          : null,
+      };
+      // Every walk heads inward, so what ends it is being further in than
+      // anything the window can see. That is the distance from the middle of
+      // the disc to the nearest corner or edge of the window, and it is zero
+      // when the window holds the middle. Stopping on "off the canvas" instead
+      // was wrong in a way worth writing down: a tip outside the window walking
+      // inward would be cut off before it reached the part of its own lineage
+      // that is inside it, and the picture came out with 1,423 of its 1,430
+      // branches off screen.
+      var seatX0 = disc.cx - seat.halfW, seatX1 = disc.cx + seat.halfW;
+      var seatY0 = disc.cy - disc.half, seatY1 = disc.cy + disc.half;
+      var nearX = Math.max(seatX0, Math.min(0, seatX1));
+      var nearY = Math.max(seatY0, Math.min(0, seatY1));
+      var inside = Math.sqrt(nearX * nearX + nearY * nearY);
+      var picked = select(runs, seat.scale, budget, terminals(), view.shown, limits);
+      view.shown = { child: picked.child, up: picked.up };
+      view.picked = picked.count;
+
+      ctx.strokeStyle = theme.branch;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      var drawn = 0;
+      for (var each = 0; each < picked.count; each++) {
+        var node = picked.child[each];
+        var over = picked.up[each];
+        var turn = angleOf(view.y[node]);
+        var back = angleOf(view.y[over]);
+        var out = radiusOf(view.x[node]) * seat.scale;
+        var inward = radiusOf(view.x[over]) * seat.scale;
+        var alongX = midX + Math.cos(turn) * inward;
+        var alongY = midY + Math.sin(turn) * inward;
+        // An arc, unless it is too flat to tell from a line. What decides that
+        // is how far the arc bows away from its own chord, which for a small
+        // turn is the radius times the square of it over eight: near the rim a
+        // branch between neighbouring tips bows by a thousandth of a pixel, and
+        // asking the canvas for an arc there costs nine times what a line does
+        // and draws the same thing.
+        if ((inward * (turn - back) * (turn - back)) / 8 < 0.5) {
+          ctx.moveTo(midX + Math.cos(back) * inward, midY + Math.sin(back) * inward);
+          ctx.lineTo(alongX, alongY);
+        } else {
+          ctx.moveTo(midX + Math.cos(back) * inward, midY + Math.sin(back) * inward);
+          ctx.arc(midX, midY, inward, back, turn, turn < back);
+        }
+        ctx.moveTo(alongX, alongY);
+        ctx.lineTo(midX + Math.cos(turn) * out, midY + Math.sin(turn) * out);
+        drawn += 1;
+      }
+      ctx.stroke();
+
+      var labels = 0;
+      // Names, once a name has a whole row of pixels of rim to itself.
+      var perTip = (Math.PI * 2 * seat.scale) / terminals();
+      if (perTip >= LABEL_ROOM && picked.stride === 1) {
+        ctx.fillStyle = theme.muted;
+        ctx.font = Math.min(13, Math.max(9, perTip * 0.72)) + "px " + theme.font;
+        ctx.textBaseline = "middle";
+        for (var run = 0; run < runs.length; run++) {
+          for (var i = runs[run][0]; i < runs[run][1]; i++) {
+            var leaf = view.byRow[i];
+            if (!view.length[leaf]) continue;
+            var text = nameOf(leaf);
+            if (!text) continue;
+            var where = angleOf(view.y[leaf]);
+            var edge = radiusOf(view.x[leaf]) * seat.scale + 4;
+            var atX = midX + Math.cos(where) * edge;
+            var atY = midY + Math.sin(where) * edge;
+            if (atX < -40 || atX > box.wide + 40 || atY < -20 || atY > box.tall + 20) continue;
+            ctx.textAlign = Math.cos(where) < 0 ? "right" : "left";
+            ctx.fillText(text, atX, atY);
+            labels += 1;
+          }
+        }
+        ctx.textAlign = "left";
+      }
+
+      var marked = box.wide >= RAIL_LEAST ? paintDial(ctx, theme, box, arc) : null;
+      return {
+        drawn: drawn,
+        skipped: 0,
+        labels: labels,
+        stride: picked.stride,
+        rowsInView: runs.reduce(function (sum, run) { return sum + run[1] - run[0]; }, 0),
+        rail: marked,
+      };
+    }
+
     // ------------------------------------------------------------ selection
 
     // The branches to draw for a run of rows in a box `wide` by `tall`, as a
@@ -236,8 +578,13 @@ window.karyonCanvas = (function () {
     //
     // Everything drawn anywhere comes through here, which is what stops one
     // part of the canvas disagreeing with another about the shape of the tree.
-    function select(from, to, wide, tall, spanY, store) {
-      var stride = Math.max(1, Math.ceil((to - from) / Math.max(1, tall)));
+    // `runs` is one or more [first, last) spans of rows. A circle can put the
+    // rows in view either side of where its ends meet, and that is two spans of
+    // one tree rather than two trees.
+    function select(runs, wide, tall, spanY, store, limits) {
+      var whole = 0;
+      for (var span = 0; span < runs.length; span++) whole += runs[span][1] - runs[span][0];
+      var stride = Math.max(1, Math.ceil(whole / Math.max(1, tall)));
       view.visit += 1;
       var visit = view.visit;
       var seen = view.seen;
@@ -255,9 +602,11 @@ window.karyonCanvas = (function () {
       // the deepest of the rows sampled. Neither needs the walk to have run.
       var lowX = x[view.root];
       var highX = lowX;
-      for (var look = from; look < to; look += stride) {
-        var seenX = x[view.byRow[look]];
-        if (seenX > highX) highX = seenX;
+      for (var run = 0; run < runs.length; run++) {
+        for (var look = runs[run][0]; look < runs[run][1]; look += stride) {
+          var seenX = x[view.byRow[look]];
+          if (seenX > highX) highX = seenX;
+        }
       }
       // Both scales are the ones this drawing will actually use. An earlier
       // version measured rows against the whole tree instead of against the
@@ -270,7 +619,8 @@ window.karyonCanvas = (function () {
       var columnOf = function (node) { return ((x[node] - lowX) * acrossX) | 0; };
       var rowOf = function (node) { return (y[node] * downY) | 0; };
 
-      for (var at = from; at < to; at += stride) {
+      for (var pass = 0; pass < runs.length; pass++) {
+      for (var at = runs[pass][0]; at < runs[pass][1]; at += stride) {
         var walk = view.byRow[at];
         sampled += 1;
         while (walk !== 0xffffffff && seen[walk] !== visit) {
@@ -294,11 +644,21 @@ window.karyonCanvas = (function () {
             wideUp.set(up);
             up = wideUp;
           }
-          child[count] = walk;
-          up[count] = over;
-          count += 1;
+          // A branch further out than anything the window can see is walked
+          // past rather than drawn. The one that crosses into view is kept, so
+          // the picture runs off the edge rather than stopping short of it.
+          if (!limits || !limits.skip || !limits.skip(over)) {
+            child[count] = walk;
+            up[count] = over;
+            count += 1;
+          }
+          // And once a walk is further in than anything the window can see,
+          // there is nothing left for it to draw. Every walk heads inward, so
+          // this is where it ends.
+          if (limits && limits.stop && limits.stop(over)) break;
           walk = over;
         }
+      }
       }
       return { child: child, up: up, count: count, stride: stride, sampled: sampled };
     }
@@ -322,6 +682,7 @@ window.karyonCanvas = (function () {
 
     function paint(theme) {
       if (!view) return { drawn: 0, skipped: 0 };
+      if (round) return paintDisc(theme);
       var box = size();
       var ctx = canvas.getContext("2d");
       ctx.setTransform(box.ratio, 0, 0, box.ratio, 0, 0);
@@ -341,7 +702,7 @@ window.karyonCanvas = (function () {
       var from = firstRow(camera.y0 - 1);
       var to = firstRow(camera.y1 + 1);
       var wanted = to - from;
-      var picked = select(from, to, wide, box.tall, spanY, view.shown);
+      var picked = select([[from, to]], wide, box.tall, spanY, view.shown);
       view.shown = { child: picked.child, up: picked.up };
       var count = picked.count;
       var stride = picked.stride;
@@ -454,6 +815,22 @@ window.karyonCanvas = (function () {
     // Only the rows. The depth follows them, in `paint`.
     function zoomAt(px, py, factor) {
       var box = size();
+      if (round) {
+        // Keep whatever is under the hand under the hand, which is what a map
+        // does and what a run of rows cannot do because it has only one axis.
+        var seat = discBox(box);
+        var atX = disc.cx + (px - seat.midX) / seat.scale;
+        var atY = disc.cy + (py - seat.midY) / seat.scale;
+        var half = disc.half / factor;
+        if (half > 1.4) half = 1.4;
+        if (half < 1e-5) half = 1e-5;
+        disc.half = half;
+        var after = discBox(box);
+        disc.cx = atX - (px - after.midX) / after.scale;
+        disc.cy = atY - (py - after.midY) / after.scale;
+        settleDisc();
+        return true;
+      }
       var fy = py / box.tall;
       var atY = camera.y0 + (camera.y1 - camera.y0) * fy;
       var tall = (camera.y1 - camera.y0) / factor;
@@ -486,22 +863,58 @@ window.karyonCanvas = (function () {
     // frame was on screen.
     function panBy(dx, dy) {
       var box = size();
+      if (round) {
+        var seat = discBox(box);
+        disc.cx -= dx / seat.scale;
+        disc.cy -= dy / seat.scale;
+        settleDisc();
+        return;
+      }
       var span = camera.y1 - camera.y0;
       settle(camera.y0 - (dy / box.tall) * span, span);
     }
 
-    // Is this point, in canvas pixels, on the rail rather than on the tree?
-    function onRail(px) {
-      var strip = view ? rail(size()) : null;
+    // The disc can be pushed until the rim is off the canvas, but not until
+    // there is nothing left to aim at.
+    function settleDisc() {
+      if (disc.cx < -1.2) disc.cx = -1.2;
+      if (disc.cx > 1.2) disc.cx = 1.2;
+      if (disc.cy < -1.2) disc.cy = -1.2;
+      if (disc.cy > 1.2) disc.cy = 1.2;
+    }
+
+    // Is this point, in canvas pixels, on the small picture of the whole tree
+    // rather than on the tree itself? The rail in rows, the dial on the disc.
+    function onMap(px, py) {
+      if (!view) return false;
+      var box = size();
+      if (round) {
+        var spot = dial(box);
+        return (
+          !!spot &&
+          px >= spot.x0 && px <= spot.x0 + spot.side &&
+          py >= spot.y0 && py <= spot.y0 + spot.side
+        );
+      }
+      var strip = rail(box);
       return !!strip && px >= strip.x0;
     }
 
     // Put the rows on screen where this height on the rail points, keeping how
     // many of them there are. A click and a drag are the same gesture: the
     // window follows the hand rather than being nudged by it.
-    function scrubTo(py) {
+    function jumpTo(px, py) {
       if (!view) return;
       var box = size();
+      if (round) {
+        var spot = dial(box);
+        var held = view.dial;
+        if (!spot || !held) return;
+        disc.cx = (px - (spot.x0 + spot.side / 2)) / held.span;
+        disc.cy = (py - (spot.y0 + spot.side / 2)) / held.span;
+        settleDisc();
+        return;
+      }
       var span = camera.y1 - camera.y0;
       settle(rowAtHeight(py, box) - span / 2, span);
     }
@@ -524,8 +937,18 @@ window.karyonCanvas = (function () {
     // view would be asked for.
     function looking() {
       if (!view) return null;
-      var from = firstRow(camera.y0);
-      var to = firstRow(camera.y1);
+      var from, to;
+      if (round) {
+        var runs = runsForArc(arcInView(size()));
+        // Two runs mean the window straddles where the circle's ends meet, and
+        // the pair a reader wants named is the whole of what is on screen.
+        from = runs[0][0];
+        to = runs[runs.length - 1][1];
+        if (runs.length > 1) { from = 0; to = view.byRow.length; }
+      } else {
+        from = firstRow(camera.y0);
+        to = firstRow(camera.y1);
+      }
       // In from each end rather than along the whole run. Walking every row in
       // view and decoding its name is fine on a screenful and is not fine on
       // the first sight of a million tip tree, where the whole file is in view:
@@ -548,8 +971,39 @@ window.karyonCanvas = (function () {
       home: home,
       zoomAt: zoomAt,
       panBy: panBy,
-      onRail: onRail,
-      scrubTo: scrubTo,
+      onMap: onMap,
+      jumpTo: jumpTo,
+      // Which projection is being looked through. The layout does not change:
+      // the same rows and depths become angles and radii.
+      shape: function (wantRound) {
+        if (!view || wantRound === round) return round;
+        round = !!wantRound;
+        home();
+        return round;
+      },
+      isRound: function () { return round; },
+      // Where a node sits on the canvas, in the projection being looked
+      // through. The one place that answers it, so a check of the disc can ask
+      // whether the canvas agrees with the crate's own arithmetic.
+      where: function (node) {
+        if (!view) return null;
+        var box = size();
+        if (round) {
+          var seat = discBox(box);
+          var out = radiusOf(view.x[node]) * seat.scale;
+          var turn = angleOf(view.y[node]);
+          return {
+            x: seat.midX - disc.cx * seat.scale + Math.cos(turn) * out,
+            y: seat.midY - disc.cy * seat.scale + Math.sin(turn) * out,
+          };
+        }
+        var strip = rail(box);
+        var wide = strip ? strip.x0 : box.wide;
+        return {
+          x: ((view.x[node] - camera.x0) / (camera.x1 - camera.x0 || 1)) * wide,
+          y: ((view.y[node] - camera.y0) / (camera.y1 - camera.y0 || 1)) * box.tall,
+        };
+      },
       goTo: goTo,
       looking: looking,
       loaded: function () { return !!view; },

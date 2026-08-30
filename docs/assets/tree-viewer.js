@@ -117,6 +117,9 @@
     // working bar uses to say which part of this is live.
     theme.window = dark ? "rgba(232, 131, 58, 0.24)" : "rgba(213, 94, 0, 0.18)";
     theme.edge = dark ? "#e8833a" : "#d55e00";
+    // Something for the dial to sit on, since the disc behind it would show
+    // through and the small tree would be read as part of the big one.
+    theme.plate = dark ? "#161a1d" : "#ffffff";
   }
 
   // Painted on the spot rather than on a frame callback: a browser does not
@@ -143,6 +146,7 @@
     var at = painter && painter.looking();
     var argv = ["tree:1-1", "--tree", tree.name];
     if (cladogram) argv = argv.concat(["--shape", "cladogram"]);
+    if (painter && painter.isRound()) argv = argv.concat(["--projection", "circular"]);
     if (at && at.first && at.last && at.first !== at.last) {
       argv = argv.concat(["--focus", at.first + "," + at.last]);
     }
@@ -203,12 +207,18 @@
         // useless or violent next to a trackpad.
         var step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
         var here = at(event);
+        var box = { wide: el.canvas.clientWidth, tall: el.canvas.clientHeight };
         // On the rail a wheel does what a wheel does to a scrollbar: it moves
         // the window on from where it is rather than changing how much of the
         // tree is in it. A zoom there would be anchored on the wrong row, since
         // the two sides of the canvas are at different scales.
-        if (painter.onRail(here.x)) painter.panBy(0, -step);
-        else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
+        if (painter.onMap(here.x, here.y)) {
+          // On the rail a wheel does what it does to a scrollbar. On the dial
+          // there is nothing to scroll, so it zooms the view it stands for,
+          // about the middle of that view rather than about the dial.
+          if (painter.isRound()) painter.zoomAt(box.wide / 2, box.tall / 2, Math.exp(-step * 0.002));
+          else painter.panBy(0, -step);
+        } else painter.zoomAt(here.x, here.y, Math.exp(-step * 0.002));
         repaint();
       },
       { passive: false }
@@ -221,9 +231,9 @@
       // Which half of the canvas the gesture began on decides what it is for
       // the whole of its life, so a drag that starts on the rail and wanders
       // onto the tree goes on moving the window.
-      if (painter.onRail(here.x)) {
+      if (painter.onMap(here.x, here.y)) {
         scrubbing = true;
-        painter.scrubTo(here.y);
+        painter.jumpTo(here.x, here.y);
         repaint();
       } else {
         dragging = true;
@@ -236,7 +246,8 @@
     el.plot.addEventListener("pointermove", function (event) {
       if (owner !== null && event.pointerId !== owner) return;
       if (scrubbing) {
-        painter.scrubTo(at(event).y);
+        var where = at(event);
+        painter.jumpTo(where.x, where.y);
         repaint();
         return;
       }
@@ -249,7 +260,10 @@
       // Not a gesture, just a hand passing over. The cursor says which of the
       // two things underneath it would answer.
       if (painter.loaded()) {
-        el.plot.classList.toggle("tv-onrail", painter.onRail(at(event).x));
+        var over = at(event);
+        var onMap = painter.onMap(over.x, over.y);
+        el.plot.classList.toggle("tv-onrail", onMap && !painter.isRound());
+        el.plot.classList.toggle("tv-ondial", onMap && painter.isRound());
       }
     });
 
@@ -276,7 +290,7 @@
     el.plot.addEventListener("dblclick", function (event) {
       var here = at(event);
       if (!painter.loaded()) return;
-      if (painter.onRail(here.x)) return;
+      if (painter.onMap(here.x, here.y)) return;
       painter.zoomAt(here.x, here.y, 2.4);
       repaint();
     });
@@ -365,7 +379,7 @@
   function start() {
     ["plot", "canvas", "search", "rowsOut", "detail", "count", "command", "error",
       "drop", "app", "file", "paste", "usePaste", "fit", "export", "sheet",
-      "sheetName", "dropSheet", "shape"].forEach(function (name) {
+      "sheetName", "dropSheet", "shape", "round"].forEach(function (name) {
       el[name] = document.getElementById("tv-" + name.toLowerCase());
     });
     if (!el.canvas) return;
@@ -384,6 +398,16 @@
       } else {
         fail("no tip here is called " + wanted);
       }
+    });
+
+    el.round.addEventListener("click", function () {
+      // The layout does not change: the same rows and depths become angles and
+      // radii, so this never asks the program for anything.
+      var now = painter.shape(!painter.isRound());
+      el.round.setAttribute("aria-pressed", String(now));
+      el.round.textContent = now ? "Circular" : "Rectangular";
+      repaint();
+      say();
     });
 
     el.shape.addEventListener("click", function () {

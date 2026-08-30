@@ -122,9 +122,13 @@
 .tv-plot.tv-dragging { cursor: grabbing; }
 
 /* The rail down the right is a scrollbar that shows what it is scrolling
-   through, so the hand over it says rows and not grab. */
-.tv-plot.tv-onrail { cursor: ns-resize; }
+   through, so the hand over it says rows and not grab. The dial the circular
+   view puts in the corner is a map, and a map is moved about rather than
+   scrolled, so it says so differently. */
+.tv-plot.tv-onrail,
 .tv-plot.tv-onrail.tv-dragging { cursor: ns-resize; }
+.tv-plot.tv-ondial,
+.tv-plot.tv-ondial.tv-dragging { cursor: move; }
 
 .tv-plot canvas {
   display: block;
