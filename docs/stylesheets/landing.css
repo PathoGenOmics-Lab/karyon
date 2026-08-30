@@ -536,13 +536,15 @@
    The refusals and the shelf
    ------------------------------------------------------------------------- */
 
-.md-typeset .k-refusal-list {
-  padding-left: 1.1rem;
-}
-
-.md-typeset .k-refusal-list > li {
-  margin-bottom: 0.6rem;
-  line-height: 1.65;
+/* The four refusals were a bulleted list of dense paragraphs directly under a
+   section built out of blocks, which made the page look as though it had given
+   up halfway down. They are the same kind of thing as the pieces above them, so
+   they are set the same way. */
+.md-typeset .k-refusals-grid .k-claim code {
+  font-size: 0.72rem;
+  background: none;
+  padding: 0;
+  color: inherit;
 }
 
 .md-typeset .k-shelf {
