@@ -639,10 +639,13 @@ the space to the left of the track labels.
 
 Values that would break the document are corrected rather than passed through.
 A width too small to leave a plotting area is raised to the smallest one that
-does, and a width that is not a finite number is replaced by that floor. A
-margin side that is negative or not finite becomes zero, and so does a negative
-`label_width` or `track_gap`. A `visual_scale` below `0.25` is raised to it, and
-one that is not finite is taken as `1.0`.
+does, and a width that is not a finite number is replaced by that floor. The
+floor depends on the margins and `label_width`, so it is worked out when the
+figure is laid out: `width` written before them draws the same figure as `width`
+written after, and the default of 900 is held to it too. A margin side or a
+`label_width` that is negative or not finite becomes zero, and so does a
+negative `track_gap`. A `visual_scale` below `0.25` is raised to it, and one
+that is not finite is taken as `1.0`.
 
 ### Read a figure back
 

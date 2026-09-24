@@ -339,6 +339,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A figure's width is held to its floor when the figure is laid out, not when
+  `width` is called, so a margin or a label gutter counts the same written
+  before `width` as after it. The floor is the smallest width that leaves a
+  plotting area, and it was worked out from the margins and `label_width` as
+  they stood at the call: `.width(200.0).label_width(150.0)` drew a figure 200
+  pixels wide and `.label_width(150.0).width(200.0)` one 234 pixels wide,
+  through `plot()` as well, and a `Panels` sheet took whichever it was handed.
+  The default of 900 is held to the floor too, since it is set before everything
+  else, and a 1,000 pixel gutter used to put the plotting area off the right of
+  a 900 pixel image unless `width` was called again afterwards. A `label_width`
+  that is not finite is taken as zero, as a margin side already was, since an
+  infinite gutter made the floor infinite and the document went out as
+  `width="0"`. Every committed figure is byte for byte what it was.
 - A panel of variable sites counts from one, as the ruler, the locus in the
   corner and every other tooltip do. Its column labels and tooltips printed each
   position as stored, so on the command line the first column of an alignment

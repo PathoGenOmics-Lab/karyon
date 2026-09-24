@@ -989,6 +989,35 @@ mod tests {
     }
 
     #[test]
+    fn figure_settings_draw_the_same_plot_in_any_order_and_anywhere_in_the_chain() {
+        // They set the figure and not a track, so they can sit anywhere in the
+        // chain. The width was the one that could not: it was floored against
+        // the gutter and the margins as they stood when it was called, so a
+        // width written before them drew a different plot from one after.
+        let margin = Margin {
+            left: 60.0,
+            right: 60.0,
+            ..Margin::default()
+        };
+        let first = window()
+            .width(200.0)
+            .label_width(150.0)
+            .margin(margin)
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .into_figure();
+        let last = window()
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .margin(margin)
+            .label_width(150.0)
+            .width(200.0)
+            .into_figure();
+        assert_eq!(first.dimensions(), last.dimensions());
+        assert_eq!(first.to_svg(), last.to_svg());
+    }
+
+    #[test]
     fn the_region_label_can_be_left_out() {
         let with = window().add_coverage(vec![30.0; 1000]).to_svg();
         let without = window()
