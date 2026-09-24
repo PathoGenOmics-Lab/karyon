@@ -759,41 +759,49 @@
 }
 
 /* --------------------------------------------------------------------------
-   The reading measure
+   The column and the reading measure
 
-   Text was running to two hundred characters a line on any page without a
-   left-hand navigation, which is the home page and the one everybody lands on.
-   Comfortable is somewhere between forty-five and seventy-five: past that the
-   eye loses its place on the way back to the start of the next line, and a
-   page of prose becomes work to read for a reason the reader cannot name.
+   One column per page, centred between the navigation and the table of
+   contents, so the whitespace either side of it is balanced rather than all
+   piled up on the right. Figures, code, tables and cards use the whole column.
 
-   The measure is capped on the things made of words and nothing else. Figures
-   are the point of this site and several of them are two thousand pixels of
-   genome browser, so they keep the whole column, as do tables, code blocks and
-   the catalogue's own components. That is why this is a list of elements
-   rather than a width on the container: a container narrow enough for prose
-   would be too narrow for a gallery sheet.
-
-   Twenty-eight rem rather than thirty-three, because thirty-three was not the
-   measure it claimed to be. Counted a character at a time along the first line
-   of every paragraph on the page, thirty-three rem of Inter at sixteen pixels
-   came out at eighty to eighty-eight characters, median eighty-five, which is
-   ten past the top of the range this comment sets. Twenty-eight rem measures
-   sixty-eight to seventy-four.
-
-   Left aligned rather than centred. Centring the capped blocks put the prose
-   in the middle of the column while the figures, the tables and the code
-   blocks kept its full width, so the left edge the eye returns to moved back
-   and forth by a hundred and sixty pixels down the length of every page. One
-   left edge for everything is the rhythm. The pages with no navigation beside
-   them, where centring was what this bought, are handled where they are: the
-   column itself is capped and centred there, and the home page centres its own
-   bands.
+   Blocks of words are capped a little narrower than that, at a measure of
+   about seventy-five characters of Inter at sixteen pixels: past eighty the eye
+   loses its place on the way back to the start of the next line. They stay left
+   aligned, so every block on a page shares one left edge, and the column is
+   narrow enough that the right edge of a paragraph is never far from the right
+   edge of the figure under it.
    -------------------------------------------------------------------------- */
+
+.md-content__inner {
+  max-width: 38rem;
+  margin-inline: auto;
+}
+
+/* Centring replaces the side margin Material gives a phone, so the gutter is
+   put back as padding, or the text runs into the bezel. */
+@media screen and (max-width: 44.9375em) {
+  .md-content__inner {
+    padding-inline: 0.8rem;
+  }
+}
+
+@media screen and (min-width: 45em) {
+  .md-content__inner {
+    max-width: calc(36rem + 3.2rem);
+  }
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-content__inner {
+    max-width: calc(36rem + 4.8rem);
+  }
+}
 
 .md-typeset > p,
 .md-typeset > ul,
 .md-typeset > ol,
+.md-typeset > dl,
 .md-typeset > blockquote,
 .md-typeset > h1,
 .md-typeset > h2,
@@ -801,14 +809,16 @@
 .md-typeset > h4,
 .md-typeset > .admonition,
 .md-typeset > details {
-  max-width: 28rem;
+  max-width: 30rem;
   margin-inline: 0;
 }
 
-/* A paragraph that is only an image is not prose. The site's figures are
-   written that way, so the cap has to let them out again, and they have to
-   share the same centre line as the text or the page has two axes and looks
-   as though one of them slipped. */
+/* Headings rule a line under themselves, and a rule shorter than the figure
+   beneath it reads as a mistake, so they take the whole column. */
+.md-typeset > h2 {
+  max-width: none;
+}
+
 .md-typeset > p:has(> img),
 .md-typeset > p:has(> a > img),
 .md-typeset > p:has(> .k-zoom) {
@@ -1480,3 +1490,171 @@
   color: var(--plot-accent, var(--card-accent, var(--md-primary-fg-color)));
 }
 
+
+/* --------------------------------------------------------------------------
+   The header mark, in the ink of the scheme
+
+   overrides/partials/logo.html writes both images; one of them is hidden.
+   -------------------------------------------------------------------------- */
+
+.md-header__button.md-logo .k-logo--dark {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .md-header__button.md-logo .k-logo--light {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .md-header__button.md-logo .k-logo--dark {
+  display: block;
+}
+
+/* --------------------------------------------------------------------------
+   Cards, one shape for all of them
+
+   The gallery cards, the catalogue's route and plot cards and the home page's
+   cards share a radius, a hairline and a lift on hover. The route colour stays
+   on the card as its eyebrow and its link rather than as a thick bar across
+   the top, which read as a warning stripe.
+   -------------------------------------------------------------------------- */
+
+.md-typeset .track-card,
+.md-typeset .plot-category-card,
+.md-typeset .plot-card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.75rem;
+}
+
+.md-typeset .track-card:hover,
+.md-typeset .track-card:focus-visible {
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .track-card {
+  grid-template-rows: 9.5rem auto;
+}
+
+.md-typeset .track-card img {
+  height: 9.5rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset .track-card strong {
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-size: 0.84rem;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .track-card,
+[data-md-color-scheme="slate"] .md-typeset .plot-category-card,
+[data-md-color-scheme="slate"] .md-typeset .plot-card {
+  background: hsl(210, 14%, 13%);
+  border-color: hsl(210, 12%, 22%);
+}
+
+/* --------------------------------------------------------------------------
+   A disclosure that holds a figure
+
+   Neutral ink and a chevron that turns, rather than an orange label with
+   nothing to say it can be opened.
+   -------------------------------------------------------------------------- */
+
+.md-typeset .track-overview {
+  padding: 0;
+  border-radius: 0.75rem;
+}
+
+.md-typeset .track-overview > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.95rem;
+  color: var(--md-default-fg-color);
+  font-family: "Space Grotesk", var(--md-text-font-family), sans-serif;
+  font-size: 0.78rem;
+  list-style: none;
+}
+
+.md-typeset .track-overview > summary::-webkit-details-marker {
+  display: none;
+}
+
+.md-typeset .track-overview > summary::before {
+  display: block;
+  position: static;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms;
+  content: "";
+  -webkit-mask: none;
+  mask: none;
+  background: none;
+}
+
+.md-typeset .track-overview[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.md-typeset .track-overview > summary:hover {
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .track-overview > :not(summary) {
+  margin-inline: 0.95rem;
+}
+
+.md-typeset .track-overview[open] > :last-child {
+  margin-bottom: 0.95rem;
+}
+
+/* --------------------------------------------------------------------------
+   Figures on the light page get an edge as well
+
+   A committed figure carries its own white page, so on the light site it had
+   no edge at all and ran straight into the prose around it.
+   -------------------------------------------------------------------------- */
+
+.md-typeset .k-zoom {
+  border-radius: 0.6rem;
+  padding: 0.5rem;
+}
+
+.md-typeset figure > img,
+.md-typeset figure > p > img {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.6rem;
+  padding: 0.5rem;
+  background: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   The gallery's front page is a grid
+
+   Two routes a row, each with a thumbnail cropped from the top left corner of
+   its figure, where the title and the first tracks are, so eight routes fit on
+   two screens instead of eight.
+   -------------------------------------------------------------------------- */
+
+.md-typeset .plot-category-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.md-typeset .plot-category-card {
+  grid-template-rows: 10rem 1fr;
+}
+
+.md-typeset .plot-category-card img {
+  height: 10rem;
+  object-fit: cover;
+  object-position: left top;
+}
+
+@media screen and (max-width: 44.984375em) {
+  .md-typeset .plot-category-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

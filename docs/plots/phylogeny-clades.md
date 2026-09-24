@@ -5,7 +5,7 @@ description: Annotated trees, tanglegrams, clade-linked intervals and circular p
 
 <div class="plot-hero plot-hero--phylo" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Phylogeny and clades</span>
+<span class="plot-eyebrow">Gallery · Phylogeny and clades</span>
 
 # Put topology beside the evidence
 

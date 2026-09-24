@@ -5,7 +5,7 @@ description: Ideograms, concatenated assemblies, circular chromosomes and geogra
 
 <div class="plot-hero plot-hero--world" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Whole genomes and geography</span>
+<span class="plot-eyebrow">Gallery · Whole genomes and geography</span>
 
 # Preserve context beyond one locus
 

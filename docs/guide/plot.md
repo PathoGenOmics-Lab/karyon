@@ -1,16 +1,14 @@
-# Plot API
+# Writing a figure in Rust
 
-`plot()` is the short way to write a figure down: one call per track, in the
-order they stack, and the figure comes out the other end. What it remembers
-between calls, what it fills in without being asked, and where the short form
-stops are what this page covers.
+`plot()` builds a figure one track at a time. Each `add_` call puts a new track
+under the previous one, `label` and `adjust` configure the track you just added,
+and `save` or `to_svg` draws the result. This page covers what the builder
+remembers between calls, what it fills in for you, and when to switch to the
+lower-level [`Figure`](figure.md).
 
-A figure is a stack of tracks over one shared coordinate axis. Built with
-[`Figure`](figure.md) directly, a good deal of what gets typed is plumbing: a
-`Region` to unwrap, a `use` line naming every track type, a `push` around each
-track, and the window start repeated on every track that takes one even though
-the figure already holds it. `plot()` holds the region and names the track
-types, so none of that is written twice.
+Compared with building a `Figure` by hand, `plot()` holds the region for you, so
+you never repeat the window start, and it knows every track type, so there is no
+long `use` line or `push` around each track.
 
 ![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
 

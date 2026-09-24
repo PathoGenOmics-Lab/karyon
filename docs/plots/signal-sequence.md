@@ -5,7 +5,7 @@ description: Coverage, signed windows, sequence, per-site methylation and sequen
 
 <div class="plot-hero plot-hero--signal" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Signal and sequence</span>
+<span class="plot-eyebrow">Gallery · Signal and sequence</span>
 
 # Values and symbols along a sequence
 

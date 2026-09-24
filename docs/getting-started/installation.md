@@ -1,48 +1,57 @@
 # Installation
 
-!!! tip "No Rust toolchain yet?"
-    That is the only thing karyon needs, and the reader most likely to want
-    just the command is the one least likely to have one. Either of these
-    installs it, and then the lines below work:
-
-    ```bash
-    curl https://sh.rustup.rs -sSf | sh     # rustup, the usual way
-    conda install -c conda-forge rust       # if you already live in conda
-    ```
-
-
-`karyon` is a Rust library with a command line front end in the same package.
-A Rust toolchain is the only thing it needs. There is no build script, nothing
-links against a C library, and there are no crates to fetch, so an install is a
-compile and nothing else.
+karyon is one Rust package that contains both a library and a command line
+program. The only thing you need is a Rust toolchain: there is nothing else to
+install, no C library to link against and no dependency to download.
 
 !!! note "Not on crates.io yet"
-    `cargo add karyon` will not find it. Everything below points Cargo at the
-    repository instead. Once it is published, an ordinary version requirement
-    and `cargo install karyon` replace the two git forms; nothing else here
-    changes.
+    `cargo add karyon` and `cargo install karyon` will not find it yet, so the
+    commands on this page point Cargo at the GitHub repository instead. Once it
+    is published, those two commands will work and nothing else here changes.
 
-## As a library
+## 1. Get a Rust toolchain
 
-Add the git dependency:
+Skip this if `rustc --version` already prints 1.74 or newer.
+
+=== "rustup (recommended)"
+
+    ```bash
+    curl https://sh.rustup.rs -sSf | sh
+    ```
+
+=== "conda"
+
+    ```bash
+    conda install -c conda-forge rust
+    ```
+
+## 2. Install the command line
+
+```bash
+cargo install --git https://github.com/PathoGenOmics-Lab/karyon
+```
+
+This compiles the `karyon` program and puts it in `~/.cargo/bin`, which rustup
+adds to your `PATH`. Check that it works:
+
+```bash
+karyon --version
+karyon --help
+```
+
+`--help` prints the whole command grammar. The [Quickstart](quickstart.md) walks
+through a first figure, and [Command line](../guide/cli.md) documents every flag.
+
+## 3. Or use it as a library
+
+Add karyon to your project's `Cargo.toml`:
 
 ```toml
 [dependencies]
 karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
-A git dependency with nothing else on it follows the default branch, and Cargo
-records the commit it resolved in the `Cargo.lock`. That is reproducible for
-one checkout and not for anyone who runs `cargo update`, so pin the commit when
-a figure has to come out the same next year:
-
-```toml
-[dependencies]
-# <sha> is the commit you tested against, full or short.
-karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon", rev = "<sha>" }
-```
-
-Enough of a program to prove it built:
+A small program to check that it builds:
 
 ```rust
 fn main() -> std::io::Result<()> {
@@ -54,102 +63,52 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-## The command line
+Projects that use the library never build the command line program, so adding
+karyon adds nothing else to your dependency tree.
 
-The binary installs from the same repository:
+### Pin a version for reproducible figures
 
-```bash
-cargo install --git https://github.com/PathoGenOmics-Lab/karyon
+A git dependency follows the default branch, so `cargo update` can move you to
+newer code. When a figure has to come out exactly the same later, pin the commit
+you tested:
+
+```toml
+[dependencies]
+# <sha> is the commit you tested against, full or short.
+karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon", rev = "<sha>" }
 ```
 
-That puts `karyon` in `~/.cargo/bin`. `karyon --help` prints the whole grammar
-and `karyon --version` prints the version it was built from.
+Rendering is deterministic: the same input and the same version produce a
+byte-identical SVG.
 
-The command is a separate binary target in the same package, so a project that
-depends on the library never builds it. Every format the command reads is line
-based text, which is why the binary has no dependencies either. Reading BAM,
-CRAM and BCF is left to `samtools` and `bcftools`, which already write what
-these readers take.
-
-## From a clone
+## Build from a clone
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/karyon
 cd karyon
-cargo test
+cargo build --release      # the program ends up in target/release/karyon
+cargo test                 # the full test suite
 ```
 
-`cargo build --release` puts the binary at `target/release/karyon`.
-
-The examples render the figures used on this site and in the README. Each takes
-an output directory, which defaults to the current one:
+The examples draw the figures used on this site. Each one takes an output
+directory:
 
 ```bash
 cargo run --example locus -- assets
 ```
 
-Everything an example generates comes from a fixed seed, so re-running one
-produces byte-identical files and a diff appears only when the rendering
-actually changed. CI re-renders the figures and fails if the committed ones
-have moved.
+## Requirements in detail
 
-## Rust version
-
-`Cargo.toml` declares `rust-version = "1.74"` and edition 2021. Cargo reads
-that before it starts building, so an older toolchain gets a message naming the
-version it needs rather than a type error from somewhere inside the crate.
-What is installed:
-
-```bash
-rustc --version
-```
-
-## No runtime dependencies
-
-Both dependency tables in `Cargo.toml` are empty, and the lockfile is the whole
-story:
-
-```toml
-# This file is automatically @generated by Cargo.
-# It is not intended for manual editing.
-version = 3
-
-[[package]]
-name = "karyon"
-version = "0.14.0"
-```
-
-Nothing has to be installed first: no cairo, no fontconfig, no libssl, no
-Python, no headless browser. The SVG writer is a few hundred lines inside the
-crate, the output names fonts rather than embedding them, and the library does
-no I/O beyond writing the file it is asked to write. A clean build of it takes
-about a second.
-
-This is also what keeps the crate usable inside a pipeline: adding it to a tool
-that already has a dependency tree adds nothing to it.
-
-## What `cargo test` runs
-
-One command runs five groups, and the last is why no snippet in the API
-documentation can quietly stop compiling:
-
-| Group | Tests | What it covers |
-|:------|------:|:---------------|
-| Library unit tests | 1250 | the arithmetic: scales, binning, packing, CIGAR walking, tree layout, the readers, the shrinkage fitter, and the flag grammar, which is library code |
-| Binary unit tests | 4 | the walk from a command line to a figure |
-| `tests/properties.rs` | 43 | what is true of every figure rather than of one: generated stacks checked against invariants, ten thousand seeds each |
-| `tests/render.rs` | 15 | the document a user gets: well formed, deterministic, free of non-finite numbers, and correct about where a base lands on the page |
-| Doc tests | 67 | every example in the API documentation, compiled and run |
-
-One thousand three hundred and seventy-nine in all, and the counts are from
-version 0.14.0. `cargo test --release` runs the same set
-against optimised code, which is what CI does after the debug run, along with
-`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` and
-`cargo doc --no-deps` with warnings denied.
+| | |
+|:--|:--|
+| **Rust** | 1.74 or newer, edition 2021. An older toolchain gets a clear message naming the version it needs. |
+| **Runtime dependencies** | None. Both dependency tables in `Cargo.toml` are empty. |
+| **System libraries** | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
+| **Input formats** | Line-based text only. Convert BAM, CRAM and BCF with `samtools` or `bcftools` and pipe the text in. |
+| **Output** | Standalone SVG 1.1, which names its fonts rather than embedding them. |
 
 ## Next
 
-- [Quickstart](quickstart.md), for a first figure from Rust and the same kind of
-  figure from the shell.
-- [Command line](../guide/cli.md), for the grammar the installed binary takes.
-- [Tracks](../tracks.md), for what each of the thirty-six track types draws.
+- [Quickstart](quickstart.md): a first figure from the shell and from Rust.
+- [Core concepts](concepts.md): regions, tracks and the shared scale.
+- [Gallery](../plots/index.md): every kind of plot karyon draws.

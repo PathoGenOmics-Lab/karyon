@@ -1,126 +1,33 @@
 ---
-title: Track API reference
+title: Track reference
 description: Exhaustive behaviour and data contracts for every Karyon track type.
 ---
 
-# Track API reference
+# Track reference
 
-Thirty-six track types ship across thirty-five focused modules. Every one of
-them is an implementation of the same small trait, `Track`, and none of them has
-privileged access to the figure: a track reports how tall it wants to be, then
-draws inside the band it is handed, already clipped. A track type the crate does
-not have is about thirty lines, and it is added the same way these are. See
-[extending](how-it-works/extending.md).
+Every track type karyon draws: what it shows, when to use it, how to configure
+it and what it refuses to do. The tracks are grouped in the same eight families
+as the [gallery](plots/index.md), so use the gallery to find the plot you want
+and this page to look up the details.
 
-This page says, for each of them, what it draws, when to reach for it, and what
-it refuses to do. The refusals are the interesting part. Several of these tracks
-encode a claim rather than a picture, and the way they behave when the data does
-not support the claim is what makes them worth having.
+All 36 work the same way. A track says how tall it wants to be and draws inside
+the band the figure gives it, on the shared horizontal scale, which is why any
+of them can be stacked with any other. A new track type takes about thirty
+lines; see [Writing a new track](how-it-works/extending.md).
 
-!!! tip "Looking for the right plot?"
-    Start with the [visual plot catalogue](plots/index.md). It groups tracks and
-    standalone drawings by biological question, data shape and coordinate
-    system. Return here once you know the component whose complete behaviour
-    you need.
+## All tracks at a glance
 
-<div class="track-gallery">
-  <a class="track-card" href="#coveragetrack">
-    <img src="../assets/figures/example.svg" alt="Coverage, sequence, feature and variant tracks sharing one genomic axis" width="900" height="306" loading="lazy">
-    <span><strong>Locus</strong><small>Signal, sequence and annotation</small></span>
-  </a>
-  <a class="track-card" href="#pileuptrack">
-    <img src="../assets/figures/example-pileup.svg" alt="Read pileup with mismatches, insertions, deletions and spliced alignments" width="920" height="474" loading="lazy">
-    <span><strong>Read pileup</strong><small>Alignments and variants</small></span>
-  </a>
-  <a class="track-card" href="#logotrack">
-    <img src="../assets/figures/example-logo.svg" alt="Nucleotide sequence logos" width="900" height="380" loading="lazy">
-    <span><strong>Sequence logo</strong><small>Conservation and motifs</small></span>
-  </a>
-  <a class="track-card" href="#manhattantrack">
-    <img src="../assets/figures/example-association.svg" alt="Association statistics above a genotype matrix" width="940" height="349" loading="lazy">
-    <span><strong>Association</strong><small>Statistics and genotypes</small></span>
-  </a>
-  <a class="track-card" href="#syntenytrack">
-    <img src="../assets/figures/example-synteny.svg" alt="A dotplot and synteny ribbons comparing two sequences" width="900" height="438" loading="lazy">
-    <span><strong>Synteny</strong><small>Genome comparison</small></span>
-  </a>
-  <a class="track-card" href="#msatrack">
-    <img src="../assets/figures/example-msa.svg" alt="Multiple sequence alignment coloured by nucleotide" width="940" height="327" loading="lazy">
-    <span><strong>Alignment</strong><small>Multiple sequences</small></span>
-  </a>
-  <a class="track-card" href="#windowtrack">
-    <img src="../assets/figures/example-selection.svg" alt="Windowed statistics plotted around their baselines" width="880" height="234" loading="lazy">
-    <span><strong>Selection</strong><small>Windowed statistics</small></span>
-  </a>
-  <a class="track-card" href="#genometrack">
-    <img src="../assets/figures/example-circular.svg" alt="Circular bacterial chromosome with genomic rings" width="688" height="688" loading="lazy">
-    <span><strong>Circular genome</strong><small>Whole-genome context</small></span>
-  </a>
-  <a class="track-card" href="#bisulfitetrack">
-    <img src="../assets/figures/example-bisulfite.svg" alt="Single-molecule bisulfite methylation calls" width="880" height="304" loading="lazy">
-    <span><strong>Methylation</strong><small>Reads and molecules</small></span>
-  </a>
-  <a class="track-card" href="#phylodynamictrack">
-    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometry, ancestral reconstruction, molecular selection, phylodynamics and lineage surveillance" width="1410" height="2057" loading="lazy">
-    <span><strong>Evolution</strong><small>Inference and surveillance through time</small></span>
-  </a>
-</div>
-
-<details class="track-overview">
-  <summary>See the main track gallery on one sheet</summary>
-  <img src="../assets/figures/gallery.svg" alt="A gallery of genomic plots on one sheet of twenty-two panels in three columns: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, a multiple sequence alignment, variable sites with a phylogeny, a tree, windowed statistics read against a baseline, a circular chromosome, raw nanopore signal, one locus compared across three genomes, Dam methylation across the E. coli origin of replication, an association scan across a whole draft assembly, structural variants as arcs between their breakpoints, the six reading frames, two trees face to face, a human imprinting control region read one molecule at a time, a coding sequence ruled in codons, one molecule aligned in three pieces, SARS-CoV-2 lineage deletions painted onto a phylogeny, and transcription units from start site to terminator" width="3472" height="1908" loading="lazy">
-</details>
-
-**Signal and sequence**
-[CoverageTrack](#coveragetrack) &middot;
-[WindowTrack](#windowtrack) &middot;
-[MethylationTrack](#methylationtrack) &middot;
-[SequenceTrack](#sequencetrack) &middot;
-[LogoTrack](#logotrack)
-
-**Annotation**
-[FeatureTrack](#featuretrack) &middot;
-[TranscriptionUnitTrack](#transcriptionunittrack) &middot;
-[OrfTrack](#orftrack)
-
-**Variation**
-[VariantTrack](#varianttrack) &middot;
-[StructuralTrack](#structuraltrack) &middot;
-[SnpTrack](#snptrack) &middot;
-[MatrixTrack](#matrixtrack) &middot;
-[ManhattanTrack](#manhattantrack) &middot;
-[SelectionTrack](#selectiontrack)
-
-**Reads and molecules**
-[PileupTrack](#pileuptrack) &middot;
-[SplitReadTrack](#splitreadtrack) &middot;
-[BisulfiteTrack](#bisulfitetrack) &middot;
-[SquiggleTrack](#squiggletrack)
-
-**Comparison**
-[MsaTrack](#msatrack) &middot;
-[DomainTrack](#domaintrack) &middot;
-[DotplotTrack](#dotplottrack) &middot;
-[SyntenyTrack](#syntenytrack) &middot;
-[LocusTrack](#locustrack)
-
-**Phylogeny**
-[TreeTrack](#treetrack) &middot;
-[TanglegramTrack](#tanglegramtrack) &middot;
-[CladeTrack](#cladetrack)
-
-**Evolution and surveillance**
-[PhylodynamicTrack](#phylodynamictrack) &middot;
-[SurveillanceTrack](#surveillancetrack)
-
-**Whole genome**
-[IdeogramTrack](#ideogramtrack) &middot;
-[GenomeTrack](#genometrack)
-
-**Scales and keys**
-[AxisTrack](#axistrack) &middot;
-[CodonTrack](#codontrack) &middot;
-[LegendTrack](#legendtrack)
+| Family | Tracks |
+|:--|:--|
+| Signal and sequence | [CoverageTrack](#coveragetrack), [WindowTrack](#windowtrack), [MethylationTrack](#methylationtrack), [SequenceTrack](#sequencetrack), [LogoTrack](#logotrack), [DynseqTrack](#dynseqtrack) |
+| Annotation | [FeatureTrack](#featuretrack), [TranscriptionUnitTrack](#transcriptionunittrack), [OrfTrack](#orftrack) |
+| Variation | [VariantTrack](#varianttrack), [StructuralTrack](#structuraltrack), [SnpTrack](#snptrack), [MatrixTrack](#matrixtrack), [ManhattanTrack](#manhattantrack), [SelectionTrack](#selectiontrack), [CopyNumberTrack](#copynumbertrack) |
+| Reads and molecules | [PileupTrack](#pileuptrack), [SplitReadTrack](#splitreadtrack), [BisulfiteTrack](#bisulfitetrack), [SquiggleTrack](#squiggletrack), [JunctionTrack](#junctiontrack) |
+| Comparison | [MsaTrack](#msatrack), [DomainTrack](#domaintrack), [DotplotTrack](#dotplottrack), [SyntenyTrack](#syntenytrack), [LocusTrack](#locustrack) |
+| Phylogeny | [TreeTrack](#treetrack), [TanglegramTrack](#tanglegramtrack), [CladeTrack](#cladetrack) |
+| Evolution and surveillance | [PhylodynamicTrack](#phylodynamictrack), [SurveillanceTrack](#surveillancetrack) |
+| Whole genome | [IdeogramTrack](#ideogramtrack), [GenomeTrack](#genometrack) |
+| Scales and keys | [AxisTrack](#axistrack), [CodonTrack](#codontrack), [LegendTrack](#legendtrack) |
 
 !!! note "What counts as a track"
     A track has to live on the figure's shared integer coordinate axis: its

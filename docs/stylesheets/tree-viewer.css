@@ -250,10 +250,29 @@
 
 .tv-spacer { flex: 1; }
 
-.tv-hint {
-  font-size: 0.65rem;
+/* How to drive it, as a list of short lines rather than one paragraph. */
+.md-typeset ul.tv-hint:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.25rem 1.6rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.68rem;
   color: var(--md-default-fg-color--light);
-  margin: 0.4rem 0 0;
+}
+
+[dir] .md-typeset ul.tv-hint > li {
+  margin: 0;
+}
+
+.md-typeset ul.tv-hint strong {
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .tv-intro {
+  max-width: 36rem;
+  color: var(--md-default-fg-color--light);
 }
 
 /* A triangle is a clade waiting to be opened, so it says so. */

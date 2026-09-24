@@ -1,11 +1,11 @@
 # File formats
 
-The parsing is in the library, as `karyon::read`, and every reader takes a
-`&str` rather than a path. Nothing in the crate opens a file to read one, so
-where the text came from stays your decision, and the dependency count stays at
-zero because every format below is line based text. There is one section per
-format, each saying which columns are read, which coordinate convention the
-file counts in, and what stops the figure rather than being skipped.
+karyon reads line-based text formats. This page has one section per format:
+which columns are read, which coordinate convention the format uses, and which
+problems stop the figure instead of being silently skipped.
+
+The readers live in the library as `karyon::read`. Each one takes the file's
+text as a string rather than a path, so where the text comes from is up to you:
 
 ```rust
 use karyon::{plot, read, Region};

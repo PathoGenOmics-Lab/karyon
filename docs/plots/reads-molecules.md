@@ -5,7 +5,7 @@ description: Aligned reads, split molecules, bisulfite patterns and raw nanopore
 
 <div class="plot-hero plot-hero--reads" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Reads and molecules</span>
+<span class="plot-eyebrow">Gallery · Reads and molecules</span>
 
 # Keep the evidence at molecule resolution
 
