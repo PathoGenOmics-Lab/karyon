@@ -1045,9 +1045,10 @@
 
    Material sets one face for the whole page. Headings get a second one, so a
    page has a voice before a word of it is read: Space Grotesk, whose figures
-   and capitals are drawn with the same flat, slightly technical hand the
-   logo's marker pen has, against Inter for the prose, which is the face to
-   read eight hundred lines of a formats page in.
+   and capitals are drawn with the same flat, slightly technical hand as the
+   banded k of the logo, against Inter for the prose, which is also the face
+   the rest of the logo is set in and the one to read eight hundred lines of a
+   formats page in.
 
    Loaded through the same Google Fonts mechanism the theme already uses for
    Inter and JetBrains Mono, so it costs no new machinery and no new host.

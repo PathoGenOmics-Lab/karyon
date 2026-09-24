@@ -1,6 +1,10 @@
 <div align="center">
-  <img src=".github/logo/karyon.svg" alt="karyon" width="200">
-  <h1>karyon</h1>
+  <h1>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/logo/karyon-dark.svg">
+      <img src=".github/logo/karyon.svg" alt="karyon" width="320">
+    </picture>
+  </h1>
   <p><strong>Genomic track plots for Rust. Composable tracks over a shared coordinate axis, rendered to standalone SVG.</strong></p>
 
   <p>

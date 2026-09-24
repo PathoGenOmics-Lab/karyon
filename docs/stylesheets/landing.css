@@ -57,36 +57,39 @@
    ------------------------------------------------------------------------- */
 
 .md-typeset .k-hero {
-  display: grid;
-  grid-template-columns: 13rem minmax(0, 1fr);
-  gap: 2.4rem;
-  align-items: center;
-  padding: 1.4rem 0 2.4rem;
+  padding: 1.6rem 0 2.4rem;
 }
 
-.md-typeset .k-hero-mark p {
-  margin: 0;
+/* The name, set as the logotype, above the sentence that says what it is. */
+.md-typeset .k-hero-mark {
+  margin: 0 0 1.6rem;
 }
 
-.md-typeset .k-hero-logo,
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark p > img.k-hero-logo {
-  display: block;
-  width: 100%;
-  height: auto;
+/* Sized here and shown or hidden below, in two rules of their own, so the
+   scheme decides which of the two images is on the page and nothing about
+   their size can outrank it. */
+.md-typeset .k-hero-mark img.k-hero-logo,
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo {
+  width: auto;
+  height: 4.4rem;
   padding: 0;
   background: none;
   border: 0;
   box-shadow: none;
 }
 
-/* Material hides the image for the other scheme with a rule this one must
-   not undo. */
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img[src$="#only-light"],
-[data-md-color-scheme="default"] .md-typeset .k-hero-mark img[src$="#only-dark"] {
+.md-typeset .k-hero-mark img.k-hero-logo--light,
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo--dark {
+  display: block;
+}
+
+.md-typeset .k-hero-mark img.k-hero-logo--dark,
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo--light {
   display: none;
 }
 
 .md-typeset .k-hero h1 {
+  text-wrap: balance;
   margin: 0 0 1rem;
   font-size: 2.5rem;
   line-height: 1.08;
@@ -620,14 +623,16 @@
     padding-inline: 0.8rem;
   }
   .md-typeset .k-hero {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.2rem;
-    padding: 1.6rem 0 1.4rem;
+    padding: 1.2rem 0 1.4rem;
     text-align: center;
   }
   .md-typeset .k-hero-mark {
-    width: 9rem;
-    margin: 0 auto;
+    margin: 0 0 1.2rem;
+  }
+  .md-typeset .k-hero-mark img.k-hero-logo,
+  [data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo {
+    height: 3.4rem;
+    margin-inline: auto;
   }
   .md-typeset .k-hero h1 {
     font-size: 1.8rem;

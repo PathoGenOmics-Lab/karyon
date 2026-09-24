@@ -8,12 +8,12 @@ hide:
 
 <section class="k-hero" markdown>
 
-<div class="k-hero-mark" markdown>
-![karyon](assets/karyon_logo.svg#only-light){ .k-hero-logo }
-![karyon](assets/karyon_logo_dark.svg#only-dark){ .k-hero-logo }
-</div>
-
 <div class="k-hero-say" markdown>
+
+<p class="k-hero-mark">
+  <img class="k-hero-logo k-hero-logo--light" src="assets/karyon_logo.svg" alt="karyon" width="628" height="184">
+  <img class="k-hero-logo k-hero-logo--dark" src="assets/karyon_logo_dark.svg" alt="" width="628" height="184">
+</p>
 
 # Genome figures for Rust, from code or from the shell
 
