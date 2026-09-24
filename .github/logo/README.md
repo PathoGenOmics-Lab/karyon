@@ -32,11 +32,21 @@ tracks stacked on it, and every row lined up.
 | Coverage | one column under every column of the name, 1 cell deep under the r |
 | Size | the logo is 117 by 79 cells with a margin of 2, the mark 26 by 35, the favicon 40 by 40 |
 
-The files are rectangles with crisp edges and nothing else: no font, no filter
-and no gradient, so nothing has to be installed to see them. Show them at a
-whole number of screen pixels per cell. Scaled by a fraction, a pixel drawing
-loses some of the one-pixel gaps between its bands, which is why the site draws
-the logo 351 or 234 pixels wide and the mark 35 high, and this README 351 wide.
+Each element is one outline: the name, the coverage, the call, the ruler, the
+zoom, and the chromosome with its bands painted over it. Where the colour
+changes from row to row, in the name and the coverage, the outline is filled
+with a gradient that steps at the row edges instead of being cut into a shape
+per row. Where two elements touch, as the zoom touches the box and, in the
+mark, the call touches its floor, the one painted first runs on under the
+other. Two shapes of different colours that meet edge to edge with nothing
+under them show a hairline in a PDF viewer or on paper, and no two shapes here
+do, so the files can go into a PDF, a poster or a vector editor as they are.
+There is no font and no filter, so nothing has to be installed to see them.
+
+Show them at a whole number of screen pixels per cell. Scaled by a fraction, a
+pixel drawing loses some of the one-pixel gaps between its bands, which is why
+the site draws the logo 351 or 234 pixels wide and the mark 35 high, and this
+README 351 wide.
 
 ## Colours
 
