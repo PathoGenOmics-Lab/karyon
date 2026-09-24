@@ -339,6 +339,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A list of changes written in braces is read whole. `Mutations::read` took
+  `[&muts={A123T,S:D614G,C241T}]` back as the text it prints as, braces and all,
+  so the first piece began with one and the last ended with the other and
+  neither read as a change: a list of three came back as its middle change, a
+  list of one or two as nothing, and the same list in quotes read in full.
+  `--carrying` then refused a change the tree does carry, naming only the middle
+  ones as what it had. The items are read one by one now, and a piece that is
+  not a change is still skipped rather than failing the tree, but it is counted
+  by `Mutations::unread` rather than dropped without a word.
 - A dynseq band shorter than its own labels no longer panics. The two bounds of
   the clamp that keeps a label inside the band cross once the band is shorter
   than the text is tall, and `clamp` panics rather than choosing, which a track

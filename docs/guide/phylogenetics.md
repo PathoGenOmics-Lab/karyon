@@ -72,10 +72,10 @@ them, since each leaves a compact tree.
 
 A change belongs to the branch above the node that carries it, so `carriers`
 answers with the whole subtree below, and a change that happened twice answers
-with both. Changes are read from a quoted list, spelled `A123T`, `S:D614G` or
-either with an `nt:` or `aa:` prefix; anything else is skipped, not guessed.
-`--carrying` marks and colours the carriers, and refuses a change the tree does
-not carry.
+with both. Changes are read from a quoted list or one in braces, spelled
+`A123T`, `S:D614G` or either with an `nt:` or `aa:` prefix; anything else is
+skipped, not guessed, and `unread` counts it. `--carrying` marks and colours
+the carriers, and refuses a change the tree does not carry.
 
 ## Draw time, branches and sample traits together
 
