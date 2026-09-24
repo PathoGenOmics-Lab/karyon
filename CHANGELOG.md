@@ -8,6 +8,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A structural variant's arc is measured against the widest call in view, not
+  the widest in the track. One translocation reaching 1.2 Mb away used to set
+  the scale for everything, and a 10 kb deletion in view arched to a tenth of
+  the band. The widest call lying wholly inside the view now reaches the top,
+  anything wider reaches it too, and when every call in view crosses an edge
+  each counts as no wider than the view. The top keeps room for the heaviest
+  stroke and, when one would be drawn there, the name over the tallest arc; a
+  band too short for that name drops it rather than cutting it.
+  `StructuralTrack::widest_in` and `arch_in` say what a given region draws;
+  `widest` and `arch` answer for a view that holds every call, as a fraction
+  of the band less that room.
 - Value axes tick at round values. Every track with a quantitative axis used to
   label the ends of whatever range the data came to, so a depth peaking at
   71.46 read 35.73 and 71.46, a population size read 2167.255 and a dated tree

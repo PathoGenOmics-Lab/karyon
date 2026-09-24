@@ -403,6 +403,15 @@ creates. A [VariantTrack](#varianttrack) draws one point per call and cannot say
 that, and a bar spanning the event says only that something happened in the
 middle, which is usually the one place nothing happened.
 
+Height is measured within the view. The widest call lying wholly inside it
+reaches the top of the band, less a little room for a name written over it, and
+a call wider than that, which can only be one leaving the view, reaches the top
+too, so a translocation off to the side does not press the arcs you are looking
+at flat against the axis. When every call in view crosses an edge, each counts
+as no wider than the view. Panning or zooming
+therefore rescales the arcs: read height as an ordering within one view, never
+as a length or across two.
+
 Put a [CoverageTrack](#coveragetrack) under it. Half of reading an SV call is
 whether the depth agrees, and a deletion with no drop under it is a call to
 argue with.
