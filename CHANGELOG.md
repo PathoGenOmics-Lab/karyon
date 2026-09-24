@@ -339,6 +339,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `ManhattanTrack` keeps one point of each look on each pixel instead of drawing
+  every test. A point drawn over one of its own shape and colour on the same
+  pixel adds an element to the document and nothing to the picture, and a
+  hundred thousand tests over a megabase were a hundred thousand elements and
+  5.9 MB; they are now eleven thousand elements and 0.6 MB, and a million tests
+  are 0.97 MB rather than 59 MB. The point kept is the last one drawn there, so
+  what was on top stays on top, and every point left out is less than a pixel
+  from one of its own look. `example-genomewide.svg` and the whole-assembly
+  panel of the gallery lose the background points that sat on a pixel with one
+  like them, and look the same. A tower of hits packed onto a few pixels shows
+  more of the significant colour than it did, since fewer rings in the page
+  colour are drawn over it.
+- The documentation of `read::point::associations` said the value was a p-value
+  the track would put on a log scale. The track draws it as given, as the format
+  guide and `--threshold` already said, so a table is written as `-log10(p)`,
+  and `Association::from_p_value` converts one.
 - Three playground examples drew something other than what they said. The
   modified-bases example wrote 1 as the modified count of every row, and the
   reader takes the fraction as that count over the coverage, as modkit writes

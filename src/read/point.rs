@@ -105,8 +105,10 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
 /// in front of them. A header line naming the columns is allowed and skipped.
 /// Positions are 1-based, as every association tool writes them.
 ///
-/// The value is taken as a p-value and handed over as it is; the track is what
-/// decides to draw it on a log scale.
+/// The value is handed over as it is written, and the track draws it as given,
+/// higher meaning stronger, so a scan is written as `-log10(p)` or another
+/// score that grows with the evidence. A column of raw p-values would put the
+/// strongest hits at the bottom; [`Association::from_p_value`] converts one.
 pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, ReadError> {
     let mut points = Vec::new();
     let mut first = true;
@@ -456,6 +458,26 @@ pos\tp
             "position 4100 is 4099 counting from zero"
         );
         assert_eq!(points[0].value, 3.2e-9);
+    }
+
+    #[test]
+    fn a_value_comes_through_as_written_since_the_track_draws_it_as_given() {
+        // The table the format guide shows, spaces and all. Nothing between
+        // the file and the track takes a logarithm, so a scan arrives as
+        // -log10(p) already, in the units --threshold is given in.
+        let text = "\
+chrom         pos   neglog10p
+Pf3D7_07_v3   4100  8.49
+Pf3D7_08_v3   4110  12.0
+Pf3D7_07_v3   4150  0.40
+";
+        let region = Region::parse("Pf3D7_07_v3:4,000-4,200").unwrap();
+        let values: Vec<f64> = associations(text, &region)
+            .unwrap()
+            .iter()
+            .map(|point| point.value)
+            .collect();
+        assert_eq!(values, vec![8.49, 0.40]);
     }
 
     #[test]

@@ -12,6 +12,16 @@
 //! findable where the crowd is densest without swallowing the neighbours it has
 //! to be seen against.
 //!
+//! # What a pixel holds
+//!
+//! A scan is usually far denser than the page: a hundred thousand tests over a
+//! megabase put more than a hundred on every pixel column. A point drawn over
+//! one of its own shape and colour on the same pixel is the same ink twice, so
+//! each pixel keeps one point of each look, and the document grows with the
+//! figure rather than with the scan. The point kept is the last one drawn
+//! there, the one that was on top, and every point left out is less than a
+//! pixel away, in each direction, from one of its own look that is drawn.
+//!
 //! # Where significance starts is not decided here
 //!
 //! [`ManhattanTrack::threshold`] takes a number from the caller,
@@ -21,6 +31,8 @@
 //! conventional `-log10(p)`, but a test statistic or a Bayes factor plots the
 //! same way and only [`ManhattanTrack::unit`] tells the axis which of them it
 //! is showing.
+
+use std::collections::BTreeSet;
 
 use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis, Symbol};
@@ -67,6 +79,10 @@ impl Association {
 /// A genome-wide plot that lays every chromosome end to end is a different
 /// coordinate system, and this crate does not pretend otherwise: give it a
 /// region spanning the sequence you are testing.
+///
+/// Each pixel keeps one point of each look however many tests land on it, so
+/// the SVG grows with the figure rather than with the scan (see
+/// [the module](crate::track::manhattan)).
 ///
 /// ```
 /// use karyon::{Association, Figure, ManhattanTrack, Region};
@@ -376,27 +392,41 @@ impl Track for ManhattanTrack {
             );
         }
 
-        for point in &self.points {
+        // A point drawn over one of its own look on the same pixel is the same
+        // ink twice, which adds an element to the document and nothing to the
+        // picture, and a scan is usually far denser than its pixels. So each
+        // pixel keeps one point of each look, and the one kept is the last,
+        // since the last was on top: keeping the first would bring a hit in
+        // front of a miss that was drawn over it. Measured on a hundred
+        // thousand tests over a megabase, 101,385 elements and 5.9 MB became
+        // 10,996 elements and 0.6 MB.
+        let mut taken: BTreeSet<(i64, i64, bool, u8, bool)> = BTreeSet::new();
+        let mut kept: Vec<(f64, f64, bool, Symbol, bool)> = Vec::new();
+        for point in self.points.iter().rev() {
             if !ctx.region.contains(point.pos) || !point.value.is_finite() {
                 continue;
             }
+            let (x, y) = (ctx.scale.x_center(point.pos), y_of(point.value));
             let above = self.threshold.is_some_and(|t| point.value >= t);
-            // Every other sequence a shade lighter, which is what separates one
-            // chromosome from the next when the axis is all of them.
-            let banded = if self.bands.len() > 1 && self.band_of(point.pos) % 2 == 1 {
-                mix(&plain, ctx.theme.surface(), 0.42)
+            // A hit looks the same in every band. A miss takes the shape of its
+            // band, and every other sequence a shade lighter, which is what
+            // separates one chromosome from the next when the axis is all of
+            // them.
+            let (symbol, lighter) = if above {
+                (Symbol::Diamond, false)
             } else {
-                plain.clone()
+                let nth = self.band_of(point.pos);
+                (ctx.theme.symbol(nth), self.bands.len() > 1 && nth % 2 == 1)
             };
-            let color = if above { &significant } else { &banded };
-            let x = ctx.scale.x_center(point.pos);
-            let y = y_of(point.value);
-            let radius = self.radius * ctx.visual_scale;
-            let symbol = if above {
-                Symbol::Diamond
-            } else {
-                ctx.theme.symbol(self.band_of(point.pos))
-            };
+            let pixel = (x.round() as i64, y.round() as i64);
+            if taken.insert((pixel.0, pixel.1, above, symbol as u8, lighter)) {
+                kept.push((x, y, above, symbol, lighter));
+            }
+        }
+
+        let shaded = mix(&plain, ctx.theme.surface(), 0.42);
+        let radius = self.radius * ctx.visual_scale;
+        for &(x, y, above, symbol, lighter) in kept.iter().rev() {
             if above {
                 // A hit is worth a ring, so it stays a point where the texture
                 // around it is densest.
@@ -405,11 +435,12 @@ impl Track for ManhattanTrack {
                     y,
                     radius + ctx.theme.tokens.hairline,
                     symbol,
-                    color,
+                    &significant,
                     ctx.theme.surface(),
                     ctx.theme.tokens.hairline,
                 );
             } else {
+                let color = if lighter { &shaded } else { &plain };
                 ctx.svg.symbol(x, y, radius, symbol, color);
             }
         }
@@ -611,5 +642,98 @@ mod tests {
             .push(ManhattanTrack::new(points).show_scale(false))
             .to_svg();
         assert!(!svg.contains("<circle"));
+    }
+
+    #[test]
+    fn marks_are_bounded_by_the_pixels_and_not_by_the_points() {
+        // Every test was drawn before this, so the band here held a hundred
+        // thousand circles, more than six for every pixel it has, and a scan
+        // of that size through the command line was 5.9 MB. A point drawn over
+        // one of its own look on the same pixel adds an element to the
+        // document and nothing to the picture.
+        let points: Vec<Association> = (0..100_000u64)
+            .map(|i| Association::new(i * 10, (i * 7_919 % 1_000) as f64 / 100.0))
+            .collect();
+        let (width, height) = (400.0, 40.0);
+        let svg = Figure::new(Region::new("chr1", 0, 1_000_000).unwrap())
+            .width(width)
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points).height(height).show_scale(false))
+            .to_svg();
+
+        // The band is no wider than the figure and exactly as tall as asked,
+        // so this is every pixel a mark can be centred on.
+        let pixels = ((width + 1.0) * (height + 1.0)) as usize;
+        let marks = svg.matches("<circle").count();
+        assert!(
+            marks <= pixels,
+            "{marks} marks for a band of at most {pixels} pixels"
+        );
+    }
+
+    #[test]
+    fn a_pixel_keeps_one_mark_of_each_look_and_the_one_on_top() {
+        // A miss, a hit and a second miss on one pixel. The hit and the misses
+        // look different, so both looks are drawn; the second miss was drawn
+        // over the first and over the hit, so it is the miss kept, and it
+        // still goes on after the hit. Keeping the first of each look instead
+        // would bring the hit in front of what used to cover it.
+        let at = 5_000;
+        let points = vec![
+            Association::new(at, 5.0 - 1e-9),
+            Association::new(at, 5.0),
+            Association::new(at, 5.0 - 2e-9),
+        ];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points).threshold(5.0).show_scale(false))
+            .to_svg();
+
+        assert_eq!(svg.matches("<circle").count(), 1, "one miss on one pixel");
+        assert_eq!(
+            svg.matches("<polygon").count(),
+            2,
+            "the hit, a diamond and its ring"
+        );
+        let hit = svg.rfind("<polygon").unwrap();
+        let miss = svg.rfind("<circle").unwrap();
+        assert!(
+            miss > hit,
+            "the hit was brought in front of the miss over it"
+        );
+    }
+
+    #[test]
+    fn a_pixel_holds_one_mark_per_look_and_not_one_per_sequence() {
+        // Four sequences a base long after the first, so a point on the first,
+        // the second and the fifth all land on one pixel. The first and the
+        // fifth are drawn alike, a circle in the plain shade, and the second
+        // is a square a shade lighter, which is a mark of its own.
+        let points = vec![
+            Association::new(999, 3.0),
+            Association::new(1_000, 3.0),
+            Association::new(1_003, 3.0),
+        ];
+        let svg = Figure::new(Region::new("genome", 0, 100_000).unwrap())
+            .show_region_label(false)
+            .push(
+                ManhattanTrack::new(points)
+                    .bands(vec![0u64, 1_000, 1_001, 1_002, 1_003])
+                    .show_scale(false),
+            )
+            .to_svg();
+
+        let plain = Theme::light().muted;
+        let lighter = mix(&plain, Theme::light().surface(), 0.42);
+        assert_eq!(
+            svg.matches(&format!("fill=\"{plain}\"")).count(),
+            1,
+            "two circles in one shade on one pixel"
+        );
+        assert_eq!(
+            svg.matches(&format!("fill=\"{lighter}\"")).count(),
+            1,
+            "the lighter square went with them"
+        );
     }
 }

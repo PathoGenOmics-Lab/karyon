@@ -218,9 +218,11 @@ the output:
   (`--style tick`), and names none of them in a tooltip. Two hundred thousand
   calls over four megabases come to about 150 KB as ticks, and to about 49 MB
   as lollipops, which draw every call.
-- **[`ManhattanTrack`](../tracks/variation.md#manhattantrack)** does not bin: it
-  draws every point it is given, so a scan of a million tests is a document of
-  a million marks.
+- **[`ManhattanTrack`](../tracks/variation.md#manhattantrack)** draws at most
+  one point of each look on each pixel: a hit, or a miss in the shape and shade
+  of its sequence. The one kept is the last drawn there, so what was on top
+  stays on top. A hundred thousand tests over a megabase come to about eleven
+  thousand points and 0.6 MB, where drawing every one of them came to 5.9 MB.
 
 ## Height follows the zoom
 

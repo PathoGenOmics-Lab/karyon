@@ -1129,6 +1129,64 @@ fn a_track_is_drawn_the_same_whatever_is_stacked_under_it() {
     );
 }
 
+#[test]
+fn a_scan_with_every_test_given_twice_is_the_same_document() {
+    // A metamorphic property. Which point a Manhattan track keeps where several
+    // share a pixel is its own business, but a test given twice lands where it
+    // already is, in the look it already has, so it adds nothing to the
+    // picture and must add nothing to the document. When every test was an
+    // element of its own, this doubled the file.
+    let mut drawn = 0u64;
+    for seed in 0..ROUNDS {
+        let mut rng = Lcg::new(seed);
+        let window = region(&mut rng);
+        let (start, span) = (window.start(), window.len());
+        // Crowded onto a few pixels now and then, so that hits, misses and
+        // bands meet on one pixel rather than only ever arriving apart.
+        let reach = if rng.chance(3) { span.min(64) } else { span };
+        let points: Vec<Association> = (0..rng.count())
+            .map(|_| {
+                let at = if rng.chance(5) {
+                    rng.position(span)
+                } else {
+                    start.saturating_add(rng.below(reach))
+                };
+                Association::new(at, rng.value())
+            })
+            .collect();
+        let threshold = rng.chance(2).then(|| rng.value());
+        let bands: Vec<u64> = (0..rng.below(6))
+            .map(|_| start.saturating_add(rng.below(reach)))
+            .collect();
+
+        let draw = |points: Vec<Association>| {
+            let mut track = ManhattanTrack::new(points).bands(bands.clone());
+            if let Some(threshold) = threshold {
+                track = track.threshold(threshold);
+            }
+            Figure::new(window.clone()).push(track).to_svg()
+        };
+        let once = draw(points.clone());
+        let twice = draw([points.clone(), points.clone()].concat());
+        assert_eq!(
+            once,
+            twice,
+            "seed {seed}: {} tests given twice over {window} drew a different document",
+            points.len()
+        );
+        drawn += u64::from(
+            points
+                .iter()
+                .any(|point| window.contains(point.pos) && point.value.is_finite()),
+        );
+    }
+    // Not vacuous: most rounds have a point on the page to draw twice.
+    assert!(
+        drawn * 2 > ROUNDS,
+        "only {drawn} of {ROUNDS} scans had a point to draw"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Trees
 // ---------------------------------------------------------------------------
