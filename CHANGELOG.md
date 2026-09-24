@@ -339,6 +339,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Three playground examples drew something other than what they said. The
+  modified-bases example wrote 1 as the modified count of every row, and the
+  reader takes the fraction as that count over the coverage, as modkit writes
+  it, so a site generated at 88 per cent read "3% modified in 40 reads"; the
+  counts now carry the fraction. The split-reads example offered a `--height`
+  control that the command line refuses for that track, so every choice failed,
+  and it is gone. The variable-sites example offered a window to move along,
+  which the panel does not draw on, and now says so instead.
 - The crate and the site say what the readers and the drawing do. The crate
   documentation said karyon does no I/O beyond `save_svg`, while the command
   line's `cli::stack::open_from_disk` reads paths and standard input; it now
