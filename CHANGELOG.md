@@ -339,6 +339,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A line stops at a missing value and starts again after it, rather than running
+  straight across. A coverage track in the `Area` and `Line` styles joined the
+  last column before a gap to the first one after, so a hundred bases of `NaN`
+  in a three hundred base profile, or a bedGraph row reading `nan`, came out as
+  a 282 pixel segment at a depth nothing measured, filled underneath in the
+  default style, while `Bars` and the track's own documentation left the stretch
+  empty. The same bridge crossed a window with no value or a stretch nobody
+  windowed in a `WindowTrack` drawn as a line, samples with no current in a
+  zoomed `SquiggleTrack` trace, an estimate a `PhylodynamicTrack` could not
+  place on its axis, and, in a `SurveillanceTrack`, a time whose every row was
+  unreadable as a frequency, straight through the diamond saying so. A value
+  standing alone between two gaps is now drawn across its own width, because a
+  line of one point draws nothing: one column of depth in view used to leave the
+  band blank. Every committed figure is byte for byte what it was, since none of
+  them has a gap in a line.
+- `Aggregate::Max` no longer says it is the one for dropouts. The covered bases
+  beside a dropout narrower than a pixel column still set that column's maximum,
+  so it hides exactly that; `Aggregate::Min` shows it, which is what the module
+  documentation and the site already said.
 - A figure's width is held to its floor when the figure is laid out, not when
   `width` is called, so a margin or a label gutter counts the same written
   before `width` as after it. The floor is the smallest width that leaves a

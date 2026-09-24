@@ -32,7 +32,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, QuantitativeAxis};
 use crate::svg::Anchor;
 use crate::theme::Theme;
-use crate::track::{DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Track};
 
 /// Where a called base starts in the signal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,16 +314,29 @@ impl Track for SquiggleTrack {
         if per_px >= self.point_threshold.max(0.01) {
             // Zoomed in far enough that a sample is a thing you can point at,
             // so it is drawn as one rather than as part of an envelope.
-            let points: Vec<(f64, f64)> = self
-                .visible(ctx.region)
-                .filter_map(|index| {
-                    self.sample(index)
-                        .map(|value| (ctx.scale.x_center(index as u64), y_of(value)))
-                })
-                .collect();
-            ctx.svg.polyline(&points, &color, 1.4);
+            //
+            // The trace stops at a sample with no current in it and starts
+            // again after, because drawn as one line it ran straight across,
+            // a current at every moment of a stretch where none was recorded.
+            let runs = unbroken(self.visible(ctx.region).map(|index| {
+                self.sample(index)
+                    .map(|value| (ctx.scale.x_center(index as u64), y_of(value)))
+            }));
+            for run in &runs {
+                match run[..] {
+                    // A sample standing alone between two gaps is still a
+                    // measurement, and a line needs two ends, so it is drawn
+                    // across its own width rather than dropped.
+                    [(x, y)] => ctx.svg.polyline(
+                        &[(x - per_px / 2.0, y), (x + per_px / 2.0, y)],
+                        &color,
+                        1.4,
+                    ),
+                    _ => ctx.svg.polyline(run, &color, 1.4),
+                }
+            }
             if per_px >= self.point_threshold * 2.5 {
-                for (x, y) in &points {
+                for (x, y) in runs.iter().flatten() {
                     ctx.svg
                         .circle_ringed(*x, *y, 1.8, &color, ctx.theme.surface(), 0.8);
                 }
@@ -713,5 +726,50 @@ mod tests {
             .to_svg();
         assert!(svg.starts_with("<svg "));
         assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn missing_samples_are_a_gap_in_the_trace() {
+        // Ten samples with no current in them, and the trace used to run
+        // straight from the last one before to the first one after, a current
+        // drawn at every moment of a stretch where none was recorded.
+        let mut holed = signal()[..80].to_vec();
+        for sample in &mut holed[30..40] {
+            *sample = f64::NAN;
+        }
+        let svg = Figure::new(region(80))
+            .show_region_label(false)
+            .push(SquiggleTrack::new(0, holed))
+            .to_svg();
+        let lines = crate::track::polylines(&svg);
+        let steps: Vec<f64> = lines
+            .iter()
+            .flat_map(|line| line.windows(2).map(|pair| pair[1].0 - pair[0].0))
+            .collect();
+        let sample = steps.iter().copied().fold(f64::INFINITY, f64::min);
+        for step in &steps {
+            assert!(
+                *step <= sample * 1.5,
+                "a segment {step} pixels long joins samples {sample} pixels apart"
+            );
+        }
+        assert_eq!(lines.len(), 2, "one trace either side of the gap");
+    }
+
+    #[test]
+    fn a_sample_standing_alone_is_drawn_rather_than_dropped() {
+        // Zoomed in far enough that the samples are a trace and not far enough
+        // for each to be marked, one sample with no neighbour was one point of
+        // a line, and a line of one point is not drawn.
+        let mut lone = vec![f64::NAN; 120];
+        lone[60] = 100.0;
+        let svg = Figure::new(region(120))
+            .show_region_label(false)
+            .push(SquiggleTrack::new(0, lone))
+            .to_svg();
+        assert!(!svg.contains("<circle"), "a zoom with no sample markers");
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 1, "the one sample is drawn");
+        assert_eq!(lines[0][0].1, lines[0][1].1, "flat, at its own current");
     }
 }

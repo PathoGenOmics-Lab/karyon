@@ -40,9 +40,9 @@
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis};
-use crate::svg::Anchor;
+use crate::svg::{Anchor, SvgWriter};
 use crate::theme::Theme;
-use crate::track::{DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Track};
 
 /// One window and the value computed in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -575,52 +575,58 @@ impl Track for WindowTrack {
                 // A line cannot show both ends of a column that swings either
                 // way, so it shows the mean of the column and the baseline
                 // underneath it says which side that fell on.
-                let points: Vec<(f64, f64, bool)> = columns
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, column)| {
-                        column.mean().map(|mean| {
-                            (
-                                band.x + index as f64 + 0.5,
-                                y_of(mean),
-                                mean >= self.baseline,
-                            )
-                        })
+                let points = columns.iter().enumerate().map(|(index, column)| {
+                    column.mean().map(|mean| {
+                        (
+                            band.x + index as f64 + 0.5,
+                            y_of(mean),
+                            mean >= self.baseline,
+                        )
                     })
-                    .collect();
-                // Broken into runs either side of the baseline, so the line
-                // wears the same two colours the blocks do. One colour for the
-                // whole trace would say every window was above the line.
-                let mut run: Vec<(f64, f64)> = Vec::new();
-                let mut side = points.first().map(|point| point.2).unwrap_or(true);
-                for (x, y, up) in &points {
-                    if *up != side && run.len() > 1 {
-                        ctx.svg.polyline_pattern(
-                            &run,
-                            if side { &above } else { &below },
-                            ctx.theme.tokens.strong_stroke,
-                            if side {
-                                LinePattern::Solid
-                            } else {
-                                LinePattern::Dashed
-                            },
-                        );
-                        run = vec![*run.last().expect("the run is not empty")];
-                    }
-                    side = *up;
-                    run.push((*x, *y));
-                }
-                if run.len() > 1 {
-                    ctx.svg.polyline_pattern(
-                        &run,
-                        if side { &above } else { &below },
-                        ctx.theme.tokens.strong_stroke,
-                        if side {
+                });
+                let weight = ctx.theme.tokens.strong_stroke;
+                let stroke = |svg: &mut SvgWriter, run: &[(f64, f64)], up: bool| {
+                    svg.polyline_pattern(
+                        run,
+                        if up { &above } else { &below },
+                        weight,
+                        if up {
                             LinePattern::Solid
                         } else {
                             LinePattern::Dashed
                         },
                     );
+                };
+                // A column that no window with a value reaches is a gap in the
+                // statistic, a window with no answer or a stretch nobody
+                // windowed, and the line stops there. Drawn as one trace it ran
+                // straight across, from the last value before the gap to the
+                // first one after.
+                for points in unbroken(points) {
+                    // A column standing alone between two gaps still holds a
+                    // value, and a line needs two ends, so it is drawn across
+                    // its own width rather than dropped.
+                    if let [(x, y, up)] = points[..] {
+                        stroke(ctx.svg, &[(x - 0.5, y), (x + 0.5, y)], up);
+                        continue;
+                    }
+                    // Broken into runs either side of the baseline, so the line
+                    // wears the same two colours the blocks do. One colour for
+                    // the whole trace would say every window was above the
+                    // line.
+                    let mut run: Vec<(f64, f64)> = Vec::new();
+                    let mut side = points[0].2;
+                    for (x, y, up) in &points {
+                        if *up != side && run.len() > 1 {
+                            stroke(ctx.svg, &run, side);
+                            run = vec![*run.last().expect("the run is not empty")];
+                        }
+                        side = *up;
+                        run.push((*x, *y));
+                    }
+                    if run.len() > 1 {
+                        stroke(ctx.svg, &run, side);
+                    }
                 }
             }
         }
@@ -849,5 +855,58 @@ mod tests {
             .push(WindowTrack::new(windows()).style(WindowStyle::Line))
             .to_svg();
         assert!(svg.contains("<polyline"));
+    }
+
+    #[test]
+    fn a_window_with_no_answer_is_a_gap_in_the_line() {
+        // The second window held nothing to compute a value from, and the
+        // stretch after the fourth was never windowed at all. Neither has a
+        // value, and the line used to run straight across both, from the last
+        // column before each to the first one after it.
+        let windows = vec![
+            Window::new(0, 500, 0.5),
+            Window::new(500, 1_000, f64::NAN),
+            Window::new(1_000, 1_500, 0.5),
+            Window::new(1_500, 2_000, 0.5),
+            Window::new(2_500, 3_000, 0.5),
+        ];
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(WindowTrack::new(windows).style(WindowStyle::Line))
+            .to_svg();
+        let lines = crate::track::polylines(&svg);
+        for line in &lines {
+            for pair in line.windows(2) {
+                assert!(
+                    pair[1].0 - pair[0].0 <= 1.0 + 1e-9,
+                    "{:?} is joined to {:?}, {} pixels on, over columns that hold nothing",
+                    pair[0],
+                    pair[1],
+                    pair[1].0 - pair[0].0
+                );
+            }
+        }
+        assert_eq!(lines.len(), 3, "one line per unbroken stretch");
+    }
+
+    #[test]
+    fn a_window_standing_alone_is_drawn_rather_than_dropped() {
+        // One base wide in three megabases, so a single pixel column holds it
+        // and every other column holds nothing. A line needs two ends, and the
+        // only window on screen used to be drawn as no line at all.
+        let svg = Figure::new(Region::new("chr1", 0, 3_000_000).unwrap())
+            .show_region_label(false)
+            .push(
+                WindowTrack::new(vec![Window::new(1_500_000, 1_500_001, 0.5)])
+                    .style(WindowStyle::Line),
+            )
+            .to_svg();
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 1, "the one window on screen is drawn");
+        assert!(
+            (lines[0][1].0 - lines[0][0].0 - 1.0).abs() < 1e-9,
+            "across its own column: {:?}",
+            lines[0]
+        );
     }
 }

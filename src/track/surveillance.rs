@@ -258,20 +258,22 @@ impl Track for SurveillanceTrack {
         // this file's existing way of saying "here is something I did not
         // draw", and a second way of saying it would be one more thing to keep
         // right.
-        if self.metric == SurveillanceMetric::Frequency {
-            for observation in self
+        let undrawn: Vec<&SurveillanceObservation> = match self.metric {
+            SurveillanceMetric::Frequency => self
                 .observations
                 .iter()
                 .filter(|observation| ctx.region.contains(observation.time))
                 .filter(|observation| !observation.is_drawable())
-            {
-                let reason = if observation.total == 0 {
-                    "no denominator, so there is no frequency"
-                } else {
-                    "a count above its total is not a frequency"
-                };
-                name_undrawn(ctx, reason, observation, top, 0);
-            }
+                .collect(),
+            SurveillanceMetric::Count => Vec::new(),
+        };
+        for observation in &undrawn {
+            let reason = if observation.total == 0 {
+                "no denominator, so there is no frequency"
+            } else {
+                "a count above its total is not a frequency"
+            };
+            name_undrawn(ctx, reason, observation, top, 0);
         }
 
         let observations = self.valid_observations(ctx);
@@ -284,8 +286,14 @@ impl Track for SurveillanceTrack {
                 lineages.push(observation.lineage.clone());
             }
         }
+        // A time whose rows were named above as undrawn stays on the grid,
+        // holding no value for anyone. Left off it, a trajectory ran straight
+        // through the diamond, drawing a frequency at the very time the panel
+        // had just said it could not draw one, and broke there only when some
+        // other lineage happened to be read at that time.
         let times: Vec<u64> = observations
             .iter()
+            .chain(&undrawn)
             .map(|observation| observation.time)
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -917,6 +925,60 @@ mod tests {
         assert!(!svg.contains("thin | time"), "{svg}");
         assert!(svg.contains("kept | time 3"), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    #[test]
+    fn a_time_whose_rows_could_not_be_read_is_a_gap_in_the_trajectory() {
+        // At week two the table has a row for the lineage and it cannot be read
+        // as a frequency, which the panel says with a diamond at week two. The
+        // line used to run straight through that diamond, from week one to week
+        // three, drawing a frequency at the very week the panel had just said
+        // it could not draw one. With a second lineage observed that week it
+        // already broke, so whether it did depended on a row about something
+        // else.
+        let svg = Figure::new(Region::new("week", 0, 5).unwrap())
+            .push(
+                SurveillanceTrack::new(vec![
+                    SurveillanceObservation::new(1, "A", 5, 100),
+                    SurveillanceObservation::new(2, "A", 250, 100),
+                    SurveillanceObservation::new(3, "A", 10, 100),
+                ])
+                .style(SurveillanceStyle::Lines),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("a count above its total is not a frequency | A | time 2"),
+            "{svg}"
+        );
+        let lines = crate::track::polylines(&svg);
+        assert!(lines.is_empty(), "drawn through week two: {lines:?}");
+    }
+
+    #[test]
+    fn a_time_whose_rows_could_not_be_read_is_a_gap_in_the_stack() {
+        // The same week in a composition. Nothing was sequenced, so every row
+        // has a total of nought, and the stacked bands used to be filled
+        // straight across it.
+        let svg = Figure::new(Region::new("week", 0, 5).unwrap())
+            .push(SurveillanceTrack::new(vec![
+                SurveillanceObservation::new(1, "A", 60, 100),
+                SurveillanceObservation::new(1, "B", 40, 100),
+                SurveillanceObservation::new(2, "A", 0, 0),
+                SurveillanceObservation::new(2, "B", 0, 0),
+                SurveillanceObservation::new(3, "A", 70, 100),
+                SurveillanceObservation::new(3, "B", 30, 100),
+            ]))
+            .to_svg();
+        assert!(
+            svg.contains("no denominator, so there is no frequency | A | time 2"),
+            "{svg}"
+        );
+        let bands: Vec<&str> = svg
+            .split("<path d=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert!(bands.is_empty(), "filled across week two: {bands:?}");
     }
 
     #[test]

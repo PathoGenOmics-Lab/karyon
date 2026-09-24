@@ -143,8 +143,8 @@ Two smaller rules go with it:
   column.
 - **A column with no finite value under it is missing, not zero.** No point is
   emitted for it, so missing data is never drawn as zero depth. In the `Bars`
-  style the column stays empty; in `Area` and `Line` the outline runs straight
-  on to the next column that has data.
+  style the column stays empty; in `Area` and `Line` the outline stops at it
+  and starts again at the next column that has data.
 
 A base that a bedGraph or a `samtools depth` file leaves out is a different
 case. `CoverageTrack::from_spans`, like `--coverage`, starts from zero over the
