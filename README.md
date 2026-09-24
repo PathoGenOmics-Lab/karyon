@@ -64,8 +64,9 @@ let svg = plot("NC_000962.3:761000-761200")?
 ```
 
 Thirty-six track types compose that way, over one region, in the order you
-write them. No runtime dependencies, no I/O beyond an optional `save_svg`, and
-plain SVG 1.1 that opens unchanged in a browser, in Inkscape and in Illustrator.
+write them. No runtime dependencies, no I/O while drawing beyond an optional
+`save_svg`, and plain SVG 1.1 that opens unchanged in a browser, in Inkscape
+and in Illustrator.
 
 <details>
   <summary><strong>Most kinds of plot it draws, on one sheet</strong></summary>

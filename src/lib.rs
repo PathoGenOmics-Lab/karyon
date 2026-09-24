@@ -3,9 +3,10 @@
 //! `karyon` draws the kind of figure a genome browser draws: a stack of tracks
 //! over one shared coordinate axis, so a read depth profile, the reference
 //! bases, the gene models and the variant calls all line up on the same
-//! position. It has no runtime dependencies, does no I/O beyond an optional
-//! `save_svg`, and emits plain SVG 1.1 that opens unchanged in a browser, in
-//! Inkscape and in Illustrator.
+//! position. It has no runtime dependencies and emits plain SVG 1.1 that opens
+//! unchanged in a browser, in Inkscape and in Illustrator. Drawing does no I/O:
+//! a figure is written only by an optional `save_svg`, and the one function
+//! that reads a path, [`cli::stack::open_from_disk`], is the command line's.
 //!
 //! # 0-based inside, 1-based where a reader looks
 //!
@@ -21,12 +22,16 @@
 //!
 //! # Files are text, and text is somebody else's problem
 //!
-//! [`read`] turns BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`
-//! and FASTA into the vectors the tracks take, and [`Tree::parse_newick`]
-//! turns Newick into the [`Tree`] a [`TreeTrack`] draws. Every one of those
-//! functions takes a `&str`: none of them opens a path to read one, so where
-//! the text came from stays the caller's decision, and the dependency count
-//! stays at zero because all nine formats are lines of text.
+//! [`read`] turns the text a genomics shell already writes into the vectors
+//! the tracks take: BED, bedGraph, GFF3, cytoBand, VCF, SAM, PAF, FASTA and
+//! aligned FASTA, `samtools depth`, `modkit`'s bedMethyl, Bismark's extractor
+//! output, an aligner's splice junctions, InterProScan's table, and tables of
+//! association statistics, copy number segments, genotypes and sample facts.
+//! [`Tree::parse_newick`] turns Newick into the [`Tree`] a [`TreeTrack`]
+//! draws. Every one of those functions takes a `&str`: none of them opens a
+//! path to read one, so where the text came from stays the caller's decision,
+//! and the dependency count stays at zero because every format is lines of
+//! text.
 //!
 //! # Four tracks, one region, one call each
 //!

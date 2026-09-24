@@ -213,7 +213,7 @@ The three flags read it differently:
 | Columns | exactly four | four or more, the rest ignored | four or more, the rest ignored |
 | A row becomes | its value on every base it covers | one window, kept whole | its score on every base it covers |
 | A base no row covers | 0 | nothing drawn | unscored: no letter, and a gap in the rule beneath |
-| A value that is not a number | refused | refused | leaves its bases unscored |
+| A value that is not a number | refused, but `nan` and `inf` are read as missing and leave a gap | refused, but `nan` and `inf` leave their window empty | leaves its bases unscored |
 
 `--coverage` also refuses overlapping rows, the sign of
 [two-sample depth](#a-coverage-file), unless `--format bedgraph` is given.

@@ -493,7 +493,6 @@ fn median_of(values: &[f64]) -> f64 {
     }
 }
 
-/// Two decimals at most, and none when they would be zeros.
 #[cfg(test)]
 mod tests {
     use super::*;

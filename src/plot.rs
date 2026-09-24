@@ -770,7 +770,7 @@ impl<T: Slot> Plot<T> {
         self.settle().park(VariantTrack::new(variants))
     }
 
-    /// A statistic computed in windows, as a line, bars or steps.
+    /// A statistic computed in windows, drawn as steps or as a line.
     pub fn add_windows(self, windows: impl Into<Vec<Window>>) -> Plot<WindowTrack> {
         self.settle().park(WindowTrack::new(windows))
     }

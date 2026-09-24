@@ -339,6 +339,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The crate and the site say what the readers and the drawing do. The crate
+  documentation said karyon does no I/O beyond `save_svg`, while the command
+  line's `cli::stack::open_from_disk` reads paths and standard input; it now
+  says drawing does no I/O and names that one function. Its list of what `read`
+  takes had stopped at nine formats and now names the rest, from PAF and
+  bedMethyl to InterProScan's table. The formats page said `--coverage` and
+  `--windows` refuse a value that is not a number, and `nan` and `inf` are read
+  as missing and leave a gap; it says so. `add_windows` offered bars, which
+  `WindowStyle` does not have.
 - A line stops at a missing value and starts again after it, rather than running
   straight across. A coverage track in the `Area` and `Line` styles joined the
   last column before a gap to the first one after, so a hundred bases of `NaN`

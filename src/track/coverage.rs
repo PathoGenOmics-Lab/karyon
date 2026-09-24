@@ -662,8 +662,6 @@ fn format_value(value: f64) -> String {
     }
 }
 
-/// One decimal at most, and none at all when it would be a zero.
-#[cfg(test)]
 #[cfg(test)]
 mod tests {
     use super::*;
