@@ -50,7 +50,7 @@ use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{Density, RenderProfile};
 use crate::svg::{fit_text, text_width, Anchor, SvgWriter};
-use crate::theme::Theme;
+use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 
 const DEFAULT_LABEL_WIDTH: f64 = 84.0;
@@ -419,7 +419,7 @@ impl Figure {
         }
 
         let mut y = layout.margin_top + layout.header_height;
-        for (track, height) in self.tracks.iter().zip(&layout.track_heights) {
+        for (index, (track, height)) in self.tracks.iter().zip(&layout.track_heights).enumerate() {
             let band = Rect {
                 x: layout.plot_x,
                 y,
@@ -445,13 +445,18 @@ impl Figure {
                 // they are cut down to the gutter, since a name wider than the
                 // room reserved for it would start off the left edge of the
                 // image and lose its first characters.
+                //
+                // They are set in the foreground ink, one step above the tick
+                // labels beside them: a track's name is what a reader looks
+                // for, and in the same grey as the numbers it read as one more
+                // of them.
                 let right = band.x - layout.axis_width - 10.0 * self.visual_scale;
                 let visible = fit_text(label, right - layout.margin_left, theme.label_font_size);
                 svg.text(
                     right,
                     band.mid_y() + theme.label_font_size * 0.35,
                     &visible,
-                    &theme.muted,
+                    &theme.foreground,
                     theme.label_font_size,
                     Anchor::End,
                 );
@@ -469,6 +474,32 @@ impl Figure {
             };
             track.draw(&mut ctx);
             svg.end_group();
+
+            // A hairline between one track and the next, across the label
+            // gutter as well as the plot, so a name is read with the band it
+            // names and not the one beside it. Halfway down the gap, and
+            // lighter than the rules inside the tracks, since it separates
+            // rather than measures.
+            //
+            // Only between two named tracks: a ruler under the last one is part
+            // of the plot it measures, and a rule above it reads as a second
+            // axis line.
+            let next_named = self
+                .tracks
+                .get(index + 1)
+                .is_some_and(|next| next.label().is_some());
+            if track.label().is_some() && next_named && layout.track_gap >= 6.0 * self.visual_scale
+            {
+                let between = (y + height + layout.track_gap / 2.0).round() + 0.5;
+                svg.line(
+                    layout.margin_left,
+                    between,
+                    self.width - layout.margin_right,
+                    between,
+                    &mix(&theme.rule, theme.surface(), 0.45),
+                    theme.tokens.hairline,
+                );
+            }
 
             y += height + layout.track_gap;
         }
@@ -696,7 +727,7 @@ mod tests {
             .push(FeatureTrack::new(vec![Feature::new(0, 10)]));
         assert!(presentation.dimensions().1 > manuscript.dimensions().1);
         let svg = presentation.to_svg();
-        assert!(svg.contains(r#"font-size="24.3""#), "{svg}");
+        assert!(svg.contains(r#"font-size="21.6""#), "a 16 px title at 1.35");
     }
 
     #[test]
@@ -935,6 +966,36 @@ mod tests {
     }
 
     #[test]
+    fn named_tracks_are_ruled_apart_and_the_ruler_is_not() {
+        let theme = Theme::light();
+        let separator = format!(r#"stroke="{}""#, mix(&theme.rule, theme.surface(), 0.45));
+        let two = Figure::new(region())
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("more"))
+            .push(AxisTrack::new())
+            .to_svg();
+        assert_eq!(two.matches(&separator).count(), 1, "one rule, not two");
+        let one = Figure::new(region())
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
+            .push(AxisTrack::new())
+            .to_svg();
+        assert!(!one.contains(&separator), "nothing above the ruler");
+    }
+
+    #[test]
+    fn a_track_is_named_in_the_foreground_ink() {
+        let theme = Theme::light();
+        let svg = Figure::new(region())
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
+            .to_svg();
+        let named = format!(
+            r#"fill="{}" font-size="12" text-anchor="end">genes<"#,
+            theme.foreground
+        );
+        assert!(svg.contains(&named), "{svg}");
+    }
+
+    #[test]
     fn the_title_is_drawn_when_given() {
         let svg = Figure::new(region()).title("H37Rv rpoB").to_svg();
         assert!(svg.contains("H37Rv rpoB"));
@@ -972,6 +1033,6 @@ mod tests {
 
         assert!(scaled.layout().plot_x > normal.layout().plot_x);
         assert!(scaled.dimensions().1 > normal.dimensions().1);
-        assert!(scaled.to_svg().contains(r#"font-size="27""#));
+        assert!(scaled.to_svg().contains(r#"font-size="24""#));
     }
 }

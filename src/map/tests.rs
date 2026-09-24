@@ -236,7 +236,7 @@ fn hidden_phylo_locations_are_reported() {
 }
 
 #[test]
-fn phylo_time_guides_keep_exact_values_and_units() {
+fn phylo_time_guides_fall_on_whole_years_with_the_unit_once() {
     let tree = Tree::parse_annotated_newick(
         "(A[&date=2023,place=Near]:1,B[&date=2025,place=Near]:1)[&date=2022];",
     )
@@ -247,9 +247,14 @@ fn phylo_time_guides_keep_exact_values_and_units() {
         .time("date")
         .time_unit("year")
         .to_svg();
-    for value in ["2022 year", "2023.5 year", "2025 year"] {
+    for value in ["2022", "2023", "2024", "2025 year"] {
         assert!(svg.contains(&format!(">{value}</text>")), "{value}: {svg}");
     }
+    assert!(
+        !svg.contains(">2023.5"),
+        "no midpoint that is not a round date"
+    );
+    assert!(!svg.contains(">2022 year<"), "the unit is not repeated");
 }
 
 #[test]

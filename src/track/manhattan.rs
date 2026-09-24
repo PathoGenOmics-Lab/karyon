@@ -23,8 +23,8 @@
 //! is showing.
 
 use crate::scale::Scale;
-use crate::style::{Emphasis, LinePattern, QuantitativeAxis, Symbol};
-use crate::svg::{text_width, Anchor};
+use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis, Symbol};
+use crate::svg::Anchor;
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
@@ -252,6 +252,32 @@ impl ManhattanTrack {
         let with_threshold = self.threshold.map_or(tallest, |t| tallest.max(t));
         (with_threshold * 1.08).max(1e-9)
     }
+
+    /// The floor and ceiling points are plotted against, with a free ceiling
+    /// rounded up to a value worth labelling.
+    ///
+    /// The rounding is the headroom, so it starts from the tallest point and
+    /// the threshold themselves rather than from the ceiling [`Self::ceiling`]
+    /// has already padded: padding and then rounding stacked the two, and an
+    /// association peaking at ten was drawn against fifteen.
+    fn range(&self) -> (f64, f64) {
+        if self.axis.max.or(self.max).is_some() {
+            return self.axis.resolve(0.0, self.ceiling());
+        }
+        let (floor, ceiling) = self.axis.resolve(0.0, self.tallest().max(1e-9));
+        self.axis.nice(floor, ceiling)
+    }
+
+    /// The tallest point, or the threshold if that is higher.
+    fn tallest(&self) -> f64 {
+        let tallest = self
+            .points
+            .iter()
+            .map(|p| p.value)
+            .filter(|v| v.is_finite())
+            .fold(0.0f64, f64::max);
+        self.threshold.map_or(tallest, |t| tallest.max(t))
+    }
 }
 
 impl Track for ManhattanTrack {
@@ -267,13 +293,8 @@ impl Track for ManhattanTrack {
         if !self.show_scale || self.points.is_empty() {
             return 0.0;
         }
-        let (floor, ceiling) = self.axis.resolve(0.0, self.ceiling());
-        let labels = [self.axis.label(floor), self.axis.label(ceiling)];
-        labels
-            .iter()
-            .map(|label| text_width(label, theme.font_size - 1.0))
-            .fold(0.0f64, f64::max)
-            + 8.0
+        let (floor, ceiling) = self.range();
+        self.axis.label_room(floor, ceiling, theme.font_size - 1.0) + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -291,11 +312,14 @@ impl Track for ManhattanTrack {
         if self.points.is_empty() {
             return;
         }
-        let (floor, ceiling) = self.axis.resolve(0.0, self.ceiling());
+        let (floor, ceiling) = self.range();
         let y_of =
             |value: f64| baseline - ((value - floor) / (ceiling - floor)).clamp(0.0, 1.0) * band.h;
+        let size = ctx.theme.font_size - 1.0;
+        let ticks = self.axis.values(floor, ceiling);
+        let shown = legible_ticks(&ticks, y_of, size);
 
-        for value in self.axis.values(floor, ceiling).into_iter().skip(1) {
+        for &value in shown.iter().filter(|&&value| value > floor) {
             ctx.svg.line(
                 band.x,
                 y_of(value),
@@ -391,15 +415,17 @@ impl Track for ManhattanTrack {
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
-            let size = ctx.theme.font_size - 1.0;
             let right = ctx.axis.right() - 4.0;
-            for value in self.axis.values(floor, ceiling) {
+            for (value, label) in ticks.iter().zip(self.axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
                 ctx.svg.text(
                     right,
-                    (y_of(value) + size * 0.35)
+                    (y_of(*value) + size * 0.35)
                         .max(band.y + size)
                         .min(baseline - size * 0.22),
-                    &self.axis.label(value),
+                    &label,
                     &ctx.theme.muted,
                     size,
                     Anchor::End,

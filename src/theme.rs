@@ -100,7 +100,7 @@ impl Theme {
             font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
             font_size: 12.0,
             label_font_size: 12.0,
-            title_font_size: 18.0,
+            title_font_size: 16.0,
             cap_height_ratio: 0.72,
             tokens: VisualTokens::default(),
         }
@@ -121,7 +121,7 @@ impl Theme {
             font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
             font_size: 12.0,
             label_font_size: 12.0,
-            title_font_size: 18.0,
+            title_font_size: 16.0,
             cap_height_ratio: 0.72,
             tokens: VisualTokens::default(),
         }

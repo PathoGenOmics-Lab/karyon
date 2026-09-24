@@ -556,6 +556,18 @@ pub(super) fn draw_unrooted_node_glyphs(
     }
 }
 
+/// Room for the title of one legend chip that starts at `x`.
+///
+/// The title takes what the row has left once the chip's own marks, `marks`
+/// pixels of them, are set aside, up to a cap that keeps one long title from
+/// pushing every chip after it off the row. A fixed width of about ninety
+/// pixels used to cut "aBSREL omega classes" short on a row that had several
+/// hundred to spare.
+fn legend_title_room(ctx: &DrawContext<'_>, x: f64, marks: f64) -> f64 {
+    const MOST: f64 = 180.0;
+    (ctx.band.right() - x - marks).clamp(0.0, MOST)
+}
+
 pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     if track.node_glyphs.is_empty()
         && track.dnds.is_none()
@@ -627,7 +639,7 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
                 x += width + 6.0;
             }
             _ => {
-                let label = fit_text(&glyph.label, 90.0, size);
+                let label = fit_text(&glyph.label, legend_title_room(ctx, x, 60.0), size);
                 let keys: Vec<String> = glyph
                     .keys
                     .iter()
@@ -689,7 +701,7 @@ fn draw_branch_event_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, 88.0, size);
+    let label = fit_text(&layer.label, legend_title_room(ctx, x, 51.0), size);
     let width = (text_width(&label, size) + 51.0).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
@@ -738,7 +750,7 @@ fn draw_branch_interval_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, 88.0, size);
+    let label = fit_text(&layer.label, legend_title_room(ctx, x, 51.0), size);
     let width = (text_width(&label, size) + 49.0).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
@@ -779,7 +791,7 @@ fn draw_rate_mixture_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&mixture.label, 92.0, size);
+    let label = fit_text(&mixture.label, legend_title_room(ctx, x, 60.0), size);
     let width = (text_width(&label, size) + 43.0).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
@@ -835,7 +847,7 @@ fn draw_homoplasy_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, 92.0, size);
+    let label = fit_text(&layer.label, legend_title_room(ctx, x, 60.0), size);
     let width = (text_width(&label, size) + 42.0).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
@@ -880,7 +892,7 @@ fn draw_dnds_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&dnds.label, 86.0, size);
+    let label = fit_text(&dnds.label, legend_title_room(ctx, x, 240.0), size);
     let labels = ["purifying", "near neutral", "diversifying"];
     let values = [1.0 / dnds.saturation, 1.0, dnds.saturation];
     let significance = dnds

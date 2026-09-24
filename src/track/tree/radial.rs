@@ -487,10 +487,9 @@ pub(super) fn draw_radial_time_axis(
         return;
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);
-    for index in 0..=2 {
-        let fraction = index as f64 / 2.0;
-        let value = scene.minimum + fraction * (scene.maximum - scene.minimum);
-        let radius = geometry.radius(scene, value);
+    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    for (value, label) in &ticks {
+        let radius = geometry.radius(scene, *value);
         if radius > 0.5 {
             ctx.svg.path_stroked(
                 &radial_arc_path(
@@ -503,16 +502,12 @@ pub(super) fn draw_radial_time_axis(
                 ctx.theme.tokens.hairline,
             );
         }
-        let label = match &time.unit {
-            Some(unit) => format!("{} {unit}", text_rounded(value, 3)),
-            None => text_rounded(value, 3),
-        };
         let (x, y) = geometry.point((radius - 4.0).max(0.0), geometry.start);
         let rotation = upright_tangent(geometry.start);
         ctx.svg.text_rotated(
             (x, y - 2.0),
             rotation,
-            &label,
+            label,
             &ctx.theme.muted,
             size,
             crate::svg::Anchor::Middle,

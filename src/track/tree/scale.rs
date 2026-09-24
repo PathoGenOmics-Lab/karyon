@@ -7,6 +7,7 @@
 //! distortion is least rather than wherever there is room.
 
 use super::*;
+use crate::style::time_ticks;
 
 pub(super) fn nice_scale_length(span: f64) -> Option<f64> {
     if !span.is_finite() || span <= 0.0 {
@@ -159,10 +160,9 @@ pub(super) fn draw_time_axis(
         ctx.theme.tokens.hairline,
     );
     let size = ctx.theme.font_size - 1.0;
-    for index in 0..=2 {
-        let fraction = index as f64 / 2.0;
-        let value = scene.minimum + fraction * (scene.maximum - scene.minimum);
-        let x = scene.x(area, value);
+    let ticks = time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    for (value, label) in &ticks {
+        let x = scene.x(area, *value);
         ctx.svg.line(
             x,
             y,
@@ -171,21 +171,28 @@ pub(super) fn draw_time_axis(
             &ctx.theme.foreground,
             ctx.theme.tokens.hairline,
         );
-        let label = match &time.unit {
-            Some(unit) => format!("{} {unit}", text_rounded(value, 3)),
-            None => text_rounded(value, 3),
+        // Centred on its tick, unless that would run it past an end of the
+        // axis, in which case it is pinned to that end instead.
+        let half = crate::svg::text_width(label, size) / 2.0;
+        let anchor = if x - half < area.x {
+            crate::svg::Anchor::Start
+        } else if x + half > area.right() {
+            crate::svg::Anchor::End
+        } else {
+            crate::svg::Anchor::Middle
+        };
+        let x = match anchor {
+            crate::svg::Anchor::Start => x.max(area.x),
+            crate::svg::Anchor::End => x.min(area.right()),
+            crate::svg::Anchor::Middle => x,
         };
         ctx.svg.text(
             x,
             y + ctx.theme.tokens.tick_length + size,
-            &label,
+            label,
             &ctx.theme.muted,
             size,
-            match index {
-                0 => crate::svg::Anchor::Start,
-                2 => crate::svg::Anchor::End,
-                _ => crate::svg::Anchor::Middle,
-            },
+            anchor,
         );
     }
 }

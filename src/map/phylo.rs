@@ -681,22 +681,17 @@ pub(super) fn draw_phylo_time_guides(
     let Some(time) = &map.time else {
         return;
     };
-    for index in 0..=2 {
-        let fraction = index as f64 / 2.0;
-        let value = scene.minimum + fraction * (scene.maximum - scene.minimum);
-        let radius = scene.radius(layout, value);
+    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    for (value, label) in &ticks {
+        let radius = scene.radius(layout, *value);
         let path = radial_arc(layout, radius, layout.start, layout.start + layout.sweep);
         svg.path_stroked(&path, &theme.rule, theme.tokens.hairline * 0.75);
-        let label = match &time.unit {
-            Some(unit) => format!("{} {unit}", num(value)),
-            None => num(value),
-        };
         let angle = layout.start - 0.018;
         let (x, y) = phylo_point(layout, radius, angle);
         svg.text_rotated(
             (x, y),
             upright_tangent(angle),
-            &label,
+            label,
             &theme.muted,
             theme.font_size - 2.0,
             Anchor::End,

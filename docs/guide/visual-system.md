@@ -77,10 +77,26 @@ let axis = QuantitativeAxis::new()
 let depth = CoverageTrack::new(start, values).axis(axis);
 ```
 
-Pin the same range on figures that will be compared. `AxisFormat::Auto` uses
-compact `k` and `M` suffixes; `Fixed` and `Percent` make the intended unit
-explicit. Reference lines keep their exact labels and carry a pattern as well
-as a colour.
+Ticks fall on round values, multiples of 1, 2, 2.5 or 5 times a power of ten,
+and an end you did not pin is rounded out to one of them: a depth that peaks at
+71.46 is read against 0, 25, 50 and 75, not against 35.73 and 71.46. The unit is
+written once, on the highest tick. A band too short to label every tick keeps a
+regular subset of them, counted from zero, and at the least its highest value,
+so labels never overlap.
+
+Pin the same range on figures that will be compared; a pinned end is taken
+literally. `AxisFormat::Auto` uses compact `k` and `M` suffixes; `Fixed` and
+`Percent` make the intended unit explicit. Reference lines keep their exact
+labels and carry a pattern as well as a colour.
+
+## Large shapes wear a wash
+
+A gene, a read coloured by strand and a cell of an alignment with its letter
+written on it are large filled shapes. They take a wash of their colour in the
+body and the full colour on their edge, and any label on them goes dark. Small
+marks, such as variant heads, mismatches and the cells that differ in an
+alignment of differences, keep the full colour, because they are what the
+reader is looking for.
 
 ## Labels and legends adapt to space
 

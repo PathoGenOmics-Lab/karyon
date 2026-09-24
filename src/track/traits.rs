@@ -51,7 +51,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::svg::{fit_text, Anchor};
+use crate::svg::{fit_text, fit_text_shrinking, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::legend::Legend;
 use crate::track::{DrawContext, Rect};
@@ -441,7 +441,7 @@ pub(crate) fn draw_column(
         }
         if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
             let text = displayed.as_deref().unwrap_or(crate::tree::ABSENT);
-            let visible = fit_text(text, column.width - 4.0, size);
+            let (visible, size) = fit_text_shrinking(text, column.width - 4.0, size, size * 0.8);
             let ink = fill
                 .as_deref()
                 .filter(|_| column.style == TraitStyle::Strip)

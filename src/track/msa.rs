@@ -38,7 +38,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
-use crate::theme::{contrast_ink, mix, Theme};
+use crate::theme::{contrast_ink, mix, wash, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
@@ -437,6 +437,28 @@ impl MsaTrack {
         }
     }
 
+    /// What one cell is painted with once letters are or are not written on it.
+    ///
+    /// With every residue coloured and a letter in each cell, the alignment is
+    /// one solid block of saturated hues, and the letters are what the reader
+    /// came for. So the cells take a wash of their colour and the letters go
+    /// dark on it. Without letters the colour is all a cell has, and showing
+    /// only differences leaves few enough coloured cells that each one is a
+    /// small mark that keeps its full colour.
+    fn cell_fill(
+        &self,
+        residue: Option<u8>,
+        against: Option<u8>,
+        theme: &Theme,
+        lettered: bool,
+    ) -> Option<String> {
+        let color = self.cell_color(residue, against, theme)?;
+        let washed = lettered
+            && self.display == MsaDisplay::Bases
+            && residue.is_some_and(|residue| !is_gap(residue));
+        Some(if washed { wash(&color, theme) } else { color })
+    }
+
     /// Colour of one cell, or `None` when nothing should be drawn there.
     fn cell_color(
         &self,
@@ -568,10 +590,11 @@ impl Track for MsaTrack {
             // the difference between a figure and a file no viewer will open.
             let mut run: Option<(usize, String)> = None;
             for column in first..last {
-                let color = self.cell_color(
+                let color = self.cell_fill(
                     row.residue(column),
                     comparison.get(column).copied(),
                     ctx.theme,
+                    draw_letters,
                 );
                 match (&mut run, color) {
                     (Some((_, current)), Some(next)) if *current == next => {}
@@ -746,7 +769,12 @@ impl MsaTrack {
             // the foreground it fell to two to one on the darker class
             // colours, which is under every contrast floor there is.
             let ink = self
-                .cell_color(Some(residue), comparison.get(column).copied(), ctx.theme)
+                .cell_fill(
+                    Some(residue),
+                    comparison.get(column).copied(),
+                    ctx.theme,
+                    true,
+                )
                 .map_or_else(
                     || ctx.theme.foreground.clone(),
                     |cell| contrast_ink(&cell).to_string(),

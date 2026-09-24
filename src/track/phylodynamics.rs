@@ -7,7 +7,7 @@
 //! guide. It renders upstream inference; it does not fit a coalescent model.
 
 use crate::scale::Scale;
-use crate::style::LinePattern;
+use crate::style::{legible_ticks, LinePattern, QuantitativeAxis};
 use crate::svg::{num, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
@@ -166,6 +166,99 @@ impl PhylodynamicTrack {
     }
 }
 
+/// Tick labels as plain numbers, with the unit once on the highest.
+///
+/// Plain rather than compact: an effective population size is read off this
+/// axis as a number, so it is written as one, 10000 and not 10k, and a value
+/// too large to write out goes in exponent form, which is still a number.
+/// Each label carries the decimals its own size needs, since a log axis runs
+/// from 0.01 to 100 with no one step between them.
+fn plain_labels(ticks: &[f64], unit: &str) -> Vec<String> {
+    let top = ticks
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(f64::NEG_INFINITY, f64::max);
+    let step = ticks
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .filter(|gap| *gap > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    ticks
+        .iter()
+        .map(|&value| {
+            let own = if value != 0.0 && value.abs() < 1.0 {
+                -(value.abs().log10().floor())
+            } else {
+                0.0
+            };
+            let from_step = if step.is_finite() && step < 1.0 {
+                -(step.log10().floor())
+            } else {
+                0.0
+            };
+            let decimals = own.max(from_step).clamp(0.0, 12.0) as u32;
+            let number = text_rounded(value, decimals);
+            if value == top && !unit.is_empty() {
+                format!("{number} {unit}")
+            } else {
+                number
+            }
+        })
+        .collect()
+}
+
+/// Powers of ten inside a range given in log10 units, with the 2 and 5
+/// between them when the range spans too few decades to hold two powers.
+fn log_ticks(low: f64, high: f64) -> Vec<f64> {
+    if !(low.is_finite() && high.is_finite()) || high <= low {
+        return Vec::new();
+    }
+    let first = low.floor() as i32;
+    let last = high.ceil() as i32;
+    let inside = |value: f64| {
+        let exponent = value.log10();
+        exponent >= low - 1e-9 && exponent <= high + 1e-9 && value.is_finite()
+    };
+    // Every power when there are a handful, every second or fifth or tenth
+    // when a diverged estimate stretches the axis over hundreds of decades.
+    let decades = (last - first).max(1);
+    let stride = [1, 2, 5, 10, 20, 50, 100]
+        .into_iter()
+        .find(|stride| decades / stride <= 6)
+        .unwrap_or(100);
+    let powers: Vec<f64> = (first..=last)
+        .filter(|k| k.rem_euclid(stride) == 0)
+        .filter_map(|k| power_of_ten(1, k))
+        .filter(|v| inside(*v))
+        .collect();
+    if powers.len() >= 2 {
+        return powers;
+    }
+    let multiples: Vec<f64> = (first..=last)
+        .flat_map(|k| [1, 2, 5].map(|m| power_of_ten(m, k)))
+        .flatten()
+        .filter(|v| inside(*v))
+        .collect();
+    if multiples.len() >= 2 {
+        return multiples;
+    }
+    // Less than a factor of two and a half between the ends, with no round
+    // value inside: the ends themselves, so the panel still has a scale.
+    [low, high]
+        .iter()
+        .map(|exponent| 10f64.powf(*exponent))
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .collect()
+}
+
+/// `mantissa` times ten to the `exponent`, as the nearest double to the
+/// decimal rather than a product that drifts: `10f64.powi(300)` is
+/// 1.0000000000000006e300, which is not a label anyone should have to read.
+fn power_of_ten(mantissa: u8, exponent: i32) -> Option<f64> {
+    format!("{mantissa}e{exponent}").parse().ok()
+}
+
 impl Track for PhylodynamicTrack {
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
@@ -258,13 +351,27 @@ impl Track for PhylodynamicTrack {
             .unwrap_or_else(|| ctx.theme.accent.clone());
 
         self.draw_header(ctx, &color);
-        for index in 0..=3 {
-            let fraction = index as f64 / 3.0;
-            let transformed = (minimum * shrink + fraction * span) / shrink;
-            let original = match self.scale {
-                PhylodynamicScale::Linear => transformed,
-                PhylodynamicScale::Log10 => 10f64.powf(transformed),
-            };
+        // Round values in the units the estimate is in, not four equal cuts
+        // of the transformed range: on a log axis those came out as 77.988 and
+        // 2167.255, which are nobody's idea of a population size.
+        let ticks: Vec<f64> = match self.scale {
+            PhylodynamicScale::Linear => QuantitativeAxis::new().values(minimum, maximum),
+            PhylodynamicScale::Log10 => log_ticks(minimum, maximum),
+        };
+        let size = ctx.theme.font_size - 1.0;
+        let placed: Vec<f64> = ticks
+            .iter()
+            .map(|&original| match self.scale {
+                PhylodynamicScale::Linear => original,
+                PhylodynamicScale::Log10 => original.log10(),
+            })
+            .collect();
+        let shown = legible_ticks(&placed, y_of, size);
+        let labels = plain_labels(&ticks, &self.unit);
+        for ((&original, &transformed), label) in ticks.iter().zip(&placed).zip(&labels) {
+            if !shown.contains(&transformed) {
+                continue;
+            }
             // A rule is a promise that this height means this value, so a rule
             // whose value cannot be written is a promise this track cannot
             // keep. The log axis is where it happens: raising ten to the top of
@@ -285,17 +392,12 @@ impl Track for PhylodynamicTrack {
                 &ctx.theme.rule,
                 ctx.theme.tokens.hairline,
             );
-            let label = if self.unit.is_empty() {
-                text_rounded(original, 3)
-            } else {
-                format!("{} {}", text_rounded(original, 3), self.unit)
-            };
             ctx.svg.text(
                 ctx.axis.right() - ctx.px(4.0),
-                y + ctx.theme.font_size * 0.28,
-                &label,
+                y + size * 0.35,
+                label,
                 &ctx.theme.muted,
-                ctx.theme.font_size * 0.72,
+                size,
                 Anchor::End,
             );
         }
@@ -565,8 +667,9 @@ mod tests {
             heights[0],
             heights[3]
         );
-        // Four rules, and the top one names the largest number there is.
-        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 4, "{svg}");
+        // A span no round step fits is labelled at its two ends, and the top
+        // one names the largest number there is rather than an overflow.
+        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 2, "{svg}");
         assert!(svg.contains(">1.7976931348623157e308<"), "{svg}");
     }
 
@@ -589,7 +692,7 @@ mod tests {
         let (_, height) = figure.dimensions();
         let svg = figure.to_svg();
         assert_eq!(svg.matches("<circle").count(), 6, "{svg}");
-        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 4, "{svg}");
+        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 2, "{svg}");
         for (x, y) in ribbon_vertices(&svg) {
             assert!(
                 x > 0.0 && y > 0.0 && y <= height,
@@ -605,7 +708,7 @@ mod tests {
         // infinity, and the rule at that height used to be drawn and labelled
         // with it. A missing rule costs the reader a gridline; a rule reading
         // `inf` costs them the figure, because it is a number they will believe.
-        // The three rules below it are all nameable and all still there.
+        // The rules below it are powers of ten, every one of them nameable.
         let svg = Figure::new(Region::new("time", 0, 4).unwrap())
             .show_region_label(false)
             .push(
@@ -617,7 +720,12 @@ mod tests {
             )
             .to_svg();
         assert!(!svg.contains("inf"), "{svg}");
-        assert_eq!(svg.matches(r#"text-anchor="end""#).count(), 3, "{svg}");
+        let rules = svg.matches(r#"text-anchor="end""#).count();
+        assert!((2..=6).contains(&rules), "{rules} rules");
+        assert!(
+            svg.contains(">1e300<"),
+            "a power of ten near the top: {svg}"
+        );
         assert_eq!(svg.matches("<circle").count(), 4, "{svg}");
     }
 }

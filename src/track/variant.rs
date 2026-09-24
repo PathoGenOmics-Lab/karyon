@@ -48,8 +48,8 @@
 use std::collections::BTreeSet;
 
 use crate::scale::Scale;
-use crate::style::{Emphasis, QuantitativeAxis, Symbol};
-use crate::svg::{text_width, Anchor};
+use crate::style::{legible_ticks, Emphasis, QuantitativeAxis, Symbol};
+use crate::svg::Anchor;
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Legend, Track};
@@ -243,6 +243,21 @@ impl VariantTrack {
     }
 
     /// Largest finite value carried by any variant, if any.
+    /// The floor and ceiling the stems are measured against.
+    ///
+    /// A free ceiling is rounded to a value worth labelling, so a panel whose
+    /// tallest call is 0.98 is read against 1 and not against 0.98.
+    fn value_range(&self) -> (f64, f64) {
+        let pinned = self.axis.max.or(self.max);
+        let data_ceiling = pinned.or_else(|| self.value_ceiling()).unwrap_or(1.0);
+        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+        if pinned.is_some() {
+            (floor, ceiling)
+        } else {
+            self.axis.nice(floor, ceiling)
+        }
+    }
+
     fn value_ceiling(&self) -> Option<f64> {
         self.variants
             .iter()
@@ -282,19 +297,8 @@ impl Track for VariantTrack {
         if !self.has_scale() {
             return 0.0;
         }
-        let data_ceiling = self
-            .axis
-            .max
-            .or(self.max)
-            .or_else(|| self.value_ceiling())
-            .unwrap_or(1.0);
-        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
-        let labels = [self.axis.label(ceiling), self.axis.label(floor)];
-        labels
-            .iter()
-            .map(|label| text_width(label, theme.font_size - 1.0))
-            .fold(0.0f64, f64::max)
-            + 8.0
+        let (floor, ceiling) = self.value_range();
+        self.axis.label_room(floor, ceiling, theme.font_size - 1.0) + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -328,13 +332,7 @@ impl Track for VariantTrack {
         let slot_of = |category: Option<&str>| -> Option<usize> {
             category.and_then(|name| categories.iter().position(|c| *c == name))
         };
-        let data_ceiling = self
-            .axis
-            .max
-            .or(self.max)
-            .or_else(|| self.value_ceiling())
-            .unwrap_or(1.0);
-        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+        let (floor, ceiling) = self.value_range();
 
         let legend = self.legend(ctx.theme);
 
@@ -350,10 +348,13 @@ impl Track for VariantTrack {
             baseline - ((value - floor) / (ceiling - floor)).clamp(0.0, 1.0) * stem_room
         };
 
+        let size = ctx.theme.font_size - 1.0;
+        let ticks = self.axis.values(floor, ceiling);
+        let shown = legible_ticks(&ticks, y_of, size);
         if self.has_scale() {
             // The height a variant at the ceiling reaches, which is where the
             // top of the scale is and nowhere else.
-            for value in self.axis.values(floor, ceiling) {
+            for &value in &shown {
                 let y = y_of(value);
                 ctx.svg.line(
                     band.x,
@@ -389,14 +390,16 @@ impl Track for VariantTrack {
                 );
             }
             if ctx.axis.w > 0.0 {
-                let size = ctx.theme.font_size - 1.0;
                 let right = ctx.axis.right() - 4.0;
-                for value in self.axis.values(floor, ceiling) {
-                    let y = y_of(value);
+                for (value, label) in ticks.iter().zip(self.axis.labels(&ticks)) {
+                    if !shown.contains(value) {
+                        continue;
+                    }
+                    let y = y_of(*value);
                     ctx.svg.text(
                         right,
                         (y + size * 0.35).min(baseline),
-                        &self.axis.label(value),
+                        &label,
                         &ctx.theme.muted,
                         size,
                         Anchor::End,
@@ -716,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn the_axis_labels_the_ceiling_and_the_floor() {
+    fn the_axis_labels_a_round_ceiling_and_the_floor() {
         let region = Region::parse("chr1:1-3000").unwrap();
         let svg = Figure::new(region)
             .show_region_label(false)
@@ -730,9 +733,10 @@ mod tests {
             )
             .to_svg();
         assert!(
-            svg.contains(">0.64</text>"),
-            "the tallest stem sets the top"
+            svg.contains(">0.75</text>"),
+            "the tallest stem is rounded up to a value worth labelling"
         );
+        assert!(!svg.contains(">0.64</text>"));
         assert!(svg.contains(">0</text>"));
     }
 

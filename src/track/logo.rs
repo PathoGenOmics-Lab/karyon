@@ -34,6 +34,7 @@
 use crate::dash::{Dash, DashFit};
 use crate::region::Region;
 use crate::scale::Scale;
+use crate::style::{legible_ticks, QuantitativeAxis};
 use crate::svg::{finite_within, text_rounded, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
@@ -777,10 +778,11 @@ impl Track for LogoTrack {
         if !self.show_scale {
             return 0.0;
         }
-        // The widest thing the axis can print is a negative value with a unit
-        // on it, so measure that rather than guessing.
-        let sample = format!("-99.9{}", self.score.unit());
-        text_width(&sample, theme.font_size - 1.0) + 8.0
+        // The widest thing the axis can print is a negative value or a value
+        // with the unit on it, so measure those rather than guessing.
+        let size = theme.font_size - 1.0;
+        let unit = text_width(&format!("99{}", self.score.unit()), size);
+        unit.max(text_width("-99.5", size)) + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -882,16 +884,22 @@ impl Track for LogoTrack {
         }
 
         if self.show_scale {
-            let unit = self.score.unit();
+            // Round values either side of the baseline, rather than the two
+            // extremes the band happens to be scaled to: a stack is read
+            // against "two bits", not against 6.28.
             let size = ctx.theme.font_size - 1.0;
-            self.chip(
-                ctx,
-                band.y + size + 1.0,
-                &format!("{}{}", text_rounded(max_up, 2), unit),
-            );
-            if max_down > 0.0 {
-                let text = format!("-{}{}", text_rounded(max_down, 2), unit);
-                self.chip(ctx, band.bottom() - 2.0, &text);
+            let axis = QuantitativeAxis::new().unit(self.score.unit());
+            let y_of = |value: f64| baseline_y - value * units_per_px;
+            let ticks = axis.values(-max_down, max_up);
+            let shown = legible_ticks(&ticks, y_of, size);
+            let top = band.y + size * 0.8;
+            let bottom = band.bottom() - size * 0.15;
+            for (value, label) in ticks.iter().zip(axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
+                let y = (y_of(*value) + size * 0.35).clamp(top.min(bottom), top.max(bottom));
+                self.chip(ctx, y, &label);
             }
         }
     }

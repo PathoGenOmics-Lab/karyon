@@ -323,6 +323,12 @@ impl Track for MethylationTrack {
                 (middle + size * 0.35, "0"),
                 (middle + full + size * 0.35, "rev 100%"),
             ] {
+                // Kept inside the band, which the figure clips to: on a lane
+                // shorter than a line of text the top label rose past the
+                // edge and lost the top of its letters.
+                let top = band.y + size * 0.8;
+                let bottom = band.bottom() - size * 0.15;
+                let y = y.clamp(top.min(bottom), top.max(bottom));
                 ctx.svg
                     .text(right, y, text, &ctx.theme.muted, size, Anchor::End);
             }

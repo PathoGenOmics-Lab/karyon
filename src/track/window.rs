@@ -39,8 +39,8 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::style::{Emphasis, LinePattern, QuantitativeAxis};
-use crate::svg::{text_width, Anchor};
+use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis};
+use crate::svg::Anchor;
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
 
@@ -299,20 +299,45 @@ impl WindowTrack {
                     hi = hi.max(window.value);
                 }
             }
+            // The free ends are rounded out to values worth labelling, which
+            // is also the headroom a peak wants. A symmetric band rounds its
+            // half width instead, so the baseline stays in the middle.
             if self.symmetric {
-                let extent = (hi - self.baseline).max(self.baseline - lo) * 1.06;
+                let extent = (hi - self.baseline).max(self.baseline - lo);
                 let extent = if extent > 0.0 { extent } else { 1.0 };
+                let extent = QuantitativeAxis::new().nice(0.0, extent).1;
                 (self.baseline - extent, self.baseline + extent)
+            } else if hi - lo <= 0.0 {
+                (self.baseline - 1.0, self.baseline + 1.0)
             } else {
-                let pad = (hi - lo) * 0.06;
-                if hi - lo <= 0.0 {
-                    (self.baseline - 1.0, self.baseline + 1.0)
-                } else {
-                    (lo - pad, hi + pad)
-                }
+                let (lo, hi) = self.axis.resolve(lo, hi);
+                return self.axis.nice(lo, hi);
             }
         };
         self.axis.resolve(data_range.0, data_range.1)
+    }
+
+    /// Where the value axis puts its ticks.
+    ///
+    /// A band centred on its baseline is ticked as one half and its mirror,
+    /// so the ticks sit in pairs either side of the line and the line is one
+    /// of them. Ticked as one span, the step has to cover twice the range in
+    /// the same number of labels and lands on neither end.
+    fn tick_values(&self, lo: f64, hi: f64) -> Vec<f64> {
+        let half = (hi - lo) / 2.0;
+        let centred = (lo + half - self.baseline).abs() <= half * 1e-9;
+        if !centred || half <= 0.0 {
+            return self.axis.values(lo, hi);
+        }
+        let upper = self.axis.values(0.0, half);
+        let mut ticks: Vec<f64> = upper
+            .iter()
+            .rev()
+            .filter(|v| **v > 0.0)
+            .map(|v| self.baseline - v)
+            .collect();
+        ticks.extend(upper.iter().map(|v| self.baseline + v));
+        ticks
     }
 
     /// Per pixel column, the lowest and highest value in it.
@@ -397,11 +422,14 @@ impl Track for WindowTrack {
             return 0.0;
         }
         let (lo, hi) = self.range();
-        let widest = [lo, hi, self.baseline]
+        let size = theme.font_size - 1.0;
+        let ticks = self.tick_values(lo, hi);
+        self.axis
+            .labels(&ticks)
             .iter()
-            .map(|value| text_width(&self.axis.label(*value), theme.font_size - 1.0))
-            .fold(0.0f64, f64::max);
-        widest + 8.0
+            .map(|label| crate::svg::text_width(label, size))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -422,7 +450,10 @@ impl Track for WindowTrack {
             ctx.theme.tokens.stroke,
         );
 
-        for value in self.axis.values(lo, hi) {
+        let size = ctx.theme.font_size - 1.0;
+        let ticks = self.tick_values(lo, hi);
+        let shown = legible_ticks(&ticks, y_of, size);
+        for &value in &shown {
             let y = y_of(value);
             if (y - base_y).abs() > 0.5 {
                 ctx.svg.line(
@@ -458,24 +489,20 @@ impl Track for WindowTrack {
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
-            let size = ctx.theme.font_size - 1.0;
             let right = ctx.axis.right() - 4.0;
-            let mut label = |y: f64, value: f64| {
+            for (value, label) in ticks.iter().zip(self.axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
                 ctx.svg.text(
                     right,
-                    y,
-                    &self.axis.label(value),
+                    (y_of(*value) + size * 0.35)
+                        .max(band.y + size)
+                        .min(band.bottom() - size * 0.22),
+                    &label,
                     &ctx.theme.muted,
                     size,
                     Anchor::End,
-                );
-            };
-            for value in self.axis.values(lo, hi) {
-                label(
-                    (y_of(value) + size * 0.35)
-                        .max(band.y + size)
-                        .min(band.bottom() - size * 0.22),
-                    value,
                 );
             }
             for reference in &self.axis.references {

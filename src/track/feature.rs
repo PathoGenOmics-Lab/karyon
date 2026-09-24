@@ -28,7 +28,7 @@
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
-use crate::theme::{contrast_ink, Theme};
+use crate::theme::{contrast_ink, wash, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 use std::sync::Mutex;
@@ -573,34 +573,59 @@ impl Track for FeatureTrack {
             // than 8 pixels of a long one, so an interval stays a bar with a
             // point rather than becoming a triangle.
             let head = ((right - left) * 0.35).min(ctx.theme.tokens.arrow_size);
-            match feature.strand {
-                Strand::Forward if head > 1.0 => ctx.svg.polygon(
-                    &[
-                        (left, top),
-                        (right - head, top),
-                        (right, middle),
-                        (right - head, bottom),
-                        (left, bottom),
-                    ],
-                    &color,
-                ),
-                Strand::Reverse if head > 1.0 => ctx.svg.polygon(
-                    &[
-                        (right, top),
-                        (left + head, top),
-                        (left, middle),
-                        (left + head, bottom),
-                        (right, bottom),
-                    ],
-                    &color,
-                ),
-                _ => ctx.svg.rect_rounded(
+            // The hue goes in the edge and a wash of it in the body, as it does
+            // for the genes of a locus. A gene is the largest filled shape on
+            // most figures, and at full saturation it outweighs the variants
+            // and the depth it is there to give a place to. A mark too narrow
+            // to show a body is all edge, so it keeps the full colour.
+            let body = if right - left >= ctx.px(4.0) {
+                wash(&color, ctx.theme)
+            } else {
+                color.clone()
+            };
+            let edge = ctx.theme.tokens.hairline;
+            let inset = edge / 2.0;
+            let (top_in, bottom_in) = (top + inset, bottom - inset);
+            let (left_in, right_in) = (left + inset, (right - inset).max(left + inset));
+            let outline: Option<Vec<(f64, f64)>> = match feature.strand {
+                Strand::Forward if head > 1.0 => Some(vec![
+                    (left_in, top_in),
+                    (right_in - head, top_in),
+                    (right_in, middle),
+                    (right_in - head, bottom_in),
+                    (left_in, bottom_in),
+                ]),
+                Strand::Reverse if head > 1.0 => Some(vec![
+                    (right_in, top_in),
+                    (left_in + head, top_in),
+                    (left_in, middle),
+                    (left_in + head, bottom_in),
+                    (right_in, bottom_in),
+                ]),
+                _ => None,
+            };
+            match outline {
+                Some(points) if body != color => {
+                    ctx.svg.polygon_edged(&points, &body, &color, edge);
+                }
+                Some(points) => ctx.svg.polygon(&points, &body),
+                None if body != color => ctx.svg.rect_rounded_edged(
                     left,
                     top,
                     right - left,
                     row_height,
                     ctx.theme.corner_radius,
+                    &body,
                     &color,
+                    edge,
+                ),
+                None => ctx.svg.rect_rounded(
+                    left,
+                    top,
+                    right - left,
+                    row_height,
+                    ctx.theme.corner_radius,
+                    &body,
                 ),
             }
 
@@ -614,7 +639,7 @@ impl Track for FeatureTrack {
                         (left + right) / 2.0,
                         baseline,
                         name,
-                        contrast_ink(&color),
+                        contrast_ink(&body),
                         font,
                         Anchor::Middle,
                     );

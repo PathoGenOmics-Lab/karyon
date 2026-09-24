@@ -40,8 +40,8 @@ use std::sync::Mutex;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{finite_within, text_width, Anchor};
-use crate::theme::mix;
 use crate::theme::Theme;
+use crate::theme::{mix, wash};
 use crate::track::axis::group_thousands;
 use crate::track::feature::{span_label, strand_color, strand_label, Strand};
 use crate::track::{DrawContext, Rect, Track};
@@ -685,6 +685,11 @@ impl Track for PileupTrack {
                 continue;
             }
             let color = self.read_color(read, ctx.theme);
+            // Coloured by strand, a read is a large shape wearing a hue, so it
+            // takes the wash in its body and the hue on its edge, as a gene
+            // does. The mismatches drawn over it are the small marks that keep
+            // their full colour, which is the whole point of a pileup.
+            let edge = (self.coloring == ReadColoring::Strand).then(|| color.clone());
             let opacity = self.opacity(read);
             let middle = top + self.read_height / 2.0;
 
@@ -705,7 +710,7 @@ impl Track for PileupTrack {
                             w: ctx.scale.x(start.saturating_add(len)) - left,
                             h: self.read_height,
                         };
-                        self.draw_body(ctx, read, block, &color, opacity);
+                        self.draw_body(ctx, read, block, &color, edge.as_deref(), opacity);
                     }
                     Segment::Deletion { start, len } => {
                         // A gap in the read: a line across, so the reads either
@@ -778,8 +783,19 @@ impl PileupTrack {
         read: &Read,
         block: Rect,
         color: &str,
+        edge: Option<&str>,
         opacity: f64,
     ) {
+        // A faded read loses its edge as well as some of its body, so a read
+        // that could have come from anywhere is the one without an outline
+        // rather than one shade of pale among several.
+        let washed = edge.filter(|_| opacity >= 1.0 && block.w >= 3.0);
+        let body = match edge {
+            Some(hue) if block.w >= 3.0 => wash(hue, ctx.theme),
+            _ => color.to_string(),
+        };
+        let color = body.as_str();
+        let line = ctx.theme.tokens.hairline;
         let (left, right, top) = (block.x, block.right(), block.y);
         let width = right - left;
         if width <= 0.0 {
@@ -801,6 +817,17 @@ impl PileupTrack {
             if opacity < 1.0 || width < 3.0 {
                 ctx.svg
                     .rect_opacity(left, top, width.max(0.6), self.read_height, color, opacity);
+            } else if let Some(hue) = washed {
+                ctx.svg.rect_rounded_edged(
+                    left,
+                    top,
+                    width,
+                    self.read_height,
+                    ctx.theme.corner_radius,
+                    color,
+                    hue,
+                    line,
+                );
             } else {
                 ctx.svg.rect_rounded(
                     left,
@@ -835,6 +862,17 @@ impl PileupTrack {
             // a plain block rather than silently coming out solid.
             ctx.svg
                 .rect_opacity(left, top, width, self.read_height, color, opacity);
+        } else if let Some(hue) = washed {
+            let inset = line / 2.0;
+            let points: Vec<(f64, f64)> = points
+                .iter()
+                .map(|&(x, y)| {
+                    let x = x.clamp(left + inset, right - inset);
+                    let y = y.clamp(top + inset, bottom - inset);
+                    (x, y)
+                })
+                .collect();
+            ctx.svg.polygon_edged(&points, color, hue, line);
         } else {
             ctx.svg.polygon(&points, color);
         }
