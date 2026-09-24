@@ -13,9 +13,6 @@ copyright: Copyright &copy; 2026 Paula Ruiz-Rodriguez and Mireia Coscolla &middo
 
 theme:
   name: material
-  # Material's own mechanism for replacing one template. The only override is
-  # the header logo, which needs a second image for the dark scheme.
-  custom_dir: overrides
   logo: assets/karyon_mark.svg
   favicon: assets/favicon.svg
   language: en

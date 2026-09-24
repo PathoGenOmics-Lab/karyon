@@ -56,35 +56,39 @@
    Hero
    ------------------------------------------------------------------------- */
 
+/* The logo is pixel art, 117 cells by 79, so its column is a whole number of
+   CSS pixels per cell: three here, two on a narrower screen. Scaled by a
+   fraction, a pixel drawing loses some of the one-pixel gaps between its
+   bands. */
 .md-typeset .k-hero {
-  padding: 1.6rem 0 2.4rem;
+  display: grid;
+  grid-template-columns: 351px minmax(0, 1fr);
+  gap: 2.4rem;
+  align-items: center;
+  padding: 1.4rem 0 2.4rem;
 }
 
-/* The name, set as the logotype, above the sentence that says what it is. */
-.md-typeset .k-hero-mark {
-  margin: 0 0 1.6rem;
+.md-typeset .k-hero-mark p {
+  margin: 0;
 }
 
-/* Sized here and shown or hidden below, in two rules of their own, so the
-   scheme decides which of the two images is on the page and nothing about
-   their size can outrank it. */
-.md-typeset .k-hero-mark img.k-hero-logo,
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo {
-  width: auto;
-  height: 4.4rem;
+.md-typeset .k-hero-logo,
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark p > img.k-hero-logo {
+  display: block;
+  width: 100%;
+  height: auto;
   padding: 0;
   background: none;
   border: 0;
   box-shadow: none;
 }
 
-.md-typeset .k-hero-mark img.k-hero-logo--light,
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo--dark {
-  display: block;
-}
-
-.md-typeset .k-hero-mark img.k-hero-logo--dark,
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo--light {
+/* Material hides the image for the other scheme, and the slate rule above is
+   specific enough to show it again, which put both logos on the dark page. So
+   the hiding is repeated here with that rule's own selector and the attribute
+   on top, which outranks it. */
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark p > img.k-hero-logo[src$="#only-light"],
+[data-md-color-scheme="default"] .md-typeset .k-hero-mark p > img.k-hero-logo[src$="#only-dark"] {
   display: none;
 }
 
@@ -596,6 +600,12 @@
    Narrower screens
    ------------------------------------------------------------------------- */
 
+@media screen and (max-width: 76.1875em) {
+  .md-typeset .k-hero {
+    grid-template-columns: 234px minmax(0, 1fr);
+  }
+}
+
 @media screen and (max-width: 60em) {
   .md-typeset .k-feature-grid,
   .md-typeset .k-next-grid {
@@ -623,16 +633,14 @@
     padding-inline: 0.8rem;
   }
   .md-typeset .k-hero {
-    padding: 1.2rem 0 1.4rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.2rem;
+    padding: 1.6rem 0 1.4rem;
     text-align: center;
   }
   .md-typeset .k-hero-mark {
-    margin: 0 0 1.2rem;
-  }
-  .md-typeset .k-hero-mark img.k-hero-logo,
-  [data-md-color-scheme="slate"] .md-typeset .k-hero-mark img.k-hero-logo {
-    height: 3.4rem;
-    margin-inline: auto;
+    width: 234px;
+    margin: 0 auto;
   }
   .md-typeset .k-hero h1 {
     font-size: 1.8rem;

@@ -84,11 +84,15 @@
   --k-route-sky:        #428ce6;
 }
 
-/* The logo is square and carries the wordmark inside it, so it needs a little
-   more height than the default to stay readable beside the site name. */
-.md-header__button.md-logo img {
+/* The mark is pixel art, 26 cells wide and 35 high, so it is drawn at one CSS
+   pixel per cell. That is a whole number of screen pixels per cell on an
+   ordinary screen and on a high-density one, which is what keeps the one-pixel
+   gaps between its bands open; scaled by a fraction, some close and some
+   double. The drawer on a narrow screen shows the same mark. */
+.md-header__button.md-logo img,
+.md-nav--primary .md-nav__title .md-nav__button.md-logo img {
   width: auto;
-  height: 1.8rem;
+  height: 35px;
 }
 
 /* --------------------------------------------------------------------------
@@ -366,45 +370,6 @@
 
 .md-typeset .track-overview img {
   margin-top: 0.85rem;
-}
-
-/* --------------------------------------------------------------------------
-   Home page hero
-   -------------------------------------------------------------------------- */
-
-.md-typeset .hero {
-  text-align: center;
-  margin: 0 auto 2rem;
-}
-
-/* The logo carries the wordmark, so printing the name again under it says
-   "karyon" twice in the same font. The heading stays in the document for the
-   outline and for a screen reader, it just does not draw. */
-.md-typeset .hero h1 {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-.md-typeset .hero p {
-  font-size: 0.85rem;
-  color: var(--md-default-fg-color--light);
-  max-width: 34rem;
-  margin: 0.8rem auto 0;
-}
-
-.md-typeset .hero-logo {
-  height: 9rem;
-  width: auto;
-  background: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -952,6 +917,19 @@
   opacity: 0.7;
 }
 
+/* The drawer that stands in for the sidebars on a narrow screen opens on the
+   same bar, and it was still blue: its title with the logo, and the repository
+   link under it. */
+.md-nav--primary .md-nav__title[for="__drawer"],
+.md-nav__source {
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.md-nav__source {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
 /* --------------------------------------------------------------------------
    Margins on a page that has no columns beside it
 
@@ -1045,10 +1023,9 @@
 
    Material sets one face for the whole page. Headings get a second one, so a
    page has a voice before a word of it is read: Space Grotesk, whose figures
-   and capitals are drawn with the same flat, slightly technical hand as the
-   banded k of the logo, against Inter for the prose, which is also the face
-   the rest of the logo is set in and the one to read eight hundred lines of a
-   formats page in.
+   and capitals are drawn with a flat, slightly technical hand, against Inter
+   for the prose, which is also the face the letters of the logo are cut from
+   and the one to read eight hundred lines of a formats page in.
 
    Loaded through the same Google Fonts mechanism the theme already uses for
    Inter and JetBrains Mono, so it costs no new machinery and no new host.
@@ -1489,25 +1466,6 @@
 [data-md-color-scheme="slate"] .md-typeset .plot-category-card b,
 [data-md-color-scheme="slate"] .md-typeset .plot-card b {
   color: var(--plot-accent, var(--card-accent, var(--md-primary-fg-color)));
-}
-
-
-/* --------------------------------------------------------------------------
-   The header mark, in the ink of the scheme
-
-   overrides/partials/logo.html writes both images; one of them is hidden.
-   -------------------------------------------------------------------------- */
-
-.md-header__button.md-logo .k-logo--dark {
-  display: none;
-}
-
-[data-md-color-scheme="slate"] .md-header__button.md-logo .k-logo--light {
-  display: none;
-}
-
-[data-md-color-scheme="slate"] .md-header__button.md-logo .k-logo--dark {
-  display: block;
 }
 
 /* --------------------------------------------------------------------------

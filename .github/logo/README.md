@@ -1,52 +1,59 @@
 # The karyon logo
 
-The name, set with its k drawn in bands.
+A chromosome, one region of it opened up, and the name drawn in that region
+with its coverage underneath.
 
-The k is cut into seven horizontal bands of one height, five across the x-height
-and two up the ascender. That is the idea karyon is built on, rows that line up
-across everything drawn on them, and it is also how a chromosome ideogram is
-drawn. The middle band is the centromere. It is the only band where the stem,
-the arm and the leg meet, it narrows where they join the stem the way a
-chromosome narrows at its centromere, and it is the one drawn in the accent.
+Everything is drawn on one grid of square cells, the way a figure is drawn on
+one coordinate axis. At the top is a chromosome ideogram with its G-bands, its
+centromere and a region boxed in pink. Dotted lines open that region out across
+the name, whose letters are cut into horizontal bands like the chromosome's.
+Under the name runs its depth, with a dropout under the r, a variant call in the
+dropout, and a ruler. Read from top to bottom it is a karyon figure: one region,
+tracks stacked on it, and every row lined up.
 
 ## Files
 
 | File | Use |
 |:-----|:----|
-| `karyon.svg` | The logotype on a light page: this README, the home page of the site. |
-| `karyon-dark.svg` | The logotype on a dark page. |
+| `karyon.svg` | The logo on a light page: this README and the home page of the site. |
+| `karyon-dark.svg` | The logo on a dark page. The chromosome, the zoom lines and the ruler are lighter; the name and the coverage do not change. |
 | `docs/assets/karyon_logo.svg`, `karyon_logo_dark.svg` | The same two, where the site can serve them. |
-| `docs/assets/karyon_mark.svg`, `karyon_mark_dark.svg` | The banded k alone: the site header, and anywhere the name is already written beside it. |
-| `docs/assets/favicon.svg` | The dark mark on a tile of the dark page, so it reads on a light or a dark tab bar. |
+| `docs/assets/karyon_mark.svg` | The k over its own coverage, with the dropout and the call: the site header and the drawer. The same file serves both schemes. |
+| `docs/assets/favicon.svg` | The mark on a night tile, so it reads on a light or a dark tab bar. |
 
 ## Construction
 
-Measured in units of the x-height, which is 100.
-
 | | |
 |:--|:--|
-| Bands | 17.28 high with a 3.4 gap, so five fill the x-height exactly; the ascender is 141.36 |
-| Stem | 35 wide, a little over Inter ExtraBold's 31, for the ink the gaps take out |
-| Arm and leg | 41 wide horizontally, running 0.8 across for every unit up or down, mirror images about the middle of the x-height |
-| Centromere | the arm and the leg start 2.5 inside the stem, which leaves the waist |
+| Letters | Inter ExtraBold (SIL Open Font License) at an x-height of 19 cells: a cell is inked when the letter covers at least half of it, after the letter is shifted by whichever fraction of a cell leaves the fewest cells half covered, so its stems come out whole cells wide |
+| Bands | 3 cells of ink and 1 of gap, so five bands fill the x-height; the ascender of the k and the descender of the y are stretched to end on a band edge, 27 cells up and 8 down |
+| Spacing | 2 cells between letters, 1 fewer from r to y and from y to o |
+| Chromosome | 53 cells long and 7 high, with rounded ends, a pinch at the centromere and G-bands in four strengths |
+| Coverage | one column under every column of the name, 1 cell deep under the r |
+| Size | the logo is 117 by 79 cells with a margin of 2, the mark 26 by 35, the favicon 40 by 40 |
 
-The rest of the name is Inter ExtraBold (SIL Open Font License), tracked by -2
-units, with the ink traps at its joins closed so they do not read as chips at a
-logo's size. Everything is outlines; no font has to be installed to see it.
+The files are rectangles with crisp edges and nothing else: no font, no filter
+and no gradient, so nothing has to be installed to see them. Show them at a
+whole number of screen pixels per cell. Scaled by a fraction, a pixel drawing
+loses some of the one-pixel gaps between its bands, which is why the site draws
+the logo 351 or 234 pixels wide and the mark 35 high, and this README 351 wide.
 
 ## Colours
 
-| | Light page | Dark page |
-|:--|:--|:--|
-| k | `#0072b2` | `#3d9be9` |
-| Centromere | `#d55e00` | `#ef7d2b` |
-| Letters | `#1b1f23` | `#e6edf3` |
-| Tile (favicon) | | `#14181d` |
+| | |
+|:--|:--|
+| Name | every row takes its colour from its height, from `#2b3be8` at the top of the k through `#6b3fe0` and `#b04ed8` to `#ff4fa3` at the foot of the y |
+| Coverage | the same ramp, from indigo at its base to pink at the top of its highest column |
+| Region, centromere, call | `#ff4fa3` |
+| Chromosome, light page | `#ddd6fb`, banded in `#b9a8f5`, `#8f6fe8`, `#6b3fe0` and `#3b1f8f` |
+| Chromosome, dark page | `#d9d2ff`, banded in `#b9a8f5`, `#8f6fe8`, `#b04ed8` and `#6b3fe0` |
+| Zoom lines and ruler | `#b04ed8` and `#3b1f8f` on a light page, `#d9d2ff` on a dark one |
+| Tile (favicon) | `#120b2b` |
 
-The blue and the vermillion are the site's primary and accent, from the
-Okabe-Ito palette the crate draws with; the ink and the tile are the crate's own
-light foreground and dark background.
+These colours belong to the logo and to nothing else. The figures and the site
+keep the Okabe-Ito palette the crate draws with, which is chosen to stay legible
+with a colour vision deficiency.
 
-Keep the bands, and keep the centromere the only band in the accent. Do not
-recolour the logotype band by band, stretch it, or set the name in another face
-beside the banded k.
+Keep the grid, the bands, and the colour running from the top of the k to the
+foot of the y. Do not smooth the logo, stretch it, or show it at a fraction of a
+pixel per cell.

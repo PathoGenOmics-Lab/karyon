@@ -156,7 +156,6 @@ documentation:
   - changed-files:
       - any-glob-to-any-file:
           - "docs/**"
-          - "overrides/**"
           - "mkdocs.yml"
           - "requirements-docs.txt"
           - "README.md"
