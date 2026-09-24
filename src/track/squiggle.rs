@@ -29,7 +29,8 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_rounded, text_width, Anchor};
+use crate::style::{legible_ticks, QuantitativeAxis};
+use crate::svg::Anchor;
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
 
@@ -289,16 +290,7 @@ impl Track for SquiggleTrack {
             return 0.0;
         }
         let (low, high) = self.extent();
-        let widest = [low, high]
-            .iter()
-            .map(|value| {
-                text_width(
-                    &format!("{}{}", text_rounded(*value, 2), self.unit),
-                    theme.font_size - 1.0,
-                )
-            })
-            .fold(0.0f64, f64::max);
-        widest + 8.0
+        self.axis().label_room(low, high, theme.font_size - 1.0) + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -380,29 +372,38 @@ impl Track for SquiggleTrack {
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
+            // Round currents inside the band rather than its two padded ends,
+            // which were whatever the extremes plus six per cent came to.
             let size = ctx.theme.font_size - 1.0;
             let right = ctx.axis.right() - 4.0;
-            ctx.svg.text(
-                right,
-                band.y + size,
-                &format!("{}{}", text_rounded(high, 2), self.unit),
-                &ctx.theme.muted,
-                size,
-                Anchor::End,
-            );
-            ctx.svg.text(
-                right,
-                band.bottom() - size * 0.22,
-                &format!("{}{}", text_rounded(low, 2), self.unit),
-                &ctx.theme.muted,
-                size,
-                Anchor::End,
-            );
+            let axis = self.axis();
+            let ticks = axis.values(low, high);
+            let shown = legible_ticks(&ticks, y_of, size);
+            for (value, label) in ticks.iter().zip(axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
+                ctx.svg.text(
+                    right,
+                    (y_of(*value) + size * 0.35)
+                        .max(band.y + size)
+                        .min(band.bottom() - size * 0.22),
+                    &label,
+                    &ctx.theme.muted,
+                    size,
+                    Anchor::End,
+                );
+            }
         }
     }
 }
 
 impl SquiggleTrack {
+    /// The value axis the current is read against, in the track's unit.
+    fn axis(&self) -> QuantitativeAxis {
+        QuantitativeAxis::new().unit(self.unit.clone())
+    }
+
     /// Sample indices inside the region, and inside the read.
     fn visible(&self, region: &Region) -> impl Iterator<Item = usize> + '_ {
         let first = (region.start() as usize).max(self.start);
@@ -570,7 +571,7 @@ mod tests {
             .push(track.label("s"))
             .to_svg();
         assert!(!svg.contains("MAD"));
-        assert!(svg.contains("102.4 pA"));
+        assert!(svg.contains(">100 pA</text>"), "round, and in picoamperes");
     }
 
     #[test]
@@ -584,7 +585,7 @@ mod tests {
             .push(flat.label("pA"))
             .to_svg();
         assert!(svg.contains(">91 pA</text>"));
-        assert!(svg.contains(">89 pA</text>"));
+        assert!(svg.contains(">89</text>"), "the unit is written once");
         assert!(!svg.contains(">1 pA</text>"));
     }
 

@@ -8,6 +8,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Value axes tick at round values. Every track with a quantitative axis used to
+  label the ends of whatever range the data came to, so a depth peaking at
+  71.46 read 35.73 and 71.46, a population size read 2167.255 and a dated tree
+  read 2022.965. Ticks now fall on multiples of 1, 2, 2.5 or 5 times a power of
+  ten, a free end is rounded out to one of them, the unit is written once on
+  the highest tick, and a band too short for every label keeps a regular subset
+  of them, so labels no longer overlap or lose their first characters to the
+  clip. A pinned range is still taken literally.
+- A gene, a strand-coloured read and a lettered alignment cell take a wash of
+  their colour with the full colour on the edge, as the genes of a locus
+  already did, so the small marks over them keep the attention. Track names are
+  set in the foreground ink with a hairline between named tracks, the title is
+  16 px rather than 18, the name in the middle of a circular plot keeps a halo
+  of the page when a chord crosses it, and a category too long for its strip is
+  set a size smaller before it is cut short.
+
 - `read::signal::dense` is `read::signal::spans` and hands back half-open
   `(start, end, value)` spans rather than one entry per base. A bedGraph row is
   one row however many bases it covers, and expanding it on the way in made the

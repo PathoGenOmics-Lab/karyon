@@ -292,6 +292,24 @@ impl SvgWriter {
         let _ = write!(self.body, r#"<polygon points="{list}" fill="{fill}"/>"#);
     }
 
+    /// A filled polygon with an edge of its own, in one element.
+    ///
+    /// The caller insets the points by half the edge when the outer boundary
+    /// has to stay where an unedged polygon would put it.
+    pub fn polygon_edged(&mut self, points: &[(f64, f64)], fill: &str, stroke: &str, width: f64) {
+        if points.len() < 3 || !finite(&[width]) {
+            return;
+        }
+        let Some(list) = point_list(points) else {
+            return;
+        };
+        let _ = write!(
+            self.body,
+            r#"<polygon points="{list}" fill="{fill}" stroke="{stroke}" stroke-width="{}" stroke-linejoin="round"/>"#,
+            num(width)
+        );
+    }
+
     /// An open stroked polyline through `points`.
     pub fn polyline(&mut self, points: &[(f64, f64)], stroke: &str, width: f64) {
         self.polyline_pattern(points, stroke, width, LinePattern::Solid);
@@ -320,6 +338,49 @@ impl SvgWriter {
         );
         self.push_pattern(pattern);
         self.body.push_str("/>");
+    }
+
+    /// A filled rounded rectangle with an edge of its own, in one element.
+    ///
+    /// The stroke is centred on the geometry, so the box is inset by half the
+    /// edge to keep the outer boundary where an unedged box of the same size
+    /// would put it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rect_rounded_edged(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        radius: f64,
+        fill: &str,
+        stroke: &str,
+        width: f64,
+    ) {
+        if w <= 0.0 || h <= 0.0 || !finite(&[x, y, w, h, radius, width]) {
+            return;
+        }
+        let inset = (width / 2.0).min(w / 2.0).min(h / 2.0).max(0.0);
+        let (x, y, w, h) = (x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset);
+        let radius = (radius - inset).min(w / 2.0).min(h / 2.0).max(0.0);
+        let _ = write!(
+            self.body,
+            r#"<rect x="{}" y="{}" width="{}" height="{}""#,
+            num(x),
+            num(y),
+            num(w.max(0.0)),
+            num(h.max(0.0)),
+        );
+        if radius > 0.05 {
+            let _ = write!(self.body, r#" rx="{}""#, num(radius));
+        }
+        let _ = write!(
+            self.body,
+            r#" fill="{}" stroke="{}" stroke-width="{}"/>"#,
+            fill,
+            stroke,
+            num(width)
+        );
     }
 
     /// An outlined rectangle with no fill.
@@ -404,6 +465,43 @@ impl SvgWriter {
         anchor: Anchor,
     ) {
         self.write_text(x, y, content, Ink { fill, size, anchor }, true);
+    }
+
+    /// A text label with a halo of `halo` behind its letters, for a label
+    /// that has to stay legible over marks it cannot move out of the way of.
+    ///
+    /// Written as two elements, the halo stroked under the letters and the
+    /// letters over it, rather than with `paint-order`, which SVG 1.1 does not
+    /// have and some editors still ignore.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_haloed(
+        &mut self,
+        x: f64,
+        y: f64,
+        content: &str,
+        fill: &str,
+        halo: &str,
+        size: f64,
+        anchor: Anchor,
+        bold: bool,
+    ) {
+        if content.is_empty() || size <= 0.0 || !finite(&[x, y, size]) {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<text x="{}" y="{}" fill="{halo}" stroke="{halo}" stroke-width="{}" stroke-linejoin="round" font-size="{}" text-anchor="{}" aria-hidden="true""#,
+            num(x),
+            num(y),
+            num((size * 0.28).max(1.5)),
+            num(size),
+            anchor.as_str()
+        );
+        if bold {
+            self.body.push_str(r#" font-weight="bold""#);
+        }
+        let _ = write!(self.body, ">{}</text>", escape(content));
+        self.write_text(x, y, content, Ink { fill, size, anchor }, bold);
     }
 
     fn write_text(&mut self, x: f64, y: f64, content: &str, ink: Ink<'_>, bold: bool) {
@@ -848,6 +946,21 @@ pub fn text_width(text: &str, font_size: f64) -> f64 {
         })
         .sum();
     per_mille / 1000.0 * font_size
+}
+
+/// `text` at the largest size down to `smallest` that fits `room`, and only
+/// then cut short with an ellipsis at that size.
+///
+/// A category inside a coloured cell is read as a word or not at all, and a
+/// point less type costs far less than the end of the word: "Wastewat…" beside
+/// "Human" is a figure that looks broken.
+pub fn fit_text_shrinking(text: &str, room: f64, font_size: f64, smallest: f64) -> (String, f64) {
+    let smallest = smallest.min(font_size);
+    let mut size = font_size;
+    while size > smallest && text_width(text, size) > room {
+        size = (size - 0.5).max(smallest);
+    }
+    (fit_text(text, room, size), size)
 }
 
 /// Fits visible text to `room`, using one ellipsis while preserving the full

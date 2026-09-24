@@ -670,24 +670,32 @@ impl Rings {
                 centre + theme.title_font_size * 0.35
             };
             let title = fit_text(title, self.inner_radius() * 1.65, theme.title_font_size);
-            svg.text_bold(
+            // A chord crosses the middle wherever it pleases, and the name of
+            // the molecule is written in the middle, so the name carries a
+            // halo of the page: the ribbon goes behind the letters instead of
+            // through them.
+            svg.text_haloed(
                 centre,
                 baseline,
                 &title,
                 &theme.foreground,
+                theme.surface(),
                 theme.title_font_size,
                 Anchor::Middle,
+                true,
             );
         }
         if let Some(subtitle) = &self.subtitle {
             let subtitle = fit_text(subtitle, self.inner_radius() * 1.65, theme.font_size);
-            svg.text(
+            svg.text_haloed(
                 centre,
                 centre + theme.font_size + theme.tokens.row_gap,
                 &subtitle,
                 &theme.muted,
+                theme.surface(),
                 theme.font_size,
                 Anchor::Middle,
+                false,
             );
         }
 

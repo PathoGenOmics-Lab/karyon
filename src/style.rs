@@ -241,6 +241,13 @@ fn compact_number(value: f64) -> String {
     } else {
         (value, "")
     };
+    // Past the millions the suffixes run out, and a number too large to hold
+    // every integer is written in exponent form rather than cast to one: the
+    // cast saturates, so the largest double used to come out as the largest
+    // i64 with an M after it.
+    if number.abs() >= 1e15 {
+        return format!("{value:e}");
+    }
     let rounded = (number * 100.0).round() / 100.0;
     let text = if rounded == rounded.trunc() {
         format!("{}", rounded as i64)
@@ -354,6 +361,154 @@ impl QuantitativeAxis {
         format!("{}{}", self.format.format(value), self.unit)
     }
 
+    /// The labels for a column of ticks, with the unit written once.
+    ///
+    /// A unit repeated on every tick is the same word stacked three times
+    /// beside a band a few lines tall, and it is most of why a narrow value
+    /// axis reads as clutter. It goes on the highest tick, which is the one
+    /// the eye reaches first and the one a reader asks "of what" about.
+    pub fn labels(&self, values: &[f64]) -> Vec<String> {
+        let top = values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(f64::NEG_INFINITY, f64::max);
+        values
+            .iter()
+            .map(|&value| {
+                if value == top {
+                    self.label(value)
+                } else {
+                    self.format.format(value)
+                }
+            })
+            .collect()
+    }
+
+    /// Widens the ends nobody pinned out to round values.
+    ///
+    /// A ceiling of 71.46 labelled as 71.46 is a number nobody asked for: it
+    /// is whatever the tallest sample happened to be, and it makes the middle
+    /// tick 35.73. Rounding the free ends outwards to the step the ticks will
+    /// use puts every label on a value a reader would have chosen, and the
+    /// small overshoot is the headroom a profile wants anyway. A pinned end is
+    /// taken literally, because pinning one is how two panels are made to
+    /// agree.
+    ///
+    /// The rounding may use a finer step than the labels will, up to three
+    /// more intervals than [`QuantitativeAxis::ticks`], because the step that
+    /// suits three labels can overshoot badly: 10.2 rounded in steps of five
+    /// is 15, a third of the band spent above the data, where steps of two
+    /// stop at 12.
+    pub fn nice(&self, min: f64, max: f64) -> (f64, f64) {
+        if !(min.is_finite() && max.is_finite()) || max <= min {
+            return (min, max);
+        }
+        let pin_lo = self.min.is_some();
+        let pin_hi = self.max.is_some();
+        if pin_lo && pin_hi {
+            return (min, max);
+        }
+        let most = self.ticks.clamp(2, 8) as f64 + 3.0;
+        let mut best: Option<(f64, f64, f64)> = None;
+        for step in candidate_steps(max - min, most) {
+            let lo = if pin_lo { min } else { floor_to(min, step) };
+            let hi = if pin_hi { max } else { ceil_to(max, step) };
+            if (hi - lo) / step > most + 1e-9 {
+                continue;
+            }
+            // The narrowest range wins, so the data fills as much of the band
+            // as a round ceiling allows; between equals, the finer step.
+            if best.map_or(true, |(span, _, _)| hi - lo < span - 1e-9 * span.abs()) {
+                best = Some((hi - lo, lo, hi));
+            }
+        }
+        let Some((_, mut lo, mut hi)) = best else {
+            return (min, max);
+        };
+        // Data that already sits on a round value would touch the edge of the
+        // band, so the band is taken a little past the last tick instead. The
+        // tick stays where it is; only the room above it grows. Zero is left
+        // alone, because a count that starts at zero starts on the baseline.
+        let room = (hi - lo) * 0.04;
+        if !pin_hi && hi - max < (hi - lo) * 0.03 {
+            hi += room;
+        }
+        if !pin_lo && lo != 0.0 && min - lo < (hi - lo) * 0.03 {
+            lo -= room;
+        }
+        (lo, hi)
+    }
+
+    /// Round tick values inside `min..=max`.
+    ///
+    /// Multiples of a step of 1, 2, 2.5 or 5 times a power of ten, the finest
+    /// one that keeps the count at most one more than [`QuantitativeAxis::ticks`].
+    /// A range too narrow to hold two of them gets its own two ends instead.
+    pub fn values(&self, min: f64, max: f64) -> Vec<f64> {
+        if !(min.is_finite() && max.is_finite()) {
+            return Vec::new();
+        }
+        if max <= min {
+            return vec![min];
+        }
+        let most = self.ticks.clamp(2, 8) as f64 + 1.0;
+        // The step whose ticks reach closest to both ends, so a range that was
+        // rounded by `nice` gets labels on its own ends rather than a finer
+        // step that happens to stop short of the ceiling.
+        let mut best: Option<(f64, f64, f64, f64)> = None;
+        for step in candidate_steps(max - min, most - 1.0) {
+            let first = ((min / step) - 1e-9).ceil();
+            let last = ((max / step) + 1e-9).floor();
+            let count = last - first + 1.0;
+            if count > most || count < 2.0 {
+                continue;
+            }
+            let short = (first * step - min) + (max - last * step);
+            // A quarter step only where it lands on both ends, as it does on
+            // a range `nice` rounded to it. Anywhere else it is how a span of
+            // years comes to be labelled 2022.5.
+            if is_quarter_step(step) && short > 1e-9 * (max - min) {
+                continue;
+            }
+            // Between two that reach the ends equally well, the one whose
+            // count is nearer the number asked for, and between those the
+            // coarser: whole years over half years, where both would do.
+            let wanted = self.ticks.clamp(2, 8) as f64;
+            let tolerance = 1e-9 * (max - min);
+            let better = best.map_or(true, |(gap, held, held_count, _)| {
+                if short < gap - tolerance {
+                    return true;
+                }
+                if short > gap + tolerance {
+                    return false;
+                }
+                let (near, held_near) = ((count - wanted).abs(), (held_count - wanted).abs());
+                near < held_near || (near == held_near && step > held)
+            });
+            if better {
+                best = Some((short, step, count, first));
+            }
+        }
+        let Some((_, step, count, first)) = best else {
+            return vec![min, max];
+        };
+        let places = decimals_of(step);
+        let first = first as i64;
+        (first..first + count as i64)
+            .map(|k| tidy(k as f64 * step, places))
+            .collect()
+    }
+
+    /// The width the widest of this axis's labels needs at `font_size`.
+    pub(crate) fn label_room(&self, min: f64, max: f64, font_size: f64) -> f64 {
+        let values = self.values(min, max);
+        self.labels(&values)
+            .iter()
+            .map(|label| crate::svg::text_width(label, font_size))
+            .fold(0.0f64, f64::max)
+    }
+
     /// Resolves optional pinned ends against a data range and keeps a visible
     /// span even when all values are identical.
     pub fn resolve(&self, data_min: f64, data_max: f64) -> (f64, f64) {
@@ -371,14 +526,144 @@ impl QuantitativeAxis {
         }
         (min, max)
     }
+}
 
-    /// Evenly spaced tick values, including both ends.
-    pub fn values(&self, min: f64, max: f64) -> Vec<f64> {
-        let ticks = self.ticks.clamp(2, 8);
-        (0..ticks)
-            .map(|index| min + (max - min) * index as f64 / (ticks - 1) as f64)
-            .collect()
+/// Round values across a span of time, each with its label.
+///
+/// Written as plain numbers with as many decimals as the step needs, never
+/// with a `k`: a year is 2024 and not 2.02k. The unit goes on the latest.
+/// The two ends of a dated tree are its root and its latest tip, and they are
+/// rarely round, so labelled as they came a tree read "2021.85", "2022.965"
+/// and "2024.08", three numbers nobody would put on an axis.
+pub(crate) fn time_ticks(min: f64, max: f64, unit: Option<&str>) -> Vec<(f64, String)> {
+    let ticks = QuantitativeAxis::new().ticks(4).values(min, max);
+    let step = ticks
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .fold(f64::INFINITY, f64::min);
+    let decimals = if step.is_finite() && step < 1.0 {
+        (-(step.log10().floor())).clamp(0.0, 6.0) as u32 + u32::from(is_quarter_step(step))
+    } else {
+        0
+    };
+    let last = ticks.len().saturating_sub(1);
+    ticks
+        .iter()
+        .enumerate()
+        .map(|(index, &value)| {
+            let number = crate::svg::text_rounded(value, decimals);
+            let label = match unit {
+                Some(unit) if index == last => format!("{number} {unit}"),
+                _ => number,
+            };
+            (value, label)
+        })
+        .collect()
+}
+
+/// Steps of 1, 2, 2.5 and 5 times a power of ten, smallest first, starting
+/// from the finest that could cover `span` in `intervals` steps.
+fn candidate_steps(span: f64, intervals: f64) -> Vec<f64> {
+    if !(span.is_finite() && span > 0.0 && intervals > 0.0) {
+        return vec![1.0];
     }
+    let magnitude = 10f64.powf((span / intervals).log10().floor());
+    let mut steps = Vec::with_capacity(12);
+    for scale in [1.0, 10.0, 100.0] {
+        for multiple in [1.0, 2.0, 2.5, 5.0] {
+            steps.push(multiple * magnitude * scale);
+        }
+    }
+    steps
+}
+
+/// Whether `step` is 2.5 times a power of ten.
+fn is_quarter_step(step: f64) -> bool {
+    let magnitude = 10f64.powf(step.log10().floor());
+    ((step / magnitude) - 2.5).abs() < 1e-9
+}
+
+fn floor_to(value: f64, step: f64) -> f64 {
+    tidy(((value / step) + 1e-9).floor() * step, decimals_of(step))
+}
+
+fn ceil_to(value: f64, step: f64) -> f64 {
+    tidy(((value / step) - 1e-9).ceil() * step, decimals_of(step))
+}
+
+/// Decimal places a multiple of `step` can need: one more than the step's
+/// own order of magnitude, which is what a 2.5 needs.
+fn decimals_of(step: f64) -> i32 {
+    (-(step.log10().floor()) + 1.0).clamp(0.0, 12.0) as i32
+}
+
+/// A multiple of a step, with the float noise of the multiplication removed
+/// and without the sign a zero can pick up on the way.
+fn tidy(value: f64, places: i32) -> f64 {
+    let factor = 10f64.powi(places);
+    let rounded = (value * factor).round() / factor;
+    if rounded == 0.0 {
+        0.0
+    } else {
+        rounded
+    }
+}
+
+/// The ticks from `values` that can be labelled without two labels touching.
+///
+/// A value axis beside a band twenty pixels tall cannot print three labels,
+/// and printing them anyway stacks them into one smudge, which is what the
+/// variant tracks were doing. Labels closer than a line and a half of
+/// `font_size` are legible and still read as a ladder of numbers rather than
+/// a scale.
+///
+/// The ticks are thinned by a regular stride, every second or fifth one,
+/// counted from nought when nought is among them, so what survives is still a
+/// round sequence: dropping labels one at a time from the bottom up left a
+/// scale reading -1, -0.2 and 1. When not even two fit, the highest is kept on
+/// its own, since a band with one number beside it still says how tall it is.
+pub(crate) fn legible_ticks(values: &[f64], y_of: impl Fn(f64) -> f64, font_size: f64) -> Vec<f64> {
+    let gap = font_size * 1.6;
+    let mut sorted: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    sorted.dedup();
+    let Some(&top) = sorted.last() else {
+        return Vec::new();
+    };
+    if sorted.len() == 1 {
+        return sorted;
+    }
+    let anchor = sorted.iter().position(|v| *v == 0.0).unwrap_or(0);
+    // The first stride that clears and still reaches the highest tick wins,
+    // since that one carries the unit. Failing that, the two ends, with nought
+    // between them when it is inside: a short band read as "0 to 0.75" says
+    // more than one read as "0 to 0.5" that stops short of its own top.
+    let clears = |kept: &[f64]| {
+        kept.windows(2)
+            .all(|pair| (y_of(pair[0]) - y_of(pair[1])).abs() >= gap)
+    };
+    for stride in [1, 2, 5, 10, 20, 50, 100] {
+        let kept: Vec<f64> = sorted
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| (*index as i64 - anchor as i64).rem_euclid(stride) == 0)
+            .map(|(_, value)| *value)
+            .collect();
+        if kept.len() < 2 {
+            break;
+        }
+        if kept.last() == Some(&top) && clears(&kept) {
+            return kept;
+        }
+    }
+    let bottom = sorted[0];
+    if anchor > 0 && anchor + 1 < sorted.len() && clears(&[bottom, 0.0, top]) {
+        return vec![bottom, 0.0, top];
+    }
+    if clears(&[bottom, top]) {
+        return vec![bottom, top];
+    }
+    vec![top]
 }
 
 impl Default for QuantitativeAxis {
@@ -409,8 +694,88 @@ mod tests {
     #[test]
     fn axis_formatting_is_compact_and_explicit() {
         assert_eq!(AxisFormat::Auto.format(1_250.0), "1.25k");
+        assert_eq!(AxisFormat::Auto.format(f64::MAX), "1.7976931348623157e308");
+        assert_eq!(AxisFormat::Auto.format(-1e300), "-1e300");
         assert_eq!(AxisFormat::Fixed(2).format(1.0), "1.00");
         assert_eq!(AxisFormat::Percent(1).format(0.125), "12.5%");
+    }
+
+    #[test]
+    fn a_free_ceiling_is_rounded_up_to_a_value_someone_would_choose() {
+        let axis = QuantitativeAxis::new();
+        assert_eq!(axis.nice(0.0, 71.46), (0.0, 75.0));
+        assert_eq!(axis.values(0.0, 75.0), vec![0.0, 25.0, 50.0, 75.0]);
+        // On a round value already: the band goes a little past the tick.
+        assert_eq!(axis.nice(0.0, 0.98), (0.0, 1.04));
+        assert_eq!(axis.values(0.0, 1.04), vec![0.0, 0.5, 1.0]);
+        assert_eq!(axis.nice(0.0, 449.0), (0.0, 500.0));
+        // Within three per cent of the round ends, so the band goes past them.
+        assert_eq!(axis.nice(-3.84, 3.84), (-4.32, 4.32));
+        assert_eq!(axis.nice(0.0, 10.19), (0.0, 12.0));
+        assert_eq!(axis.values(0.0, 12.0), vec![0.0, 5.0, 10.0]);
+        assert_eq!(axis.values(0.0, 0.3), vec![0.0, 0.1, 0.2, 0.3]);
+        // Whole years stay whole: no quarter step that misses both ends.
+        assert_eq!(axis.values(2021.0, 2025.0), vec![2022.0, 2024.0]);
+        assert_eq!(axis.values(2021.85, 2024.08), vec![2022.0, 2023.0, 2024.0]);
+    }
+
+    #[test]
+    fn a_pinned_end_is_left_where_it_was_put() {
+        let axis = QuantitativeAxis::new().range(0.0, 72.0);
+        assert_eq!(axis.nice(0.0, 72.0), (0.0, 72.0));
+        let top_only = QuantitativeAxis {
+            max: Some(1.0),
+            ..QuantitativeAxis::new()
+        };
+        assert_eq!(top_only.nice(-0.3, 1.0), (-0.5, 1.0));
+        assert_eq!(axis.values(0.0, 72.0), vec![0.0, 20.0, 40.0, 60.0]);
+    }
+
+    #[test]
+    fn dates_are_labelled_as_plain_round_numbers() {
+        let labels: Vec<String> = time_ticks(2021.85, 2024.08, Some("year"))
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        assert_eq!(labels, vec!["2022", "2023", "2024 year"]);
+        let halves: Vec<String> = time_ticks(2021.9, 2024.1, None)
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        assert_eq!(halves, vec!["2022", "2023", "2024"]);
+        let fine: Vec<String> = time_ticks(0.0, 0.3, None)
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        assert_eq!(fine, vec!["0", "0.1", "0.2", "0.3"]);
+    }
+
+    #[test]
+    fn the_unit_is_written_once_on_the_highest_tick() {
+        let axis = QuantitativeAxis::new().unit(" -log10 p");
+        assert_eq!(
+            axis.labels(&[0.0, 5.0, 10.0]),
+            vec!["0", "5", "10 -log10 p"]
+        );
+    }
+
+    #[test]
+    fn labels_that_would_touch_are_thinned_but_the_top_one_stays() {
+        let y_of = |v: f64| 100.0 - v * 20.0;
+        // Ten pixels between neighbours, twenty between the ends.
+        assert_eq!(legible_ticks(&[0.0, 0.5, 1.0], y_of, 7.0), vec![0.0, 1.0]);
+        assert_eq!(legible_ticks(&[0.0, 0.5, 1.0], y_of, 14.0), vec![1.0]);
+        assert_eq!(
+            legible_ticks(&[0.0, 0.5, 1.0], y_of, 5.0),
+            vec![0.0, 0.5, 1.0]
+        );
+        // Thinned by a stride counted from nought, not one at a time from the
+        // bottom, so a centred scale stays a round one.
+        let tenths: Vec<f64> = (-5..=5).map(|k| k as f64 * 0.2).collect();
+        let tall = |v: f64| 100.0 - v * 40.0;
+        let kept = legible_ticks(&tenths, tall, 7.0);
+        assert!(kept.contains(&0.0), "{kept:?}");
+        assert_eq!(kept, vec![-1.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -418,7 +783,7 @@ mod tests {
         let axis = QuantitativeAxis::new().range(10.0, -2.0);
         assert_eq!(axis.min, Some(-2.0));
         assert_eq!(axis.max, Some(10.0));
-        assert_eq!(axis.values(-2.0, 10.0), vec![-2.0, 4.0, 10.0]);
+        assert_eq!(axis.values(-2.0, 10.0), vec![0.0, 5.0, 10.0]);
         assert_eq!(QuantitativeAxis::new().resolve(3.0, 3.0), (1.5, 4.5));
     }
 }

@@ -32,7 +32,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::style::{Emphasis, QuantitativeAxis};
+use crate::style::{legible_ticks, Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::Theme;
 use crate::track::{DrawContext, Track};
@@ -352,21 +352,36 @@ impl Track for CoverageTrack {
         if !self.show_max {
             return 0.0;
         }
-        // Room for the widest label this track could print, which is the
-        // ceiling rather than the zero underneath it.
-        let mut labels = vec![self
+        // Room for the widest label this track could print. The data it holds
+        // bounds every region it can be shown over, so the ends it would
+        // round to over all of it bound the labels over any part of it.
+        let size = theme.font_size - 1.0;
+        let whole = self
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(None, |acc: Option<f64>, v| {
+                Some(acc.map_or(v, |a| a.max(v)))
+            });
+        let widest = match self
             .axis
             .max
-            .map(|value| self.axis.label(value))
-            .unwrap_or_else(|| "999.9k".to_string())];
-        if let Some(min) = self.axis.min {
-            labels.push(self.axis.label(min));
-        }
-        labels
-            .iter()
-            .map(|label| text_width(label, theme.font_size - 1.0))
-            .fold(0.0f64, f64::max)
-            + 8.0
+            .or(self.max)
+            .or(whole)
+            .filter(|m| m.is_finite() && *m > 0.0)
+        {
+            Some(ceiling) => {
+                let (floor, ceiling, _) = self.ends(ceiling);
+                self.tick_values(floor, ceiling)
+                    .iter()
+                    .zip(self.tick_labels(floor, ceiling))
+                    .map(|(_, label)| text_width(&label, size))
+                    .fold(0.0f64, f64::max)
+            }
+            None => text_width("0", size),
+        };
+        widest + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -399,16 +414,7 @@ impl Track for CoverageTrack {
         let Some(data_ceiling) = data_ceiling else {
             return;
         };
-        // A little headroom, so the tallest point is a peak rather than
-        // something that ran out of band. A pinned maximum is taken literally,
-        // because that is the whole reason for pinning one.
-        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
-        let pinned = self.axis.max.is_some() || self.max.is_some();
-        let visual_ceiling = if pinned {
-            ceiling
-        } else {
-            floor + (ceiling - floor) * 1.06
-        };
+        let (floor, ceiling, visual_ceiling) = self.ends(data_ceiling);
         let transformed_floor = self.transform(floor);
         let span = self.transform(visual_ceiling) - transformed_floor;
         if span <= 0.0 {
@@ -447,7 +453,7 @@ impl Track for CoverageTrack {
             CoverageStyle::Bars => {}
             CoverageStyle::Line => {
                 ctx.svg
-                    .polyline(&points, &color, ctx.theme.tokens.strong_stroke)
+                    .polyline(&points, &color, ctx.theme.tokens.stroke * 1.25)
             }
             CoverageStyle::Area => {
                 if points.len() >= 2 {
@@ -477,40 +483,90 @@ impl Track for CoverageTrack {
                         self.fill_opacity.unwrap_or(ctx.theme.tokens.area_opacity),
                     );
                     ctx.svg
-                        .polyline(&points, &color, ctx.theme.tokens.strong_stroke);
+                        .polyline(&points, &color, ctx.theme.tokens.stroke * 1.25);
                 }
             }
         }
 
         if self.show_max {
-            self.draw_axis(ctx, floor, ceiling);
+            self.draw_axis(ctx, floor, ceiling, visual_ceiling);
         }
     }
 }
 
 impl CoverageTrack {
+    /// The floor, the labelled ceiling and the ceiling the band is scaled to.
+    ///
+    /// A free ceiling is rounded up to a value worth labelling, which is also
+    /// the headroom that keeps the tallest point a peak rather than something
+    /// that ran out of band. A pinned maximum is taken literally, because that
+    /// is the whole reason for pinning one.
+    fn ends(&self, data_ceiling: f64) -> (f64, f64, f64) {
+        let (floor, ceiling) = self.axis.resolve(0.0, data_ceiling);
+        let pinned = self.axis.max.is_some() || self.max.is_some();
+        if pinned {
+            return (floor, ceiling, ceiling);
+        }
+        if self.log_scale {
+            return (floor, ceiling, floor + (ceiling - floor) * 1.06);
+        }
+        let (floor, rounded) = self.axis.nice(floor, ceiling);
+        (floor, rounded, rounded)
+    }
+
+    /// Where the value axis puts its ticks.
+    ///
+    /// A log scale spends its height on the small values, so round linear
+    /// steps would pile up at the top; it is ticked at powers of ten instead.
+    fn tick_values(&self, floor: f64, ceiling: f64) -> Vec<f64> {
+        if !self.log_scale {
+            return self.axis.values(floor, ceiling);
+        }
+        let mut values = vec![floor.max(0.0)];
+        let mut power = 1.0;
+        while power < ceiling * 0.8 {
+            if power > floor {
+                values.push(power);
+            }
+            power *= 10.0;
+        }
+        values.push(ceiling);
+        values
+    }
+
+    fn tick_labels(&self, floor: f64, ceiling: f64) -> Vec<String> {
+        let values = self.tick_values(floor, ceiling);
+        let mut labels = self.axis.labels(&values);
+        if self.log_scale {
+            if let Some(last) = labels.last_mut() {
+                last.push_str(" log");
+            }
+        }
+        labels
+    }
+
     /// Draws the value axis in the strip the figure reserved for it.
     ///
-    /// Two ticks, zero and the ceiling, plus a hairline across the plot at the
-    /// top of the scale. Two is enough: a coverage track is read for its shape
-    /// and its order of magnitude, and a ladder of six gridlines would be more
-    /// ink than the profile it is measuring.
-    fn draw_axis(&self, ctx: &mut DrawContext<'_>, floor: f64, ceiling: f64) {
+    /// Round values from nought to the rounded ceiling, as many as the band
+    /// has room to label, each with a hairline across the plot. A coverage
+    /// track is read for its shape and its order of magnitude, so a short band
+    /// is left with its two ends rather than a ladder of gridlines that would
+    /// be more ink than the profile it is measuring.
+    fn draw_axis(&self, ctx: &mut DrawContext<'_>, floor: f64, ceiling: f64, visual_ceiling: f64) {
         let band = ctx.band;
         let size = ctx.theme.font_size - 1.0;
         let baseline = band.bottom();
-        // Where the ceiling lands once the headroom is accounted for.
-        let pinned = self.axis.max.is_some() || self.max.is_some();
-        let visual_ceiling = if pinned {
-            ceiling
-        } else {
-            floor + (ceiling - floor) * 1.06
-        };
         let transformed_floor = self.transform(floor);
         let span = self.transform(visual_ceiling) - transformed_floor;
         let y_of =
             |value: f64| baseline - ((self.transform(value) - transformed_floor) / span) * band.h;
-        for value in self.axis.values(floor, ceiling) {
+        let all = self.tick_values(floor, ceiling);
+        let labels = self.tick_labels(floor, ceiling);
+        let shown = legible_ticks(&all, y_of, size);
+        for &value in &shown {
+            if value <= floor {
+                continue;
+            }
             let y = y_of(value);
             ctx.svg.line(
                 band.x,
@@ -549,16 +605,15 @@ impl CoverageTrack {
             return;
         }
         let right = ctx.axis.right() - 4.0;
-        for value in self.axis.values(floor, ceiling) {
-            let y = y_of(value);
-            let mut label = self.axis.label(value);
-            if self.log_scale && (value - ceiling).abs() <= f64::EPSILON {
-                label.push_str(" log");
+        for (value, label) in all.iter().zip(&labels) {
+            if !shown.contains(value) {
+                continue;
             }
+            let y = y_of(*value);
             ctx.svg.text(
                 right,
                 (y + size * 0.35).max(band.y + size * 0.78).min(baseline),
-                &label,
+                label,
                 &ctx.theme.muted,
                 size,
                 Anchor::End,
@@ -680,15 +735,17 @@ mod tests {
     }
 
     #[test]
-    fn the_axis_labels_both_ends_of_the_scale() {
+    fn the_axis_labels_a_round_ceiling_and_the_floor() {
         use crate::figure::Figure;
         let depth: Vec<f64> = (0..500).map(|i| (i % 87) as f64).collect();
         let svg = Figure::new(Region::parse("chr1:1-500").unwrap())
             .show_region_label(false)
             .push(CoverageTrack::new(0, depth).label("depth"))
             .to_svg();
-        assert!(svg.contains(">86</text>"), "the ceiling should be labelled");
-        assert!(svg.contains(">0</text>"), "and so should the floor");
+        assert!(svg.contains(">100</text>"), "the ceiling rounds up to 100");
+        assert!(svg.contains(">50</text>"), "with a round step under it");
+        assert!(svg.contains(">0</text>"), "and the floor is labelled");
+        assert!(!svg.contains(">86</text>"), "not the tallest sample");
     }
 
     #[test]
@@ -704,9 +761,11 @@ mod tests {
             .show_region_label(false)
             .push(CoverageTrack::new(0, vec![20.0; 100]).axis(axis))
             .to_svg();
-        assert!(svg.contains(">10.0x</text>"), "{svg}");
-        assert!(svg.contains(">target</text>"), "{svg}");
-        assert!(svg.contains("stroke-dasharray"), "{svg}");
+        assert!(svg.contains(">30.0x</text>"), "the unit on the top tick");
+        assert!(svg.contains(">10.0</text>"), "and nowhere else");
+        assert!(!svg.contains(">10.0x</text>"), "not repeated on every tick");
+        assert!(svg.contains(">target</text>"));
+        assert!(svg.contains("stroke-dasharray"));
     }
 
     #[test]

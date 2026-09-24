@@ -59,7 +59,7 @@
 //! named mistake exactly.
 
 use crate::scale::Scale;
-use crate::style::QuantitativeAxis;
+use crate::style::{legible_ticks, QuantitativeAxis};
 use crate::svg::{finite_within, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
@@ -295,11 +295,43 @@ impl DynseqTrack {
                 highest = highest.max(score);
             }
         }
+        self.range_of(lowest, highest)
+    }
+
+    /// The axis over scores from `lowest` to `highest`.
+    ///
+    /// Free ends are rounded out to values worth labelling, and a symmetric
+    /// band rounds its reach, so nought stays in the middle.
+    fn range_of(&self, lowest: f64, highest: f64) -> (f64, f64) {
+        let pinned = self.axis.min.is_some() || self.axis.max.is_some();
         if self.symmetric {
             let reach = lowest.abs().max(highest).max(f64::MIN_POSITIVE);
+            let reach = if pinned {
+                reach
+            } else {
+                QuantitativeAxis::new().nice(0.0, reach).1
+            };
             return self.axis.resolve(-reach, reach);
         }
-        self.axis.resolve(lowest.min(0.0), highest.max(0.0))
+        let (lo, hi) = self.axis.resolve(lowest.min(0.0), highest.max(0.0));
+        self.axis.nice(lo, hi)
+    }
+
+    /// Where the value axis puts its ticks: mirrored about nought on a
+    /// symmetric band, so nought is always one of them.
+    fn tick_values(&self, lo: f64, hi: f64) -> Vec<f64> {
+        if !(self.symmetric && (lo + hi).abs() <= (hi - lo) * 1e-9) {
+            return self.axis.values(lo, hi);
+        }
+        let upper = self.axis.values(0.0, hi);
+        let mut ticks: Vec<f64> = upper
+            .iter()
+            .rev()
+            .filter(|v| **v > 0.0)
+            .map(|v| -v)
+            .collect();
+        ticks.extend(upper);
+        ticks
     }
 }
 
@@ -324,16 +356,20 @@ impl Track for DynseqTrack {
         // The widest score the track carries anywhere, not the widest inside
         // the window, because the figure asks for this width before it says
         // which window. A visible extent is never larger than that one.
-        let reach = self.max_extent.unwrap_or_else(|| {
-            self.scores
-                .iter()
-                .filter(|score| score.is_finite())
-                .fold(0.0f64, |widest, score| widest.max(score.abs()))
-                .max(1.0)
-        });
-        [reach, -reach, 0.0]
-            .into_iter()
-            .map(|value| crate::svg::text_width(&self.axis.label(value), size))
+        let (lo, hi) = match self.max_extent {
+            Some(pinned) => (-pinned, pinned),
+            None => {
+                let finite = self.scores.iter().copied().filter(|s| s.is_finite());
+                let lowest = finite.clone().fold(0.0f64, f64::min);
+                let highest = finite.fold(0.0f64, f64::max);
+                self.range_of(lowest, highest)
+            }
+        };
+        let ticks = self.tick_values(lo, hi);
+        self.axis
+            .labels(&ticks)
+            .iter()
+            .map(|label| crate::svg::text_width(label, size))
             .fold(0.0f64, f64::max)
             + 8.0
     }
@@ -359,12 +395,17 @@ impl Track for DynseqTrack {
             // this was reachable.
             let top = band.y + size * 0.8;
             let bottom = band.bottom() - size * 0.15;
-            for value in [hi, 0.0, lo] {
-                let y = (y_of(value) + size * 0.35).clamp(top.min(bottom), top.max(bottom));
+            let ticks = self.tick_values(lo, hi);
+            let shown = legible_ticks(&ticks, y_of, size);
+            for (value, label) in ticks.iter().zip(self.axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
+                let y = (y_of(*value) + size * 0.35).clamp(top.min(bottom), top.max(bottom));
                 ctx.svg.text(
                     ctx.axis.right() - 4.0,
                     y,
-                    &self.axis.label(value),
+                    &label,
                     &ctx.theme.muted,
                     size,
                     Anchor::End,
@@ -669,14 +710,16 @@ mod tests {
         // without its minus sign is a positive number an order of magnitude
         // too small.
         let big = DynseqTrack::new(0, b"AC".to_vec(), vec![12_345.678, -12_345.678]);
-        let small = DynseqTrack::new(0, b"AC".to_vec(), vec![0.5, -0.5]);
+        let small = DynseqTrack::new(0, b"AC".to_vec(), vec![1.0, -1.0]);
         let theme = Theme::light();
         assert!(
             big.y_axis_width(&theme) > small.y_axis_width(&theme),
             "the strip is the same width whatever the numbers are"
         );
+        // The reach rounds out to fifteen thousand, and minus that is the
+        // widest label on the strip.
         let size = theme.font_size - 1.0;
-        let widest = crate::svg::text_width(&big.axis.label(-12_345.678), size);
+        let widest = crate::svg::text_width(&big.axis.label(-15_000.0), size);
         assert!(
             big.y_axis_width(&theme) >= widest,
             "the widest label will not fit"
