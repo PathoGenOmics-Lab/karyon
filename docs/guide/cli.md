@@ -1,461 +1,239 @@
 # Command line
 
-The `karyon` command draws the same figures as the library, straight from your
-files and without writing any Rust. It covers 28 of the 36 track types: the 27
-that read a file, plus the coordinate ruler. Trees with metadata, maps and the
-selection views are only available from the library.
+Draw a figure straight from your files without writing any Rust: name a region,
+then stack one track per file, in the order you want them drawn.
+{ .k-lead }
 
-This page documents the grammar: which flags start a track, which flags
-configure it, and what the command says when something is wrong. Every command
-here also runs in the [playground](../playground.md), in your browser.
-
-## The grammar is the stack
-
-A figure is a list of tracks in the order they are drawn, and `argv` is already
-an ordered list whose later words describe the earlier ones. That is exactly
-what `Plot` is, so the grammar is the obvious one:
-
-- each `--<track>` flag starts a track,
-- the flags after it describe that track until the next one starts,
-- **the order of the flags is the order of the stack**.
-
-Figure flags such as `--title` are attached to nothing and may sit anywhere.
-The correspondence with the Rust API is one to one, spaces instead of dots:
+## The grammar
 
 ```text
---coverage depth.bg --label depth --aggregate min
-
-    .add_coverage(..).label("depth").adjust(|t| t.aggregate(Aggregate::Min))
+karyon <REGION> [TRACK...] [OPTIONS]
 ```
 
-So the same figure is the same list of words either way:
+Four rules cover every command:
 
-=== "Shell"
+1. **The region comes first.** It is a locus string, 1-based and inclusive as
+   samtools and IGV write it: a sequence name, a colon and a span. Commas and
+   underscores inside the numbers are ignored, so `NC_000962.3:761,000-762,999`
+   and `NC_000962.3:761000-762999` are the same 2,000 bases.
+2. **Each track flag starts a track** and takes the file after it. Tracks stack
+   from top to bottom in the order you write them.
+3. **The options after a track flag describe that track**, up to the next track
+   flag.
+4. **Figure options** such as `--title` and `-o` belong to no track and can go
+   anywhere on the line.
 
-    ```bash
-    karyon NC_000962.3:761,000-763,000 \
-      --coverage depth.bedgraph --label depth --aggregate min \
-      --sequence H37Rv.fa \
-      --features genes.gff3     --label annotation \
-      --variants calls.vcf      --label variants \
-      --title 'rpoB locus' -o rpoB.svg
-    ```
+### A worked example
 
-=== "Rust"
+```bash
+karyon NC_000962.3:761,000-762,999 \
+  --coverage depth.bedgraph --label depth --aggregate min --height 70 \
+  --sequence H37Rv.fa --label reference \
+  --features genes.gff3 --label annotation \
+  --variants calls.vcf --label variants \
+  --title 'rpoB locus, resistance determining region' -o rpoB.svg
+```
 
-    ```rust
-    use karyon::{plot, Aggregate};
+<figure class="k-plate" markdown>
+![Four bands over one kilobase ruler: read depth, the reference sequence, the rpoB gene with its resistance determining region marked, and five variants coloured missense or synonymous](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+<figcaption>One band per track flag, in the order the flags were written.</figcaption>
+</figure>
 
-    plot("NC_000962.3:761,000-763,000")?
-        .title("rpoB locus")
-        .add_coverage(depth)
-        .label("depth")
-        .adjust(|track| track.aggregate(Aggregate::Min))
-        .add_sequence(bases)
-        .add_features(genes)
-        .label("annotation")
-        .add_variants(calls)
-        .label("variants")
-        .save("rpoB.svg")?;
-    ```
+Read the command one flag at a time:
 
-    The library takes values rather than paths, so `depth`, `bases`, `genes` and
-    `calls` are already in hand. Reading them from a bedGraph, a FASTA, a GFF3
-    and a VCF is the only thing the command does that the library does not.
+- `NC_000962.3:761,000-762,999` is the window every track is drawn over.
+- `--coverage depth.bedgraph` opens the first band. The three options after it
+  belong to it: `--label` names it in the left gutter, `--aggregate min` keeps
+  a dropout visible where one pixel covers several bases, and `--height` sets
+  how tall it is.
+- `--sequence`, `--features` and `--variants` open the next three bands, each
+  named by the `--label` that follows it.
+- `--title` and `-o` describe the figure, so where they sit does not matter.
+- A coordinate ruler is added along the bottom without being asked for.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
+Every reader skips rows on another sequence and rows outside the window, so you
+can hand over a genome-wide file and only the window is drawn. The
+[playground](../playground.md) runs this same command line in your browser, on
+example files you can edit.
 
-## The region
+### Spaces instead of dots
 
-The first argument is the region every track is drawn over, written as a locus
-string: a sequence name, a colon, and a 1-based inclusive span. Commas,
-underscores and spaces inside the numbers are dropped, so
-`NC_000962.3:761,000-763,000` and `NC_000962.3:761000-763000` are the same
-2,000 bases.
+The grammar is the `plot()` builder of [the Rust API](plot.md) written with
+spaces instead of dots. A track flag is an `add_` call, and each option after it
+is a call on that track:
 
-One region per figure. It is the only argument that is not a flag or a flag's
-value, so it may sit anywhere on the line, but it reads better first and the
-help text puts it there. A second bare word is an error rather than a silent
-choice between two regions.
+```text
+--coverage depth.bedgraph --label depth --aggregate min
+.add_coverage(depth).label("depth").adjust(|track| track.aggregate(Aggregate::Min))
+```
 
-Every reader skips rows on another sequence and rows outside the window, so a
-genome-wide file can be handed over whole and only the window comes back.
+The worked example, as Rust:
 
-!!! warning "Coordinates"
-    The locus string and the tick labels are 1-based and inclusive, the form
-    samtools and IGV use. Everything else in the crate is 0-based and half-open.
-    Files are read as each format defines them: BED, bedGraph and cytoBand are
-    0-based half-open, and GFF3, VCF, SAM and `samtools depth` are 1-based
-    inclusive. Both come out at the same place in the figure, and every reader
-    has a test that pins a known base through the conversion.
+```rust
+use karyon::{plot, Aggregate};
+
+plot("NC_000962.3:761,000-762,999")?
+    .title("rpoB locus, resistance determining region")
+    .add_coverage(depth)
+    .label("depth")
+    .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
+    .add_sequence(bases)
+    .label("reference")
+    .add_features(genes)
+    .label("annotation")
+    .add_variants(calls)
+    .label("variants")
+    .save("rpoB.svg")?;
+```
+
+The library takes values rather than paths, so `depth`, `bases`, `genes` and
+`calls` are already in hand here. Reading them from files is the one thing the
+command adds, and it does that with the readers in `karyon::read`, described in
+[File formats](formats.md).
 
 ## Track flags
 
-Twenty-eight flags, twenty-seven of which take a file. `-` in place of a path means
-standard input.
+Twenty-eight flags, one per track type the command can draw. Each takes one
+file, or `-` for [standard input](#standard-input), except `--axis`, which
+reads nothing.
 
-The parsing is not in this binary. It lives in the library as
-[`karyon::read`](formats.md), and every reader there takes a `&str` rather than
-a path, so nothing in the crate opens a file to read one and the dependency
-count stays at zero. What the binary keeps is opening the path, and every format
-it opens is line based text.
+| Flag | Draws | Reads | Track |
+|:--|:--|:--|:--|
+| `--coverage <FILE>` | per-base signal | [bedGraph](formats.md#bedgraph), [`samtools depth`](formats.md#samtools-depth) or [a bare column of values](formats.md#a-bare-column-of-values) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
+| `--copy-number <FILE>` | segmented copy number | [a segment table](formats.md#the-segment-table): CNVkit `.cns`, ASCAT or `.seg` | [CopyNumberTrack](../tracks/variation.md#copynumbertrack) |
+| `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
+| `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
+| `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
+| `--features <FILE>` | genes and other intervals | [BED](formats.md#bed) or [GFF3](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
+| `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
+| `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
+| `--tree <FILE>` | a phylogeny | [Newick](formats.md#newick) | [TreeTrack](../tracks/phylogeny.md#treetrack) |
+| `--msa <FILE>` | a multiple sequence alignment | [aligned FASTA](formats.md#aligned-fasta) | [MsaTrack](../tracks/comparison.md#msatrack) |
+| `--snps <FILE>` | the variable sites of an alignment | [aligned FASTA](formats.md#aligned-fasta) | [SnpTrack](../tracks/variation.md#snptrack) |
+| `--ideogram <FILE>` | cytogenetic bands | [a cytoBand table](formats.md#cytoband) | [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) |
+| `--matrix <FILE>` | a value per sample per site | [a matrix table](formats.md#the-matrix-table) | [MatrixTrack](../tracks/variation.md#matrixtrack) |
+| `--pileup <FILE>` | aligned reads | [SAM text](formats.md#sam) from `samtools view` | [PileupTrack](../tracks/reads-molecules.md#pileuptrack) |
+| `--synteny <FILE>` | alignment ribbons between two sequences | [PAF](formats.md#paf) from minimap2 | [SyntenyTrack](../tracks/comparison.md#syntenytrack) |
+| `--dotplot <FILE>` | the same alignments as a dot plot | [PAF](formats.md#paf) | [DotplotTrack](../tracks/comparison.md#dotplottrack) |
+| `--orfs <FILE>` | open reading frames in six frames | [FASTA](formats.md#fasta), the file `--sequence` takes | [OrfTrack](../tracks/annotation.md#orftrack) |
+| `--logo <FILE>` | a sequence logo | [aligned FASTA](formats.md#aligned-fasta), the file `--msa` takes | [LogoTrack](../tracks/signal-sequence.md#logotrack) |
+| `--tanglegram <FILE>` | two phylogenies face to face | [Newick](formats.md#newick), the left tree; `--against` names the right | [TanglegramTrack](../tracks/phylogeny.md#tanglegramtrack) |
+| `--clades <FILE>` | spans carried by named taxa, painted onto a phylogeny | [GFF3 with a `taxa` attribute](formats.md#gubbins-clade-blocks), as Gubbins writes it; `--with-tree` names the tree | [CladeTrack](../tracks/phylogeny.md#cladetrack) |
+| `--loci <FILE>` | gene neighbourhoods from several genomes | [BED or GFF3 whose first column names the genome](formats.md#gene-neighbourhoods); `--links` names the homologies | [LocusTrack](../tracks/comparison.md#locustrack) |
+| `--methylation <FILE>` | modified bases per strand | [bedMethyl](formats.md#bedmethyl) from modkit | [MethylationTrack](../tracks/signal-sequence.md#methylationtrack) |
+| `--structural <FILE>` | structural calls as arcs between their breakpoints | [VCF with symbolic alleles or `SVTYPE`](formats.md#structural-vcf) | [StructuralTrack](../tracks/variation.md#structuraltrack) |
+| `--split-reads <FILE>` | molecules that aligned in pieces | [SAM carrying an `SA` tag](formats.md#sam-with-sa-tags) | [SplitReadTrack](../tracks/reads-molecules.md#splitreadtrack) |
+| `--bisulfite <FILE>` | methylation one molecule at a time | [a Bismark methylation extractor file](formats.md#the-bismark-extractor-file) | [BisulfiteTrack](../tracks/reads-molecules.md#bisulfitetrack) |
+| `--domains <FILE>` | protein domains on an axis of residues | [an InterProScan table](formats.md#the-interproscan-table) | [DomainTrack](../tracks/comparison.md#domaintrack) |
+| `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
 
-| Flag | The track | What it reads |
-|:-----|:----------|:--------------|
-| `--coverage <FILE>` | Per-base signal | bedGraph, `samtools depth`, or a bare column of values |
-| `--copy-number <FILE>` | Segmented copy number | a segment table: CNVkit `.cns`, ASCAT, or `.seg` |
-| `--dynseq <FILE>` | Per-base model attribution | bedGraph, with `--with-sequence` |
-| `--junctions <FILE>` | Splice junctions as arcs | an aligner's `SJ.out.tab` |
-| `--sequence <FILE>` | The reference bases | FASTA |
-| `--features <FILE>` | Genes and other intervals | BED or GFF3 |
-| `--variants <FILE>` | Point calls | VCF |
-| `--windows <FILE>` | A statistic in windows | bedGraph |
-| `--manhattan <FILE>` | Association statistics | a table of position and value |
-| `--tree <FILE>` | A phylogeny | Newick |
-| `--msa <FILE>` | A multiple sequence alignment | aligned FASTA |
-| `--snps <FILE>` | The variable sites of an alignment | aligned FASTA |
-| `--ideogram <FILE>` | Cytogenetic bands | a cytoBand table |
-| `--matrix <FILE>` | A value per sample per site | a table |
-| `--pileup <FILE>` | Aligned reads | SAM text, as `samtools view` writes it |
-| `--synteny <FILE>` | Alignment ribbons between two sequences | PAF, as `minimap2` writes it |
-| `--dotplot <FILE>` | The same alignments as a dot plot | the same PAF |
-| `--orfs <FILE>` | Open reading frames in six frames | FASTA, the same file `--sequence` takes |
-| `--logo <FILE>` | A sequence logo | aligned FASTA, the same file `--msa` takes |
-| `--tanglegram <FILE>` | Two phylogenies face to face | Newick, and a second one named by `--against` |
-| `--clades <FILE>` | Spans carried by named taxa, painted onto a phylogeny | GFF3 with a `taxa` attribute, as `Gubbins` writes it, and a tree named by `--with-tree` |
-| `--loci <FILE>` | Gene neighbourhoods from several genomes | BED or GFF3 whose first column names the genome, and the homologies named by `--links` |
-| `--methylation <FILE>` | Modified bases per strand | bedMethyl, as `modkit pileup` writes it |
-| `--structural <FILE>` | Structural calls as arcs between their breakpoints | VCF carrying symbolic alleles or `SVTYPE` |
-| `--split-reads <FILE>` | Molecules that aligned in pieces | SAM text carrying an `SA` tag |
-| `--bisulfite <FILE>` | Methylation one molecule at a time | a `bismark_methylation_extractor` file |
-| `--domains <FILE>` | Protein domains, on an axis of residues | an `InterProScan` table |
-| `--axis` | The coordinate ruler | nothing |
+The other eight track types are reached from Rust only. The
+[track catalogue](../tracks/index.md) lists all thirty-six.
 
-Twenty-eight of the thirty-six track types are reachable here, and those are
-the ones it has: twenty-seven have a file the command can put in front of
-them, and the coordinate ruler needs none. The rest are library only, either
-because their format is binary, because no single standard exists for what they
-draw, or because nobody has written the reader yet;
-[Track catalogue](../tracks.md) says which is which for each of them. What each
-reader accepts, column by column, is in [Formats](formats.md).
+A few things about track flags are worth knowing before they surprise you:
 
-`--orfs` and `--logo` compute rather than read: reading frames off the same
-FASTA `--sequence` takes, and a logo off the same aligned FASTA `--msa` takes.
-So either can be stacked under the track it was derived from without naming a
-second file.
+- **`--orfs` and `--logo` work out their track from a file another flag also
+  takes**: reading frames from the FASTA `--sequence` takes, a logo from the
+  alignment `--msa` takes. Either can sit under the track it was derived from,
+  reading the same file.
+- **The ruler goes wherever something is measured against it.** It is added at
+  the bottom of any figure holding a track laid on the coordinates. `--axis`
+  puts it where the flag sits instead, and `--no-axis` leaves the automatic one
+  out. A phylogeny is not laid on the coordinates (its x is branch length), so
+  a figure of nothing but `--tree` and `--tanglegram` gets no ruler unless you
+  write `--axis`.
+- **A track flag takes the next word as its file, whatever it is.** A forgotten
+  path swallows the flag after it, and the error arrives a word late:
 
-A ruler is added at the bottom without being asked for. `--axis` puts one where
-the flag sits and cancels the automatic one, so writing `--axis` first is a
-ruler on top and nothing at the bottom. `--no-axis` leaves it out entirely.
+    ```text
+    $ karyon NC_000962.3:761,000-763,000 --coverage --label depth
+    karyon: one region per figure, and "depth" is a second one
+    ```
 
-It is added where something is measured against it. A phylogeny is not: its x is
-a branch length, and the window it is handed exists because every figure has one
-rather than because the tree is drawn in it, so `karyon tree:1-1 --tree big.nwk`
-used to come with a rule the width of the figure carrying a single tick labelled
-`1`. A figure holding nothing but trees or tanglegrams now gets no ruler; put
-anything on the coordinates beside one and the ruler is back, because then it is
-measuring something. `--axis` still puts one wherever it is asked for.
+## Track options
 
-A track flag takes the word after it as its file, whatever that word is, so a
-forgotten path swallows the next flag and the error arrives a word or two later
-than the mistake.
+Each option describes the track before it. An option given to a track that has
+no use for it is refused by name rather than ignored, as in
+`--aggregate means nothing to a features track`. The two exceptions are
+`--label`, which every track takes, and `--format`, which is accepted after any
+track and read only by the three that take more than one format.
 
-## Track modifiers
-
-Each of these describes the track before it. They are not all universal,
-because most of them are a setting only some tracks have.
-
-| Flag | Value | Applies to | Default |
-|:-----|:------|:-----------|:--------|
+| Option | Takes | Applies to | When left out |
+|:--|:--|:--|:--|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
-| `--against <FILE>` | a path, or `-` | `--tanglegram` | none, and it is required |
-| `--with-sequence <FILE>` | a path, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`, optional for `--pileup` |
-| `--with-tree <FILE>` | a path, or `-` | `--clades` | none, and it is required |
-| `--links <FILE>` | a path, or `-` | `--loci` | none, and it is required |
-| `--identity <UNIT>` | `percent`, `fraction` | `--loci` | worked out from the values, and refused where they cannot say |
-| `--modification <CODE>` | `m`, `h`, `a`, any modkit code | `--methylation` | the one the file holds, and refused where it holds several |
-| `--context <NAME>` | `CpG`, `CHG`, `CHH` | `--bisulfite` | the one the file holds, and refused where it holds several |
-| `--analysis <NAME>` | `Pfam`, `PANTHER`, any member database | `--domains` | the one the file holds, and refused where it holds several |
-| `--ploidy <COPIES>` | a number of copies, as in `2` | `--copy-number` | none, and it is required |
-| `--sample <NAME>` | a sample the table names | `--copy-number` | the one the file holds, and refused where it holds several |
-| `--traits <FILE>` | a path, or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strip |
-| `--columns <A,B,C>` | column names, comma separated | every track `--traits` applies to, and only after one | every column the sheet has, in its own order |
-| `--max-rows <N\|all>` | a number of rows, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four, and each says how many it left out; no cap on a tree |
-| `--row-height <PX>` | a number of pixels above nought | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
-| `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | rectangular |
-| `--focus <NAME[,NAME]>` | a clade label, a tip name, or two tip names | `--tree` | the whole tree |
-| `--color-by <KEY>` | a column of the sheet, or an annotation the file carries | `--tree` | one colour for every branch |
-| `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | tooltips only |
-| `--scale-bar` | none | `--tree` | no bar |
-| `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | phylogram |
-| `--mutations <KEY>` | an annotation key the branches carry changes under | `--tree` | no mutations read |
-| `--carrying <CHANGE>` | a change, as the file spells it | `--tree`, after `--mutations` | nothing marked |
+| `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
+| `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup draws every read agreeing |
+| `--with-tree <FILE>` | a Newick file, or `-` | `--clades` | required |
+| `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
+| `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
+| `--modification <CODE>` | `m`, `h`, `a` or another modkit code | `--methylation` | the one code in the file; refused when it holds several |
+| `--context <NAME>` | `CpG`, `CHG` or `CHH` | `--bisulfite` | the one context in the file; refused when it holds several |
+| `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
+| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
+| `--sample <NAME>` | a sample the table names | `--copy-number` | the one sample; refused when the table holds several |
+| `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
+| `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
+| `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--junctions`, `--axis` | the track's own |
+| `--threshold <V|genome-wide>` | a number, or `genome-wide` for -log10(5e-8) | `--manhattan`; `--tree`, as the least support worth showing | no line on a scan; every support value on a tree |
+| `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
+| `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
+| `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
+| `--mutations <KEY>` | the annotation the changes are kept under | `--tree` | no changes read |
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
-| `--compare-to <NAME>` | a row name, as its FASTA header spells it | `--msa`, `--snps` | the consensus for an alignment, the first record for a variable-site panel |
-| `--no-counts` | none | `--snps`, `--junctions` | the counts are printed |
-| `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | each track's own floor |
-| `--fade-by-mapq` | none | `--pileup` | every read at full strength |
-| `--no-names` | none | `--features`, `--msa`, `--snps`, `--matrix`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | the names are drawn |
-| `--threshold <V\|genome-wide>` | a number, or `genome-wide` | `--manhattan` | no line, on purpose |
-| `--height <PX>` | a number of pixels | `--coverage`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--axis` | the track's own |
-| `--aggregate <HOW>` | `max`, `mean`, `min` | `--coverage` | `max` |
-| `--style <HOW>` | `area`, `line`, `bars` for `--coverage`; `steps`, `line` for `--windows`; `lollipop`, `tick` for `--variants`; `differences`, `all` for `--msa` | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
-| `--log` | none | `--coverage` | linear |
-| `--color <HEX>` | as in `'#d55e00'` | `--coverage`, `--features` | the theme's colours |
-| `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed`, `gff3` | `--coverage`, `--features` | told from the file |
+| `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |
+| `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | `phylogram` |
+| `--scale-bar` | nothing | `--tree` | no bar |
+| `--focus <NAME[,N]>` | a clade label, a tip, or two tips | `--tree` | the whole tree |
+| `--compare-to <NAME>` | a row, named as its FASTA header names it | `--msa`, `--snps` | the consensus for `--msa`; the first record for `--snps` |
+| `--no-counts` | nothing | `--snps`, `--junctions` | counts printed |
+| `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | 5 behind a methylation site; 1 across a junction |
+| `--fade-by-mapq` | nothing | `--pileup` | every read at full strength |
+| `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four; no cap on a tree |
+| `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
+| `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
+| `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
+| `--log` | nothing | `--coverage` | a linear scale |
+| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions` | the theme's colours |
+| `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed` or `gff3` | read by `--coverage`, `--features` and `--loci` | told from the file |
 
-### When the calls are too dense to tell apart
+`--height` and `--row-height` never apply to the same track. A track sized by
+its rows (a feature track, a pileup, an alignment, a tree) takes `--row-height`
+and grows with its data, down to a minimum row height of its own. Most other
+tracks have a fixed height and take `--height`. `--logo` and `--loci` take
+neither.
 
-A lollipop is a stem with a ringed head, and it reads well up to a few hundred
-calls. Past that the heads overlap into a smear, and the file pays for every one
-of them: two hundred thousand calls over four megabases is fifty megabytes of
-document for a picture eight hundred and sixty-seven pixel columns wide.
+### Tracks drawn from two files
 
-`--style tick` is the other answer. A tick is a plain vertical mark that ignores
-the value, and two ticks of one colour on one pixel column are the same ink, so
-only the first is drawn:
+A track flag takes one path, so the five tracks whose data is two files name the
+second with an option, spelled by what the file is:
 
-```bash
-karyon chr1:1-4,000,000 --variants calls.vcf --style tick --label variants
-```
-
-The same two hundred thousand calls come out at seventy-four kilobytes, in a
-twelfth of the time and a fifth of the memory. What you give up is the value,
-which a tick does not show, and the tooltip, which a mark nobody can point at
-alone was never going to carry. Colours are kept: two categories on one column
-are two ticks.
-
-### How deep a stack is drawn
-
-Four tracks lay one row per record: `--pileup` a row per read, `--msa` and
-`--snps` a row per sequence, `--bisulfite` a row per molecule. A pile a thousand
-reads deep is a figure a thousand rows tall, which is not a figure, so each of
-them stops at forty rows and says how many it left out.
-
-Forty is a guess about the reader's screen rather than about their data, and
-`--max-rows` is how it is moved:
-
-```bash
-karyon chr1:1-400 --pileup reads.sam --max-rows 10 --label reads
-karyon chr1:1-400 --pileup reads.sam --max-rows all --label reads
-```
-
-On a three hundred read pileup over four hundred bases those come out 204 and
-820 pixels tall against the 534 the default gives, and only the first two carry
-the line saying what was dropped, because the third dropped nothing.
-
-`all` is the word for no cap at all, and it is a word rather than a very large
-number because those are not the same thing: a cap that happens not to bite
-still writes the line saying nothing was dropped, and no cap at all does not.
-
-The other row tracks are not here because they have no cap to move. A feature
-track packs into as many rows as the features need and no more, so there is
-nothing to raise or lower.
-
-A tree takes the same flag and answers it differently. The four above stop
-opening rows and count what they left out, which a tree cannot do: a tip is not
-interchangeable with the tip below it, and cutting the list would cut a clade in
-half. So a tree collapses instead, smallest clade first, until it fits, and
-every tip is still on the figure inside a triangle that says how many it holds:
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 200 --label phylogeny
-```
-
-Sixty thousand tips draw a figure 900,058 pixels tall without it, which is a
-thousand screens, and there is no other way down: `--row-height` floors at two
-pixels, so twenty thousand tips cannot be brought under forty thousand pixels by
-any setting. With `--max-rows 200` the same tree is 3,058 pixels and 102
-kilobytes, and all sixty thousand tips are accounted for on it.
-
-A tree has no cap unless one is asked for, because a phylogeny of three hundred
-tips is an ordinary figure and folding it by default would fold figures nobody
-asked to fold.
-
-### One clade of a tree
-
-`--focus` draws one clade and nothing else. It takes a clade's own label, a tip
-inside it, or the two tips a clade spans:
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --focus outbreak
-karyon phylo:1-1 --no-axis --tree big.nwk --focus L4_D001,L4_H148
-```
-
-The pair is not something to work out by hand. A folded triangle says it: rest
-a pointer on one and it reads `clade (13 tips), L4_D001 to L4_H148`, and the two
-names at the end are what opens it. The tips under a node are a run, so the
-first and the last of them pick out one clade and no other.
-
-A name the tree has not got is refused against the names it has, rather than
-quietly drawing the whole tree.
-
-The [tree viewer](../tree.md) is this flag with a hand on it. Dragging and
-rolling the wheel move a transform, which costs a composite and never a render,
-so the picture keeps up on a million tips exactly as it does on a hundred. When
-the hand stops, the rows the view is looking at are read back, the clade holding
-them is worked out, and the program is asked for that clade: a wheel gesture
-takes twenty thousand tips to eight thousand, then four, then two, each drawn in
-full. Pulling back out returns a level at a time. Clicking a triangle is the
-same thing done in one step, `--focus` on the pair that triangle prints.
-
-### The shape a phylogeny is laid out in
-
-`--projection` takes `rectangular`, `circular` or `unrooted`.
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --projection circular
-```
-
-A circle sizes itself so its tip labels clear each other, up to the width of the
-figure, so a big tree wants a wider one or fewer rows. An unrooted drawing puts
-each name at the end of its own branch while they fit, and gathers them onto a
-ring with a leader each once they would touch.
-
-### What a phylogeny knows about itself
-
-Three things a tree carries that the library has always drawn and the command
-line could not ask for.
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
-  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
-```
-
-`--color-by` takes a column of the sheet or an annotation the Newick already
-carries, and colours each branch by it. A clade whose tips all agree takes that
-colour as well, so a lineage comes out as a coloured clade rather than a fringe
-of coloured tips: on a two hundred tip tree that is 588 of 597 branches, the nine
-left plain being the backbone where the lineages genuinely mix.
-
-`--support-style` makes support readable without hovering, since it is in the
-tooltips whatever you choose. `--threshold` hides the weak ones.
-
-`--shape cladogram` throws the branch lengths away and makes every branch one
-step, which is the shape to read a topology by when the lengths are noise or
-absent. `--scale-bar` draws a rule in the tree's own branch-length units. It is not the
-ruler along the bottom of the figure, which measures the region and is left out
-of a figure holding nothing but phylogenies.
-
-### Who carries a change
-
-A phylogeny of an outbreak is read as much by its mutations as by its shape, and
-the question is usually not what a clade looks like but who carries something.
-An annotated Newick keeps the changes on the branches:
-
-```text
-(a[&mutations="A123T,S:D614G"]:0.1,b:0.2)[&mutations="C241T"]:0.3;
-```
-
-`--mutations` says which key they are under, because the tools that write these
-files do not agree on one: `mutations`, `muts` and `aa_muts` are all in the wild,
-and a file may carry two of them for nucleotide and amino acid changes. The
-spellings `A123T`, `S:D614G` and either with `nt:` or `aa:` in front are all
-read; a piece that is not a change is skipped rather than guessed at.
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --mutations mutations \
-  --carrying S:D614G
-```
-
-`--carrying` marks everything at or below a branch where that change happened,
-which is everything that carries it: a change is on a branch and every tip under
-it has that change, so the answer is a clade and not a branch. A change that
-arose twice marks both clades, which is what makes it worth asking about. A
-change the tree has not got is refused against the ones it has.
-
-### Which row the others are read against
-
-An alignment draws only the cells that disagree, and a variable-site panel keeps
-only the columns where something does. Both need something to disagree with. An
-alignment uses the consensus, which is a decision its own documentation calls
-deliberate; a panel uses whichever record the file happened to hold first, which
-is not a decision anyone made.
-
-`--compare-to` names it, spelled as the FASTA header spells it:
-
-```bash
-karyon aln:1-900 --msa aln.fa --compare-to H37Rv --label alignment
-```
-
-A name that is not in the file is refused, and so is one that two records share,
-because both builders take a row number and neither complains about a wrong one:
-an alignment quietly falls back to the consensus and a panel comes out empty, and
-both of those look like figures rather than mistakes.
-
-`--style all` is the other half of the same idea. It draws every cell rather than
-only the disagreements, which is what to reach for when the question is what the
-sequence is rather than where it differs.
-
-### What is known about the rows
-
-A track drawn as rows answers which ones. `--traits` answers what they were.
-It takes [a sample sheet](formats.md#the-sample-sheet), joins it to the rows by
-name, and draws one narrow strip per column between the row names and the
-figure:
-
-```bash
-karyon NC_000962.3:1-4,411,532 \
-  --matrix genotypes.tsv --label "resistance alleles" \
-  --traits samples.tsv --columns lineage,drug,depth
-```
-
-Every strip is beside the row it belongs to, whatever order the rows are in, so
-a phylogeny attached to the track reorders the strips with it. Nothing in the
-sheet is at a coordinate, so panning and zooming leave the strips where they
-are.
-
-Seven tracks have rows a sheet can name: `--matrix`, `--msa`, `--snps`,
-`--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows too, and they
-are reads rather than samples, so `--traits` is refused there rather than
-accepted and ignored.
-
-A phylogeny takes one the same way, and two things about it are worth knowing.
-The strips sit to the right of the tip names on a rectangular tree and become
-rings outside the tips on a circular or unrooted one, and asking for them on an
-unrooted tree gathers its names onto a ring, since rings need every tip at one
-radius to line up against. And a folded clade says what its tips agree on: a
-clade whose samples are all one lineage is drawn as that lineage, one holding
-two is left empty rather than shown as either, and one tip with nothing recorded
-is enough to withhold it, because a clade cannot be called uniform on the
-strength of the members that happen to have been typed.
-
-```bash
-karyon phylo:1-1 --no-axis --tree big.nwk --max-rows 60 \
-  --traits samples.tsv --columns lineage,country
-```
-
-Two refusals are worth knowing before they happen. A sheet whose names match
-none of the rows is refused, naming the first few it did hold, because the
-figure it would otherwise draw is a strip of empty outlines beside every row
-and reads as "nothing is known about any of these". And a name in `--columns`
-that the sheet has not got is refused with the columns it has, since that is
-nearly always a spelling:
-
-```text
-karyon: --matrix samples.tsv has no column called linage; it has lineage, drug, depth
-```
-
-### A track whose data is not one file
-
-Four modifiers carry a file rather than a setting, for the tracks whose data is
-two files. A `--<track>` flag takes one path, so the second is named, and it is
-named by what it means rather than by where it sits, which is the rule every
-other modifier follows:
-
-| Track | The first file | The second |
-|:------|:---------------|:-----------|
+| Track | First file | Second file |
+|:--|:--|:--|
 | `--tanglegram` | the left-hand tree | `--against`, the right-hand tree |
-| `--clades` | the blocks and their taxa | `--with-tree`, the phylogeny they are painted onto |
-| `--loci` | the genes of each genome | `--links`, what joins one row to the next |
+| `--clades` | the blocks and the taxa carrying them | `--with-tree`, the phylogeny they are painted onto |
+| `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
-| `--pileup` | the aligned reads | `--with-sequence`, the reference they are compared against |
+| `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against |
 
-The last of those is the one that is optional. The first four tracks cannot be
-drawn without their second file and are refused without it. A pileup can: given
-no reference it draws every read agreeing, because a mismatch is a base that
-differs from something, and without a reference there is nothing for a base to
-differ from. Give it one and it colours what disagrees:
+The first four are refused without their second file:
+
+```text
+$ karyon chr1:1-1000 --tanglegram before.nwk
+karyon: a tanglegram track is drawn from two files, and --against names the second
+```
+
+??? info "Why a missing second file is an error"
+    Each of these tracks would still draw something, and what it drew would look
+    finished and say something false. A tanglegram of one tree against itself
+    has no crossings, which is what a perfect result looks like. A locus track
+    with no homologies outlines every gene as having no counterpart, which reads
+    as a discovery.
+
+A pileup is the one that can do without. Given no reference it draws every read
+agreeing, since a mismatch is a base that differs from something. Give it one
+and it colours what disagrees:
 
 ```bash
 samtools view aln.bam NC_000962.3:761000-763000 \
@@ -464,223 +242,320 @@ samtools view aln.bam NC_000962.3:761000-763000 \
       --pileup - --with-sequence H37Rv.fa --label reads -o pileup.svg
 ```
 
-The same FASTA twice is not a mistake. The first draws the reference as a track
-of its own, so the letters are on the page; the second hands the same letters to
-the pileup, which is what lets it tell a mismatch from a match. Either is useful
-without the other.
+The same FASTA twice is not a mistake: the first draws the reference as a track
+of its own, the second gives the pileup the letters to compare against. A FASTA
+given to `--with-sequence` that holds one record is used whatever its header
+says; one that holds several is a genome, and the record named like the
+region's sequence is used, or the command is refused.
 
-A tanglegram is two phylogenies:
-
-```bash
-karyon chr1:1-1000 --no-axis \
-  --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
-```
-
-All three are required, and for one reason: each of these tracks draws a
-finished-looking figure without its second file, and each of those figures says
-something strong and false. A tanglegram given one tree twice has no crossings,
-and no crossings is what a perfect result looks like:
-
-```console
-$ karyon chr1:1-1000 --tanglegram before.nwk
-karyon: a tanglegram track is drawn from two files, and --against names the second
-```
-
-The two trees are named in the figure after the files they came from, since two
-phylogenies side by side with nothing over them do not say which is which.
-`--no-axis` is worth adding: a tanglegram has no genomic coordinates, so the
-ruler underneath it measures nothing.
-
-A clade track is the same shape, and the tree is what fixes the rows:
+A tanglegram names its two trees after their files, so the figure says which is
+which:
 
 ```bash
-karyon NC_011900.1:1-2,221,315 \
-  --clades gubbins.recombination_predictions.gff --with-tree tree.nwk \
-  --label recombination -o clades.svg
+karyon tangle:1-1 --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
 ```
 
-`Gubbins` writes the literal `SEQUENCE` in its first column whatever the
-reference was called, so a clade file naming exactly one sequence is read
-whatever that sequence is named. A file naming several is a whole genome, and
-then the region picks among them and the rest are counted. Either way, a file
-that does hold blocks and none of them in the window says so rather than drawing
-a bare tree:
+A locus track joins the names in `--links` to the gene names of the loci file
+exactly. The names in a search result come from the FASTA it ran against and
+the names in an annotation from its own columns, and they are often not the
+same strings. A join that finds nothing is refused, with the first names that
+failed:
 
-```console
-$ karyon NC_011900.1:2,000,000-2,100,000 --clades gubbins.gff --with-tree tree.nwk
-karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:2000000-2100000, though the file holds 47 on SEQUENCE
+```text
+$ karyon locus:1-2,500 --loci loci.bed --links hits.tsv
+karyon: --loci hits.tsv: no gene name in this file names anything in the loci, starting with lcl|NC_000962.3_cds_NP_218391.1_3874, lcl|NC_002755.2_cds_MT3978
 ```
 
-A locus track stacks gene neighbourhoods from several genomes. Its first column
-names the genome rather than selecting it, which is the one place an interval
-file is read differently here, so the file is the concatenation a shell already
-produces:
+`--identity` says whether the third column of the links is a percentage, as
+BLAST and DIAMOND write it, or a fraction. Left out, a file with any value above
+1 is read as percentages, and a file whose values are all at or below 1 is
+refused, because either reading would draw without failing. The
+[homology table](formats.md#the-homology-table) and
+[gene neighbourhoods](formats.md#gene-neighbourhoods) sections have the columns.
+
+### Choosing one of several things in a file
+
+Four formats can hold several datasets in one file: a modkit pileup counting two
+modifications, a Bismark file with three contexts, an InterProScan table from a
+dozen member databases, and a segment table with several samples. A file holding
+one is drawn. A file holding several, with none chosen, is refused with what it
+holds:
+
+```text
+$ karyon NC_000913.3:900-1,100 --methylation dual.bed
+karyon: --methylation dual.bed holds h, m, and --modification says which to draw
+```
+
+The option that chooses is `--modification`, `--context`, `--analysis` or
+`--sample`. A methylation, bisulfite or domain band is named after what it shows
+unless `--label` names it.
+
+`--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
+The segment file does not say it, and a rule in the wrong place turns every gain
+into a loss.
+
+### How deep a stack of rows goes
+
+`--pileup`, `--msa`, `--snps` and `--bisulfite` stack their data in rows: a
+pileup packs its reads into rows, and the other three give each sequence or
+molecule a row of its own. Each stops at 40 rows and prints how many it left
+out. `--max-rows` moves the cap, and `all` removes it:
 
 ```bash
-cat H37Rv.bed CDC1551.bed Erdman.bed > loci.bed
-karyon ESX-1:1-4,000 --loci loci.bed --links hits.tsv --label 'ESX-1' -o esx.svg
+karyon chr1:1-400 --pileup reads.sam --max-rows 10 --label reads
+karyon chr1:1-400 --pileup reads.sam --max-rows all --label reads
 ```
 
-`--links` takes BLAST tabular output, `-outfmt 6` or `-outfmt 7`, which DIAMOND
-and others write too, or two or three columns of names. It joins its names to
-the genes by exact match, and that join is the thing worth watching: the names
-in a search result come from the FASTA it ran against and the names in an
-annotation come from its ninth column, and those are routinely not the same
-strings. A join that found nothing draws every gene in every genome outlined as
-having no counterpart, which reads as a discovery, so it is refused instead:
+A tree has no cap unless you give one, and it answers differently: it folds its
+smallest clades into triangles until it fits, so every tip is still on the
+figure inside a triangle that says how many it holds.
 
-```console
-$ karyon ESX-1:1-4,000 --loci loci.bed --links hits.tsv
-karyon: --loci hits.tsv: no gene name in this file names anything in the loci, starting with lcl|NC_000962.3_cds_NP_215181.1_667
+```bash
+karyon phylo:1-1 --tree big.nwk --max-rows 200 --label phylogeny
 ```
 
-`--identity` says whether the third column is a percentage, as BLAST and DIAMOND
-write it, or a fraction, as some others do. Left out it is worked out from the
-values, and a file whose values are all at or below one could be either, so it
-is refused by name rather than guessed at: read the wrong way round, every
-ribbon in the figure becomes a perfect match and nothing fails.
+### The row others are read against
 
-`--height` is on the tracks that do not size themselves. A feature track, a
-pileup, an alignment, a matrix and a tree are as tall as the number of rows
-their data needs, so a height would be a number fighting the layout; a coverage
-band or a ruler has a height of its own and takes one.
+An alignment draws only the cells that disagree with the consensus, and a
+variable-site panel keeps only the columns where some row disagrees with the
+first record. `--compare-to` names the row to compare against instead, spelled
+as its FASTA header spells it:
 
-`--aggregate` says what a pixel column does when it covers more than one base.
-It and `--log` are coverage settings, since coverage is the track that bins.
-`min` is worth reaching for when a dropout is the thing not to smooth away.
-
-`--style` spells two vocabularies with one flag, and the error names the one
-that fits the track it landed on:
-
-```console
-$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --style steps
-karyon: --style does not take "steps", only area, line or bars for a coverage track
+```bash
+karyon aln:1-900 --msa aln.fa --compare-to H37Rv --label alignment
 ```
 
-`--color` is written into the SVG as it stands, so any colour an SVG understands
-works; a hex is the spelling that survives every renderer. Every modifier except
-`--label` and `--format` says so when it lands on a track that has no use for
-it, rather than being accepted and doing nothing:
+A name the file does not hold is refused with the names it does, and so is a
+name two records share. `--style all` draws every cell of an alignment rather
+than only the disagreements.
 
-```console
-$ karyon NC_000962.3:761,000-763,000 --features genes.gff3 --aggregate min
-karyon: --aggregate means nothing to a features track
+### Sample sheets beside the rows { #what-is-known-about-the-rows }
+
+`--traits` takes a [sample sheet](formats.md#the-sample-sheet), joins it to a
+track's rows by name, and draws one narrow strip per column beside them.
+`--columns` picks the columns and their order:
+
+```bash
+karyon NC_000962.3:1-4,411,532 \
+  --matrix genotypes.tsv --label 'resistance alleles' \
+  --traits samples.tsv --columns lineage,drug,depth
 ```
 
-`--format` is the exception: it is accepted after any track and consulted only
-by `--coverage` and `--features`, the two readers that have more than one file
-shape to tell apart. Its words are `bedgraph` (or `bg`), `depth`, `values`,
-`bed` and `gff3` (or `gff`, or `gtf`, both read as GFF3). Naming an interval
-format for a coverage track is refused rather than guessed at, and naming a
-signal format for a feature track leaves the guess to run.
+Seven tracks take a sheet: `--matrix`, `--msa`, `--snps`, `--clades`,
+`--domains`, `--loci` and `--tree`. A pileup has rows too, but they are reads,
+so `--traits` is refused there. On a tree the strips sit beside the tips, or
+become rings on a circular or unrooted one, and a folded clade shows what its
+tips agree on and nothing where they differ. The strips are not placed at
+coordinates, so they stay put when the region changes.
 
-!!! warning "`--sequence` wants the whole sequence"
-    The FASTA reader takes the first record of the file and the region indexes
-    into it from its first base, so a `samtools faidx ref.fa chr:start-end`
-    slice is read as if it began at base 1 of the chromosome. That draws an
-    empty sequence track, or the wrong bases, without an error. Hand it the
-    reference, and let the region do the cutting.
+Two refusals to expect. A sheet whose names match none of the rows is refused
+with the first names it holds. A column that is not in the sheet is refused with
+the columns it has:
+
+```text
+$ karyon NC_000962.3:1-4,411,532 --matrix genotypes.tsv --traits samples.tsv --columns linage
+karyon: --matrix samples.tsv has no column called linage; it has lineage, host, depth, drug
+```
+
+### Phylogenies
+
+A `--tree` track has the most options of any track. A typical figure:
+
+```bash
+karyon phylo:1-1 --tree big.nwk --max-rows 60 \
+  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
+```
+
+- `--projection` lays the tree out as `rectangular`, `circular` or `unrooted`.
+  A circle sizes itself so its tip labels clear each other, up to the width of
+  the figure, so a big tree wants a wider figure or fewer rows.
+- `--shape cladogram` makes every branch one step, the shape to read a topology
+  by when the branch lengths are noise or absent.
+- `--color-by` colours each branch by a column of the `--traits` sheet or by an
+  annotation the Newick carries. A clade whose tips all agree takes the colour
+  too, so a lineage comes out as a coloured clade.
+- `--support-style` makes support values readable without hovering, and
+  `--threshold` hides the ones below it.
+- `--scale-bar` draws a rule in the tree's own branch-length units. It is not
+  the ruler at the bottom, which measures the region.
+- `--focus` draws one clade and nothing else, named by its own label, by a tip
+  inside it, or by two tips it spans. A folded triangle gives the pair in its
+  tooltip, and the [tree viewer](../tree.md) opens a clade the same way.
+- `--highlight` draws a band behind each named clade.
+
+`--mutations` and `--carrying` ask who carries a change. An annotated Newick
+keeps the changes on its branches, under a key the writing tool chose:
+
+```text
+(a[&mutations="A123T,S:D614G"]:0.1,b:0.2)[&mutations="C241T"]:0.3;
+```
+
+```bash
+karyon phylo:1-1 --tree tree.nwk --mutations mutations --carrying S:D614G
+```
+
+`--mutations` names the key. `A123T`, `S:D614G`, and either with `nt:` or `aa:`
+in front are all read. `--carrying` then marks everything at or below a branch
+where that change happened, which is every tip that carries it, and colours by
+the answer unless `--color-by` says otherwise. A change that arose twice marks
+both clades.
+
+A clade, tip or change the tree does not hold is refused with what it does hold,
+rather than drawing the whole tree:
+
+```text
+$ karyon tree:1-1 --tree tree.nwk --focus ERR9
+karyon: --tree tree.nwk has no tip or clade called ERR9; it has ERR01, ERR02, ERR03
+```
+
+[Phylogenetics](phylogenetics.md) covers the same tree from Rust, with the
+layouts and annotations in more depth.
+
+### Dense variant calls
+
+A lollipop is a stem with a ringed head, and it reads well up to a few hundred
+calls. Past that the heads overlap, and every call still costs its share of the
+file. `--style tick` draws a plain vertical mark and folds the calls of one
+colour on one pixel column into a single mark:
+
+```bash
+karyon chr1:1-4,000,000 --variants calls.vcf --style tick --label variants
+```
+
+A tick does not show the value, so it gives up the height of each call and its
+tooltip. Colours are kept: two categories on one pixel column are two ticks.
+
+??? info "How much smaller"
+    Two hundred thousand calls in four categories over 4 Mb came out at 61 MB
+    as lollipops and 0.28 MB as ticks. A figure 900 pixels wide has fewer than
+    900 pixel columns to draw in, and ticks draw at most one mark per column
+    and colour.
+
+### Telling a file's format
+
+`--coverage` reads three formats and `--features` and `--loci` two each. The
+format is told from the file (by its column count, a `##gff-version` line or
+its seventh column), and `--format` overrides the guess where it would be
+wrong. The words are `bedgraph`, `depth`, `values`, `bed` and `gff3`, and
+[Telling formats apart](formats.md#telling-formats-apart) explains each guess.
+
+The case that needs it most is `samtools depth` over two or more files, which
+writes four columns, the same count as a bedGraph. karyon notices and says so,
+and `--format depth` reads the first sample:
+
+```bash
+samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
+  | karyon NC_000962.3:761,000-763,000 --coverage - --format depth --label sample1
+```
 
 ## Figure options
 
-| Flag | Effect |
-|:-----|:-------|
-| `--title <TEXT>` | a title above the stack |
-| `--width <PX>` | the figure width, 900 by default |
-| `--theme <NAME>` | `light` or `dark` |
-| `--no-axis` | leave the ruler out |
-| `--no-region-label` | leave out the locus printed at the top right |
-| `-o`, `--output <FILE>` | write to a file rather than standard output |
-| `-h`, `--help` | the whole grammar, which is the specification |
-| `-V`, `--version` | the version and nothing else |
+| Option | What it does | Default |
+|:--|:--|:--|
+| `--title <TEXT>` | a title above the stack | no title |
+| `--width <PX>` | the width of the figure, at most 100,000 pixels | 900 |
+| `--theme <NAME>` | `light` or `dark` | `light` |
+| `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
+| `--no-region-label` | leaves out the locus printed at the top right | printed |
+| `-o`, `--output <FILE>` | writes the figure to a file | standard output |
+| `-h`, `--help` | prints the whole grammar | |
+| `-V`, `--version` | prints the version | |
 
-`-h` and `-V` are answered before anything else is looked at, so
-`karyon --version` prints the version whatever else is on the line.
+`-h` and `-V` are answered before anything else on the line is looked at, so
+`karyon --version` prints the version whatever else you wrote.
 
-The dark theme is a selected set of colours rather than an inversion of the
-light one:
+The dark theme is a set of colours chosen for a dark background, not an
+inversion of the light one:
 
 ```bash
-karyon NC_000962.3:761,000-763,000 \
-  --coverage depth.bedgraph --label depth \
+karyon NC_000962.3:761,000-762,999 \
+  --coverage depth.bedgraph --label depth --aggregate min --height 70 \
+  --sequence H37Rv.fa --label reference \
   --features genes.gff3 --label annotation \
-  --theme dark -o rpoB-dark.svg
+  --variants calls.vcf --label variants \
+  --title 'The same locus, dark theme' --theme dark -o rpoB-dark.svg
 ```
 
-![The same locus figure on a dark background](../assets/figures/example-dark.svg){ width="900" height="306" loading="lazy" }
+<figure class="k-plate" markdown>
+![The rpoB locus on a dark background, with depth, reference, annotation and variant bands and variant colours chosen for the dark theme](../assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
+</figure>
 
 ## Standard input
 
-Any track file may be `-`, and one track may take it, since there is only one
-standard input to go around:
+Any file a command names can be `-`, which reads standard input: a track's own
+file, and the files named by `--against`, `--with-sequence`, `--with-tree`,
+`--links` and `--traits`. There is one standard input, so only one of them can
+take it:
 
-```console
+```text
 $ karyon NC_000962.3:761,000-763,000 --coverage - --variants -
 karyon: only one track can read from standard input
 ```
 
-Header and comment lines are dropped by every reader: `#` for BED, GFF3 and VCF,
-`@` for a SAM header, and blank lines throughout. A tool's output therefore
-pipes in as it comes, with nothing to strip first. Tab separated and space
-separated files both read.
+The readers drop blank lines, `#` comment and header lines, and SAM `@`
+headers, so a tool's output pipes in as it comes, with nothing to strip first.
+Tab and space separated files both read, with the exceptions listed in
+[How a file is read](formats.md#how-a-file-is-read).
 
 ## Output
 
-Standard output by default, so a figure goes into a pipe or a redirect:
+The figure goes to standard output unless `-o` names a file, so it can go into a
+pipe or a redirect:
 
 ```bash
 karyon Chr1:1-50,000 --manhattan gwas.tsv --label association > scan.svg
 ```
 
-`-o` writes a file instead. It always names a file: `-o -` writes a file called
-`-`, and leaving `-o` out is the way to ask for standard output.
+`-o` always names a file: `-o -` writes a file called `-`. Leave `-o` out to
+write to standard output.
+
+The whole figure is built before any of it is written. A command that fails
+writes nothing, so a figure left from an earlier run under the same name is not
+replaced.
 
 ## Binary formats
 
-BAM, CRAM and BCF are not read here, and are not meant to be. `samtools` and
-`bcftools` already write exactly what these readers take, so the pipeline is the
-parser and the library keeps its zero dependencies.
+BAM, CRAM and BCF are not read, and are not meant to be. samtools and bcftools
+already write the text these readers take, so a pipe does the parsing and the
+library keeps its zero dependencies.
 
 Coverage from an alignment:
 
 ```bash
-samtools depth -a -r chr20:1,000,000-1,050,000 sample.bam \
-  | karyon chr20:1,000,000-1,050,000 --coverage - --label depth -o depth.svg
+samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
+  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 ```
 
 Reads from a CRAM, under the annotation they fall in:
 
 ```bash
-samtools view -T ecoli.fa aln.cram NC_000913.3:3,423,000-3,424,000 \
+samtools view -T ecoli.fa aln.cram NC_000913.3:3423000-3424000 \
   | karyon NC_000913.3:3,423,000-3,424,000 \
       --features genes.gff3 --label genes \
       --pileup - --label reads -o reads.svg
 ```
 
-Calls from a BCF, which comes out of `bcftools` as VCF text with its `##`
-header, dropped on the way in:
+Calls from a BCF, which bcftools turns into VCF text:
 
 ```bash
-bcftools view -r Chr1:1,000,000-1,001,000 calls.bcf \
+bcftools view -r Chr1:1000000-1001000 calls.bcf \
   | karyon Chr1:1,000,000-1,001,000 --variants - --label calls -o calls.svg
 ```
 
-!!! note "`samtools depth` over more than one file"
-    It writes one depth column per file, so four columns for two alignments,
-    which is also the shape of a bedGraph. The reader tells the two apart by the
-    column count and would take the first depth for an interval end. Pass
-    `--format depth` and the first sample is read.
+!!! tip "Secondary and supplementary alignments"
+    `--pileup` draws every mapped record it is given, secondary and
+    supplementary ones included. Leave them out on the way in with
+    `samtools view -F 0x900` if you do not want them.
 
-## When it fails
+## When something fails
 
-Every failure exits non-zero with one line on standard error, naming the flag
-and the file it was reading, and the line number when a file did not say what it
-claimed to. The whole figure is built before a byte of it is written, so a file
-that would not parse leaves no output behind to be mistaken for a result.
+A failing command prints one line to standard error, starting with `karyon:`,
+and exits with status 1. Success exits with 0, and so do `--help` and
+`--version`. The first problem stops the command, and nothing is written.
 
-The command line itself is checked before anything is opened:
+The command line is checked before any file is opened:
 
-```console
+```text
 $ karyon --coverage depth.bedgraph
 karyon: the first argument is the region, as in NC_000962.3:761,000-763,000
 
@@ -692,37 +567,68 @@ karyon: --label describes the track before it, and no track has been given yet
 
 $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --aggregate median
 karyon: --aggregate does not take "median", only max, mean or min
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --style steps
+karyon: --style does not take "steps", only area, line or bars for a coverage track
+
+$ karyon NC_000962.3:761,000-763,000 --features genes.gff3 --aggregate min
+karyon: --aggregate means nothing to a features track
+
+$ karyon chr8:1-1000 --copy-number segments.cns
+karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
 ```
 
-Then the files:
+Then the files, in the order the tracks are stacked. Every message names the
+flag and the file, and the line number when a line did not say what it should.
+The line number counts comment and blank lines, so it is the line number in
+your editor:
 
-```console
+```text
 $ karyon NC_000962.3:761,000-763,000 --features nowhere.bed
 karyon: --features nowhere.bed: No such file or directory (os error 2)
 
 $ karyon chr1:1-1000 --features broken.bed
 karyon: --features broken.bed: line 2: end is not a number: "three-hundred-and-fifty"
 
-$ karyon NC_000962.3:761,000-761,500 --coverage two-samples.depth
-karyon: --coverage two-samples.depth: line 1: end is before start
+$ karyon aln:1-9 --msa aln.fa
+karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
 ```
 
-A file that opened and parsed and held nothing for this window is also an error,
-because an empty track is almost always the wrong region or the wrong sequence
-name rather than a fact worth drawing:
+A file that parsed and held nothing for the window is an error too, because an
+empty band is almost always a wrong region or a wrong sequence name rather than
+a fact worth drawing. The message takes one of two shapes, the second when the
+file held records and none of them reached the window:
 
-```console
+```text
 $ karyon chr7:1-1000 --features genes.gff3
 karyon: --features genes.gff3: no features in the region
+
+$ karyon NC_011900.1:5,000-9,000 --clades gubbins.gff --with-tree tree.nwk
+karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:5000-9000, though the file holds 1 on SEQUENCE
 ```
 
-Rows on another sequence and rows outside the window are not errors on their
-own. They are skipped, which is what lets a whole genome annotation be handed to
-a two kilobase figure.
+Check the sequence name first. It has to match the region's exactly: `chr1`,
+`1` and `NC_000001.11` are three different sequences to every reader.
 
-## Next
+## Where next
 
-- [File formats](formats.md), for what each reader accepts, column by column.
-- [Recipes](../recipes.md), for whole pipelines that end in one of these
-  commands.
-- [Plot API](plot.md), for the same figure written in Rust.
+<div class="grid cards" markdown>
+
+-   **[File formats](formats.md)**
+
+    What each reader takes from a file, column by column, and where its
+    coordinates land.
+
+-   **[Recipes](../recipes.md)**
+
+    Whole pipelines that end in one of these commands.
+
+-   **[The Rust API](plot.md)**
+
+    The same figures built with the `plot()` builder.
+
+-   **[Track catalogue](../tracks/index.md)**
+
+    Every track type, including the ones only Rust can reach.
+
+</div>

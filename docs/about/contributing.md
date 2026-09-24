@@ -1,229 +1,244 @@
 # Contributing
 
-Issues and pull requests are welcome at
-[PathoGenOmics-Lab/karyon](https://github.com/PathoGenOmics-Lab/karyon). What a
-report of a wrong figure has to carry, the four gates a change has to pass, and
-the conventions the code holds itself to are below. The figures on this site are
-part of the build rather than illustrations committed once, which is the part
-most likely to catch someone out.
+How to report a figure that came out wrong, what a change has to pass before
+it is merged, and the conventions the code keeps. Issues and pull requests are
+welcome at [PathoGenOmics-Lab/karyon](https://github.com/PathoGenOmics-Lab/karyon).
+{ .k-lead }
 
 ## Reporting a problem
 
+| You have | Where it goes |
+|:--|:--|
+| a figure that is wrong, a crash, or a refusal that should not happen | an [issue](https://github.com/PathoGenOmics-Lab/karyon/issues) |
+| a question about how to draw something, or why it came out as it did | [Q&A](https://github.com/PathoGenOmics-Lab/karyon/discussions/categories/q-a) |
+| a hang, a panic or broken escaping on input someone else supplied | a private report, as [SECURITY.md](https://github.com/PathoGenOmics-Lab/karyon/blob/main/.github/SECURITY.md) describes |
+
 A plotting library fails differently from a program that prints numbers: the
 figure still renders. A variant one base to the left, a gene numbered from the
-wrong end, a track clipped to somebody else's band, all of them come out as a
+wrong end and a track clipped into its neighbour's band all come out as a
 perfectly valid SVG that is wrong. So a report needs three things:
 
-- **The code or the command**, complete, with every flag or every `add_` call.
-  A snippet that someone else can paste into `examples/` and run is the fastest
+- **The code or the command, complete**, with every `add_` call or every flag.
+  A `fn main` someone else can drop into `examples/` and run is the fastest
   route to a fix.
-- **The version.** `karyon --version` for the command, the `Cargo.lock` entry
-  or the git commit for the library.
-- **The SVG itself.** It is text, so it goes in an issue as an attachment
-  without being converted to anything. If it is large, the few elements that
-  are wrong plus the figure's dimensions are usually enough.
+- **The version.** `karyon --version` for the command, or the `Cargo.lock`
+  entry or git commit for the library.
+- **The SVG itself.** It is text, so it attaches to an issue as it is. If it is
+  large, the few elements that are wrong and the figure's dimensions are
+  usually enough.
 
-Say what you expected to see and what you saw. "The lollipop for S450L sits one
-base to the left of the codon the ruler numbers 450" is a report; "the codon
-track is broken" is not.
+Say what you expected to see and what you saw. "The lollipop for S450L sits
+one base to the left of the codon the ruler numbers 450" is a report; "the
+codon track is broken" is not.
+
+!!! tip "Before reporting an empty track"
+    A row naming another sequence, or lying outside the region on display, is
+    skipped without a word. That is how a whole-genome file can be handed over
+    to draw one locus, and it is the commonest reason for a track that comes
+    out empty. See
+    [Coordinates](../how-it-works/coordinates.md#what-a-files-numbers-become).
 
 If the data cannot be shared, synthetic input of the same shape almost always
-reproduces the problem. The positions, the lengths, the strand and the CIGAR
-are what the drawing depends on; the bases themselves rarely are. Every example
-in `examples/` generates its own data from a fixed seed for exactly this
-reason, so there is a pattern to copy.
+reproduces the problem: the positions, the lengths, the strand and the CIGAR
+are what the drawing depends on, and the bases rarely are. Every example in
+`examples/` generates its data from a fixed seed, so there is a pattern to
+copy.
 
 ## What a change has to pass
 
-The same four gates CI runs:
+CI runs on every pull request, and again on `main` after a merge. The core of
+it is five commands, on Ubuntu and on macOS:
 
 ```bash
-cargo test
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
+cargo test
+cargo test --release
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 ```
 
+The rest of the workflow, `.github/workflows/ci.yml`, checks what those five do
+not reach:
+
+| Check | CI job | To run it yourself |
+|:--|:--|:--|
+| The oldest supported compiler, 1.74, still builds everything | Oldest supported compiler | `cargo +1.74 check --all-targets --locked`, with that toolchain installed through rustup |
+| The playground's WebAssembly bridge, a crate of its own in `playground/` | Check & Test | the same format, lint and test commands with `--manifest-path playground/Cargo.toml`, and a `--target wasm32-unknown-unknown` release build |
+| The tree viewer's scripts | Check & Test | `node tests/tree-canvas.test.js` and `node tests/tree-radio.test.js` |
+| Every figure is current | Example renders | see [the figures are part of the build](#the-figures-are-part-of-the-build) |
+| Every tracked file has a label | Every file has a label | `python3 .github/scripts/labeler-coverage.py` |
+
+A change to the documentation, or to anything the site is built from, also has
+to pass `mkdocs build --strict` in the Docs workflow.
+
 `cargo test` covers more than it looks like. The suite is in four places:
 
-- **Unit tests** next to the code, which is most of them: the arithmetic of
-  every track, the scale, the parsers of `Region` and `Tree`, the panel layout.
-- **The command line's own tests** in `src/bin/karyon/`, over the grammar in
-  `args.rs` and the readers in `read/`. Every reader has a test that pins a
-  known position through the 0-based or 1-based conversion, because that is the
-  failure nobody sees.
-- **Integration tests** in `tests/render.rs`, which check the thing a user
-  actually gets: a well-formed document, no non-finite number anywhere in it,
-  byte-identical output between two runs, unique clip ids, a variant landing on
-  the centre of its base, and a 4 Mb genome-wide figure staying under 100 KB.
-- **Doc tests**, since every ```` ```rust ```` block in the crate documentation
-  is compiled and run. A doc example that stops compiling is a failing test.
+- **Unit tests beside the code**, which is most of them: the arithmetic of every
+  track, the scale, the parsers of `Region` and `Tree`, the command line's
+  grammar in `src/cli/`, and the readers in `src/read/`. Every reader pins a
+  known base through its conversion, and `src/read/audit.rs` brings every
+  format to the same base, because an off-by-one is the failure nobody sees.
+- **`tests/properties.rs`**, which asserts what must hold for every figure and
+  then generates figures from a seeded generator until one breaks it: every
+  document is valid, rendering is deterministic, every format puts the same
+  interval on the same bases, and hostile names never break the document.
+- **`tests/render.rs`**, which checks what a user actually gets: a well-formed
+  document, no number that is not finite, byte-identical output from two runs,
+  unique clip ids, a variant on the middle of its base, and a four-megabase
+  figure under 100 KB.
+- **Doc tests.** The examples in the crate's documentation are compiled and
+  run, so an example that stops compiling is a failing test.
 
-`cargo test --release` is worth running too, and CI does: a few of the checks
-are about floating point and layout arithmetic that the optimiser is allowed to
-rearrange.
+`cargo test --release` runs the same suite optimised, the way the command is
+built for use. The release profile keeps overflow checks on
+(`overflow-checks = true` in `Cargo.toml`), so arithmetic that would wrap
+fails loudly there too, rather than drawing a figure that is quietly wrong.
+
+The pull request template asks for the rest: what you ran and what it printed,
+a test for new behaviour, and for a fix a test that you watched fail before
+the change.
 
 ## The figures are part of the build
 
-Everything under `assets/` is rendered by an example, and rendering is
-deterministic, so a stale figure is a diff. After any change that could touch
-the drawing, re-render and look at what moved:
+Everything under `assets/` is drawn by an example, and rendering is
+deterministic, so a figure that was not drawn again after a change is a diff.
+After any change that could touch the drawing, render every example and copy
+the result into the site's own copies:
 
 ```bash
-cargo run --example locus -- assets
-cargo run --example logo -- assets
-cargo run --example pileup -- assets
-cargo run --example ideogram -- assets
-cargo run --example association -- assets
-cargo run --example synteny -- assets
-cargo run --example msa -- assets
-cargo run --example snps -- assets
-cargo run --example pangenome -- assets
-cargo run --example gallery -- assets
-```
-
-CI runs exactly those ten and then `git diff --exit-code -- assets`, so a
-rendering change that was not committed fails the build. The other examples
-write into the same directory and are worth running for the same reason:
-
-```bash
-cargo run --example genomewide -- assets
-cargo run --example circular -- assets
-cargo run --example selection -- assets
-cargo run --example shapes -- assets
-cargo run --example reading -- assets
-cargo run --example niche -- assets
-cargo run --example visual_system -- assets
-cargo run --example maps -- assets
-cargo run --example phylogenetics -- assets
-cargo run --example phylo_dnds -- assets
-cargo run --example phylo_map -- assets
-cargo run --example selection_atlas -- assets
-cargo run --example evolutionary_surveillance -- assets
-```
-
-That is every example there is, twenty-three of them, and between them they
-produce every file in `assets/`, byte for byte. The list is worth keeping
-whole: CI renders each one and fails when a committed figure disagrees with the
-code that drew it, and it also fails when this list and `examples/` stop
-matching, which is how seven of them came to be missing from this page.
-
-The documentation site reads its figures from `docs/assets/figures/`, which is
-a copy. Refresh it after re-rendering, or the site keeps showing the old
-drawing:
-
-```bash
+for example in examples/*.rs; do
+  cargo run --example "$(basename "$example" .rs)" -- assets
+done
 cp assets/*.svg docs/assets/figures/
 ```
 
+CI does the same and fails when a committed figure, under `assets/` or under
+`docs/assets/figures/`, disagrees with the code that draws it. Its list of
+examples in `ci.yml` has to match `examples/`, so a new example is added there
+too, or the job fails and names it. The run also turns every figure into a
+PNG and uploads them as the `visual-gallery` artifact, which shows a rendering
+change without checking out the branch.
+
 A diff in `assets/` is not a problem in itself. It is the review: open the old
-and the new figure side by side and check the change is the one you meant.
+and the new figure side by side, and check the change is the one you meant.
 
 ## The documentation
 
-The site is MkDocs Material and the pages are in `docs/`:
+The site is MkDocs Material. The pages are in `docs/`, the site's stylesheets
+live under `docs/stylesheets/`, and its figures are the copies in
+`docs/assets/figures/`.
 
 ```bash
 pip install -r requirements-docs.txt
 mkdocs serve
-```
-
-```bash
 mkdocs build --strict
 ```
 
-`--strict` turns a broken internal link, a dead anchor or an image whose file
-is not there into a failed build, so a page that points at a figure nobody
-committed does not get published. Every image needs alt text that says what the
-figure shows, not what number it is.
+`--strict` turns a broken internal link, a dead anchor or a missing image into
+a failed build, so a page that points at a figure nobody committed is never
+published. Link between pages with relative links to `.md` files, and give
+every figure alt text that says what it shows, not what it is called.
 
-Two house rules. **English throughout**, in the prose, the code and the
-comments. And **no em-dash characters anywhere**, U+2014, which is easy to
-check without typing one:
+The [Playground](../playground.md) and the [Tree viewer](../tree.md) run the
+command line compiled to WebAssembly, and that build is not committed. To try
+either page locally, build it into `docs/assets/` first:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown --manifest-path playground/Cargo.toml
+cp playground/target/wasm32-unknown-unknown/release/karyon_playground.wasm docs/assets/
+```
+
+Two house rules hold for the documentation, the code and its comments alike.
+**English throughout, with British spelling**, as the code and its `--help`
+already use: colour, behaviour, organise. And **no em-dash characters
+anywhere** (U+2014), which is easy to check without typing one:
 
 ```bash
 grep -rn "$(printf '\xe2\x80\x94')" docs src examples README.md CHANGELOG.md
 ```
 
-That has to find nothing. A comma, a colon or a full stop says the same thing
-and survives every editor and every font.
+That has to find nothing. A comma, a colon or a full stop says the same thing.
 
 ## Adding a track type
 
-The entry test first, because it is the reason this crate exists rather than a
-general plotting library: **does the track live on the genomic coordinate
-axis?** If its `draw` never reads `ctx.scale`, its x is a sample list or a
-category and the plot is a bar chart, a line chart or a heatmap that happened to
-be handed genomic data, which matplotlib already draws better. Three track
-types were removed under this rule rather than kept for the sake of a longer
-list.
-
-A track that passes it is a small amount of code. The trait is in
-`src/track/mod.rs` and asks for two things, a height for a given scale and a
-`draw`, with `label` and `y_axis_width` on top of them; the figure decides where
-the band goes and clips the output to it. A complete track type is on the
-`Track` documentation, and it is about a dozen lines.
-
-What a new track shipped by the crate then needs:
+[Writing a track](../how-it-works/extending.md) has the trait, a complete
+example and the test a track has to pass first: whether it lives on the
+coordinate axis at all. A track that the crate itself ships then needs:
 
 - **Its own file** in `src/track/`, exported from `src/track/mod.rs` and
   re-exported from `src/lib.rs`.
 - **An entry in the `tracks!` list in `src/plot.rs`**, which is what makes
   `Plot::label` and `Plot::adjust` work on it, and an `add_` method beside the
-  others. Tracks that lay an array along the axis also get the `_at` form.
-- **A panel in `examples/gallery.rs`.** The gallery is meant to cover
-  everything, and an overview that quietly stops being complete is worse than
-  no overview, because it still looks complete.
+  others. A track that lays an array along the axis also gets an `_at` form.
 - **Tests**, including one that pins a known coordinate to a known pixel. Track
   arithmetic is where the silent errors live.
-- **A row in the README table** and a line in `CHANGELOG.md` saying why the
-  track exists, not just that it was added.
+- **A figure**: a panel in `examples/gallery.rs`, or an example of its own,
+  rendered into `assets/` and copied to `docs/assets/figures/`.
+- **Documentation**: an entry on its family's page of the
+  [track catalogue](../tracks/index.md), and a line in `CHANGELOG.md` that
+  says why the track exists, not only that it was added.
 
-A reader for it belongs in `src/read/` only if the format is line-based text,
-and it takes a `&str` rather than a path. The library opens no files and has no
-dependencies, and both of those are on purpose. It also wants a fixture in
-`src/read/audit.rs` on the same base as every other format.
+A reader for its format belongs in `src/read/` only if the format is
+line-based text, and it takes a `&str` rather than a path. It wants a fixture
+in `src/read/audit.rs` on the same base as every other format. For the command
+line to reach the track, it needs a `Kind` in `src/cli/args.rs` and a builder
+in `src/cli/stack.rs`.
 
 ## Conventions the code follows
 
-- **Coordinates are 0-based and half-open**, everywhere, with two exceptions
-  a reader sees: `Region::parse` takes 1-based inclusive locus strings, and tick
-  labels are printed the same way. Every constructor says which it takes.
-- **Scale awareness is not optional.** A track handed four million points must
-  not emit four million elements. Bin to one value per pixel column, or draw a
-  hint, the way `CoverageTrack` and `SequenceTrack` do.
-- **Deterministic output.** The same input renders byte-identical output, which
-  is what makes `git diff -- assets` a test at all. Category colours follow
-  first appearance rather than hash order, because a figure that recolours
-  itself when a sample is added cannot go in a paper.
-- **Plain SVG 1.1.** No scripts, no external references, no embedded fonts, so
-  the file opens unchanged in a browser, in Inkscape and in Illustrator.
+- **Coordinates are 0-based and half-open**, everywhere, with the two
+  exceptions a reader sees: locus strings and the numbers printed on a figure.
+  A constructor that takes anything else says so in its documentation. See
+  [Coordinates](../how-it-works/coordinates.md).
+- **The work follows the pixels.** Where the data are denser than the output,
+  a track reduces them to what the pixels can show: one value per pixel
+  column, merged runs, or a hint, the way `CoverageTrack`, `MsaTrack` and
+  `SequenceTrack` do. [Scale](../how-it-works/scale.md) shows how each track
+  does it, and which point tracks still draw a mark per datum.
+- **Output is deterministic.** The same input renders byte-identical output:
+  there is no clock, no hash iteration order and no random tie-break, and the
+  examples generate their data from fixed seeds. That is what makes
+  `git diff -- assets` a test at all.
+- **Categories are coloured in order of first appearance**, not by hashing
+  their names, so adding a sample adds a colour at the end rather than
+  reshuffling the ones already there.
+- **Plain SVG 1.1.** No scripts, no external references and no embedded fonts,
+  so a file opens unchanged in a browser, in Inkscape and in Illustrator.
 - **Errors are values.** A bad locus string is an `Error`, not a panic, and it
-  converts into `io::Error` so a region and the file it renders to can share
-  one `?`.
+  converts into `std::io::Error`; a file a reader cannot parse stops on the
+  line that failed, and the `ReadError` says which.
+- **No dependencies and no unsafe code, and the library reads no files.** Both
+  dependency tables in `Cargo.toml` are empty, `unsafe` is forbidden, and every
+  reader takes a `&str`, so where the text comes from is the caller's
+  decision.
+- **Every public item is documented.** `missing_docs` is a warning, and the
+  checks deny warnings, so an undocumented item fails the build.
+- **The oldest supported compiler is 1.74**, the `rust-version` in
+  `Cargo.toml`.
 
-## CI
+??? info "Why colour follows first appearance"
+    A figure that recolours itself when a sample is added cannot go in a paper:
+    the caption written against last week's version is now wrong, and nothing
+    announces it. `VariantTrack::categories` walks the variants and collects the
+    categories in the order it meets them, and the palette is indexed by that
+    position. The cost is that two figures meant to agree on what a colour
+    means have to be given their data in one order.
 
-The workflow is `.github/workflows/ci.yml` and it is **`workflow_dispatch`
-only**. Pushing does not start it. Run it when you want it, from the Actions
-tab or with:
+## Where next
 
-```bash
-gh workflow run ci.yml --repo PathoGenOmics-Lab/karyon --ref main
-```
+<div class="grid cards" markdown>
 
-It has two jobs. The first runs format, clippy, `cargo test`,
-`cargo test --release` and `cargo doc` with `RUSTDOCFLAGS: -D warnings`, on
-Ubuntu and macOS. The second renders the ten README figures and fails if
-`git diff -- assets` is not empty.
+-   **[Writing a track](../how-it-works/extending.md)**
 
-Running it on purpose rather than on every push is a deliberate choice about
-Actions minutes, not an oversight. It also means the gates above are yours to
-run locally before you open a pull request.
+    The trait a new track implements, and what the figure does for it.
 
-## Next
+-   **[Changelog](changelog.md)**
 
-- [Writing a track](../how-it-works/extending.md), for the trait a new track
-  implements.
-- [Tracks](../tracks.md), for what the thirty-six already there draw.
-- [Citation](citation.md), for what to record about the version you used.
+    What changed in each release, and why.
+
+-   **[Citation](citation.md)**
+
+    What to record about the version you used.
+
+</div>

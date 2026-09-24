@@ -1,124 +1,125 @@
----
-title: Gallery
-description: Choose a Karyon plot by biological question, data shape or scale.
----
+# Gallery
 
-<div class="plot-hero plot-hero--catalog" markdown>
-
-<span class="plot-eyebrow">Gallery</span>
-
-# Find the plot that matches the question
-
-Pick a family of plots by what your data describes. Each family shows its
-plots as examples, says when to reach for each one, and links to the full
-reference.
-
-<div class="plot-stats" aria-label="Catalogue summary">
-  <span><strong>36</strong> genomic tracks</span>
-  <span><strong>3</strong> standalone drawings</span>
-  <span><strong>8</strong> biological routes</span>
-</div>
-
-</div>
+Find the plot for the question you are asking of your data: start from what the
+data describes, or from the file you already have.
+{ .k-lead }
 
 ## Browse by what you want to show
 
-<div class="plot-category-grid">
-  <a class="plot-category-card plot-category-card--signal" href="signal-sequence/">
-    <img src="../assets/figures/example.svg" alt="Coverage, sequence and annotation over one locus" loading="lazy" width="900" height="306">
-    <span class="plot-category-card__body">
-      <small>6 track types</small>
-      <strong>Signal and sequence</strong>
-      <span>Depth, signed windows, bases, methylation and motifs.</span>
-      <b>Explore signal plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--annotation" href="annotation-coordinates/">
-    <img src="../assets/figures/example-transcripts.svg" alt="Transcription units and genes over genomic coordinates" loading="lazy" width="880" height="218">
-    <span class="plot-category-card__body">
-      <small>6 track types</small>
-      <strong>Annotation and coordinates</strong>
-      <span>Genes, transcripts, reading frames, rulers and keys.</span>
-      <b>Explore annotation plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--variation" href="variation-association/">
-    <img src="../assets/figures/example-association.svg" alt="Association statistics aligned to genes and a genotype matrix" loading="lazy" width="940" height="349">
-    <span class="plot-category-card__body">
-      <small>7 track types</small>
-      <strong>Variation and association</strong>
-      <span>Variants, structural events, variable sites and genotypes.</span>
-      <b>Explore variation plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--reads" href="reads-molecules/">
-    <img src="../assets/figures/example-pileup.svg" alt="Read pileup with strand, mismatches and gaps" loading="lazy" width="920" height="474">
-    <span class="plot-category-card__body">
-      <small>5 track types</small>
-      <strong>Reads and molecules</strong>
-      <span>Pileups, split alignments, methylation patterns and raw signal.</span>
-      <b>Explore molecule plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--comparison" href="comparisons-alignments/">
-    <img src="../assets/figures/example-synteny.svg" alt="A dotplot and synteny ribbons comparing two sequences" loading="lazy" width="900" height="438">
-    <span class="plot-category-card__body">
-      <small>5 track types</small>
-      <strong>Comparisons and alignments</strong>
-      <span>MSAs, dotplots, synteny and homologous loci.</span>
-      <b>Explore comparison plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--phylo" href="phylogeny-clades/">
-    <img src="../assets/figures/example-phylo-map.svg" alt="Circular phylogenies around an orthographic map" loading="lazy" width="1918" height="872">
-    <span class="plot-category-card__body">
-      <small>3 tracks + 1 drawing</small>
-      <strong>Phylogeny and clades</strong>
-      <span>Trees, tanglegrams, clade intervals and phylogeography.</span>
-      <b>Explore phylogeny plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--variation" href="evolution-surveillance/">
-    <img src="../assets/figures/example-evolutionary-surveillance.svg" alt="An atlas of phylogenetic geometry, ancestral reconstruction, molecular selection, genomic layers, phylodynamics and lineage surveillance" loading="lazy" width="1410" height="2057">
-    <span class="plot-category-card__body">
-      <small>2 temporal tracks + tree layers</small>
-      <strong>Evolution and surveillance</strong>
-      <span>Ancestral states, branch events, uncertainty, selection, skyline trajectories and lineage alerts.</span>
-      <b>Explore evolutionary plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
-  <a class="plot-category-card plot-category-card--world" href="whole-genomes-geography/">
-    <img src="../assets/figures/example-maps.svg" alt="World maps under three geographic projections" loading="lazy" width="1402" height="974">
-    <span class="plot-category-card__body">
-      <small>2 tracks + 2 drawings</small>
-      <strong>Whole genomes and geography</strong>
-      <span>Assemblies, ideograms, circular genomes and world maps.</span>
-      <b>Explore context plots <span aria-hidden="true">→</span></b>
-    </span>
-  </a>
+<div class="k-plots" markdown>
+
+-   [![A read depth profile with a dropout, a reference band, the rpoB gene with its resistance-determining region, and variant lollipops, all on one axis](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }](signal-sequence.md)
+
+    **[Signal and sequence](signal-sequence.md)**
+    A value or a symbol at every position: depth, windowed statistics, methylation by strand, the reference bases, logos and per-base attribution.
+
+-   [![Three transcription units over the ESX-1 genes of M. tuberculosis, each a bent arrow at its start site with a hairpin or a bar at its end, above the gene models they carry](../assets/figures/example-transcripts.svg){ width="880" height="216" loading="lazy" .k-wide }](annotation-coordinates.md)
+
+    **[Annotation and coordinates](annotation-coordinates.md)**
+    Genes, transcription units and reading frames, with rulers in bases or codons and a key to the colours.
+
+-   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix of the isolates at the associated sites](../assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }](variation-association.md)
+
+    **[Variation and association](variation-association.md)**
+    From one call to a cohort: point and structural variants, copy number, variable sites, genotype matrices, association scans and site-wise selection.
+
+-   [![Reads packed into rows under a depth profile and a candidate SNV, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }](reads-molecules.md)
+
+    **[Reads and molecules](reads-molecules.md)**
+    The evidence one molecule at a time: pileups, split reads, per-read methylation, splice junctions and raw nanopore current.
+
+-   [![Two M. tuberculosis chromosomes compared as a dotplot, where an inversion runs as an anti-diagonal and a translocated block sits off the main diagonal, above the same alignment drawn as ribbons](../assets/figures/example-synteny.svg){ width="900" height="436" loading="lazy" }](comparisons-alignments.md)
+
+    **[Comparisons and alignments](comparisons-alignments.md)**
+    Two or more sequences compared: alignments, domain architectures, dotplots, synteny ribbons and gene neighbourhoods.
+
+-   [![Four radial views of one outbreak tree: a circular time tree with country and depth rings, a fan with a collapsed clade, time radiating inwards, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }](phylogeny-clades.md)
+
+    **[Phylogeny and clades](phylogeny-clades.md)**
+    Trees in every layout with their metadata, two trees face to face, spans painted onto clades, and a tree around a map.
+
+-   [![An eight-panel synthetic atlas of tree geometries, ancestral states, selection on branches and at sites, a tanglegram, a population trajectory and lineage frequencies through time](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](evolution-surveillance.md)
+
+    **[Evolution and surveillance](evolution-surveillance.md)**
+    Results fitted upstream: ancestral states, selection on branches and at sites, population trajectories and lineage counts through time.
+
+-   [![The 4.41 Mb H37Rv chromosome as concentric rings of genes, GC content and GC skew, with resistance mutations marked and chords across the middle joining the ends of two rearrangements](../assets/figures/example-circular.svg){ width="688" height="688" loading="lazy" }](whole-genomes-geography.md)
+
+    **[Whole genomes and maps](whole-genomes-geography.md)**
+    Context beyond one locus: an ideogram, a whole assembly, a circular genome and a world map.
+
 </div>
 
-## Choose from the shape of the data
+## Choose from the shape of your data
 
-<div class="plot-route-grid">
-  <a href="reads-molecules/"><strong>I have SAM alignments or molecules</strong><span>Start with pileups, split reads or per-molecule calls.</span></a>
-  <a href="variation-association/"><strong>I have VCF calls, sites or genotypes</strong><span>Start with variants, variable sites, matrices or association statistics.</span></a>
-  <a href="phylogeny-clades/"><strong>I have Newick, BEAST, NHX or Nexus</strong><span>Start with a tree, aligned clade blocks or circular phylogeography.</span></a>
-  <a href="evolution-surveillance/"><strong>I have ancestral, codon-model or time-series results</strong><span>Start with branch layers, a site scan, a phylodynamic interval or lineage composition.</span></a>
-  <a href="comparisons-alignments/"><strong>I have two or more sequences</strong><span>Start with an MSA, dotplot, synteny view or homologous locus.</span></a>
-  <a href="signal-sequence/"><strong>I have a value for every base or window</strong><span>Start with coverage, a signed window track or per-site methylation.</span></a>
-  <a href="annotation-coordinates/"><strong>I have a GFF3 or BED annotation</strong><span>Start with genes, transcription units, reading frames or a coordinate ruler.</span></a>
-  <a href="whole-genomes-geography/"><strong>I need global context</strong><span>Start with an assembly track, ideogram, circular genome or map.</span></a>
+Find the file you have: the plot links to its reference and names the command
+line flag that draws it, and the route opens its page in this gallery.
+
+| Your data | Start with | Route |
+|:--|:--|:--|
+| Aligned reads: SAM text, as `samtools view` writes it | [Read pileup](../tracks/reads-molecules.md#pileuptrack), `--pileup` | [Reads and molecules](reads-molecules.md) |
+| Reads aligned in pieces: SAM with an `SA` tag | [Split reads](../tracks/reads-molecules.md#splitreadtrack), `--split-reads` | [Reads and molecules](reads-molecules.md) |
+| Splice junction counts: STAR's `SJ.out.tab` | [Splice junctions](../tracks/reads-molecules.md#junctiontrack), `--junctions` | [Reads and molecules](reads-molecules.md) |
+| Methylation calls read by read: a Bismark methylation extractor file | [Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack), `--bisulfite` | [Reads and molecules](reads-molecules.md) |
+| Raw nanopore current and a basecaller move table | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack), Rust only | [Reads and molecules](reads-molecules.md) |
+| A value per base: bedGraph, `samtools depth` or a column of values | [Coverage](../tracks/signal-sequence.md#coveragetrack), `--coverage` | [Signal and sequence](signal-sequence.md) |
+| A statistic in windows: bedGraph | [Windowed statistic](../tracks/signal-sequence.md#windowtrack), `--windows` | [Signal and sequence](signal-sequence.md) |
+| Modified bases per strand: bedMethyl from `modkit pileup` | [Methylation by strand](../tracks/signal-sequence.md#methylationtrack), `--methylation` | [Signal and sequence](signal-sequence.md) |
+| Per-base model attribution: bedGraph, plus the reference as FASTA | [Per-base attribution](../tracks/signal-sequence.md#dynseqtrack), `--dynseq` with `--with-sequence` | [Signal and sequence](signal-sequence.md) |
+| Aligned sequences of a motif: aligned FASTA | [Sequence logo](../tracks/signal-sequence.md#logotrack), `--logo` | [Signal and sequence](signal-sequence.md) |
+| A reference sequence: FASTA | [Reference sequence](../tracks/signal-sequence.md#sequencetrack), `--sequence`, or [six reading frames](../tracks/annotation.md#orftrack), `--orfs` | [Signal and sequence](signal-sequence.md), [Annotation and coordinates](annotation-coordinates.md) |
+| Genes and other intervals: BED or GFF3 | [Features](../tracks/annotation.md#featuretrack), `--features` | [Annotation and coordinates](annotation-coordinates.md) |
+| Point calls: VCF | [Point variants](../tracks/variation.md#varianttrack), `--variants` | [Variation and association](variation-association.md) |
+| Structural calls: VCF with symbolic alleles or `SVTYPE` | [Structural variants](../tracks/variation.md#structuraltrack), `--structural` | [Variation and association](variation-association.md) |
+| Copy number segments: CNVkit `.cns`, ASCAT or `.seg` | [Copy number](../tracks/variation.md#copynumbertrack), `--copy-number` with `--ploidy` | [Variation and association](variation-association.md) |
+| Closely related genomes: aligned FASTA | [Variable sites](../tracks/variation.md#snptrack), `--snps`, or a [multiple alignment](../tracks/comparison.md#msatrack), `--msa` | [Variation and association](variation-association.md), [Comparisons and alignments](comparisons-alignments.md) |
+| A value per sample per site: a table | [Genotype matrix](../tracks/variation.md#matrixtrack), `--matrix` | [Variation and association](variation-association.md) |
+| Association statistics: a table of position and value | [Association scan](../tracks/variation.md#manhattantrack), `--manhattan` | [Variation and association](variation-association.md) |
+| Site-wise results from a codon model | [Site-wise selection](../tracks/variation.md#selectiontrack), Rust only | [Variation and association](variation-association.md), [Evolution and surveillance](evolution-surveillance.md) |
+| A pairwise alignment: PAF from `minimap2` | [Dotplot](../tracks/comparison.md#dotplottrack), `--dotplot`, or [synteny ribbons](../tracks/comparison.md#syntenytrack), `--synteny` | [Comparisons and alignments](comparisons-alignments.md) |
+| Protein domains: an InterProScan table | [Domain architectures](../tracks/comparison.md#domaintrack), `--domains` | [Comparisons and alignments](comparisons-alignments.md) |
+| Genes from several genomes, and the hits between them | [Gene neighbourhoods](../tracks/comparison.md#locustrack), `--loci` with `--links` | [Comparisons and alignments](comparisons-alignments.md) |
+| A phylogeny: Newick, with or without BEAST and NHX annotations | [Annotated tree](../tracks/phylogeny.md#treetrack), `--tree` | [Phylogeny and clades](phylogeny-clades.md) |
+| Two trees over the same taxa | [Tanglegram](../tracks/phylogeny.md#tanglegramtrack), `--tanglegram` with `--against` | [Phylogeny and clades](phylogeny-clades.md) |
+| Spans carried by named taxa: Gubbins GFF3, and the tree | [Clade blocks](../tracks/phylogeny.md#cladetrack), `--clades` with `--with-tree` | [Phylogeny and clades](phylogeny-clades.md) |
+| Ancestral states, branch events or branch ω, as tree annotations | [Ancestral states and branch events](../tracks/phylogeny.md#treetrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
+| Estimates through time, such as effective population size or R | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
+| Lineage counts and totals through time | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
+| Cytogenetic bands: a UCSC cytoBand table | [Ideogram](../tracks/whole-genome.md#ideogramtrack), `--ideogram` | [Whole genomes and maps](whole-genomes-geography.md) |
+| An assembly of many contigs or chromosomes | [Whole assembly](../tracks/whole-genome.md#genometrack), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
+| A circular chromosome or plasmid | [Circular genome](../guide/plot.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
+| A latitude and longitude per sample | [Map](../guide/maps.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
+
+!!! tip "BAM, CRAM and BCF"
+    Binary formats come in through a pipe: `samtools view`, `samtools depth`
+    and `bcftools view` already write the text these readers take, and a track
+    file can be `-` for standard input. See [file formats](../guide/formats.md).
+
+!!! note "Tracks and drawings"
+    Most plots here are tracks: bands that stack over one shared coordinate
+    axis, so any of them can sit above or below any other. The circular
+    genome, the map and the tree around a map are drawings instead (`Rings`,
+    `Map` and `PhyloMap`), each with a coordinate system of its own, and a
+    `Panels` sheet puts drawings and figures side by side.
+
+## Every track in one place
+
+<div class="grid cards" markdown>
+
+-   **[Track catalogue](../tracks/index.md)**
+
+    All 36 track types, family by family, with the options of each and the
+    files it reads.
+
+-   **[Recipes](../recipes.md)**
+
+    Complete programs that stack several of these plots into one figure.
+
+-   **[Command line](../guide/cli.md)**
+
+    Every flag, and how the order of the flags becomes the order of the stack.
+
 </div>
 
-## Tracks, drawings and sheets
-
-<div class="plot-concept-strip">
-  <div><span class="plot-chip">Track</span><strong>Shares a figure band</strong><p>Usually maps genomic position through the same horizontal scale as its neighbours.</p></div>
-  <div><span class="plot-chip">Drawing</span><strong>Own coordinate system</strong><p><code>Rings</code>, <code>Map</code> and <code>PhyloMap</code> render a complete circular or geographic document.</p></div>
-  <div><span class="plot-chip">Panels</span><strong>Composes finished views</strong><p>Places figures and drawings on one labelled, aligned manuscript sheet.</p></div>
-</div>
-
-Looking for every option of one track? The [track reference](../tracks.md) is
-ordered by the same eight families as this page. If you already know the figure
-you want, the [worked recipes](../recipes.md) show complete programs.
+Every figure in this gallery is drawn by a program in the repository's
+`examples/` directory, so the code behind each one is there to read and copy.

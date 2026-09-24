@@ -9,15 +9,14 @@ hide:
 # Tree viewer
 
 Open a phylogenetic tree and explore it in your browser: rectangular, circular
-or unrooted, from a handful of tips to a million. karyon lays the tree out once
-and then only redraws what is on screen, so even very large trees stay smooth.
-Nothing you open is uploaded.
-{ .tv-intro }
+or unrooted, from a handful of tips to a million. The tree is laid out once,
+only what is on screen is redrawn, and nothing you open is uploaded.
+{ .k-lead .tv-intro }
 
-<noscript>
-  <p><strong>This page needs JavaScript.</strong> Everything it does happens in
-  your browser, so there is nothing for it to fall back to. The same views come
-  out of a terminal: see <a href="../guide/cli/">Command line</a>.</p>
+<noscript markdown>
+**This page needs JavaScript.** It runs entirely in your browser, so there is
+nothing for it to fall back to. The same views come out of a terminal: see
+[Command line](guide/cli.md).
 </noscript>
 
 <div class="tv-drop" id="tv-drop" hidden markdown="0">
@@ -79,12 +78,12 @@ Nothing you open is uploaded.
   </div>
 
   <ul class="tv-hint">
-    <li><strong>Move:</strong> drag the tree, or tab to it and use the arrow keys.</li>
-    <li><strong>Zoom:</strong> scroll, double-click, or press <kbd>+</kbd> and <kbd>-</kbd>. <strong>Fit</strong> or <kbd>Home</kbd> shows the whole tree again.</li>
-    <li><strong>Find:</strong> type part of a name, or a list of names, in the search box and press <kbd>Enter</kbd>.</li>
-    <li class="tv-map-note"><strong>Overview:</strong> on a wide screen a small picture of the whole tree marks the part you are looking at; click or drag it to jump there.</li>
-    <li><strong>Traits:</strong> drop a table with a header and one row per tip to draw it as coloured strips beside the names.</li>
-    <li><strong>Export SVG</strong> saves the current view as a karyon figure, and the line below gives the same view as a command.</li>
+    <li><strong>Move:</strong> drag the tree, or tab to it and use the arrow keys and <kbd>Page Up</kbd> and <kbd>Page Down</kbd>; hold <kbd>Shift</kbd> for longer steps.</li>
+    <li><strong>Zoom:</strong> scroll, double-click, or press <kbd>+</kbd> and <kbd>-</kbd>. Click a node to fill the view with its clade, and <strong>Fit</strong> or <kbd>Home</kbd> shows the whole tree again.</li>
+    <li><strong>Find:</strong> type part of a name, or a list of names, and press <kbd>Enter</kbd>. <kbd>Enter</kbd> again goes to the next match, and <kbd>Shift</kbd> with it to the one before.</li>
+    <li class="tv-map-note"><strong>Overview:</strong> on a wide screen a small picture of the whole tree marks the part in view; click or drag it to jump there.</li>
+    <li><strong>Traits:</strong> after the tree, drop a table with a header and one row per tip, and it is drawn as coloured strips beside the names. <strong>Drop</strong> draws without it again.</li>
+    <li><strong>Export SVG</strong> saves the current view as a karyon figure, and the line under the tree gives the same view as a command.</li>
   </ul>
 
   <div class="tv-key" id="tv-key" hidden></div>

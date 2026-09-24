@@ -8,6 +8,11 @@ hide:
 
 # Playground
 
+Write a karyon command, edit the files it reads and watch the figure it draws,
+with nothing to install. This page runs the same program as the command line,
+compiled to WebAssembly.
+{ .k-lead }
+
 <div id="karyon-playground" markdown="0">
   <noscript>
     <p><strong>This page needs JavaScript.</strong> Everything it does is done in
@@ -72,27 +77,38 @@ hide:
 
 ## How to use it
 
-1. **Start from an example.** *Examples* opens two dozen of them, which between
-   them use every track the command line has. Or type your own command in the
-   box: it takes everything you would type after `karyon` in a terminal.
-2. **Edit the input files** in the tabs under the command. The command refers to
-   a file by its tab name. `+` adds a file; double-click a tab (or press F2) to
-   rename it.
-3. **Press Draw.** Turn on *Interactive* to drag the figure along the genome and
-   scroll to zoom once it has focus; every frame is a fresh run of the command.
-4. **Use the controls under the figure.** They depend on the example, and each
-   one rewrites its flag in the command, so the command always describes what
-   you see.
-5. **Export SVG** saves the figure exactly as drawn.
+1. **Start from an example, or write a command.** *Examples* opens twenty-four
+   figures that between them use every track flag the command line has. The
+   command box takes everything you would type after `karyon` in a terminal.
+2. **Edit the files.** Each tab under the command is one input file, and the
+   command names it by the tab's name. `+` adds a file, a double click or
+   ++f2++ renames one, and ++delete++ or the cross on the tab removes it.
+3. **Draw.** The figure redraws a moment after you stop typing, and *Draw* or
+   ++ctrl+enter++ draws it at once.
+4. **Explore.** Tick *Interactive*, then drag the figure along the sequence,
+   or give it focus and scroll, press the arrow keys, or press ++plus++ and
+   ++minus++. Every frame is a fresh run of the command, and the region in
+   the command follows you. *Reset view* puts back the command the example
+   started with.
+5. **Use the controls under the figure.** They depend on the example. The
+   window slider and the flag controls rewrite the command, so it always says
+   what you see; the others regenerate the example's input files.
+6. **Export SVG** saves the figure exactly as drawn. *Layout* puts the command
+   beside the figure or above it, and *Full screen* gives it the whole screen.
 
-Everything runs in your browser: karyon is compiled to WebAssembly, and nothing
-you type or paste is uploaded anywhere.
+!!! note "Nothing leaves your browser"
+    The program runs inside this page, and nothing you type or paste is
+    uploaded anywhere.
 
-A few differences from a terminal:
+A few things differ from a terminal:
 
-- The page picks the figure width and follows the dark theme. Put `--width` or
-  `--theme` in the command to override either.
-- There is no standard input (`-`) and no `--help` here. The
+- **The page picks the width and the theme.** The figure is drawn as wide as
+  its pane and follows the site's dark setting. Put `--width` or `--theme` in
+  the command to override either.
+- **Files are the tabs.** A file name in the command names a tab, not a file
+  on your disk.
+- **There is no standard input and no help text.** `-` has nothing to read
+  here, and `--help` answers with a note. The
   [Command line](guide/cli.md) guide is the help text written out.
 
 </div>

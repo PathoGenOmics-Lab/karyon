@@ -1,90 +1,121 @@
-# Quickstart
+# Your first figure
 
-Two short routes to a first figure: one from the shell, one from Rust. Both
-draw a stack of tracks over one shared coordinate axis and write it as a
-standalone SVG. Pick the one that suits you; the shell needs no Rust code at
-all.
+Draw a figure from the shell in two lines, stack several tracks on one axis,
+then build the same kind of figure from Rust. The steps make their own input
+files, so all you need is karyon itself.
+{ .k-lead }
 
-## From the shell
+<div class="k-steps" markdown>
 
-Install the command line first (see [Installation](installation.md)):
+### Install the command line
 
 ```bash
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
+karyon --version
 ```
 
-### A figure in two lines
+This needs a Rust toolchain. [Installation](installation.md) covers getting
+one, and adding karyon to a Rust project instead.
 
-This makes its own input file, so you can run it right now:
+### Draw a figure in two lines
+
+The first line writes a small depth file, so there is nothing to download. The
+second draws it:
 
 ```bash
 seq 1 60 | awk '{print "chr1\t" $1 "\t" (20 + $1 % 7)}' > depth.txt
 karyon chr1:1-60 --coverage depth.txt --label depth -o first.svg
 ```
 
-Open `first.svg` in a browser. The first argument is the region, `--coverage`
-adds a track that reads `depth.txt`, `--label` names it, and `-o` is the output
-file. Without `-o` the SVG goes to standard output.
+Open `first.svg` in a browser: a depth profile over sixty bases, with a ruler
+underneath.
 
-### Several tracks
+| Part | What it does |
+|:--|:--|
+| `chr1:1-60` | The region, always first. 1-based and inclusive, the way `samtools` and IGV write it. |
+| `--coverage depth.txt` | Adds a coverage track and reads it from `depth.txt`, three columns as `samtools depth` writes them. |
+| `--label depth` | Names that track in the left margin. |
+| `-o first.svg` | The output file. Without it the SVG goes to standard output, ready for a pipe. |
 
-Each track flag, such as `--coverage` or `--variants`, starts a new track, and
-the flags after it describe that track. **The order of the flags is the order of
-the tracks, from top to bottom:**
+The ruler along the bottom is added for you; `--no-axis` leaves it out.
+
+### Stack several tracks
+
+Write a sixty-base reference and a VCF with three calls, then draw all three
+files on the one axis:
 
 ```bash
-karyon NC_000962.3:761,121-761,180 \
-  --coverage depth.txt  --label depth     --height 45 \
-  --sequence H37Rv.fa   --label reference \
-  --variants calls.vcf  --label variants  --height 40 \
-  --title 'The same locus at base resolution' \
-  -o rpoB-zoom.svg
+printf '>chr1\n%s\n' GATTACAGGCTTACCGATCGATGCAAGCTTGGCCATTAGCGATCCGTAAGCTTACGGATC > ref.fa
+printf '##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n' > calls.vcf
+printf 'chr1\t%s\t.\t%s\t%s\t.\tPASS\tAF=%s\n' 18 T C 0.95 31 G A 0.4 47 T TA 0.6 >> calls.vcf
+
+karyon chr1:1-60 \
+  --coverage depth.txt --label depth     --height 45 \
+  --sequence ref.fa    --label reference \
+  --variants calls.vcf --label variants  --height 40 \
+  --title 'Three tracks over sixty bases' \
+  -o stack.svg
 ```
 
-![The same locus over sixty bases: a depth profile, the reference sequence drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="223" loading="lazy" }
+**The order of the flags is the order of the stack.** Each track flag, such as
+`--coverage` or `--variants`, starts a new track, and the options after it
+(`--label`, `--height`) describe that track until the next one starts. Move the
+`--variants` line above `--coverage` and the calls are drawn on top. Figure
+options such as `--title` and `-o` belong to no track and can go anywhere.
 
-- `depth.txt` is what `samtools depth` writes, `H37Rv.fa` is the reference
-  FASTA and `calls.vcf` is a VCF.
-- Each file is read in its own format's coordinates (BED and bedGraph are
-  0-based, GFF3, VCF, SAM and `samtools depth` are 1-based), and all of them end
-  up at the same place in the figure.
-- The variant colours come from the `ANN` or `BCSQ` consequence when the VCF has
-  one, and otherwise from the call itself: a substitution, an insertion or a
-  deletion.
-- `karyon --help` lists every track flag and option.
+<figure class="k-plate" markdown>
+![Sixty bases of a locus: a depth profile, the reference drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+<figcaption>The same three tracks over sixty bases of the rpoB gene, drawn by the crate's <code>locus</code> example.</figcaption>
+</figure>
+
+- **Every file keeps its own coordinates.** VCF, GFF3, SAM and `samtools depth`
+  count from 1; BED and bedGraph count from 0. Each is converted on the way in,
+  so all of them land in the same place.
+- **Variants are coloured by what they are.** The colour comes from the
+  consequence an annotator wrote in the VCF (`ANN` or `BCSQ`), or, without one,
+  from the call itself: here two substitutions and an insertion. The height of
+  each lollipop follows its `AF`, and a call without one stands full height.
+- **Letters follow the zoom.** A base is printed as a letter while it is at
+  least 7 pixels wide and as a coloured block down to 0.6 of a pixel. Below
+  that the track prints a hint to zoom in rather than a smear.
 
 !!! note "Give `--sequence` the whole reference"
-    `--sequence` wants the FASTA the window is cut out of, not just the bases on
-    display. A FASTA holding only those sixty bases would put them at positions 0
-    to 59, far from the window, and the track would come out empty.
+    `--sequence` takes the first record of the FASTA and cuts the region out
+    of it by position. It wants the sequence the window is cut from, not only
+    the bases on display: a file holding just those would put them at the
+    start of the sequence, far from the window, and the track would come out
+    empty. Here the two are the same, because the region starts at base 1.
 
-### BAM, CRAM and BCF
-
-karyon reads text formats only. For binary files, let `samtools` or `bcftools`
-write the text and pipe it in; any track file can be `-` for standard input:
+BAM, CRAM and BCF are not read directly. Let `samtools` or `bcftools` write the
+text and pipe it in; any track file can be `-`, for standard input:
 
 ```bash
 samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
   | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 ```
 
-## From Rust
+### Draw the same kind of figure from Rust
 
-Add the dependency (see [Installation](installation.md)):
+Make a new project and add the library:
+
+```bash
+cargo new first-figure
+cd first-figure
+```
 
 ```toml
 [dependencies]
 karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
-This is a whole program:
+Replace `src/main.rs` with this whole program:
 
 ```rust
 use karyon::{plot, Aggregate, Feature, Strand, Variant};
 
 fn main() -> std::io::Result<()> {
-    // One value per base of the window, however you got it. The dip is the
-    // shape a deletion leaves behind.
+    // One depth value per base of the region, with a dropout in the middle:
+    // the shape a deletion leaves behind.
     let depth: Vec<f64> = (0..2_000)
         .map(|i| if (900..1_030).contains(&i) { 3.0 } else { 55.0 - (i % 23) as f64 })
         .collect();
@@ -108,7 +139,9 @@ fn main() -> std::io::Result<()> {
         ])
         .label("annotation")
         .add_variants(vec![
+            Variant::new(761_051).value(0.12).category("synonymous"),
             Variant::new(761_108).value(0.98).category("missense"),
+            Variant::new(761_138).value(0.55).category("missense"),
             Variant::new(761_154).value(1.00).category("missense"),
             Variant::new(761_155).value(0.21).category("synonymous"),
         ])
@@ -121,46 +154,65 @@ fn main() -> std::io::Result<()> {
 
 `cargo run` writes `rpoB.svg`:
 
-![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
+<figure class="k-plate" markdown>
+![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+<figcaption>The <code>locus</code> example is this program with seeded, more realistic depth and bases: <code>cargo run --example locus -- assets</code>.</figcaption>
+</figure>
 
-What the program does:
-
-- **One call per track, in the order they stack.** `add_coverage` is at the top
-  because it comes first. Tracks only say how tall they are; the figure stacks
-  them and gives every one the same horizontal scale, which is what keeps them
-  aligned.
-- **The region is written once.** `add_coverage` lays its array from the left
-  edge of the region. When your array starts somewhere else, use
-  `add_coverage_at(start, values)`.
+- **One call per track, in the order they stack.** `add_coverage` comes first,
+  so depth is on top. Every track gets the same horizontal scale from the
+  figure, which is what keeps them aligned.
+- **The region is written once.** `add_coverage` and `add_sequence` lay their
+  arrays from the left edge of the region. When an array starts somewhere
+  else, use `add_coverage_at(start, values)` or `add_sequence_at(start, seq)`.
 - **`label` and `adjust` apply to the track just added.** `label` names it in
-  the left margin; `adjust` gives you the track itself to configure. Here it asks
-  for `Aggregate::Min`, so the dropout survives when several bases share a
-  pixel.
-- **The ruler is added for you** at the bottom. `add_axis` puts one elsewhere
-  and `remove_axis` leaves it out.
-- **Errors are `io::Error`.** A bad region string is an error, not a panic, so
-  `?` works in a function that returns `io::Result`.
-- **Detail follows the zoom.** Over two thousand bases the sequence track shows
-  a hint instead of unreadable letters; zoom in to sixty bases and the letters
-  appear, with no other change to the code.
+  the left margin; `adjust` hands you the track itself to configure. Here it
+  asks for `Aggregate::Min`, so the dropout survives when several bases share
+  a pixel.
+- **The ruler is added for you** at the bottom. `add_axis` puts it somewhere
+  else and `remove_axis` leaves it out.
+- **A bad region is an error, not a panic.** `plot` reports it as a
+  `karyon::Error`, which converts into `std::io::Error`, so one `?` covers
+  both the region and the file write.
+- **`to_svg()` returns the document as a `String`** instead of writing a file,
+  which is what a web service or a test wants.
 
-`to_svg()` returns the SVG as a string instead of writing a file, which is what
-a web service or a test wants.
+Over two thousand bases the reference is too narrow for letters and prints a
+hint instead. [Zooming to base resolution](../recipes.md#zooming-to-base-resolution)
+draws the same stack over sixty bases, where every letter shows.
 
-!!! warning "Coordinates"
+!!! warning "Two coordinate conventions"
     The region string and the tick labels are 1-based and inclusive, like
-    `samtools` and IGV. Everything else in the API is **0-based and
-    half-open**, like BED: `rpoB` is 759,807 to 763,325 in the 1-based
-    annotation, so it is `Feature::new(759_806, 763_325)` here, and the call at
-    VCF `POS` 761,155 is `Variant::new(761_154)`. The readers subtract the one
-    for you.
+    `samtools` and IGV. Everything else in the API is 0-based and half-open,
+    like BED. rpoB is 759,807 to 763,325 in the annotation, so it is
+    `Feature::new(759_806, 763_325)` here, and the call at VCF `POS` 761,155
+    is `Variant::new(761_154)`. The file readers subtract the one for you;
+    [Coordinates](../how-it-works/coordinates.md) has the full story.
 
-The two figures on this page come from the `locus` example, which is this
-program with seeded random data: `cargo run --example locus -- assets`.
+### Where to go next
 
-## Next
+<div class="grid cards" markdown>
 
-- [Core concepts](concepts.md): regions, tracks and the shared scale.
-- [Gallery](../plots/index.md): find the plot for your data.
-- [Writing a figure in Rust](../guide/plot.md): everything `plot()` can do.
-- [Command line](../guide/cli.md): every flag the `karyon` command takes.
+-   **[Core ideas](concepts.md)**
+
+    Regions, tracks, the shared scale and what karyon refuses to draw.
+
+-   **[Gallery](../plots/index.md)**
+
+    Find the plot for your data by what you want to show.
+
+-   **[Recipes](../recipes.md)**
+
+    Short, complete answers to common tasks, from the shell and from Rust.
+
+-   **[The Rust API](../guide/plot.md)**
+
+    Everything `plot()` and `Figure` can do.
+
+-   **[Command line](../guide/cli.md)**
+
+    Every flag the `karyon` command takes.
+
+</div>
+
+</div>

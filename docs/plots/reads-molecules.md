@@ -1,56 +1,69 @@
----
-title: Reads and molecule plots
-description: Aligned reads, split molecules, bisulfite patterns and raw nanopore signal.
----
+# Reads and molecules
 
-<div class="plot-hero plot-hero--reads" markdown>
+Plots that keep the evidence one molecule at a time, before reads are
+collapsed into depth, a call or an average per site.
+{ .k-lead }
 
-<span class="plot-eyebrow">Gallery · Reads and molecules</span>
+## How to choose
 
-# Keep the evidence at molecule resolution
+| Your question | Plot | Build it with |
+|:--|:--|:--|
+| Does a call hold up in the reads behind it? | [Read pileup](../tracks/reads-molecules.md#pileuptrack) | `PileupTrack`, `--pileup` |
+| Did one molecule align to several places, and in what order? | [Split reads](../tracks/reads-molecules.md#splitreadtrack) | `SplitReadTrack`, `--split-reads` |
+| Are the methylated sites on the same molecules, or scattered across them? | [Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack) | `BisulfiteTrack`, `--bisulfite` |
+| How many reads crossed each intron? | [Splice junctions](../tracks/reads-molecules.md#junctiontrack) | `JunctionTrack`, `--junctions` |
+| What did the current look like before basecalling? | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack) | `SquiggleTrack`, Rust only |
 
-Use these tracks before reads have been collapsed into depth, a variant call or
-a site average. Each row or trace remains attributable to the molecule that
-produced it.
+## Plots
 
-<div class="plot-stats"><span><strong>5</strong> track types</span><span><strong>1</strong> molecule per row</span></div>
+<div class="k-plots" markdown>
+
+-   [![Reads packed into rows under a depth profile, a candidate SNV and the reference, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }](../tracks/reads-molecules.md#pileuptrack)
+
+    **[Read pileup](../tracks/reads-molecules.md#pileuptrack)**
+    Reads placed by their real CIGAR and packed into rows, with mismatches found against the reference and the reads past the row limit counted on the band.
+
+-   [![Eight molecules each aligned in three segments, both ends at a new insertion site and the middle on the reference IS6110 copy on the reverse strand, with the connectors drawn under the rows, above a depth profile that doubles over that copy](../assets/figures/example-split.svg){ width="880" height="329" loading="lazy" }](../tracks/reads-molecules.md#splitreadtrack)
+
+    **[Split reads](../tracks/reads-molecules.md#splitreadtrack)**
+    One row per molecule and one bar per alignment, joined in the order the molecule ran, with any step back down the reference drawn under the row.
+
+-   [![Sixteen molecules across the H19/IGF2 imprinting control region, one row each, filled circles for methylated CpGs and open circles for unmethylated ones: some reads are methylated almost throughout and others almost nowhere](../assets/figures/example-bisulfite.svg){ width="880" height="302" loading="lazy" }](../tracks/reads-molecules.md#bisulfitetrack)
+
+    **[Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack)**
+    One row per read, a filled circle where a site is methylated, an open one where it is not and nothing where the read did not reach, so two alleles show as stripes.
+
+-   [![Splice junction arcs labelled with read counts above an RNA depth profile, with one junction held back and counted, and per-base model attribution beneath](../assets/figures/example-regulation.svg){ width="810" height="786" loading="lazy" }](../tracks/reads-molecules.md#junctiontrack)
+
+    **[Splice junctions](../tracks/reads-molecules.md#junctiontrack)**
+    One arc per intron, weighted and labelled by the reads that crossed it; arcs sit in lanes, so their height means nothing.
+
+-   [![Raw nanopore current for one read against sample number, stepping between levels, with the base the basecaller assigned to each stretch written above it](../assets/figures/example-squiggle.svg){ width="880" height="184" loading="lazy" .k-wide }](../tracks/reads-molecules.md#squiggletrack)
+
+    **[Nanopore signal](../tracks/reads-molecules.md#squiggletrack)**
+    Raw current against sample number, an envelope of the extremes when zoomed out and the samples themselves when zoomed in; a move table adds the called bases.
 
 </div>
 
-<div class="plot-card-grid">
-  <a class="plot-card" href="../../tracks/#pileuptrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-pileup.svg" alt="Read pileup with strand, mismatches, insertions and deletions" loading="lazy" width="920" height="474"></span>
-    <span class="plot-card__body"><small>Contiguous alignment</small><strong>PileupTrack</strong><span>Real CIGAR operations packed into rows, with strand, mapping quality and reference-aware mismatches.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#splitreadtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-split.svg" alt="One molecule aligned in several genomic segments" loading="lazy" width="880" height="331"></span>
-    <span class="plot-card__body"><small>Segmented alignment</small><strong>SplitReadTrack</strong><span>One row per molecule, one bar per segment and connectors that preserve visit order and orientation.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#bisulfitetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-bisulfite.svg" alt="Single-molecule methylation calls at cytosines" loading="lazy" width="880" height="304"></span>
-    <span class="plot-card__body"><small>Modification pattern</small><strong>BisulfiteTrack</strong><span>Filled and open calls per covered site, leaving truly uncovered positions empty rather than unmodified.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#junctiontrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Junction arcs over a depth profile, with per-base attribution under them" loading="lazy" width="812" height="792"></span>
-    <span class="plot-card__body"><small>Introns reads stepped over</small><strong>JunctionTrack</strong><span>Sashimi arcs weighted and labelled by the reads that crossed each junction.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#squiggletrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-squiggle.svg" alt="Raw nanopore current resolving from an envelope into a trace" loading="lazy" width="880" height="186"></span>
-    <span class="plot-card__body"><small>Raw current</small><strong>SquiggleTrack</strong><span>Nanopore signal as a min–max envelope at overview scale and the original trace when resolution allows.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
+## Related
+
+<div class="grid cards" markdown>
+
+-   **[Signal and sequence](signal-sequence.md)**
+
+    After the reads have become depth or a methylated fraction per site.
+
+-   **[Variation and association](variation-association.md)**
+
+    After the evidence has become a call.
+
+-   **[File formats](../guide/formats.md)**
+
+    SAM and its `SA` tag, STAR junction tables and Bismark extractor files,
+    and how BAM comes in through `samtools`.
+
+-   **[Recipes](../recipes.md)**
+
+    Complete programs that stack several tracks into one figure.
+
 </div>
-
-## Choose by what was measured
-
-| Input still contains… | Start with |
-|:--|:--|
-| one reference position and CIGAR per read | `PileupTrack` |
-| several alignments belonging to one molecule | `SplitReadTrack` |
-| modified and unmodified calls along each molecule | `BisulfiteTrack` |
-| current samples and a basecaller move table | `SquiggleTrack` |
-
-## Related routes
-
-- [Signal and sequence](signal-sequence.md) after reads have become coverage or per-site fractions.
-- [Variation and association](variation-association.md) after molecule evidence has become a call.
-- [Recipes](../recipes.md) for piping SAM text from `samtools` and attaching a reference in Rust.

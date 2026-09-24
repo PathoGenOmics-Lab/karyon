@@ -1,0 +1,20 @@
+{#-
+  The page for an address that is not on the site. It can be served at any
+  path; MkDocs renders it with the site's root as its base, so the url filter
+  gives addresses that work from wherever it is served.
+-#}
+{% extends "main.html" %}
+{% block content %}
+  <div class="k-lost">
+    <img class="k-lost__mark" src="{{ 'assets/karyon_mark.svg' | url }}" alt="" width="104" height="140">
+    <p class="k-lost__code">404</p>
+    <h1>Nothing is drawn at this position</h1>
+    <p class="k-lead">There is no page at this address. Search from the bar above, or start from one of these.</p>
+    <p class="k-lost__ways">
+      <a class="md-button md-button--primary" href="{{ '' | url }}">Home</a>
+      <a class="md-button" href="{{ 'getting-started/quickstart/' | url }}">Your first figure</a>
+      <a class="md-button" href="{{ 'plots/' | url }}">Gallery</a>
+      <a class="md-button" href="{{ 'tracks/' | url }}">Track catalogue</a>
+    </p>
+  </div>
+{% endblock %}

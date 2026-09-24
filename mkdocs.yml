@@ -13,6 +13,8 @@ copyright: Copyright &copy; 2026 Paula Ruiz-Rodriguez and Mireia Coscolla &middo
 
 theme:
   name: material
+  # The home page's hero is a template of its own, overrides/home.html.
+  custom_dir: overrides
   logo: assets/karyon_mark.svg
   favicon: assets/favicon.svg
   language: en
@@ -24,27 +26,21 @@ theme:
     edit: material/pencil
     admonition:
       note: material/dna
+  # Night first: the site is the logo's night, and a light page is one click
+  # away for anyone who prefers it. The choice is remembered.
   palette:
-    - media: "(prefers-color-scheme)"
+    - scheme: slate
       primary: custom
       accent: custom
       toggle:
-        icon: material/brightness-auto
-        name: Switch to light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+        icon: material/weather-sunny
+        name: Switch to the light page
+    - scheme: default
       primary: custom
       accent: custom
       toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/brightness-4
-        name: Switch to system preference
+        icon: material/weather-night
+        name: Switch to the night page
   features:
     - navigation.tabs
     - navigation.tabs.sticky
@@ -71,20 +67,13 @@ validation:
   unrecognized_links: warn
   anchors: warn
 
-# The theme loads two families and headings want a third, so it comes in
-# alongside rather than through `theme.font`.
-# Only what every page needs. `landing.css` and `playground.css` are linked by
-# the one page each of them styles, because loading them here meant twenty-nine
-# pages fetched eleven kilobytes of render-blocking CSS that matched nothing on
-# them. The link sits at the top of that page's markdown, so the browser's
-# preload scanner still finds it in the first response.
+# Space Grotesk names things (headings, navigation, buttons); Inter and
+# JetBrains Mono come through `theme.font`. karyon.css is the whole site; the
+# home page, the playground and the tree viewer link their own stylesheet from
+# the one page each of them styles.
 extra_css:
-  # 600 and 700 only. Five hundred was requested and no rule on the site ever
-  # asked for it: three of the nine @font-face declarations were for a weight
-  # nothing wears, on a render-blocking cross-origin stylesheet that every page
-  # waits for.
-  - https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&display=swap
-  - stylesheets/extra.css
+  - https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap
+  - stylesheets/karyon.css
 
 # The figures are drawn wider than any column on the site, so each one has to
 # be openable at the size it was drawn. This is the only script the site loads
@@ -102,9 +91,9 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      # 3 rather than 2: every one of the 36 track entries and every one of
-      # the 16 recipes is an H3, so at 2 the sidebar contents on the two
-      # longest pages listed their section headings and none of their contents.
+      # 3 rather than 2: each recipe is an H3 under the group it belongs to.
+      # A track entry is an H2 on its family page and its Options and Notes
+      # are H4, so a family page's contents list its tracks and nothing else.
       toc_depth: 3
   - pymdownx.betterem
   - pymdownx.caret
@@ -148,6 +137,11 @@ markdown_extensions:
 
 plugins:
   - search
+  # Two guides were merged into others. Their old addresses keep working.
+  - redirects:
+      redirect_maps:
+        guide/figure.md: guide/plot.md
+        guide/visual-system.md: guide/theming.md
 
 extra:
   social:
@@ -156,47 +150,53 @@ extra:
       name: karyon on GitHub
   generator: false
 
-# Grouped by what a reader has come to do, and no file moved to get there: a
-# page's URL comes from its path, and every link that exists points at one.
-# Get started is the path from nothing to a first figure. The gallery is where
-# to find a plot by what it shows. Guides explain how to do something, the
-# reference is where to look something up, and the two tools that run in the
-# page have a tab of their own because they are not documentation at all.
+# Grouped by what a reader has come to do. Get started is the path from nothing
+# to a first figure; the gallery finds a plot by the question being asked; the
+# guides explain how to do something; the reference is where to look something
+# up; the two tools that run in the page have a tab of their own.
 nav:
   - Home: index.md
   - Get started:
       - Installation: getting-started/installation.md
-      - Quickstart: getting-started/quickstart.md
-      - Core concepts: getting-started/concepts.md
-      - Worked recipes: recipes.md
+      - Your first figure: getting-started/quickstart.md
+      - Core ideas: getting-started/concepts.md
+      - Recipes: recipes.md
   - Gallery:
-      - Overview: plots/index.md
+      - plots/index.md
       - Signal and sequence: plots/signal-sequence.md
-      - Annotation and coordinates: plots/annotation-coordinates.md
-      - Variation and association: plots/variation-association.md
+      - Annotation: plots/annotation-coordinates.md
+      - Variation: plots/variation-association.md
       - Reads and molecules: plots/reads-molecules.md
-      - Comparisons and alignments: plots/comparisons-alignments.md
-      - Phylogeny and clades: plots/phylogeny-clades.md
+      - Comparisons: plots/comparisons-alignments.md
+      - Phylogeny: plots/phylogeny-clades.md
       - Evolution and surveillance: plots/evolution-surveillance.md
-      - Whole genomes and geography: plots/whole-genomes-geography.md
+      - Whole genomes and maps: plots/whole-genomes-geography.md
   - Guides:
-      - Writing a figure in Rust: guide/plot.md
-      - The Figure API: guide/figure.md
+      - The Rust API: guide/plot.md
       - Command line: guide/cli.md
+      - File formats: guide/formats.md
       - Phylogenetics: guide/phylogenetics.md
       - Maps: guide/maps.md
-      - Theming: guide/theming.md
-      - Visual system: guide/visual-system.md
-      - Writing a new track: how-it-works/extending.md
+      - Styling: guide/theming.md
+      - Writing a track: how-it-works/extending.md
   - Reference:
-      - Track reference: tracks.md
-      - File formats: guide/formats.md
+      - Tracks:
+          - tracks/index.md
+          - Signal and sequence: tracks/signal-sequence.md
+          - Annotation: tracks/annotation.md
+          - Variation: tracks/variation.md
+          - Reads and molecules: tracks/reads-molecules.md
+          - Comparison: tracks/comparison.md
+          - Phylogeny: tracks/phylogeny.md
+          - Evolution and surveillance: tracks/evolution-surveillance.md
+          - Whole genome: tracks/whole-genome.md
+          - Scales and keys: tracks/scales-keys.md
       - Coordinates: how-it-works/coordinates.md
       - Scale: how-it-works/scale.md
   - Try it:
       - Playground: playground.md
       - Tree viewer: tree.md
   - About:
-      - Changelog: about/changelog.md
       - Citation: about/citation.md
       - Contributing: about/contributing.md
+      - Changelog: about/changelog.md

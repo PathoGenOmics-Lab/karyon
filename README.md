@@ -20,7 +20,7 @@
     &nbsp;·&nbsp;
     <a href="https://pathogenomics-lab.github.io/karyon/playground/">Playground</a>
     &nbsp;·&nbsp;
-    <a href="https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/">Quick start</a>
+    <a href="https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/">First figure</a>
     &nbsp;·&nbsp;
     <a href="https://pathogenomics-lab.github.io/karyon/plots/">Gallery</a>
     &nbsp;·&nbsp;
@@ -80,13 +80,13 @@ The documentation is the manual; this page is the front door.
 | If you want to | Go to |
 | --- | --- |
 | try it without installing anything | [Playground](https://pathogenomics-lab.github.io/karyon/playground/), which is this crate compiled to WebAssembly and running in your own browser |
-| draw something in the next five minutes | [Quick start](https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/) |
+| draw something in the next five minutes | [Your first figure](https://pathogenomics-lab.github.io/karyon/getting-started/quickstart/) |
 | find the plot that fits your data | [Gallery](https://pathogenomics-lab.github.io/karyon/plots/), which sorts all thirty-six tracks by biological question rather than by type name |
 | look up one track's exact API | [Track reference](https://pathogenomics-lab.github.io/karyon/tracks/) |
 | read files instead of building vectors | [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/): BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`, FASTA and Newick |
 | draw trees, traits, support or dN/dS | [Phylogenetics](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/) |
 | put samples on a map | [Geographic genomics](https://pathogenomics-lab.github.io/karyon/guide/maps/) |
-| make it match the rest of your figures | [Theming](https://pathogenomics-lab.github.io/karyon/guide/theming/) and the [visual system](https://pathogenomics-lab.github.io/karyon/guide/visual-system/) |
+| make it match the rest of your figures | [Styling](https://pathogenomics-lab.github.io/karyon/guide/theming/) |
 | use it from a shell instead of Rust | [Command line](https://pathogenomics-lab.github.io/karyon/guide/cli/) |
 | know why a base lands where it does | [Coordinates](https://pathogenomics-lab.github.io/karyon/how-it-works/coordinates/), which is the one thing worth reading before trusting a figure |
 | add a track type it lacks | [Extending](https://pathogenomics-lab.github.io/karyon/how-it-works/extending/), which is about thirty lines |

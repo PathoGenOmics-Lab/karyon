@@ -1,37 +1,20 @@
-# Annotated phylogenetics
+# Phylogenetics
 
-!!! info "Library only"
-    Everything on this page is the Rust library. The command's `--tree` draws an
-    unannotated topology and its tip labels; dates, trait columns, branch colours,
-    rerooting and collapsing are not reachable from a shell.
+Read a tree with its metadata intact and draw it on branch length or calendar
+time, in rectangular, circular or unrooted coordinates, with support,
+selection, clades and sample traits on it. Every drawing choice leaves the tree
+itself as it was.
+{ .k-lead }
 
-Karyon can keep metadata inside a phylogeny, manipulate its topology and draw
-the result on evolutionary distance or calendar time. Rectangular, radial and
-unrooted projections use the same topology and values. The same metadata can
-colour branches and form colour strips, heatmaps, bars, binary marks or shaped
-categories aligned to the terminal taxa.
-
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with two named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1542" height="356" loading="lazy" }
-
-The figure is deterministic and its outbreak is synthetic. Generate it with:
-
-```bash
-cargo run --example phylogenetics -- assets
-```
+!!! note "Command line or library"
+    `--tree` reads annotated Newick and reaches metadata strips (`--traits`),
+    branch colour (`--color-by`), `--projection`, `--support-style`,
+    `--scale-bar`, `--shape`, folding (`--max-rows`), `--focus`, `--mutations`
+    and `--highlight`; every flag is in [Command line](cli.md). Calendar time,
+    rerooting, branch geometry, dN/dS, node glyphs and the ancestral and
+    selection layers are library only.
 
 ## Read annotations instead of flattening them
-
-There are three entry points, separated deliberately:
-
-| Method | Input | Metadata behaviour |
-|:--|:--|:--|
-| `Tree::parse_newick` | Newick | Compatibility parser; comments are ignored. |
-| `Tree::parse_annotated_newick` | Newick, BEAST or NHX | Preserves typed node annotations and `[&R]` / `[&U]`. |
-| `Tree::parse_nexus` | Nexus trees block | Reads the first tree, applies its `translate` table and preserves annotations. |
-
-BEAST numbers, text, booleans and brace-delimited lists become
-`AnnotationValue::Number`, `Text`, `Boolean` and `List`. Access them without
-re-parsing strings:
 
 ```rust
 use karyon::{AnnotationValue, Tree};
@@ -49,238 +32,314 @@ assert_eq!(
 assert_eq!(tree.rooted(), Some(true));
 ```
 
-`annotations_mut` and `tree_annotations_mut` add or replace metadata after
-parsing. Node indices are stable across rotation, ladderising and rerooting;
-operations that extract or delete nodes return a compact tree with new indices.
+Values keep their type: numbers, text, booleans and brace-delimited lists
+become `AnnotationValue::Number`, `Text`, `Boolean` and `List`, read back with
+`as_number`, `as_text` and `as_bool`.
+
+| Reader | Reads | Annotations |
+|:--|:--|:--|
+| `Tree::parse_newick` | Newick | discarded |
+| `Tree::parse_annotated_newick` | Newick with BEAST `[&key=value]` or NHX `[&&NHX:key=value]` comments | kept and typed, on the node written before them; `[&R]` and `[&U]` set `rooted()` |
+| `Tree::parse_nexus` | the first tree of a Nexus `trees` block | kept; the `translate` table renames the tips |
+
+An internal label that reads as a number is taken as support, anything else as
+a name. `annotations_mut` adds metadata from Rust. Node indices survive
+rotating, ladderising and rerooting; `subtree` and `Tree::collapse` renumber
+them, since each leaves a compact tree.
+
+### Changes on branches
+
+=== "Rust"
+
+    ```rust
+    use karyon::{Mutations, Tree};
+
+    let tree = Tree::parse_annotated_newick(
+        r#"((a[&muts="A123T,S:D614G"]:0.1,b:0.2)[&muts="C241T"]:0.3,c:0.4);"#,
+    )?;
+    let changes = Mutations::read(&tree, "muts");
+
+    assert_eq!(changes.distinct(), 3);
+    // C241T happened once, above a and b: the clade and both tips carry it.
+    assert_eq!(changes.carriers(&tree, "C241T").len(), 3);
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --mutations muts --carrying S:D614G -o carriers.svg
+    ```
+
+A change belongs to the branch above the node that carries it, so `carriers`
+answers with the whole subtree below, and a change that happened twice answers
+with both. Changes are read from a quoted list, spelled `A123T`, `S:D614G` or
+either with an `nt:` or `aa:` prefix; anything else is skipped, not guessed.
+`--carrying` marks and colours the carriers, and refuses a change the tree does
+not carry.
 
 ## Draw time, branches and sample traits together
 
-```rust
-use karyon::{Figure, Region, TraitColumn, TreeTrack};
+<figure class="k-plate" markdown>
+![A dated outbreak tree on a calendar axis, branches coloured by country, with country and depth columns beside the tips, and the same tree with two clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1538" height="352" loading="lazy" }
+</figure>
 
-let track = TreeTrack::new(tree)
-    .time("date")
-    .time_unit("year")
-    .color_by("country")
-    .show_nodes(true)
-    .trait_column(
-        TraitColumn::categorical("country")
-            .label("Country")
-            .width(62.0),
-    )
-    .trait_column(
-        TraitColumn::continuous("coverage")
-            .label("Depth")
-            .width(46.0),
-    );
+=== "Rust"
 
-Figure::new(Region::new("phylogeny", 0, 1)?)
-    .show_region_label(false)
-    .push(track)
-    .save_svg("outbreak.svg")?;
-```
+    ```rust
+    use karyon::{plot, TraitColumn, TreeTrack};
 
-`color_by` uses a continuous ramp when every visible value is numeric and the
-categorical palette otherwise. A branch without its own value inherits the
-nearest annotated ancestor. Its exact value remains in the SVG title, so the
-colour is not the only way to retrieve it.
+    let track = TreeTrack::new(tree)
+        .time("date")
+        .time_unit("year")
+        .color_by("country")
+        .show_nodes(true)
+        .trait_column(TraitColumn::categorical("country").label("Country"))
+        .trait_column(TraitColumn::continuous("depth").label("Depth"));
 
-Trait columns use the same categorical mapping as branches in that view.
-Continuous cells span the visible numeric range. Missing or non-numeric values
-in a continuous column are outlined and marked with an em dash rather than
-invented as zero. `show_values(false)` keeps only the colour blocks when space
-is tight.
+    plot("phylogeny:1-1")?
+        .remove_region_label()
+        .add_track(track)
+        .save("outbreak.svg")?;
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --traits samples.tsv --columns country,depth \
+      --color-by country --no-region-label -o outbreak.svg
+    ```
+
+`time(key)` places every node on a numeric annotation, here a decimal year,
+with a calendar axis underneath. The command line has no time axis and draws
+branch length instead.
+
+`color_by(key)` uses a ramp when every visible value is a number and the
+categorical palette otherwise. A branch with no value takes its nearest
+annotated ancestor's, or failing that the value all its descendants share, so
+a clade of one lineage is coloured whole and not only at its tips.
+
+Each `TraitColumn` is one strip beside the tips. Levels are coloured in the
+order they are first met, so the same file always colours the same way. A
+missing value is an empty outline whose tooltip says missing, never a zero, and
+`show_values(false)` drops the text inside the cells.
+
+??? info "What a time tree needs"
+    Every tip needs a finite number under the `time` key. Internal nodes without
+    one are inferred from their children and branch lengths, subtracting lengths
+    for dates and adding them for heights before present:
+
+    ```rust
+    use karyon::{TimeDirection, TreeTrack};
+
+    let track = TreeTrack::new(tree)
+        .time("height")
+        .time_direction(TimeDirection::Decreasing)
+        .time_unit("years BP");
+    ```
+
+    Call `time` before `time_direction`, `time_unit` and `show_time_axis`,
+    which do nothing without it. If a tip has no value the track falls back to
+    its ordinary layout, without a time axis. Where a missing date must be an
+    error instead, check `Tree::time_layout` first: it returns `None`.
 
 ## Change the projection, not the tree
 
-![Four views of the same synthetic outbreak phylogeny: an outward circular time tree with two trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1402" height="1232" loading="lazy" }
+<figure class="k-plate" markdown>
+![The same dated tree as a full circle with trait rings, a 250 degree fan with one clade collapsed to a wedge, an inward tree around a central gap, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }
+</figure>
 
-`circular` wraps the terminal order around a complete circumference. Branch
-lengths, dates, annotations, labels and node order are not recomputed. Calendar
-ticks become concentric guides, trait columns become annular rings and a
-visually collapsed clade becomes a wedge.
+=== "Rust"
 
-```rust
-use karyon::{RadialDirection, TraitColumn, TreeTrack};
+    ```rust
+    use karyon::{RadialDirection, TraitColumn, TreeTrack};
 
-let outward = TreeTrack::new(tree.clone())
-    .time("date")
-    .color_by("country")
-    .trait_column(
-        TraitColumn::categorical("country")
-            .label("Country")
-            .ring_width(12.0),
-    )
-    .circular()
-    .radial_start(-90.0)
-    .radial_size(520.0);
+    let outward = TreeTrack::new(tree.clone())
+        .time("date")
+        .color_by("country")
+        .trait_column(TraitColumn::categorical("country").ring_width(12.0))
+        .circular()
+        .radial_start(-90.0)
+        .radial_size(520.0);
 
-let inward_fan = TreeTrack::new(tree)
-    .time("date")
-    .fan(250.0)
-    .radial_start(-215.0)
-    .radial_direction(RadialDirection::Inward)
-    .inner_radius(0.32);
-```
+    let inward_fan = TreeTrack::new(tree)
+        .time("date")
+        .fan(250.0)
+        .radial_start(-215.0)
+        .radial_direction(RadialDirection::Inward)
+        .inner_radius(0.32);
+    ```
 
-| Builder | Visual effect |
-|:--|:--|
-| `circular()` | Complete 360-degree projection. |
-| `fan(degrees)` | Partial clockwise sweep from 10 to 359 degrees. |
-| `radial_start(degrees)` | Rotates the first terminal; `-90` starts at twelve o'clock. |
-| `radial_sweep(degrees)` | Sets a 10-to-360-degree sweep directly. |
-| `radial_direction(Outward | Inward)` | Places terminals at the outside or towards the centre. |
-| `inner_radius(fraction)` | Reserves a central gap from 0 to 0.85 of the tree radius. |
-| `radial_size(pixels)` | Sets radial drawing height independently of the tip count. |
-| `projection(TreeProjection::Circular)` | Selects circular coordinates without changing the other radial settings. |
-| `TraitColumn::ring_width(pixels)` | Sets a trait ring's thickness from 2 to 24 pixels. |
+=== "Command line"
 
-A full circle is useful when topology and metadata are the subject. A fan leaves
-a quiet sector for labels or an external annotation. An inward projection keeps
-early branches around the circumference and later nodes near a controlled
-central gap. For a dense tree, turn off exact ring text with
-`show_values(false)`, omit tip labels with `show_tips(false)`, or hide the
-concentric time guides with `show_time_axis(false)`. Tooltips still retain exact
-sample and annotation values.
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --projection circular -o circular.svg
+    ```
 
-Radial layouts occupy a standalone square and therefore do not share rows with
-`SnpTrack`, `MatrixTrack` or `CladeTrack`. Use the rectangular projection when
-leaf-to-row alignment is the analytical claim.
+A projection changes coordinates and nothing else: lengths, dates, annotations
+and tip order are not recomputed. In a circle, time ticks become concentric
+guides, trait columns become rings and a collapsed clade becomes a wedge.
 
-## Choose a tree geometry for the reading task
+| Builder | Effect | Default |
+|:--|:--|:--|
+| `circular()` | a full circle | |
+| `fan(degrees)` | a partial clockwise sweep, 10 to 359 degrees | |
+| `radial_start(degrees)` | where the first tip sits, clockwise from three o'clock | `-90`, twelve o'clock |
+| `radial_sweep(degrees)` | the sweep, 10 to 360 degrees | `360` |
+| `radial_direction(RadialDirection::Inward)` | tips towards the centre, root at the rim | `Outward` |
+| `inner_radius(fraction)` | a central gap, 0 to 0.85 of the radius | `0.08` |
+| `radial_size(pixels)` | fixes the diameter | sized to the tip names |
+| `projection(TreeProjection::Circular)` | circular coordinates, other settings kept | `Rectangular` |
 
-![Eight synthetic evolutionary views beginning with orthogonal, diagonal, curved, circular and unrooted tree geometries](../assets/figures/example-evolutionary-surveillance.svg){ width="1410" height="2057" loading="lazy" }
+`fan`, `radial_start`, `radial_sweep`, `radial_direction` and `inner_radius`
+also switch the track to circular coordinates. Left alone, a circle grows until
+neighbouring tip names clear each other, from 440 pixels up to the width of the
+figure; past that, use a wider figure, [fewer rows](#draw-very-large-trees) or
+`show_tips(false)`.
 
-Geometry is a reading aid, not a transformation of the owned tree. The three
-rectangular branch shapes keep the same node coordinates and terminal order;
-the radial and unrooted projections change the coordinate system while
-retaining topology, branch values and annotation ownership.
+A full circle suits a figure about topology and metadata, a fan leaves a quiet
+sector for a key, and an inward tree puts the early branches on the rim. None
+of them has rows, so keep the rectangular projection when each tip is read
+against the row beside it.
+
+### Without a root
+
+`unrooted()` centres the tree on the node that splits its tips most evenly,
+gives every tip an equal share of the angle, and leaves the file's root where
+it is in the data. A phylogram keeps branch lengths and a cladogram gives each
+edge one unit; `unrooted_start` rotates the drawing and `unrooted_size` fixes
+its height. Names sit at their branch ends until they would touch, then gather
+onto a ring with a leader each, as they always do when trait rings are drawn.
+There is no time axis or root diamond, because both need a root.
+
+## Layer metadata around the tree
+
+<figure class="k-plate" markdown>
+![An unrooted tree inside rings of country colour, depth bars, resistance marks and host symbols, beside a circular cladogram carrying the same four datasets](../assets/figures/example-phylo-annotations.svg){ width="1478" height="710" loading="lazy" }
+</figure>
+
+=== "Rust"
+
+    ```rust
+    use karyon::{TraitColumn, TreeTrack};
+
+    let view = TreeTrack::new(tree)
+        .unrooted()
+        .color_by("country")
+        .trait_column(TraitColumn::categorical("country").label("Country"))
+        .trait_column(TraitColumn::bar("depth").label("Depth"))
+        .trait_column(TraitColumn::binary("resistant").label("AMR"))
+        .trait_column(TraitColumn::symbol("host").label("Host"));
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --traits samples.tsv --projection unrooted -o rings.svg
+    ```
+
+A `TraitColumn` is one dataset: a column beside a rectangular tree, a ring
+around a circular or unrooted one, with the same key and tooltip either way.
+
+| Constructor | Beside a rectangular tree | Around a circular or unrooted tree | Takes |
+|:--|:--|:--|:--|
+| `TraitColumn::categorical(key)` | colour strip | ring of colour | any value |
+| `TraitColumn::continuous(key)` | heatmap cell | ring of heatmap sectors | a finite number |
+| `TraitColumn::bar(key)` | horizontal bar | radial bar | a finite number |
+| `TraitColumn::binary(key)` | presence mark | ring of marks | a boolean, or a number where zero is absent |
+| `TraitColumn::symbol(key)` | coloured shape | ring of shapes | any value |
+
+A binary column never guesses text into true or false, and a missing value
+stays an outline in every mark. `width` sizes a column and `ring_width` a ring,
+2 to 24 pixels; `trait_categorical`, `trait_bar` and their siblings on
+`TreeTrack` add columns with their defaults. `--traits` picks the mark from the
+values: numbers get a ramp, more than six levels get symbols, anything else a
+colour strip.
+
+## Choose a tree geometry
+
+<figure class="k-plate" markdown>
+![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }
+<figcaption>A to C: the three rectangular geometries. D and E: circular and unrooted.</figcaption>
+</figure>
 
 ```rust
 use karyon::{BranchGeometry, TreeTrack};
 
-let aligned = TreeTrack::new(tree.clone())
-    .branch_geometry(BranchGeometry::Orthogonal);
-let topology_forward = TreeTrack::new(tree.clone())
-    .branch_geometry(BranchGeometry::Diagonal);
-let presentation = TreeTrack::new(tree)
-    .branch_geometry(BranchGeometry::Curved);
+let aligned = TreeTrack::new(tree.clone()).branch_geometry(BranchGeometry::Orthogonal);
+let topology = TreeTrack::new(tree.clone()).branch_geometry(BranchGeometry::Diagonal);
+let presentation = TreeTrack::new(tree).branch_geometry(BranchGeometry::Curved);
 ```
 
-| Geometry | Best reading | Constraint |
+| Geometry | Best for | Watch for |
 |:--|:--|:--|
-| orthogonal rectangular | aligned tip rows, events and dense metadata columns | parent risers can dominate very unbalanced trees |
-| diagonal rectangular | topology and branch-length direction | weaker visual alignment between a node and its descendants |
-| curved rectangular | annotated internal nodes and presentation figures | use restrained node glyph sizes to avoid crossings |
-| circular | many terminal taxa plus metadata rings | root and terminal order remain meaningful |
-| fan | radial context with a quiet sector for annotation | partial sweep gives taxa unequal screen directions, not unequal evolutionary weight |
-| unrooted | split structure without privileging the source root | cannot show rooted time direction |
+| `Orthogonal`, the default | aligned tip rows, events and dense metadata columns | parent risers can dominate a very unbalanced tree |
+| `Diagonal` | topology and the direction of change | weaker alignment between a node and its descendants |
+| `Curved` | annotated internal nodes and presentation figures | keep node glyphs small so curves do not cross them |
+| circular | many tips with metadata rings | root and tip order still carry meaning |
+| fan | radial context with a quiet sector | a partial sweep gives tips unequal directions, not unequal weight |
+| unrooted | split structure without the file's root | cannot show the direction of time |
 
-`branch_geometry` is intentionally ignored outside rectangular coordinates.
-Rerooting, ladderising and rotating are separate topology operations; choosing
-a path shape never performs one of them implicitly.
+`branch_geometry` affects the rectangular projection only, and never reroots,
+ladderises or rotates. The rest of the sheet is a tanglegram (F), a selection
+scan (G), and the [evolution and surveillance tracks](../tracks/evolution-surveillance.md)
+(H).
 
-## Draw topology without privileging the Newick root
+## Show support, events and distance
 
-![An unrooted tree with a layered metadata halo beside a circular cladogram carrying the same four annotation datasets](../assets/figures/example-phylo-annotations.svg){ width="1482" height="714" loading="lazy" }
+<figure class="k-plate" markdown>
+![One phylogram in rectangular, circular and unrooted coordinates, each with support marks and values, mutation labels along branches and a scale bar](../assets/figures/example-phylo-evidence.svg){ width="1736" height="628" loading="lazy" }
+</figure>
 
-`unrooted()` treats every branch as an undirected edge, chooses a centre that
-minimises the largest terminal-bearing component and assigns equal angular
-space to terminal taxa. The root stored in the source tree is not moved or
-deleted. A phylogram keeps branch lengths; a cladogram gives every edge one
-unit.
+=== "Rust"
 
-```rust
-use karyon::{TraitColumn, TreeShape, TreeTrack};
+    ```rust
+    use karyon::{SupportStyle, TreeTrack};
 
-let view = TreeTrack::new(tree)
-    .shape(TreeShape::Phylogram)
-    .unrooted()
-    .unrooted_start(-104.0)
-    .unrooted_size(560.0)
-    .color_by("country")
-    .show_nodes(true)
-    .trait_column(TraitColumn::categorical("country").label("Country"))
-    .trait_column(TraitColumn::bar("coverage").label("Depth"))
-    .trait_column(TraitColumn::binary("resistant").label("AMR"))
-    .trait_column(TraitColumn::symbol("host").label("Host"));
-```
+    let view = TreeTrack::new(tree)
+        .support_style(SupportStyle::SymbolsAndLabels)
+        .support_threshold(0.70)
+        .branch_labels("mutation")
+        .branch_label_size(7.0)
+        .scale_bar()
+        .scale_bar_length(0.1)
+        .scale_bar_unit("substitutions/site");
+    ```
 
-Terminal leaders connect unequal branch endpoints to one common annotation
-halo. They are guides, not extra evolutionary distance. Branch and ring
-colours share one categorical domain, so a country cannot change colour
-between the topology and its metadata.
+=== "Command line"
 
-`unrooted_size` fixes the standalone height and `unrooted_start` rotates the
-equal-angle sectors. Time axes are rooted quantities and are therefore not
-drawn in this projection. Use rectangular or circular coordinates when root
-age, direction or calendar time is part of the claim.
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --support-style both --threshold 0.7 --scale-bar -o support.svg
+    ```
 
-## Put support, events and distance on the branches
+Support, events and branch length answer different questions, so each has a
+channel of its own.
 
-![The same synthetic phylogram drawn in rectangular, circular and unrooted coordinates with scaled support markers, exact support labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1742" height="632" loading="lazy" }
+`SupportStyle::None`, the default, keeps support in the tooltips; `Symbols`
+scales a marker by it, `Labels` prints it and `SymbolsAndLabels` does both.
+`support_threshold` hides weaker values in either convention, `0.70` or `70`,
+and a label keeps the value as the file wrote it.
 
-Support, an event and branch length answer different questions, so Karyon gives
-each one an independent channel. Support uses node markers and optional text;
-an event follows the branch that owns it; evolutionary distance gets a scale
-bar rather than being inferred from panel width.
+`branch_labels(key)` writes a node's own annotation along its incoming branch
+and never inherits, so a mutation is not repeated on every descendant. Labels
+turn with their branch, and one that does not fit is shortened and kept whole
+in its tooltip.
 
-```rust
-use karyon::{SupportStyle, TreeTrack};
+`scale_bar()` picks the largest 1, 2 or 5 step within a fifth of the tree's
+span; `scale_bar_length` sets the length and `scale_bar_unit` names the unit.
+Cladograms and time trees get no bar, since their axis is not branch length.
 
-let view = TreeTrack::new(tree)
-    .support_style(SupportStyle::SymbolsAndLabels)
-    .support_threshold(0.70)
-    .branch_labels("mutation")
-    .branch_label_size(7.0)
-    .scale_bar()
-    .scale_bar_length(0.1)
-    .scale_bar_unit("substitutions/site");
-```
-
-`SupportStyle::Symbols`, `Labels`, `SymbolsAndLabels` and `None` control only
-the visible encoding. Exact support remains in branch tooltips. Thresholds can
-use either the 0–1 convention (`0.70`) or the percentage convention (`70.0`);
-labels retain the value as supplied rather than silently converting it.
-
-`branch_labels` reads only the annotation attached to the incoming branch. It
-does not inherit ancestral values as `color_by` does, because a mutation, gain
-or loss must not be repeated on every descendant. Labels rotate with circular
-and unrooted edges. When an edge is too short, visible text is ellipsised and
-the complete key and value remain in the SVG tooltip.
-
-`scale_bar()` chooses a 1–2–5 length near one fifth of the visible branch span.
-`scale_bar_length` requests a value explicitly and clamps it to that span;
-`scale_bar_unit` prints its unit exactly. Scale bars are omitted from
-cladograms and explicitly time-scaled trees, where a branch-length ruler would
-make the wrong claim.
-
-## Render ancestral states, events and branch uncertainty
-
-Ancestral reconstruction usually contains at least three different objects:
-a probability distribution at a node, an inferred event on an edge and an
-uncertainty measure for an estimate. Combining them into one branch colour
-loses both ownership and uncertainty. These layers keep them separate in every
-tree projection.
+### Ancestral states, events and intervals
 
 ```rust
-use karyon::{
-    AncestralStateLayer, BranchEventLayer, BranchGeometry,
-    BranchIntervalLayer, TreeTrack,
-};
+use karyon::{AncestralStateLayer, BranchEventLayer, BranchIntervalLayer, TreeTrack};
 
 let reconstruction = TreeTrack::new(tree)
-    .branch_geometry(BranchGeometry::Curved)
     .ancestral_states(
         AncestralStateLayer::new(["state_human", "state_animal", "state_water"])
             .label("ancestral host posterior")
             .confidence(0.72),
     )
-    .branch_event_layer(
-        BranchEventLayer::new("mutations")
-            .label("ancestral mutations")
-            .maximum_events(6),
-    )
+    .branch_event_layer(BranchEventLayer::new("mutations").maximum_events(6))
     .branch_interval(
         BranchIntervalLayer::new("gcf", "gcf_low", "gcf_high")
             .label("gene concordance")
@@ -289,28 +348,62 @@ let reconstruction = TreeTrack::new(tree)
     );
 ```
 
-The ancestral layer normalises non-negative supplied probabilities only for
-donut geometry. Exact values remain in its tooltip. A transition cue appears
-only when the maximum-posterior state changes and both endpoint maxima reach
-the confidence floor. It is a visualisation of the supplied reconstruction,
-not a newly inferred transition.
+A reconstruction yields three different things, and folding them into one
+branch colour would lose both ownership and uncertainty. Each layer keeps one
+apart, in every projection, and none inherits values (panel C of the geometry
+sheet):
 
-Text, numbers and booleans under a `BranchEventLayer` key become one direct
-event; an annotated-Newick list becomes ordered marks, capped per branch by
-`maximum_events`. `BranchIntervalLayer` draws the supplied estimate and valid
-lower/upper bounds on a fixed compact scale. Reversed or non-finite intervals
-are omitted rather than repaired. None of these layers inherits an ancestor's
-value onto descendants.
+- `AncestralStateLayer`: the state probabilities as a donut on each internal
+  node, and a mark where the most probable state changes, only when both ends
+  reach `confidence`, 0.70 by default.
+- `BranchEventLayer`: one mark per event on its own branch; a brace-delimited
+  list is several, up to `maximum_events`, 8 by default.
+- `BranchIntervalLayer`: an estimate and its bounds on a small axis, 0 to 1
+  unless `range` says otherwise; a reversed interval is dropped, not repaired.
 
-## Show branch-wise dN/dS without moving the neutral point
+## Choose the root
 
-![Four views of one synthetic codon-model tree: a phylogram, a circular tree with genomic metadata rings, an unrooted tree and a cladogram, all with branch-wise dN/dS](../assets/figures/example-phylo-dnds.svg){ width="1510" height="1394" loading="lazy" }
+<figure class="k-plate" markdown>
+![The same phylogram with the root from its file, rooted on a two-tip outgroup and rooted at its midpoint, a diamond on the root in each](../assets/figures/example-phylo-reroot.svg){ width="1736" height="358" loading="lazy" }
+</figure>
 
-`dnds` is a dedicated branch encoding for the nonsynonymous-to-synonymous rate
-ratio, ω. It differs from a generic continuous `color_by` in two important
-ways: the diverging scale is fixed around the biologically meaningful value
-ω = 1, and an estimate belongs only to its incoming branch. It is never
-inherited by descendants.
+```rust
+use karyon::TreeTrack;
+
+let by_clade = TreeTrack::new(tree.clone()).reroot_named("lineage_4");
+let by_outgroup = TreeTrack::new(tree.clone()).reroot_outgroup(["B03", "B04"]);
+let by_midpoint = TreeTrack::new(tree).reroot_midpoint();
+```
+
+Rerooting keeps every tip-to-tip distance and keeps support on its split; a
+root inside a branch adds one node. A diamond marks the new root in rectangular
+and circular coordinates.
+
+| Builder | Accepts | Roots at |
+|:--|:--|:--|
+| `reroot(node)` | an internal node index | that node |
+| `reroot_named(name)` | an internal node's exact name | that node |
+| `reroot_outgroup(names)` | existing, distinct tip names forming exactly one clade | halfway along the branch above that clade |
+| `reroot_midpoint()` | a tree whose every branch has a finite, non-negative length | halfway along the longest tip-to-tip path |
+| `show_root(false)` | | hides the diamond, keeps the root |
+
+A request the tree cannot meet leaves the builder's tree unchanged. Where that
+must be an error, call the operation on the `Tree` and check its result:
+
+```rust
+use karyon::TreeTrack;
+
+let b03 = tree.node_named("B03").unwrap();
+let b04 = tree.node_named("B04").unwrap();
+let root = tree.reroot_outgroup(&[b03, b04]).ok_or("the outgroup is not one clade")?;
+let track = TreeTrack::new(tree).show_root(true);
+```
+
+## Show dN/dS around the neutral point
+
+<figure class="k-plate" markdown>
+![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1506" height="1388" loading="lazy" }
+</figure>
 
 ```rust
 use karyon::TreeTrack;
@@ -324,45 +417,29 @@ let view = TreeTrack::new(tree)
     .branch_labels("amino_acid_change");
 ```
 
-The cool side represents ω below the neutral band, grey represents values near
-one and the warm side represents ω above it. Colour strength follows
-`abs(log2(ω))` and saturates symmetrically: with `dnds_saturation(4.0)`, ω ≤
-0.25 and ω ≥ 4 use the strongest colours. Zero is retained as the strongest
-purifying value; negative, non-finite and missing estimates are drawn as quiet
-dotted edges rather than converted to zero.
+`dnds(key)` colours each branch by its own ω on a diverging scale fixed at
+ω = 1, whatever range was observed, and never inherits it. Cool is below the
+neutral band, 0.95 to 1.05 by default, grey inside and warm above. Strength
+follows `abs(log2(ω))` and saturates symmetrically: with
+`dnds_saturation(4.0)`, ω ≤ 0.25 and ω ≥ 4 are the strongest. Zero is the
+strongest purifying value; a negative, non-finite or missing estimate is a
+dotted branch, not a zero.
 
-`dnds_significance(key, maximum)` adds an independent evidence channel. A
-branch whose direct numeric `p`, `q` or other test value is at most the chosen
-threshold becomes thicker, while its colour continues to describe effect
-size. Exact ω and test values, the selected regime and the threshold comparison
-remain in the SVG tooltip in rectangular, circular and unrooted projections.
+`dnds_significance(key, maximum)` thickens a branch whose own test value is at
+most `maximum`, so width carries the evidence and colour the effect size.
+`dnds` and `color_by` replace each other, and the other `dnds_` settings need
+`dnds` first. The estimates come from upstream: karyon computes no dN, dS,
+tests or corrections, and calls ω above the neutral band diversifying, not
+proof of positive selection.
 
-The renderer visualises estimates fitted upstream; it does not calculate dN,
-dS, likelihood-ratio tests or multiple-testing corrections. In particular,
-ω > 1 alone is shown as a diversifying regime, not presented as proof of
-positive selection. Generate the synthetic gallery above with:
+## Keep rate classes and site evidence apart
 
-```bash
-cargo run --example phylo_dnds -- assets
-```
+<figure class="k-plate" markdown>
+![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }
+</figure>
 
-## Build a branch-to-codon selection atlas
-
-![A four-panel synthetic molecular-selection atlas with weighted branch rate classes, recurrent-event connections, a circular dN/dS tree, a frequentist site scan and a posterior site scan](../assets/figures/example-selection-atlas.svg){ width="1510" height="1057" loading="lazy" }
-
-A single mean ω is sometimes the result, and sometimes the summary that hides
-the result. Branch-site models can fit several rate classes to one branch,
-while site models report evidence and effect at coding positions. Karyon keeps
-those quantities in separate visual channels and lets them meet only through
-their shared biological interpretation.
-
-### Preserve fitted rate classes on branches
-
-`BranchRateMixture` pairs any number of direct rate annotations with their
-weight annotations. Segment length is the fitted class weight; segment colour
-is the class ω on the same neutral-centred logarithmic scale as `dnds`. Weights
-are normalised only to fill the capsule. Their original values remain exact in
-the SVG tooltip.
+A branch-site model fits several ω classes to one branch, and a single mean
+would hide them.
 
 ```rust
 use karyon::{BranchRateMixture, HomoplasyLayer, TreeTrack};
@@ -377,355 +454,236 @@ let rates = BranchRateMixture::new(
 
 let view = TreeTrack::new(tree)
     .branch_rate_mixture(rates)
-    .homoplasy_layer(
-        HomoplasyLayer::new("amino_acid_change")
-            .label("recurrent amino-acid change"),
-    );
+    .homoplasy_layer(HomoplasyLayer::new("amino_acid_change").label("recurrent amino-acid change"));
 ```
 
-The rate and weight keys are paired in iterator order. A class with a missing,
-negative or non-finite rate, or with a non-positive weight, is omitted. A
-branch with no valid class is left untouched rather than receiving a zero-rate
-capsule. Values are read from the node that owns the incoming edge and are
-never inherited.
+`BranchRateMixture` pairs rate keys with weight keys in order and draws a
+capsule on each branch: segment length is the class weight, segment colour the
+class ω on the `dnds` scale. The tooltip keeps the weights as given, and a
+class with an invalid rate or weight is left out.
 
-`HomoplasyLayer` groups equal direct branch annotations. Events appearing on
-at least two branches are joined with dashed curves: contained arcs in the
-rectangular tree and centre-seeking chords in circular and unrooted trees.
-`minimum_occurrences` raises the recurrence threshold and
-`maximum_connections` prevents a common event from turning a dense tree into
-an all-to-all web. The renderer calls these *recurrent events*, not proven
-homoplasies: convergence, reversal and ancestral-state uncertainty have to be
-settled by the upstream analysis.
+`HomoplasyLayer` joins the branches that carry the same annotation with dashed
+curves, once it is on `minimum_occurrences` branches (2 by default), and draws
+at most `maximum_connections` curves (96), so a common event cannot turn a
+dense tree into a web. It calls them recurrent events: whether they are
+convergence or reversal is for the analysis to settle.
 
-### Separate site evidence from rate direction
+Site models belong on the coordinate axis:
+[SelectionTrack](../tracks/variation.md#selectiontrack) draws each codon's
+evidence above its signed `log2(ω)`, so a well supported purifying site never
+looks like a positive-selection hit.
 
-`SelectionTrack` uses genomic x coordinates, so it can sit under protein
-domains, codons, variants or an axis. Its upper tier draws p-values as
-`-log10(p)` or posterior probability on `0..1`; its lower tier draws signed
-`log2(ω)` around the explicit neutral baseline. A diamond means the chosen
-evidence threshold was crossed. Colour still means purifying, near-neutral or
-diversifying rate, so a strongly supported purifying site is not painted as a
-positive-selection hit.
+## Collapse, highlight and annotate clades
 
-```rust
-use karyon::{SelectionEvidence, SelectionSite, SelectionTrack};
+<figure class="k-plate" markdown>
+![A tree with abundance bubbles, host bars and a shaded clade; a circular tree with ancestral host donuts and a clade sector; an alignment and protein domain architectures sorted by the same tree](../assets/figures/example-phylo-faces.svg){ width="1384" height="658" loading="lazy" }
+</figure>
 
-let sites = vec![
-    SelectionSite::new(44)
-        .rates(0.18, 1.52)
-        .p_value(0.0014)
-        .episodic_rates(0.05, 3.8, 0.18)
-        .label("surface loop"),
-    SelectionSite::new(103)
-        .rates(0.50, 0.07)
-        .p_value(0.008),
-];
+=== "Rust"
 
-let scan = SelectionTrack::new(sites)
-    .evidence(SelectionEvidence::PValue)
-    .p_threshold(0.05)
-    .neutral_band(0.85, 1.15)
-    .saturation(8.0)
-    .label("FEL / MEME");
-```
+    ```rust
+    use karyon::{CladeHighlight, NodeGlyph, NodeGlyphTarget, TreeTrack};
 
-Switch to `SelectionEvidence::Posterior` and set
-`posterior_threshold` for FUBAR-like posterior scans. A site can carry both
-forms of evidence; the track-level mode decides which one is drawn, preventing
-p-values and posterior probabilities from sharing a false common axis.
-`episodic_rates(beta_minus, beta_plus, positive_weight)` adds a compact
-two-class capsule above the point while preserving every supplied value in its
-tooltip.
+    let outbreak = tree.node_named("outbreak").unwrap();
+    let track = TreeTrack::new(tree)
+        .node_glyph(
+            NodeGlyph::bubble("isolates")
+                .label("Isolate count")
+                .target(NodeGlyphTarget::Internal),
+        )
+        .node_glyph(
+            NodeGlyph::donut(["human", "animal", "environment"])
+                .label("Host probability")
+                .target(NodeGlyphTarget::Internal),
+        )
+        .clade_highlight(
+            CladeHighlight::new(outbreak)
+                .label("Transmission cluster")
+                .opacity(0.12),
+        );
+    ```
 
-Positions are 0-based coordinates, consistent with every genomic track in the
-crate. `dS = 0, dN > 0` remains an infinite ratio in the tooltip and saturates
-safely in geometry; a missing rate pair remains missing. The renderer does not
-run FEL, MEME, FUBAR, aBSREL, ancestral reconstruction or multiple-testing
-correction. It renders their supplied results without silently converting one
-statistical quantity into another.
+=== "Command line"
 
-Generate the complete synthetic atlas with:
+    ```bash
+    karyon phylogeny:1-1 --tree outbreak.nwk --highlight outbreak -o clades.svg
+    ```
 
-```bash
-cargo run --example selection_atlas -- assets
-```
+`CladeHighlight` shades a clade in any projection and gives its tip count in
+the tooltip; `highlight_named` and `--highlight` do it by name. `NodeGlyph`
+draws numeric node annotations as small plots:
 
-## Layer annotation rings like iTOL datasets
-
-`TraitColumn` uses the same dataset in rectangular columns, circular rings and
-the halo around an unrooted tree. The mark changes with the projection; the
-annotation key and its exact SVG tooltip do not.
-
-| Builder | Rectangular mark | Circular or unrooted mark | Accepted value |
-|:--|:--|:--|:--|
-| `categorical(key)` | colour strip | annular colour strip | any typed value |
-| `continuous(key)` | heatmap cell | annular heatmap sector | finite number |
-| `bar(key)` | horizontal bar | outward radial bar | finite number |
-| `binary(key)` | presence marker | ring marker | boolean or finite number; zero is absent |
-| `symbol(key)` | coloured shape | coloured ring shape | any typed value |
-
-Missing values remain outlined. Text is never guessed as binary, numeric
-values are scaled only across the visible dataset, and symbols repeat category
-identity with shape as well as colour. `ring_width` controls each annular
-dataset independently; `show_values(false)` removes in-cell text without
-removing tooltips.
-
-## Attach data graphics to nodes and clades
-
-![Four synthetic phylogenetic data views: a rectangular tree with abundance bubbles, stacked host bars and a highlighted clade; a circular tree with ancestral-state donuts and a clade sector; a tree-aligned nucleotide alignment; and tree-aligned protein domain architectures](../assets/figures/example-phylo-faces.svg){ width="1388" height="664" loading="lazy" }
-
-`NodeGlyph` turns numeric node annotations into small plots without flattening
-them into labels. Bubble area follows one value; pie, donut and stacked-bar
-segments follow several keys in the order supplied. Composition geometry is
-normalised locally, while the tooltip retains every original value.
-
-```rust
-use karyon::{CladeHighlight, NodeGlyph, NodeGlyphTarget, TreeTrack};
-
-let outbreak = tree.node_named("outbreak").unwrap();
-let track = TreeTrack::new(tree)
-    .node_glyph(
-        NodeGlyph::bubble("isolates")
-            .label("Isolate count")
-            .target(NodeGlyphTarget::Internal),
-    )
-    .node_glyph(
-        NodeGlyph::donut(["human", "animal", "environment"])
-            .label("Host probability")
-            .target(NodeGlyphTarget::Internal),
-    )
-    .clade_highlight(
-        CladeHighlight::new(outbreak)
-            .label("Transmission cluster")
-            .opacity(0.12),
-    );
-```
-
-| Constructor | Data requirement | Encoding |
+| Constructor | Needs | Draws |
 |:--|:--|:--|
-| `NodeGlyph::bubble(key)` | one finite, non-negative number | circle area |
-| `NodeGlyph::pie(keys)` | one finite, non-negative number per key | filled sectors |
-| `NodeGlyph::donut(keys)` | one finite, non-negative number per key | annular sectors |
-| `NodeGlyph::stacked_bar(keys)` | one finite, non-negative number per key | compact horizontal composition |
+| `NodeGlyph::bubble(key)` | one finite, non-negative number | a circle whose area follows it |
+| `NodeGlyph::pie(keys)` | one such number per key | filled sectors |
+| `NodeGlyph::donut(keys)` | one such number per key | annular sectors |
+| `NodeGlyph::stacked_bar(keys)` | one such number per key | a compact horizontal bar |
 
-`NodeGlyphTarget::All`, `Internal` and `Leaves` prevent a dataset from being
-repeated where it has no biological meaning. A missing key suppresses that
-node's glyph rather than treating absence as zero. `CladeHighlight` becomes a
-descendant band in rectangular coordinates, an annular sector in radial
-coordinates and a topology-following field in an unrooted view. Its tooltip
-always reports the exact descendant-tip count.
+A composition is normalised to fill its glyph, and the tooltip keeps every
+value as given. `NodeGlyphTarget::Internal` or `Leaves` keeps a dataset where it
+means something, and a node missing a key gets no glyph rather than a zero.
 
-## Align sequences and domain architectures to descent
-
-`MsaTrack::tree` and `DomainTrack::tree` match rows to leaves by exact name,
-sort them by descent and draw the tree in the same gutter. A row not named by
-the tree remains at the bottom instead of disappearing.
-
-```rust
-use karyon::{DomainArchitecture, DomainFeature, DomainTrack, MsaTrack};
-
-let alignment = MsaTrack::new(sequences)
-    .tree(tree.clone())
-    .tree_width(110.0);
-
-let architectures = vec![
-    DomainArchitecture::new("sample_A", 300)
-        .feature(DomainFeature::new(20, 110).label("sensor"))
-        .feature(DomainFeature::new(170, 260).label("kinase")),
-];
-let domains = DomainTrack::new(architectures)
-    .tree(tree)
-    .tree_width(110.0);
-```
-
-Domain and motif boundaries remain 0-based and half-open. Colours are stable by
-feature label, explicit colours override the palette, and full names and
-boundaries remain in tooltips when visible text must be shortened. The renderer
-does not infer domains or ancestral states; it displays intervals and numeric
-probabilities supplied by an upstream analysis.
-
-### Requirements for a time tree
-
-Every tip must carry a finite numeric value for the key passed to `time`.
-Annotated internal values are used exactly. Missing internal values are
-inferred from the children and branch lengths: lengths are subtracted for
-ordinary calendar dates and added for heights before present.
-
-```rust
-use karyon::TimeDirection;
-
-let track = TreeTrack::new(tree)
-    .time("height")
-    .time_direction(TimeDirection::Decreasing)
-    .time_unit("years BP");
-```
-
-`Tree::time_layout` returns `None` when a tip value is missing or non-finite.
-`TreeTrack` then falls back to its ordinary phylogram and omits the temporal
-axis; validate with `time_layout` first when incomplete dates must be an error
-in an analysis pipeline.
-
-## Choose the root explicitly
-
-![The same synthetic phylogeny with its source root, a checked monophyletic outgroup root and a weighted midpoint root; a diamond identifies each selected root](../assets/figures/example-phylo-reroot.svg){ width="1742" height="362" loading="lazy" }
-
-Rerooting changes orientation, not the undirected tree. Karyon preserves every
-tip-to-tip distance, keeps support on the same split and appends a new root only
-when the chosen position lies inside an edge. A diamond marks the selected root
-in rectangular and circular projections.
+### Collapse a clade
 
 ```rust
 use karyon::TreeTrack;
 
-let by_clade = TreeTrack::new(tree.clone()).reroot_named("lineage_4");
-let by_outgroup = TreeTrack::new(tree.clone())
-    .reroot_outgroup(["outgroup_A", "outgroup_B"]);
-let by_midpoint = TreeTrack::new(tree).reroot_midpoint();
-```
-
-| Builder | Validation and result |
-|:--|:--|
-| `reroot(node)` | Accepts an internal node index; a sampled tip or invalid index leaves the tree unchanged. |
-| `reroot_named(name)` | Finds one exact internal label and uses that node. |
-| `reroot_outgroup(names)` | Requires existing, distinct leaf names that are exactly one monophyletic clade; inserts a root halfway along its incoming edge. |
-| `reroot_midpoint()` | Requires every edge to have a finite, non-negative length; bisects the longest weighted tip-to-tip path. |
-| `show_root(false)` | Hides the diamond without undoing the reroot. |
-
-The builder API deliberately leaves an invalid request unchanged so it remains
-composable. Pipelines that must treat failure as an error should call
-`Tree::reroot`, `Tree::reroot_outgroup` or `Tree::reroot_midpoint` first and
-inspect their `bool` or `Option<usize>` result before constructing the track.
-An unrooted projection never draws the diamond because its geometry explicitly
-discards the source root.
-
-## Work with clades and topology
-
-All operations are iterative, including deep trees.
-
-| Operation | Effect |
-|:--|:--|
-| `ancestors`, `descendants`, `clade_size` | Query the rooted topology. |
-| `mrca` | Find the most recent common ancestor of a non-empty node set. |
-| `rotate` | Reverse one split without changing its clades. |
-| `ladderize` | Order every split by descendant tip count. |
-| `reroot` | Reorient around an internal node while preserving tips, edge lengths and split support. |
-| `reroot_outgroup` | Validate a monophyletic leaf set and insert a root on its incoming edge. |
-| `reroot_midpoint` | Bisect the weighted diameter when every branch length is valid. |
-| `subtree` | Copy one clade into a compact standalone tree. |
-| `collapse` | Replace descendants in the data with one terminal node. |
-| `TreeTrack::collapse` | Draw a clade as a triangle without modifying the source tree. |
-
-Visual collapse uses the selected node's own or inherited annotations. It does
-not calculate a mean, majority category or any other summary for descendants;
-if the collapsed node has no sequencing depth, the aligned depth cell is
-explicitly missing.
-
-```rust
 let outbreak = tree.node_named("PER_outbreak").unwrap();
 let track = TreeTrack::new(tree).collapse(outbreak);
 
 assert_eq!(track.tree().clade_size(outbreak), 4);
 ```
 
-## Make tree-to-tree disagreement traceable
+`TreeTrack::collapse` folds a clade into a triangle and leaves the tree
+untouched; `Tree::collapse` removes the descendants from the data. A folded
+row shows a metadata value only when every tip inside agrees on it: tips that
+differ, or one tip with nothing recorded, leave the cell empty.
 
-![Core and accessory genome trees with duplicated terminal labels, ward-coloured ties, dashed crossings and a before-to-after untangling summary](../assets/figures/example-tanglegram.svg){ width="760" height="236" loading="lazy" }
+| Operation on `Tree` | Effect |
+|:--|:--|
+| `ancestors`, `descendants`, `clade_size`, `leaves`, `leaf_names` | query the rooted topology |
+| `mrca(&nodes)` | the most recent common ancestor of a non-empty set |
+| `rotate(node)` | reverse one split without changing its clades |
+| `ladderize(largest_first)` | order every split by tip count, ties kept in file order |
+| `reroot`, `reroot_outgroup`, `reroot_midpoint` | reorient, [as above](#choose-the-root) |
+| `subtree(node)` | copy one clade into a tree of its own |
+| `collapse(node)` | replace a clade's descendants with one tip |
 
-A tanglegram compares terminal order, not branch coordinates. `untangle`
-rotates free clades on both trees and accepts a rotation only when the crossing
-count strictly falls. It preserves every clade, annotation and branch length;
-the result is deterministic but is not presented as a global optimum.
+All of them walk the tree without recursion, so a deep tree cannot overflow the
+stack. For stretches of sequence carried by whole clades, see
+[CladeTrack](../tracks/phylogeny.md#cladetrack).
 
-```rust
-use karyon::{TangleLabels, TangleTieStyle, TanglegramTrack};
-
-let comparison = TanglegramTrack::new(core, accessory)
-    .names("core genome", "accessory genome")
-    .labels(TangleLabels::Both)
-    .tie_style(TangleTieStyle::Curved)
-    .color_by("ward")
-    .untangle();
-
-assert!(comparison.crossings() <= comparison.initial_crossings());
-```
-
-The central summary reports initial and final crossings, linked taxa and tips
-present in only one tree. Crossing ties use a dashed pattern, so colour remains
-available for metadata. When the two trees give a matched taxon different
-values for the selected annotation, the endpoint marks retain both colours and
-the tooltip states the exact mismatch.
-
-`TangleLabels::Left`, `Right`, `Both` and `None` control repeated terminal
-names. `TangleTieStyle::Straight` is compact; `Curved` is easiest to trace; and
-`Ribbon` remains visible after reduction for print. `tie_widths`, `tree_width`,
-`label_width` and `row_height` control density without changing the comparison.
-
-## Align phylodynamics and surveillance over time
-
-The bottom of the evolutionary-surveillance atlas deliberately places an
-inferred process above observed composition. Their x pivots agree; their y
-quantities, uncertainty and evidential status do not.
+## Sort rows by descent
 
 ```rust
-use karyon::{
-    AxisTrack, Figure, PhylodynamicPoint, PhylodynamicScale,
-    PhylodynamicTrack, Region, SurveillanceObservation, SurveillanceTrack,
-};
+use karyon::{DomainArchitecture, DomainFeature, DomainTrack, MsaTrack};
 
-let skyline = PhylodynamicTrack::new(vec![
-    PhylodynamicPoint::new(2020, 120.0).interval(70.0, 210.0),
-    PhylodynamicPoint::new(2021, 430.0).interval(250.0, 760.0),
-])
-.scale(PhylodynamicScale::Log10)
-.unit("Ne");
+let alignment = MsaTrack::new(sequences).tree(tree.clone()).tree_width(110.0);
 
-let observed = SurveillanceTrack::new(vec![
-    SurveillanceObservation::new(2020, "L1", 38, 100),
-    SurveillanceObservation::new(2020, "L2", 62, 100),
-    SurveillanceObservation::new(2021, "L1", 73, 120),
-    SurveillanceObservation::new(2021, "L2", 47, 120),
-])
-.minimum_total(20)
-.frequency_alert(0.50)
-.growth_alert(0.15);
-
-Figure::new(Region::new("year", 2020, 2022)?)
-    .push(skyline)
-    .push(observed)
-    .push(AxisTrack::new())
-    .save_svg("evolution-through-time.svg")?;
+let architectures = vec![
+    DomainArchitecture::new("sample_A", 300)
+        .feature(DomainFeature::new(20, 110).label("sensor"))
+        .feature(DomainFeature::new(170, 260).label("kinase")),
+];
+let domains = DomainTrack::new(architectures).tree(tree).tree_width(110.0);
 ```
 
-`PhylodynamicTrack` retains point intervals as a ribbon and supports linear or
-base-ten logarithmic y geometry. Non-positive estimates are absent in log mode
-instead of being nudged above zero. `SurveillanceTrack` retains each count and
-denominator, can switch between frequencies and raw counts, and draws stacked
-composition or independent lines. A sampling floor omits underpowered
-observations explicitly; alert markers report whether frequency, stepwise
-growth or both crossed the chosen rule. Missing lineage/time pairs break a
-line and make a stacked pivot explicitly incomplete; zero must be supplied as
-an observed zero. Duplicate pairs are marked as ambiguous rather than summed.
+[MsaTrack](../tracks/comparison.md#msatrack),
+[DomainTrack](../tracks/comparison.md#domaintrack),
+[SnpTrack](../tracks/variation.md#snptrack) and
+[MatrixTrack](../tracks/variation.md#matrixtrack) take a tree, draw it beside
+their rows and sort the rows to match, so a clade's shared changes form one
+block (panels C and D above). Rows match tips by exact name, and a row the
+tree does not name stays at the bottom rather than disappearing.
 
-Neither track performs inference, smoothing, interpolation, forecasting or
-outbreak detection. Their purpose is to align already computed results while
-keeping their provenance inspectable in the SVG.
+## Compare two trees
 
-Generate the integrated sheet with:
+<figure class="k-plate" markdown>
+![Core and accessory genome trees of eight isolates face to face, each isolate joined to itself across the middle, the crossing ties dashed and coloured](../assets/figures/example-tanglegram.svg){ width="760" height="234" loading="lazy" }
+</figure>
 
-```bash
-cargo run --example evolutionary_surveillance -- assets
-```
+=== "Rust"
 
-## Scope
+    ```rust
+    use karyon::{TangleLabels, TangleTieStyle, TanglegramTrack};
 
-The renderer is for orthogonal, diagonal and curved rectangular trees,
-circular and fan layouts, and equal-angle unrooted trees. It does not infer
-trees, fit clocks or population models, reconstruct ancestral states, estimate
-selection, smooth surveillance observations or claim epidemiological
-transmission. [`PhyloMap`](maps.md#put-a-phylogeny-around-the-map) can place
-terminal annotations at explicitly supplied coordinates, but it does not infer
-those locations or the movement between them. Those analyses belong upstream;
-Karyon preserves their topology, lengths, support, intervals and annotations
-and makes the chosen encodings explicit. Nexus support is intentionally
-limited to the portable first-tree and translation-table subset.
+    let comparison = TanglegramTrack::new(core, accessory)
+        .names("core genome", "accessory genome")
+        .labels(TangleLabels::Both)
+        .tie_style(TangleTieStyle::Curved)
+        .color_by("ward")
+        .untangle();
+
+    assert!(comparison.crossings() <= comparison.initial_crossings());
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon phylogeny:1-1 --tanglegram core.nwk --against accessory.nwk -o tangle.svg
+    ```
+
+Each tip is joined to its twin in the other tree, so a disagreement is a
+crossing. `untangle` rotates free clades on both sides and keeps only rotations
+that strictly lower the count. It changes no clade or length and is
+deterministic, but it is a local search, not a guaranteed minimum. The summary
+gives the crossings before and after, the linked tips and the unmatched ones.
+
+Crossing ties are dashed, which leaves colour free for `color_by(key)`: each
+tie takes the colour of a tip annotation both trees carry, and a tip they
+disagree about keeps both values at its ends. `labels`, `tie_style` (`Curved`, `Straight` or `Ribbon`),
+`tree_width` and `row_height` shape the rest. The crossing count describes this
+drawing, not the trees. The command line names the trees after their files and
+neither untangles nor colours them.
+
+## Draw very large trees
+
+=== "Rust"
+
+    ```rust
+    use karyon::TreeTrack;
+
+    // Fold the smallest clades until 200 rows are left.
+    let overview = TreeTrack::new(tree.clone()).max_rows(Some(200));
+
+    // One clade as a tree of its own, the library form of --focus.
+    let first = tree.node_named("L4_D001").unwrap();
+    let last = tree.node_named("L4_H148").unwrap();
+    let clade = tree.mrca(&[first, last]).and_then(|node| tree.subtree(node)).unwrap();
+    let detail = TreeTrack::new(clade);
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon phylogeny:1-1 --tree big.nwk --max-rows 200 -o overview.svg
+    karyon phylogeny:1-1 --tree big.nwk --focus L4_D001,L4_H148 -o clade.svg
+    ```
+
+A rectangular tree is a row per tip and `row_height` stops at two pixels:
+sixty thousand tips at the default make a figure about 900,000 pixels tall.
+`max_rows` folds the smallest clades until the tree fits, so every tip stays on
+the figure inside a counted triangle, and `--max-rows 200` brings that tree to
+about 3,000 pixels. There is no cap unless you ask for one.
+
+A triangle's tooltip names its first and last tip, as in
+`clade (13 tips), L4_D001 to L4_H148`, and that pair is what `--focus` takes.
+`--focus` also takes a clade's own label, or one tip for the clade around it,
+and refuses a name the tree does not have.
+
+The [tree viewer](../tree.md) does the same by hand, up to a million tips: it
+lays the tree out once and repaints only what is on screen. Export saves
+karyon's own SVG of the view, and the page prints the command that draws it.
+Nothing you open is uploaded.
+
+## What stays upstream
+
+karyon draws what an analysis produced. Tree inference, clocks, population
+models, ancestral reconstruction, selection tests and transmission calls belong
+upstream; the figure keeps what they produced and states its encodings. Nexus
+support is the portable subset, the first tree and its `translate` table, and
+[Maps](maps.md#put-a-phylogeny-around-the-map) places tips at coordinates you
+supply without inferring any movement between them.
+
+## Where next
+
+<div class="grid cards" markdown>
+
+-   **[Tree viewer](../tree.md)**
+
+    Open a Newick file in the browser and move around a million tips.
+
+-   **[Tracks: phylogeny](../tracks/phylogeny.md)**
+
+    TreeTrack, TanglegramTrack and CladeTrack, option by option.
+
+-   **[Maps](maps.md)**
+
+    Put a phylogeny around the places its samples came from.
+
+-   **[Command line](cli.md)**
+
+    Every flag a `--tree` takes.
+
+</div>

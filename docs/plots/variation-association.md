@@ -1,66 +1,90 @@
----
-title: Variation and association plots
-description: Point variants, structural events, variable sites, selection scans, genotype matrices and association statistics.
----
+# Variation and association
 
-<div class="plot-hero plot-hero--variation" markdown>
+Plots for calls and the patterns they make across samples: point and
+structural variants, copy number, variable sites, genotype matrices,
+association scans and site-wise selection.
+{ .k-lead }
 
-<span class="plot-eyebrow">Gallery · Variation and association</span>
+## How to choose
 
-# From one call to a cohort pattern
+Choose by what carries the result: one position, two breakpoints, a fitted
+segment, a variable column, a cell for each sample and site, or one test per
+position.
 
-Choose by the unit that carries the result: one position, two breakpoints, a
-variable alignment column, a sample-by-site cell or a statistic tested across
-the genome.
-
-<div class="plot-stats"><span><strong>7</strong> track types</span><span><strong>5</strong> data shapes</span></div>
-
-</div>
-
-<div class="plot-card-grid">
-  <a class="plot-card" href="../../tracks/#selectiontrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="Site-wise molecular selection evidence and signed omega effects aligned to protein domains" loading="lazy" width="1510" height="1057"></span>
-    <span class="plot-card__body"><small>Tested coding position</small><strong>SelectionTrack</strong><span>Separate p-value or posterior evidence from the direction and magnitude of the synonymous-to-nonsynonymous rate ratio.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#varianttrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Variant calls aligned to coverage and genes" loading="lazy" width="900" height="306"></span>
-    <span class="plot-card__body"><small>Point event</small><strong>VariantTrack</strong><span>SNPs, indels or other named positions shown as lollipops or dense ticks with value and category.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#structuraltrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-structural.svg" alt="Structural variants drawn as arcs between breakpoints" loading="lazy" width="880" height="289"></span>
-    <span class="plot-card__body"><small>Two breakpoints</small><strong>StructuralTrack</strong><span>Deletions, inversions, duplications or translocations as span-aware arcs weighted by support.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#copynumbertrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-copy-number.svg" alt="A cohort copy number landscape over one arm, and one tumour's segmentation under it" loading="lazy" width="900" height="342"></span>
-    <span class="plot-card__body"><small>Segments a caller fitted</small><strong>CopyNumberTrack</strong><span>Total and minor allele copies on a ladder, with lost heterozygosity in a lane of its own.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#snptrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-snps.svg" alt="Variable alignment sites ordered by a phylogeny, with lineage, resistance and year beside them" loading="lazy" width="900" height="387"></span>
-    <span class="plot-card__body"><small>Variable columns only</small><strong>SnpTrack</strong><span>Invariant columns removed so shared substitutions become visible blocks across ordered samples.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#matrixtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-association.svg" alt="A genotype matrix aligned below association statistics" loading="lazy" width="940" height="349"></span>
-    <span class="plot-card__body"><small>Sample × site</small><strong>MatrixTrack</strong><span>Genotype or presence cells where zero, missing and every categorical state remain distinct.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#manhattantrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-genomewide.svg" alt="Association statistics across every contig of an assembly" loading="lazy" width="940" height="290"></span>
-    <span class="plot-card__body"><small>Genome-wide statistic</small><strong>ManhattanTrack</strong><span>Association values, explicit threshold and highlighted hits on a shared genomic or assembly axis.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-</div>
-
-## Choose the unit of evidence
-
-| Evidence | Start with | Pair it with |
+| Your question | Plot | Build it with |
 |:--|:--|:--|
-| one named position | `VariantTrack` | `FeatureTrack` or `CodonTrack` |
-| two linked breakpoints | `StructuralTrack` | `SplitReadTrack` for molecule-level support |
-| differences in an alignment | `SnpTrack` | `TreeTrack` to order the rows |
-| a state for each sample and site | `MatrixTrack` | `ManhattanTrack` above it |
-| one statistic per tested position | `ManhattanTrack` | `GenomeTrack` for multi-contig context |
-| molecular-selection evidence and rate effect | `SelectionTrack` | `FeatureTrack` or `CodonTrack` |
+| Where are the calls, and how strong is each one? | [Point variants](../tracks/variation.md#varianttrack) | `VariantTrack`, `--variants` |
+| Which two positions does a rearrangement join? | [Structural variants](../tracks/variation.md#structuraltrack) | `StructuralTrack`, `--structural` |
+| How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number` with `--ploidy` |
+| Which sites tell closely related samples apart? | [Variable sites](../tracks/variation.md#snptrack) | `SnpTrack`, `--snps` |
+| Which samples carry what, site by site? | [Genotype matrix](../tracks/variation.md#matrixtrack) | `MatrixTrack`, `--matrix` |
+| Where does a scan cross its significance line? | [Association scan](../tracks/variation.md#manhattantrack) | `ManhattanTrack`, `--manhattan` |
+| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack`, Rust only |
 
-## Related routes
+## Plots
 
-- [Reads and molecules](reads-molecules.md) when the evidence needs to stay visible below the call.
-- [Phylogeny and clades](phylogeny-clades.md) when variants are interpreted on a tree.
-- [Annotation and coordinates](annotation-coordinates.md) to name the genes, codons and positions involved.
+<div class="k-plots" markdown>
+
+-   [![Variant lollipops coloured by consequence, below a depth profile with a dropout, a reference band and the rpoB gene model](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }](../tracks/variation.md#varianttrack)
+
+    **[Point variants](../tracks/variation.md#varianttrack)**
+    Point events as lollipops whose height is a value, or as plain ticks when there are too many for heads, with categories coloured in the order they first appear.
+
+-   [![Five structural calls as arcs between their breakpoints, a deletion, a duplication, an inversion, an insertion and a translocation leaving the view, above a depth profile that drops under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="287" loading="lazy" }](../tracks/variation.md#structuraltrack)
+
+    **[Structural variants](../tracks/variation.md#structuraltrack)**
+    Each call as an arc between its two breakpoints, heavier with more supporting reads; a coverage track beneath shows whether the depth agrees.
+
+-   [![Copy number gains and losses across a cohort along one arm of chromosome 8, and beneath them one tumour's segments on a ladder of whole copies, with lost heterozygosity marked along the foot](../assets/figures/example-copy-number.svg){ width="900" height="340" loading="lazy" }](../tracks/variation.md#copynumbertrack)
+
+    **[Copy number](../tracks/variation.md#copynumbertrack)**
+    Fitted segments drawn at their level on a ladder of whole copies, loss of heterozygosity in a lane of its own, and balanced wherever you say it is.
+
+-   [![A phylogeny of twelve isolates beside lineage, resistance and year strips and a panel of thirty-four variable sites, each column labelled with its position and each row ending in its count of differences](../assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }](../tracks/variation.md#snptrack)
+
+    **[Variable sites](../tracks/variation.md#snptrack)**
+    Only the columns that vary, evenly spaced and each labelled with its position; a tree beside the rows lines a clade's shared changes up into a block.
+
+-   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix showing which isolates carry the associated alleles](../assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }](../tracks/variation.md#matrixtrack)
+
+    **[Genotype matrix](../tracks/variation.md#matrixtrack)**
+    One row per sample and one cell per site at its real coordinate, where a sample without the allele, a sample never typed and a stretch with no site all look different.
+
+-   [![Presence and absence of twenty-six genes across nine Klebsiella isolates, the rows sorted by the phylogeny beside them so two accessory islands come out as solid blocks](../assets/figures/example-pangenome.svg){ width="940" height="263" loading="lazy" .k-wide }](../tracks/variation.md#matrixtrack)
+
+    **[Presence and absence by descent](../tracks/variation.md#matrixtrack)**
+    The same matrix sorted by a tree drawn beside it, which turns a speckle into blocks a clade carries.
+
+-   [![An association scan and a depth profile across every contig of a draft assembly, with the contigs beneath as alternating named blocks](../assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }](../tracks/variation.md#manhattantrack)
+
+    **[Association scan](../tracks/variation.md#manhattantrack)**
+    One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
+
+-   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }](../tracks/variation.md#selectiontrack)
+
+    **[Site-wise selection](../tracks/variation.md#selectiontrack)**
+    Evidence, as a p-value or a posterior, in one tier and the signed log2(ω) effect in another, so a significant purifying site still reads as purifying.
+
+</div>
+
+## Related
+
+<div class="grid cards" markdown>
+
+-   **[Reads and molecules](reads-molecules.md)**
+
+    The reads and molecules behind a call.
+
+-   **[Phylogeny and clades](phylogeny-clades.md)**
+
+    Calls read on a tree, and spans painted onto the clades that carry them.
+
+-   **[Annotation and coordinates](annotation-coordinates.md)**
+
+    The genes and codons a call lands in.
+
+-   **[Whole genomes and maps](whole-genomes-geography.md)**
+
+    A whole assembly laid end to end under a genome-wide scan.
+
+</div>

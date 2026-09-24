@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Take the comments out of the site's own CSS and JavaScript, at publish time.
 
-This project writes its reasons down. `docs/stylesheets/extra.css` carries
-twenty-two kilobytes of block comments saying why each rule is the way it is,
-and that is the point of it: the next person to touch a rule should find the
-measurement that put it there. But a comment is worth nothing to a browser, and
-extra.css is render blocking on every page, so every reader was waiting on eight
-kilobytes over the wire of prose addressed to somebody else.
+This project writes its reasons down. The site's stylesheets carry block
+comments saying why each rule is the way it is, and that is the point of them:
+the next person to touch a rule should find the reason that put it there. But a
+comment is worth nothing to a browser, and `karyon.css` is render blocking on
+every page, so every reader would wait on kilobytes over the wire of prose
+addressed to somebody else.
 
 So the source keeps its comments and the published copy does not. Nothing here
 minifies: no renaming, no reordering, no whitespace games, no attempt to be
@@ -29,7 +29,8 @@ from pathlib import Path
 # Written by this project, and therefore ours to rewrite. The theme's own
 # bundles live under assets/stylesheets and assets/javascripts and are left
 # exactly as they arrived.
-OURS = ("stylesheets/extra.css", "stylesheets/landing.css", "stylesheets/playground.css",
+OURS = ("stylesheets/karyon.css", "stylesheets/home.css", "stylesheets/playground.css",
+        "stylesheets/tree-viewer.css",
         "assets/figure-viewer.js", "assets/karyon-live.js", "assets/karyon-wasm.js",
         "assets/playground.js")
 
