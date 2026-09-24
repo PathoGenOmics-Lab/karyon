@@ -56,9 +56,13 @@
    Hero
    ------------------------------------------------------------------------- */
 
+/* The logo is pixel art, 117 cells by 79, so its column is a whole number of
+   CSS pixels per cell: three here, two on a narrower screen. Scaled by a
+   fraction, a pixel drawing loses some of the one-pixel gaps between its
+   bands. */
 .md-typeset .k-hero {
   display: grid;
-  grid-template-columns: 13rem minmax(0, 1fr);
+  grid-template-columns: 351px minmax(0, 1fr);
   gap: 2.4rem;
   align-items: center;
   padding: 1.4rem 0 2.4rem;
@@ -79,14 +83,17 @@
   box-shadow: none;
 }
 
-/* Material hides the image for the other scheme with a rule this one must
-   not undo. */
-[data-md-color-scheme="slate"] .md-typeset .k-hero-mark img[src$="#only-light"],
-[data-md-color-scheme="default"] .md-typeset .k-hero-mark img[src$="#only-dark"] {
+/* Material hides the image for the other scheme, and the slate rule above is
+   specific enough to show it again, which put both logos on the dark page. So
+   the hiding is repeated here with that rule's own selector and the attribute
+   on top, which outranks it. */
+[data-md-color-scheme="slate"] .md-typeset .k-hero-mark p > img.k-hero-logo[src$="#only-light"],
+[data-md-color-scheme="default"] .md-typeset .k-hero-mark p > img.k-hero-logo[src$="#only-dark"] {
   display: none;
 }
 
 .md-typeset .k-hero h1 {
+  text-wrap: balance;
   margin: 0 0 1rem;
   font-size: 2.5rem;
   line-height: 1.08;
@@ -593,6 +600,12 @@
    Narrower screens
    ------------------------------------------------------------------------- */
 
+@media screen and (max-width: 76.1875em) {
+  .md-typeset .k-hero {
+    grid-template-columns: 234px minmax(0, 1fr);
+  }
+}
+
 @media screen and (max-width: 60em) {
   .md-typeset .k-feature-grid,
   .md-typeset .k-next-grid {
@@ -626,7 +639,7 @@
     text-align: center;
   }
   .md-typeset .k-hero-mark {
-    width: 9rem;
+    width: 234px;
     margin: 0 auto;
   }
   .md-typeset .k-hero h1 {
