@@ -1,17 +1,17 @@
 ---
-title: Plot catalogue
+title: Gallery
 description: Choose a Karyon plot by biological question, data shape or scale.
 ---
 
 <div class="plot-hero plot-hero--catalog" markdown>
 
-<span class="plot-eyebrow">Visual catalogue</span>
+<span class="plot-eyebrow">Gallery</span>
 
 # Find the plot that matches the question
 
-Start from the biological structure in the data, not from a Rust type name.
-Each route below leads to a small family of plots, a visual example and the
-exact reference entry for every component.
+Pick a family of plots by what your data describes. Each family shows its
+plots as examples, says when to reach for each one, and links to the full
+reference.
 
 <div class="plot-stats" aria-label="Catalogue summary">
   <span><strong>36</strong> genomic tracks</span>
@@ -21,7 +21,7 @@ exact reference entry for every component.
 
 </div>
 
-## Browse by biological task
+## Browse by what you want to show
 
 <div class="plot-category-grid">
   <a class="plot-category-card plot-category-card--signal" href="signal-sequence/">
@@ -119,7 +119,6 @@ exact reference entry for every component.
   <div><span class="plot-chip">Panels</span><strong>Composes finished views</strong><p>Places figures and drawings on one labelled, aligned manuscript sheet.</p></div>
 </div>
 
-Need the exhaustive API behaviour rather than a visual route? Open the [track
-reference](../tracks.md), which is ordered by the same eight routes as this
-page, so the section you arrived from is the section you land in. Or jump to
-the [worked recipes](../recipes.md) when the desired output is already clear.
+Looking for every option of one track? The [track reference](../tracks.md) is
+ordered by the same eight families as this page. If you already know the figure
+you want, the [worked recipes](../recipes.md) show complete programs.

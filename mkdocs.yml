@@ -13,8 +13,11 @@ copyright: Copyright &copy; 2026 Paula Ruiz-Rodriguez and Mireia Coscolla &middo
 
 theme:
   name: material
-  logo: assets/karyon_logo.svg
-  favicon: assets/karyon_logo.svg
+  # Material's own mechanism for replacing one template. The only override is
+  # the header logo, which needs a second image for the dark scheme.
+  custom_dir: overrides
+  logo: assets/karyon_mark.svg
+  favicon: assets/karyon_mark.svg
   language: en
   font:
     text: Inter
@@ -156,17 +159,20 @@ extra:
       name: karyon on GitHub
   generator: false
 
-# Five destinations rather than eight. The grouping changed and no file moved,
-# because a page's URL comes from its path and every link that exists points at
-# one of those. What used to be `How it works` and `Recipes` are sections of the
-# guide, since a reader looking for either was already in the guide; the plot
-# catalogue keeps the track reference next to it, since that is what a route
-# through the catalogue ends at.
+# Grouped by what a reader has come to do, and no file moved to get there: a
+# page's URL comes from its path, and every link that exists points at one.
+# Get started is the path from nothing to a first figure. The gallery is where
+# to find a plot by what it shows. Guides explain how to do something, the
+# reference is where to look something up, and the two tools that run in the
+# page have a tab of their own because they are not documentation at all.
 nav:
   - Home: index.md
-  - Tree viewer: tree.md
-  - Playground: playground.md
-  - Plots:
+  - Get started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Core concepts: getting-started/concepts.md
+      - Worked recipes: recipes.md
+  - Gallery:
       - Overview: plots/index.md
       - Signal and sequence: plots/signal-sequence.md
       - Annotation and coordinates: plots/annotation-coordinates.md
@@ -176,29 +182,24 @@ nav:
       - Phylogeny and clades: plots/phylogeny-clades.md
       - Evolution and surveillance: plots/evolution-surveillance.md
       - Whole genomes and geography: plots/whole-genomes-geography.md
+  - Guides:
+      - Writing a figure in Rust: guide/plot.md
+      - The Figure API: guide/figure.md
+      - Command line: guide/cli.md
+      - Phylogenetics: guide/phylogenetics.md
+      - Maps: guide/maps.md
+      - Theming: guide/theming.md
+      - Visual system: guide/visual-system.md
+      - Writing a new track: how-it-works/extending.md
+  - Reference:
       - Track reference: tracks.md
-  - Guide:
-      - Start here:
-          - getting-started/installation.md
-          - getting-started/quickstart.md
-          - Worked recipes: recipes.md
-      - Writing a figure:
-          - guide/plot.md
-          - guide/figure.md
-          - guide/cli.md
-      - Reading files:
-          - guide/formats.md
-      - Particular figures:
-          - guide/phylogenetics.md
-          - guide/maps.md
-      - Making it yours:
-          - guide/theming.md
-          - guide/visual-system.md
-      - Why it works this way:
-          - how-it-works/coordinates.md
-          - how-it-works/scale.md
-          - how-it-works/extending.md
+      - File formats: guide/formats.md
+      - Coordinates: how-it-works/coordinates.md
+      - Scale: how-it-works/scale.md
+  - Try it:
+      - Playground: playground.md
+      - Tree viewer: tree.md
   - About:
-      - about/changelog.md
-      - about/citation.md
-      - about/contributing.md
+      - Changelog: about/changelog.md
+      - Citation: about/citation.md
+      - Contributing: about/contributing.md

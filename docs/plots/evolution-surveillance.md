@@ -5,7 +5,7 @@ description: Tree geometry, ancestral reconstruction, molecular selection, phylo
 
 <div class="plot-hero plot-hero--variation" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Evolution and surveillance</span>
+<span class="plot-eyebrow">Gallery · Evolution and surveillance</span>
 
 # Keep estimates, uncertainty and observations distinct
 

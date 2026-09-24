@@ -59,7 +59,7 @@ hide:
     <div class="pg-panel-head">
       <div>
         <h2 id="pg-picker-title">Examples</h2>
-        <p>Twenty-four, between them every one of the twenty-eight track flags. Each preview is drawn by the program, here, as this opened.</p>
+        <p>Twenty-four examples that between them use all twenty-eight track flags. Every preview is drawn live, in this page.</p>
       </div>
       <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
     </div>
@@ -70,34 +70,30 @@ hide:
 
 <div class="pg-notes" markdown>
 
-Every flag the command has and every reader behind it, over the files on the
-left. The region string, the coordinate conventions, the counts and every
-refusal are what the terminal gives, because it is the same code: the grammar
-lives in the library and takes a closure that answers with a file's text, so a
-shell hands it a disk and this page hands it the editor.
+## How to use it
 
-**The controls under the figure belong to the example.** They are not the same
-for every one, because the figures are not the same thing: a window to slide is
-what a signal over a chromosome has and a tanglegram has not, and a tanglegram
-says so rather than offering a slider that would mean nothing. Every control
-is a flag, and turning one rewrites that flag in the command above, which is
-the thing that decides.
+1. **Start from an example.** *Examples* opens two dozen of them, which between
+   them use every track the command line has. Or type your own command in the
+   box: it takes everything you would type after `karyon` in a terminal.
+2. **Edit the input files** in the tabs under the command. The command refers to
+   a file by its tab name. `+` adds a file; double-click a tab (or press F2) to
+   rename it.
+3. **Press Draw.** Turn on *Interactive* to drag the figure along the genome and
+   scroll to zoom once it has focus; every frame is a fresh run of the command.
+4. **Use the controls under the figure.** They depend on the example, and each
+   one rewrites its flag in the command, so the command always describes what
+   you see.
+5. **Export SVG** saves the figure exactly as drawn.
 
-A window is bounded by the stretch its own files cover, so it cannot be put
-somewhere there is nothing to draw.
+Everything runs in your browser: karyon is compiled to WebAssembly, and nothing
+you type or paste is uploaded anywhere.
 
-**Interactive** adds the pointer to that: drag the figure to pan, and scroll to
-zoom once it has focus. Nothing is transformed or scaled, and nothing is
-cached: every frame is a figure `karyon` drew, at that region, from those
-files.
+A few differences from a terminal:
 
-The pane supplies two things the command does not: the width to draw at, and
-the dark theme when the page is dark. Writing `--width` or `--theme` in the box
-overrules both, since the command is the thing that decides.
-
-Two things are a terminal's and are answered as text here. `-` for standard
-input, because nothing is piped into a page. And `--help`, which is
-[the command line guide](guide/cli.md) written out.
+- The page picks the figure width and follows the dark theme. Put `--width` or
+  `--theme` in the command to override either.
+- There is no standard input (`-`) and no `--help` here. The
+  [Command line](guide/cli.md) guide is the help text written out.
 
 </div>
 

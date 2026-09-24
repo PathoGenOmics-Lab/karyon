@@ -1,16 +1,13 @@
 # Command line
 
-`karyon` is a second front end onto the same library, and it reaches twenty-eight
-of the thirty-six track types: twenty-seven that have a file to read, and the
-coordinate ruler, which needs none. Trees drawn with metadata, maps and the
-selection views are library only.
+The `karyon` command draws the same figures as the library, straight from your
+files and without writing any Rust. It covers 28 of the 36 track types: the 27
+that read a file, plus the coordinate ruler. Trees with metadata, maps and the
+selection views are only available from the library.
 
-This page is the grammar: which flags start a track, which describe the one
-before them, and what the command says when one of them is wrong.
-
-Every command on this page runs in the [playground](../playground.md), which is
-this same code compiled to WebAssembly: type the files into the box and the
-figure is drawn by your own browser.
+This page documents the grammar: which flags start a track, which flags
+configure it, and what the command says when something is wrong. Every command
+here also runs in the [playground](../playground.md), in your browser.
 
 ## The grammar is the stack
 

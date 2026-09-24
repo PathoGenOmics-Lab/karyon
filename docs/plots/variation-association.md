@@ -5,7 +5,7 @@ description: Point variants, structural events, variable sites, selection scans,
 
 <div class="plot-hero plot-hero--variation" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Variation and association</span>
+<span class="plot-eyebrow">Gallery · Variation and association</span>
 
 # From one call to a cohort pattern
 

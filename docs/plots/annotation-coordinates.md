@@ -5,7 +5,7 @@ description: Features, transcription units, reading frames, coordinate rulers, c
 
 <div class="plot-hero plot-hero--annotation" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Annotation and coordinates</span>
+<span class="plot-eyebrow">Gallery · Annotation and coordinates</span>
 
 # Name the structures and the scale
 

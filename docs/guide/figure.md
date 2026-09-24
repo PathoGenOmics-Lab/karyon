@@ -1,12 +1,12 @@
-# Figure
+# The Figure API
 
-[`plot()`](plot.md) is the short way to write a figure down. `Figure` is what it
-builds, and it is the layer to reach for when a track comes from an alternative
-constructor, when a track has to be read back before it is drawn, or when the
-stack is assembled somewhere other than a single expression. This page is that
-layer, how it lays a stack out, and the three things around it: a `Panels`
-sheet, the circular `Rings`, and the `Genome` that puts several sequences on one
-axis.
+`Figure` is what [`plot()`](plot.md) builds. Use it directly when a track comes
+from its own constructor, when you need to inspect a track before it is drawn,
+or when you assemble the stack in a loop rather than in one expression.
+
+This page covers how a figure lays out its tracks, and the three containers
+around it: `Panels` for several drawings on one sheet, `Rings` for circular
+plots, and `Genome` for several sequences on one axis.
 
 ```rust
 use karyon::{AxisTrack, CoverageTrack, Figure, Region};

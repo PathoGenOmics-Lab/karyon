@@ -5,7 +5,7 @@ description: Multiple alignments, pairwise dotplots, synteny ribbons and homolog
 
 <div class="plot-hero plot-hero--comparison" markdown>
 
-<span class="plot-eyebrow">Plot catalogue · Comparisons and alignments</span>
+<span class="plot-eyebrow">Gallery · Comparisons and alignments</span>
 
 # Compare sequences without losing orientation
 

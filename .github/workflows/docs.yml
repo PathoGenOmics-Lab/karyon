@@ -38,6 +38,7 @@ on:
     paths: &site
       - "docs/**"
       - "includes/**"
+      - "overrides/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/docs.yml"
