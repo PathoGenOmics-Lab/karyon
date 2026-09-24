@@ -244,9 +244,10 @@ samtools view aln.bam NC_000962.3:761000-763000 \
 
 The same FASTA twice is not a mistake: the first draws the reference as a track
 of its own, the second gives the pileup the letters to compare against. A FASTA
-given to `--with-sequence` that holds one record is used whatever its header
-says; one that holds several is a genome, and the record named like the
-region's sequence is used, or the command is refused.
+given to `--sequence`, `--orfs` or `--with-sequence` that holds one record is
+used whatever its header says; one that holds several is a genome, and the
+record named like the region's sequence is used, or the command is refused with
+the names the file does hold.
 
 A tanglegram names its two trees after their files, so the figure says which is
 which:

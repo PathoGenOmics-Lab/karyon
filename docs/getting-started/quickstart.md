@@ -80,7 +80,8 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
   that the track prints a hint to zoom in rather than a smear.
 
 !!! note "Give `--sequence` the whole reference"
-    `--sequence` takes the first record of the FASTA and cuts the region out
+    `--sequence` takes the only record of the FASTA, or the one named like the
+    region's sequence when it holds several, and cuts the region out
     of it by position. It wants the sequence the window is cut from, not only
     the bases on display: a file holding just those would put them at the
     start of the sequence, far from the window, and the track would come out

@@ -219,9 +219,9 @@ Two rows need a second look. A structural call is the exception among the
 reference base, so `POS` is the base *before* the event, which is already the
 0-based start, and `END` is already the half-open end. Taking one off `POS`, as
 for an ordinary VCF, would move every call a base to the left. And
-`--sequence` and `--orfs` take the first record of a FASTA file whatever its
-name, while `--with-sequence` takes the only record, or the one named like the
-region when the file holds several.
+`--sequence`, `--orfs` and `--with-sequence` take the only record of a FASTA
+file whatever its name, or the one named like the region when the file holds
+several.
 
 Three more things follow from how the readers filter:
 

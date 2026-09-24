@@ -211,7 +211,7 @@ The reference bases, drawn the way a genome browser draws them: coloured letters
 |:--|:--|
 | Rust | `.add_sequence(seq)` or `.add_sequence_at(start, seq)` on `plot()`; `SequenceTrack::new(start, seq)` |
 | Command line | `--sequence FILE`, with `--height` |
-| Reads | FASTA, the first record, cut to the region (`read::seq::fasta`) |
+| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region (`read::seq::fasta`) |
 
 === "Rust"
 
@@ -248,7 +248,7 @@ Below `block_threshold` the track draws nothing and prints `zoom in to see bases
 
 Colours come from the theme's `bases`, which is `BaseColors::conventional()` unless you change it. Those are the colours readers expect, and adenine and guanine sit close together for a reader with protanopia; `BaseColors::colorblind_safe()` keeps all four apart (see [Styling](../guide/theming.md)). Lower case is drawn as upper case, `U` takes the colour of `T`, and `N` or any other symbol takes one neutral grey.
 
-`--sequence` draws the first record of the FASTA, whatever its name.
+`--sequence` draws the only record of the FASTA, whatever its name, or, in a file of several, the one named like the region's sequence.
 
 ## LogoTrack { #logotrack }
 

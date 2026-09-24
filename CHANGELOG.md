@@ -339,6 +339,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--sequence` and `--orfs` take a FASTA's record by the sequence the region
+  names, as `--with-sequence` already did, rather than whichever record came
+  first in the file. Handed a whole genome, a region on chr2 drew chr1's bases
+  and read chr1's reading frames, above a pileup of the same command compared
+  against chr2, and the figure looked right at every base. A file of one record
+  is still drawn whatever its header says. A file of several that names none of
+  them is refused with the names it does hold, as `--sequence genome.fa has no
+  record called chr2; it has chr1, chr3`, and a name two records share is
+  refused rather than taken the first of; `--with-sequence` refuses in the same
+  words now, where it said only that no record named anything in the sequence
+  the region names.
 - Documentation that contradicted the code now says what the code does, and
   nothing drawn changes. `Theme::muted` claimed the track labels, which are set
   in the foreground ink, and now claims the tick labels it does colour.

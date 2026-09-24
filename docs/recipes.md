@@ -196,10 +196,11 @@ keeping; the default is `max`. The ruler goes on the bottom without being
 asked for.
 
 !!! warning "What `--sequence` takes"
-    The first record of the FASTA, cut to the region by position, so it has to
-    be the whole sequence the region is on. A file of several records is not
-    searched by name: cut the one you want out first, for example with
-    `samtools faidx genome.fa chr7 > chr7.fa`.
+    The record of the FASTA named like the region's sequence, or the file's
+    only record, cut to the region by position, so it has to be the whole
+    sequence the region is on. A file of several records is searched by name
+    and read whole: cut the one you want out first, for example with
+    `samtools faidx genome.fa chr7 > chr7.fa`, to save reading the rest.
 
 ### Zooming to base resolution
 
@@ -289,7 +290,7 @@ the reference painted.
   the bases after it, and keeps what the record carries: `SEQ`, the strand
   from flag bit 16, and `MAPQ`.
 - A mismatch needs a reference to differ from. Without `--with-sequence`
-  (`reference` in Rust) every read is drawn agreeing. Unlike `--sequence`, it
+  (`reference` in Rust) every read is drawn agreeing. Like `--sequence`, it
   takes a whole-genome FASTA and picks the record the region names.
 - `--fade-by-mapq` (`fade_by_quality` in Rust) draws a read fainter the lower
   its mapping quality, and leaves its mismatches at full strength. Colouring

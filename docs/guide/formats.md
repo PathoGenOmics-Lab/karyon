@@ -518,11 +518,11 @@ CTTGCATGCAACGGATTACGATCG
 | Read by | `--sequence`, `--orfs` and `--with-sequence`; `read::seq::fasta` |
 | What is read | each record's name (the header up to its first space) and its sequence lines, joined, case kept |
 | Coordinates | none: a record starts at its own first base, so byte n is 0-based position n |
-| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it |
+| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it |
 
-`--sequence` and `--orfs` take the first record and cut the region out of it by
-position. `--with-sequence` takes the file's only record whatever it is called,
-or, in a file of several, the one named like the region's sequence. Lower case
+`--sequence`, `--orfs` and `--with-sequence` take the file's only record
+whatever it is called, or, in a file of several, the one named like the
+region's sequence, and cut the region out of it by position. Lower case
 is kept, since a soft-masked reference says something by it. A region past the
 end of the record is not an error: the track has no bases there and draws
 nothing.

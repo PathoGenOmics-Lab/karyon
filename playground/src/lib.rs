@@ -524,6 +524,29 @@ mod tests {
         assert!(error.contains("this page holds depth.bg"), "{error}");
     }
 
+    /// A page runs the walk a shell runs, so a genome handed to `--sequence`
+    /// is read by the region here too: the record the region names is drawn,
+    /// and a region naming none of them is refused in the shell's words.
+    #[test]
+    fn a_genome_is_read_by_the_region_here_as_it_is_at_a_shell() {
+        let genome = format!(">chrA\n{}\n>chrB\n{}\n", "A".repeat(60), "G".repeat(60));
+        let files = [("genome.fa", genome.as_str())];
+
+        let svg =
+            run(&packed(&["chrB:1-60", "--sequence", "genome.fa"], &files)).expect("a figure");
+        assert!(svg.contains(">G</text>"), "chrB was not the record drawn");
+        assert!(
+            !svg.contains(">A</text>"),
+            "chrA's bases reached a chrB figure"
+        );
+
+        let error = run(&packed(&["chrC:1-60", "--sequence", "genome.fa"], &files)).unwrap_err();
+        assert_eq!(
+            error,
+            "--sequence genome.fa has no record called chrC; it has chrA, chrB"
+        );
+    }
+
     #[test]
     fn a_command_line_that_makes_no_sense_comes_back_as_a_message() {
         let error = run(&packed(&["--nonsense"], &[])).unwrap_err();
