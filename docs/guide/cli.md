@@ -140,9 +140,10 @@ A few things about track flags are worth knowing before they surprise you:
 - **The ruler goes wherever something is measured against it.** It is added at
   the bottom of any figure holding a track laid on the coordinates. `--axis`
   puts it where the flag sits instead, and `--no-axis` leaves the automatic one
-  out. A phylogeny is not laid on the coordinates (its x is branch length), so
-  a figure of nothing but `--tree` and `--tanglegram` gets no ruler unless you
-  write `--axis`.
+  out. A phylogeny is not laid on the coordinates (its x is branch length), nor
+  is a panel of variable sites (its x is a site index) or an ideogram (its x is
+  the whole chromosome), so a figure of nothing but `--tree`, `--tanglegram`,
+  `--snps` and `--ideogram` gets no ruler unless you write `--axis`.
 - **A track flag takes the next word as its file, whatever it is.** A forgotten
   path swallows the flag after it, and the error arrives a word late:
 

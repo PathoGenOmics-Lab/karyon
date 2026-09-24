@@ -66,7 +66,9 @@ the crate lacks is one small trait away: see
     [TreeTrack](../tracks/phylogeny.md#treetrack) or a
     [TanglegramTrack](../tracks/phylogeny.md#tanglegramtrack) gets no ruler.
     An [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) draws the
-    whole chromosome, because its job is to show where the region is on it.
+    whole chromosome, because its job is to show where the region is on it,
+    and a [SnpTrack](../tracks/variation.md#snptrack) spaces its variable
+    sites evenly. Neither gets a ruler on its own either.
 
 ## Scale { #scale }
 

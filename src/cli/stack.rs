@@ -2504,6 +2504,57 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         );
     }
 
+    /// A panel of variable sites lays out its own columns, so the ruler the
+    /// command line appended numbered a region the panel had thrown most of
+    /// away: over ten columns of which two vary, the ticks 1 to 5 stood under
+    /// the fifth column and 6 to 10 under the ninth. Alone the panel gets no
+    /// ruler, and `--no-axis` has nothing left to do there. Stacked with a
+    /// track on the coordinates the ruler comes back, because that track is
+    /// read against it.
+    #[test]
+    fn a_panel_of_variable_sites_gets_no_ruler_of_its_own() {
+        use crate::{Figure, MsaSequence};
+
+        const ALIGNED: &str = ">ref\nACGTACGTAC\n>s1\nACGTTCGTAC\n>s2\nACGTTCGTGC\n";
+        let rows = vec![
+            MsaSequence::new("ref", b"ACGTACGTAC".to_vec()),
+            MsaSequence::new("s1", b"ACGTTCGTAC".to_vec()),
+            MsaSequence::new("s2", b"ACGTTCGTGC".to_vec()),
+        ];
+        let region = Region::parse("aln:1-10").unwrap();
+
+        let from_cli = build(&over("aln:1-10", "--snps", "a.fa"), |_| {
+            Ok(ALIGNED.to_string())
+        })
+        .unwrap();
+        let bare = Figure::new(region.clone())
+            .push(SnpTrack::from_alignment(0, &rows))
+            .to_svg();
+        let ruled = Figure::new(region)
+            .push(SnpTrack::from_alignment(0, &rows))
+            .push(crate::AxisTrack::new())
+            .to_svg();
+        assert_ne!(bare, ruled, "the ruler cannot be told apart here");
+        assert_eq!(from_cli, bare, "a ruler went under the panel");
+
+        // Stacked under depth, the ruler is the depth's, and it stays.
+        let stacked = |extra: &str| {
+            let line = format!("aln:1-10 --coverage d.bg --snps a.fa {extra}");
+            build(&invocation(&line), |source| {
+                Ok(match source {
+                    Source::Path(path) if path.ends_with("a.fa") => ALIGNED.to_string(),
+                    _ => "aln\t0\t10\t30\n".to_string(),
+                })
+            })
+            .unwrap()
+        };
+        assert_ne!(
+            stacked(""),
+            stacked("--no-axis"),
+            "the depth lost the ruler it is read against"
+        );
+    }
+
     #[test]
     fn a_reference_is_cut_down_to_the_region() {
         let region = Region::parse("chr1:11-20").unwrap();

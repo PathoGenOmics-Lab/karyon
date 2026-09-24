@@ -343,16 +343,16 @@ Show the columns of an alignment where the samples differ, and nothing else.
 
 ```bash
 karyon sites:1-40 --snps core.aln --label isolates \
-  --no-axis --no-region-label -o sites.svg
+  --no-region-label -o sites.svg
 ```
 
 - `--snps` compares every record of an aligned FASTA with the first
   (`--compare-to NAME` picks another), keeps the columns where any record
   differs, gaps included, and spaces them evenly.
 - Evenly spaced columns are not linear in the genome, so a ruler under them
-  would be a lie, and `--no-axis` is not optional. Each column carries its own
-  position instead: on the command line, its index in the alignment counted
-  from 0; in the library, `SnpTrack::offset` shifts it onto the genome.
+  would be a lie, and none is drawn. Each column carries its own position
+  instead, counted from 1 like a ruler: on the command line, its column in the
+  alignment; in the library, `SnpTrack::offset` shifts it onto the genome.
 - The panel places its own columns, so the region is only a label here.
 - `--traits sheet.tsv` draws what is known about each sample as strips beside
   the rows, and `--max-rows` sets how many rows are drawn before the rest are

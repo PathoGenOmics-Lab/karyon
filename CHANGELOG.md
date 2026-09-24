@@ -339,6 +339,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A panel of variable sites counts from one, as the ruler, the locus in the
+  corner and every other tooltip do. Its column labels and tooltips printed each
+  position as stored, so on the command line the first column of an alignment
+  was labelled 0, and the `snps` example labelled 1472251 a site a VCF writes at
+  1,472,252. `SnpSite::position` is 0-based like every other position the crate
+  takes, so a site built by hand with the number to be printed now prints one
+  more than it. The panel also answers `false` to `Track::on_coordinates`, and
+  so do `IdeogramTrack` and `LegendTrack`, since none of the three is drawn on
+  the window the ruler measures: `plot()` and the command line gave a panel of
+  sites, an ideogram or a key on its own a ruler numbering that window, and now
+  leave it off, so `--no-axis` is no longer needed under `--snps`. A figure that
+  also holds a track on the coordinates keeps its ruler. In the committed
+  figures only text changes: every column label and site tooltip in
+  `example-snps.svg`, and in the variable-site panel of `gallery.svg`, is one
+  higher.
 - Five command line flags that were accepted and did nothing now do what they
   say or are refused by name. `--carrying` without `--mutations` put its
   question to an annotation named after the change, which no node carries, and
