@@ -339,6 +339,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Five command line flags that were accepted and did nothing now do what they
+  say or are refused by name. `--carrying` without `--mutations` put its
+  question to an annotation named after the change, which no node carries, and
+  drew the tree with nothing marked; it is refused, since only `--mutations`
+  names the key the changes are kept under. `--color-by` with a key no node
+  carries drew every branch in one colour; it is refused with the keys the tree
+  does carry. `--height` after `--copy-number` was parsed and never passed on,
+  so the band came out at its own 74 pixels, byte for byte the figure without
+  the flag; it is applied. `--format` after any track but `--coverage`,
+  `--features` and `--loci`, or with a word the track before it does not read,
+  such as `depth` after `--features`, parsed and went nowhere; both are refused.
+  And the positions a bedMethyl holds with no valid coverage, which the reader
+  skips and counts rather than drawing at nought per cent, are now counted on
+  the band beside the calls under the floor, through the new
+  `MethylationTrack::no_coverage`.
 - `--sequence` and `--orfs` take a FASTA's record by the sequence the region
   names, as `--with-sequence` already did, rather than whichever record came
   first in the file. Handed a whole genome, a region on chr2 drew chr1's bases

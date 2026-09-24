@@ -155,9 +155,8 @@ A few things about track flags are worth knowing before they surprise you:
 
 Each option describes the track before it. An option given to a track that has
 no use for it is refused by name rather than ignored, as in
-`--aggregate means nothing to a features track`. The two exceptions are
-`--label`, which every track takes, and `--format`, which is accepted after any
-track and read only by the three that take more than one format.
+`--aggregate means nothing to a features track`. The one exception is
+`--label`, which every track takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
@@ -196,7 +195,7 @@ track and read only by the three that take more than one format.
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
 | `--log` | nothing | `--coverage` | a linear scale |
 | `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions` | the theme's colours |
-| `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed` or `gff3` | read by `--coverage`, `--features` and `--loci` | told from the file |
+| `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
 its rows (a feature track, a pileup, an alignment, a tree) takes `--row-height`
@@ -395,14 +394,14 @@ keeps the changes on its branches, under a key the writing tool chose:
 karyon phylo:1-1 --tree tree.nwk --mutations mutations --carrying S:D614G
 ```
 
-`--mutations` names the key. `A123T`, `S:D614G`, and either with `nt:` or `aa:`
-in front are all read. `--carrying` then marks everything at or below a branch
-where that change happened, which is every tip that carries it, and colours by
-the answer unless `--color-by` says otherwise. A change that arose twice marks
-both clades.
+`--mutations` names the key, and `--carrying` is refused without it. `A123T`,
+`S:D614G`, and either with `nt:` or `aa:` in front are all read. `--carrying`
+then marks everything at or below a branch where that change happened, which is
+every tip that carries it, and colours by the answer unless `--color-by` says
+otherwise. A change that arose twice marks both clades.
 
-A clade, tip or change the tree does not hold is refused with what it does hold,
-rather than drawing the whole tree:
+A clade, tip, change or `--color-by` key the tree does not hold is refused with
+what it does hold, rather than drawing the whole tree:
 
 ```text
 $ karyon tree:1-1 --tree tree.nwk --focus ERR9

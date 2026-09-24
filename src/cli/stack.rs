@@ -241,11 +241,17 @@ impl fmt::Display for BuildError {
                 what,
                 wanted,
                 held,
-            } => write!(
-                f,
-                "--{track} {path} has no {what} called {wanted}; it has {}",
-                held.join(", ")
-            ),
+            } => {
+                write!(f, "--{track} {path} has no {what} called {wanted}; it has ")?;
+                // A plain Newick carries no annotation at all, which is the
+                // ordinary way to ask a tree for a colour key it has not got,
+                // and a list of nothing would leave the sentence unfinished.
+                if held.is_empty() {
+                    write!(f, "none")
+                } else {
+                    write!(f, "{}", held.join(", "))
+                }
+            }
             BuildError::Repeated {
                 track,
                 path,
@@ -923,6 +929,35 @@ fn track(
             // something else.
             let coloured = spec.color_by.clone().or_else(|| spec.carrying.clone());
             if let Some(key) = coloured {
+                // A key no node carries colours no branch, and the tree comes
+                // out as it would have without the flag. Looked for on every
+                // node rather than on the tips, since a branch takes its
+                // nearest annotated ancestor's value, and on the tree as it
+                // will be drawn: after `--focus` has cut it, and after the
+                // sheet and the carriers have been written onto it.
+                let tree = track.tree();
+                let nodes = 0..tree.nodes().len();
+                if !nodes
+                    .clone()
+                    .any(|node| tree.annotation(node, &key).is_some())
+                {
+                    let keys: std::collections::BTreeSet<&str> = nodes
+                        .filter_map(|node| tree.annotations(node))
+                        .flat_map(|held| held.keys().map(String::as_str))
+                        .collect();
+                    let mut held: Vec<String> =
+                        keys.iter().take(24).map(|key| key.to_string()).collect();
+                    if keys.len() > held.len() {
+                        held.push(format!("and {} more", keys.len() - held.len()));
+                    }
+                    return Err(BuildError::Unnamed {
+                        track: "tree",
+                        path: path.clone(),
+                        what: "annotation",
+                        wanted: key,
+                        held,
+                    });
+                }
                 track = track.color_by(key);
             }
             if let Some(style) = spec.support_style {
@@ -1010,7 +1045,10 @@ fn track(
                 });
             }
 
-            let mut track = MethylationTrack::new(found.sites);
+            // The reader skips a position nobody could call rather than making
+            // a site at nought per cent of it, so its count comes over by hand
+            // or the band says nothing about it.
+            let mut track = MethylationTrack::new(found.sites).no_coverage(found.no_coverage);
             if let Some(reads) = spec.min_reads {
                 track = track.min_coverage(reads);
             }
@@ -1483,7 +1521,10 @@ fn track(
                 });
             }
 
-            let track = CopyNumberTrack::at_ploidy(found.segments, ploidy);
+            let mut track = CopyNumberTrack::at_ploidy(found.segments, ploidy);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
             Box::new(named(track, label, CopyNumberTrack::label))
         }
         Kind::Matrix => {
@@ -2790,5 +2831,95 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             .to_string();
         assert!(refused.contains("no clade called zzz"), "{refused}");
         assert!(refused.contains('a'), "and says what it has: {refused}");
+    }
+
+    /// A key no node carries colours no branch, and the tree came out exactly
+    /// as it would have without the flag. Refused with the keys the tree does
+    /// carry, the way a change it does not carry is, since a misspelt key is
+    /// the usual way to get here.
+    #[test]
+    fn a_colour_key_the_tree_does_not_carry_is_refused_with_the_ones_it_does() {
+        const TREE: &str = concat!(
+            "((a[&lineage=\"L4\"]:0.1,b[&lineage=\"L4\"]:0.1)[&muts=\"C241T\"]:0.1,",
+            "(c[&lineage=\"L2\"]:0.1,d:0.1):0.1);"
+        );
+        const SHEET: &str = "name\thost\na\tcattle\nb\thuman\nc\thuman\nd\tcattle\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".tsv") => SHEET,
+                _ => TREE,
+            }
+            .to_string())
+        };
+
+        let refused = build(&sheeted("tree:1-1 --tree t.nwk --color-by linage"), open)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            refused,
+            "--tree t.nwk has no annotation called linage; it has lineage, muts"
+        );
+
+        // A key only an internal node carries still colours, since a branch
+        // takes its nearest annotated ancestor's value; and a column of the
+        // sheet is on the tips by the time the key is looked for.
+        for line in [
+            "tree:1-1 --tree t.nwk --color-by lineage",
+            "tree:1-1 --tree t.nwk --color-by muts",
+            "tree:1-1 --tree t.nwk --traits s.tsv --color-by host",
+        ] {
+            assert!(build(&sheeted(line), open).is_ok(), "{line}");
+        }
+
+        // A tree that carries nothing at all says so rather than trailing off.
+        let bare = |_: &Source| -> io::Result<String> { Ok("((a,b),(c,d));".to_string()) };
+        let refused = build(&sheeted("tree:1-1 --tree t.nwk --color-by host"), bare)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            refused,
+            "--tree t.nwk has no annotation called host; it has none"
+        );
+    }
+
+    /// The parser has taken `--height` on a copy number track since the track
+    /// arrived, and this arm never passed it on, so the band came out at its
+    /// own height whatever was asked for, byte for byte the figure it would
+    /// have been without the flag.
+    #[test]
+    fn a_copy_number_track_is_as_tall_as_it_is_asked_to_be() {
+        let table = "chromosome\tstart\tend\tcn\nchr8\t0\t500\t3\nchr8\t500\t1000\t1\n";
+        let tall = |px: u32| -> f64 {
+            let line = format!("chr8:1-1000 --copy-number s.cns --ploidy 2 --height {px}");
+            let svg = build(&sheeted(&line), |_| Ok(table.to_string())).unwrap();
+            svg.split_once(" height=\"")
+                .and_then(|(_, rest)| rest.split('"').next())
+                .and_then(|number| number.parse().ok())
+                .expect("the figure says how tall it is")
+        };
+        assert_eq!(tall(200) - tall(100), 100.0, "the band ignored --height");
+    }
+
+    /// A position the pileup could not call is skipped by the reader rather
+    /// than drawn at nought per cent, and counted. The count stopped there: the
+    /// band printed how many calls its floor held back and said nothing about
+    /// the positions that never became calls at all.
+    #[test]
+    fn positions_nobody_could_call_are_counted_on_the_band() {
+        let pileup = concat!(
+            "chr1\t10\t11\tm\t40\t+\t10\t11\t0,0,0\t40\t95.00\t38\t2\t0\t0\t0\t0\t0\n",
+            "chr1\t20\t21\tm\t0\t+\t20\t21\t0,0,0\t0\t0.00\t0\t0\t0\t0\t12\t0\t4\n",
+            "chr1\t30\t31\tm\t0\t-\t30\t31\t0,0,0\t0\t0.00\t0\t0\t0\t0\t9\t0\t2\n",
+            "chr1\t40\t41\tm\t3\t-\t40\t41\t0,0,0\t3\t66.67\t2\t1\t0\t0\t0\t0\t0\n",
+        );
+        let svg = build(&over("chr1:1-100", "--methylation", "calls.bed"), |_| {
+            Ok(pileup.to_string())
+        })
+        .unwrap();
+        // Beside the floor's own count, in the corner that already holds it.
+        assert!(
+            svg.contains(">1 under 5x, 2 with no coverage</text>"),
+            "{svg}"
+        );
     }
 }

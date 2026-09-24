@@ -133,7 +133,8 @@ TRACK OPTIONS, each describing the track before it
                          --traits sheet, or by an annotation the file already
                          carries. A clade whose tips all agree takes that
                          colour too, so a lineage is a coloured clade and not
-                         only a fringe of coloured tips
+                         only a fringe of coloured tips. A key the tree does
+                         not carry is refused with the keys it does
     --support-style <HOW>
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips
@@ -197,8 +198,9 @@ TRACK OPTIONS, each describing the track before it
                          or all for an alignment
     --log                a log scale
     --color <HEX>        as in '#d55e00'
-    --format <NAME>      bedgraph, depth, values, bed or gff3, when the file
-                         cannot be told by looking at it
+    --format <NAME>      bedgraph, depth or values for coverage, bed or gff3
+                         for features and loci, when the file cannot be told
+                         by looking at it
 
 FIGURE OPTIONS
     --title <TEXT>

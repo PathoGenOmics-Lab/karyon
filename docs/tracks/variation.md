@@ -144,7 +144,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, with `--sample` |
+| Command line | `--copy-number FILE --ploidy COPIES`, with `--sample`, `--height` |
 | Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`) |
 
 === "Rust"
@@ -176,7 +176,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | Method | What it does | Default |
 |:--|:--|:--|
 | `.label("copy number")` | Names the track in the left gutter (`--label`) | none |
-| `.height(100.0)` | Band height in pixels | `74` |
+| `.height(100.0)` | Band height in pixels (`--height`) | `74` |
 | `.cap(8.0)` | Pins the top rung of the ladder, taken literally | at least two copies above the ploidy |
 | `.colors(gain, loss, neutral)` | Inks for gain, loss and the balanced state | from the theme |
 | `.loh_color("#6a3d9a")` | Ink of the lost-heterozygosity mark | from the theme |

@@ -177,9 +177,9 @@ which is why the order is fixed and `--format` can overrule it.
 | `bed` | BED | `--features`, `--loci` |
 | `gff3`, `gff`, `gtf` | GFF3 | `--features`, `--loci` |
 
-`--format` is accepted after any track and ignored by the ones that read a
-single format. A signal word after `--features` is ignored too, and the guess
-runs as usual.
+`--format` is refused after the tracks that read a single format, and so is a
+word the track before it does not read: a signal word after `--features` would
+change nothing, since the guess runs as usual.
 
 !!! note "`gtf` is a spelling of `gff3`, not a GTF reader"
     A GTF's first eight columns are GFF3's, so its coordinates come out right,
@@ -694,7 +694,7 @@ NC_000913.3  1000  1001  m  30  +  1000  1001  255,0,0  30  86.67  26  4  0  0  
 | Columns | 1 sequence, 2 start, 4 modification code, 6 strand, 10 valid coverage, 12 reads modified; the fraction is column 12 over column 10 |
 | Ignored | 3 end, 5 score, 7 to 9, 11 percent modified (the same fraction, rounded), and 13 to 18 |
 | Coordinates | 0-based, passed through: `1000` is the base 1,001 counted from 1 |
-| Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified |
+| Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified, and whose number `--methylation` prints on the band |
 | Refused | fewer than 18 columns; a strand other than `+` or `-`, since a strand-combined pileup has no strand to draw; more reads modified than valid coverage |
 
 A file holding more than one modification code, such as `m` and `h` from a
