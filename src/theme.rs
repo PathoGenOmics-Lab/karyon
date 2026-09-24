@@ -41,9 +41,9 @@ use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, Visu
 pub struct Theme {
     /// Page background. Set it to `"none"` for a transparent SVG.
     pub background: String,
-    /// Titles, primary axes and tick marks.
+    /// Titles, track labels, primary axes and tick marks.
     pub foreground: String,
-    /// Secondary text: coordinates, track labels, legends.
+    /// Secondary text: coordinates, tick labels, legends.
     pub muted: String,
     /// Quiet rules: baselines, guides and secondary separators.
     pub rule: String,
@@ -328,8 +328,11 @@ impl BaseColors {
     ///
     /// The closest pair is 11.0 in OKLab hundredths under deuteranopia, against
     /// a floor of 8, and every other pair is further apart than that. The cost
-    /// is that green now means adenine rather than the thymine-red a reader
-    /// expects, so label it or say so in the caption.
+    /// is in the shades, not in which base is which: adenine is green in both
+    /// sets, a bluish green here, guanine turns a yellower orange and cytosine
+    /// barely moves. Thymine moves furthest, from red to vermillion, so a
+    /// reader expecting a red thymine finds an orange-red one: label it or say
+    /// so in the caption.
     pub fn colorblind_safe() -> Self {
         BaseColors {
             a: "#009e73".into(),

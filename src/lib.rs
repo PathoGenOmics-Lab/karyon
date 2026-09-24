@@ -21,11 +21,12 @@
 //!
 //! # Files are text, and text is somebody else's problem
 //!
-//! [`read`] turns BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`,
-//! FASTA and Newick into the vectors the tracks take. Every one of those
-//! functions takes a `&str`: nothing in this crate opens a path to read one,
-//! so where the text came from stays the caller's decision, and the dependency
-//! count stays at zero because all nine formats are lines of text.
+//! [`read`] turns BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`
+//! and FASTA into the vectors the tracks take, and [`Tree::parse_newick`]
+//! turns Newick into the [`Tree`] a [`TreeTrack`] draws. Every one of those
+//! functions takes a `&str`: none of them opens a path to read one, so where
+//! the text came from stays the caller's decision, and the dependency count
+//! stays at zero because all nine formats are lines of text.
 //!
 //! # Four tracks, one region, one call each
 //!

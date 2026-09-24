@@ -104,7 +104,7 @@ A ruler in codons, so a coding sequence can be read in protein coordinates: codo
 | `.cell_height(16.0)` | Height of the codon cells, in pixels | `13` |
 | `.color("#0072b2")` | Overrides the colour | the strand colour |
 | `.numbering(10)` | Numbers every this many codons, instead of a spacing chosen for the zoom | automatic |
-| `.show_start(false)` | Shows or hides the chevron on the first codon that says which way the sequence is read | shown |
+| `.show_start(false)` | Shows or hides the chevron on the first codon that says where the count starts | shown |
 
 #### Notes
 

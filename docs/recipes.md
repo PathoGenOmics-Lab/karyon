@@ -683,7 +683,7 @@ Put several figures on one sheet with letters on them, the way a paper figure
 is laid out.
 
 <figure class="k-plate" markdown>
-![Twenty-two panels in three columns on one sheet, showing every kind of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
+![Twenty-two panels in three columns on one sheet, showing most kinds of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
 <figcaption>Twenty-two panels in three columns, one document: <code>cargo run --example gallery -- assets</code>.</figcaption>
 </figure>
 

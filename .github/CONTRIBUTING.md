@@ -10,8 +10,9 @@ and the three things that catch people out.
 
 ## 1. Run the gates yourself
 
-CI is `workflow_dispatch` only. Pushing does not start it, so nothing checks
-your branch until somebody runs the workflow by hand. Run the same four
+CI runs on every pull request, and again on `main` after a merge. Pushing a
+branch with no pull request does not start it, so nothing checks your branch
+until you open one or somebody runs the workflow by hand. Run the same four
 commands locally before you open a pull request:
 
 ```bash

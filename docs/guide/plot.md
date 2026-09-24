@@ -699,7 +699,7 @@ puts finished drawings on one SVG sheet, each with an optional letter and
 caption, without any of them knowing about the others.
 
 <figure class="k-plate" markdown>
-![One sheet of twenty-two panels in three columns, lettered A to V, covering every kind of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny and transcription units](../assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
+![One sheet of twenty-two panels in three columns, lettered A to V, covering most kinds of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny and transcription units](../assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
 </figure>
 
 ```rust

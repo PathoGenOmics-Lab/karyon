@@ -339,6 +339,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Documentation that contradicted the code now says what the code does, and
+  nothing drawn changes. `Theme::muted` claimed the track labels, which are set
+  in the foreground ink, and now claims the tick labels it does colour.
+  `BaseColors::colorblind_safe` said green had come to mean adenine, when
+  adenine is green in both sets: what moves is the shade, thymine furthest, from
+  red to vermillion. The crate documentation listed Newick among the formats of
+  `read`, and it is `Tree::parse_newick` that reads it. The structural VCF
+  reader said taking one off `POS` would move every call two bases, where its
+  own audit test shows one. `CodonTrack::show_start` said its chevron points the
+  way the sequence is read, and it points out of the sequence, away from codon
+  2. The gallery example said every track type has a panel, and seven have none;
+  it now names them and the examples that draw them. CONTRIBUTING said CI runs
+  only by hand, and it runs on every pull request and on `main` after a merge.
 - A list of changes written in braces is read whole. `Mutations::read` took
   `[&muts={A123T,S:D614G,C241T}]` back as the text it prints as, braces and all,
   so the first piece began with one and the last ended with the other and
