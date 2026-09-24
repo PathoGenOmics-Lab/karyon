@@ -1,69 +1,96 @@
----
-title: Phylogeny and clade plots
-description: Annotated trees, tanglegrams, clade-linked intervals and circular phylogeography.
----
+# Phylogeny and clades
 
-<div class="plot-hero plot-hero--phylo" markdown>
+Plots that put a tree beside the evidence: annotated trees in several layouts,
+two trees face to face, genomic spans painted onto clades, and a tree around a
+map. karyon draws the tree you give it; it does not infer one.
+{ .k-lead }
 
-<span class="plot-eyebrow">Gallery · Phylogeny and clades</span>
+## How to choose
 
-# Put topology beside the evidence
+| Your question | Plot | Build it with |
+|:--|:--|:--|
+| What does the tree say, with its support and metadata beside it? | [Annotated tree](../tracks/phylogeny.md#treetrack) | `TreeTrack`, `--tree` |
+| Where do two trees over the same taxa disagree? | [Tanglegram](../tracks/phylogeny.md#tanglegramtrack) | `TanglegramTrack`, `--tanglegram` with `--against` |
+| Which clades carry a genomic span, and is it one event? | [Clade blocks](../tracks/phylogeny.md#cladetrack) | `CladeTrack`, `--clades` with `--with-tree` |
+| Where were the tips sampled? | [Tree around a map](../guide/maps.md) | `PhyloMap`, Rust only |
 
-These views preserve terminal order, branch length, support and typed metadata.
-They render an existing analysis; they do not infer a tree, clock, ancestral
-state, migration event or transmission chain.
+To sort rows of sites, genes, residues or domains by a tree, hand the tree to
+`SnpTrack`, `MatrixTrack`, `MsaTrack` or `DomainTrack` with `.tree()`: their
+plots are under [variation](variation-association.md) and
+[comparisons](comparisons-alignments.md).
 
-<div class="plot-stats"><span><strong>3</strong> tree tracks</span><span><strong>4</strong> selection views</span></div>
+## Plots
+
+<div class="k-plots" markdown>
+
+-   [![A dated outbreak tree with branches coloured by country and aligned country and depth columns, beside the same tree with two named clades collapsed into triangles](../assets/figures/example-phylogenetics.svg){ width="1538" height="352" loading="lazy" .k-wide }](../tracks/phylogeny.md#treetrack)
+
+    **[Annotated tree](../tracks/phylogeny.md#treetrack)**
+    A phylogram, cladogram or time tree with metadata aligned to its tips, branches coloured by a trait and clades collapsed without changing the tree.
+
+-   [![Four radial views of one outbreak tree: a circular time tree with country and depth rings, a 250-degree fan with a collapsed clade, time radiating inwards, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Circular and radial trees](../tracks/phylogeny.md#treetrack)**
+    The same tree as a full circle, a partial fan or radiating inwards, with metadata as rings; the topology and the order of the tips stay the same.
+
+-   [![An unrooted tree and a circular cladogram carrying the same four datasets: a country strip, radial depth bars, binary resistance marks and host symbols](../assets/figures/example-phylo-annotations.svg){ width="1478" height="710" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Unrooted trees and datasets](../tracks/phylogeny.md#treetrack)**
+    An unrooted layout centred on the topology rather than on the root the file happened to use, with strips, bars, binary marks and symbols as datasets.
+
+-   [![One phylogram drawn rectangular, circular and unrooted, with support values as symbols and labels, mutations written along their branches and a branch-length scale bar](../assets/figures/example-phylo-evidence.svg){ width="1736" height="628" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Support, events and scale bars](../tracks/phylogeny.md#treetrack)**
+    Support as symbols or labels above a threshold, each branch's own events written along it, and a scale bar in branch-length units.
+
+-   [![The same phylogram rooted three ways, at the source root, on a checked monophyletic outgroup and at the weighted midpoint, each root marked with a diamond](../assets/figures/example-phylo-reroot.svg){ width="1736" height="358" loading="lazy" .k-wide }](../tracks/phylogeny.md#treetrack)
+
+    **[Rooting choices](../tracks/phylogeny.md#treetrack)**
+    Reroot at a node, on an outgroup checked for monophyly or at the midpoint, with the new root marked.
+
+-   [![Abundance bubbles and host bars on a rectangular tree with a highlighted transmission cluster, ancestral-host donuts and a highlighted sector on a radial tree, and an alignment and domain architectures sorted by the same tree](../assets/figures/example-phylo-faces.svg){ width="1384" height="658" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Node glyphs and clade highlights](../tracks/phylogeny.md#treetrack)**
+    Bubbles, pies, donuts or stacked bars on nodes and a band or sector behind a clade; a missing value draws no glyph rather than a zero.
+
+-   [![Core and accessory genome trees of eight isolates face to face, matching tips joined across the middle, with a header reporting seven crossings reduced to five](../assets/figures/example-tanglegram.svg){ width="760" height="234" loading="lazy" }](../tracks/phylogeny.md#tanglegramtrack)
+
+    **[Tanglegram](../tracks/phylogeny.md#tanglegramtrack)**
+    Two trees facing each other with every shared tip joined; untangling rotates clades to remove crossings but never changes either tree.
+
+-   [![Lineage-defining deletions painted across a SARS-CoV-2 phylogeny, each block spanning the lineages that carry it, with the recurrent one cut out where a lineage between the carriers lacks it](../assets/figures/example-clades.svg){ width="880" height="240" loading="lazy" .k-wide }](../tracks/phylogeny.md#cladetrack)
+
+    **[Clade blocks](../tracks/phylogeny.md#cladetrack)**
+    A genomic span painted across the clade that carries it, with any row inside the span that does not carry it cut out, so a scattered set never passes for a clade.
+
+-   [![Two circular phylogenies around an orthographic globe: a calendar time tree with one link per reported location, and a partial cladogram with a link from every sample](../assets/figures/example-phylo-map.svg){ width="1914" height="868" loading="lazy" }](../guide/maps.md)
+
+    **[Tree around a map](../guide/maps.md)**
+    A circular tree framing a map, its tips linked to the locations you supply, place by place or sample by sample; nothing about migration is inferred.
 
 </div>
 
-<div class="plot-card-grid">
-  <a class="plot-card" href="../evolution-surveillance/">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="Tree geometries, ancestral reconstruction, molecular evolution, comparison, phylodynamics and lineage surveillance" loading="lazy" width="1410" height="2057"></span>
-    <span class="plot-card__body"><small>Topology × genome × time</small><strong>Evolutionary surveillance atlas</strong><span>Move from tree geometry through ancestral evidence and molecular selection to phylodynamic estimates and observed lineage change.</span><b>Open catalogue <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../guide/phylogenetics/#build-a-branch-to-codon-selection-atlas">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="A molecular-selection atlas with branch rate mixtures, recurrent-event links and site-wise frequentist and posterior scans" loading="lazy" width="1510" height="1057"></span>
-    <span class="plot-card__body"><small>Tree × codon model</small><strong>Molecular selection atlas</strong><span>Keep weighted branch rate classes, recurrence, statistical evidence and signed site effects in separate visual channels.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../guide/phylogenetics/#attach-data-graphics-to-nodes-and-clades">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-faces.svg" alt="Node bubbles, ancestral composition donuts, clade fields, an aligned MSA and aligned domain architectures" loading="lazy" width="1388" height="664"></span>
-    <span class="plot-card__body"><small>Tree × node and row data</small><strong>Phylogenetic data faces</strong><span>Attach abundance, composition and clade context to nodes, then align sequences or domains by descent.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#treetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted trees with support, branch events and evolutionary scale bars" loading="lazy" width="1742" height="632"></span>
-    <span class="plot-card__body"><small>One annotated topology</small><strong>TreeTrack</strong><span>Root by node, outgroup or midpoint; then draw rectangular, radial or unrooted with support, events, scales and iTOL-style metadata.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" id="tree-to-tree-comparison" href="../../tracks/#tanglegramtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Two trees joined through their matching terminal taxa" loading="lazy" width="760" height="236"></span>
-    <span class="plot-card__body"><small>Two topologies</small><strong>TanglegramTrack</strong><span>Matching taxa joined between trees, with crossing minimisation that changes order but never topology.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#cladetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-clades.svg" alt="Genomic intervals painted across the clades that carry them" loading="lazy" width="880" height="242"></span>
-    <span class="plot-card__body"><small>Tree × genomic interval</small><strong>CladeTrack</strong><span>Coordinate blocks whose height is a clade, with non-carrier rows cut out rather than hidden.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../guide/maps/#put-a-phylogeny-around-the-map">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-map.svg" alt="A circular time tree and cladogram around a map" loading="lazy" width="1918" height="872"></span>
-    <span class="plot-card__body"><small>Tree × supplied geography</small><strong>PhyloMap</strong><span>A circular tree around a central projection with aggregated, individual or absent sample-to-place links.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
+## Related
+
+<div class="grid cards" markdown>
+
+-   **[Evolution and surveillance](evolution-surveillance.md)**
+
+    Ancestral states and selection on the same trees, and trajectories and
+    lineage counts through time.
+
+-   **[Variation and association](variation-association.md)**
+
+    Variable sites and genotype matrices sorted by a tree.
+
+-   **[Phylogenetics](../guide/phylogenetics.md)**
+
+    Reading trees and their annotations, dates, layouts, rooting and
+    collapsing.
+
+-   **[Tree viewer](../tree.md)**
+
+    Open a tree in the browser and explore it, from a handful of tips to a
+    million.
+
 </div>
-
-## Choose what topology is aligned to
-
-| Analytical structure | Start with |
-|:--|:--|
-| one tree and terminal metadata | `TreeTrack` |
-| ancestral probabilities, direct events or branch uncertainty | `TreeTrack` with `AncestralStateLayer`, `BranchEventLayer` or `BranchIntervalLayer` |
-| abundance or composition on internal nodes | `TreeTrack` with `NodeGlyph` |
-| aligned residues or domains ordered by descent | `MsaTrack::tree` or `DomainTrack::tree` |
-| two trees over matching terminal names | `TanglegramTrack` |
-| genomic intervals carried by named taxa | `CladeTrack` |
-| terminal annotations matched to supplied coordinates | `PhyloMap` |
-| inferred population trajectory through time | `PhylodynamicTrack` |
-| observed lineage counts and denominators through time | `SurveillanceTrack` |
-
-## Related guides
-
-- [Annotated phylogenetics](../guide/phylogenetics.md) covers parsing, dates, radial geometry and topology operations.
-- [Geographic genomics](../guide/maps.md) covers coordinate matching, projections and missing-location rules.
-- [Variation and association](variation-association.md) covers variable sites and genotype patterns organised by a tree.

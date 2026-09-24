@@ -398,17 +398,15 @@
   gap: 1rem;
   padding: 1.25rem;
   box-sizing: border-box;
-  /* Warm rather than white, which is the one borrowed colour worth borrowing:
-     a wall of figures on paper white is a wall of glare. In the dark scheme it
-     is the same idea and not the same value, since a cream panel on a dark
-     page is a hole in it. */
+  /* Tinted rather than white: a wall of figures on paper white is a wall of
+     glare. At night the panel is the page itself. */
   background: var(--md-default-bg-color);
   box-shadow: rgba(0, 0, 0, 0.18) -10px 0 30px;
   animation: pg-slide 180ms ease-out;
 }
 
 body:not([data-md-color-scheme="slate"]) .pg-panel {
-  background: #f7f5ef;
+  background: var(--k-glass-strong);
 }
 
 .pg-panel-head {

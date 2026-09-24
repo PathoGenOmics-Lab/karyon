@@ -1,81 +1,97 @@
----
-title: Evolution and surveillance plots
-description: Tree geometry, ancestral reconstruction, molecular selection, phylodynamics and lineage surveillance.
----
+# Evolution and surveillance
 
-<div class="plot-hero plot-hero--variation" markdown>
+Plots for results fitted upstream: ancestral states, selection on branches and
+at sites, population trajectories and lineage counts through time. karyon
+draws each one with its uncertainty in view; it fits none of the models.
+{ .k-lead }
 
-<span class="plot-eyebrow">Gallery · Evolution and surveillance</span>
+<figure class="k-plate" markdown>
+![An eight-panel synthetic atlas: orthogonal and diagonal phylograms with host strips, a curved tree with ancestral-state donuts, mutation symbols and concordance whiskers, a circular tree coloured by branch omega, an unrooted mutation map, a core-versus-accessory tanglegram, protein domains over site-wise selection and observed variants, and an effective population size trajectory above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }
+<figcaption>A and B, tree geometries. C, ancestral states and branch events. D, selection on branches. E, the same branch evidence unrooted. F, a tanglegram. G, site-wise selection. H, a phylodynamic trajectory over lineage frequencies.</figcaption>
+</figure>
 
-# Keep estimates, uncertainty and observations distinct
+## How to choose
 
-These views join topology, molecular evolution and time without flattening
-their different evidence into one colour. Karyon renders supplied results: it
-does not infer ancestral states, fit codon or coalescent models, smooth lineage
-frequencies or assert transmission.
-
-<div class="plot-stats"><span><strong>6</strong> tree geometries</span><span><strong>2</strong> temporal tracks</span><span><strong>1</strong> genomic selection track</span></div>
-
-</div>
-
-![Eight synthetic views covering orthogonal, diagonal, curved, circular and unrooted trees, a tanglegram, genomic selection layers, a phylodynamic trajectory and lineage surveillance](../assets/figures/example-evolutionary-surveillance.svg){ width="1410" height="2057" loading="lazy" }
-
-## Choose the biological question
-
-<div class="plot-card-grid">
-  <a class="plot-card" href="../../guide/phylogenetics/#choose-a-tree-geometry-for-the-reading-task">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-layouts.svg" alt="Four views of one outbreak tree: an outward circular time tree with two trait rings, a partial fan with a collapsed clade, an inward time tree and a circular cladogram" loading="lazy" width="1402" height="1232"></span>
-    <span class="plot-card__body"><small>Topology × geometry</small><strong>Tree shape</strong><span>Choose row alignment, compact radial context or topology-balanced unrooted space without changing the owned tree.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../guide/phylogenetics/#render-ancestral-states-events-and-branch-uncertainty">
-    <span class="plot-card__media"><img src="../../assets/figures/example-phylo-evidence.svg" alt="Rectangular, circular and unrooted phylograms carrying support, branch events and evolutionary distance scales" loading="lazy" width="1742" height="632"></span>
-    <span class="plot-card__body"><small>Reconstruction × uncertainty</small><strong>Ancestral evidence</strong><span>Place posterior state composition on internal nodes and direct mutation or interval evidence on the branch that owns it.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../guide/phylogenetics/#build-a-branch-to-codon-selection-atlas">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection-atlas.svg" alt="Branch rate mixtures, recurrence links and genomic site-wise selection evidence" loading="lazy" width="1510" height="1057"></span>
-    <span class="plot-card__body"><small>Branch × codon × genome</small><strong>Molecular evolution</strong><span>Separate fitted rate classes, effect direction, statistical evidence, recurrence and observed genomic variants.</span><b>Open guide <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#phylodynamictrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="An eight-panel evolutionary atlas whose sixth panel is a log-scale effective population trajectory with its uncertainty ribbon" loading="lazy" width="1410" height="2057"></span>
-    <span class="plot-card__body"><small>Time × inferred population process</small><strong>PhylodynamicTrack</strong><span>Draw skyline, effective population, reproductive-number or growth estimates with their interval still visible.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#surveillancetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-evolutionary-surveillance.svg" alt="An eight-panel evolutionary atlas whose last panel is stacked lineage frequencies with sampling-aware alert markers" loading="lazy" width="1410" height="2057"></span>
-    <span class="plot-card__body"><small>Time × observed lineage counts</small><strong>SurveillanceTrack</strong><span>Compare lineage composition or trajectories while keeping counts, denominators and alert reasons inspectable.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#tanglegramtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-tanglegram.svg" alt="Core and accessory trees joined through matching taxa" loading="lazy" width="760" height="236"></span>
-    <span class="plot-card__body"><small>Topology × topology</small><strong>Evolutionary comparison</strong><span>Expose gene-tree, species-tree, core or accessory disagreement as traceable crossings.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-</div>
-
-## Data contract
-
-| Supplied result | Karyon encoding | Deliberate boundary |
+| Your question | Plot | Build it with |
 |:--|:--|:--|
-| ancestral state probabilities | internal-node donuts and confident transition cues | no ancestral reconstruction |
-| direct branch events | ordered branch symbols and optional recurrence links | no event inference or convergence claim |
-| point estimate with bounds | branch whisker or temporal uncertainty ribbon | no interval estimation |
-| branch or site ω results | neutral-centred colour, rate mixtures and separate evidence marks | no codon-model fitting |
-| effective size, R or growth through time | linear or log trajectory | no coalescent or clock fitting |
-| lineage counts and denominators | stacked composition or comparable lines | no smoothing or extrapolation |
+| What state was each ancestor in, and where did it change? | [Ancestral states and branch events](../tracks/phylogeny.md#treetrack) | `TreeTrack` with `AncestralStateLayer`, `BranchEventLayer` and `BranchIntervalLayer` |
+| On which branches is ω above or below one? | [Selection on branches](../tracks/phylogeny.md#treetrack) | `TreeTrack` with `.dnds()`, `BranchRateMixture` and `HomoplasyLayer` |
+| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack` |
+| How did the effective population size or R change through time? | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack) | `PhylodynamicTrack` |
+| Which lineages are rising, and out of how many samples? | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack) | `SurveillanceTrack` |
 
-Generate the complete synthetic sheet with:
+All five are built in Rust. The command line draws the tree itself with
+`--tree`, but none of these layers or tracks. To compare two trees, see the
+[tanglegram](phylogeny-clades.md).
 
-```bash
-cargo run --example evolutionary_surveillance -- assets
-```
+??? info "Why karyon draws these results but fits none of them"
+    Each of these results is an estimate that another program made, and each
+    plot keeps the estimate apart from its uncertainty and from what was
+    observed. A missing value stays missing rather than becoming zero.
 
-The visual contracts follow the structure of results produced by established
-upstream workflows: [HyPhy methods](https://hyphy.org/methods/) for molecular
-selection, [Augur ancestral](https://docs.nextstrain.org/projects/augur/en/latest/usage/cli/ancestral.html)
-and [traits](https://docs.nextstrain.org/projects/augur/en/latest/usage/cli/traits.html)
-for node and branch reconstruction, [Augur frequencies](https://docs.nextstrain.org/projects/augur/en/latest/usage/cli/frequencies.html)
-for temporal observations, and [TreeTime coalescent
-models](https://treetime.readthedocs.io/en/latest/merger_models.html) for
-phylodynamic estimates. Karyon accepts typed values derived from any upstream
-tool; it does not require or invoke these programs.
+    | You supply | karyon draws | karyon does not |
+    |:--|:--|:--|
+    | Ancestral state probabilities | Donuts on internal nodes, and a mark where a confident state changes | Reconstruct ancestral states |
+    | Events on a branch | Ordered symbols on that branch, and dashed curves between branches carrying the same event | Infer events, or claim convergence |
+    | An estimate with bounds | A whisker on a branch, or a ribbon through time | Estimate the interval |
+    | Branch or site ω | Colours centred on ω = 1, capsules for rate classes, evidence in a tier of its own | Fit a codon model |
+    | Effective size, R or growth through time | A line on a linear or log scale | Fit a coalescent model or a clock |
+    | Lineage counts and totals | Stacked composition or lines, with alerts that state their reason | Smooth, extrapolate, or fill a missing count with zero |
 
-Continue with the [annotated phylogenetics guide](../guide/phylogenetics.md)
-for builders and failure semantics, or open the [track API
-reference](../tracks.md) for every option.
+## Plots
+
+<div class="k-plots" markdown>
+
+-   [![An eight-panel synthetic atlas whose third panel is a curved tree with ancestral-state donuts on internal nodes, mutation symbols on branches and concordance whiskers](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Ancestral states and branch events](../tracks/phylogeny.md#treetrack)**
+    State probabilities as donuts on internal nodes, events on the branch that owns them, and a branch estimate with whiskers (panels C and E).
+
+-   [![One tree drawn four ways with branches coloured by dN/dS on a scale centred at one: rectangular with amino acid changes and host and resistance columns, circular with metadata rings, unrooted, and as a cladogram](../assets/figures/example-phylo-dnds.svg){ width="1506" height="1388" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+
+    **[Selection on branches](../tracks/phylogeny.md#treetrack)**
+    Branches coloured by ω, cool below one and warm above it, with the branches that pass a significance cut drawn heavier; fitted rate classes and recurrent changes can go on top.
+
+-   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }](../tracks/variation.md#selectiontrack)
+
+    **[Site-wise selection](../tracks/variation.md#selectiontrack)**
+    Evidence, as a p-value or a posterior, in one tier and the signed log2(ω) effect in another, so a significant purifying site still reads as purifying.
+
+-   [![An eight-panel synthetic atlas whose last panel is an effective population size trajectory on a log scale with its uncertainty ribbon, above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/evolution-surveillance.md#phylodynamictrack)
+
+    **[Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack)**
+    An estimate through time as a line with its interval as a ribbon, on a linear or log scale, with a reference such as R = 1 (panel H).
+
+-   [![An eight-panel synthetic atlas whose last panel ends in stacked lineage frequencies by month, with markers where a lineage passed an alert](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/evolution-surveillance.md#surveillancetrack)
+
+    **[Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack)**
+    Lineage counts over their totals as stacked composition or as lines, with alerts for frequency and growth that never hide the counts (panel H).
+
+</div>
+
+From a clone of the repository, `cargo run --example evolutionary_surveillance`
+writes the atlas to the current directory, so the code behind every panel is
+there to read.
+
+## Related
+
+<div class="grid cards" markdown>
+
+-   **[Phylogeny and clades](phylogeny-clades.md)**
+
+    Trees in every layout, two trees face to face, and spans painted onto
+    clades.
+
+-   **[Variation and association](variation-association.md)**
+
+    Site-wise selection beside the variants, genes and codons it concerns.
+
+-   **[Phylogenetics](../guide/phylogenetics.md)**
+
+    Reading annotated trees, and the builders behind every layer on this page.
+
+-   **[Recipes](../recipes.md)**
+
+    Complete programs that stack several tracks into one figure.
+
+</div>

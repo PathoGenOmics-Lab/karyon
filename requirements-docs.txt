@@ -2,3 +2,5 @@
 #   pip install -r requirements-docs.txt
 #   mkdocs serve
 mkdocs-material>=9.7.7,<10
+# Old addresses of pages that were merged into others keep working.
+mkdocs-redirects>=1.2,<2

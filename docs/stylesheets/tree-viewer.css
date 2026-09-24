@@ -107,7 +107,7 @@
 
 [data-md-color-scheme="slate"] .tv-btn[aria-pressed="true"],
 [data-md-color-scheme="slate"] .tv-btn[aria-checked="true"] {
-  color: #161a1d;
+  color: var(--k-ground);
 }
 
 /* Somewhere to be while moving through them with a keyboard. Without this the

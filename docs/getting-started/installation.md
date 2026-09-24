@@ -1,57 +1,43 @@
 # Installation
 
-karyon is one Rust package that contains both a library and a command line
-program. The only thing you need is a Rust toolchain: there is nothing else to
-install, no C library to link against and no dependency to download.
+Install the `karyon` program with one command, or add the library to a Rust
+project with one line. Either way, a Rust toolchain is all you need.
+{ .k-lead }
 
-!!! note "Not on crates.io yet"
-    `cargo add karyon` and `cargo install karyon` will not find it yet, so the
-    commands on this page point Cargo at the GitHub repository instead. Once it
-    is published, those two commands will work and nothing else here changes.
+## The fast path
 
-## 1. Get a Rust toolchain
-
-Skip this if `rustc --version` already prints 1.74 or newer.
-
-=== "rustup (recommended)"
-
-    ```bash
-    curl https://sh.rustup.rs -sSf | sh
-    ```
-
-=== "conda"
-
-    ```bash
-    conda install -c conda-forge rust
-    ```
-
-## 2. Install the command line
+The command line, built and put on your `PATH` by Cargo:
 
 ```bash
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
-This compiles the `karyon` program and puts it in `~/.cargo/bin`, which rustup
-adds to your `PATH`. Check that it works:
-
-```bash
-karyon --version
-karyon --help
-```
-
-`--help` prints the whole command grammar. The [Quickstart](quickstart.md) walks
-through a first figure, and [Command line](../guide/cli.md) documents every flag.
-
-## 3. Or use it as a library
-
-Add karyon to your project's `Cargo.toml`:
+The library, as one line in your project's `Cargo.toml`:
 
 ```toml
 [dependencies]
 karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 ```
 
-A small program to check that it builds:
+!!! note "Not on crates.io yet"
+    Until it is published, `cargo install karyon` and `cargo add karyon` will
+    not find it, which is why both lines point Cargo at the repository.
+
+!!! tip "Try it without installing anything"
+    The [Playground](../playground.md) runs the real command line in your
+    browser, compiled to WebAssembly. Nothing you type is uploaded.
+
+## Check that it works
+
+`cargo install` puts the program in `~/.cargo/bin`, which rustup adds to your
+`PATH`:
+
+```bash
+karyon --version   # prints karyon and the version number
+karyon --help      # the whole command grammar on one screen
+```
+
+For the library, this small program builds a figure and reports its size:
 
 ```rust
 fn main() -> std::io::Result<()> {
@@ -63,14 +49,30 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-Projects that use the library never build the command line program, so adding
-karyon adds nothing else to your dependency tree.
+A project that depends on the library never builds the command line program,
+so adding karyon adds nothing else to your dependency tree.
 
-### Pin a version for reproducible figures
+## Get a Rust toolchain
 
-A git dependency follows the default branch, so `cargo update` can move you to
-newer code. When a figure has to come out exactly the same later, pin the commit
-you tested:
+Skip this if `rustc --version` already prints 1.74 or newer.
+
+=== "rustup (recommended)"
+
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+
+=== "conda"
+
+    ```bash
+    conda install -c conda-forge rust
+    ```
+
+## Pin a commit for reproducible figures
+
+A git dependency follows the repository's default branch, so `cargo update`
+can move you to newer code. When a figure has to come out the same next year,
+pin the commit you tested:
 
 ```toml
 [dependencies]
@@ -78,37 +80,61 @@ you tested:
 karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon", rev = "<sha>" }
 ```
 
-Rendering is deterministic: the same input and the same version produce a
-byte-identical SVG.
+The command line takes the same pin:
+
+```bash
+cargo install --git https://github.com/PathoGenOmics-Lab/karyon --rev <sha>
+```
+
+Rendering is deterministic: the same input and the same version give a
+byte-identical SVG, so a pinned figure can be checked with a plain `diff`.
 
 ## Build from a clone
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/karyon
 cd karyon
-cargo build --release      # the program ends up in target/release/karyon
-cargo test                 # the full test suite
+cargo build --release          # the program is target/release/karyon
+cargo test                     # the full test suite
+cargo run --quiet -- --help    # run the command line without installing it
 ```
 
-The examples draw the figures used on this site. Each one takes an output
-directory:
+Nearly every figure on this site comes from a program in `examples/`, and each
+one takes the directory to write into:
 
 ```bash
 cargo run --example locus -- assets
 ```
 
-## Requirements in detail
+## Requirements
 
 | | |
 |:--|:--|
-| **Rust** | 1.74 or newer, edition 2021. An older toolchain gets a clear message naming the version it needs. |
-| **Runtime dependencies** | None. Both dependency tables in `Cargo.toml` are empty. |
-| **System libraries** | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
-| **Input formats** | Line-based text only. Convert BAM, CRAM and BCF with `samtools` or `bcftools` and pipe the text in. |
-| **Output** | Standalone SVG 1.1, which names its fonts rather than embedding them. |
+| Rust | 1.74 or newer (the MSRV), edition 2021. An older toolchain stops with a message naming the version it needs. |
+| Dependencies | None. The `[dependencies]` table in `Cargo.toml` is empty. |
+| System libraries | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
+| Platforms | Any target with Rust's standard library, WebAssembly included. |
+| Input | Line-based text formats. BAM, CRAM and BCF come in through `samtools` or `bcftools`, piped. |
+| Output | Standalone SVG that names its fonts rather than embedding them. |
 
 ## Next
 
-- [Quickstart](quickstart.md): a first figure from the shell and from Rust.
-- [Core concepts](concepts.md): regions, tracks and the shared scale.
-- [Gallery](../plots/index.md): every kind of plot karyon draws.
+<div class="grid cards" markdown>
+
+-   **[Your first figure](quickstart.md)**
+
+    A figure from the shell in two lines, then the same kind of stack from Rust.
+
+-   **[Core ideas](concepts.md)**
+
+    Regions, tracks, the shared scale and the builder that stacks them.
+
+-   **[Command line](../guide/cli.md)**
+
+    Every flag the `karyon` command takes.
+
+-   **[Gallery](../plots/index.md)**
+
+    Every kind of plot karyon draws, found by what you want to show.
+
+</div>

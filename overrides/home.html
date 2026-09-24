@@ -1,0 +1,46 @@
+{#-
+  The home page. Its hero is drawn here, above the page body, so it can run the
+  full width of the window under the header; everything after the hero is the
+  Markdown in docs/index.md. The page's own stylesheet is linked only here, so
+  no other page downloads it.
+-#}
+{% extends "main.html" %}
+
+{#- After the site's own stylesheets, so a home page rule wins a tie. -#}
+{% block extrahead %}
+  {{ super() }}
+  <link rel="stylesheet" href="{{ 'stylesheets/home.css' | url }}">
+{% endblock %}
+
+{% block hero %}
+  <section class="kh-hero" aria-labelledby="kh-hero-title">
+    <div class="md-grid kh-hero__grid">
+      <div class="kh-hero__art">
+        <img class="kh-hero__logo kh-hero__logo--dark" src="{{ 'assets/karyon_logo_dark.svg' | url }}" alt="karyon" width="702" height="474">
+        <img class="kh-hero__logo kh-hero__logo--light" src="{{ 'assets/karyon_logo.svg' | url }}" alt="karyon" width="702" height="474">
+      </div>
+      <p class="kh-hero__eyebrow">Rust library &middot; command line &middot; WebAssembly</p>
+      <h1 class="kh-hero__title" id="kh-hero-title">Genome figures where <span>every row lines up</span></h1>
+      <p class="kh-hero__lead">Name a region once, stack coverage, genes, variants, reads or a phylogeny on it, and get one standalone SVG. No runtime dependencies.</p>
+      <div class="kh-hero__actions">
+        <a class="kh-btn kh-btn--main" href="{{ 'getting-started/quickstart/' | url }}">Draw your first figure</a>
+        <a class="kh-btn" href="{{ 'plots/' | url }}">Browse the gallery</a>
+        <a class="kh-btn kh-btn--ghost" href="{{ 'playground/' | url }}">Try it in the browser</a>
+      </div>
+      <div class="kh-hero__install">
+        <span aria-hidden="true">$</span>
+        <code>cargo install --git https://github.com/PathoGenOmics-Lab/karyon</code>
+      </div>
+      <ul class="kh-hero__facts">
+        <li><b>36</b> track types</li>
+        <li><b>0</b> runtime dependencies</li>
+        <li><b>1</b> standalone SVG</li>
+      </ul>
+    </div>
+    <div class="kh-hero__horizon" aria-hidden="true"></div>
+  </section>
+{% endblock %}
+
+{% block content %}
+  {{ page.content }}
+{% endblock %}

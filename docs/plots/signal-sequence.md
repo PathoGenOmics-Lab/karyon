@@ -1,60 +1,96 @@
----
-title: Signal and sequence plots
-description: Coverage, signed windows, sequence, per-site methylation and sequence logos.
----
+# Signal and sequence
 
-<div class="plot-hero plot-hero--signal" markdown>
+Plots for a value or a symbol at every position: read depth, a statistic in
+windows, methylation by strand, the reference bases, sequence logos and
+per-base model attribution.
+{ .k-lead }
 
-<span class="plot-eyebrow">Gallery · Signal and sequence</span>
+## How to choose
 
-# Values and symbols along a sequence
+Decide first what zero means for your values: the floor they rise from, as for
+depth; a line they fall either side of, as for a statistic in windows; or
+nothing at all, as for bases and letters.
 
-Use these tracks when each genomic position, window or aligned column carries a
-measurement or symbol. The important choice is whether zero is a floor, a
-baseline to cross, or not part of the scale at all.
-
-<div class="plot-stats"><span><strong>6</strong> track types</span><span><strong>3</strong> scale contracts</span></div>
-
-</div>
-
-<div class="plot-card-grid">
-  <a class="plot-card" href="../../tracks/#coveragetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example.svg" alt="Coverage profile over a locus" loading="lazy" width="900" height="306"></span>
-    <span class="plot-card__body"><small>Dense or sparse signal</small><strong>CoverageTrack</strong><span>Per-base depth, GC content or mappability reduced honestly when several bases share a pixel.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#windowtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-selection.svg" alt="Signed statistics in genomic windows" loading="lazy" width="880" height="234"></span>
-    <span class="plot-card__body"><small>Signed window statistic</small><strong>WindowTrack</strong><span>pN/pS, GC skew or Tajima's D drawn on both sides of the baseline they are interpreted against.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#methylationtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-methylation.svg" alt="Per-site methylation on forward and reverse strands" loading="lazy" width="880" height="198"></span>
-    <span class="plot-card__body"><small>Per-site fraction</small><strong>MethylationTrack</strong><span>Forward and reverse methylation calls kept separate, with depth filtering and hemimethylation queries.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#sequencetrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-zoom.svg" alt="Reference bases rendered as coloured letters" loading="lazy" width="900" height="223"></span>
-    <span class="plot-card__body"><small>Reference symbols</small><strong>SequenceTrack</strong><span>Bases become letters, blocks or a zoom hint according to the actual pixel resolution.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#dynseqtrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-regulation.svg" alt="Per-base attribution drawn as scaled letters over a promoter" loading="lazy" width="812" height="792"></span>
-    <span class="plot-card__body"><small>A signed number per base</small><strong>DynseqTrack</strong><span>Model attribution drawn as the bases themselves, hanging below the line where the model pulled away.</span><b>Open reference <span aria-hidden="true">&rarr;</span></b></span>
-  </a>
-  <a class="plot-card" href="../../tracks/#logotrack">
-    <span class="plot-card__media"><img src="../../assets/figures/example-logo.svg" alt="One DNA motif under three sequence-logo scores" loading="lazy" width="900" height="380"></span>
-    <span class="plot-card__body"><small>Aligned-column composition</small><strong>LogoTrack</strong><span>Probabilities, information, enrichment or depletion with explicit alphabet and background contracts.</span><b>Open reference <span aria-hidden="true">→</span></b></span>
-  </a>
-</div>
-
-## Choose the baseline first
-
-| If the value… | Start with | Why |
+| Your question | Plot | Build it with |
 |:--|:--|:--|
-| cannot be negative and zero is the floor | `CoverageTrack` | Area, line or bars rise from a meaningful zero. |
-| is interpreted relative to zero, one or another reference | `WindowTrack` | Both sides of the baseline remain visible. |
-| belongs to one strand at a named site | `MethylationTrack` | Strand and read support remain part of the datum. |
-| is a symbol rather than a number | `SequenceTrack` or `LogoTrack` | The renderer changes representation with resolution or column composition. |
+| How much is there at each base, counting up from zero? | [Coverage](../tracks/signal-sequence.md#coveragetrack) | `CoverageTrack`, `--coverage` |
+| Which side of its baseline does each window fall on? | [Windowed statistic](../tracks/signal-sequence.md#windowtrack) | `WindowTrack`, `--windows` |
+| How methylated is each site, strand by strand? | [Methylation by strand](../tracks/signal-sequence.md#methylationtrack) | `MethylationTrack`, `--methylation` |
+| What are the reference bases here? | [Reference sequence](../tracks/signal-sequence.md#sequencetrack) | `SequenceTrack`, `--sequence` |
+| What does a motif look like across aligned sequences? | [Sequence logo](../tracks/signal-sequence.md#logotrack) | `LogoTrack`, `--logo` |
+| Which bases did a model rely on, and in which direction? | [Per-base attribution](../tracks/signal-sequence.md#dynseqtrack) | `DynseqTrack`, `--dynseq` with `--with-sequence` |
 
-## Related routes
+## Plots
 
-- [Reads and molecules](reads-molecules.md) for per-read methylation and raw nanopore current.
-- [Variation and association](variation-association.md) when a position carries a call rather than a signal.
-- [Annotation and coordinates](annotation-coordinates.md) for features and rulers under the signal.
+<div class="k-plots" markdown>
+
+-   [![A read depth profile over the rpoB locus with a dropout, above a reference band, the rpoB gene model and variant calls](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }](../tracks/signal-sequence.md#coveragetrack)
+
+    **[Coverage](../tracks/signal-sequence.md#coveragetrack)**
+    One value per base drawn up from a floor of zero, each pixel column showing its maximum, or its minimum when you are hunting dropouts.
+
+-   [![pN/pS on a log2 scale and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the two sides of each line in different colours](../assets/figures/example-selection.svg){ width="880" height="232" loading="lazy" .k-wide }](../tracks/signal-sequence.md#windowtrack)
+
+    **[Windowed statistic](../tracks/signal-sequence.md#windowtrack)**
+    A statistic per window drawn either side of the line it is read against, such as pN/pS, GC skew or Tajima's D.
+
+-   [![Dam methylation at GATC sites around the E. coli origin of replication, forward-strand calls above the line and reverse-strand calls below, with the reverse strand close to zero inside oriC](../assets/figures/example-methylation.svg){ width="880" height="196" loading="lazy" .k-wide }](../tracks/signal-sequence.md#methylationtrack)
+
+    **[Methylation by strand](../tracks/signal-sequence.md#methylationtrack)**
+    The methylated fraction at each site with each strand in its own lane, calls from too few reads dropped and counted, and the rest faded by depth.
+
+-   [![Sixty bases of the rpoB locus at base resolution: a depth profile, the reference drawn as coloured letters, and variant calls](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" .k-wide }](../tracks/signal-sequence.md#sequencetrack)
+
+    **[Reference sequence](../tracks/signal-sequence.md#sequencetrack)**
+    The bases as letters when there is room, coloured blocks when there is not, and a prompt to zoom in once they are too thin to draw.
+
+-   [![One eight-column DNA motif drawn three ways: as probabilities, as information in bits, and as enrichment above the line with depletion below it](../assets/figures/example-logo.svg){ width="900" height="378" loading="lazy" }](../tracks/signal-sequence.md#logotrack)
+
+    **[Sequence logo](../tracks/signal-sequence.md#logotrack)**
+    A motif from aligned sequences or a weight matrix, scored as probability, information or enrichment against a background, with depletion hanging below the line.
+
+-   [![Four columns scored five ways against a background, as log odds, KL divergence, difference, ratio and odds ratio, each putting the emphasis on a different column](../assets/figures/example-logo-scores.svg){ width="760" height="542" loading="lazy" }](../tracks/signal-sequence.md#logotrack)
+
+    **[Logo scores compared](../tracks/signal-sequence.md#logotrack)**
+    Seven scores to choose from, and the choice decides which column reads loudest, not only how the logo looks.
+
+-   [![The same motif proportions from five, fifty and five hundred sequences, each drawn raw and shrunk: the raw logos look alike, while the shrunk ones grow with the number of sequences](../assets/figures/example-logo-stability.svg){ width="700" height="484" loading="lazy" }](../tracks/signal-sequence.md#logotrack)
+
+    **[Stabilised logo](../tracks/signal-sequence.md#logotrack)**
+    Each column shrunk towards the background, more when it rests on fewer sequences, so five sequences do not look as certain as five hundred.
+
+-   [![A sequence logo whose symbols are three-letter amino acid codes](../assets/figures/example-logo-protein.svg){ width="640" height="204" loading="lazy" }](../tracks/signal-sequence.md#logotrack)
+
+    **[Logo of any alphabet](../tracks/signal-sequence.md#logotrack)**
+    Symbols are strings, so three-letter residue codes and k-mers stack the way bases do.
+
+-   [![Junction arcs over an RNA depth profile with per-base model attribution beneath, and a close-up of a promoter motif where each base is a letter sized by its score, above or below the line](../assets/figures/example-regulation.svg){ width="810" height="786" loading="lazy" }](../tracks/signal-sequence.md#dynseqtrack)
+
+    **[Per-base attribution](../tracks/signal-sequence.md#dynseqtrack)**
+    One signed score per base drawn as the base itself: tall where the model relied on it, hanging below the line where it pulled the prediction down.
+
+</div>
+
+## Related
+
+<div class="grid cards" markdown>
+
+-   **[Reads and molecules](reads-molecules.md)**
+
+    Methylation one read at a time, raw nanopore current, and the reads behind
+    a depth profile.
+
+-   **[Variation and association](variation-association.md)**
+
+    When a position carries a call rather than a value.
+
+-   **[Annotation and coordinates](annotation-coordinates.md)**
+
+    Genes, reading frames and rulers to put under a signal.
+
+-   **[File formats](../guide/formats.md)**
+
+    What bedGraph, `samtools depth` and bedMethyl are read as, and which
+    convention each one counts positions in.
+
+</div>

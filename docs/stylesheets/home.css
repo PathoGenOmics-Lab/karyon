@@ -1,0 +1,546 @@
+/* ==========================================================================
+   The home page
+
+   Linked by overrides/home.html only. The hero is the logo at night: glows of
+   the ramp's ends in the sky, a faint pixel grid, and a coverage profile along
+   the bottom edge as the horizon. The sections below it are centred, one idea
+   each, on the same tokens as the rest of the site.
+   ========================================================================== */
+
+.md-content__inner:has(.kh-section) {
+  max-width: 64rem;
+  margin-inline: auto;
+  padding-top: 0;
+}
+
+.md-content__inner:has(.kh-section) > .md-content__button {
+  display: none;
+}
+
+.md-typeset .kh-section .headerlink {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Hero
+   -------------------------------------------------------------------------- */
+
+.kh-hero {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--k-line);
+  background:
+    radial-gradient(46rem 22rem at 50% 120%, rgba(255, 79, 163, 0.26), transparent 70%),
+    radial-gradient(40rem 26rem at 80% -12%, rgba(107, 63, 224, 0.4), transparent 65%),
+    radial-gradient(34rem 20rem at 12% 8%, rgba(43, 59, 232, 0.26), transparent 65%);
+}
+
+.kh-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(200, 180, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(200, 180, 255, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
+  -webkit-mask: linear-gradient(to bottom, #000 25%, transparent 92%);
+          mask: linear-gradient(to bottom, #000 25%, transparent 92%);
+}
+
+[data-md-color-scheme="default"] .kh-hero {
+  background:
+    radial-gradient(46rem 22rem at 50% 120%, rgba(255, 79, 163, 0.13), transparent 70%),
+    radial-gradient(40rem 26rem at 80% -12%, rgba(107, 63, 224, 0.15), transparent 65%),
+    radial-gradient(34rem 20rem at 12% 8%, rgba(43, 59, 232, 0.1), transparent 65%);
+}
+
+[data-md-color-scheme="default"] .kh-hero::before {
+  background-image:
+    linear-gradient(rgba(91, 52, 230, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 52, 230, 0.07) 1px, transparent 1px);
+}
+
+.kh-hero__grid {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 64rem;
+  padding: 3.2rem 1.2rem 5.4rem;
+  text-align: center;
+}
+
+/* The logo is pixel art, 117 cells by 79: four screen pixels a cell here,
+   three below 60em and two on a phone, never a fraction, so the one-pixel
+   gaps between its bands stay open. */
+.kh-hero__art {
+  margin-bottom: 1.9rem;
+}
+
+.kh-hero__logo {
+  display: block;
+  width: 468px;
+  height: auto;
+}
+
+[data-md-color-scheme="slate"] .kh-hero__logo--dark {
+  filter: drop-shadow(0 0 18px rgba(176, 78, 216, 0.55)) drop-shadow(0 0 2px rgba(255, 79, 163, 0.55));
+}
+
+[data-md-color-scheme="slate"] .kh-hero__logo--light,
+[data-md-color-scheme="default"] .kh-hero__logo--dark {
+  display: none;
+}
+
+.kh-hero__eyebrow,
+.md-typeset .kh-eyebrow {
+  margin: 0 0 0.8rem;
+  font-family: var(--md-code-font-family);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--md-accent-fg-color);
+}
+
+.kh-hero__title {
+  max-width: 44rem;
+  margin: 0 0 1rem;
+  font-family: var(--k-display);
+  font-size: 3.2rem;
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  color: var(--md-default-fg-color);
+}
+
+.kh-hero__title span {
+  background: var(--k-ramp);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+.kh-hero__lead {
+  max-width: 36rem;
+  margin: 0 auto 1.7rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+}
+
+.kh-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.7rem;
+  margin-bottom: 1.4rem;
+}
+
+.kh-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.68rem 1.2rem;
+  border: 1px solid var(--k-line-strong);
+  border-radius: 0.6rem;
+  background: var(--k-glass);
+  color: var(--md-default-fg-color);
+  font-family: var(--k-display);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.kh-btn:hover,
+.kh-btn:focus-visible {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-default-fg-color);
+  transform: translateY(-1px);
+}
+
+.kh-btn--main {
+  border-color: transparent;
+  background: var(--k-ramp);
+  color: #ffffff;
+  box-shadow: 0 0 22px rgba(176, 78, 216, 0.45);
+}
+
+.kh-btn--main:hover,
+.kh-btn--main:focus-visible {
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 0 30px rgba(255, 79, 163, 0.6);
+}
+
+.kh-btn--ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--md-typeset-a-color);
+}
+
+.kh-hero__install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 100%;
+  padding: 0.5rem 0.9rem;
+  overflow-x: auto;
+  border: 1px solid var(--k-line);
+  border-radius: 0.6rem;
+  background: rgba(10, 6, 26, 0.55);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+[data-md-color-scheme="default"] .kh-hero__install {
+  background: #ffffff;
+}
+
+.kh-hero__install code {
+  padding: 0;
+  background: none;
+  color: var(--md-default-fg-color);
+  font-size: inherit;
+}
+
+.kh-hero__install span {
+  font-family: var(--md-code-font-family);
+  color: var(--md-accent-fg-color);
+}
+
+.kh-hero__facts {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin: 1.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.68rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.kh-hero__facts b {
+  display: block;
+  font-family: var(--k-display);
+  font-size: 1.5rem;
+  line-height: 1.1;
+  color: var(--md-default-fg-color);
+}
+
+.kh-hero__horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  background: url("../assets/horizon.svg") center bottom / auto 36px repeat-x;
+  opacity: 0.9;
+}
+
+.kh-hero__horizon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--k-ramp);
+}
+
+/* --------------------------------------------------------------------------
+   Sections
+   -------------------------------------------------------------------------- */
+
+.md-typeset .kh-section {
+  padding: 3.6rem 0 0.4rem;
+}
+
+.md-typeset .kh-head {
+  max-width: 42rem;
+  margin: 0 auto 1.9rem;
+  text-align: center;
+}
+
+.md-typeset .kh-head h2 {
+  margin: 0 0 0.7rem;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.md-typeset .kh-head p:not(.kh-eyebrow) {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .kh-code .tabbed-set {
+  margin: 0;
+}
+
+/* The gallery strip: eight routes, each a thumbnail from its best figure. */
+.md-typeset .kh-cards > ul {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.md-typeset .kh-cards--more {
+  margin-top: 1.2rem;
+  text-align: center;
+}
+
+/* Four points, numbered in the ramp. */
+.md-typeset .kh-points {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  counter-reset: kh-point;
+}
+
+.md-typeset .kh-point {
+  padding: 1.1rem 1rem;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius);
+  background: var(--k-glass);
+  counter-increment: kh-point;
+}
+
+/* Inline, so the ramp runs across the two digits rather than the card. */
+.md-typeset .kh-point::before {
+  content: "0" counter(kh-point);
+  display: inline-block;
+  font-family: var(--k-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--k-ramp);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+.md-typeset .kh-point h3 {
+  margin: 0.55rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.md-typeset .kh-point p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Three ways in. */
+.md-typeset .kh-ways {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.md-typeset .kh-way {
+  position: relative;
+  padding: 1.1rem 1.1rem 0.9rem;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius);
+  background: var(--k-glass);
+}
+
+.md-typeset .kh-way::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 1.1rem;
+  right: 1.1rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--k-ramp);
+}
+
+.md-typeset .kh-way h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.md-typeset .kh-way p {
+  font-size: 0.72rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .kh-way .highlight {
+  margin: 0 0 0.7rem;
+}
+
+.md-typeset .kh-way pre > code {
+  font-size: 0.64rem;
+}
+
+/* The live figure. The program behind it finds its parts by their data-
+   attributes; these classes only dress them. */
+.md-typeset .k-stage {
+  overflow: hidden;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+  box-shadow: var(--k-glow);
+}
+
+.md-typeset .k-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--k-line);
+  font-size: 0.68rem;
+}
+
+.md-typeset .k-stage-name {
+  font-family: var(--md-code-font-family);
+  font-weight: 600;
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .k-stage-hint {
+  flex: 1;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .k-stage-keys {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.md-typeset .k-key {
+  padding: 0.22rem 0.6rem;
+  border: 1px solid var(--k-line-strong);
+  border-radius: 0.4rem;
+  background: var(--k-glass);
+  color: inherit;
+  font: inherit;
+  font-family: var(--k-display);
+  font-size: 0.64rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.md-typeset .k-key:hover:not(:disabled) {
+  border-color: var(--md-accent-fg-color);
+}
+
+.md-typeset .k-key:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.md-typeset pre.k-stage-command {
+  margin: 0;
+}
+
+.md-typeset pre.k-stage-command code {
+  border: 0;
+  border-radius: 0;
+  font-size: 0.66rem;
+}
+
+.md-typeset .k-stage-plot {
+  padding: 0.6rem;
+  background: #ffffff;
+  cursor: grab;
+}
+
+.md-typeset .k-stage-plot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.md-typeset .k-stage-status {
+  margin: 0;
+  padding: 0.45rem 0.9rem;
+  border-top: 1px solid var(--k-line);
+  font-size: 0.66rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .k-file-name {
+  margin: 0.8rem 0 0.2rem;
+  font-family: var(--md-code-font-family);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.md-typeset .kh-cite {
+  margin-top: 3rem;
+  padding: 1.6rem 0 2.2rem;
+  border-top: 1px solid var(--k-line);
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* --------------------------------------------------------------------------
+   Narrower screens
+   -------------------------------------------------------------------------- */
+
+@media screen and (max-width: 60em) {
+  .kh-hero__logo {
+    width: 351px;
+  }
+
+  .kh-hero__title {
+    font-size: 2.6rem;
+  }
+
+  .md-typeset .kh-cards > ul,
+  .md-typeset .kh-points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md-typeset .kh-ways {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen and (max-width: 44.9375em) {
+  .kh-hero__grid {
+    padding: 2rem 1rem 4.2rem;
+  }
+
+  .kh-hero__logo {
+    width: 234px;
+  }
+
+  .kh-hero__title {
+    font-size: 2.05rem;
+  }
+
+  .kh-hero__facts {
+    gap: 1.2rem;
+  }
+
+  .md-typeset .kh-head h2 {
+    font-size: 1.5rem;
+  }
+
+  .md-typeset .kh-cards > ul,
+  .md-typeset .kh-points {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kh-btn {
+    transition: none;
+  }
+
+  .kh-btn:hover {
+    transform: none;
+  }
+}

@@ -1,93 +1,118 @@
 # File formats
 
-karyon reads line-based text formats. This page has one section per format:
-which columns are read, which coordinate convention the format uses, and which
-problems stop the figure instead of being silently skipped.
+Which files karyon reads, what it takes from each one, and where each format's
+coordinates land in the figure.
+{ .k-lead }
 
-The readers live in the library as `karyon::read`. Each one takes the file's
-text as a string rather than a path, so where the text comes from is up to you:
+Every format here is line-based text. The readers live in the library as
+`karyon::read`, and each takes a file's text as a string rather than a path, so
+the same reader serves the command line, the playground and your own program:
 
 ```rust
 use karyon::{plot, read, Region};
 
-let region = Region::parse("chr1:1-2,000")?;
-let features = read::interval::features(&std::fs::read_to_string("genes.bed")?, &region, None)?;
-let svg = plot("chr1:1-2,000")?.add_features(features).to_svg();
-# Ok::<(), Box<dyn std::error::Error>>(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let region = Region::parse("Chr1:1-10,000")?;
+    let text = std::fs::read_to_string("genes.bed")?;
+    let features = read::interval::features(&text, &region, None)?;
+
+    plot("Chr1:1-10,000")?.add_features(features).save("genes.svg")?;
+    Ok(())
+}
 ```
 
-`karyon` the command does the same thing, and the only part it keeps to itself
-is opening the path.
+The `karyon` command does the same, and the one thing it adds is opening the
+path. BAM, CRAM and BCF are not read at all: they come in through samtools and
+bcftools, as [Binary formats](cli.md#binary-formats) shows.
 
-![A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis](../assets/figures/example.svg){ width="900" height="306" loading="lazy" }
+## Formats at a glance
 
-Binary formats are not read at all. BAM, CRAM and BCF come in through a pipe,
-because `samtools` and `bcftools` already write exactly what these readers take,
-so the pipeline is the parser:
+| Format | What it holds | Read by | Coordinates | Tracks |
+|:--|:--|:--|:--|:--|
+| [bedGraph](#bedgraph) | a value over each interval | `--coverage`, `--windows`, `--dynseq` | 0-based, half-open | `CoverageTrack`, `WindowTrack`, `DynseqTrack` |
+| [samtools depth](#samtools-depth) | read depth at each position | `--coverage` | 1-based | `CoverageTrack` |
+| [A bare column of values](#a-bare-column-of-values) | one value per base | `--coverage` | none: starts at the region's first base | `CoverageTrack` |
+| [BED](#bed) | intervals with a name and a strand | `--features` | 0-based, half-open | `FeatureTrack` |
+| [GFF3](#gff3) | annotation in nine columns | `--features` | 1-based, inclusive | `FeatureTrack` |
+| [cytoBand](#cytoband) | chromosome bands and their stains | `--ideogram` | 0-based, half-open | `IdeogramTrack` |
+| [VCF](#vcf) | small variant calls | `--variants` | 1-based | `VariantTrack` |
+| [Structural VCF](#structural-vcf) | structural variant calls | `--structural` | `POS` is the base before the event | `StructuralTrack` |
+| [Association table](#the-association-table) | a statistic per tested position | `--manhattan` | 1-based | `ManhattanTrack` |
+| [Matrix table](#the-matrix-table) | a value per sample per site | `--matrix` | 1-based, in the header | `MatrixTrack` |
+| [Segment table](#the-segment-table) | copy number per segment | `--copy-number` | CNVkit 0-based; ASCAT and `.seg` 1-based | `CopyNumberTrack` |
+| [FASTA](#fasta) | sequences | `--sequence`, `--orfs`, `--with-sequence` | none: byte n is position n | `SequenceTrack`, `OrfTrack` |
+| [Aligned FASTA](#aligned-fasta) | an alignment | `--msa`, `--snps`, `--logo` | alignment columns | `MsaTrack`, `SnpTrack`, `LogoTrack` |
+| [Newick](#newick) | a phylogeny | `--tree`, `--tanglegram`, `--against`, `--with-tree` | none | `TreeTrack`, `TanglegramTrack`, `CladeTrack` |
+| [SAM](#sam) | aligned reads | `--pileup` | 1-based | `PileupTrack` |
+| [SAM with SA tags](#sam-with-sa-tags) | reads aligned in pieces | `--split-reads` | 1-based | `SplitReadTrack` |
+| [SJ.out.tab](#sj-out-tab) | splice junctions | `--junctions` | 1-based, inclusive, on the intron | `JunctionTrack` |
+| [bedMethyl](#bedmethyl) | modified bases per strand | `--methylation` | 0-based, half-open | `MethylationTrack` |
+| [Bismark extractor file](#the-bismark-extractor-file) | methylation calls per read | `--bisulfite` | 1-based | `BisulfiteTrack` |
+| [PAF](#paf) | alignments between two sequences | `--synteny`, `--dotplot` | 0-based, half-open | `SyntenyTrack`, `DotplotTrack` |
+| [Gene neighbourhoods](#gene-neighbourhoods) | BED or GFF3 with a genome per row | `--loci` | as BED or GFF3 | `LocusTrack` |
+| [Homology table](#the-homology-table) | which genes match which | `--links` | none | `LocusTrack` |
+| [InterProScan table](#the-interproscan-table) | protein domains | `--domains` | 1-based, inclusive, in residues | `DomainTrack` |
+| [Gubbins clade blocks](#gubbins-clade-blocks) | spans carried by named taxa | `--clades` | 1-based, inclusive | `CladeTrack` |
+| [Sample sheet](#the-sample-sheet) | what is known about named rows | `--traits` | none | strips beside a track's rows |
 
-```bash
-samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
-  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
-```
+The region you type is always 1-based and inclusive, as samtools and IGV write
+it, whatever the files use: `chr1:101-200` is the bases numbered 100 to 199
+from zero. Every reader converts its own format on the way in, so all of them
+land in the same place. [Coordinates](../how-it-works/coordinates.md) has the
+whole convention.
 
-Any track file may be `-` for standard input, and one track in a figure may take
-it. Which flag takes which file, and everything else about the grammar, is in
-[The command line](cli.md); this page is about what is inside the files.
+## How a file is read { #how-a-file-is-read }
 
-## The rule that decides everything
+Each flag reads one format, so most files are never guessed at. Three flags
+accept more than one and tell them apart by looking, as the
+[next section](#telling-formats-apart) explains.
 
 !!! warning "Skipped or refused"
-    A row **on another sequence, or outside the region on display, is skipped
-    without a word**. Handing over a whole genome file and drawing one window
-    of it is the normal way to use this, so those rows are not an error and not
-    a warning: they are not in this figure.
+    A row **on another sequence, or outside the window, is skipped without a
+    word**. Handing over a whole genome and drawing one window of it is the
+    normal way to use a reader.
 
     A row that **does not parse is never skipped**. It stops the figure and
     names the line:
 
-    ```
+    ```text
     karyon: --coverage depth.txt: line 3: depth is not a number: "NA"
     ```
 
-    A malformed row that disappeared would be a figure quietly missing data,
-    which is worse than no figure at all.
+Before a reader looks at a line, these are dropped: blank lines; lines starting
+with `#` (comments, GFF3 pragmas, the VCF header) or `@` (the SAM header); a
+UCSC `track` or `browser` line, but only one carrying a `key=value`, since a
+sequence may be called `track`; a byte order mark at the start of the file; and
+the carriage return of a Windows line ending. A Newick file is the exception:
+it is read whole, as one tree.
 
-The line number counts the lines that were dropped as comments or blanks, so it
-is the line number in your editor.
+Fields are split on tabs when a line holds a tab, and on runs of spaces when it
+does not, so tab-separated and space-separated files read the same. A field that
+holds a space, or an empty field, needs a tab-separated file, since runs of
+spaces collapse into one separator. The InterProScan table must be tab
+separated.
 
-The two halves of the rule meet at the order the checks run in. For
-`--coverage`, `--windows`, `--variants`, `--manhattan` and `--pileup` the shape
-of the line is checked before the sequence name is compared, so a file whose
-column count changes partway through is an error even where the change is on a
-sequence this figure does not draw. `--pileup` reads the flag that early too,
-since that is what says whether the record was placed anywhere at all. For
-`--features` and `--ideogram` the sequence is compared first, so a broken row
-elsewhere in a genome-wide annotation goes past unread.
+The line number in a message counts the dropped lines, so it is the line number
+in your editor. Most readers check a row's shape before its sequence name, so a
+malformed row anywhere in the file stops the read; the BED, GFF3 and cytoBand
+readers compare the name first, so a broken row on another chromosome goes past
+unread.
 
-Four things are dropped by every reader before it looks at anything else:
+In the tables below, **Skipped** lists what a reader passes over besides rows on
+another sequence and rows outside the window, and says so where a format has no
+sequence to compare. **Refused** lists what stops the read besides a number
+that does not parse, which every reader refuses except where a section says
+otherwise.
 
-- Blank lines.
-- Lines starting with `#`, which covers BED and GFF3 comments, GFF3 pragmas and
-  the VCF header.
-- Lines starting with `@`, which is the SAM header.
-- A UCSC `track` or `browser` line, but **only when it also carries a
-  `key=value`**. A sequence may be called `track`, and in a space separated file
-  its rows are otherwise indistinguishable from the header and would vanish
-  without a word.
+??? info "Why a broken row stops the figure rather than being skipped"
+    A row on another sequence was never part of the figure. A row that does not
+    parse says the file is not what the flag claimed, and reading past it would
+    draw a figure with data missing and nothing on it to say so. That is worse
+    than no figure, so the read stops on the line.
 
-Fields are split on tabs when the line has a tab, and on whitespace when it does
-not, because every format here is tab separated on paper and space separated in
-about half the files that exist. One consequence: a tab separated file may hold
-a field with a space in it, such as a sample called `isolate 12`, and a space
-separated file may not. The examples below are aligned with spaces so they are
-readable; real files are usually tab separated and both read the same.
+## Telling formats apart { #telling-formats-apart }
 
-## Telling formats apart
-
-Two of the readers take more than one format and have to work out which they
-were given.
-
-### A coverage file
+### A coverage file { #a-coverage-file }
 
 `--coverage` accepts three shapes, and the column count is the only difference
 between them:
@@ -98,118 +123,75 @@ between them:
 | 3 | `samtools depth` | `chr2L 100 5` |
 | 1 | a bare column of values | `5` |
 
-The shape is decided once, on the first line that carries data, and the rest of
-the file has to keep to it. A file that changes count halfway is a file whose
-positions cannot be trusted, so it is refused with the line it changed on rather
-than guessed at line by line.
+The shape is decided on the first data line, and a file whose column count
+changes partway is refused on the line where it changed. `--format bedgraph`,
+`--format depth` or `--format values` decides instead. `--format bed` and
+`--format gff3` are refused here, because those formats name intervals rather
+than a value per base.
 
-`--format bedgraph`, `--format depth` or `--format values` overrides the guess.
-`--format bed` and `--format gff3` are refused here, because those name
-intervals with a strand and a name rather than a value per base, and reading one
-would take a score for a depth.
+!!! warning "`samtools depth` over more than one file"
+    `samtools depth a.bam b.bam` writes one depth column per file, so two files
+    make four columns, the shape of a bedGraph. Read that way, the position
+    becomes a start, the first depth an end and the second depth the value: a
+    plausible figure of nothing.
 
-!!! warning "`samtools depth` over more than one file also writes four columns"
-    `samtools depth a.bam b.bam` writes one depth column per file, so the column
-    count alone reads its output as a bedGraph. Taken that way, the position
-    becomes a start, the first depth becomes an end and the second depth becomes
-    the value, so each record turns into a run of bases at the height of the
-    second sample: a plausible looking figure of nothing.
+    karyon catches it. A depth is nearly always smaller than its position, so
+    the first record ends before it starts, and depth records overlap where
+    bedGraph intervals never do. Either is refused with the way out:
 
-    Two things give it away. A depth is almost always a smaller number than
-    the position it sits at, so read as a bedGraph the very first record ends
-    before it starts. And two bedGraph intervals never overlap where two depth
-    records at consecutive positions do. Either one is refused rather than
-    drawn, and both name the way out:
-
-    ```
-    karyon: --coverage depth.txt: line 1: end is before start, so this is not a
-    bedGraph. samtools depth over more than one file also writes four columns,
-    and its second column is a position rather than an end: pass --format depth
-    to read it as that, or --format bedgraph to insist
+    ```text
+    karyon: --coverage depth.txt: line 1: end is before start, so this is not a bedGraph. samtools depth over more than one file also writes four columns, and its second column is a position rather than an end: pass --format depth to read it as that, or --format bedgraph to insist
     ```
 
-    The first of the two is what a real file hits, because a position runs to
-    thousands and a depth rarely does.
+    `--format depth` reads the first sample and ignores the other depth
+    columns. `--format bedgraph` insists on bedGraph, which is also how to read
+    a bedGraph whose rows are out of order.
 
-    With `--format depth` the first sample is the one drawn and the rest of the
-    columns are ignored. `--format bedgraph` insists on the other reading, which
-    is what an out of order bedGraph needs.
+!!! warning "A three-column BED is read as depth"
+    A BED with three columns has no value column whose absence could be
+    noticed, so `--coverage` reads `chr1 100 200` as position 100 with a depth
+    of 200, and nothing warns. A BED belongs to `--features`. To draw intervals
+    as a signal, give each a value in a fourth column and read it as bedGraph.
 
-!!! danger "A three column file is always read as depth"
-    A BED3 handed to `--coverage` is misread and **cannot be detected**. A BED3
-    has no value column whose absence could be noticed, so `chr1 100 200` is
-    read as position 100 carrying a depth of 200: one point at 0-based 99, at a
-    height that is really a coordinate. Nothing errors and nothing warns.
+### A feature file { #a-feature-file }
 
-    A BED belongs to `--features`. If you want the intervals as a signal,
-    convert them to bedGraph with a fourth column first.
+`--features` and `--loci` read BED or GFF3, and decide which in this order:
 
-### A feature file
-
-`--features` accepts BED and GFF3, and decides between them in this order:
-
-1. `--format bed` or `--format gff3` wins outright.
+1. `--format bed` or `--format gff3`, if given.
 2. A `##gff-version` line anywhere in the file means GFF3.
-3. Column seven of the first data row: GFF3 spends it on the strand, so `+`,
-   `-`, `.` or `?` there means GFF3, and a BED of nine or more columns spends it
-   on `thickStart`, a number.
-4. Anything else, including a row with fewer than seven columns, is BED. A GFF3
-   row always has nine, so a short row cannot be one.
+3. Column seven of the first data row: GFF3 puts the strand there, so `+`, `-`,
+   `.` or `?` means GFF3. A BED of nine or more columns puts `thickStart`
+   there, a number.
+4. Anything else, including a first row shorter than seven columns, is BED.
 
-### The words `--format` takes
+Reading one format as the other moves every feature by a base without failing,
+which is why the order is fixed and `--format` can overrule it.
 
-| Word | Reads as | Where it is meaningful |
+### The words `--format` takes { #the-words-format-takes }
+
+| Word | Reads as | Used by |
 |:--|:--|:--|
 | `bedgraph`, `bg` | bedGraph | `--coverage` |
 | `depth` | `samtools depth` | `--coverage` |
 | `values` | a bare column of values | `--coverage` |
-| `bed` | BED | `--features` |
-| `gff3`, `gff`, `gtf` | GFF3 | `--features` |
+| `bed` | BED | `--features`, `--loci` |
+| `gff3`, `gff`, `gtf` | GFF3 | `--features`, `--loci` |
 
-`--format` describes the track before it, like every other track option. A word
-from the other group is not a command line error: `--format depth` on a
-`--features` track has nothing to say about BED against GFF3, so the guess runs
-as usual. The one combination that is refused outright is `--format bed` or
-`--format gff3` on a `--coverage` track, because reading intervals as a signal
-would take a score for a depth.
+`--format` is accepted after any track and ignored by the ones that read a
+single format. A signal word after `--features` is ignored too, and the guess
+runs as usual.
 
 !!! note "`gtf` is a spelling of `gff3`, not a GTF reader"
-    A GTF's first eight columns are a GFF3's, so the coordinates come out right.
-    Its ninth column is not: GTF writes `gene_id "ENSG1"; gene_name "ABC";`
-    rather than `key=value`, so no name is found and the features draw unlabelled.
+    A GTF's first eight columns are GFF3's, so its coordinates come out right,
+    and its seventh column is a strand, so it is read as GFF3 even without
+    `--format`. Its ninth column is `gene_id "..."; gene_name "...";` rather
+    than `key=value`, so no name is found and the features are drawn unnamed.
 
-## Coordinates
+## Signal
 
-This is the one place in the project where the convention is not uniform, and
-getting it wrong is silent, so every reader states which it reads and every one
-has a test that pins a known base through the conversion.
+### bedGraph { #bedgraph }
 
-| Format | Flag | The file counts | On the way in |
-|:--|:--|:--|:--|
-| bedGraph | `--coverage`, `--windows` | 0-based, half-open | passed through |
-| `samtools depth` | `--coverage` | 1-based | `pos - 1` |
-| a column of values | `--coverage` | nothing | starts at the region's first base |
-| BED | `--features` | 0-based, half-open | passed through |
-| GFF3 | `--features` | 1-based, inclusive | `start - 1`, end unchanged |
-| cytoBand | `--ideogram` | 0-based, half-open | passed through |
-| VCF | `--variants` | 1-based | `POS - 1` |
-| association table | `--manhattan` | 1-based | `pos - 1` |
-| FASTA | `--sequence` | nothing | byte `n` is position `n` |
-| aligned FASTA | `--msa`, `--snps` | alignment columns | passed through |
-| Newick | `--tree` | nothing | nothing to convert |
-| SAM | `--pileup` | 1-based | `POS - 1` |
-| matrix table | `--matrix` | 1-based header | `position - 1` |
-
-Whatever a file counts in, it comes out at the same place in the figure. The
-locus you type on the command line is the 1-based inclusive form samtools and
-IGV use, whatever the files are written in: `chr1:101-200` is the hundred bases
-0-based `100..200`. The whole convention, and why the GFF3 end needs no
-arithmetic while its start does, is in
-[Coordinates](../how-it-works/coordinates.md).
-
-## bedGraph
-
-Used by `--coverage` and by `--windows`.
+A value over each interval: a depth, a score, a statistic.
 
 ```text
 track type=bedGraph name=coverage
@@ -217,70 +199,49 @@ chr2L  100  103  5
 chr2L  103  105  9
 ```
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | chrom | matched against the region |
-| 2 | start | yes, 0-based |
-| 3 | end | yes, exclusive |
-| 4 | value | yes |
+| | |
+|:--|:--|
+| Read by | `--coverage`, `--windows` and `--dynseq`; `read::signal::spans`, `read::signal::windows` and `read::dynseq::scores` |
+| Columns | 1 sequence, 2 start, 3 end, 4 value |
+| Coordinates | 0-based and half-open, passed through: `100 103` is the bases 100, 101 and 102, and 103 belongs to the next row |
+| Refused | an end before its start |
 
-**Coordinates** pass straight through. `100 103` is the three bases 100, 101 and
-102; 103 belongs to the interval that starts there.
+The three flags read it differently:
 
-**With `--coverage`** every base of the interval takes the value, and the
-interval is clipped to the region before it is expanded, so a genome-wide file
-does not become one pair per base of the genome. A position no interval covers
-stays at zero, which is what a bedGraph leaves out and what a depth of zero
-means.
+| | `--coverage` | `--windows` | `--dynseq` |
+|:--|:--|:--|:--|
+| Columns | exactly four | four or more, the rest ignored | four or more, the rest ignored |
+| A row becomes | its value on every base it covers | one window, kept whole | its score on every base it covers |
+| A base no row covers | 0 | nothing drawn | unscored: no letter, and a gap in the rule beneath |
+| A value that is not a number | refused | refused | leaves its bases unscored |
 
-**With `--windows`** the intervals stay intervals, since a window track draws
-the window and not the base. A window that does not reach the region is left
-behind, and a window hanging over an edge keeps its own bounds, because a window
-cut short would draw as a window of another size.
+`--coverage` also refuses overlapping rows, the sign of
+[two-sample depth](#a-coverage-file), unless `--format bedgraph` is given.
 
-**Errors**: with `--coverage`, a column count that changes partway through the
-file, since the shape was decided on the first data row; with `--windows`, a row
-of fewer than four columns, wherever in the file it sits, extra columns past the
-fourth being ignored. Either way: a start, end or value that is not a number,
-and an end before its start.
+### samtools depth { #samtools-depth }
 
-**Skipped**: rows on another sequence, and intervals that touch no base of the
-region.
-
-## samtools depth
-
-Used by `--coverage`.
+The read depth at each position, as `samtools depth` writes it.
 
 ```text
-# samtools depth -a -r NC_000962.3:761100-761104 aln.bam
+# samtools depth -a -r NC_000962.3:761100-761102 aln.bam
 NC_000962.3  761100  12
 NC_000962.3  761101  14
 NC_000962.3  761102  0
 ```
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | chrom | matched against the region |
-| 2 | pos | yes, 1-based |
-| 3 | depth | yes |
+| | |
+|:--|:--|
+| Read by | `--coverage`; `read::signal::spans` |
+| Columns | 1 sequence, 2 position, 3 depth; with `--format depth`, further depth columns are ignored |
+| Coordinates | 1-based: position 761100 is 0-based 761099 |
+| Refused | a position of 0 |
 
-**Coordinates** are 1-based, so position 761100 lands at 0-based 761099.
+Without `-a`, samtools leaves out positions no read covers. Those stay at 0
+anyway, so the figure is the same.
 
-Without `-a`, `samtools depth` leaves out the positions with no reads on them.
-Those stay at zero anyway, so the figure is the same.
+### A bare column of values { #a-bare-column-of-values }
 
-`samtools depth a.bam b.bam` writes one depth column per file. That is four
-columns or more, which needs `--format depth` to read; see
-[Telling formats apart](#a-coverage-file). The first sample is the one drawn.
-
-**Errors**: a position of 0, since the file claims to count from 1 and taking
-one off it would wrap; a depth that is not a number.
-
-**Skipped**: rows on another sequence, and positions outside the region.
-
-## A bare column of values
-
-Used by `--coverage`, for anything already computed per base.
+One number per line, for anything already computed base by base.
 
 ```text
 0.5
@@ -288,23 +249,22 @@ Used by `--coverage`, for anything already computed per base.
 0.75
 ```
 
-There is one column and it is the value. The file carries no sequence name and
-no positions, so **the first value lands on the first base of the region**, the
-second on the base after it, and so on. That makes the file specific to one
-window: the same file drawn over `Chr4:501-600` and over `Chr4:1-100` puts its
-values in two different places.
+| | |
+|:--|:--|
+| Read by | `--coverage`; `read::signal::spans` |
+| Columns | 1 value |
+| Coordinates | none: the first value is the region's first base, the next value the base after it |
+| Skipped | values past the end of the region; the file names no sequence |
 
-Values that run past the right edge of the region are dropped. If the file runs
-out before the region does, the rest of the region stays at zero.
+The file carries no position, so it belongs to one window: drawn over
+`chr4:501-600` and over `chr4:1-100`, the same file puts its values in two
+different places. If it runs out before the region does, the rest stays at 0.
 
-**Errors**: a value that is not a number.
+## Intervals
 
-**Skipped**: nothing is skipped for being elsewhere, because the file never says
-where it is.
+### BED { #bed }
 
-## BED
-
-Used by `--features`.
+Intervals with a name and a strand.
 
 ```text
 track name=genes description="TAIR10"
@@ -313,31 +273,20 @@ Chr1  6787  9130  AT1G01020  0  -
 Chr2  3000  4000  AT2G01010  0  +
 ```
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | chrom | matched against the region |
-| 2 | chromStart | yes, 0-based |
-| 3 | chromEnd | yes, exclusive |
-| 4 | name | yes, as the label; a `.` is no name |
-| 5 | score | ignored |
-| 6 | strand | yes, `+` or `-`, anything else is unknown |
-| 7 and beyond | thickStart, itemRgb, blocks | ignored, though column seven is what tells a BED9 from a GFF3 |
+| | |
+|:--|:--|
+| Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods) |
+| Columns | 1 sequence, 2 start, 3 end, 4 name (`.` for none), 6 strand (`+` or `-`; anything else is unknown) |
+| Ignored | 5 score, and 7 onwards (`thickStart`, colour, blocks), though column 7 tells a BED from a GFF3 |
+| Coordinates | 0-based and half-open, passed through: `3630 5899` is the bases 3,631 to 5,899 counted from 1 |
+| Refused | fewer than 3 columns; an end before its start |
 
-**Coordinates** pass straight through, with no arithmetic at all: a row saying
-`3630 5899` becomes a feature saying the same, because both count from zero and
-leave the end out.
+Over `Chr1:1-10,000` this file draws the two Chr1 genes and skips the Chr2 row;
+the `track` line is dropped because it carries `key=value` pairs.
 
-**Errors**: fewer than three columns; a start or end that is not a number; an
-end before its start, which would otherwise widen into a single base at the
-start and draw a gene a whole interval from where the file put it.
+### GFF3 { #gff3 }
 
-**Skipped**: rows on another sequence, and features that touch no base of the
-region. A feature outside the window would still take a row in the packing that
-decides how tall the track is, so it is dropped rather than carried.
-
-## GFF3
-
-Used by `--features`.
+Annotation in nine columns.
 
 ```text
 ##gff-version 3
@@ -346,218 +295,247 @@ NC_000962.3  RefSeq  gene  759807  763325  .  +  .  ID=gene-Rv0667;Name=rpoB
 NC_000962.3  RefSeq  gene  763370  767320  .  +  .  ID=gene-Rv0668;Name=rpoC
 ```
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | seqid | matched against the region |
-| 2 | source | ignored |
-| 3 | type | ignored |
-| 4 | start | yes, 1-based inclusive |
-| 5 | end | yes, inclusive |
-| 6 | score | ignored |
-| 7 | strand | yes |
-| 8 | phase | ignored |
-| 9 | attributes | the name only: `Name=`, failing that `gene=`, failing that `ID=` |
+| | |
+|:--|:--|
+| Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods), `--clades` as [clade blocks](#gubbins-clade-blocks) |
+| Columns | 1 sequence, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
+| Ignored | 2 source, 3 type, 6 score, 8 phase |
+| Coordinates | 1-based and inclusive: the start moves back one and the end stays, so `759807 763325` is 0-based `759806..763325` |
+| Skipped | a trailing `##FASTA` section, whose lines name no sequence |
+| Refused | fewer than 5 columns; a start of 0; an end before its start |
 
-**Coordinates** are 1-based and inclusive, so the start moves back one and the
-end does not: `759807 763325` becomes `759806..763325`. The end needs no
-arithmetic because a 1-based inclusive end is already one past the last base
-once the count starts at zero. The two spellings name the same bases.
-
-Attribute values are percent decoded, since the ninth column spends `;`, `=` and
-`,` on its own syntax and a value holding one arrives escaped:
+Attribute values are percent-decoded, so
 `Name=chromosomal%20replication%2C%20initiator` reads as
-`chromosomal replication, initiator`. A `%` that starts nothing is left as
-written.
+`chromosomal replication, initiator`.
 
-!!! note "Column three is ignored, which means every record draws"
-    Nothing filters on the feature type, so a full annotation carrying `gene`,
-    `mRNA`, `exon` and `CDS` records over the same locus draws all of them,
-    stacked into rows. Filter first if that is not what you want:
+!!! tip "Every feature type is drawn"
+    Column three is ignored, so an annotation holding `gene`, `mRNA`, `exon`
+    and `CDS` records over one locus draws all of them, stacked in rows. Filter
+    first to draw one type:
 
     ```bash
     awk '$3 == "gene"' annotation.gff3 \
       | karyon NC_000962.3:759,000-768,000 --features - --label genes -o genes.svg
     ```
 
-**Errors**: fewer than five columns, since the last four are not needed to place
-a feature and the first five are; a start of 0, which a 1-based file cannot
-have; a start or end that is not a number.
+### cytoBand { #cytoband }
 
-**Skipped**: rows on another sequence, which is also why the `##FASTA` section
-some assemblers write after the annotation goes past instead of failing as a
-broken feature; and features that touch no base of the region.
-
-## cytoBand
-
-Used by `--ideogram`.
+Chromosome bands and their Giemsa stains, as UCSC distributes them.
 
 ```text
 chr21  0         2800000   p13    gvar
-chr21  2800000   6970000   p12    stalk
-chr21  10900000  12000000  p11.1  acen
-chr21  12000000  46709983  q22.3  gneg
-chr20  0         64444167  p13    gneg
+chr21  2800000   6800000   p12    stalk
+chr21  6800000   10900000  p11.2  gvar
+chr21  10900000  13200000  p11.1  acen
+chr20  0         5100000   p13    gneg
 ```
 
-![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](../assets/figures/example-ideogram.svg){ width="900" height="276" loading="lazy" }
+<figure class="k-plate" markdown>
+![A whole banded chromosome with the sixty kilobases on display marked on it, above a depth profile, two genes and two variants drawn over that window](../assets/figures/example-ideogram.svg){ width="900" height="274" loading="lazy" }
+</figure>
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | chrom | matched against the region's sequence |
-| 2 | chromStart | yes, 0-based |
-| 3 | chromEnd | yes, exclusive |
-| 4 | name | yes, when there is one |
-| 5 | gieStain | yes, when there is one |
+| | |
+|:--|:--|
+| Read by | `--ideogram`; `read::interval::cytoband` |
+| Columns | 1 sequence, 2 start, 3 end, 4 band name, 5 stain; only the first three are required |
+| Coordinates | 0-based and half-open, passed through |
+| Skipped | rows on another sequence only: the window does not filter this file |
+| Refused | on the region's sequence, fewer than 3 columns or an end before its start |
 
-**Coordinates** pass straight through: cytoBand is BED with two extra columns.
-
-The stain words are the UCSC ones, matched without regard to case: `gneg`,
+The ideogram draws the whole chromosome and marks the window on it, so every
+band on the region's sequence is kept, and the chromosome's length is the
+highest end among them. The stains are the UCSC words, in any case: `gneg`,
 `gpos25`, `gpos50`, `gpos75`, `gpos` or `gpos100`, `acen`, `gvar` and `stalk`.
-An unknown or missing stain is the palest band rather than a guess, so a table
-that stops after the coordinates still draws.
+A missing or unknown stain is drawn as the palest band rather than guessed at.
 
-**The region does not filter this one.** The ideogram is the whole chromosome
-with a marker showing where the window is, so every band on the matching
-sequence is kept whatever the region says. The length of the chromosome is the
-highest end seen on that sequence, which is why a table holding every chromosome
-gives the right length for the one being drawn.
+## Calls and statistics
 
-**Errors**: fewer than three columns; a start or end that is not a number; an
-end before its start, which would collapse the band to nothing while its end
-still set the chromosome length.
+### VCF { #vcf }
 
-**Skipped**: rows on another sequence. A sequence the table does not hold at all
-gives no bands, and the track says `no bands in the region`.
-
-## VCF
-
-Used by `--variants`.
+Small variant calls.
 
 ```text
 ##fileformat=VCFv4.2
-##contig=<ID=NC_045512.2,length=29903>
 #CHROM       POS    ID  REF   ALT  QUAL  FILTER  INFO
 NC_045512.2  21563  .   A     G    900   PASS    DP=54;AF=0.98;ANN=G|missense_variant|MODERATE|S
 NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 ```
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | CHROM | matched against the region |
-| 2 | POS | yes, 1-based |
-| 3 | ID | ignored |
-| 4 | REF | yes, for the shape of the call and for how far it reaches |
-| 5 | ALT | yes, one call per alternate allele |
-| 6 | QUAL | ignored |
-| 7 | FILTER | ignored, so a call that failed a filter is still drawn |
-| 8 | INFO | `AF` for the height, `ANN` or `BCSQ` for the category |
-| 9 and beyond | FORMAT and the samples | ignored, so a sites-only VCF and a whole cohort read the same |
+| | |
+|:--|:--|
+| Read by | `--variants`; `read::point::variants` |
+| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
+| Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
+| Coordinates | 1-based: `POS 21563` is 0-based 21562 |
+| Skipped | rows whose ALT is `.`, which are reference blocks and most of a gVCF |
+| Refused | fewer than 8 columns; a POS of 0; an `AF` whose count is neither 1 nor the number of alternate alleles |
 
-**Coordinates** are 1-based, so `POS 21563` lands at 0-based 21562.
+- **Height** is the allele fraction, `AF`, matched as a whole key so that
+  `MLEAF` and `AF_ESP` are not taken for it. One number on a multi-allelic row
+  is shared, and a row with none is drawn at 1.0: a call with no fraction is
+  still a call.
+- **Category** is what an annotator wrote: the `ANN` entry naming this allele
+  (from snpEff or VEP), or else the first; or the first `BCSQ` consequence
+  (from bcftools csq), without the `*` of an uncertain one. With neither, it is
+  the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
+  length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
+  allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
+  `insertion`, and `<DUP>` is `dup`.
+- **Reach**: a call is kept when what REF spells touches the window, not only
+  its first base, since a deletion is written one base to the left of what it
+  removes.
 
-**The height** is the allele fraction: `AF` from `INFO` when it is there, and
-1.0 when it is not, since a call with no fraction is a call. `AF` carries one
-number per alternate allele; a single number written for a multi-allelic row is
-shared by all of them. The key is matched whole, because `AF` is the end of
-`MLEAF` and of `AF_ESP` and a substring search finds the wrong number in a file
-written by GATK or annotated against a population database.
+### Structural VCF { #structural-vcf }
 
-**The category** is the consequence an annotator wrote, when one did: `ANN`,
-which snpEff and VEP both write, read from the entry naming this allele and
-falling back to the first entry; or `BCSQ` from `bcftools csq`, whose
-consequence comes first, whose uncertain calls carry a leading `*` and whose
-`@761154` pointer entries have no fields of their own. With no annotation the
-category is what `REF` and `ALT` say between them: `substitution`, `insertion`
-or `deletion` by their lengths, `breakend` for an allele naming the other side
-of a join in square brackets, `deletion` for the `*` allele an overlapping
-deletion took away, and the tag inside `<DEL>` or `<INS:ME:ALU>` lowercased,
-since a symbolic allele carries no sequence to measure.
-
-**Errors**: fewer than eight columns; a `POS` of 0; an `AF` that is not a
-number, or an `AF` whose count is neither one nor the number of alternate
-alleles.
-
-**Skipped**: rows on another sequence; a row whose `ALT` is `.`, which is a
-reference block and most of what a gVCF holds; and calls that do not reach the
-window. What is measured there is what `REF` spells, not the anchor base alone,
-because a deletion is written one base to the left of the bases it removes and a
-call anchored just outside the window can still be a call about the window.
-
-## The association table
-
-Used by `--manhattan`.
+Structural calls, drawn as arcs between their breakpoints.
 
 ```text
-chrom         pos   pvalue
-Pf3D7_07_v3   4100  3.2e-9
-Pf3D7_08_v3   4110  1.0e-12
-Pf3D7_07_v3   4150  0.4
+#CHROM  POS     ID     REF  ALT             QUAL  FILTER  INFO
+chrA    321682  del_1  T    <DEL>           6     PASS    SVTYPE=DEL;SVLEN=205;END=321887
+chrA    321687  bnd_W  T    T[chrA:323457[  6     PASS    SVTYPE=BND;MATEID=bnd_Y
 ```
 
-Two columns, a position and a value, or three with a sequence name in front. The
-same file without the sequence column reads too:
+| | |
+|:--|:--|
+| Read by | `--structural`; `read::structural::variants` |
+| Columns | 1 CHROM, 2 POS, 3 ID (the call's name), 4 REF, 5 ALT, 8 INFO: `SVTYPE`, `SVLEN`, `END`, and read support from the first of `SUPPORT`, `PE`, `SR`, `RE` and `DV` |
+| Ignored | 6 QUAL, 7 FILTER, 9 onwards |
+| Coordinates | `POS` is the base before the event and `END` its last base, so both pass through unchanged: the deletion above covers 321,683 to 321,887 counted from 1 |
+| Skipped | rows with no symbolic allele and no `SVTYPE`; classes with no glyph, such as `<CNV>`; a breakend whose mate is on another sequence, and a single breakend; the second record of a breakend pair |
+| Refused | fewer than 8 columns; an SVLEN and END that disagree; a symbolic call with neither; a call that covers no bases; an end before its start |
+
+This is the one VCF reader that takes nothing off `POS`: a symbolic allele
+cannot be written without a reference base, so the specification puts `POS` on
+the base before the event. The class comes from ALT (square brackets for a
+breakend, then `<DEL>`, `<DUP>`, `<INV>`, `<INS>`), or else from `SVTYPE` (`DEL`,
+`DUP`, `INV`, `INS`, `BND`, `TRA`). The length comes from `SVLEN`, taken as a
+positive number since VCF 4.3 writes a deletion's as negative; failing that
+from `END`; and for a call spelled out in full, from the length of REF. An
+insertion has one breakpoint and no footprint. A breakend pair is one arc: the mate is read from the ALT itself, and
+only the record at the lower position draws it.
+
+### The association table { #the-association-table }
+
+A statistic per tested position, for a Manhattan plot.
 
 ```text
-pos   p
-4100  3.2e-9
-4150  0.4
+chrom         pos   neglog10p
+Pf3D7_07_v3   4100  8.49
+Pf3D7_08_v3   4110  12.0
+Pf3D7_07_v3   4150  0.40
 ```
 
-**Coordinates** are 1-based, as every association tool writes them, so 4100
-lands at 0-based 4099.
+| | |
+|:--|:--|
+| Read by | `--manhattan`; `read::point::associations` |
+| Columns | two or three: an optional sequence name, then a position and a value |
+| Coordinates | 1-based: position 4100 is 0-based 4099 |
+| Skipped | a header on the first line; a two-column table names no sequence |
+| Refused | any other number of columns; a position of 0; a header-like word after the first line |
 
-**The header is optional** and only the first line worth looking at may be one:
-a word where a position belongs on that line is a column name, and a word where
-a position belongs further down is an error rather than a line that quietly
-disappears.
+!!! warning "Give it -log10(p), not p"
+    The value is drawn as written, higher meaning stronger, and `--threshold`
+    is in the same units: `genome-wide` is -log10(5e-8), about 7.3. A column of
+    raw p-values draws the strongest hits at the bottom. Convert first, for
+    example:
 
-The value is handed over as it is. The track is what decides to draw it on a log
-scale.
+    ```bash
+    awk 'NR == 1 { print; next } { $3 = -log($3) / log(10); print }' scan.tsv > scan-log10.tsv
+    ```
 
-![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](../assets/figures/example-association.svg){ width="940" height="349" loading="lazy" }
+### The matrix table { #the-matrix-table }
 
-**Errors**: any width other than two or three columns; a position or a value
-that is not a number.
-
-**Skipped**: rows whose sequence column names another sequence, and positions
-outside the region. A two column table names no sequence, so only the region
-filters it.
-
-## FASTA
-
-Used by `--sequence`.
+A value per sample per site: an allele fraction, a genotype, a depth.
 
 ```text
->chrI Saccharomyces cerevisiae S288C
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-CGTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+sample   14150  14180  14212
+BY4741   1      0      .
+RM11-1a  1      1      NA
+YJM789   0      0      1
 ```
 
-The name is the header up to the first whitespace, so the record above is
-`chrI`. Sequence lines are joined with nothing between them and their case is
-kept, since a soft-masked reference says something by being lower case. A blank
-line in the middle of a record does not end it.
+| | |
+|:--|:--|
+| Read by | `--matrix`; `read::table::matrix` |
+| Columns | a header of site positions, then one row per sample: its name and one value per site |
+| Coordinates | 1-based positions in the header: `14150` is 0-based 14149 |
+| Skipped | sites outside the window, each taking its column out of every row; the table names no sequence |
+| Refused | a header position of 0; a row whose count of values differs from the header's count of sites |
 
-**Coordinates**: a FASTA file has none. A record starts at its own first base,
-so byte `n` is the base at 0-based position `n`, and the base at 1-based
-position `p` is byte `p - 1`. The region is cut out by indexing into the record,
-which means **the record has to be the whole sequence from its first base**. A
-FASTA already trimmed to the locus draws the wrong bases without saying so.
+The first header field is the table's corner: a word such as `sample`, or
+empty in a tab-separated file. An empty cell, `.` and `NA` are missing, drawn as
+a hole rather than as the bottom of the colour ramp; a typed `0` is a value, and
+any other word is refused.
 
-`--sequence` takes the first record of the file and ignores the rest.
+### The segment table { #the-segment-table }
 
-**Errors**: a line of sequence before the first `>`; a `>` with no name after
-it; a header with no sequence under it, which is a truncated file rather than a
-record of no bases. A long line is quoted back only at its start, since a FASTA
-file can hold a whole chromosome on one line.
+Copy number over segments, as a caller concluded it. Used with `--ploidy`.
 
-**Not an error**: a region past the end of the record. The track is built with
-no bases and draws nothing, which is worth knowing when a sequence track comes
-out blank.
+```text
+chromosome  start      end        gene  log2   cn  cn1  cn2
+chr8        127200000  127740000  MYC   1.86   7   5    2
+chr8        127740000  129100000  -     -0.02  2   1    1
+chr17       7565000    7590000    TP53  -1.04  1   1    0
+chr17       7590000    7700000    -     NA     NA  NA   NA
+```
 
-## Aligned FASTA
+| | |
+|:--|:--|
+| Read by | `--copy-number`; `read::segments::copy_numbers` |
+| Columns | found by name in a required header, in any case, as below |
+| Coordinates | `start` and `end` (CNVkit `.cns`): 0-based and half-open, passed through. `startpos` and `endpos` (ASCAT), `loc.start` and `loc.end` (`.seg`): 1-based and inclusive, so the start moves back one |
+| Skipped | segments whose copy number is missing: an empty field, `.`, `NA`, `-`, or anything that is not a finite number |
+| Refused | a header naming none of the shapes below; a row too short for its header's columns; a 1-based start of 0; an end before its start; several samples and no `--sample` |
 
-Used by `--msa` and by `--snps`.
+| Column | Header names |
+|:--|:--|
+| sequence | `chromosome`, `chrom`, `chr`, `seqnames` |
+| allele split, read first | `cn1` and `cn2`; `nMajor` and `nMinor`; `nMaj` and `nMin`; `major` and `minor` |
+| total, read next | `cn`, `total_cn`, `copy_number`, `copies` |
+| log2 ratio, read last | `log2`, `log2ratio`, `logR`; `seg.mean` in a `.seg` file |
+| sample, where there is one | `sample`, `ID`, `sampleid`, `sample_id`, `name` |
+
+A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in the
+file, which is why `--ploidy` is required. The allele split is read first
+because a caller that wrote it did so on purpose, and a total cannot be turned
+back into one. A missing copy number leaves a gap rather than a level nobody
+called.
+
+## Sequences and trees
+
+### FASTA { #fasta }
+
+Sequences, one record per `>` header.
+
+```text
+>chr1 an example sequence
+ACGTTGCAAGGCTTACCGATCGATTACGGCATTAGCCGATCGGATTACAGGCTTAGCAAG
+CTTGCATGCAACGGATTACGATCG
+```
+
+| | |
+|:--|:--|
+| Read by | `--sequence`, `--orfs` and `--with-sequence`; `read::seq::fasta` |
+| What is read | each record's name (the header up to its first space) and its sequence lines, joined, case kept |
+| Coordinates | none: a record starts at its own first base, so byte n is 0-based position n |
+| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it |
+
+`--sequence` and `--orfs` take the first record and cut the region out of it by
+position. `--with-sequence` takes the file's only record whatever it is called,
+or, in a file of several, the one named like the region's sequence. Lower case
+is kept, since a soft-masked reference says something by it. A region past the
+end of the record is not an error: the track has no bases there and draws
+nothing.
+
+!!! warning "Hand `--sequence` the whole sequence"
+    A slice from `samtools faidx ref.fa chr1:101-200` is read as if it began at
+    base 1, so over `chr1:101-200` it draws nothing, and over another window it
+    draws the wrong bases, without an error. Give it the reference and let the
+    region do the cutting.
+
+### Aligned FASTA { #aligned-fasta }
+
+An alignment: FASTA whose records are all the same length.
 
 ```text
 >sample_01
@@ -568,69 +546,65 @@ ACGTTACGT
 ACGT-ACGA
 ```
 
-Read exactly as FASTA, with one check on top: every record has to be the same
-length, which is what makes it an alignment rather than a set of sequences.
+| | |
+|:--|:--|
+| Read by | `--msa`, `--snps` and `--logo`; `read::seq::alignment` |
+| What is read | FASTA, with every record the length of the first |
+| Coordinates | alignment columns, not genomic positions: this one is drawn over a region such as `aln:1-9`, and the ruler counts columns |
+| Skipped | nothing: the region's sequence name is not compared with anything |
+| Refused | what FASTA refuses, and a record of another length |
 
-!!! warning "The coordinates are alignment columns, not genomic positions"
-    An alignment has its own coordinate system, gaps included, and ungapping a
-    row back to reference coordinates is a real operation with real decisions in
-    it that this crate does not do silently. So the region is the column space:
-    an alignment 900 columns wide is drawn over `alignment:1-900`, and the ruler
-    under it counts columns.
+`--msa` compares every row against the consensus, or the row `--compare-to`
+names. `--snps` keeps the columns where a row differs from the first record, or
+from the `--compare-to` row, which is left out of the rows; a gap counts as a
+difference. `--logo` counts the residues in each column. A record of the wrong
+length is named with the difference:
 
-`--snps` keeps only the columns that vary, comparing every row against the first
-record of the file, which is left out of the sample rows. A gap counts as a
-disagreement, since a deletion is an observation too.
-
-**Errors**: everything FASTA errors on, plus a record of the wrong length. That
-last message names the record and the difference:
-
-```
-karyon: --msa aln.fa: line 3: an alignment has every record the same length,
-and "sample_02" is 1 shorter than "sample_01", which is 9 columns
+```text
+karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
 ```
 
-**Skipped**: nothing. An alignment has no sequence names to match and no
-positions to be outside of.
+### Newick { #newick }
 
-## Newick
-
-Used by `--tree`.
+A phylogeny, read whole as one tree.
 
 ```text
 ((ERR01:0.01,ERR02:0.012)0.98:0.04,ERR03:0.06);
 ```
 
-The whole file is one tree. Nested clades, branch lengths, quoted names and
-internal labels all read; an internal label is a support value when it parses as
-a number and a name when it does not. The trailing semicolon is optional and
-whitespace is ignored, so a tree written across several lines reads as one.
+| | |
+|:--|:--|
+| Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse_annotated_newick` |
+| What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations |
+| Coordinates | none: the region is not compared with anything, so `phylo:1-1` serves as well as any |
+| Refused | an empty file; unbalanced parentheses; a comma outside any clade; more than one root; a branch length that is not a number or has nothing to attach to |
 
-Square bracket comments are skipped wherever they appear, which is what lets a
-file straight out of RAxML or BEAST be read: those write a `[&R]` rootedness
-marker before the tree and `[&height=...]` annotations inside it. Nothing inside
-a comment is kept, NHX annotations included.
+- The trailing `;` is optional and whitespace is ignored, so a tree written
+  over several lines reads as one.
+- An internal label is a support value when it parses as a number, and a clade
+  name when it does not.
+- Names may be quoted with `'` or `"`, and a doubled quote inside is a literal
+  one, so `'O''Brien'` is one tip.
+- Bracketed comments become annotations on the node before them: BEAST's
+  `[&key=value,...]` and NHX's `[&&NHX:key=value:...]`. `[&R]` and `[&U]` mark
+  the tree rooted or unrooted, and any other comment is kept as `comment`.
+  These annotations are what `--color-by` and `--mutations` read.
 
-**Coordinates**: none. A tree carries no positions, so nothing is skipped for
-being on another sequence or outside the region.
+A tree is not read line by line, so its errors carry no line number:
 
-**Errors**: unbalanced parentheses, a comma outside any clade, more than one
-root, a branch length that is not a number, and an empty file. The message
-carries no line number, because the tree is not read line by line:
-
+```text
+karyon: --tree tree.nwk: invalid Newick tree: unbalanced parentheses
 ```
-karyon: --tree: invalid Newick tree: unbalanced parentheses
-```
 
-## SAM
+The command reads Newick only; the library also reads a NEXUS trees block, with
+`Tree::parse_nexus`.
 
-Used by `--pileup`, and the usual way in is a pipe from `samtools view`, whose
-header lines are dropped by the reader either way.
+## Reads and molecules
 
-```bash
-samtools view aln.bam NC_002516.2:3900-4100 \
-  | karyon NC_002516.2:3,900-4,100 --pileup - --label reads -o reads.svg
-```
+### SAM { #sam }
+
+Aligned reads as text, usually piped from `samtools view` as
+[Binary formats](cli.md#binary-formats) shows.
 
 ```text
 @HD    VN:1.6  SO:coordinate
@@ -638,428 +612,300 @@ samtools view aln.bam NC_002516.2:3900-4100 \
 read1  0  NC_002516.2  4001  60  3S5M2I4M1D6M  *  0  0  AAAGGGGGTTCCCCTTTTTT  *
 ```
 
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg){ width="920" height="474" loading="lazy" }
+<figure class="k-plate" markdown>
+![Reads stacked under a depth profile and a candidate SNV call, drawn by strand, with mismatches against the reference and reads carrying deletions and an insertion](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+</figure>
 
-| Column | Field | Read |
-|:--|:--|:--|
-| 1 | QNAME | ignored |
-| 2 | FLAG | yes: bit 4 unmapped, bit 16 reverse strand |
-| 3 | RNAME | matched against the region |
-| 4 | POS | yes, 1-based |
-| 5 | MAPQ | yes; 255 is the aligner saying it has none |
-| 6 | CIGAR | yes |
-| 7 | RNEXT | ignored |
-| 8 | PNEXT | ignored |
-| 9 | TLEN | ignored |
-| 10 | SEQ | yes, unless it is `*`, so the track can paint mismatches |
-| 11 | QUAL | ignored |
-| 12 and beyond | optional tags | ignored |
+| | |
+|:--|:--|
+| Read by | `--pileup`; `read::align::sam` |
+| Columns | 2 FLAG (bit 4 unmapped, bit 16 reverse strand), 3 RNAME, 4 POS, 5 MAPQ (255 means none given), 6 CIGAR, 10 SEQ unless it is `*` |
+| Ignored | 1 QNAME, 7 RNEXT, 8 PNEXT, 9 TLEN, 11 QUAL, and the optional tags |
+| Coordinates | 1-based: `POS 4001` starts the read at 0-based 4000 |
+| Skipped | unmapped records; records with `*` for a CIGAR |
+| Refused | fewer than 11 columns; a POS of 0; a MAPQ above 255; a CIGAR that will not parse |
 
-**Coordinates** are 1-based, so `POS 4001` starts the read at 0-based 4000.
+`M`, `=` and `X` all arrive as matches: the track finds mismatches itself, by
+comparing SEQ with the reference `--with-sequence` gives it. `I`, `D`, `N`, `S`
+and `H` are read as themselves, and `P`, padding that moves along neither
+sequence, is dropped. Secondary and supplementary records are drawn like any
+other mapped record.
 
-**The CIGAR** maps operation by operation. `M`, `=` and `X` all arrive as
-matches, because the track finds mismatches by comparing the sequences itself.
-`I`, `D`, `N`, `S` and `H` are themselves. `P` is padding, which moves along
-neither the read nor the reference, and is dropped rather than carried as an
-operation that draws nothing.
+### SAM with SA tags { #sam-with-sa-tags }
 
-**Errors**: fewer than eleven columns; a flag, `POS` or `MAPQ` that is not a
-number; a `POS` of 0; a `MAPQ` above 255; a CIGAR letter that is not an
-operation, an operation with no length in front of it, or a length with no
-operation after it.
-
-**Skipped**: records with bit 4 set, which were never placed on a reference;
-records whose CIGAR is `*`, which have no shape to draw; records on another
-sequence; and reads that do not overlap the window. None of those is malformed:
-they are what a SAM file carries.
-
-## The matrix table
-
-Used by `--matrix`, for a value per sample per site.
+Reads that aligned in pieces: a primary alignment, and an `SA` tag listing the
+others.
 
 ```text
-sample   14150  14180  14212
-BY4741   1      0      .
-RM11-1a  1      1      NA
-YJM789   0      0      1
+r1  0     chr1  1001  60  50M50S  *  0  0  *  *  SA:Z:chr1,3001,-,50M50S,60,0;
+r1  2064  chr1  3001  60  50M50S  *  0  0  *  *  SA:Z:chr1,1001,+,50M50S,60,0;
 ```
 
-The header names the sites and the first column names the samples. The first
-field of the header is the corner, and it is either empty or a word such as
-`sample`. A header whose first field is a number has no corner and is read as
-all positions, which is what a space separated file gives you: the run of
-whitespace collapses into the separator and an empty first field cannot survive
-it.
+| | |
+|:--|:--|
+| Read by | `--split-reads`; `read::split::reads` |
+| Columns | 1 QNAME (the row's name), 2 FLAG, 3 RNAME, 4 POS, 5 MAPQ, 6 CIGAR, and the `SA:Z:` tag: `rname,pos,strand,CIGAR,mapQ,NM` for each other piece |
+| Coordinates | 1-based, both in column 4 and inside the tag |
+| Skipped | secondary and supplementary records, whose pieces are already in the primary's tag; records with `*` for RNAME; reads in one piece; reads with a piece on another sequence; reads whose pieces disagree about the molecule's length |
+| Refused | fewer than 11 columns; a POS of 0; a MAPQ above 255; an SA entry of fewer than five fields, or with a strand other than `+` or `-`; a CIGAR that will not parse or covers no reference bases |
 
-**Coordinates**: the header positions are 1-based, the way a VCF writes them and
-the way every tool that makes such a table prints them, so `14150` is the site
-at 0-based 14149.
+Each molecule's pieces come from its primary line and that line's tag, so a
+region-restricted `samtools view` still recovers the pieces outside the region,
+and a read whose primary alignment is missing is not read at all. The pieces
+are put in the order the molecule visited them, worked out from the clips and
+the strand rather than from reference position, which is what tells a read
+across an inversion from a read across a deletion.
 
-**Missing values**: an empty cell, a `.` and an `NA` are missing, and are drawn
-as a hole rather than as the zero end of the colour ramp, because those are
-different claims. A typed `0` is a value.
+### SJ.out.tab { #sj-out-tab }
 
-Sites outside the region are dropped, and each one takes its column out of every
-row with it, so the rows still line up with the sites column for column.
-
-**Errors**: a row whose value count does not match the number of sites the
-header names, counted before the region drops anything, and that message names
-the sample and both counts; a header field that is not a number, or that is 0 in
-a 1-based header; a cell that is neither a number nor one of the three spellings
-of nothing.
-
-**Skipped**: nothing on account of a sequence, since the table names none. Give
-it a table for the sequence being drawn.
-
-## The segment table
-
-Used by `--copy-number`, for what a caller concluded over each interval.
-
-```text
-chromosome  start      end        gene  log2   cn  cn1  cn2
-chr8        127200000  127740000  MYC   1.86   7   5    2
-chr8        127740000  129100000  -     -0.02  2   1    1
-chr17       7565000    7590000    TP53  -1.04  1   1    0
-chr17       7590000    7700000    -     NA     NA  NA   NA
-```
-
-The columns are found by name off a required header, which is the one place in
-this guide a header is a rule rather than something worked out from the shape of
-the file. Every segment table has a chromosome, two coordinates and some
-numbers, and the writers disagree about the order, the count and the names.
-Guessing by column count would read `nMajor` where `nMinor` was written, and
-that is a figure claiming lost heterozygosity in the arms that kept it, drawn
-confidently.
-
-Three shapes are known: CNVkit's `.cns` (`chromosome`, `start`, `end`, and
-`cn`, `cn1`, `cn2` or `log2`), ASCAT's segment table (`startpos`, `endpos`,
-`nMajor`, `nMinor`), and the `.seg` file IGV and GISTIC2 read (`loc.start`,
-`loc.end`, `seg.mean`). A header naming none of them is refused rather than
-guessed at.
-
-**Coordinates**: the `.cns` is BED-like, 0-based and half-open, passed straight
-through. ASCAT and `.seg` are 1-based and inclusive, so one comes off the start
-and the end is unchanged. The header decides which, since the two spell the same
-two coordinates by different names.
-
-**Log ratios**: a `.seg` carries `seg.mean` and a `.cns` carries `log2`, both
-ratios against a reference. Turning either into copies is `ploidy * 2^log2`, and
-the ploidy is not in the file, which is why `--ploidy` is required rather than
-defaulted. A file carrying a called integer copy number is read from that
-instead, since it is what the caller concluded rather than what this arithmetic
-would infer.
-
-**The allele split is read first**, before the total and before the ratio. A
-caller that wrote both wrote the split on purpose, and a total cannot be turned
-back into one.
-
-**Missing values**: an empty field, a `.`, an `NA`, a `-`, and anything that
-parses to a number that is not a number. A segment whose copy number is any of
-those is counted and not drawn, so the interval is a gap in the ladder rather
-than a level nobody called.
-
-**Several samples**: a table naming more than one is refused until `--sample`
-picks, because two step functions in one band read as one sample with a great
-many breakpoints.
-
-**Errors**: a header naming none of the known shapes; a row narrower than the
-columns the header names; a 1-based coordinate of nought; an end before its
-start.
-
-## Per-base scores
-
-Used by `--dynseq`, for what a model made of each base.
-
-```text
-chr1  1000  1001  0.42
-chr1  1001  1002  -0.13
-chr1  1002  1003  0.05
-```
-
-bedGraph and nothing else. [The signal reader](#bedgraph) tells three shapes
-apart by column count and two of them mean nothing here: the output of
-`samtools depth` is a read depth, which is never negative and is not a
-contribution, and a bare column of values carries no coordinates, so a model
-scored over one stretch would be laid over another. Either would draw a figure,
-and the figure would be wrong in a way nothing on it could show.
-
-**Coordinates**: 0-based and half-open, passed straight through. A row covering
-several bases gives its score to each of them, and only the part inside the
-window is expanded, so a genome-wide file does not become a genome-wide vector.
-
-**Missing values**: the gaps between rows. A base no row covers stays unscored
-rather than becoming a nought, and the difference is a model that looked and
-found nothing against one that never looked. The figure draws it: the rule under
-the bases is broken wherever nothing was scored.
-
-**Errors**: a row without four columns, a coordinate that is not a number, an
-end before its start.
-
-## SJ.out.tab
-
-Used by `--junctions`, for the introns an aligner saw reads step over.
+Splice junctions, as STAR counts them.
 
 ```text
 chr1  14830  14969  2  2  1  14  3  40
 ```
 
-Nine columns: sequence, first base of the intron, last base of the intron,
-strand (0 unknown, 1 forward, 2 reverse), intron motif, whether an annotation
-held it, uniquely mapping reads across it, multi-mapping reads across it, and
-the longest spliced overhang.
+| | |
+|:--|:--|
+| Read by | `--junctions`; `read::junction::junctions` |
+| Columns | 1 sequence, 2 first base of the intron, 3 last base of the intron, 4 strand (0 unknown, 1 forward, 2 reverse), 5 motif, 6 annotated (0 or 1), 7 uniquely mapping reads, 8 multi-mapping reads, 9 longest overhang |
+| Coordinates | 1-based and inclusive on the intron: the start moves back one and the end stays |
+| Refused | fewer than 9 columns; an intron start of 0; an intron that ends before it starts |
 
-**Coordinates**: 1-based and inclusive **on the intron**, not on the exons
-either side. So the start comes down by one and the end, made half-open, is the
-number as written. That is a third convention, different from both of its
-neighbours in this guide, and a reader that copied [VCF](#vcf), where both come
-down by one, would draw every arc a base short at its right foot.
+The six motif codes fold to four (GT/AG, GC/AG, AT/AC and non-canonical), since
+each pair differs only in the strand, which has its own column. Multi-mapping
+reads are kept apart and never added to the unique reads the arc's thickness
+comes from. A run aligned without an annotation writes 0 in column 6
+everywhere, which reads as every junction being new. A junction no uniquely
+mapping read crossed is kept, and the track holds it back and says how many it
+held back.
 
-**Motifs**: the six codes fold to four, because the pairs differ only in which
-strand the intron is on and the strand is its own column.
+### bedMethyl { #bedmethyl }
 
-**Multi-mapping reads** are kept and never added to the unique ones. A read that
-mapped in four places is one read and four pieces of evidence, and adding it to
-a count the figure draws a thickness from makes a repeat look like an expressed
-isoform.
-
-**Novelty**: column six is nought for a junction no annotation held. A file read
-against no annotation is nought everywhere and cannot be told apart from a file
-whose junctions are all novel, so both come back as stated novelty and the
-caller who knows which they have is the one who can say. A column holding
-neither nought nor one leaves it unstated, and unstated is not false.
-
-**Missing values**: a junction no uniquely mapping read crossed is handed on
-rather than dropped, and the track holds it back and prints how many. Filtering
-it here would take that number off the figure.
-
-**Errors**: a row without nine columns, an intron start of nought in a file
-counting from one, an intron that ends before it starts.
-
-## PAF
-
-Used by `--synteny` and `--dotplot`, for alignments between two sequences.
-`minimap2` writes it by default, and so do `miniasm`, `winnowmap`, `wfmash` and
-`paftools.js` converting a nucmer delta.
-
-```text
-qry  4500  100  4400  +  ref  5000  200  4500  4100  4300  60
-```
-
-Twelve mandatory columns, then optional `tag:type:value` fields this reader does
-not need: query name, query length, query start, query end, strand, target name,
-target length, target start, target end, residue matches, alignment block length
-and mapping quality.
-
-**Coordinates**: 0-based and half-open on both pairs, which is this crate's own
-convention, so nothing is added or taken off. PAF is the one format in this
-guide that needs no conversion, which is worth saying out loud because every
-other one here does.
-
-**A block belongs to a pair of sequences, and a track only knows one.** A block
-holds two spans and no names, so two rows of a whole-genome PAF look identical
-to a track while describing alignments against different chromosomes, and
-stacking them on one axis would draw a comparison nobody made. So a read names
-its target: `read::align_pairs::pairs` says which query and target pairs a file
-holds and how many rows each has, and `blocks` takes the two names, keeps the
-rows that match both and returns how many it passed over. That count is the
-point. A figure drawing forty blocks out of four thousand should be able to say
-so.
-
-**Errors**: a row with fewer than twelve columns, a coordinate that is not a
-number, a strand column that is neither `+` nor `-`, and a target given two
-different lengths by two rows of the same file.
-
-## bedMethyl
-
-Used by `--methylation`, for modified bases as `modkit pileup` counts them.
+Modified bases, one row per position per strand per modification, as
+`modkit pileup` writes them.
 
 ```text
 NC_000913.3  1000  1001  m  30  +  1000  1001  255,0,0  30  86.67  26  4  0  0  0  0  0
 ```
 
-Nine BED-like columns and nine of counts, one row per position per strand per
-modification: chromosome, start, end, modification code, score, strand, thick
-start, thick end, colour, then valid coverage, percent modified, and the counts
-of modified, canonical, other modification, delete, fail, diff and nocall.
+| | |
+|:--|:--|
+| Read by | `--methylation`; `read::methyl::sites` |
+| Columns | 1 sequence, 2 start, 4 modification code, 6 strand, 10 valid coverage, 12 reads modified; the fraction is column 12 over column 10 |
+| Ignored | 3 end, 5 score, 7 to 9, 11 percent modified (the same fraction, rounded), and 13 to 18 |
+| Coordinates | 0-based, passed through: `1000` is the base 1,001 counted from 1 |
+| Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified |
+| Refused | fewer than 18 columns; a strand other than `+` or `-`, since a strand-combined pileup has no strand to draw; more reads modified than valid coverage |
 
-**Coordinates**: 0-based and half-open, so nothing is added or taken off. Worth
-saying because the two readers either side of it do convert, and a methylation
-call moved one base left lands on the other strand's partner in a CpG, where it
-looks entirely reasonable.
+A file holding more than one modification code, such as `m` and `h` from a
+dual-mode run, needs `--modification`. The code is compared on its first field,
+so a motif run's `m,CG,0` is `m`. Some tools write tabs up to column 10 and
+spaces after it, and that reads too.
 
-**One file is several tracks.** Column four says which modification was counted,
-and a dual-mode run writes `m` and `h` rows at the same cytosine. Stacked on one
-axis those are two marks at one position with nothing saying which is which, and
-`MethylationTrack::hemimethylated` pairs by position, so it would call a
-symmetrically modified CpG a strand difference no pileup reported. So a read
-names its modification: `read::methyl::codes` says what a file holds and `sites`
-takes the one to draw. The code is compared on its first field, since
-`modkit --motif` writes `m,CG,0` where a plain run writes `m`.
+### The Bismark extractor file { #the-bismark-extractor-file }
 
-**Nought reads is not nought per cent.** `modkit` writes a row for a position it
-could not call: valid coverage nought, every count nought, column eleven
-`0.00`. Passed through, that is a mark on the baseline whose tooltip says nought
-per cent modified, which is a measurement, and the position was not measured.
-Those rows are skipped and counted.
-
-**The fraction** is the modified count over the valid coverage rather than
-column eleven, which is the same quotient already rounded to two decimals.
-
-**Errors**: more reads modified than there was valid coverage to modify.
-
-## The Bismark extractor file
-
-Used by `--bisulfite`, for methylation one molecule at a time, as
-`bismark_methylation_extractor` writes it.
+Methylation calls one read at a time, as `bismark_methylation_extractor` writes
+them.
 
 ```text
+Bismark methylation extractor version v0.24.2
 read_0001  +  chr7  57383000  Z
 read_0001  -  chr7  57383012  z
 ```
 
-Five columns: the read name, which is the SAM query name and is carried by both
-mates of a pair; a `+` or `-`; the sequence; the position; and the call.
+| | |
+|:--|:--|
+| Read by | `--bisulfite`; `read::bisulfite::molecules` |
+| Columns | 1 read name, 2 `+` or `-`, 3 sequence, 4 position, 5 call letter; the eight-column rows of Bismark's yacht output read too |
+| Coordinates | 1-based: the position moves back one |
+| Skipped | the version line; calls in another context |
+| Refused | a row that is not 5 or 8 columns; a column 2 other than `+` or `-`, or at odds with the case of the call; a call letter other than `Z z X x H h U u`; a position of 0 |
 
-**Coordinates**: 1-based, so one is taken off. A call moved a base lands on the
-other cytosine of the same CpG, where it looks entirely reasonable.
+The call letter is both the context and the answer: `Z` and `z` are a CpG found
+methylated and unmethylated, `X` and `x` CHG, `H` and `h` CHH, `U` and `u` an
+unknown context. A file holding several contexts needs `--context`. Column 2
+repeats the case of the letter; it is not the strand. Both mates of a pair carry
+one read name (a `/1` or `/2` ending is dropped) and are one row, one molecule,
+and where they disagree about a cytosine neither call is kept. A cytosine a
+molecule never covered is drawn as nothing, unlike one measured and found
+unmethylated.
 
-**The letter is both the context and the answer.** `Z` is a methylated CpG and
-`z` an unmethylated one, `X` and `x` are CHG, `H` and `h` are CHH, `U` and `u`
-are anything else. Column two is the case of that letter written out again, so
-it says nothing the letter did not, and in particular **it is not the strand**.
+## Comparisons
 
-**The row is the fragment.** Both mates of a pair carry one read name and are
-two halves of one molecule, so they are one row. Where they overlap and disagree
-about a cytosine, neither call is kept: the molecule's state there is what the
-two reads could not agree on, and either answer drawn is a coin toss shown as a
-measurement.
+### PAF { #paf }
 
-**A site a molecule never covered stays absent**, which the track draws as
-nothing at all, rather than as the ring it draws for a cytosine that was
-measured and found unmethylated.
-
-**Errors**: a column two that is neither `+` nor `-`, and a call that is not one
-of `Z z X x H h U u`.
-
-## The InterProScan table
-
-Used by `--domains`, for protein domains on an axis of residues.
+Alignments between two sequences, as minimap2 writes them by default.
 
 ```text
-P00533	md5	1210	Pfam	PF07714	Protein tyrosine kinase	712	979	1e-70	T	01-01-2026
+qry  4500  100  4400  +  ref  5000  200  4500  4100  4300  60
 ```
 
-Eleven columns and up to four more, tab separated, no header: protein accession,
-sequence MD5, sequence length, analysis, signature accession, signature
-description, start, stop, score, status, date, and optionally the InterPro
-accession and description.
+| | |
+|:--|:--|
+| Read by | `--synteny` and `--dotplot`; `read::align_pairs::blocks` |
+| Columns | 1 query name, 3 query start, 4 query end, 5 strand, 6 target name, 7 target length, 8 target start, 9 target end, 10 residue matches, 11 alignment block length |
+| Ignored | 2 query length, 12 mapping quality, and the optional `tag:type:value` fields |
+| Coordinates | 0-based and half-open on both sequences, passed through: the one format here that needs no conversion |
+| Skipped | rows about any other pair of sequences |
+| Refused | fewer than 12 columns; a strand other than `+` or `-`; a target given two different lengths |
 
-**Coordinates**: 1-based and inclusive, so a start comes back one lower and a
-stop is unchanged, the same conversion GFF3 gets.
+The region names the query. Of the targets it aligns to, the one with the most
+rows is drawn (on a tie, the name first in alphabetical order), and the synteny
+track prints both names. A block's identity is column 10 over column 11, and a
+block length of 0 gives it none.
 
-**Split on tabs and never on whitespace**, because column six is a sentence:
-`BRCA2, oligonucleotide/oligosaccharide-binding, domain 1` is one field and
-seven words. A row with no tab in it is refused rather than taken apart on its
-spaces.
+### Gene neighbourhoods { #gene-neighbourhoods }
 
-**The axis is residues.** A domain is at a place in a protein rather than at a
-place in a genome, so `Region::parse` takes `P00533:1-1210` as readily as it
-takes a chromosome, and the ruler underneath counts amino acids.
-
-**Column one names the row rather than selecting it**, as in the locus table and
-for the same reason: the figure is the comparison. Every protein in the file is
-a row and they share one residue axis, which is what makes a domain gained or
-lost visible at all.
-
-**A length that is absent is not a length of nought.** Column three is what the
-row's backbone is drawn from, and it is not the same as the furthest domain: a
-protein whose last annotated domain ends at residue 300 may run to 800, and
-drawing the backbone to 300 claims the domain reaches the C terminus. A length
-of nought would remove the backbone and every domain on the row, leaving the
-name standing over an empty line, so both are refused rather than drawn.
-
-**Errors**: a row with no tab in it, and a protein given two different lengths
-by two rows of the same file.
-
-## The sample sheet
-
-Used by `--traits`, for what is known about the rows a track already has.
+The genes around one locus in several genomes: BED or GFF3 whose first column
+names the genome.
 
 ```text
-sample   lineage  host    depth  drug
-S001     L4       human   72.5   true
-S002     L2       bovine  61.0   false
-S003     L4               48.2   true
-S004     L1       human   NA     false
+g1  100   900   dnaA  0  +
+g1  1000  2100  dnaN  0  +
+g2  150   950   A1    0  +
+g2  1100  2200  N1    0  +
 ```
 
-The first line is the header, the first column is the name, and every other
-column is one attribute. Unlike every other format here the header is a rule
-rather than something worked out from the shape of the file: a sheet has no
-shape, since any row is a name and some words and so is the header. A file
-whose first line is data loses that line to the column names, which shows up in
-the drawn figure rather than passing quietly.
+| | |
+|:--|:--|
+| Read by | `--loci`, with `--links`; `read::locus::loci` |
+| Columns | as [BED](#bed) or [GFF3](#gff3), told apart the same way, except that column 1 names the genome |
+| Coordinates | as BED or GFF3 |
+| Skipped | column 1 names a genome and filters nothing; only the window filters |
+| Refused | whatever BED or GFF3 refuses |
 
-**Coordinates**: none. Nothing in a sheet is at a position, which is why these
-columns are drawn beside the rows rather than over the axis, and why they do
-not move when the region does.
+Every genome in the file is a row, in the order first seen, so the file is what
+`cat` makes of one file per genome:
 
-**Types**: a field is a number when it parses as one, `true` or `false` when it
-spells one, and text otherwise. A column whose every stated value is a number
-gets a ramp; anything else gets the categorical palette, and a column of more
-levels than the palette holds gets a shape as well as a hue so that two levels
-never share a mark.
-
-**Missing values**: an empty field, a `.` and an `NA`, the same three spellings
-[the matrix table](#the-matrix-table) reads as nothing. A field that parses to a
-number that is not a number is missing too: a `NaN` in a column of depths is a
-depth nobody measured. A missing cell is drawn as an empty outline, which is the
-one mark in a strip that cannot be mistaken for a level.
-
-The ambiguity is honest and worth stating: a column whose levels really are the
-two-letter codes for continents has a level `NA` that is read as missing, and
-nothing in the file separates those two cases.
-
-**Errors**: a row whose field count is not the header's, and that message names
-both counts; a name used twice; a repeated or empty column name; a header of one
-column, which names things and says nothing about them.
-
-**Skipped**: nothing. Every row is kept, and the join to the track's own rows
-happens afterwards. A sheet that names none of them is refused by
-`karyon` the command rather than drawn, because a strip of empty outlines
-beside every row is a figure that looks finished and says nothing.
-
-## When a file draws nothing
-
-A track whose file held nothing usable inside the region is an error naming the
-flag, the file and what was wanted:
-
-```
-karyon: --features genes.bed: no features in the region
+```bash
+cat H37Rv.bed CDC1551.bed Erdman.bed > loci.bed
 ```
 
-| Message | Flag | Usually |
-|:--|:--|:--|
-| `no values in the region` | `--coverage` | the sequence name does not match, or no interval or position falls inside the window |
-| `no sequence in the region` | `--sequence` | the file held no FASTA record at all |
-| `no features in the region` | `--features` | the sequence name does not match, or every feature lies outside the window |
-| `no variants in the region` | `--variants` | the sequence name does not match, or every row in the window was a reference block |
-| `no windows in the region` | `--windows` | the sequence name does not match, or no interval reaches the window |
-| `no association statistics in the region` | `--manhattan` | the sequence column names something else, or every position is outside the window |
-| `no sequences in the region` | `--msa`, `--snps` | the file held no records |
-| `no bands in the region` | `--ideogram` | the cytoBand table has no rows for this sequence |
-| `no samples in the region` | `--matrix` | the file was a header and nothing else |
-| `no reads in the region` | `--pileup` | every record was unmapped, on another sequence, or outside the window |
+Every row is drawn against the one window as written, so give each genome's
+genes coordinates in a shared frame, such as positions within the
+neighbourhood; genes in whole-genome coordinates fall outside a small window.
+The gene names are what the [homology table](#the-homology-table) joins on, so
+each has to name one gene.
 
-The first thing to check is the sequence name, which has to match the region's
-exactly: `chr1` and `1` and `NC_000001.11` are three different sequences as far
-as these readers are concerned, and rows on a sequence that is not the one being
-drawn are skipped by design.
+### The homology table { #the-homology-table }
 
-## Next
+Which gene matches which, between neighbouring genomes of a locus track.
 
-- [Command line](cli.md), for which flag takes which file and the rest of the
-  grammar.
-- [Coordinates](../how-it-works/coordinates.md), for why the conversions above
-  are the conversions they are.
-- [Recipes](../recipes.md), for these readers at the end of a real pipeline.
+```text
+dnaA  A1  98.5  800   12  0  1  800   1  800   0.0  1400
+dnaN  N1  91.0  1100  99  0  1  1100  1  1100  0.0  1800
+```
+
+| | |
+|:--|:--|
+| Read by | `--links`, after `--loci`; `read::locus::links` |
+| Columns | 1 query gene, 2 subject gene, 3 identity: BLAST tabular (`-outfmt 6`, or `7` with its comment lines) as DIAMOND and others write it, or just two or three columns |
+| Ignored | columns 4 to 12 of BLAST tabular |
+| Coordinates | none: a homology names two genes, and where they are is in the loci file |
+| Skipped | rows naming a gene no locus has; two genes in one genome; genomes not next to each other in the stack; repeats of a pair already seen |
+| Refused | a row that is not 2, 3, or 12 or more columns; an identity outside 0 to 100 (0 to 1 for a fraction); an identity column that could be either unit; a gene name that more than one gene answers to |
+
+An empty identity, `.`, `NA`, `na`, `N/A` and `*` mean none was reported. Left
+to itself, a file with any identity above 1 is read as percentages, and one
+whose every identity is at or below 1 is refused until `--identity` says
+`percent` or `fraction`. Names are matched exactly, and a file in which none
+match is [refused by the command](cli.md#tracks-drawn-from-two-files).
+
+### The InterProScan table { #the-interproscan-table }
+
+Protein domains, as InterProScan writes its tab-separated output.
+
+```text
+P00533  md5  1210  Pfam  PF07714  Protein tyrosine kinase  712  979  1e-70  T  01-01-2026
+```
+
+| | |
+|:--|:--|
+| Read by | `--domains`; `read::domain::architectures` |
+| Columns | 1 protein, 3 protein length, 4 analysis, 5 signature accession, 6 signature description, 7 start, 8 stop |
+| Ignored | 2 MD5, 9 score, 10 status, 11 date, and 12 to 15 (InterPro entry, GO terms, pathways) |
+| Coordinates | 1-based and inclusive, in residues: the start moves back one and the stop stays |
+| Skipped | rows from another analysis; column 1 names a protein and filters nothing |
+| Refused | a line with no tab; fewer than 11 columns; a length of 0; a protein given two different lengths; a start of 0; a stop before its start |
+
+The example is spaced out to be read; the file itself must be tab separated,
+because column 6 is a sentence and splitting it on spaces would shift every
+column after it. The region is a range of residues, such as `P00533:1-1,210`,
+and every protein in the file is a row on that shared axis. A row's backbone is
+drawn to the length in column 3, not to its last domain, and each domain is
+labelled with its description, or its accession where the description is empty,
+`.` or `-`. A file from several analyses, such as Pfam, PANTHER and Gene3D,
+needs `--analysis`.
+
+### Gubbins clade blocks { #gubbins-clade-blocks }
+
+Stretches of a reference carried by a named set of taxa, as the GFF3 that
+Gubbins writes for recombination.
+
+```text
+SEQUENCE  GUBBINS  CDS  1531  1670  0.000  .  0  node="N7";taxa="s1 s2 s3";
+```
+
+| | |
+|:--|:--|
+| Read by | `--clades`, with `--with-tree`; `read::clade::blocks` |
+| Columns | 1 sequence, 4 start, 5 end, 9 attributes: `taxa`, which is required, and the block's name from `node`, `Name` or `ID` |
+| Ignored | 2 source, 3 type, 6 score, 7 strand, 8 phase |
+| Coordinates | 1-based and inclusive, as GFF3 |
+| Skipped | a taxon named twice in one block; rows on another sequence only when the file names more than one |
+| Refused | fewer than 9 columns; a start of 0; an end before its start; a row with no `taxa`, or with an empty one |
+
+Gubbins writes `SEQUENCE` in column 1 whatever the reference was called, so a
+file naming one sequence is read whatever it calls it; a file naming several is
+a whole genome, and the region picks among them. `taxa` is split on spaces,
+tabs and commas, its quotes removed, and each name percent-decoded after the
+split, then joined to the tree's tips. The list holds spaces, so the file has to
+be tab separated, as Gubbins writes it.
+
+## Metadata
+
+### The sample sheet { #the-sample-sheet }
+
+What is known about named rows, drawn as strips beside a track's rows.
+
+```text
+sample  lineage  host    depth  drug
+S001    L4       human   72.5   true
+S002    L2       bovine  61.0   false
+S003    L4       NA      48.2   true
+S004    L1       human   NA     false
+```
+
+| | |
+|:--|:--|
+| Read by | `--traits`, after `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`; `read::sheet::sheet` |
+| Columns | a required header, whose first field names the name column and every other field an attribute; then one row per name |
+| Coordinates | none: the strips sit beside the rows and do not move with the region |
+| Refused | an empty file; a header of one column; an empty or repeated column name; a row whose field count differs from the header's; an empty or repeated name |
+
+A field is a number when it parses as one, `true` or `false` when it spells one,
+and text otherwise. A column whose every value is a number is drawn on a colour
+ramp; any other column gets a colour per level, and a shape as well once it has
+more than six levels. An empty field (tab-separated files only), `.`, `NA` and
+`NaN` are missing and drawn as an empty outline, so a column whose levels
+really include `NA`, a continent code for instance, loses them to missing. The
+first line is always the header, and the join to the track's rows is by exact
+name.
+
+## Where next
+
+<div class="grid cards" markdown>
+
+-   **[Command line](cli.md)**
+
+    Which flag takes which file, and the rest of the grammar.
+
+-   **[Coordinates](../how-it-works/coordinates.md)**
+
+    Why the conversions above are the conversions they are.
+
+-   **[Recipes](../recipes.md)**
+
+    These readers at the end of real pipelines.
+
+</div>
