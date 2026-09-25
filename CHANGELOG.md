@@ -339,6 +339,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--methylation` draws a window whose every position went unmeasured, with
+  their number in the band's corner, rather than refusing it. It was refused as
+  holding no modified bases though the file held some, which reads as though the
+  calls were somewhere else, when they were in the window with no valid
+  coverage. A floor from `--min-reads` that hides every call already drew the
+  band with its count, and a window with nothing in it at all is still refused.
 - `HomoplasyLayer` reads a list annotation one event at a time, as
   `BranchEventLayer` already did. It read the list whole, as the text it prints
   as, so a branch carrying `{S45N,E88K}` and one carrying `{S45N}` held two

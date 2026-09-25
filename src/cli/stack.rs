@@ -1034,7 +1034,12 @@ fn track(
             if found.records == 0 {
                 return Err(empty("modified bases"));
             }
-            if found.sites.is_empty() {
+            // Only when the window listed nothing. Positions listed with no
+            // valid coverage are in the window rather than elsewhere, and the
+            // band counts them in its corner, as it counts the calls a floor
+            // hides; refused, they were reported as though the file held its
+            // calls somewhere else.
+            if found.sites.is_empty() && found.no_coverage == 0 {
                 return Err(BuildError::Elsewhere {
                     track: name,
                     path: path.clone(),
@@ -2664,6 +2669,35 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         named_empty.tracks[0].selects = Some("m".to_string());
         let error = build(&named_empty, open_from_disk).unwrap_err().to_string();
         assert!(error.contains("no modified bases"), "{error}");
+    }
+
+    /// A window whose every position went unmeasured was refused as holding
+    /// no modified bases while the file held some, which reads as though they
+    /// were elsewhere. They were here, and the band has a way to say so: it
+    /// counts them in its corner, as it counts the calls under the floor, and
+    /// a floor that hides every call already draws the band with that count.
+    #[test]
+    fn a_window_where_nothing_was_measured_is_drawn_with_the_count() {
+        let unmeasured = concat!(
+            "chr1\t1\t2\tm\t0\t+\t1\t2\t0,0,0\t0\t0.00\t0\t0\t0\t0\t0\t0\t0\n",
+            "chr1\t3\t4\tm\t0\t+\t3\t4\t0,0,0\t0\t0.00\t0\t0\t0\t0\t0\t0\t0\n",
+            "chr1\t500\t501\tm\t10\t+\t500\t501\t0,0,0\t10\t50.00\t5\t5\t0\t0\t0\t0\t0\n"
+        );
+        let path = written("unmeasured.bed", unmeasured);
+        let svg = build(&over("chr1:1-100", "--methylation", &path), open_from_disk).unwrap();
+        assert!(svg.contains(">2 with no coverage</text>"), "{svg}");
+
+        // Nothing in the window at all is still refused, with the file's rows.
+        let error = build(
+            &over("chr1:200-300", "--methylation", &path),
+            open_from_disk,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("no modified bases in chr1:200-300"),
+            "{error}"
+        );
     }
 
     #[test]
