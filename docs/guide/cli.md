@@ -235,7 +235,7 @@ no use for it is refused by name rather than ignored, as in
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |
 | `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | `phylogram` |
-| `--scale-bar` | nothing | `--tree` | no bar |
+| `--no-scale-bar` | nothing | `--tree` | a scale bar on a phylogram with branch lengths |
 | `--focus <NAME[,N]>` | a clade label, a tip, or two tips | `--tree` | the whole tree |
 | `--compare-to <NAME>` | a row, named as its FASTA header names it | `--msa`, `--snps` | the consensus for `--msa`; the first record for `--snps` |
 | `--no-counts` | nothing | `--snps`, `--junctions` | counts printed |
@@ -416,7 +416,7 @@ A `--tree` track has the most options of any track. A typical figure:
 
 ```bash
 karyon --tree big.nwk --max-rows 60 \
-  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
+  --traits samples.tsv --color-by lineage --support-style symbols
 ```
 
 - `--projection` lays the tree out as `rectangular`, `circular` or `unrooted`.
@@ -429,8 +429,10 @@ karyon --tree big.nwk --max-rows 60 \
   too, so a lineage comes out as a coloured clade.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
-- `--scale-bar` draws a rule in the tree's own branch-length units. It is not
-  the ruler at the bottom, which measures the region.
+- A phylogram draws a scale bar, a rule in its own branch-length units, and
+  `--no-scale-bar` leaves it out. It is not the ruler at the bottom, which
+  measures the region, and a cladogram or a tree with no branch lengths draws
+  none.
 - `--focus` draws one clade and nothing else, named by its own label, by a tip
   inside it, or by two tips it spans. A folded triangle gives the pair in its
   tooltip, and the [tree viewer](../tree.md) opens a clade the same way.
@@ -510,7 +512,8 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--theme <NAME>` | `light` or `dark` | `light` |
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
-| `--no-legend` | leaves out the key to the colours of a tree's branches and of `--traits` strips | drawn under the figure |
+| `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
+| `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
@@ -619,6 +622,18 @@ karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
 A failing command prints one line to standard error, starting with `karyon:`,
 and exits with status 1. Success exits with 0, and so do `--help` and
 `--version`. The first problem stops the command, and nothing is written.
+
+A figure drawn with something its reader should know is still drawn and still
+exits with 0, and the something goes to standard error, after `karyon:` too:
+a sequence no file gives the length of, drawn only as far as its rows reach; a
+BAM named on its own over a window of reads, drawn as its depth; and bases too
+narrow for their letters, with the `--width` that would letter them:
+
+```text
+$ karyon NC_000962.3:761,100-761,500 aln.bam H37Rv.fa -o reads.svg
+karyon: aln.bam is drawn as its depth; --pileup aln.bam draws its reads
+karyon: the bases are blocks of colour at this width, too narrow for their letters; --width 3000 draws the letters
+```
 
 The command line is checked before any file is opened:
 

@@ -472,7 +472,10 @@ and read by its header. The position is the column named `BP`, `POS`, `GENPOS`,
 or failing one the column naming its logarithm, as `LOG10P` does. That is what
 PLINK, PLINK 2, REGENIE, BOLT-LMM, GEMMA, SAIGE and the GWAS Catalog write. A
 test the tool could not run is written `NA` and left out, and a header that
-names no position or no p-value is refused with the names it does give:
+names no position or no p-value is refused with the names it does give. The
+tools write a chromosome as a number, `1` where a FASTA may say `NC_000962.3`;
+`--rename 1=NC_000962.3` reads the table by the FASTA's name, and a figure on
+a name the table does not use says which `--rename` would draw it:
 
 ```bash
 karyon 7:1-159,345,973 --manhattan scan.assoc --threshold 5e-8 -o scan.svg
@@ -640,8 +643,9 @@ The command reads Newick only; the library also reads a NEXUS trees block, with
 
 ### SAM { #sam }
 
-Aligned reads as text, usually piped from `samtools view` as
-[Binary formats](cli.md#binary-formats) shows.
+Aligned reads as text. A BAM is read as it is and a CRAM is piped from
+`samtools view`, as [compressed and binary files](cli.md#binary-formats) shows;
+both arrive as these records.
 
 ```text
 @HD    VN:1.6  SO:coordinate

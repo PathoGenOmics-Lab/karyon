@@ -26,7 +26,9 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 ```
 
 Open `rpoB.svg` in a browser: the depth of the reads, the genes and the calls,
-over the gene rpoB with a margin either side, and a ruler underneath.
+over the gene rpoB with a margin either side, and a ruler underneath. Hover
+over a call, a gene or a read and the browser says exactly where it is and
+what it is, as `variant, 761,155, missense, AF 0.98`.
 
 | Part | What it does |
 |:--|:--|
@@ -58,16 +60,20 @@ karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 ```
 
 - **A place is named as the files name it.** PLINK writes a chromosome as `1`
-  where a FASTA may call it `NC_000962.3`, so a PLINK table is placed on `1`.
-  A sequence no file gives the length of is drawn as far as the rows reach;
-  write the span, as `1:1-4,411,532`, to draw all of it.
+  where a FASTA may call it `NC_000962.3`, so a PLINK table on its own is
+  placed on `1`. `--rename 1=NC_000962.3` reads it by the FASTA's name
+  instead, so it can be drawn under the depth of a BAM:
+  `karyon NC_000962.3 reads.bam gwas.assoc --rename 1=NC_000962.3 -o scan.svg`.
+  A sequence no file gives the length of is drawn as far as the rows reach,
+  and karyon says so; write the span, as `1:1-4,411,532`, to draw all of it.
 - **The table is read by its header.** PLINK, PLINK 2, REGENIE, BOLT-LMM,
   GEMMA, SAIGE and the GWAS Catalog each name their columns, and a p-value is
   drawn as -log10 of itself. `--threshold genome-wide` draws the line at
   p = 5e-8, and `--threshold 1e-5` wherever you say.
 - **A figure of trees alone needs no place.** `--traits` puts the sheet's
   columns beside the tips, every column unless `--columns` names the ones to
-  draw, and a key under the figure names each colour.
+  draw, and a key under the figure names each colour. A tree with branch
+  lengths draws a scale bar in their units; `--no-scale-bar` leaves it out.
 - **One position is not a place.** Around a variant, write a span, as
   `NC_000962.3:761,000-761,400`; given `NC_000962.3:761,200`, karyon answers
   with that span.
@@ -123,8 +129,9 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
   from the call itself: here two substitutions and an insertion. The height of
   each lollipop follows its `AF`, and a call without one stands full height.
 - **Letters follow the zoom.** A base is printed as a letter while it is at
-  least 7 pixels wide and as a coloured block down to 0.6 of a pixel. Below
-  that the track prints a hint to zoom in rather than a smear.
+  least 7 pixels wide and as a coloured block down to 0.6 of a pixel, with a
+  key under the figure naming the colours. Below that the track prints a hint
+  to zoom in rather than a smear.
 - **Reads are compared with the reference the figure draws.** A `--pileup`
   under a `--sequence` paints every base that differs from it.
 

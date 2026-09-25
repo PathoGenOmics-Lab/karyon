@@ -327,6 +327,16 @@ impl BaseColors {
             _ => &self.other,
         }
     }
+
+    /// A key to these colours: `A`, `C`, `G` and `T`, each a filled square,
+    /// which is what a base looks like once it is too narrow for its letter.
+    pub fn legend(&self) -> crate::track::legend::Legend {
+        crate::track::legend::Legend::new()
+            .key("A", self.a.clone())
+            .key("C", self.c.clone())
+            .key("G", self.g.clone())
+            .key("T", self.t.clone())
+    }
 }
 
 impl BaseColors {

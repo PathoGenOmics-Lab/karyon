@@ -59,8 +59,8 @@ collapsed into depth, a call or an average per site.
 
 -   **[File formats](../guide/formats.md)**
 
-    SAM and its `SA` tag, STAR junction tables and Bismark extractor files,
-    and how BAM comes in through `samtools`.
+    BAM and SAM and its `SA` tag, STAR junction tables and Bismark extractor
+    files, and how a CRAM comes in through `samtools`.
 
 -   **[Recipes](../recipes.md)**
 

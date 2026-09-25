@@ -133,6 +133,7 @@ pub struct VariantTrack {
     show_scale: bool,
     color: Option<String>,
     axis: QuantitativeAxis,
+    title: Option<String>,
 }
 
 impl VariantTrack {
@@ -149,6 +150,7 @@ impl VariantTrack {
             show_scale: true,
             color: None,
             axis: QuantitativeAxis::new(),
+            title: None,
         }
     }
 
@@ -203,6 +205,13 @@ impl VariantTrack {
     /// Draws or hides the value axis.
     pub fn show_scale(mut self, show: bool) -> Self {
         self.show_scale = show;
+        self
+    }
+
+    /// What the stems measure, written under the track's name while the
+    /// value axis is drawn, such as `AF` for the allele fraction a VCF gives.
+    pub fn axis_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
@@ -279,6 +288,10 @@ impl VariantTrack {
 }
 
 impl Track for VariantTrack {
+    fn noun(&self) -> &str {
+        "variant calls"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         if self.show_legend {
             let theme = Theme::default();
@@ -291,6 +304,10 @@ impl Track for VariantTrack {
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    fn axis_title(&self) -> Option<&str> {
+        self.has_scale().then_some(self.title.as_deref()).flatten()
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
@@ -480,7 +497,8 @@ impl Track for VariantTrack {
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
-                    ctx.svg.begin_titled(&tooltip(variant));
+                    ctx.svg
+                        .begin_titled(&tooltip(variant, self.title.as_deref()));
                     ctx.svg
                         .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
                     // The ring is what keeps two variants a base apart reading
@@ -520,15 +538,15 @@ impl Track for VariantTrack {
 /// a sheet answering in a different grammar from the pileup above it.
 ///
 /// The number is named rather than printed bare, because `0.55` on its own is
-/// not a statement. What it is named is `value` and not anything more specific,
-/// since the track takes any quantity at all: the same band draws allele
-/// fractions, peak heights and read counts, and only the caller knows which.
-/// The gutter label is where that is said, and it is said once rather than on
-/// every mark.
+/// not a statement. What it is named is what the caller titled the axis, `AF`
+/// for the allele fractions a VCF gives, and `value` where the caller said
+/// nothing, since the track takes any quantity at all: the same band draws
+/// allele fractions, peak heights and read counts, and only the caller knows
+/// which.
 ///
 /// Only lollipops are named. See the module documentation for why a tick is
 /// not.
-fn tooltip(variant: &Variant) -> String {
+fn tooltip(variant: &Variant, measure: Option<&str>) -> String {
     let mut text = format!(
         "variant, {}",
         group_thousands(variant.pos.saturating_add(1))
@@ -539,9 +557,12 @@ fn tooltip(variant: &Variant) -> String {
             text.push_str(category);
         }
     }
+    // Named as the axis names it, `AF 0.48`, where the axis has a title.
     if let Some(value) = variant.value {
         if value.is_finite() {
-            text.push_str(", value ");
+            text.push_str(", ");
+            text.push_str(measure.unwrap_or("value"));
+            text.push(' ');
             text.push_str(&exact_value(value));
         }
     }
@@ -619,6 +640,36 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+
+    /// The title names what the stems measure, and there is nothing to
+    /// title where no stem measures anything.
+    #[test]
+    fn the_axis_is_titled_only_while_it_is_drawn() {
+        let valued = vec![Variant::new(10).value(0.4), Variant::new(20).value(0.9)];
+        let titled = VariantTrack::new(valued.clone()).axis_title("AF");
+        assert_eq!(Track::axis_title(&titled), Some("AF"));
+        let svg = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(titled.clone().label("calls"))
+            .to_svg();
+        assert!(svg.contains(">AF</text>"), "{svg}");
+        // And a stem's tooltip names its value the same way.
+        assert!(svg.contains("<title>variant, 11, AF 0.40</title>"), "{svg}");
+        let plain = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(VariantTrack::new(valued.clone()))
+            .to_svg();
+        assert!(
+            plain.contains("<title>variant, 11, value 0.40</title>"),
+            "{plain}"
+        );
+        assert_eq!(Track::axis_title(&titled.clone().show_scale(false)), None);
+        assert_eq!(Track::axis_title(&titled.style(VariantStyle::Tick)), None);
+        let unvalued = VariantTrack::new(vec![Variant::new(10)]).axis_title("AF");
+        assert_eq!(
+            Track::axis_title(&unvalued),
+            None,
+            "no value, no scale, no title"
+        );
+    }
 
     #[test]
     fn categories_keep_their_first_appearance_order() {

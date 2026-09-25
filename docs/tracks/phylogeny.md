@@ -21,7 +21,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | | |
 |:--|:--|
 | Rust | `.add_tree(tree)` on `plot()`; `TreeTrack::new(tree)` |
-| Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--support-style`, `--threshold`, `--scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
+| Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--support-style`, `--threshold`, `--no-scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
 | Reads | Newick with BEAST or NHX annotations (`Tree::parse_annotated_newick`); from Rust also plain Newick (`Tree::parse_newick`) and the first tree of a Nexus trees block (`Tree::parse_nexus`) |
 
 === "Rust"
@@ -43,7 +43,6 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
                 .color_by("lineage")
                 .support_style(SupportStyle::Symbols)
                 .trait_categorical("host")
-                .scale_bar()
         })
         .save("tree.svg")?;
     ```
@@ -52,7 +51,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 
     ```bash
     karyon --tree tree.nwk --traits samples.tsv --columns host \
-      --color-by lineage --support-style symbols --scale-bar \
+      --color-by lineage --support-style symbols \
       --label phylogeny -o tree.svg
     ```
 
@@ -117,8 +116,8 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.support_threshold(0.8)` | Hides visible support below this, as a fraction or a percentage (`--threshold`) | `0` |
 | `.branch_labels("mutations")` | Writes a branch's own annotation along it, never inherited | none |
 | `.branch_label_size(10.0)` | Font size of those labels | `8` |
-| `.scale_bar()` | Adds a branch-length scale bar to a phylogram (`--scale-bar`) | none |
-| `.show_scale_bar(false)` | Adds or removes the scale bar | none |
+| `.show_scale_bar(false)` | Leaves out the branch-length scale bar a phylogram draws, or with `true` puts it back (`--no-scale-bar`) | drawn on a phylogram with branch lengths |
+| `.scale_bar()` | The same as `.show_scale_bar(true)` | drawn |
 | `.scale_bar_length(0.01)` | An exact scale bar length, in branch-length units | automatic |
 | `.scale_bar_unit("substitutions/site")` | Unit on the scale bar | none |
 

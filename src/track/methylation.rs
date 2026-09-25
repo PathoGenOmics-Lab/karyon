@@ -254,6 +254,10 @@ impl MethylationTrack {
 }
 
 impl Track for MethylationTrack {
+    fn noun(&self) -> &str {
+        "methylation by site"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

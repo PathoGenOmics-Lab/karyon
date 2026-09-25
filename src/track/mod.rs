@@ -267,6 +267,38 @@ pub trait Track {
         None
     }
 
+    /// What this track is, as a sentence says it: `a ruler`, `a phylogeny`,
+    /// `aligned reads`.
+    ///
+    /// The figure's description names each track by its label, and a track
+    /// with none by this. It counted the ruler and the key among the tracks
+    /// and named neither, so four tracks were three names long.
+    fn noun(&self) -> &str {
+        "a track"
+    }
+
+    /// What the value axis measures, written under the name in the gutter,
+    /// such as `-log10 p` or `AF`, or `None` for an axis that needs no title.
+    ///
+    /// A word set after the top tick as a unit reads as part of that number,
+    /// and `10 -log10 p` reads as ten minus something. Under the track's name
+    /// it is the axis's title, and the ticks keep their numbers to themselves.
+    /// A symbol that is a unit, the `x` of `50x`, stays on the tick.
+    fn axis_title(&self) -> Option<&str> {
+        None
+    }
+
+    /// The key a reader needs for this track as drawn over `region` at
+    /// `px_per_bp` pixels a base, where colour alone carries something there,
+    /// for a caller who builds one: [`Figure::key`](crate::Figure::key) asks
+    /// every track at the zoom it draws at.
+    ///
+    /// A base drawn as a block of colour is a base whose letter is not on the
+    /// page, and its colour names it only to a reader who knows the palette.
+    fn key(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Option<legend::Legend> {
+        None
+    }
+
     /// How much room this track wants for a value axis, in pixels.
     ///
     /// A track that returns more than zero gets [`DrawContext::axis`], a strip

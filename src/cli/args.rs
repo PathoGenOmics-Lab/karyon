@@ -98,6 +98,15 @@ pub enum ArgError {
     ExtraRegion(String),
     /// No locus at all.
     NoRegion,
+    /// One sequence renamed to two names.
+    RenamedTwice {
+        /// The name the files use.
+        from: String,
+        /// The first name it was given.
+        first: String,
+        /// The second.
+        second: String,
+    },
     /// A locus whose span is larger than a figure is drawn over.
     HugeRegion {
         /// The locus as it was written.
@@ -244,6 +253,14 @@ impl fmt::Display for ArgError {
                 f,
                 "the first argument is the region, as in NC_000962.3:761,000-763,000; \
                  only a figure of --tree, --tanglegram and --snps tracks goes without one"
+            ),
+            ArgError::RenamedTwice {
+                from,
+                first,
+                second,
+            } => write!(
+                f,
+                "--rename names {from} twice, as {first} and as {second}; a sequence is one of them"
             ),
             ArgError::HugeRegion { given, span } => write!(
                 f,
@@ -1089,8 +1106,9 @@ pub struct TrackSpec {
     pub color_by: Option<String>,
     /// `--support-style`, how a node's support value is shown.
     pub support_style: Option<TreeSupport>,
-    /// `--scale-bar`, a rule in the tree's own branch-length units.
-    pub scale_bar: bool,
+    /// `--no-scale-bar`: no rule in the tree's own branch-length units,
+    /// which a phylogram draws by default.
+    pub no_scale_bar: bool,
     /// `--shape`, whether branch lengths are drawn or every branch is one step.
     pub cladogram: bool,
     /// `--mutations`, the annotation each branch keeps its changes under.
@@ -1154,7 +1172,7 @@ impl TrackSpec {
             focus: None,
             color_by: None,
             support_style: None,
-            scale_bar: false,
+            no_scale_bar: false,
             cladogram: false,
             mutations: None,
             carrying: None,
@@ -1239,6 +1257,9 @@ pub struct Invocation {
     /// Cleared by `--no-legend`: the key to the colours of a phylogeny's
     /// branches and of every strip of metadata.
     pub legend: bool,
+    /// `--rename FROM=TO`: a sequence a file calls `FROM` is the figure's
+    /// `TO`, as PLINK's `1` is the FASTA's `NC_000962.3`.
+    pub renames: Vec<(String, String)>,
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1307,7 +1328,7 @@ pub const FLAGS: &[&str] = &[
     "--mutations",
     "--carrying",
     "--shape",
-    "--scale-bar",
+    "--no-scale-bar",
     "--focus",
     "--compare-to",
     "--no-counts",
@@ -1334,6 +1355,7 @@ pub const FLAGS: &[&str] = &[
     "--no-axis",
     "--no-region-label",
     "--no-legend",
+    "--rename",
     "-o",
     "--output",
     "--help",
@@ -1410,6 +1432,10 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     (
         &["dark", "light"],
         "the theme is --theme dark or --theme light",
+    ),
+    (
+        &["scale-bar", "scalebar"],
+        "a phylogram draws its scale bar by default, and --no-scale-bar leaves it out",
     ),
     (
         &["flank", "padding", "pad", "margin", "extend"],
@@ -1545,6 +1571,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut output = None;
     let mut named: Option<String> = None;
     let mut legend = true;
+    let mut renames: Vec<(String, String)> = Vec::new();
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
     let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
@@ -1879,15 +1906,15 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.cladogram = cladogram;
             }
-            "--scale-bar" => {
-                let track = last(&mut tracks, "--scale-bar")?;
+            "--no-scale-bar" => {
+                let track = last(&mut tracks, "--no-scale-bar")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
-                        flag: "--scale-bar",
+                        flag: "--no-scale-bar",
                         track: track.kind.flag(),
                     });
                 }
-                track.scale_bar = true;
+                track.no_scale_bar = true;
             }
             "--focus" => {
                 let text = value("--focus")?;
@@ -2229,6 +2256,35 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.format = Some(format);
             }
+            "--rename" => {
+                let text = value("--rename")?;
+                for pair in text.split(',').filter(|pair| !pair.trim().is_empty()) {
+                    let Some((from, to)) = pair
+                        .split_once('=')
+                        .map(|(from, to)| (from.trim(), to.trim()))
+                        .filter(|(from, to)| !from.is_empty() && !to.is_empty())
+                    else {
+                        return Err(ArgError::BadValue {
+                            flag: "--rename",
+                            given: text.clone(),
+                            expected: "FROM=TO, as 1=NC_000962.3, or several joined by commas",
+                        });
+                    };
+                    // The same pair twice says one thing twice; one name made two
+                    // is a choice nobody made, and drew whichever came last.
+                    match renames.iter().find(|(known, _)| known == from) {
+                        Some((_, first)) if first != to => {
+                            return Err(ArgError::RenamedTwice {
+                                from: from.to_string(),
+                                first: first.clone(),
+                                second: to.to_string(),
+                            })
+                        }
+                        Some(_) => {}
+                        None => renames.push((from.to_string(), to.to_string())),
+                    }
+                }
+            }
             "--title" => {
                 figure_once(&mut given, "--title")?;
                 title = Some(value("--title")?.clone());
@@ -2392,6 +2448,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         output,
         named,
         legend,
+        renames,
     })))
 }
 
@@ -3796,6 +3853,37 @@ mod tests {
     }
 
     #[test]
+    fn a_rename_is_one_name_for_another_and_never_two() {
+        let it = draw("chr1:1-10 --rename 1=NC_1,2=NC_2 --rename 3=NC_3 --rename 1=NC_1");
+        assert_eq!(
+            it.renames,
+            [
+                ("1".to_string(), "NC_1".to_string()),
+                ("2".to_string(), "NC_2".to_string()),
+                ("3".to_string(), "NC_3".to_string()),
+            ]
+        );
+        let error = parse(&args("chr1:1-10 --rename 1=A --rename 1=B")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--rename names 1 twice, as A and as B; a sequence is one of them"
+        );
+        for bad in ["1", "=NC_1", "1=", "1=NC_1,2"] {
+            let error = parse(&args(&format!("chr1:1-10 --rename {bad}"))).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--rename",
+                        ..
+                    }
+                ),
+                "{bad}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_word_is_a_locus_a_gene_or_a_sequence() {
         assert!(draw("chr1:1-100 --coverage d.bg").region.is_some());
         assert_eq!(
@@ -3909,14 +3997,18 @@ mod tests {
     fn the_three_marks_a_phylogeny_carries_land_only_on_a_phylogeny() {
         let it = draw(concat!(
             "tree:1-1 --tree t.nwk --color-by lineage ",
-            "--support-style both --threshold 0.9 --scale-bar"
+            "--support-style both --threshold 0.9 --no-scale-bar"
         ));
         assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
         assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
         assert_eq!(it.tracks[0].threshold, Some(Threshold::At(0.9)));
-        assert!(it.tracks[0].scale_bar);
+        assert!(it.tracks[0].no_scale_bar);
 
-        for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {
+        for flag in [
+            "--color-by lineage",
+            "--support-style both",
+            "--no-scale-bar",
+        ] {
             let line = format!("chr1:1-1000 --coverage d.bg {flag}");
             let refused = parse(&args(&line)).unwrap_err().to_string();
             assert!(refused.contains("coverage"), "{line}: {refused}");

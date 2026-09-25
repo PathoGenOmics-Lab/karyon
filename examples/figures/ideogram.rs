@@ -72,7 +72,7 @@ pub fn example_ideogram(
             Variant::new(31_247_900).value(0.44).category("splice"),
         ])
         .label("variants")
-        .adjust(|track| track.height(42.0))
+        .adjust(|track| track.height(42.0).axis_title("AF"))
         .into_figure();
     Box::new(context)
 }

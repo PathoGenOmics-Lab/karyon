@@ -92,6 +92,7 @@ pub struct TraitColumn {
     pub(crate) ring_width: f64,
     pub(crate) show_values: bool,
     pub(crate) levels: Vec<String>,
+    pub(crate) first: usize,
 }
 
 impl TraitColumn {
@@ -107,6 +108,7 @@ impl TraitColumn {
             ring_width: 10.0,
             show_values: true,
             levels: Vec::new(),
+            first: 0,
         }
     }
 
@@ -129,6 +131,20 @@ impl TraitColumn {
     /// The order the levels are dealt their colours in, if one was set.
     pub fn level_order(&self) -> &[String] {
         &self.levels
+    }
+
+    /// Deals the levels the palette from its colour `index` on, rather than
+    /// from its first, so two columns side by side do not paint two different
+    /// things one colour. [`Traits::spread`] gives each column of a sheet its
+    /// own stretch of the palette this way.
+    pub fn first_color(mut self, index: usize) -> Self {
+        self.first = index;
+        self
+    }
+
+    /// The palette colour the first level is dealt.
+    pub fn first_color_index(&self) -> usize {
+        self.first
     }
 
     /// Builds a continuous column from numeric annotation `key`.
@@ -231,6 +247,24 @@ impl TraitColumn {
     }
 }
 
+/// The order a column's levels are dealt the palette in, and the colour the
+/// first of them takes, which travel together wherever a level is coloured.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Dealt<'a> {
+    pub(crate) levels: &'a [String],
+    pub(crate) first: usize,
+}
+
+impl TraitColumn {
+    /// How this column deals the palette.
+    pub(crate) fn dealt(&self) -> Dealt<'_> {
+        Dealt {
+            levels: &self.levels,
+            first: self.first,
+        }
+    }
+}
+
 /// The levels and the range one column's values cover.
 ///
 /// Built once per column from every value in it, because a colour is a
@@ -248,24 +282,26 @@ pub(crate) struct TraitDomain {
 
 impl TraitDomain {
     pub(crate) fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
-        Self::ordered(&[], values)
+        Self::ordered(0, &[], values)
     }
 
-    /// The same, with `levels` dealt the palette first, in that order.
+    /// The same, with `levels` dealt the palette first, in that order, from
+    /// its colour `first` on.
     pub(crate) fn ordered<'a>(
+        first: usize,
         levels: &[String],
         values: impl IntoIterator<Item = &'a AnnotationValue>,
     ) -> Self {
         let values: Vec<&AnnotationValue> = values.into_iter().collect();
         let mut categories = BTreeMap::new();
         for level in levels {
-            let next = categories.len();
+            let next = first + categories.len();
             categories.entry(level.clone()).or_insert(next);
         }
         let mut met = BTreeSet::new();
         for value in &values {
             let value = value.to_string();
-            let next = categories.len();
+            let next = first + categories.len();
             categories.entry(value.clone()).or_insert(next);
             met.insert(value);
         }
@@ -317,9 +353,9 @@ impl TraitDomain {
     /// The levels in the order their colours were assigned.
     ///
     /// The map is keyed by the text so that a lookup is a lookup, which puts
-    /// its entries in the order the words sort. A legend has to name them in
-    /// the order the palette went round instead, or the key and the strips
-    /// disagree about which blue is which.
+    /// its entries in the order the words sort. Each level travels with its
+    /// own colour's index, so the order they are listed in never moves a
+    /// colour from one level to another.
     pub(crate) fn levels(&self) -> Vec<(&str, usize)> {
         let mut levels: Vec<(&str, usize)> = self
             .categories
@@ -330,11 +366,58 @@ impl TraitDomain {
         levels
     }
 
-    /// The levels a key names: the ones some value held, in palette order.
+    /// The levels a key names: the ones some value held, in the order a
+    /// reader looks them up in, `L1` before `L2` before `L10`.
+    ///
+    /// The colours were dealt in the order the sheet lists the levels, which
+    /// keeps a figure's colours where they were when a sample is added, and
+    /// listed that way the key read L4, L2, L1: all three simulated users
+    /// asked why. Each level keeps its own colour, whatever place it takes.
     pub(crate) fn keyed(&self) -> Vec<(&str, usize)> {
         let mut levels = self.levels();
         levels.retain(|(level, _)| self.met.contains(*level));
+        levels.sort_by(|a, b| natural(a.0, b.0));
         levels
+    }
+}
+
+/// Two names in the order a reader looks them up in: a run of digits by its
+/// value, so `L2` comes before `L10` and `1.2` before `1.10`, and letters
+/// without regard to case, with the text as it is written breaking a tie.
+pub(crate) fn natural(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (mut x, mut y) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        let (Some(&c), Some(&d)) = (x.peek(), y.peek()) else {
+            return match (x.peek(), y.peek()) {
+                (None, None) => a.cmp(b),
+                (None, Some(_)) => Ordering::Less,
+                _ => Ordering::Greater,
+            };
+        };
+        if c.is_ascii_digit() && d.is_ascii_digit() {
+            let run = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+                let mut digits = String::new();
+                while let Some(&digit) = chars.peek().filter(|c| c.is_ascii_digit()) {
+                    digits.push(digit);
+                    chars.next();
+                }
+                digits
+            };
+            let (m, n) = (run(&mut x), run(&mut y));
+            let (m, n) = (m.trim_start_matches('0'), n.trim_start_matches('0'));
+            let order = m.len().cmp(&n.len()).then_with(|| m.cmp(n));
+            if order != Ordering::Equal {
+                return order;
+            }
+        } else {
+            let order = c.to_lowercase().cmp(d.to_lowercase());
+            if order != Ordering::Equal {
+                return order;
+            }
+            x.next();
+            y.next();
+        }
     }
 }
 
@@ -560,6 +643,9 @@ pub struct Traits {
     rows: BTreeMap<String, Annotations>,
     /// The rows in the order their levels are met, which deals the palette.
     order: Vec<String>,
+    /// The sheet's columns in its order, drawn or not, which deals each
+    /// column its stretch of the palette.
+    keys: Vec<String>,
     columns: Vec<TraitColumn>,
     heading_room: f64,
     gap: f64,
@@ -576,6 +662,7 @@ impl Traits {
         Traits {
             rows,
             order,
+            keys: Vec::new(),
             columns: Vec::new(),
             heading_room: 52.0,
             gap: 2.0,
@@ -591,6 +678,7 @@ impl Traits {
     pub fn from_sheet(sheet: &Sheet) -> Self {
         let mut traits = Traits::new(sheet.rows.clone());
         traits.order = sheet.order.clone();
+        traits.keys = sheet.columns.clone();
         traits
     }
 
@@ -641,8 +729,9 @@ impl Traits {
     /// a column: an attribute nobody in this figure has is a fact about the
     /// figure, and a column of empty outlines states it.
     pub fn spread(mut self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+        let firsts = self.stretches(&keys);
         for key in keys {
-            let key = key.into();
             let stated: Vec<&AnnotationValue> = self.stated(&key).collect();
             let numeric =
                 !stated.is_empty() && stated.iter().all(|value| value.as_number().is_some());
@@ -651,7 +740,11 @@ impl Traits {
                 TraitColumn::continuous(key)
             } else {
                 let levels = TraitDomain::new(stated).categories.len();
-                let column = TraitColumn::categorical(key);
+                let first = firsts
+                    .iter()
+                    .find(|(named, _)| *named == key)
+                    .map_or(0, |(_, first)| *first);
+                let column = TraitColumn::categorical(key).first_color(first);
                 if levels > STRIP_LEVELS {
                     column.style(TraitStyle::Symbol)
                 } else {
@@ -662,6 +755,35 @@ impl Traits {
             self.columns.push(column);
         }
         self
+    }
+
+    /// Where each column of words starts on the palette: one stretch of it
+    /// each, in the order of the sheet, so two columns side by side do not
+    /// paint two different things one colour, as `L4` and `Kenya` both were.
+    ///
+    /// By the column's place in the sheet rather than by how many levels the
+    /// columns before it hold, so a sample that brings a new lineage does not
+    /// repaint every column after it, and among every column of the sheet
+    /// rather than the ones drawn, so a colour does not change with
+    /// `--columns`. The palette has six colours: two columns take three each,
+    /// three take two, and more than a column's share wraps into the next.
+    fn stretches(&self, keys: &[String]) -> Vec<(String, usize)> {
+        let mut order: Vec<&String> = self.keys.iter().collect();
+        for key in keys {
+            if !order.contains(&key) {
+                order.push(key);
+            }
+        }
+        let worded: Vec<&String> = order
+            .into_iter()
+            .filter(|key| self.stated(key).any(|value| value.as_number().is_none()))
+            .collect();
+        let stride = (STRIP_LEVELS / worded.len().max(1)).max(1);
+        worded
+            .into_iter()
+            .enumerate()
+            .map(|(place, key)| (key.clone(), place * stride))
+            .collect()
     }
 
     /// Sets the air between one column and the next, in pixels.
@@ -799,7 +921,7 @@ impl Traits {
     /// The levels and the range one column covers over every row named here,
     /// dealt the palette in the column's own order where it has one.
     fn domain(&self, column: &TraitColumn) -> TraitDomain {
-        TraitDomain::ordered(&column.levels, self.stated(&column.key))
+        TraitDomain::ordered(column.first, &column.levels, self.stated(&column.key))
     }
 
     /// Draws the strip beside rows that have already been laid out.
@@ -859,6 +981,113 @@ mod tests {
     use crate::region::Region;
     use crate::track::Track;
     use crate::{MatrixRow, MatrixTrack};
+
+    /// The colour each key names, by its label.
+    fn keyed_colours(legend: &Legend) -> Vec<(String, String)> {
+        legend
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                crate::track::legend::LegendItem::Key { label, color, .. } => {
+                    Some((label.clone(), color.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A key is read by looking a level up, so it lists them as a reader
+    /// sorts them, and each level keeps the colour the sheet dealt it.
+    #[test]
+    fn a_key_lists_its_levels_as_a_reader_sorts_them() {
+        let mut names = vec!["L4", "L2", "L10", "L1", "b", "A", "a", "1.10", "1.2", "L02"];
+        names.sort_by(|a, b| natural(a, b));
+        assert_eq!(
+            names,
+            // Equal in value, L02 and L2 fall back on the text as written.
+            ["1.2", "1.10", "A", "a", "b", "L1", "L02", "L2", "L4", "L10"]
+        );
+        // The sheet deals L4, L2, L1 their colours in that order; the key
+        // names them L1, L2, L4, each still in its own colour.
+        let text = "sample\tlineage\nS1\tL4\nS2\tL2\nS3\tL1\n";
+        let held = sheet(text).unwrap();
+        let traits = Traits::from_sheet(&held).spread(held.columns.clone());
+        let theme = Theme::light();
+        let key = keyed_colours(&traits.legend(&theme));
+        assert_eq!(
+            key,
+            [
+                ("lineage: L1".to_string(), theme.color(2).to_string()),
+                ("lineage: L2".to_string(), theme.color(1).to_string()),
+                ("lineage: L4".to_string(), theme.color(0).to_string()),
+            ]
+        );
+    }
+
+    /// A level the order does not list is dealt the next colour of the
+    /// column's own stretch, not the palette's.
+    #[test]
+    fn a_domain_counts_its_levels_from_where_its_column_starts() {
+        let a = AnnotationValue::Text("a".to_string());
+        let b = AnnotationValue::Text("b".to_string());
+        let domain = TraitDomain::ordered(3, &["a".to_string()], [&a, &b]);
+        assert_eq!(domain.category(Some(&a)), Some(3));
+        assert_eq!(domain.category(Some(&b)), Some(4));
+    }
+
+    /// Two columns side by side painted two things one colour, `L4` and
+    /// `Kenya` alike, since each dealt the palette from its first colour.
+    #[test]
+    fn each_column_of_words_has_its_own_stretch_of_the_palette() {
+        let text = "sample\tlineage\tcountry\tyear\n\
+                    S1\tL4\tKenya\t2018\n\
+                    S2\tL2\tSpain\t2020\n\
+                    S3\tL1\tVietnam\t2019\n";
+        let held = sheet(text).unwrap();
+        let firsts = |traits: &Traits| -> Vec<(String, usize)> {
+            traits
+                .columns()
+                .iter()
+                .map(|column| (column.key().to_string(), column.first_color_index()))
+                .collect()
+        };
+        let all = Traits::from_sheet(&held).spread(held.columns.clone());
+        assert_eq!(
+            firsts(&all),
+            [
+                ("lineage".to_string(), 0),
+                ("country".to_string(), 3),
+                ("year".to_string(), 0),
+            ]
+        );
+        let colours = keyed_colours(&all.legend(&Theme::light()));
+        let of = |label: &str| {
+            colours
+                .iter()
+                .find(|(named, _)| named == label)
+                .map(|(_, colour)| colour.clone())
+                .unwrap()
+        };
+        for (lineage, country) in [("L4", "Kenya"), ("L2", "Spain"), ("L1", "Vietnam")] {
+            assert_ne!(
+                of(&format!("lineage: {lineage}")),
+                of(&format!("country: {country}")),
+                "{lineage} and {country} are one colour"
+            );
+        }
+        // Where a column starts does not hang on which others are drawn.
+        let alone = Traits::from_sheet(&held).spread(["country"]);
+        assert_eq!(firsts(&alone), [("country".to_string(), 3)]);
+        // Nor on a sample appended to the file with a lineage nobody had.
+        let grown = sheet(&format!("{text}S4\tL3\tChile\t2021\n")).unwrap();
+        let grown = Traits::from_sheet(&grown).spread(held.columns.clone());
+        assert_eq!(firsts(&grown)[1], ("country".to_string(), 3));
+        // Three columns of words take two colours each.
+        let three = sheet("sample\ta\tb\tc\nS1\tx\ty\tz\n").unwrap();
+        let three = Traits::from_sheet(&three).spread(three.columns.clone());
+        let starts: Vec<usize> = firsts(&three).into_iter().map(|(_, first)| first).collect();
+        assert_eq!(starts, [0, 2, 4]);
+    }
 
     const SHEET: &str = "\
 sample\tlineage\thost\tdepth

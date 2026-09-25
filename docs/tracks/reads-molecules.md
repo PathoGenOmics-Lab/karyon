@@ -22,7 +22,7 @@ Aligned reads, stacked the way a genome browser stacks them, with the bases that
 |:--|:--|
 | Rust | `.add_pileup(reads)` on `plot()`; `PileupTrack::new(reads)` |
 | Command line | `--pileup FILE`, with `--with-sequence`, `--fade-by-mapq`, `--row-height`, `--max-rows` |
-| Reads | SAM text, as `samtools view` writes it (`read::align::sam`) |
+| Reads | a BAM, through the `.bai` beside it where there is one, or SAM text as `samtools view` writes it (`read::bam`, `read::align::sam`) |
 
 === "Rust"
 
@@ -50,7 +50,7 @@ Aligned reads, stacked the way a genome browser stacks them, with the bases that
 
     ```bash
     karyon NC_000962.3:4,001-4,420 \
-      --pileup reads.sam --with-sequence H37Rv.fa --fade-by-mapq --label reads \
+      --pileup reads.bam --with-sequence H37Rv.fa --fade-by-mapq --label reads \
       -o pileup.svg
     ```
 
@@ -72,13 +72,15 @@ Aligned reads, stacked the way a genome browser stacks them, with the bases that
 
 #### Notes
 
-A read is not an interval, so the track walks its CIGAR. `M`, `=` and `X` all arrive as matches and the track compares the bases itself rather than trusting the letter, while `I`, `D`, `N`, `S` and `H` consume what the SAM specification says they consume. That is what puts a mismatch at the right base downstream of an insertion. Without a reference, every read draws as agreeing.
+A read is not an interval, so the track walks its CIGAR. `M`, `=` and `X` all arrive as matches and the track compares the bases itself rather than trusting the letter, while `I`, `D`, `N`, `S` and `H` consume what the SAM specification says they consume. That is what puts a mismatch at the right base downstream of an insertion. Without a reference, every read draws as agreeing. A mismatch is painted in its base's colour, and lettered once a base is 7 pixels wide; until then the command line names the four colours in a key under the figure, which `Figure::key()` gathers in Rust.
 
 Two defaults are refusals. A pileup at thousandfold depth is a thousand rows tall and useful to nobody, so it stops at forty rows and writes `+N reads not shown` on the band rather than dropping them quietly. And mismatches are only looked for once a base is at least a fifth of a pixel wide, because below that finding one means walking every base of every read to draw something invisible.
 
 A read with mapping quality nought could have come from anywhere, and drawing it as solidly as a uniquely placed one is how a repeat becomes a variant call. With `fade_by_quality`, reads fade up to full strength at quality 30; a faded read is drawn square, without the arrowhead that says which way it ran, and its mismatches stay at full strength. Reads with no quality stay solid.
 
-Rows are packing, not meaning: reads are sorted by start and dropped into the first row with room, and only the reads on screen are packed. BAM and CRAM reach the command line through a pipe, `samtools view` writing the SAM text this reads from standard input (`--pileup -`).
+Rows are packing, not meaning: reads are sorted by start and dropped into the first row with room, and only the reads on screen are packed. A BAM is read as it is, and only the reads over the window are read where a `.bai` sits beside it. A CRAM reaches the command line through a pipe, `samtools view` writing the SAM text this reads from standard input (`--pileup -`).
+
+The reference is given two ways. `--with-sequence FILE`, after the pileup, gives it the letters to compare against without drawing them. A FASTA drawn as a track of its own before the pileup, `H37Rv.fa --pileup reads.bam`, draws the reference row, and the pileup reads against that too, so it is named once.
 
 ## SplitReadTrack { #splitreadtrack }
 
@@ -92,7 +94,7 @@ One row per molecule and one bar per alignment, with connectors saying in what o
 |:--|:--|
 | Rust | `.add_split_reads(reads)` on `plot()`; `SplitReadTrack::new(reads)` |
 | Command line | `--split-reads FILE`, with `--row-height`, `--no-names` |
-| Reads | SAM carrying an `SA` tag; only primary alignments are read (`read::split::reads`) |
+| Reads | a BAM or SAM carrying `SA` tags; only primary alignments are read (`read::bam`, `read::split::reads`) |
 
 === "Rust"
 

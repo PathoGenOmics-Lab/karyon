@@ -110,6 +110,10 @@ impl Default for AxisTrack {
 }
 
 impl Track for AxisTrack {
+    fn noun(&self) -> &str {
+        "a ruler"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

@@ -218,6 +218,17 @@ impl Legend {
         self
     }
 
+    /// Adds the keys of `other` this legend does not have yet, in `other`'s
+    /// order, so a colour two tracks share is explained once.
+    pub fn and(mut self, other: &Legend) -> Self {
+        for item in &other.items {
+            if !self.items.contains(item) {
+                self.items.push(item.clone());
+            }
+        }
+        self
+    }
+
     /// The items.
     pub fn items(&self) -> &[LegendItem] {
         &self.items
@@ -472,6 +483,10 @@ impl LegendTrack {
 }
 
 impl Track for LegendTrack {
+    fn noun(&self) -> &str {
+        "a key to the colours"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         // The theme reaches the height only through the font size, and the
         // default is what the figure will use unless the caller changed it, as
@@ -501,6 +516,15 @@ impl Track for LegendTrack {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_two_legends_share_is_kept_once() {
+        let one = Legend::new().key("A", "#111111").key("C", "#222222");
+        let two = Legend::new().key("C", "#222222").key("G", "#333333");
+        let both = one.and(&two);
+        assert_eq!(both.len(), 3);
+        assert_eq!(both.and(&two).len(), 3);
+    }
     use crate::figure::Figure;
     use crate::region::Region;
 

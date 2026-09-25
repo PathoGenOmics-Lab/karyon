@@ -187,7 +187,7 @@ fn locus(theme: &Theme) -> Figure {
             Variant::new(761_155).value(0.44).category("synonymous"),
         ])
         .label("variants")
-        .adjust(|track| track.height(40.0))
+        .adjust(|track| track.height(40.0).axis_title("AF"))
         .into_figure()
 }
 
@@ -306,7 +306,12 @@ fn association(theme: &Theme) -> Figure {
         .remove_region_label()
         .add_manhattan(points)
         .label("association")
-        .adjust(|track| track.genome_wide_threshold().unit(" -log10 p").height(74.0))
+        .adjust(|track| {
+            track
+                .genome_wide_threshold()
+                .axis_title("-log10 p")
+                .height(74.0)
+        })
         .add_matrix(sites, rows)
         .label("genotypes")
         .adjust(|track| {
@@ -774,7 +779,7 @@ fn genome_wide(theme: &Theme) -> Figure {
             track
                 .bands(genome.boundaries())
                 .genome_wide_threshold()
-                .unit(" -log10 p")
+                .axis_title("-log10 p")
                 .height(92.0)
         })
         .label("association")

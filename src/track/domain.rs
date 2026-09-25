@@ -227,6 +227,10 @@ impl DomainTrack {
 }
 
 impl Track for DomainTrack {
+    fn noun(&self) -> &str {
+        "protein domains"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.rows.len().max(1) as f64;
         rows * self.row_height + (rows - 1.0).max(0.0) * self.row_gap + self.traits.heading_height()

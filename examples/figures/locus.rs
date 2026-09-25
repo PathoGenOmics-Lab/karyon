@@ -67,6 +67,7 @@ pub fn example(theme: &Theme, width: Option<f64>, region: Option<&Region>) -> Bo
         .label("annotation")
         .add_variants(variants)
         .label("variants")
+        .adjust(|track| track.axis_title("AF"))
         .into_figure();
     Box::new(overview)
 }
@@ -105,7 +106,7 @@ pub fn example_zoom(
             Variant::new(761_155).value(0.21).category("synonymous"),
         ])
         .label("variants")
-        .adjust(|track| track.height(40.0))
+        .adjust(|track| track.height(40.0).axis_title("AF"))
         .into_figure();
     Box::new(zoom)
 }
@@ -149,6 +150,7 @@ pub fn example_dark(
             Variant::new(761_155).value(0.21).category("synonymous"),
         ])
         .label("variants")
+        .adjust(|track| track.axis_title("AF"))
         .into_figure();
     Box::new(dark)
 }

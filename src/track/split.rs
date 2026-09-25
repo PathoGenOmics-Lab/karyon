@@ -326,6 +326,10 @@ impl SplitReadTrack {
 }
 
 impl Track for SplitReadTrack {
+    fn noun(&self) -> &str {
+        "reads aligned in pieces"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         if self.reads.is_empty() {
             return self.row_height;

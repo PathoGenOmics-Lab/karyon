@@ -72,7 +72,12 @@ pub fn example_association(
         .width(width.unwrap_or(940.0))
         .add_manhattan(points)
         .label("association")
-        .adjust(|track| track.genome_wide_threshold().unit(" -log10 p").height(96.0))
+        .adjust(|track| {
+            track
+                .genome_wide_threshold()
+                .axis_title("-log10 p")
+                .height(96.0)
+        })
         .add_features(vec![Feature::new(759_806, 763_325)
             .name("rpoB")
             .strand(Strand::Forward)])

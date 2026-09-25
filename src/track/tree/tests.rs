@@ -219,9 +219,16 @@ fn a_tip_name_shrinks_with_the_row_it_sits_on() {
 #[test]
 fn height_follows_the_leaf_count() {
     let scale = Scale::new(&region(), 0.0, 100.0);
-    assert_eq!(TreeTrack::new(tree()).height(&scale), 4.0 * 15.0);
+    // Without the scale bar, whose room is not a row.
     assert_eq!(
-        TreeTrack::new(tree()).row_height(20.0).height(&scale),
+        TreeTrack::new(tree()).show_scale_bar(false).height(&scale),
+        4.0 * 15.0
+    );
+    assert_eq!(
+        TreeTrack::new(tree())
+            .row_height(20.0)
+            .show_scale_bar(false)
+            .height(&scale),
         4.0 * 20.0
     );
 }
@@ -230,7 +237,11 @@ fn height_follows_the_leaf_count() {
 fn every_branch_and_every_riser_is_drawn() {
     let svg = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()).show_tips(false))
+        .push(
+            TreeTrack::new(tree())
+                .show_tips(false)
+                .show_scale_bar(false),
+        )
         .to_svg();
     // Six branches, since the root has none, and three risers: one for
     // each pair of tips and one joining those two pairs at the root.
@@ -241,7 +252,7 @@ fn every_branch_and_every_riser_is_drawn() {
 fn tip_names_are_drawn_when_asked_for() {
     let svg = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()))
+        .push(TreeTrack::new(tree()).show_scale_bar(false))
         .to_svg();
     for tip in ["A", "B", "C", "D"] {
         assert!(svg.contains(&format!(">{tip}</text>")), "missing {tip}");
@@ -252,7 +263,11 @@ fn tip_names_are_drawn_when_asked_for() {
 fn a_leaf_is_named_on_its_own_branch_when_its_label_is_not_drawn() {
     let svg = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()).show_tips(false))
+        .push(
+            TreeTrack::new(tree())
+                .show_tips(false)
+                .show_scale_bar(false),
+        )
         .to_svg();
     for tip in ["A", "B", "C", "D"] {
         assert!(svg.contains(&format!("<title>{tip}</title>")), "{svg}");
@@ -272,7 +287,7 @@ fn a_tip_whose_label_is_drawn_is_not_named_a_second_time() {
     // same string is the pointer answering with what is already on screen.
     let svg = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()))
+        .push(TreeTrack::new(tree()).show_scale_bar(false))
         .to_svg();
     for tip in ["A", "B", "C", "D"] {
         assert!(svg.contains(&format!(">{tip}</text>")), "the label, {svg}");
@@ -930,7 +945,9 @@ fn branch_annotations_drive_colour_and_accessible_text() {
 fn visual_collapse_keeps_the_source_tree_and_names_the_triangle() {
     let tree = Tree::parse_newick("((A:1,B:1)outbreak:1,C:2);").unwrap();
     let outbreak = tree.node_named("outbreak").unwrap();
-    let track = TreeTrack::new(tree).collapse(outbreak);
+    let track = TreeTrack::new(tree)
+        .collapse(outbreak)
+        .show_scale_bar(false);
     assert_eq!(track.tree().leaf_names(), ["A", "B", "C"]);
     assert_eq!(track.height(&Scale::new(&region(), 0.0, 100.0)), 30.0);
     let svg = Figure::new(region())
@@ -945,7 +962,7 @@ fn visual_collapse_keeps_the_source_tree_and_names_the_triangle() {
 fn internal_node_points_are_optional() {
     let plain = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()))
+        .push(TreeTrack::new(tree()).show_scale_bar(false))
         .to_svg();
     let marked = Figure::new(region())
         .show_region_label(false)
@@ -961,6 +978,7 @@ fn trait_columns_align_exact_metadata_with_terminal_taxa() {
     )
     .unwrap();
     let track = TreeTrack::new(tree)
+        .show_scale_bar(false)
         .trait_column(TraitColumn::categorical("country").label("Country"))
         .trait_column(TraitColumn::continuous("coverage").label("Depth"));
     assert_eq!(
@@ -1048,7 +1066,12 @@ fn trait_categories_keep_branch_colours_after_ladderizing_and_collapsing() {
 fn a_circular_tree_preserves_every_branch_and_draws_internal_arcs() {
     let svg = Figure::new(region())
         .show_region_label(false)
-        .push(TreeTrack::new(tree()).circular().show_tips(false))
+        .push(
+            TreeTrack::new(tree())
+                .circular()
+                .show_tips(false)
+                .show_scale_bar(false),
+        )
         .to_svg();
     assert_eq!(svg.matches("<line").count(), 6, "one radial line per edge");
     assert_eq!(svg.matches("<path").count(), 3, "one arc per internal node");
@@ -1502,7 +1525,7 @@ fn an_unrooted_tree_is_centred_on_its_own_drawing_and_stays_inside_the_band() {
     let svg = Figure::new(region())
         .width(600.0)
         .show_region_label(false)
-        .push(TreeTrack::new(caterpillar).unrooted())
+        .push(TreeTrack::new(caterpillar).unrooted().show_scale_bar(false))
         .to_svg();
 
     let numbers = |tag: &str| {
@@ -2101,7 +2124,8 @@ fn a_column_from_a_sheet_colours_the_tree_the_way_the_sheet_does() {
         .iter()
         .all(|painted| *painted == colour(2)));
     // Chile is in the sheet and on no tip here: it keeps its colour for the
-    // other strips and stays out of this key.
+    // other strips and stays out of this key, which names the rest as a
+    // reader sorts them, each in the colour the sheet dealt it.
     let keyed: Vec<&str> = legend
         .items()
         .iter()
@@ -2112,6 +2136,46 @@ fn a_column_from_a_sheet_colours_the_tree_the_way_the_sheet_does() {
         .collect();
     assert_eq!(
         keyed,
-        ["country: Portugal", "country: Peru", "country: Spain"]
+        ["country: Peru", "country: Portugal", "country: Spain"]
     );
+}
+
+/// Branches coloured by a column deal the palette as that column's strip
+/// does, from the colour the column starts at, so a level is one colour on a
+/// branch and in the cell beside its tip.
+#[test]
+fn branches_coloured_by_a_column_start_where_the_column_does() {
+    let track = TreeTrack::new(tree())
+        .trait_column(TraitColumn::categorical("country").first_color(3))
+        .color_by("country");
+    assert_eq!(track.color_levels().first, 3);
+    let plain = TreeTrack::new(tree()).color_by("country");
+    assert_eq!(
+        plain.color_levels().first,
+        0,
+        "no column, the palette's start"
+    );
+}
+
+/// A phylogram's widths are branch lengths, and with no rule to read them
+/// against they measured nothing a reader could name. So the rule is drawn
+/// unless it is asked not to be, and only where there are lengths to measure.
+#[test]
+fn a_phylogram_draws_its_scale_bar_unless_asked_not_to() {
+    let drawn = |track: TreeTrack| Figure::new(region()).push(track).to_svg();
+    let bar = "branch length scale";
+    assert!(drawn(TreeTrack::new(tree())).contains(bar));
+    assert!(!drawn(TreeTrack::new(tree()).show_scale_bar(false)).contains(bar));
+    assert!(!drawn(TreeTrack::new(tree()).shape(TreeShape::Cladogram)).contains(bar));
+    // A topology with no lengths has nothing to measure, and no room is held
+    // under it for a bar that is not drawn.
+    let bare = Tree::parse_newick("((A,B),(C,D));").unwrap();
+    let scale = Scale::new(&region(), 0.0, 100.0);
+    assert_eq!(
+        TreeTrack::new(bare.clone()).height(&scale),
+        TreeTrack::new(bare.clone())
+            .show_scale_bar(false)
+            .height(&scale)
+    );
+    assert!(!drawn(TreeTrack::new(bare)).contains(bar));
 }

@@ -452,6 +452,10 @@ fn improve_rotations(candidate: &mut Tree, fixed: &Tree, candidate_is_left: bool
 }
 
 impl Track for TanglegramTrack {
+    fn noun(&self) -> &str {
+        "two phylogenies face to face"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         // The names sit above the trees, so they are part of the height. Left
         // out, the last tip of an eight tip pair fell past the bottom of the

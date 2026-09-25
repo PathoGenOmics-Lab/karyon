@@ -285,6 +285,10 @@ impl BisulfiteTrack {
 }
 
 impl Track for BisulfiteTrack {
+    fn noun(&self) -> &str {
+        "methylation calls, one molecule to a row"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let (rows, _) = self.visible_rows();
         rows.max(1) as f64 * self.row_height

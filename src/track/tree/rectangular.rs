@@ -25,7 +25,7 @@ pub(super) fn draw_tree_scene(
     default_color: &str,
     width: f64,
     color_by: Option<&str>,
-    color_levels: &[String],
+    color_levels: Dealt<'_>,
     dnds: Option<&DnDsLayer>,
     show_nodes: bool,
     support_style: SupportStyle,
@@ -450,7 +450,7 @@ pub(super) fn branch_colors(
     tree: &Tree,
     scene: &TreeScene,
     key: Option<&str>,
-    levels: &[String],
+    levels: Dealt<'_>,
     theme: &Theme,
     default_color: &str,
 ) -> PerNode<String> {
@@ -459,7 +459,11 @@ pub(super) fn branch_colors(
         return colors;
     };
     let values = branch_values(tree, key);
-    let domain = TraitDomain::ordered(levels, values.iter().flatten().copied());
+    let domain = TraitDomain::ordered(
+        levels.first,
+        levels.levels,
+        values.iter().flatten().copied(),
+    );
     let continuous = is_continuous(&values);
     for node in scene
         .placements
@@ -511,8 +515,12 @@ pub(super) fn is_continuous(values: &[Option<&AnnotationValue>]) -> bool {
 /// `levels` is the order a column carries from its sample sheet, dealt the
 /// palette first, so a level is the colour here that it is in every other strip
 /// the sheet is drawn in. Empty, the tree deals the palette in its own order.
-pub(super) fn tree_domain(tree: &Tree, key: &str, levels: &[String]) -> TraitDomain {
-    TraitDomain::ordered(levels, branch_values(tree, key).into_iter().flatten())
+pub(super) fn tree_domain(tree: &Tree, key: &str, levels: Dealt<'_>) -> TraitDomain {
+    TraitDomain::ordered(
+        levels.first,
+        levels.levels,
+        branch_values(tree, key).into_iter().flatten(),
+    )
 }
 
 pub(super) fn inherited_annotation<'a>(
@@ -721,7 +729,7 @@ pub(super) fn draw_trait_columns(
         // that is one of their values, so it has a colour here: counting only
         // the nodes the walk placed once left forty rows of lineage as forty
         // empty outlines.
-        let domain = tree_domain(tree, &column.key, &column.levels);
+        let domain = tree_domain(tree, &column.key, column.dealt());
         let rows: Vec<TraitRow<'_>> = names
             .iter()
             .zip(&scene.terminals)

@@ -337,6 +337,10 @@ impl CladeTrack {
 }
 
 impl Track for CladeTrack {
+    fn noun(&self) -> &str {
+        "clades painted onto a phylogeny"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.tree.leaf_count().max(1) as f64;
         rows * self.row_height + (rows - 1.0) * self.row_gap + 12.0 + self.traits.heading_height()

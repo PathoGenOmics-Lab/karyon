@@ -338,6 +338,10 @@ impl TranscriptionUnitTrack {
 }
 
 impl Track for TranscriptionUnitTrack {
+    fn noun(&self) -> &str {
+        "transcription units"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         let rows = self.row_count(scale) as f64;
         rows * self.row_height + (rows - 1.0) * self.row_gap

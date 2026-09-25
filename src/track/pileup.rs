@@ -417,7 +417,7 @@ impl PileupTrack {
             fade_by_quality: false,
             show_mismatches: true,
             mismatch_threshold: 0.2,
-            letter_threshold: 7.0,
+            letter_threshold: crate::track::sequence::LETTER_PX,
         }
     }
 
@@ -653,6 +653,26 @@ pub struct PileupLayout {
 }
 
 impl Track for PileupTrack {
+    fn noun(&self) -> &str {
+        "aligned reads"
+    }
+
+    /// The bases' colours, while a mismatch is a block of colour with no
+    /// letter on it to say which base it is.
+    fn key(
+        &self,
+        _region: &Region,
+        px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        let lettered = px_per_bp >= self.letter_threshold && self.read_height >= 7.0;
+        let coloured = self.show_mismatches
+            && !self.reference.is_empty()
+            && px_per_bp >= self.mismatch_threshold
+            && !lettered;
+        coloured.then(|| theme.bases.legend())
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         // Only the reads on screen are packed, so only they decide the height.
         // Sizing to the cap instead would leave a pileup of forty rows' worth
@@ -1098,6 +1118,33 @@ mod tests {
         assert_eq!(CigarOp::SoftClip(5).query_len(), 5);
         assert_eq!(CigarOp::HardClip(5).reference_len(), 0);
         assert_eq!(CigarOp::HardClip(5).query_len(), 0);
+    }
+
+    /// A mismatch is a block of colour until there is room for its letter,
+    /// and a reader needs the key only for the block.
+    #[test]
+    fn mismatch_colours_are_keyed_only_while_they_have_no_letter() {
+        let theme = Theme::light();
+        let read = Read::new(10, vec![CigarOp::Match(20)]).sequence(b"A".repeat(20));
+        let track = PileupTrack::new(vec![read.clone()]).reference(0, b"C".repeat(200));
+        let region = region();
+        assert!(track.key(&region, 2.0, &theme).is_some());
+        assert_eq!(
+            track.key(&region, 8.0, &theme),
+            None,
+            "each mismatch is lettered"
+        );
+        assert_eq!(
+            track.key(&region, 0.1, &theme),
+            None,
+            "no mismatch is drawn"
+        );
+        let bare = PileupTrack::new(vec![read]);
+        assert_eq!(
+            bare.key(&region, 2.0, &theme),
+            None,
+            "no reference, no mismatch"
+        );
     }
 
     #[test]

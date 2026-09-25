@@ -193,6 +193,62 @@ fn entries(section: &str) -> Vec<(&str, String)> {
     found
 }
 
+/// One track's own entry for an option whose shared entry speaks for several.
+///
+/// `karyon help all` keeps the shared entry, since it is read as a whole; the
+/// help on one track gives only what that track does with the option. The
+/// tree's help was seventy lines, and a reader after its two options scanned
+/// past what a scan does with a threshold and a pileup with a cap.
+fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
+    use args::Kind;
+    Some(match (kind, flag) {
+        (Kind::Tree, "--traits") => {
+            "    --traits <FILE>      a sample sheet drawn as strips beside the tips, or as
+                         rings around them in a circle: a header, names in
+                         column one, one column per thing known about them. A
+                         folded clade shows what its tips agree on
+"
+        }
+        (Kind::Tree, "--threshold") => {
+            "    --threshold <V>      the least support worth showing: the weaker values
+                         --support-style would draw are left out
+"
+        }
+        (Kind::Tree, "--row-height") => {
+            "    --row-height <PX>    how tall one tip's row is; a row too short for a
+                         name shrinks the name with it
+"
+        }
+        (Kind::Tree, "--max-rows") => {
+            "    --max-rows <N|all>   fold the smallest clades until the tree fits in N
+                         rows; every tip stays on the figure, inside a
+                         triangle saying how many it holds. No cap by default
+"
+        }
+        (Kind::Manhattan, "--threshold") => {
+            "    --threshold <V|genome-wide>
+                         the line the scan is read against, labelled with its
+                         value, in the units the file is in: a p-value where it
+                         holds p-values. genome-wide is p = 5e-8, a correction
+                         for a million tests and wrong wherever a million were
+                         not run
+"
+        }
+        (_, "--traits") => {
+            "    --traits <FILE>      a sample sheet drawn as strips beside the rows: a
+                         header, names in column one, one column per thing
+                         known about them
+"
+        }
+        (_, "--max-rows") => {
+            "    --max-rows <N|all>   how deep the track is drawn before it stops and
+                         counts the rest; 40 by default, and all lifts it
+"
+        }
+        _ => return None,
+    })
+}
+
 /// Whether the parser takes `flag` after a `kind` track.
 ///
 /// Asked of the parser itself, so the answer is the grammar's: an option a
@@ -249,7 +305,7 @@ fn help_on(topic: &str) -> Result<String, String> {
     let options: Vec<String> = entries(section("TRACK OPTIONS"))
         .into_iter()
         .filter(|(flag, _)| takes(kind, flag))
-        .map(|(_, text)| text)
+        .map(|(flag, text)| said_for(kind, flag).map_or(text, str::to_string))
         .collect();
     if !options.is_empty() {
         out.push_str(&format!(
@@ -262,7 +318,7 @@ fn help_on(topic: &str) -> Result<String, String> {
     }
     out.push_str(
         "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme, --no-axis,\n\
-         --no-region-label and -o.\n",
+         --no-region-label, --no-legend, --rename and -o.\n",
     );
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
@@ -406,8 +462,9 @@ TRACK OPTIONS, each describing the track before it, once
     --shape <HOW>        phylogram or cladogram, for a phylogeny: whether a
                          branch is as long as its length says or every branch
                          is one step, which is the shape to read a topology by
-    --scale-bar          a rule in the tree's own branch-length units, which is
-                         not the ruler along the bottom: that one measures the
+    --no-scale-bar       leave out the rule in the tree's own branch-length
+                         units, which a phylogram draws by default. It is not
+                         the ruler along the bottom: that one measures the
                          region, and is left out of a figure holding nothing
                          but phylogenies
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
@@ -465,7 +522,12 @@ FIGURE OPTIONS
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
     --no-legend          leave out the key to the colours a tree's branches and
-                         the strips of a --traits sheet are painted in
+                         the strips of a --traits sheet are painted in, and
+                         to the bases where they are blocks too narrow for
+                         their letters
+    --rename <FROM=TO>   read a sequence a file calls FROM as the figure's TO,
+                         as --rename 1=NC_000962.3 for a PLINK table beside a
+                         FASTA; several joined by commas, or the flag again
     -o, --output <FILE>  standard output by default. The figure is SVG, so a
                          name ending in .png, .pdf or another format is refused
     -h, --help
@@ -533,8 +595,14 @@ fn run(args: &[String]) -> Result<(), String> {
 
     // Read through `Disk`, which takes compressed files out of their wrapper
     // and reads a BAM a window at a time through its index.
-    let svg = stack::build_files(&invocation, &mut stack::Disk::default(), |_, _| None)
+    let mut disk = stack::Disk::default();
+    let svg = stack::build_files(&invocation, &mut disk, |_, _| None)
         .map_err(|error| error.to_string())?;
+    // A figure drawn with something its reader should know is still a figure,
+    // so what it says goes to standard error and the exit stays nought.
+    for note in &disk.notes {
+        eprintln!("karyon: {note}");
+    }
     match &invocation.output {
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?
@@ -723,6 +791,42 @@ mod tests {
     }
 
     /// The help a reader meets first, which has to fit where they meet it.
+    /// A track's own help gives what that track does with an option, and
+    /// only for an option the track takes. The tree's ran to seventy lines,
+    /// through what a scan does with a threshold and a pileup with a cap.
+    #[test]
+    fn a_track_s_help_says_what_it_does_with_a_shared_option() {
+        for kind in args::Kind::ALL {
+            for (flag, _) in entries(section("TRACK OPTIONS")) {
+                let Some(own) = said_for(kind, flag) else {
+                    continue;
+                };
+                if !takes(kind, flag) {
+                    continue;
+                }
+                assert!(
+                    own.starts_with(&format!("    {flag}")),
+                    "{}'s {flag} entry does not start with the flag",
+                    kind.dashed()
+                );
+                for line in own.lines() {
+                    assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
+                }
+            }
+        }
+        let tree = help_on("tree").unwrap();
+        for elsewhere in ["genome-wide", "pileup", "scan"] {
+            assert!(
+                !tree.contains(elsewhere),
+                "the tree's help speaks of {elsewhere}"
+            );
+        }
+        assert!(tree.lines().count() < 60, "{} lines", tree.lines().count());
+        let scan = help_on("manhattan").unwrap();
+        assert!(!scan.contains("phylogeny"), "{scan}");
+        assert!(scan.contains("p = 5e-8"), "{scan}");
+    }
+
     #[test]
     fn the_short_help_fits_on_a_screen_and_names_every_track() {
         let lines: Vec<&str> = SHORT.lines().collect();

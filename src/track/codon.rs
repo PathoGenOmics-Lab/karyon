@@ -306,6 +306,10 @@ impl CodonTrack {
 }
 
 impl Track for CodonTrack {
+    fn noun(&self) -> &str {
+        "a coding sequence in codons"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.cell_height + 4.0 + 12.0
     }

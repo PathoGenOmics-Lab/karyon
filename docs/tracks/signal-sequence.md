@@ -22,7 +22,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
 | Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--color`, `--height`, `--format` |
-| Reads | bedGraph, `samtools depth`, or one value per line (`read::signal::spans`) |
+| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`) |
 
 === "Rust"
 
@@ -248,6 +248,8 @@ The reference bases, drawn the way a genome browser draws them: coloured letters
 Below `block_threshold` the track draws nothing and prints `zoom in to see bases`. That is a refusal: five million one-pixel rectangles make a file no viewer will open. Above it, the cost follows the width of the figure rather than the length of the sequence, since only the bases inside the region are visited, so a whole chromosome can back a track that shows sixty bases of it.
 
 Colours come from the theme's `bases`, which is `BaseColors::conventional()` unless you change it. Those are the colours readers expect, and adenine and guanine sit close together for a reader with protanopia; `BaseColors::colorblind_safe()` keeps all four apart (see [Styling](../guide/theming.md)). Lower case is drawn as upper case, `U` takes the colour of `T`, and `N` or any other symbol takes one neutral grey.
+
+While the bases are blocks, their colours name them only to a reader who knows the palette, so the command line draws a key under the figure: `A`, `C`, `G` and `T`, and `other` where the window holds an `N`. In Rust, `Figure::key()` gathers what every track needs explained at the zoom the figure is drawn at, and `BaseColors::legend()` is the key to the four colours on its own.
 
 `--sequence` draws the only record of the FASTA, whatever its name, or, in a file of several, the one named like the region's sequence.
 

@@ -336,6 +336,10 @@ impl DynseqTrack {
 }
 
 impl Track for DynseqTrack {
+    fn noun(&self) -> &str {
+        "bases sized by a score"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

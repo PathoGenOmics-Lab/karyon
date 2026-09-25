@@ -49,7 +49,9 @@ use std::path::Path;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{Density, RenderProfile};
-use crate::svg::{fit_text_by, mono_width, text_width_strong, Anchor, SvgWriter, TextStyle};
+use crate::svg::{
+    fit_text_by, mono_width, text_width, text_width_strong, Anchor, SvgWriter, TextStyle,
+};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 
@@ -370,33 +372,36 @@ impl Figure {
     /// statement of what the figure is made of.
     ///
     /// The fallback is composed only from things the figure knows for certain,
-    /// the region and the labels of the tracks in the order they are drawn, so
-    /// it can say what is here without claiming anything about what it shows.
-    /// That is the part [`Figure::description`] exists for.
+    /// the region and the tracks in the order they are drawn, each by its
+    /// label or, where it has none, by what it is, so it can say what is here
+    /// without claiming anything about what it shows. That is the part
+    /// [`Figure::description`] exists for.
+    ///
+    /// It counted every track and named only the labelled ones, so a figure
+    /// of four tracks was three names long, the ruler said by nothing.
     fn document_description(&self) -> String {
         if let Some(description) = &self.description {
             return description.clone();
         }
-        let labels: Vec<&str> = self.tracks.iter().filter_map(|t| t.label()).collect();
-        let count = self.tracks.len();
-        let stack = match count {
-            0 => "no tracks".to_string(),
-            1 => "one track".to_string(),
-            n => format!("{n} tracks"),
-        };
+        let named: Vec<&str> = self
+            .tracks
+            .iter()
+            .map(|track| track.label().unwrap_or_else(|| track.noun()))
+            .collect();
         // The window only where something shows it.
         let over = if self.names_region() {
             format!(" over {}", self.region)
         } else {
             String::new()
         };
-        if labels.is_empty() {
-            format!("A karyon figure{over}, with {stack}.")
-        } else {
-            format!(
-                "A karyon figure{over}, with {stack}, drawn top to bottom: {}.",
-                labels.join(", ")
-            )
+        match named.as_slice() {
+            [] => format!("A karyon figure{over}, with no tracks."),
+            [one] => format!("A karyon figure{over}, with one track: {one}."),
+            [first @ .., last] => format!(
+                "A karyon figure{over}, with {} tracks, drawn top to bottom: {} and {last}.",
+                named.len(),
+                first.join(", ")
+            ),
         }
     }
 
@@ -510,6 +515,35 @@ impl Figure {
                 h: *height,
             };
 
+            // What the value axis measures goes under the name, a line of
+            // its own in the ticks' ink, so the name and the title read as one
+            // block centred on the band.
+            let title = track.axis_title().filter(|title| !title.is_empty());
+            let title_size = theme.font_size - 1.0;
+            let lift = match (track.label(), title) {
+                (Some(_), Some(_)) => (title_size + 3.0 * self.visual_scale) / 2.0,
+                _ => 0.0,
+            };
+            if let Some(title) = title {
+                let right = band.x - layout.axis_width - 10.0 * self.visual_scale;
+                let visible = fit_text_by(title, right - layout.margin_left, |text| {
+                    text_width(text, title_size)
+                });
+                let baseline = if track.label().is_some() {
+                    band.mid_y() + theme.label_font_size * 0.35 + lift
+                } else {
+                    band.mid_y() + title_size * 0.35
+                };
+                svg.text(
+                    right,
+                    baseline,
+                    &visible,
+                    &theme.muted,
+                    title_size,
+                    Anchor::End,
+                );
+            }
+
             if let Some(label) = track.label() {
                 // Labels sit to the left of the widest value axis, so a track
                 // with an axis and one without still line their names up, and
@@ -530,7 +564,7 @@ impl Figure {
                 });
                 svg.text_styled(
                     right,
-                    band.mid_y() + size * 0.35,
+                    band.mid_y() + size * 0.35 - lift,
                     &visible,
                     &theme.muted,
                     size,
@@ -580,6 +614,26 @@ impl Figure {
         fs::write(path, self.to_svg())
     }
 
+    /// How many pixels one base is drawn across, once the gutter and the
+    /// value axes are taken out of the width: what decides whether a base is
+    /// a letter, a block of colour or nothing.
+    pub fn px_per_bp(&self) -> f64 {
+        self.layout().scale.px_per_bp()
+    }
+
+    /// The keys this figure's tracks need at the zoom it is drawn at, each
+    /// once, for a [`LegendTrack`](crate::LegendTrack) to explain: the colours
+    /// of bases drawn as blocks, for one. Empty where every mark names itself.
+    pub fn key(&self) -> crate::track::legend::Legend {
+        let px_per_bp = self.px_per_bp();
+        self.tracks
+            .iter()
+            .filter_map(|track| track.key(&self.region, px_per_bp, &self.theme))
+            .fold(crate::track::legend::Legend::new(), |key, more| {
+                key.and(&more)
+            })
+    }
+
     fn layout(&self) -> Layout {
         let theme = self.theme.clone().scaled(self.visual_scale);
         self.layout_with_theme(&theme)
@@ -619,7 +673,11 @@ impl Figure {
         };
         let header_baseline = margin_top + theme.title_font_size;
 
-        let gutter = if self.tracks.iter().any(|t| t.label().is_some()) {
+        let named = self
+            .tracks
+            .iter()
+            .any(|t| t.label().is_some() || t.axis_title().is_some());
+        let gutter = if named {
             self.label_width.map_or_else(
                 || self.automatic_label_width(theme),
                 |width| width * spacing,
@@ -684,12 +742,17 @@ impl Figure {
 
     /// Room for the widest label plus the quiet gap between labels and axes.
     fn automatic_label_width(&self, theme: &Theme) -> f64 {
-        let widest = self
+        let names = self
             .tracks
             .iter()
             .filter_map(|track| track.label())
-            .map(|label| label_width(label, theme.label_font_size))
-            .fold(0.0f64, f64::max);
+            .map(|label| label_width(label, theme.label_font_size));
+        let titles = self
+            .tracks
+            .iter()
+            .filter_map(|track| track.axis_title())
+            .map(|title| text_width(title, theme.font_size - 1.0));
+        let widest = names.chain(titles).fold(0.0f64, f64::max);
         (widest + 14.0 * self.visual_scale).clamp(
             MIN_AUTO_LABEL_WIDTH * self.visual_scale,
             MAX_AUTO_LABEL_WIDTH * self.visual_scale,
@@ -1071,7 +1134,7 @@ mod tests {
             .to_svg();
         assert!(!bare.contains("chr1:1-1000"), "{bare}");
         assert!(bare.contains("<title id=\"karyon-title\">A karyon figure</title>"));
-        assert!(bare.contains("A karyon figure, with one track."));
+        assert!(bare.contains("A karyon figure, with one track: a phylogeny."));
 
         let titled = Figure::new(region())
             .title("Outbreak")
@@ -1279,6 +1342,106 @@ mod tests {
             crate::svg::num(theme.label_font_size)
         );
         assert!(svg.contains(&named), "{svg}");
+    }
+
+    /// A track that says what its axis measures has it written under its
+    /// name, the two lines centred on the band together, and a title alone
+    /// still has a gutter to go in.
+    #[test]
+    fn an_axis_title_goes_under_the_track_s_name() {
+        struct Titled(Option<&'static str>);
+        impl Track for Titled {
+            fn height(&self, _scale: &Scale) -> f64 {
+                60.0
+            }
+            fn label(&self) -> Option<&str> {
+                self.0
+            }
+            fn axis_title(&self) -> Option<&str> {
+                Some("-log10 p")
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let y_of = |svg: &str, text: &str| -> f64 {
+            let at = svg.find(&format!(">{text}<")).expect("the text");
+            let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+            let y = &tag[tag.find(" y=\"").unwrap() + 4..];
+            y[..y.find('"').unwrap()].parse().unwrap()
+        };
+        let both = Figure::new(region()).push(Titled(Some("scan"))).to_svg();
+        let (name, title) = (y_of(&both, "scan"), y_of(&both, "-log10 p"));
+        assert!(
+            title > name,
+            "the title at {title} is not under the name at {name}"
+        );
+        // Alone, the title takes the name's place, and the gutter is kept for it.
+        let alone = Figure::new(region()).push(Titled(None));
+        assert!(alone.layout().plot_x > Margin::default().left);
+        assert!(alone.to_svg().contains(">-log10 p<"));
+        // A title wider than any name widens the gutter to fit it.
+        struct Wide;
+        impl Track for Wide {
+            fn height(&self, _scale: &Scale) -> f64 {
+                40.0
+            }
+            fn label(&self) -> Option<&str> {
+                Some("a")
+            }
+            fn axis_title(&self) -> Option<&str> {
+                Some("a title a good deal wider than the name")
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let wide = Figure::new(region()).push(Wide);
+        let named = Figure::new(region()).push(Titled(Some("a")));
+        assert!(wide.layout().plot_x > named.layout().plot_x);
+    }
+
+    /// The keys are the ones the tracks need at the zoom the figure draws at,
+    /// which only the figure knows once it has laid out its gutter.
+    #[test]
+    fn a_figure_asks_its_tracks_for_the_keys_its_zoom_needs() {
+        use crate::track::SequenceTrack;
+        let bases = b"ACGT".repeat(1_000);
+        let blocks = Figure::new(Region::new("chr1", 0, 400).unwrap())
+            .push(SequenceTrack::new(0, bases.clone()).label("reference"));
+        assert_eq!(blocks.key().len(), 4);
+        let letters = Figure::new(Region::new("chr1", 0, 40).unwrap())
+            .push(SequenceTrack::new(0, bases).label("reference"));
+        assert!(letters.key().is_empty());
+    }
+
+    /// The description counted every track and named only the labelled
+    /// ones, so four tracks were three names long; each is named now, by its
+    /// label or by what it is.
+    #[test]
+    fn the_description_names_every_track_it_counts() {
+        use crate::track::legend::{Legend, LegendTrack};
+        use crate::track::CoverageTrack;
+        let svg = Figure::new(region())
+            .push(CoverageTrack::new(0, vec![1.0; 1000]).label("depth"))
+            .push(AxisTrack::new())
+            .push(LegendTrack::new(Legend::new().key("A", "#111111")))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "with 3 tracks, drawn top to bottom: depth, a ruler and a key to the colours."
+            ),
+            "{svg}"
+        );
+        // A track that says nothing of itself is still counted and named.
+        struct Quiet;
+        impl Track for Quiet {
+            fn height(&self, _scale: &Scale) -> f64 {
+                10.0
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let svg = Figure::new(region()).push(Quiet).push(Quiet).to_svg();
+        assert!(
+            svg.contains("with 2 tracks, drawn top to bottom: a track and a track."),
+            "{svg}"
+        );
     }
 
     #[test]

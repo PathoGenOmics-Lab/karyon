@@ -61,12 +61,12 @@ line flag that draws it, and the route opens its page in this gallery.
 
 | Your data | Start with | Route |
 |:--|:--|:--|
-| Aligned reads: SAM text, as `samtools view` writes it | [Read pileup](../tracks/reads-molecules.md#pileuptrack), `--pileup` | [Reads and molecules](reads-molecules.md) |
-| Reads aligned in pieces: SAM with an `SA` tag | [Split reads](../tracks/reads-molecules.md#splitreadtrack), `--split-reads` | [Reads and molecules](reads-molecules.md) |
+| Aligned reads: a BAM, or SAM text as `samtools view` writes it | [Read pileup](../tracks/reads-molecules.md#pileuptrack), `--pileup` | [Reads and molecules](reads-molecules.md) |
+| Reads aligned in pieces: a BAM or SAM with `SA` tags | [Split reads](../tracks/reads-molecules.md#splitreadtrack), `--split-reads` | [Reads and molecules](reads-molecules.md) |
 | Splice junction counts: STAR's `SJ.out.tab` | [Splice junctions](../tracks/reads-molecules.md#junctiontrack), `--junctions` | [Reads and molecules](reads-molecules.md) |
 | Methylation calls read by read: a Bismark methylation extractor file | [Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack), `--bisulfite` | [Reads and molecules](reads-molecules.md) |
 | Raw nanopore current and a basecaller move table | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack), Rust only | [Reads and molecules](reads-molecules.md) |
-| A value per base: bedGraph, `samtools depth` or a column of values | [Coverage](../tracks/signal-sequence.md#coveragetrack), `--coverage` | [Signal and sequence](signal-sequence.md) |
+| A value per base: bedGraph, `samtools depth`, a column of values, or the depth of a BAM | [Coverage](../tracks/signal-sequence.md#coveragetrack), `--coverage` | [Signal and sequence](signal-sequence.md) |
 | A statistic in windows: bedGraph | [Windowed statistic](../tracks/signal-sequence.md#windowtrack), `--windows` | [Signal and sequence](signal-sequence.md) |
 | Modified bases per strand: bedMethyl from `modkit pileup` | [Methylation by strand](../tracks/signal-sequence.md#methylationtrack), `--methylation` | [Signal and sequence](signal-sequence.md) |
 | Per-base model attribution: bedGraph, plus the reference as FASTA | [Per-base attribution](../tracks/signal-sequence.md#dynseqtrack), `--dynseq` with `--with-sequence` | [Signal and sequence](signal-sequence.md) |
