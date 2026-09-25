@@ -53,6 +53,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::region::Region;
 use crate::style::{Density, LinePattern, RenderProfile};
 use crate::svg::{fit_text, num, text_rounded, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
@@ -1269,17 +1270,36 @@ fn nice_step(raw: f64) -> u64 {
 ///
 /// Implemented by [`Figure`](crate::Figure) and by [`Rings`], which is what
 /// lets a linear stack and a circular plot sit on one
-/// [`Panels`](crate::Panels) sheet despite having nothing else in common.
+/// [`Panels`](crate::Panels) sheet despite having nothing else in common. The
+/// maps implement it too, and so does [`Panels`](crate::Panels) itself, so a
+/// sheet can be a panel of another sheet or one of several drawings inlined
+/// into the same page.
 pub trait Drawing {
     /// Width and height of the rendered image.
     fn dimensions(&self) -> (f64, f64);
 
     /// Renders it, with every generated id carrying `prefix`.
+    ///
+    /// The prefix goes in front of each id and each reference to one as it is
+    /// given, neither escaped nor checked: a [`Panels`](crate::Panels) sheet
+    /// renders a panel before it knows the prefix the panel's ids will need,
+    /// and finds them again afterwards by the one it handed over.
     fn to_svg_with_id_prefix(&self, prefix: &str) -> String;
 
     /// Horizontal origin of the data area, when drawings can be aligned on a
     /// panel sheet. Circular and other free-form drawings return no anchor.
     fn content_anchor(&self) -> Option<f64> {
+        None
+    }
+
+    /// The region a coordinate axis runs along underneath it, when one does.
+    ///
+    /// A figure whose tracks lay their marks out along its region answers
+    /// with that region, and it is the window a viewer can pan and zoom.
+    /// Everything else answers `None`: a circle maps position to an angle, a
+    /// map and a sheet have no window of their own, and a stack of
+    /// phylogenies holds one only because every figure is given one.
+    fn region(&self) -> Option<&Region> {
         None
     }
 }
@@ -1832,5 +1852,95 @@ mod tests {
         // inside one panel would leave the outer one unreachable everywhere
         // the inner one covers.
         assert_eq!(sheet.matches("<title id=").count(), 1, "{sheet}");
+    }
+
+    /// The prefix is only as good as its reach. An id it missed is an id two
+    /// drawings in one page can both claim, and a reference it missed points
+    /// at the other drawing's element, so every id each kind of drawing writes
+    /// is checked, and everything that points at one: `url(#...)` for a clip,
+    /// and `aria-labelledby` for the title and description.
+    #[test]
+    fn every_drawing_puts_its_prefix_on_every_id_it_writes() {
+        use crate::figure::Figure;
+        use crate::map::{GeoLocation, Map, PhyloMap};
+        use crate::panels::Panels;
+        use crate::region::Region;
+        use crate::track::{AxisTrack, CoverageTrack};
+        use crate::tree::Tree;
+
+        let places = || {
+            [
+                GeoLocation::new("Peru", -9.19, -75.0152),
+                GeoLocation::new("Spain", 40.4637, -3.7492),
+            ]
+        };
+        let stack = Figure::new(Region::new("chr1", 0, 1_000).unwrap())
+            .push(CoverageTrack::new(0, vec![3.0; 1_000]).label("depth"))
+            .push(AxisTrack::new());
+        let circle = Rings::new(4_411_532)
+            .push(AxisRing::new())
+            .push(SignalRing::new(vec![Window::new(0, 2_000_000, 0.4)]))
+            .title("H37Rv");
+        let map = Map::new().extend(places());
+        let tree = Tree::parse_annotated_newick(
+            "((A[&country=Peru]:1,B[&country=Peru]:1):1,C[&country=Spain]:2);",
+        )
+        .unwrap();
+        let phylo = PhyloMap::new(tree)
+            .location_by("country")
+            .coordinates(places());
+        let sheet = Panels::new().push(&stack, "A").push(&map, "B");
+
+        let drawings: [(&str, &dyn Drawing); 5] = [
+            ("a figure", &stack),
+            ("a circle", &circle),
+            ("a map", &map),
+            ("a phylogeny on a map", &phylo),
+            ("a sheet", &sheet),
+        ];
+        for (what, drawing) in drawings {
+            let svg = drawing.to_svg_with_id_prefix("x-");
+            let after = |key: &str, end: char| -> Vec<String> {
+                svg.match_indices(key)
+                    .map(|(at, found)| {
+                        let rest = &svg[at + found.len()..];
+                        rest[..rest.find(end).unwrap()].to_string()
+                    })
+                    .collect()
+            };
+            let written = after(r#" id=""#, '"');
+            let pointed: Vec<String> = after("url(#", ')')
+                .into_iter()
+                .chain(
+                    after(r#"aria-labelledby=""#, '"')
+                        .iter()
+                        .flat_map(|list| list.split(' ').map(str::to_string)),
+                )
+                .collect();
+            // A circle may have nothing to clip, and nested it names nothing,
+            // so it can pass with no ids at all. Everything else here clips.
+            assert!(
+                !written.is_empty() || what == "a circle",
+                "{what} wrote no ids, so this checked nothing"
+            );
+            for id in written.iter().chain(&pointed) {
+                assert!(
+                    id.starts_with("x-"),
+                    "{what} wrote {id:?} without the prefix"
+                );
+            }
+            for id in &pointed {
+                assert!(
+                    written.contains(id),
+                    "{what} points at {id:?}, which is not there"
+                );
+            }
+            // The same drawing under two prefixes shares nothing, which is the
+            // whole of what the prefix is for.
+            let other = drawing.to_svg_with_id_prefix("y-");
+            for id in &written {
+                assert!(!other.contains(&format!(r#" id="{id}""#)), "{what}: {id}");
+            }
+        }
     }
 }

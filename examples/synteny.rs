@@ -11,14 +11,16 @@
 //! of the question.
 
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
-use karyon::{AlignmentBlock, Feature, Plot, Region, Strand};
+use karyon::Theme;
 
-/// Length of the query chromosome.
-const QUERY: u64 = 4_400_000;
-/// Length of the target chromosome.
-const TARGET: u64 = 4_380_000;
+// The figures are built in a file of their own, which the documentation
+// site's playground includes as well, so the committed SVGs and the ones drawn
+// live in the page come out of the same code.
+#[path = "figures/synteny.rs"]
+mod figures;
 
 fn main() -> std::io::Result<()> {
     let out = env::args()
@@ -26,58 +28,20 @@ fn main() -> std::io::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // Colinear for the first third, then an inversion, then a block that moved,
-    // then colinear again. The gap between the third and fourth blocks on the
-    // query is sequence the target does not have.
-    let blocks = vec![
-        AlignmentBlock::new(0, 1_500_000, 0, 1_500_000).identity(0.99),
-        AlignmentBlock::new(1_520_000, 2_100_000, 1_520_000, 2_100_000)
-            .reversed(true)
-            .identity(0.97),
-        AlignmentBlock::new(2_150_000, 2_600_000, 3_400_000, 3_850_000).identity(0.98),
-        AlignmentBlock::new(2_900_000, 4_400_000, 2_150_000, 3_650_000).identity(0.99),
-    ];
-
-    let region = Region::new("H37Rv", 0, QUERY).unwrap();
-    let figure = Plot::over(region)
-        .title("Two chromosomes, three disagreements")
-        .width(900.0)
-        .add_dotplot(blocks.clone())
-        .label("CDC1551")
-        .adjust(|track| track.target_length(TARGET).height(210.0))
-        .add_synteny(blocks.clone())
-        .adjust(|track| {
-            track
-                .target_length(TARGET)
-                .names("H37Rv", "CDC1551")
-                .height(120.0)
-        })
-        .into_figure();
-    figure.save_svg(out.join("example-synteny.svg"))?;
-
-    // Zoomed onto the inversion, where the ribbon crossing is the whole story.
-    let inversion = Region::new("H37Rv", 1_400_000, 2_250_000).unwrap();
-    let detail = Plot::over(inversion)
-        .title("The inversion, close up")
-        .width(760.0)
-        .add_synteny(blocks)
-        .adjust(|track| {
-            track
-                .target_range(1_400_000, 2_250_000)
-                .names("H37Rv", "CDC1551")
-                .height(130.0)
-        })
-        .add_features(vec![Feature::new(1_520_000, 2_100_000)
-            .name("inverted segment")
-            .strand(Strand::Reverse)])
-        .label("segment")
-        .into_figure();
-    detail.save_svg(out.join("example-synteny-inversion.svg"))?;
-
-    let (w1, h1) = figure.dimensions();
-    let (w2, h2) = detail.dimensions();
-    println!("example-synteny.svg           {w1:.0} x {h1:.0}");
-    println!("example-synteny-inversion.svg {w2:.0} x {h2:.0}");
-    println!("{QUERY} bases of query against a {TARGET} base target");
+    let light = Theme::light();
+    for (file, figure) in [
+        (
+            "example-synteny.svg",
+            figures::example_synteny(&light, None, None),
+        ),
+        (
+            "example-synteny-inversion.svg",
+            figures::example_synteny_inversion(&light, None, None),
+        ),
+    ] {
+        fs::write(out.join(file), figure.to_svg_with_id_prefix(""))?;
+        let (width, height) = figure.dimensions();
+        println!("{file} {width:.0} x {height:.0}");
+    }
     Ok(())
 }

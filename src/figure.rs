@@ -657,6 +657,12 @@ impl crate::rings::Drawing for Figure {
     fn content_anchor(&self) -> Option<f64> {
         Some(self.layout().plot_x)
     }
+
+    fn region(&self) -> Option<&Region> {
+        // The test that decides whether a plot gets a ruler along the bottom.
+        // A window nothing is measured against is not one worth moving.
+        self.measures_coordinates().then_some(&self.region)
+    }
 }
 
 struct Layout {
@@ -1189,5 +1195,25 @@ mod tests {
         assert!(scaled.layout().plot_x > normal.layout().plot_x);
         assert!(scaled.dimensions().1 > normal.dimensions().1);
         assert!(scaled.to_svg().contains(r#"font-size="24""#));
+    }
+
+    #[test]
+    fn a_figure_offers_its_region_only_where_something_is_measured_against_it() {
+        use crate::rings::Drawing;
+        use crate::track::TreeTrack;
+        use crate::tree::Tree;
+
+        let depth = Figure::new(region()).push(CoverageTrack::new(0, vec![5.0; 1_000]));
+        assert_eq!(Drawing::region(&depth), Some(&region()));
+
+        // A window a phylogeny is handed because every figure is handed one is
+        // not a window a viewer can move along, whatever it says.
+        let tree = Tree::parse_newick("((a:1,b:1):1,c:2);").unwrap();
+        let alone = Figure::new(Region::parse("tree:1-1").unwrap()).push(TreeTrack::new(tree));
+        assert_eq!(Drawing::region(&alone), None);
+
+        // And an empty figure is a window with nothing in it yet, which is
+        // still a window.
+        assert_eq!(Drawing::region(&Figure::new(region())), Some(&region()));
     }
 }

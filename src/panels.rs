@@ -19,6 +19,12 @@
 //! are written over the top afterwards, because a figure paints its own page
 //! colour and anything put down before it is a mark nobody sees.
 //!
+//! The same goes one level up. A sheet is a [`Drawing`] too, and two sheets
+//! inlined into one page, or one sheet made a panel of another, are two
+//! documents sharing one id space. [`Panels::to_svg_with_id_prefix`] puts its
+//! prefix in front of every panel's, so the panels of one sheet cannot claim
+//! the ids of the other's.
+//!
 //! # The sheet has to say what the panels stopped saying
 //!
 //! A [`Figure`](crate::Figure) alone names itself in its own `<title>` and
@@ -28,7 +34,8 @@
 //! the one thing it knows and the panels do not: which panel is which. The
 //! letter and the caption already on the page are that text, so the group each
 //! panel is moved by carries them as its tooltip rather than a second name for
-//! the same thing.
+//! the same thing. A sheet going inside something else is in the panels'
+//! position, and says nothing about itself either.
 //!
 //! # The order is the reader's, not the packer's
 //!
@@ -50,8 +57,20 @@ use crate::style::RenderProfile;
 use crate::svg::{escape, num, text_width, Anchor, SvgWriter};
 use crate::theme::Theme;
 
+/// What a panel is rendered with in place of the prefix its ids will carry.
+///
+/// A panel is rendered when it is pushed, and the prefix it needs is only
+/// known when the sheet is written out: its own place on the sheet, behind
+/// whatever prefix the sheet itself is written under. So it is rendered with
+/// this, and this is replaced on the way out. It is a control character
+/// because nothing else can contain one: [`escape`] drops it from text, and
+/// XML has no way to hold it at all, so the one place it turns up in what a
+/// drawing hands back is where the drawing put its prefix.
+const PREFIX_MARK: &str = "\u{1}";
+
 /// One figure placed on a sheet.
 struct Panel {
+    /// The rendering, with [`PREFIX_MARK`] wherever its prefix goes.
     svg: String,
     width: f64,
     height: f64,
@@ -261,10 +280,11 @@ impl Panels {
         // Each panel gets an id space of its own. Without this the second
         // panel's `url(#karyon-clip-0)` would resolve to the first panel's
         // clipping rectangle, and its tracks would be cropped to a band
-        // belonging to a different figure.
-        let prefix = format!("p{}-", self.panels.len());
+        // belonging to a different figure. Which id space is settled when the
+        // sheet is written out, since that is when the sheet's own prefix is
+        // known.
         self.panels.push(Panel {
-            svg: figure.to_svg_with_id_prefix(&prefix),
+            svg: figure.to_svg_with_id_prefix(PREFIX_MARK),
             width,
             height,
             label,
@@ -505,11 +525,25 @@ impl Panels {
 
     /// Renders the sheet.
     pub fn to_svg(&self) -> String {
+        self.to_svg_with_id_prefix("")
+    }
+
+    /// Renders the sheet with every id in it carrying `prefix`.
+    ///
+    /// Only needed when the sheet is going inside another document beside a
+    /// second drawing: two sheets inlined into one page, or this sheet made a
+    /// panel of another. The panels already have id spaces of their own on
+    /// the sheet, `p0-` and `p1-` and on, and those would be the same on both
+    /// sheets, so the second sheet's clips would resolve to the first one's
+    /// rectangles. The prefix goes in front of each of them. See
+    /// [`Figure::to_svg_with_id_prefix`](crate::Figure::to_svg_with_id_prefix)
+    /// for the same thing one level down.
+    pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let layout = self.layout();
         let theme = self.theme.clone().scaled(self.visual_scale);
         let margin = self.margin * self.visual_scale;
         let (width, height) = (layout.width, layout.height);
-        let mut svg = SvgWriter::new();
+        let mut svg = SvgWriter::with_id_prefix(prefix);
 
         if let Some(title) = &self.title {
             svg.text_bold(
@@ -523,8 +557,12 @@ impl Panels {
         }
 
         let mut body = String::new();
-        for ((panel, (column_x, top)), shift) in
-            self.panels.iter().zip(&layout.places).zip(&layout.shifts)
+        for (index, ((panel, (column_x, top)), shift)) in self
+            .panels
+            .iter()
+            .zip(&layout.places)
+            .zip(&layout.shifts)
+            .enumerate()
         {
             let left = column_x + layout.gutter + shift;
             // The panel goes in untouched, inside a group that moves it, and it
@@ -542,7 +580,11 @@ impl Panels {
             if !title.is_empty() {
                 body.push_str(&format!("<title>{}</title>", escape(&title)));
             }
-            body.push_str(&panel.svg);
+            body.push_str(
+                &panel
+                    .svg
+                    .replace(PREFIX_MARK, &format!("{prefix}p{index}-")),
+            );
             body.push_str("</g>");
 
             if let Some(label) = &panel.label {
@@ -577,8 +619,16 @@ impl Panels {
         // here and has to carry the same `role`, the same `aria-labelledby` and
         // the same first two children; writing that a second time by hand is
         // how the two drift apart.
-        let mut root = SvgWriter::new();
-        root.describe(&self.document_name(), &self.document_description());
+        //
+        // Unless it is going inside another document, which a prefix says it
+        // is, and then it names nothing for the reason a nested figure does
+        // not: a `<title>` would shadow the one its container puts over it,
+        // and `role="img"` inside another hides its contents from a screen
+        // reader rather than describing them.
+        let mut root = SvgWriter::with_id_prefix(prefix);
+        if prefix.is_empty() {
+            root.describe(&self.document_name(), &self.document_description());
+        }
         let root = root.finish(width, height, "none", &theme.font_family);
 
         let mut out = String::with_capacity(root.len() + body.len() + overlay.len() + 512);
@@ -613,6 +663,16 @@ impl Panels {
 impl Default for Panels {
     fn default() -> Self {
         Panels::new()
+    }
+}
+
+impl Drawing for Panels {
+    fn dimensions(&self) -> (f64, f64) {
+        Panels::dimensions(self)
+    }
+
+    fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
+        Panels::to_svg_with_id_prefix(self, prefix)
     }
 }
 
@@ -731,6 +791,8 @@ fn share_out(heights: &[f64], gap: f64, columns: usize) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
@@ -1302,5 +1364,94 @@ mod tests {
         // sheet holds a rendering, not a reference.
         let after = sheet.to_svg();
         assert_eq!(before, after);
+    }
+
+    /// Every `id="..."` in a document, in the order they are written.
+    fn ids(svg: &str) -> Vec<&str> {
+        svg.match_indices(r#" id=""#)
+            .map(|(index, key)| {
+                let rest = &svg[index + key.len()..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect()
+    }
+
+    /// Every id a `url(#...)` in a document points at.
+    fn references(svg: &str) -> Vec<&str> {
+        svg.match_indices("url(#")
+            .map(|(index, key)| {
+                let rest = &svg[index + key.len()..];
+                &rest[..rest.find(')').unwrap()]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_sheets_under_different_prefixes_share_no_id() {
+        // Two sheets inlined into one page are one id space, and each of them
+        // numbers its panels from p0, so without a prefix of its own the second
+        // sheet's panels would claim the first one's clips.
+        let sheet = || Panels::new().push(&figure(), "A").push(&figure(), "B");
+        let one = sheet().to_svg_with_id_prefix("one-");
+        let two = sheet().to_svg_with_id_prefix("two-");
+
+        let first: BTreeSet<&str> = ids(&one).into_iter().collect();
+        let second: BTreeSet<&str> = ids(&two).into_iter().collect();
+        assert!(!first.is_empty(), "the figures do clip, so there are ids");
+        assert!(
+            first.is_disjoint(&second),
+            "{:?}",
+            first.intersection(&second).collect::<Vec<_>>()
+        );
+
+        // And each still points at its own: a prefix that reached the ids and
+        // not the references to them would be a sheet with every clip broken.
+        for (svg, held) in [(&one, &first), (&two, &second)] {
+            let pointed = references(svg);
+            assert!(!pointed.is_empty());
+            for target in pointed {
+                assert!(held.contains(target), "url(#{target}) resolves to nothing");
+            }
+        }
+    }
+
+    #[test]
+    fn a_sheet_going_inside_another_document_does_not_name_itself() {
+        let sheet =
+            Panels::new()
+                .title("everything")
+                .push_captioned(&figure(), "A", "a coverage profile");
+        let nested = sheet.to_svg_with_id_prefix("s-");
+        assert!(!nested.contains("<title id="), "{nested}");
+        assert!(!nested.contains("<desc id="), "{nested}");
+        assert!(!nested.contains(r#"role="img""#), "{nested}");
+        // The letter, the caption and the tooltip over the panel are on the
+        // page rather than about the document, so they stay.
+        assert!(nested.contains(">everything</text>"));
+        assert!(nested.contains("<title>panel A, a coverage profile</title>"));
+
+        // Without a prefix it is the sheet it always was.
+        assert_eq!(sheet.to_svg_with_id_prefix(""), sheet.to_svg());
+        assert!(sheet
+            .to_svg()
+            .contains(r#"<title id="karyon-title">everything</title>"#));
+    }
+
+    #[test]
+    fn a_sheet_can_be_a_panel_of_another_and_keep_its_ids_apart() {
+        let inner = Panels::new().push(&figure(), "A").push(&figure(), "B");
+        let outer = Panels::new().push(&inner, "i").push(&inner, "ii").to_svg();
+        let written = ids(&outer);
+        let unique: BTreeSet<&str> = written.iter().copied().collect();
+        assert_eq!(unique.len(), written.len(), "{written:?}");
+        assert!(unique.contains("p1-p0-karyon-clip-0"), "{written:?}");
+        for target in references(&outer) {
+            assert!(
+                unique.contains(target),
+                "url(#{target}) resolves to nothing"
+            );
+        }
+        // The one document that names itself is the outermost one.
+        assert_eq!(outer.matches("<title id=").count(), 1);
     }
 }

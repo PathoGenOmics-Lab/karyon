@@ -59,7 +59,9 @@ are drawn on the same scale, not because anyone placed them.
 
 The ruler, the depth axis, the colour key and the accessible title and
 description are added for you. The whole program is
-[`examples/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/locus.rs).
+[`examples/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/locus.rs),
+and the figure it writes is built in
+[`examples/figures/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/figures/locus.rs).
 
 </section>
 

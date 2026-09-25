@@ -336,6 +336,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tooltips, and evidence is never allowed to impersonate effect size. The
   `selection_atlas` example combines all three with protein architecture and
   iTOL-style terminal metadata.
+- `Panels::to_svg_with_id_prefix`, and `Panels` is a `Drawing`. A sheet numbers
+  its panels' ids from `p0-`, so two sheets inlined into one page, or one sheet
+  made a panel of another, claimed the same ids and the second sheet's clips
+  resolved to the first one's rectangles. The prefix now goes in front of every
+  panel's, and a sheet given one does not name itself, because it is going
+  inside another document. `to_svg` is what it was.
+- `Drawing::region`, the region a drawing is laid out along when it has one.
+  A `Figure` answers with its own when its tracks are measured against it, and
+  everything else, a circle, a map, a sheet or a stack of trees, answers with
+  none. It is what a viewer pans and zooms, and the one question a page could
+  not otherwise ask of a drawing it was handed.
+- Every example builds its figures in `examples/figures/`, one function per
+  committed SVG, named after the file and taking a theme, a width and a region.
+  The example writes them, and the playground compiles the same files and
+  draws them in the page through two new exports, `figure` and `figures`, so
+  the site can show a committed figure in its own light or dark, at the width
+  of the column and over a window the reader moves. Asked for nothing, each is
+  the committed file byte for byte, and a test holds it to that. The literal
+  colours in the examples are entries of the theme's palette, so a dark figure
+  gets the dark palette; `example-dark.svg` keeps the one it has always drawn.
 
 ### Fixed
 
