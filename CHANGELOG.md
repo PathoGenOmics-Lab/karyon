@@ -27,11 +27,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `example-dark.svg`, `example-zoom.svg`, `example-ideogram.svg`,
   `example-pileup.svg`, `example-association.svg`, `example-genomewide.svg`
   and `gallery.svg`.
+- The command line names the bases' colours in the key under the figure while
+  they are blocks too narrow for their letters, in the reference and in a
+  pileup's mismatches, and says nothing of them once each is lettered. No
+  simulated user could say which colour was which base. `Track::key` is what
+  a track needs explained at a zoom, `Figure::key` gathers every track's at
+  the zoom the figure draws at, `BaseColors::legend` is the key to the four
+  colours, and `Legend::and` joins two keys without saying a colour twice. No
+  committed figure changes: the library adds no key a caller did not ask for.
 
 - `karyon --help` fits on one screen: three examples, the grammar, every track
-  grouped by what it draws, the figure options, and where to ask for more. It printed the whole
-  of the help, some two hundred lines, which `karyon help all` still does, and
-  `karyon` with nothing after it prints the short help rather than an error.
+  grouped by what it draws, the figure options, and where to ask for more. It
+  printed the whole of the help, some two hundred lines, which `karyon help
+  all` still does, and `karyon` with nothing after it prints the short help
+  rather than an error.
 
 - The site's figures are part of the page rather than pictures laid on it: each
   is drawn on exactly the colour behind it, the page or the card it sits in,

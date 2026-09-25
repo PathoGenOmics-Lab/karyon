@@ -249,6 +249,8 @@ Below `block_threshold` the track draws nothing and prints `zoom in to see bases
 
 Colours come from the theme's `bases`, which is `BaseColors::conventional()` unless you change it. Those are the colours readers expect, and adenine and guanine sit close together for a reader with protanopia; `BaseColors::colorblind_safe()` keeps all four apart (see [Styling](../guide/theming.md)). Lower case is drawn as upper case, `U` takes the colour of `T`, and `N` or any other symbol takes one neutral grey.
 
+While the bases are blocks, their colours name them only to a reader who knows the palette, so the command line draws a key under the figure: `A`, `C`, `G` and `T`, and `other` where the window holds an `N`. In Rust, `Figure::key()` gathers what every track needs explained at the zoom the figure is drawn at, and `BaseColors::legend()` is the key to the four colours on its own.
+
 `--sequence` draws the only record of the FASTA, whatever its name, or, in a file of several, the one named like the region's sequence.
 
 ## LogoTrack { #logotrack }

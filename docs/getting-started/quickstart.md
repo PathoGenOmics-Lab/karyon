@@ -123,8 +123,9 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
   from the call itself: here two substitutions and an insertion. The height of
   each lollipop follows its `AF`, and a call without one stands full height.
 - **Letters follow the zoom.** A base is printed as a letter while it is at
-  least 7 pixels wide and as a coloured block down to 0.6 of a pixel. Below
-  that the track prints a hint to zoom in rather than a smear.
+  least 7 pixels wide and as a coloured block down to 0.6 of a pixel, with a
+  key under the figure naming the colours. Below that the track prints a hint
+  to zoom in rather than a smear.
 - **Reads are compared with the reference the figure draws.** A `--pileup`
   under a `--sequence` paints every base that differs from it.
 

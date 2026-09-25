@@ -278,6 +278,17 @@ pub trait Track {
         None
     }
 
+    /// The key a reader needs for this track as drawn over `region` at
+    /// `px_per_bp` pixels a base, where colour alone carries something there,
+    /// for a caller who builds one: [`Figure::key`](crate::Figure::key) asks
+    /// every track at the zoom it draws at.
+    ///
+    /// A base drawn as a block of colour is a base whose letter is not on the
+    /// page, and its colour names it only to a reader who knows the palette.
+    fn key(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Option<legend::Legend> {
+        None
+    }
+
     /// How much room this track wants for a value axis, in pixels.
     ///
     /// A track that returns more than zero gets [`DrawContext::axis`], a strip

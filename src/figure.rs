@@ -611,6 +611,19 @@ impl Figure {
         fs::write(path, self.to_svg())
     }
 
+    /// The keys this figure's tracks need at the zoom it is drawn at, each
+    /// once, for a [`LegendTrack`](crate::LegendTrack) to explain: the colours
+    /// of bases drawn as blocks, for one. Empty where every mark names itself.
+    pub fn key(&self) -> crate::track::legend::Legend {
+        let px_per_bp = self.layout().scale.px_per_bp();
+        self.tracks
+            .iter()
+            .filter_map(|track| track.key(&self.region, px_per_bp, &self.theme))
+            .fold(crate::track::legend::Legend::new(), |key, more| {
+                key.and(&more)
+            })
+    }
+
     fn layout(&self) -> Layout {
         let theme = self.theme.clone().scaled(self.visual_scale);
         self.layout_with_theme(&theme)
@@ -1372,6 +1385,20 @@ mod tests {
         let wide = Figure::new(region()).push(Wide);
         let named = Figure::new(region()).push(Titled(Some("a")));
         assert!(wide.layout().plot_x > named.layout().plot_x);
+    }
+
+    /// The keys are the ones the tracks need at the zoom the figure draws at,
+    /// which only the figure knows once it has laid out its gutter.
+    #[test]
+    fn a_figure_asks_its_tracks_for_the_keys_its_zoom_needs() {
+        use crate::track::SequenceTrack;
+        let bases = b"ACGT".repeat(1_000);
+        let blocks = Figure::new(Region::new("chr1", 0, 400).unwrap())
+            .push(SequenceTrack::new(0, bases.clone()).label("reference"));
+        assert_eq!(blocks.key().len(), 4);
+        let letters = Figure::new(Region::new("chr1", 0, 40).unwrap())
+            .push(SequenceTrack::new(0, bases).label("reference"));
+        assert!(letters.key().is_empty());
     }
 
     #[test]

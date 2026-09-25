@@ -72,7 +72,7 @@ Aligned reads, stacked the way a genome browser stacks them, with the bases that
 
 #### Notes
 
-A read is not an interval, so the track walks its CIGAR. `M`, `=` and `X` all arrive as matches and the track compares the bases itself rather than trusting the letter, while `I`, `D`, `N`, `S` and `H` consume what the SAM specification says they consume. That is what puts a mismatch at the right base downstream of an insertion. Without a reference, every read draws as agreeing.
+A read is not an interval, so the track walks its CIGAR. `M`, `=` and `X` all arrive as matches and the track compares the bases itself rather than trusting the letter, while `I`, `D`, `N`, `S` and `H` consume what the SAM specification says they consume. That is what puts a mismatch at the right base downstream of an insertion. Without a reference, every read draws as agreeing. A mismatch is painted in its base's colour, and lettered once a base is 7 pixels wide; until then the command line names the four colours in a key under the figure, which `Figure::key()` gathers in Rust.
 
 Two defaults are refusals. A pileup at thousandfold depth is a thousand rows tall and useful to nobody, so it stops at forty rows and writes `+N reads not shown` on the band rather than dropping them quietly. And mismatches are only looked for once a base is at least a fifth of a pixel wide, because below that finding one means walking every base of every read to draw something invisible.
 

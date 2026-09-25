@@ -549,6 +549,9 @@ pub fn build_files(
     // After the ruler, which closing the plot puts in, so the key is not taken
     // for a track measured against it.
     let mut figure = plot.into_figure();
+    // What the tracks need explained at the zoom the figure is drawn at, as
+    // the colours of bases too narrow for their letters.
+    gather(&mut legend, &figure.key());
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend));
     }
@@ -839,33 +842,7 @@ struct Context<'a> {
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
 /// a tree and beside a matrix is one key, since it is one colour.
 fn gather(into: &mut crate::track::legend::Legend, from: &crate::track::legend::Legend) {
-    use crate::track::legend::LegendItem;
-    for item in from.items() {
-        if into.items().contains(item) {
-            continue;
-        }
-        let taken = std::mem::take(into);
-        *into = match item {
-            LegendItem::Key {
-                label,
-                color,
-                marker,
-            } => taken.marked(label.clone(), color.clone(), *marker),
-            LegendItem::Ramp {
-                label,
-                from,
-                to,
-                low,
-                high,
-            } => taken.ramp(
-                label.clone(),
-                from.clone(),
-                to.clone(),
-                low.clone(),
-                high.clone(),
-            ),
-        };
-    }
+    *into = std::mem::take(into).and(from);
 }
 
 /// Asks the caller for a source's text, and names it for any error message.
@@ -3196,9 +3173,13 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         };
 
         let bases = |record: &[u8]| {
-            Figure::new(region.clone())
+            let figure = Figure::new(region.clone())
                 .push(SequenceTrack::new(100, record[100..400].to_vec()).label("genome"))
-                .push(crate::AxisTrack::new())
+                .push(crate::AxisTrack::new());
+            // At this zoom the bases are blocks, which the command line keys.
+            let key = figure.key();
+            figure
+                .push(crate::track::legend::LegendTrack::new(key))
                 .to_svg()
         };
         assert_ne!(bases(&named), bases(&first), "the records draw alike here");
@@ -4771,6 +4752,33 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         }
         let bare = drawn_from("--tree t.nwk --traits s.tsv --no-legend", &held).unwrap();
         assert!(!bare.contains("lineage: L4"));
+    }
+
+    /// Bases too narrow for their letters are blocks of colour, which the key
+    /// names; with letters, or with nothing drawn, there is nothing to name.
+    /// No simulated user could say which colour was which base.
+    #[test]
+    fn the_key_names_the_bases_while_they_are_blocks() {
+        let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));
+        let held = [("ref.fa", fasta.as_str())];
+        let blocks = drawn_from("chr1:1-400 ref.fa", &held).unwrap();
+        for base in ["A", "C", "G", "T"] {
+            assert!(
+                blocks.contains(&format!(">{base}</text>")),
+                "no key for {base}"
+            );
+        }
+        let quiet = drawn_from("chr1:1-400 ref.fa --no-legend", &held).unwrap();
+        assert!(
+            !quiet.contains(">A</text>"),
+            "the key was drawn with --no-legend"
+        );
+        let whole = drawn_from("chr1:1-2000 ref.fa", &held).unwrap();
+        assert!(whole.contains("zoom in to see bases"));
+        assert!(
+            !whole.contains(">A</text>"),
+            "a key for bases nobody can see"
+        );
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

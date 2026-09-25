@@ -27,8 +27,11 @@
 //! repeat-masked region has to be a [`FeatureTrack`](crate::FeatureTrack) over
 //! the top if it is to be visible.
 
+use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{finite_within, Anchor};
+use crate::theme::Theme;
+use crate::track::legend::Legend;
 use crate::track::{DrawContext, Track};
 
 /// Nucleotides drawn as coloured blocks, with letters once there is room.
@@ -115,6 +118,32 @@ impl Track for SequenceTrack {
         self.label.as_deref()
     }
 
+    /// The bases' colours, while they are drawn as blocks: a letter names
+    /// itself, and under the floor nothing is drawn to name.
+    fn key(&self, region: &Region, px_per_bp: f64, theme: &Theme) -> Option<Legend> {
+        if px_per_bp < self.block_threshold || px_per_bp >= self.letter_threshold {
+            return None;
+        }
+        let first = region.start().max(self.start);
+        let last = region
+            .end()
+            .min(self.start.saturating_add(self.seq.len() as u64));
+        if last <= first {
+            return None;
+        }
+        // An N or an ambiguity code is one neutral colour, named only where
+        // the window holds one.
+        let other = (first..last)
+            .filter_map(|pos| self.base_at(pos))
+            .any(|base| !matches!(base.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T' | b'U'));
+        let key = theme.bases.legend();
+        Some(if other {
+            key.key("other", theme.bases.other.clone())
+        } else {
+            key
+        })
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let px_per_bp = ctx.scale.px_per_bp();
@@ -187,6 +216,35 @@ mod tests {
         assert_eq!(track.base_at(103), Some(b'T'));
         assert_eq!(track.base_at(104), None);
         assert_eq!(track.base_at(99), None);
+    }
+
+    /// A block of colour names its base only to a reader who knows the
+    /// palette, and a letter needs no key.
+    #[test]
+    fn the_bases_are_keyed_only_while_they_are_blocks() {
+        let theme = Theme::light();
+        let track = SequenceTrack::new(0, b"ACGTACGTAC".repeat(100));
+        let region = Region::new("chr1", 0, 1_000).unwrap();
+        let key = track.key(&region, 2.0, &theme).expect("blocks are keyed");
+        let labels: Vec<String> = key
+            .items()
+            .iter()
+            .map(|item| match item {
+                crate::track::legend::LegendItem::Key { label, .. } => label.clone(),
+                other => panic!("not a key: {other:?}"),
+            })
+            .collect();
+        assert_eq!(labels, ["A", "C", "G", "T"]);
+        assert_eq!(
+            track.key(&region, 8.0, &theme),
+            None,
+            "letters name themselves"
+        );
+        assert_eq!(track.key(&region, 0.1, &theme), None, "nothing is drawn");
+        // An N is named, as the neutral colour, where the window holds one.
+        let masked = SequenceTrack::new(0, b"ACGTNNACGT".repeat(100));
+        let key = masked.key(&region, 2.0, &theme).unwrap();
+        assert_eq!(key.len(), 5);
     }
 
     #[test]
