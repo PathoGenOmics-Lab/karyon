@@ -505,10 +505,23 @@ pub fn build_files(
     // is a figure worth drawing and an end worth saying where it came from:
     // three simulated users read it as the end of the chromosome.
     if let Some(file) = placed.as_ref().and_then(|placed| placed.reached.as_ref()) {
+        let sequence = region.seq();
+        // A FASTA that calls the sequence otherwise draws it only once the
+        // figure is placed on its name, which --rename then reads the table
+        // under; where a --rename already did that, the FASTA is all it needs.
+        let renamed = invocation.renames.iter().any(|(_, to)| to == sequence);
+        let otherwise = if renamed {
+            String::new()
+        } else {
+            format!(
+                "; where they give it another name, place the figure on that name and add \
+                 --rename {sequence}=THAT_NAME"
+            )
+        };
         files.note(&format!(
-            "{} is drawn to {}, as far as {file} reaches, since no file says how long it \
-             is; add its FASTA or BAM, or write the span, to draw all of it",
-            region.seq(),
+            "{sequence} is drawn to {}, as far as {file} reaches, since no file says how \
+             long it is. To draw all of it, write the span, as {sequence}:1-LENGTH, or add \
+             its FASTA or BAM{otherwise}",
             crate::track::axis::group_thousands(region.end())
         ));
     }
@@ -598,7 +611,25 @@ pub fn build_files(
     let mut figure = plot.into_figure();
     // What the tracks need explained at the zoom the figure is drawn at, as
     // the colours of bases too narrow for their letters.
-    gather(&mut legend, &figure.key());
+    let key = figure.key();
+    let bases = theme.bases.legend();
+    if bases.items().iter().all(|item| key.items().contains(item)) {
+        // And how wide the figure would have to be for the letters, which a
+        // reader asked to show a sequence came for.
+        let px = figure.px_per_bp();
+        let span = region.len() as f64;
+        let now = figure.dimensions().0;
+        let wanted =
+            ((now + (crate::track::sequence::LETTER_PX - px) * span) / 100.0).ceil() * 100.0;
+        if wanted <= 100_000.0 {
+            files.note(&format!(
+                "the bases are blocks of colour at this width, too narrow for their \
+                 letters; --width {} draws the letters",
+                wanted as u64
+            ));
+        }
+    }
+    gather(&mut legend, &key);
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend));
     }
@@ -1521,7 +1552,9 @@ impl std::error::Error for Binary {}
 /// the shell names, `/dev/fd/63`, name nothing anyone chose, and a tanglegram
 /// is two files, so neither gets one.
 fn default_label(spec: &TrackSpec) -> Option<String> {
-    if matches!(spec.kind, Kind::Tanglegram | Kind::Axis) {
+    // A phylogeny is plain to see, and named after its file it put a stray
+    // word in the margin of every tree: three simulated users asked what it was.
+    if matches!(spec.kind, Kind::Tanglegram | Kind::Axis | Kind::Tree) {
         return None;
     }
     let Some(Source::Path(path)) = &spec.source else {
@@ -1716,6 +1749,11 @@ fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
     held
 }
 
+/// The widest window over which a BAM named on its own says it could be
+/// drawn as reads: a thousand bases, where a read is a few dozen pixels long
+/// and its mismatches can be told apart.
+const READS_WINDOW: u64 = 1_000;
+
 /// The `--rename` that would draw a file's rows under the figure's name
 /// `figure`, where one plainly would: the name among `held` that is the
 /// figure's own with a `chr` more or less, or, where `alone` allows, the one
@@ -1830,6 +1868,14 @@ fn track(
                 ),
             )?;
             drop(text);
+            // Named on its own, a BAM is its depth; over a window a few reads
+            // wide the reads are what a reader came for, and nothing said
+            // they could be drawn.
+            if converted && spec.guessed && region.len() <= READS_WINDOW {
+                files.note(&format!(
+                    "{path} is drawn as its depth; --pileup {path} draws its reads"
+                ));
+            }
             if spans == 0 {
                 return Err(empty("values"));
             }
@@ -4645,6 +4691,58 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert_eq!(scanned, svg);
     }
 
+    /// A BAM named on its own is its depth, and over a window a few reads
+    /// wide the figure says the reads could be drawn: a simulated user drew
+    /// four hundred bases of depth where the task wanted the reads.
+    #[test]
+    fn a_bam_named_on_its_own_over_a_few_reads_says_they_could_be_drawn() {
+        let dir = Scratch::new("bam-note");
+        let bam = dir.write("tiny.bam", &crate::read::bam::fixture::BAM);
+        dir.write("tiny.bam.bai", &crate::read::bam::fixture::BAI);
+        let noted = |line: &str| {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let Request::Draw(invocation) = parse(&args).unwrap() else {
+                unreachable!("a figure")
+            };
+            let mut disk = Disk::default();
+            build_files(&invocation, &mut disk, |_, _| None).unwrap();
+            disk.notes
+        };
+        assert_eq!(
+            noted(&format!("chr1:10-35 {bam}")),
+            [format!(
+                "{bam} is drawn as its depth; --pileup {bam} draws its reads"
+            )]
+        );
+        assert!(
+            noted(&format!("chr1:10-35 --coverage {bam}")).is_empty(),
+            "the depth was asked for by name"
+        );
+    }
+
+    /// Bases too narrow for their letters say how wide the figure would have
+    /// to be for them, and at that width they are letters.
+    #[test]
+    fn blocks_of_bases_say_the_width_their_letters_need() {
+        let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));
+        let held = [("ref.fa", fasta.as_str())];
+        let (_, notes) = drawn_noting("chr1:1-400 ref.fa", &held);
+        let note = notes
+            .iter()
+            .find(|note| note.starts_with("the bases are blocks of colour"))
+            .expect("a note on the width");
+        let width: u64 = note
+            .rsplit("--width ")
+            .next()
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|number| number.parse().ok())
+            .expect("a width");
+        let (svg, notes) = drawn_noting(&format!("chr1:1-400 ref.fa --width {width}"), &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        let letters = svg.unwrap().matches(">A</text>").count();
+        assert_eq!(letters, 100, "a hundred As in four hundred bases of ACGT");
+    }
+
     /// A compressed file is text in a wrapper, and is read as the text.
     #[test]
     fn a_compressed_file_on_disk_is_read_as_the_text_inside() {
@@ -4770,6 +4868,12 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             notes[0].starts_with("NC_1 is drawn to 4,800, as far as gwas.assoc reaches"),
             "{notes:?}"
         );
+        // The rename is given, so the FASTA is all the note asks for.
+        assert!(!notes[0].contains("--rename"), "{notes:?}");
+        // Placed on the table's own name, the note says how a FASTA that
+        // calls it otherwise would draw it too.
+        let (_, notes) = drawn_noting("1 gwas.assoc", &held);
+        assert!(notes[0].ends_with("add --rename 1=THAT_NAME"), "{notes:?}");
         // Without --rename each refusal says which one to write.
         let error = drawn_from("NC_1 gwas.assoc", &held)
             .unwrap_err()
@@ -4992,6 +5096,9 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_eq!(default_label(&depth).as_deref(), Some("reads depth"));
         let reads = TrackSpec::new(Kind::Pileup, Some(Source::Path("reads.bam".into())));
         assert_eq!(default_label(&reads).as_deref(), Some("reads"));
+        // A tree is plain to see, and its file's name was a stray word beside it.
+        let tree = TrackSpec::new(Kind::Tree, Some(Source::Path("tree.nwk".into())));
+        assert_eq!(default_label(&tree), None);
     }
 
     /// modkit writes bedMethyl as `.bed`, and a `.bed` of four columns whose

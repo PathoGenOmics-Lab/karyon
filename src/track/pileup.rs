@@ -417,7 +417,7 @@ impl PileupTrack {
             fade_by_quality: false,
             show_mismatches: true,
             mismatch_threshold: 0.2,
-            letter_threshold: 7.0,
+            letter_threshold: crate::track::sequence::LETTER_PX,
         }
     }
 

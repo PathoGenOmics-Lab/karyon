@@ -611,11 +611,18 @@ impl Figure {
         fs::write(path, self.to_svg())
     }
 
+    /// How many pixels one base is drawn across, once the gutter and the
+    /// value axes are taken out of the width: what decides whether a base is
+    /// a letter, a block of colour or nothing.
+    pub fn px_per_bp(&self) -> f64 {
+        self.layout().scale.px_per_bp()
+    }
+
     /// The keys this figure's tracks need at the zoom it is drawn at, each
     /// once, for a [`LegendTrack`](crate::LegendTrack) to explain: the colours
     /// of bases drawn as blocks, for one. Empty where every mark names itself.
     pub fn key(&self) -> crate::track::legend::Legend {
-        let px_per_bp = self.layout().scale.px_per_bp();
+        let px_per_bp = self.px_per_bp();
         self.tracks
             .iter()
             .filter_map(|track| track.key(&self.region, px_per_bp, &self.theme))

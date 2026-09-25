@@ -493,7 +493,8 @@ impl Track for VariantTrack {
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
-                    ctx.svg.begin_titled(&tooltip(variant));
+                    ctx.svg
+                        .begin_titled(&tooltip(variant, self.title.as_deref()));
                     ctx.svg
                         .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
                     // The ring is what keeps two variants a base apart reading
@@ -533,15 +534,15 @@ impl Track for VariantTrack {
 /// a sheet answering in a different grammar from the pileup above it.
 ///
 /// The number is named rather than printed bare, because `0.55` on its own is
-/// not a statement. What it is named is `value` and not anything more specific,
-/// since the track takes any quantity at all: the same band draws allele
-/// fractions, peak heights and read counts, and only the caller knows which.
-/// The gutter label is where that is said, and it is said once rather than on
-/// every mark.
+/// not a statement. What it is named is what the caller titled the axis, `AF`
+/// for the allele fractions a VCF gives, and `value` where the caller said
+/// nothing, since the track takes any quantity at all: the same band draws
+/// allele fractions, peak heights and read counts, and only the caller knows
+/// which.
 ///
 /// Only lollipops are named. See the module documentation for why a tick is
 /// not.
-fn tooltip(variant: &Variant) -> String {
+fn tooltip(variant: &Variant, measure: Option<&str>) -> String {
     let mut text = format!(
         "variant, {}",
         group_thousands(variant.pos.saturating_add(1))
@@ -552,9 +553,12 @@ fn tooltip(variant: &Variant) -> String {
             text.push_str(category);
         }
     }
+    // Named as the axis names it, `AF 0.48`, where the axis has a title.
     if let Some(value) = variant.value {
         if value.is_finite() {
-            text.push_str(", value ");
+            text.push_str(", ");
+            text.push_str(measure.unwrap_or("value"));
+            text.push(' ');
             text.push_str(&exact_value(value));
         }
     }
@@ -644,6 +648,15 @@ mod tests {
             .push(titled.clone().label("calls"))
             .to_svg();
         assert!(svg.contains(">AF</text>"), "{svg}");
+        // And a stem's tooltip names its value the same way.
+        assert!(svg.contains("<title>variant, 11, AF 0.40</title>"), "{svg}");
+        let plain = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(VariantTrack::new(valued.clone()))
+            .to_svg();
+        assert!(
+            plain.contains("<title>variant, 11, value 0.40</title>"),
+            "{plain}"
+        );
         assert_eq!(Track::axis_title(&titled.clone().show_scale(false)), None);
         assert_eq!(Track::axis_title(&titled.style(VariantStyle::Tick)), None);
         let unvalued = VariantTrack::new(vec![Variant::new(10)]).axis_title("AF");

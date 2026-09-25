@@ -34,6 +34,10 @@ use crate::theme::Theme;
 use crate::track::legend::Legend;
 use crate::track::{DrawContext, Track};
 
+/// How many pixels a base needs before its letter is drawn, in the reference
+/// and in a pileup's mismatches alike.
+pub(crate) const LETTER_PX: f64 = 7.0;
+
 /// Nucleotides drawn as coloured blocks, with letters once there is room.
 ///
 /// The track adapts to the zoom level the way a genome browser does: letters
@@ -68,7 +72,7 @@ impl SequenceTrack {
             seq: seq.into(),
             label: None,
             height: 18.0,
-            letter_threshold: 7.0,
+            letter_threshold: LETTER_PX,
             block_threshold: 0.6,
         }
     }

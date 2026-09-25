@@ -20,6 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the value itself for `threshold`, over the line, or under it where the
   line runs along the top of the band. `threshold_label` says something else,
   or nothing.
+- A call's tooltip names its value as its axis does, `AF 0.48`, where it said
+  `value 0.48`, and `value` still where the axis has no title.
 - A VCF call with no `AF` has no value, where it had 1. It still stands full
   height, but an axis beside it said it was a fraction of one, and a file with
   no `AF` at all drew a scale of 0 to 1 that measured nothing.
@@ -145,8 +147,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   find out by reading the file that PLINK named the chromosome `1`.
 - A sequence drawn whole to where its rows reach, because no file gives its
   length, says so on standard error: all three simulated users saw that the
-  figure stopped at the last tested position only from the corner label. `Files::note` is how the
-  figure tells whoever drew it, and `Disk::notes` keeps what it was told.
+  figure stopped at the last tested position only from the corner label. The
+  note says to write the span, or to add a FASTA or BAM, and how to place the
+  figure on their name where they call the sequence otherwise. `Files::note`
+  is how the figure tells whoever drew it, and `Disk::notes` keeps what it
+  was told.
+- Two more notes: a BAM named on its own over a thousand bases or fewer says
+  that `--pileup` draws its reads, since a simulated user drew four hundred
+  bases of depth where the reads were wanted; and bases drawn as blocks say
+  the `--width` that would letter them. `Figure::px_per_bp` is the zoom a
+  figure draws at.
 - A file named on its own is a track of the kind its name says, under any
   `.gz`: BAM draws its depth, SAM its reads, VCF its calls, GFF3, GTF
   and BED features, bedGraph a signal, FASTA the reference, Newick a tree, PAF
@@ -167,8 +177,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   figure. One position, `chr1:18,350`, is answered with a span around it.
 - Every track given no `--label` is called after its file: `calls` for
   `calls.vcf.gz`, `reads` for the reads of `data/reads.bam` and `reads depth`
-  for its depth. Standard input, a pipe the shell names and a tanglegram's two
-  trees get no name.
+  for its depth. Standard input, a pipe the shell names, a tanglegram's two
+  trees and a tree get no name: a tree is plain to see, and its file's name
+  was a word by itself in the margin that all three simulated users asked
+  about.
 - A flag another tool spells for something karyon says otherwise, `--vcf`,
   `--region`, `--metadata`, `--legend` and some sixty more, is answered with
   how karyon says it, and any other unknown flag says where the tracks and
