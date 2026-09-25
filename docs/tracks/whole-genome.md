@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 The whole chromosome drawn end to end across the plotting area, banded where a cytogenetic table exists, with a marker on the part the tracks below are showing. It answers where the region is.
 
 <figure class="k-plate" markdown>
-![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](../assets/figures/example-ideogram.svg){ width="900" height="274" loading="lazy" }
+![A banded chromosome with a red marker showing which sixty kilobases the tracks below are showing](../assets/figures/example-ideogram.svg){ width="900" height="275" loading="lazy" }
 </figure>
 
 | | |
@@ -68,7 +68,7 @@ A cytoBand row converts through `Stain::from_name` using UCSC's own stain names,
 Most sequences have no cytogenetics to speak of: plasmids, organelle genomes, viruses, draft assemblies and bacterial chromosomes among them. `IdeogramTrack::bare(length)` gives an outline with the marker, which still answers the only question the track is asked.
 
 <figure class="k-plate" markdown>
-![The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it](../assets/figures/example-ideogram-bacterial.svg){ width="760" height="140" loading="lazy" }
+![The M. tuberculosis H37Rv chromosome as a bare outline with rpoB marked on it](../assets/figures/example-ideogram-bacterial.svg){ width="760" height="141" loading="lazy" }
 </figure>
 
 ## GenomeTrack { #genometrack }
@@ -76,7 +76,7 @@ Most sequences have no cytogenetics to speak of: plasmids, organelle genomes, vi
 The sequences of a `Genome` laid end to end as alternating named blocks: the bar under a figure drawn across a whole assembly, showing which sequence a mark is on and where each one ends.
 
 <figure class="k-plate" markdown>
-![An association scan and a depth profile drawn across every contig of a draft assembly, with the contigs underneath as alternating named blocks](../assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }
+![An association scan and a depth profile drawn across every contig of a draft assembly, with the contigs underneath as alternating named blocks](../assets/figures/example-genomewide.svg){ width="940" height="289" loading="lazy" }
 </figure>
 
 | | |

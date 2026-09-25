@@ -6,12 +6,12 @@ that keep a set of figures consistent.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler, in dark ink on a white page](../assets/figures/example.svg){ width="900" height="304" loading="lazy" data-karyon-theme="light" }
+![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler, in dark ink on a white page](../assets/figures/example.svg){ width="900" height="305" loading="lazy" data-karyon-theme="light" }
 <figcaption>The light theme, the default.</figcaption>
 </figure>
 
 <figure class="k-plate" markdown>
-![The same locus drawn with the dark theme: the depth profile, reference row, gene, variants and ruler in light ink and the dark palette on a deep indigo page](../assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
+![The same locus drawn with the dark theme: the depth profile, reference row, gene, variants and ruler in light ink and the dark palette on a deep indigo page](../assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
 <figcaption>The dark theme: the same tracks, a second set of colours.</figcaption>
 </figure>
 
@@ -365,7 +365,7 @@ and it keeps three decisions apart:
   strongly a mark speaks.
 
 <figure class="k-plate" markdown>
-![A sheet of two aligned panels. A: read depth on a 0 to 100x axis with a dashed QC 30x reference line and a dropout below it, the rpoB gene and its resistance determining region, and variants on a percentage axis whose legend gives each category its own colour and point shape. B: a centred statistic on a -1 to 1 axis, drawn solid above zero and dashed in a second colour below it, with a labelled dashed guide line](../assets/figures/example-visual-system.svg){ width="832" height="561" loading="lazy" }
+![A sheet of two aligned panels. A: read depth on a 0 to 100x axis with a dashed QC 30x reference line and a dropout below it, the rpoB gene and its resistance determining region, and variants on a percentage axis whose legend gives each category its own colour and point shape. B: a centred statistic on a -1 to 1 axis, drawn solid above zero and dashed in a second colour below it, with a labelled dashed guide line](../assets/figures/example-visual-system.svg){ width="835" height="564" loading="lazy" }
 </figure>
 
 The figure is `cargo run --example visual_system`. None of this section has a

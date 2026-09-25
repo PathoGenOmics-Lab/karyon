@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 Annotated intervals from BED or GFF3, packed onto as few rows as they need without touching: genes, exons, repeats, primers. Strand is an arrowhead, and a feature's colour follows its strand unless you give it one.
 
 <figure class="k-plate" markdown>
-![The rpoB gene running off both edges of a two kilobase window, with the resistance determining region boxed in a colour of its own, under a depth profile and the reference and above the variant calls](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![The rpoB gene running off both edges of a two kilobase window, with the resistance determining region boxed in a colour of its own, under a depth profile and the reference and above the variant calls](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 | | |
@@ -70,7 +70,7 @@ A feature is an interval and nothing more. It does not say that two genes are on
 Where transcription starts, how far the 5' leader runs and where it stops: a bent arrow at the start site, a hollow leader, and a hairpin or a bar at the terminator. Use it above a [FeatureTrack](#featuretrack) to say which genes are co-transcribed.
 
 <figure class="k-plate" markdown>
-![Transcription units over a gene cluster, each drawn as a bent arrow at its start site, a hollow leader and a hairpin at its terminator, above a feature track of the genes they carry](../assets/figures/example-transcripts.svg){ width="880" height="216" loading="lazy" }
+![Transcription units over a gene cluster, each drawn as a bent arrow at its start site, a hollow leader and a hairpin at its terminator, above a feature track of the genes they carry](../assets/figures/example-transcripts.svg){ width="880" height="217" loading="lazy" }
 </figure>
 
 | | |
@@ -128,7 +128,7 @@ The arrow and the terminator are a fixed size in pixels, so rows are packed with
 The six reading frames of a stretch of sequence: three lanes above a line for the frames read left to right and three below for the other strand, each stop codon a tick and each open reading frame the bar between two of them. Use it to decide whether an unannotated stretch is coding, and which way round.
 
 <figure class="k-plate" markdown>
-![Six lanes of reading frames across three and a half kilobases, stop codons drawn as ticks and the open stretches between them as bars, three lanes above the line and three below](../assets/figures/example-frames.svg){ width="880" height="170" loading="lazy" }
+![Six lanes of reading frames across three and a half kilobases, stop codons drawn as ticks and the open stretches between them as bars, three lanes above the line and three below](../assets/figures/example-frames.svg){ width="880" height="171" loading="lazy" }
 </figure>
 
 | | |

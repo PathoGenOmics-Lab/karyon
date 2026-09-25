@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 A phylogeny from Newick, drawn as a phylogram when the branch lengths mean something or a cladogram when they do not, in rectangular, circular or unrooted coordinates. Metadata, support, branch events and selection layers go on the same tree.
 
 <figure class="k-plate" markdown>
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1538" height="352" loading="lazy" }
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" }
 </figure>
 
 | | |
@@ -156,13 +156,13 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 **Projections.** `circular`, `fan`, `radial_start`, `radial_sweep`, `radial_direction` and `inner_radius` change the geometry without changing the topology, the branch values or the order of the tips. In circular coordinates time ticks become concentric guides, trait columns become rings and collapsed clades become wedges. `branch_geometry` changes only the rectangular path of each branch.
 
 <figure class="k-plate" markdown>
-![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }
+![Four radial views of one synthetic outbreak tree: a complete circular time tree with trait rings, a collapsed fan, an inward tree and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1400" height="1228" loading="lazy" }
 </figure>
 
 `unrooted` centres the drawing on a topology-balanced node rather than on the root the Newick happened to write. The bar, binary and symbol columns work in the circular and unrooted projections too, and exact values stay in the tooltips.
 
 <figure class="k-plate" markdown>
-![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](../assets/figures/example-phylo-annotations.svg){ width="1478" height="710" loading="lazy" }
+![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](../assets/figures/example-phylo-annotations.svg){ width="1480" height="712" loading="lazy" }
 </figure>
 
 **Metadata.** Annotated Newick, BEAST and NHX annotations are kept as typed values on their nodes. `time` places nodes on a numeric date or height, and every tip must carry it. `color_by` colours a branch by an annotation inherited down the tree, so a clade whose tips agree takes their colour. On the command line `--traits` copies a sample sheet onto the tips it names, so the sheet's columns work with `--color-by` as well as drawing as strips.
@@ -170,25 +170,25 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 **Nodes and clades.** `NodeGlyph::bubble`, `pie`, `donut` and `stacked_bar` attach numbers to nodes; `NodeGlyphTarget` limits them to internal nodes or leaves, and a missing value draws no glyph rather than a zero. `CladeHighlight` marks one clade as a band, a sector or a field, depending on the projection, without changing the topology.
 
 <figure class="k-plate" markdown>
-![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](../assets/figures/example-phylo-faces.svg){ width="1384" height="658" loading="lazy" }
+![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](../assets/figures/example-phylo-faces.svg){ width="1386" height="660" loading="lazy" }
 </figure>
 
 **Support, labels and scale.** `support_style` makes support visible as scaled symbols, labels or both, and `support_threshold` takes a fraction or a percentage: `0.8` and `80.0` both mean eighty per cent. `branch_labels` prints a node's own annotation along its branch and never inherits an ancestor's, which suits mutations and other events that belong to one branch. `scale_bar` adds a ruler in branch-length units to a phylogram and refuses to imply those units on a cladogram or a dated tree.
 
 <figure class="k-plate" markdown>
-![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1736" height="628" loading="lazy" }
+![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 </figure>
 
 **Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was; use `Tree::reroot` directly when you need to handle that failure. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
 
 <figure class="k-plate" markdown>
-![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](../assets/figures/example-phylo-reroot.svg){ width="1736" height="358" loading="lazy" }
+![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](../assets/figures/example-phylo-reroot.svg){ width="1739" height="360" loading="lazy" }
 </figure>
 
 **Evolutionary layers.** `dnds` colours each branch by its own ω and never inherits a missing one, and `dnds_significance` changes weight rather than colour, so effect and evidence stay separate. A `BranchRateMixture` keeps several fitted ω classes on one branch, with capsule width following each class's weight. A `HomoplasyLayer` joins branches carrying the same event with dashed curves: a picture of recurrence, not a proof of convergence. `AncestralStateLayer`, `BranchEventLayer` and `BranchIntervalLayer` draw state posteriors, ordered events and estimates with intervals, in all three projections.
 
 <figure class="k-plate" markdown>
-![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }
+![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
 </figure>
 
 **Large trees.** A tree lays a row per tip and has no cap unless you ask for one. `max_rows` collapses the smallest clades first until the tree fits, so every tip stays on the figure inside a triangle that says how many it holds; `collapse` folds one clade by hand, and neither changes the `Tree` the track owns. From the command line, `--focus` draws one clade and nothing else, named by its label, by a tip inside it, or by two tips it spans.
@@ -268,7 +268,7 @@ A tip only one of the trees has is drawn on that tree and joined to nothing, bec
 Genomic intervals painted onto a phylogeny: a block whose width is a coordinate span and whose height is the clade that carries it. Use it for deletions, recombinant tracts or acquired islands that were gained or lost on a branch.
 
 <figure class="k-plate" markdown>
-![Lineage-defining deletions drawn as blocks across a SARS-CoV-2 phylogeny, each spanning the rows of the lineages that carry it, with the recurrent one cut out where a lineage between the carriers does not](../assets/figures/example-clades.svg){ width="880" height="240" loading="lazy" }
+![Lineage-defining deletions drawn as blocks across a SARS-CoV-2 phylogeny, each spanning the rows of the lineages that carry it, with the recurrent one cut out where a lineage between the carriers does not](../assets/figures/example-clades.svg){ width="880" height="241" loading="lazy" }
 </figure>
 
 | | |

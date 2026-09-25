@@ -80,7 +80,7 @@ the carriers, and refuses a change the tree does not carry.
 ## Draw time, branches and sample traits together
 
 <figure class="k-plate" markdown>
-![A dated outbreak tree on a calendar axis, branches coloured by country, with country and depth columns beside the tips, and the same tree with two clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1538" height="352" loading="lazy" }
+![A dated outbreak tree on a calendar axis, branches coloured by country, with country and depth columns beside the tips, and the same tree with two clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -146,7 +146,7 @@ missing value is an empty outline whose tooltip says missing, never a zero, and
 ## Change the projection, not the tree
 
 <figure class="k-plate" markdown>
-![The same dated tree as a full circle with trait rings, a 250 degree fan with one clade collapsed to a wedge, an inward tree around a central gap, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }
+![The same dated tree as a full circle with trait rings, a 250 degree fan with one clade collapsed to a wedge, an inward tree around a central gap, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1400" height="1228" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -215,7 +215,7 @@ There is no time axis or root diamond, because both need a root.
 ## Layer metadata around the tree
 
 <figure class="k-plate" markdown>
-![An unrooted tree inside rings of country colour, depth bars, resistance marks and host symbols, beside a circular cladogram carrying the same four datasets](../assets/figures/example-phylo-annotations.svg){ width="1478" height="710" loading="lazy" }
+![An unrooted tree inside rings of country colour, depth bars, resistance marks and host symbols, beside a circular cladogram carrying the same four datasets](../assets/figures/example-phylo-annotations.svg){ width="1480" height="712" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -259,7 +259,7 @@ colour strip.
 ## Choose a tree geometry
 
 <figure class="k-plate" markdown>
-![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }
+![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }
 <figcaption>A to C: the three rectangular geometries. D and E: circular and unrooted.</figcaption>
 </figure>
 
@@ -288,7 +288,7 @@ scan (G), and the [evolution and surveillance tracks](../tracks/evolution-survei
 ## Show support, events and distance
 
 <figure class="k-plate" markdown>
-![One phylogram in rectangular, circular and unrooted coordinates, each with support marks and values, mutation labels along branches and a scale bar](../assets/figures/example-phylo-evidence.svg){ width="1736" height="628" loading="lazy" }
+![One phylogram in rectangular, circular and unrooted coordinates, each with support marks and values, mutation labels along branches and a scale bar](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -365,7 +365,7 @@ sheet):
 ## Choose the root
 
 <figure class="k-plate" markdown>
-![The same phylogram with the root from its file, rooted on a two-tip outgroup and rooted at its midpoint, a diamond on the root in each](../assets/figures/example-phylo-reroot.svg){ width="1736" height="358" loading="lazy" }
+![The same phylogram with the root from its file, rooted on a two-tip outgroup and rooted at its midpoint, a diamond on the root in each](../assets/figures/example-phylo-reroot.svg){ width="1739" height="360" loading="lazy" }
 </figure>
 
 ```rust
@@ -403,7 +403,7 @@ let track = TreeTrack::new(tree).show_root(true);
 ## Show dN/dS around the neutral point
 
 <figure class="k-plate" markdown>
-![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1506" height="1388" loading="lazy" }
+![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1390" loading="lazy" }
 </figure>
 
 ```rust
@@ -437,7 +437,7 @@ proof of positive selection.
 ## Keep rate classes and site evidence apart
 
 <figure class="k-plate" markdown>
-![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }
+![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
 </figure>
 
 A branch-site model fits several ω classes to one branch, and a single mean
@@ -480,7 +480,7 @@ looks like a positive-selection hit.
 ## Collapse, highlight and annotate clades
 
 <figure class="k-plate" markdown>
-![A tree with abundance bubbles, host bars and a shaded clade; a circular tree with ancestral host donuts and a clade sector; an alignment and protein domain architectures sorted by the same tree](../assets/figures/example-phylo-faces.svg){ width="1384" height="658" loading="lazy" }
+![A tree with abundance bubbles, host bars and a shaded clade; a circular tree with ancestral host donuts and a clade sector; an alignment and protein domain architectures sorted by the same tree](../assets/figures/example-phylo-faces.svg){ width="1386" height="660" loading="lazy" }
 </figure>
 
 === "Rust"

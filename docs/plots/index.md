@@ -12,37 +12,37 @@ the buttons under it or a pinch, and hover a mark for what it holds.
 
 <div class="k-plots" markdown>
 
--   [![A read depth profile with a dropout, a reference band, the rpoB gene with its resistance-determining region, and variant lollipops, all on one axis](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }](signal-sequence.md)
+-   [![A read depth profile with a dropout, a reference band, the rpoB gene with its resistance-determining region, and variant lollipops, all on one axis](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }](signal-sequence.md)
 
     **[Signal and sequence](signal-sequence.md)**
     A value or a symbol at every position: depth, windowed statistics, methylation by strand, the reference bases, logos and per-base attribution.
 
--   [![Three transcription units over the ESX-1 genes of M. tuberculosis, each a bent arrow at its start site with a hairpin or a bar at its end, above the gene models they carry](../assets/figures/example-transcripts.svg){ width="880" height="216" loading="lazy" .k-wide }](annotation-coordinates.md)
+-   [![Three transcription units over the ESX-1 genes of M. tuberculosis, each a bent arrow at its start site with a hairpin or a bar at its end, above the gene models they carry](../assets/figures/example-transcripts.svg){ width="880" height="217" loading="lazy" .k-wide }](annotation-coordinates.md)
 
     **[Annotation and coordinates](annotation-coordinates.md)**
     Genes, transcription units and reading frames, with rulers in bases or codons and a key to the colours.
 
--   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix of the isolates at the associated sites](../assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }](variation-association.md)
+-   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix of the isolates at the associated sites](../assets/figures/example-association.svg){ width="940" height="348" loading="lazy" }](variation-association.md)
 
     **[Variation and association](variation-association.md)**
     From one call to a cohort: point and structural variants, copy number, variable sites, genotype matrices, association scans and site-wise selection.
 
--   [![Reads packed into rows under a depth profile and a candidate SNV, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }](reads-molecules.md)
+-   [![Reads packed into rows under a depth profile and a candidate SNV, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }](reads-molecules.md)
 
     **[Reads and molecules](reads-molecules.md)**
     The evidence one molecule at a time: pileups, split reads, per-read methylation, splice junctions and raw nanopore current.
 
--   [![Two M. tuberculosis chromosomes compared as a dotplot, where an inversion runs as an anti-diagonal and a translocated block sits off the main diagonal, above the same alignment drawn as ribbons](../assets/figures/example-synteny.svg){ width="900" height="436" loading="lazy" }](comparisons-alignments.md)
+-   [![Two M. tuberculosis chromosomes compared as a dotplot, where an inversion runs as an anti-diagonal and a translocated block sits off the main diagonal, above the same alignment drawn as ribbons](../assets/figures/example-synteny.svg){ width="900" height="437" loading="lazy" }](comparisons-alignments.md)
 
     **[Comparisons and alignments](comparisons-alignments.md)**
     Two or more sequences compared: alignments, domain architectures, dotplots, synteny ribbons and gene neighbourhoods.
 
--   [![Four radial views of one outbreak tree: a circular time tree with country and depth rings, a fan with a collapsed clade, time radiating inwards, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1398" height="1226" loading="lazy" }](phylogeny-clades.md)
+-   [![Four radial views of one outbreak tree: a circular time tree with country and depth rings, a fan with a collapsed clade, time radiating inwards, and a circular cladogram](../assets/figures/example-phylo-layouts.svg){ width="1400" height="1228" loading="lazy" }](phylogeny-clades.md)
 
     **[Phylogeny and clades](phylogeny-clades.md)**
     Trees in every layout with their metadata, two trees face to face, spans painted onto clades, and a tree around a map.
 
--   [![An eight-panel synthetic atlas of tree geometries, ancestral states, selection on branches and at sites, a tanglegram, a population trajectory and lineage frequencies through time](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](evolution-surveillance.md)
+-   [![An eight-panel synthetic atlas of tree geometries, ancestral states, selection on branches and at sites, a tanglegram, a population trajectory and lineage frequencies through time](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }](evolution-surveillance.md)
 
     **[Evolution and surveillance](evolution-surveillance.md)**
     Results fitted upstream: ancestral states, selection on branches and at sites, population trajectories and lineage counts through time.

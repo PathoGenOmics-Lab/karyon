@@ -35,7 +35,7 @@ karyon NC_000962.3:761,000-762,999 \
 ```
 
 <figure class="k-plate" markdown>
-![Four bands over one kilobase ruler: read depth, the reference sequence, the rpoB gene with its resistance determining region marked, and five variants coloured missense or synonymous](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![Four bands over one kilobase ruler: read depth, the reference sequence, the rpoB gene with its resistance determining region marked, and five variants coloured missense or synonymous](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 <figcaption>One band per track flag, in the order the flags were written.</figcaption>
 </figure>
 
@@ -478,7 +478,7 @@ karyon NC_000962.3:761,000-762,999 \
 ```
 
 <figure class="k-plate" markdown>
-![The rpoB locus on a dark background, with depth, reference, annotation and variant bands and variant colours chosen for the dark theme](../assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
+![The rpoB locus on a dark background, with depth, reference, annotation and variant bands and variant colours chosen for the dark theme](../assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 ## Standard input

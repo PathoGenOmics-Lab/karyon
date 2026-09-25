@@ -15,7 +15,7 @@ A map is not a track: longitude cannot share a scale with bases. `Map` and
 ## Draw locations and explicit links
 
 <figure class="k-plate" markdown>
-![The same synthetic sampling sites on an equirectangular world map, on a Mercator map, and on an orthographic globe with weighted arrows between some of them](../assets/figures/example-maps.svg){ width="1398" height="972" loading="lazy" }
+![The same synthetic sampling sites on an equirectangular world map, on a Mercator map, and on an orthographic globe with weighted arrows between some of them](../assets/figures/example-maps.svg){ width="1400" height="972" loading="lazy" }
 </figure>
 
 ```rust
@@ -89,7 +89,7 @@ they were given; only the path geometry is rounded.
 ## Put a phylogeny around the map
 
 <figure class="k-plate" markdown>
-![Two circular trees around the same globe: a dated tree with one connector from each country to its tips, and a partial cladogram with one connector per sample](../assets/figures/example-phylo-map.svg){ width="1914" height="868" loading="lazy" }
+![Two circular trees around the same globe: a dated tree with one connector from each country to its tips, and a partial cladogram with one connector per sample](../assets/figures/example-phylo-map.svg){ width="1916" height="868" loading="lazy" }
 </figure>
 
 ```rust

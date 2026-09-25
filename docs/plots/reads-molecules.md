@@ -18,27 +18,27 @@ collapsed into depth, a call or an average per site.
 
 <div class="k-plots" markdown>
 
--   [![Reads packed into rows under a depth profile, a candidate SNV and the reference, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }](../tracks/reads-molecules.md#pileuptrack)
+-   [![Reads packed into rows under a depth profile, a candidate SNV and the reference, coloured by strand, with mismatches painted against the reference, a deletion, an insertion, faded low-quality reads and a count of the reads not shown](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }](../tracks/reads-molecules.md#pileuptrack)
 
     **[Read pileup](../tracks/reads-molecules.md#pileuptrack)**
     Reads placed by their real CIGAR and packed into rows, with mismatches found against the reference and the reads past the row limit counted on the band.
 
--   [![Eight molecules each aligned in three segments, both ends at a new insertion site and the middle on the reference IS6110 copy on the reverse strand, with the connectors drawn under the rows, above a depth profile that doubles over that copy](../assets/figures/example-split.svg){ width="880" height="329" loading="lazy" }](../tracks/reads-molecules.md#splitreadtrack)
+-   [![Eight molecules each aligned in three segments, both ends at a new insertion site and the middle on the reference IS6110 copy on the reverse strand, with the connectors drawn under the rows, above a depth profile that doubles over that copy](../assets/figures/example-split.svg){ width="880" height="330" loading="lazy" }](../tracks/reads-molecules.md#splitreadtrack)
 
     **[Split reads](../tracks/reads-molecules.md#splitreadtrack)**
     One row per molecule and one bar per alignment, joined in the order the molecule ran, with any step back down the reference drawn under the row.
 
--   [![Sixteen molecules across the H19/IGF2 imprinting control region, one row each, filled circles for methylated CpGs and open circles for unmethylated ones: some reads are methylated almost throughout and others almost nowhere](../assets/figures/example-bisulfite.svg){ width="880" height="302" loading="lazy" }](../tracks/reads-molecules.md#bisulfitetrack)
+-   [![Sixteen molecules across the H19/IGF2 imprinting control region, one row each, filled circles for methylated CpGs and open circles for unmethylated ones: some reads are methylated almost throughout and others almost nowhere](../assets/figures/example-bisulfite.svg){ width="880" height="303" loading="lazy" }](../tracks/reads-molecules.md#bisulfitetrack)
 
     **[Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack)**
     One row per read, a filled circle where a site is methylated, an open one where it is not and nothing where the read did not reach, so two alleles show as stripes.
 
--   [![Splice junction arcs labelled with read counts above an RNA depth profile, with one junction held back and counted, and per-base model attribution beneath](../assets/figures/example-regulation.svg){ width="810" height="786" loading="lazy" }](../tracks/reads-molecules.md#junctiontrack)
+-   [![Splice junction arcs labelled with read counts above an RNA depth profile, with one junction held back and counted, and per-base model attribution beneath](../assets/figures/example-regulation.svg){ width="811" height="788" loading="lazy" }](../tracks/reads-molecules.md#junctiontrack)
 
     **[Splice junctions](../tracks/reads-molecules.md#junctiontrack)**
     One arc per intron, weighted and labelled by the reads that crossed it; arcs sit in lanes, so their height means nothing.
 
--   [![Raw nanopore current for one read against sample number, stepping between levels, with the base the basecaller assigned to each stretch written above it](../assets/figures/example-squiggle.svg){ width="880" height="184" loading="lazy" .k-wide }](../tracks/reads-molecules.md#squiggletrack)
+-   [![Raw nanopore current for one read against sample number, stepping between levels, with the base the basecaller assigned to each stretch written above it](../assets/figures/example-squiggle.svg){ width="880" height="185" loading="lazy" .k-wide }](../tracks/reads-molecules.md#squiggletrack)
 
     **[Nanopore signal](../tracks/reads-molecules.md#squiggletrack)**
     Raw current against sample number, an envelope of the extremes when zoomed out and the samples themselves when zoomed in; a move table adds the called bases.

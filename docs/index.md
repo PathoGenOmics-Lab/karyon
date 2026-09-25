@@ -23,7 +23,7 @@ are drawn on the same scale, not because anyone placed them.
 </div>
 
 <figure class="k-plate" markdown>
-![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg){ width="900" height="304" }
+![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg){ width="900" height="305" }
 </figure>
 
 <div class="kh-code" markdown>
@@ -78,22 +78,22 @@ are asking of your data.
 
 <div class="k-plots kh-cards" markdown>
 
--   [![A read pileup with mismatches, insertions, deletions and spliced alignments](assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }](plots/reads-molecules.md)
+-   [![A read pileup with mismatches, insertions, deletions and spliced alignments](assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }](plots/reads-molecules.md)
 
     **[Reads and molecules](plots/reads-molecules.md)**
     Pileups, split reads, single molecules.
 
--   [![A chromosome ideogram with its bands and a highlighted region](assets/figures/example-ideogram.svg){ width="900" height="274" loading="lazy" }](plots/annotation-coordinates.md)
+-   [![A chromosome ideogram with its bands and a highlighted region](assets/figures/example-ideogram.svg){ width="900" height="275" loading="lazy" }](plots/annotation-coordinates.md)
 
     **[Annotation](plots/annotation-coordinates.md)**
     Ideograms, genes, transcripts.
 
--   [![Variable sites across isolates, ordered by the phylogeny beside them](assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }](plots/variation-association.md)
+-   [![Variable sites across isolates, ordered by the phylogeny beside them](assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }](plots/variation-association.md)
 
     **[Variation](plots/variation-association.md)**
     Variants, variable sites, scans.
 
--   [![A dotplot with synteny ribbons between two genomes](assets/figures/example-synteny.svg){ width="900" height="436" loading="lazy" }](plots/comparisons-alignments.md)
+-   [![A dotplot with synteny ribbons between two genomes](assets/figures/example-synteny.svg){ width="900" height="437" loading="lazy" }](plots/comparisons-alignments.md)
 
     **[Comparisons](plots/comparisons-alignments.md)**
     Dotplots, synteny, alignments.
@@ -103,17 +103,17 @@ are asking of your data.
     **[Phylogeny](plots/phylogeny-clades.md)**
     Trees, clades, sample traits.
 
--   [![Sequence logos scored three ways](assets/figures/example-logo.svg){ width="900" height="378" loading="lazy" }](plots/signal-sequence.md)
+-   [![Sequence logos scored three ways](assets/figures/example-logo.svg){ width="900" height="379" loading="lazy" }](plots/signal-sequence.md)
 
     **[Signal and sequence](plots/signal-sequence.md)**
     Coverage, logos, methylation.
 
--   [![Branch rate mixtures, recurrence links and genomic site-wise selection evidence](assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }](plots/evolution-surveillance.md)
+-   [![Branch rate mixtures, recurrence links and genomic site-wise selection evidence](assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }](plots/evolution-surveillance.md)
 
     **[Evolution and surveillance](plots/evolution-surveillance.md)**
     Selection, lineages over time.
 
--   [![A dated phylogeny drawn around a globe, each tip linked to where it was sampled](assets/figures/example-phylo-map.svg){ width="1914" height="868" loading="lazy" }](plots/whole-genomes-geography.md)
+-   [![A dated phylogeny drawn around a globe, each tip linked to where it was sampled](assets/figures/example-phylo-map.svg){ width="1916" height="868" loading="lazy" }](plots/whole-genomes-geography.md)
 
     **[Whole genomes and maps](plots/whole-genomes-geography.md)**
     Circular plots, assemblies, geography.

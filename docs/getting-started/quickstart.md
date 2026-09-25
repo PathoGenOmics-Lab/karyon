@@ -64,7 +64,7 @@ karyon chr1:1-60 \
 options such as `--title` and `-o` belong to no track and can go anywhere.
 
 <figure class="k-plate" markdown>
-![Sixty bases of a locus: a depth profile, the reference drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+![Sixty bases of a locus: a depth profile, the reference drawn as coloured letters, three variant lollipops over the bases they change, and a ruler counting single bases](../assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
 <figcaption>The same three tracks over sixty bases of the rpoB gene, drawn by the crate's <code>locus</code> example.</figcaption>
 </figure>
 
@@ -156,7 +156,7 @@ fn main() -> std::io::Result<()> {
 `cargo run` writes `rpoB.svg`:
 
 <figure class="k-plate" markdown>
-![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![A stack of tracks over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference sequence too zoomed out to show its letters, the gene with the resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 <figcaption>The <code>locus</code> example is this program with seeded, more realistic depth and bases: <code>cargo run --example locus -- assets</code>.</figcaption>
 </figure>
 

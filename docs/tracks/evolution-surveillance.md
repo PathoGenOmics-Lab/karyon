@@ -11,7 +11,7 @@ Draw what changed through time: an estimated trajectory with its uncertainty, an
 The Rust snippets use `?`, so they belong in a function that returns `Result<(), Box<dyn std::error::Error>>`. To choose a track by its picture, start from the [gallery](../plots/evolution-surveillance.md).
 
 <figure class="k-plate" markdown>
-![An atlas of eight synthetic panels on trees, selection and surveillance; the last one stacks an effective population size trajectory with its interval over lineage frequencies through thirteen months, with growth alerts marked, on a shared month axis](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }
+![An atlas of eight synthetic panels on trees, selection and surveillance; the last one stacks an effective population size trajectory with its interval over lineage frequencies through thirteen months, with growth alerts marked, on a shared month axis](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }
 </figure>
 
 Both tracks put time on the figure's shared integer axis, so an inferred trajectory, the observed lineage composition and a ruler share exact time points without pretending to be the same kind of evidence. A time point is an integer: months since sampling began, days since an epoch, or any other whole unit, used consistently across the figure.

@@ -6,7 +6,7 @@ draws each one with its uncertainty in view; it fits none of the models.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![An eight-panel synthetic atlas: orthogonal and diagonal phylograms with host strips, a curved tree with ancestral-state donuts, mutation symbols and concordance whiskers, a circular tree coloured by branch omega, an unrooted mutation map, a core-versus-accessory tanglegram, protein domains over site-wise selection and observed variants, and an effective population size trajectory above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }
+![An eight-panel synthetic atlas: orthogonal and diagonal phylograms with host strips, a curved tree with ancestral-state donuts, mutation symbols and concordance whiskers, a circular tree coloured by branch omega, an unrooted mutation map, a core-versus-accessory tanglegram, protein domains over site-wise selection and observed variants, and an effective population size trajectory above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }
 <figcaption>A and B, tree geometries. C, ancestral states and branch events. D, selection on branches. E, the same branch evidence unrooted. F, a tanglegram. G, site-wise selection. H, a phylodynamic trajectory over lineage frequencies.</figcaption>
 </figure>
 
@@ -42,27 +42,27 @@ All five are built in Rust. The command line draws the tree itself with
 
 <div class="k-plots" markdown>
 
--   [![An eight-panel synthetic atlas whose third panel is a curved tree with ancestral-state donuts on internal nodes, mutation symbols on branches and concordance whiskers](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+-   [![An eight-panel synthetic atlas whose third panel is a curved tree with ancestral-state donuts on internal nodes, mutation symbols on branches and concordance whiskers](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }](../tracks/phylogeny.md#treetrack)
 
     **[Ancestral states and branch events](../tracks/phylogeny.md#treetrack)**
     State probabilities as donuts on internal nodes, events on the branch that owns them, and a branch estimate with whiskers (panels C and E).
 
--   [![One tree drawn four ways with branches coloured by dN/dS on a scale centred at one: rectangular with amino acid changes and host and resistance columns, circular with metadata rings, unrooted, and as a cladogram](../assets/figures/example-phylo-dnds.svg){ width="1506" height="1388" loading="lazy" }](../tracks/phylogeny.md#treetrack)
+-   [![One tree drawn four ways with branches coloured by dN/dS on a scale centred at one: rectangular with amino acid changes and host and resistance columns, circular with metadata rings, unrooted, and as a cladogram](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1390" loading="lazy" }](../tracks/phylogeny.md#treetrack)
 
     **[Selection on branches](../tracks/phylogeny.md#treetrack)**
     Branches coloured by ω, cool below one and warm above it, with the branches that pass a significance cut drawn heavier; fitted rate classes and recurrent changes can go on top.
 
--   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }](../tracks/variation.md#selectiontrack)
+-   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }](../tracks/variation.md#selectiontrack)
 
     **[Site-wise selection](../tracks/variation.md#selectiontrack)**
     Evidence, as a p-value or a posterior, in one tier and the signed log2(ω) effect in another, so a significant purifying site still reads as purifying.
 
--   [![An eight-panel synthetic atlas whose last panel is an effective population size trajectory on a log scale with its uncertainty ribbon, above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/evolution-surveillance.md#phylodynamictrack)
+-   [![An eight-panel synthetic atlas whose last panel is an effective population size trajectory on a log scale with its uncertainty ribbon, above stacked lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }](../tracks/evolution-surveillance.md#phylodynamictrack)
 
     **[Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack)**
     An estimate through time as a line with its interval as a ribbon, on a linear or log scale, with a reference such as R = 1 (panel H).
 
--   [![An eight-panel synthetic atlas whose last panel ends in stacked lineage frequencies by month, with markers where a lineage passed an alert](../assets/figures/example-evolutionary-surveillance.svg){ width="1406" height="2047" loading="lazy" }](../tracks/evolution-surveillance.md#surveillancetrack)
+-   [![An eight-panel synthetic atlas whose last panel ends in stacked lineage frequencies by month, with markers where a lineage passed an alert](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }](../tracks/evolution-surveillance.md#surveillancetrack)
 
     **[Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack)**
     Lineage counts over their totals as stacked composition or as lines, with alerts for frequency and growth that never hide the counts (panel H).

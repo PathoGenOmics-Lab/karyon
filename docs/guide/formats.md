@@ -331,7 +331,7 @@ chr20  0         5100000   p13    gneg
 ```
 
 <figure class="k-plate" markdown>
-![A whole banded chromosome with the sixty kilobases on display marked on it, above a depth profile, two genes and two variants drawn over that window](../assets/figures/example-ideogram.svg){ width="900" height="274" loading="lazy" }
+![A whole banded chromosome with the sixty kilobases on display marked on it, above a depth profile, two genes and two variants drawn over that window](../assets/figures/example-ideogram.svg){ width="900" height="275" loading="lazy" }
 </figure>
 
 | | |
@@ -613,7 +613,7 @@ read1  0  NC_002516.2  4001  60  3S5M2I4M1D6M  *  0  0  AAAGGGGGTTCCCCTTTTTT  *
 ```
 
 <figure class="k-plate" markdown>
-![Reads stacked under a depth profile and a candidate SNV call, drawn by strand, with mismatches against the reference and reads carrying deletions and an insertion](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+![Reads stacked under a depth profile and a candidate SNV call, drawn by strand, with mismatches against the reference and reads carrying deletions and an insertion](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }
 </figure>
 
 | | |
