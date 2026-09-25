@@ -431,6 +431,10 @@ impl SnpTrack {
 }
 
 impl Track for SnpTrack {
+    fn noun(&self) -> &str {
+        "variable sites by sample"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.drawn_rows().max(1) as f64;
         rows * self.row_height

@@ -223,6 +223,10 @@ impl SurveillanceTrack {
 }
 
 impl Track for SurveillanceTrack {
+    fn noun(&self) -> &str {
+        "lineage surveillance"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

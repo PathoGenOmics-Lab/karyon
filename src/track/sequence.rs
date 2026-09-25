@@ -114,6 +114,10 @@ impl SequenceTrack {
 }
 
 impl Track for SequenceTrack {
+    fn noun(&self) -> &str {
+        "the reference sequence"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

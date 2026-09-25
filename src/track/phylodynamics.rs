@@ -260,6 +260,10 @@ fn power_of_ten(mantissa: u8, exponent: i32) -> Option<f64> {
 }
 
 impl Track for PhylodynamicTrack {
+    fn noun(&self) -> &str {
+        "a phylodynamic trajectory"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

@@ -483,6 +483,10 @@ impl LegendTrack {
 }
 
 impl Track for LegendTrack {
+    fn noun(&self) -> &str {
+        "a key to the colours"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         // The theme reaches the height only through the font size, and the
         // default is what the figure will use unless the caller changed it, as

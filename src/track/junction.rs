@@ -441,6 +441,10 @@ impl JunctionTrack {
 }
 
 impl Track for JunctionTrack {
+    fn noun(&self) -> &str {
+        "splice junctions"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

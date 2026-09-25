@@ -372,33 +372,36 @@ impl Figure {
     /// statement of what the figure is made of.
     ///
     /// The fallback is composed only from things the figure knows for certain,
-    /// the region and the labels of the tracks in the order they are drawn, so
-    /// it can say what is here without claiming anything about what it shows.
-    /// That is the part [`Figure::description`] exists for.
+    /// the region and the tracks in the order they are drawn, each by its
+    /// label or, where it has none, by what it is, so it can say what is here
+    /// without claiming anything about what it shows. That is the part
+    /// [`Figure::description`] exists for.
+    ///
+    /// It counted every track and named only the labelled ones, so a figure
+    /// of four tracks was three names long, the ruler said by nothing.
     fn document_description(&self) -> String {
         if let Some(description) = &self.description {
             return description.clone();
         }
-        let labels: Vec<&str> = self.tracks.iter().filter_map(|t| t.label()).collect();
-        let count = self.tracks.len();
-        let stack = match count {
-            0 => "no tracks".to_string(),
-            1 => "one track".to_string(),
-            n => format!("{n} tracks"),
-        };
+        let named: Vec<&str> = self
+            .tracks
+            .iter()
+            .map(|track| track.label().unwrap_or_else(|| track.noun()))
+            .collect();
         // The window only where something shows it.
         let over = if self.names_region() {
             format!(" over {}", self.region)
         } else {
             String::new()
         };
-        if labels.is_empty() {
-            format!("A karyon figure{over}, with {stack}.")
-        } else {
-            format!(
-                "A karyon figure{over}, with {stack}, drawn top to bottom: {}.",
-                labels.join(", ")
-            )
+        match named.as_slice() {
+            [] => format!("A karyon figure{over}, with no tracks."),
+            [one] => format!("A karyon figure{over}, with one track: {one}."),
+            [first @ .., last] => format!(
+                "A karyon figure{over}, with {} tracks, drawn top to bottom: {} and {last}.",
+                named.len(),
+                first.join(", ")
+            ),
         }
     }
 
@@ -1131,7 +1134,7 @@ mod tests {
             .to_svg();
         assert!(!bare.contains("chr1:1-1000"), "{bare}");
         assert!(bare.contains("<title id=\"karyon-title\">A karyon figure</title>"));
-        assert!(bare.contains("A karyon figure, with one track."));
+        assert!(bare.contains("A karyon figure, with one track: a phylogeny."));
 
         let titled = Figure::new(region())
             .title("Outbreak")
@@ -1406,6 +1409,39 @@ mod tests {
         let letters = Figure::new(Region::new("chr1", 0, 40).unwrap())
             .push(SequenceTrack::new(0, bases).label("reference"));
         assert!(letters.key().is_empty());
+    }
+
+    /// The description counted every track and named only the labelled
+    /// ones, so four tracks were three names long; each is named now, by its
+    /// label or by what it is.
+    #[test]
+    fn the_description_names_every_track_it_counts() {
+        use crate::track::legend::{Legend, LegendTrack};
+        use crate::track::CoverageTrack;
+        let svg = Figure::new(region())
+            .push(CoverageTrack::new(0, vec![1.0; 1000]).label("depth"))
+            .push(AxisTrack::new())
+            .push(LegendTrack::new(Legend::new().key("A", "#111111")))
+            .to_svg();
+        assert!(
+            svg.contains(
+                "with 3 tracks, drawn top to bottom: depth, a ruler and a key to the colours."
+            ),
+            "{svg}"
+        );
+        // A track that says nothing of itself is still counted and named.
+        struct Quiet;
+        impl Track for Quiet {
+            fn height(&self, _scale: &Scale) -> f64 {
+                10.0
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let svg = Figure::new(region()).push(Quiet).push(Quiet).to_svg();
+        assert!(
+            svg.contains("with 2 tracks, drawn top to bottom: a track and a track."),
+            "{svg}"
+        );
     }
 
     #[test]

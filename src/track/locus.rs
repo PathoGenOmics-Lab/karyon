@@ -499,6 +499,10 @@ impl LocusTrack {
 }
 
 impl Track for LocusTrack {
+    fn noun(&self) -> &str {
+        "one locus in several genomes"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.loci.len().max(1) as f64;
         rows * self.gene_height

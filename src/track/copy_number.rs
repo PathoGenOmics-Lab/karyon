@@ -527,6 +527,10 @@ impl CopyNumberTrack {
 }
 
 impl Track for CopyNumberTrack {
+    fn noun(&self) -> &str {
+        "copy-number segments"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

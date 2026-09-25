@@ -671,9 +671,9 @@ file.
 
 Every document names and describes itself for screen readers. Its `<title>` is
 the title and the locus, or the locus alone, and its `<desc>` defaults to a list
-of what the figure holds: the region, the number of tracks and their labels,
-top to bottom. Only you know what the figure shows, so say it with
-`description`:
+of what the figure holds: the region, the number of tracks, and each track top
+to bottom, by its label or, where it has none, by what it is, `a ruler` or `a
+phylogeny`. Only you know what the figure shows, so say it with `description`:
 
 ```rust
 use karyon::{AxisTrack, Figure, Region};

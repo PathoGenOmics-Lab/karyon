@@ -121,6 +121,10 @@ impl GenomeTrack {
 }
 
 impl Track for GenomeTrack {
+    fn noun(&self) -> &str {
+        "a genome's sequences end to end"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

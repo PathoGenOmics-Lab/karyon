@@ -277,6 +277,10 @@ impl SquiggleTrack {
 }
 
 impl Track for SquiggleTrack {
+    fn noun(&self) -> &str {
+        "raw nanopore signal"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

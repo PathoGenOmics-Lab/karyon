@@ -336,6 +336,10 @@ impl ManhattanTrack {
 }
 
 impl Track for ManhattanTrack {
+    fn noun(&self) -> &str {
+        "an association scan"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

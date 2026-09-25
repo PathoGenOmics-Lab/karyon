@@ -267,6 +267,16 @@ pub trait Track {
         None
     }
 
+    /// What this track is, as a sentence says it: `a ruler`, `a phylogeny`,
+    /// `aligned reads`.
+    ///
+    /// The figure's description names each track by its label, and a track
+    /// with none by this. It counted the ruler and the key among the tracks
+    /// and named neither, so four tracks were three names long.
+    fn noun(&self) -> &str {
+        "a track"
+    }
+
     /// What the value axis measures, written under the name in the gutter,
     /// such as `-log10 p` or `AF`, or `None` for an axis that needs no title.
     ///

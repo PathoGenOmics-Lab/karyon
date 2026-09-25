@@ -766,6 +766,10 @@ impl LogoTrack {
 }
 
 impl Track for LogoTrack {
+    fn noun(&self) -> &str {
+        "a sequence logo"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

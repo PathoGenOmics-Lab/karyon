@@ -409,6 +409,10 @@ impl Column {
 }
 
 impl Track for WindowTrack {
+    fn noun(&self) -> &str {
+        "windowed statistics"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

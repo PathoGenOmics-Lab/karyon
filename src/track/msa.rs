@@ -503,6 +503,10 @@ impl MsaTrack {
 }
 
 impl Track for MsaTrack {
+    fn noun(&self) -> &str {
+        "a multiple sequence alignment"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let (rows, _) = self.visible_rows();
         let rows = rows.max(1) as f64;

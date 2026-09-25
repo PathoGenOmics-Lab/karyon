@@ -304,6 +304,10 @@ impl MatrixTrack {
 }
 
 impl Track for MatrixTrack {
+    fn noun(&self) -> &str {
+        "a matrix of values by sample"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let rows = self.rows.len().max(1) as f64;
         // The headings of the metadata columns stand on end above the rows,

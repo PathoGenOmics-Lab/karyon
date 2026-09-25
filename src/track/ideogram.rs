@@ -389,6 +389,10 @@ fn arm_path(x: f64, y: f64, w: f64, h: f64, round_left: bool, round_right: bool)
 }
 
 impl Track for IdeogramTrack {
+    fn noun(&self) -> &str {
+        "an ideogram"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

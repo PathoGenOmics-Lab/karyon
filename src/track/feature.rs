@@ -513,6 +513,10 @@ impl Rows {
 }
 
 impl Track for FeatureTrack {
+    fn noun(&self) -> &str {
+        "annotated features"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         // The theme only affects the height through the width of the labels,
         // and the default font size is what the figure will use unless the

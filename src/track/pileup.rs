@@ -653,6 +653,10 @@ pub struct PileupLayout {
 }
 
 impl Track for PileupTrack {
+    fn noun(&self) -> &str {
+        "aligned reads"
+    }
+
     /// The bases' colours, while a mismatch is a block of colour with no
     /// letter on it to say which base it is.
     fn key(

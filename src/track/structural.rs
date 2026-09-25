@@ -404,6 +404,10 @@ fn arch_against(call: &StructuralVariant, widest: f64) -> f64 {
 }
 
 impl Track for StructuralTrack {
+    fn noun(&self) -> &str {
+        "structural variants"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

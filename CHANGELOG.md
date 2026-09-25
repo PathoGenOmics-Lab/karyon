@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A figure's description names every track it counts, each by its label or,
+  where it has none, by what it is: `with 4 tracks, drawn top to bottom: reads
+  depth, genes, calls and a ruler`. It counted the ruler and the key and named
+  neither, so four tracks were three names long, which a simulated user
+  reading it as a screen reader would took for a mistake. `Track::noun` says
+  what a track is, and every track of the crate says it; one that does not is
+  `a track`. Every committed figure's description changes.
 - The key names a column's levels as a reader looks them up, `L1`, `L2`,
   `L4`, `L10`, each in the colour it was dealt, where it named them in the
   order the sheet dealt them their colours: `L4`, `L2`, `L1`, which all three

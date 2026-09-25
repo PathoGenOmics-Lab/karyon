@@ -343,6 +343,10 @@ fn column_grid(width: f64) -> (usize, f64) {
 }
 
 impl Track for CoverageTrack {
+    fn noun(&self) -> &str {
+        "a coverage profile"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

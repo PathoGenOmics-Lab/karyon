@@ -320,6 +320,10 @@ impl SelectionTrack {
 }
 
 impl Track for SelectionTrack {
+    fn noun(&self) -> &str {
+        "selection tests by site"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

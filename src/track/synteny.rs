@@ -294,6 +294,10 @@ impl DotplotTrack {
 }
 
 impl Track for DotplotTrack {
+    fn noun(&self) -> &str {
+        "a dotplot"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }
@@ -502,6 +506,10 @@ impl SyntenyTrack {
 }
 
 impl Track for SyntenyTrack {
+    fn noun(&self) -> &str {
+        "synteny ribbons"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         self.height
     }

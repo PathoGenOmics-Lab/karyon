@@ -288,6 +288,10 @@ impl VariantTrack {
 }
 
 impl Track for VariantTrack {
+    fn noun(&self) -> &str {
+        "variant calls"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         if self.show_legend {
             let theme = Theme::default();

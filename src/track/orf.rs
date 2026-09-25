@@ -386,6 +386,10 @@ fn push_orf(orfs: &mut Vec<Orf>, start: u64, end: u64, frame: i8, min_codons: u6
 }
 
 impl Track for OrfTrack {
+    fn noun(&self) -> &str {
+        "the six reading frames"
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         6.0 * self.lane_height + 5.0 * self.lane_gap
     }

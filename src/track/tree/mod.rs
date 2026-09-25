@@ -2149,6 +2149,10 @@ impl TreeTrack {
 }
 
 impl Track for TreeTrack {
+    fn noun(&self) -> &str {
+        "a phylogeny"
+    }
+
     fn height(&self, scale: &Scale) -> f64 {
         match self.projection {
             TreeProjection::Rectangular => {
