@@ -107,7 +107,7 @@ reads nothing.
 | `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
-| `--features <FILE>` | genes and other intervals | [BED](formats.md#bed) or [GFF3](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
+| `--features <FILE>` | genes and other intervals, a gene drawn once | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
 | `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |

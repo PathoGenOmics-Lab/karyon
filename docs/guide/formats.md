@@ -155,7 +155,8 @@ than a value per base.
 
 ### A feature file { #a-feature-file }
 
-`--features` and `--loci` read BED or GFF3, and decide which in this order:
+`--features` and `--loci` read BED or GFF3, GTF counting as GFF3, and decide
+which in this order:
 
 1. `--format bed` or `--format gff3`, if given.
 2. A `##gff-version` line anywhere in the file means GFF3.
@@ -298,25 +299,36 @@ NC_000962.3  RefSeq  gene  763370  767320  .  +  .  ID=gene-Rv0668;Name=rpoC
 | | |
 |:--|:--|
 | Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods), `--clades` as [clade blocks](#gubbins-clade-blocks) |
-| Columns | 1 sequence, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
-| Ignored | 2 source, 3 type, 6 score, 8 phase |
+| Columns | 1 sequence, 3 type, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
+| Ignored | 2 source, 6 score, 8 phase |
 | Coordinates | 1-based and inclusive: the start moves back one and the end stays, so `759807 763325` is 0-based `759806..763325` |
-| Skipped | a trailing `##FASTA` section, whose lines name no sequence |
+| Skipped | a trailing `##FASTA` section, whose lines name no sequence; a row describing the whole sequence; a row whose parent is in the file |
 | Refused | fewer than 5 columns; a start of 0; an end before its start |
 
 Attribute values are percent-decoded, so
 `Name=chromosomal%20replication%2C%20initiator` reads as
 `chromosomal replication, initiator`.
 
-!!! tip "Every feature type is drawn"
-    Column three is ignored, so an annotation holding `gene`, `mRNA`, `exon`
-    and `CDS` records over one locus draws all of them, stacked in rows. Filter
-    first to draw one type:
+`--features` draws each thing once. An annotation writes a gene at every level,
+the gene, its transcripts, their exons and the CDS, and a row whose `Parent=`
+or `Derives_from=` names a row in the file is left out, so the gene stands for
+all of them. A part whose whole is not in the file, a file cut down to CDS rows
+for instance, is drawn. A `region`, `chromosome`, `scaffold`, `supercontig`,
+`databank_entry` or `source` row that starts at base 1 describes the sequence
+rather than something on it, as NCBI's first row for each sequence does, and is
+left out too. To draw one level on purpose, filter first:
 
-    ```bash
-    awk '$3 == "gene"' annotation.gff3 \
-      | karyon NC_000962.3:759,000-768,000 --features - --label genes -o genes.svg
-    ```
+```bash
+awk '$3 == "CDS"' annotation.gff3 \
+  | karyon NC_000962.3:759,000-768,000 --features - --label CDS -o cds.svg
+```
+
+GTF is read as GFF3 is, with its `key "value";` attributes: a gene is named by
+`gene_name` and failing that `gene_id`, a transcript by `transcript_name` or
+`transcript_id`, and anything else by the gene it belongs to. A transcript
+stands for its exons and a gene for its transcripts in the same way, so
+GENCODE draws one row a gene, StringTie, which writes no gene rows, one a
+transcript, and a table browser GTF of exons alone one an exon.
 
 ### cytoBand { #cytoband }
 

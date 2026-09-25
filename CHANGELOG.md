@@ -413,6 +413,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--features` draws a gene once. An annotation writes it at every level, and
+  each was drawn as a feature of its own: NCBI's five rows for one gene came out
+  as the chromosome, named `ANONYMOUS`, the gene, its transcript, two exons and
+  the CDS. A GFF3 row whose `Parent=` or `Derives_from=` names a row in the
+  file is now left out, so is a `region`, `chromosome`, `scaffold` or similar
+  row from base 1 that describes the sequence itself, and a part whose whole is
+  not in the file is still drawn. GTF is read with its own names, `gene_name`
+  and `gene_id`, where every GTF gene was drawn nameless beside its own CDS.
 - `--manhattan` reads a column of p-values as one. A table headed `P`,
   `pvalue`, `p.value`, `p_wald`, `P_BOLT_LMM` or another name every
   association tool writes, or a q-value or `FDR` column, is drawn as `-log10`

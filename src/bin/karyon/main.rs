@@ -52,7 +52,9 @@ TRACKS
     --junctions <FILE>   splice junctions as arcs weighted by the reads that
                          crossed them, an aligner's SJ.out.tab
     --sequence <FILE>    the reference bases, FASTA
-    --features <FILE>    genes and other intervals, BED or GFF3
+    --features <FILE>    genes and other intervals, BED, GFF3 or GTF; a gene
+                         is drawn once, not again for its transcripts, exons
+                         and CDS
     --variants <FILE>    point calls, VCF
     --windows <FILE>     a statistic in windows, bedGraph
     --manhattan <FILE>   association statistics, a table of position and value;
