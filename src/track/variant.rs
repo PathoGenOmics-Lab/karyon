@@ -920,12 +920,13 @@ mod tests {
         // stroke rather than by the element name.
         let ticks: Vec<&str> = svg.matches("stroke-width=\"1.2\"").collect();
         assert_eq!(ticks.len(), 2, "one tick per colour, and no more: {svg}");
+        let theme = crate::Theme::light();
         assert!(
-            svg.contains("stroke=\"#0072b2\""),
+            svg.contains(&format!("stroke=\"{}\"", theme.color(0))),
             "first colour gone: {svg}"
         );
         assert!(
-            svg.contains("stroke=\"#d55e00\""),
+            svg.contains(&format!("stroke=\"{}\"", theme.color(1))),
             "second colour gone: {svg}"
         );
     }

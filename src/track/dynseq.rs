@@ -564,7 +564,8 @@ mod tests {
     }
 
     fn rules(svg: &str) -> usize {
-        svg.matches("stroke=\"#d7dce2\"").count()
+        svg.matches(&format!("stroke=\"{}\"", crate::Theme::light().rule))
+            .count()
     }
 
     #[test]

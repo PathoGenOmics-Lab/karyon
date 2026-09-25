@@ -581,9 +581,9 @@ The figure settles the pieces in this order:
    the muted colour at the right.
 2. **The label gutter**, reserved only when at least one track has a label. Its
    width follows the widest label plus 14 pixels, kept between 48 and 160, unless
-   `label_width` sets it. Labels are drawn in the foreground ink, right-aligned
-   against the value axis, and a label wider than the gutter is shortened with an
-   ellipsis.
+   `label_width` sets it. Labels are set semibold in the muted ink, in the case
+   they were given, right-aligned against the value axis, and a label wider
+   than the gutter is shortened with an ellipsis.
 3. **The value axis strip.** Each track says how much room it wants for its own
    ticks. The figure gives **every track the widest of those requests**, so all
    plotting areas start at the same x. A coverage track asks for room to print

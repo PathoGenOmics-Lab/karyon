@@ -59,7 +59,7 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
 
 Features that would collide on screen go onto extra rows, and the track grows to fit them. Collisions are measured in pixels and include the room a name takes, so the same features take one row in a wide view and four in a narrow one, and only features in view are packed: a cluster off the left edge cannot push the gene on screen down a row.
 
-The arrowhead takes a third of a short feature and never more than 8 pixels of a long one, so an interval stays a bar with a point on it. A feature's colour comes from `Feature::color` first, then the track's `color`, then `strand_color`, the one strand convention across the crate: a figure with a pileup two bands down would otherwise use one blue for forward in one band and for reverse in the next.
+The arrowhead takes a third of a short feature and never more than 8 pixels of a long one, so an interval stays a bar with a point on it. A feature's colour comes from `Feature::color` first, then the track's `color`, then `strand_color`, the one strand convention across the crate: a figure with a pileup two bands down would otherwise use one colour for forward in one band and for reverse in the next.
 
 `Feature::new(start, end)` is 0-based and half-open, so a GFF3 line `759807..763325` is `Feature::new(759_806, 763_325)`, and an end at or before the start is widened to one base. The reader converts for you; `--format bed` or `--format gff3` overrides its guess when a file's columns could be either.
 

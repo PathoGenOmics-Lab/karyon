@@ -42,7 +42,10 @@ It draws what a genome browser draws: a stack of tracks over one shared
 coordinate axis, so read depth, the reference bases, the gene models and the
 variant calls all agree on where position 761,410 is.
 
-<img src="assets/example.svg" alt="A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis" width="100%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/example-dark.svg">
+  <img src="assets/example.svg" alt="A coverage profile with a dropout, the reference sequence, two gene models and variants coloured by consequence, all over one coordinate axis" width="100%">
+</picture>
 
 Zoom in and the same tracks show individual bases. Nothing about the tracks
 changes, only the region:

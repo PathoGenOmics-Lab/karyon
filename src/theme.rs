@@ -26,10 +26,19 @@
 //! The categorical palette is measured for colour vision deficiency rather than
 //! chosen by eye, and [`Theme::color`] hands its entries out in a fixed order
 //! with [`Theme::accent`] first, so a figure with one series and a figure with
-//! six agree about what the first colour is. The nucleotide colours are the one
+//! six agree about what the first colour is. The two themes hand out the same
+//! six hues in the same order, each stepped for its own page, so a figure keeps
+//! its colours' names when it changes page. The nucleotide colours are the one
 //! place where the measurement does not decide: convention is the default, and
 //! [`BaseColors::colorblind_safe`] ships beside it for the figures where that
 //! default costs too much.
+//!
+//! # Type
+//!
+//! Text is set in Inter, with the numbers a reader reads off a coordinate, the
+//! ruler and the locus, in JetBrains Mono. Neither is required: both stacks
+//! fall back to fonts that are on every system, and text is measured wide
+//! enough for whichever of them draws it (see [`text_width`](crate::svg::text_width)).
 
 use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, VisualTokens};
 
@@ -41,11 +50,11 @@ use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, Visu
 pub struct Theme {
     /// Page background. Set it to `"none"` for a transparent SVG.
     pub background: String,
-    /// Titles, track labels, primary axes and tick marks.
+    /// Titles, branches and text drawn on marks: the strongest ink.
     pub foreground: String,
-    /// Secondary text: coordinates, tick labels, legends.
+    /// Secondary text: track names, coordinates, tick labels, legends.
     pub muted: String,
-    /// Quiet rules: baselines, guides and secondary separators.
+    /// Quiet rules: baselines, the ruler and guides.
     pub rule: String,
     /// Default colour for a track that was not given one.
     pub accent: String,
@@ -63,6 +72,11 @@ pub struct Theme {
     pub corner_radius: f64,
     /// Font stack written on the root `<svg>` element.
     pub font_family: String,
+    /// Font stack for coordinates: the ruler, the locus beside the title.
+    ///
+    /// Digits of one width line a column of positions up, and a position is
+    /// read digit by digit against the one beside it.
+    pub mono_family: String,
     /// Size of tick labels and in-plot annotations, in pixels.
     pub font_size: f64,
     /// Size of track labels in the left gutter, in pixels.
@@ -82,46 +96,50 @@ pub struct Theme {
 
 impl Theme {
     /// Dark ink on a white page, for manuscripts and slides.
+    ///
+    /// The ink is a deep indigo rather than a neutral black, the violet of the
+    /// dark theme's page taken down to where it reads as black on paper.
     pub fn light() -> Self {
         Theme {
             background: "#ffffff".into(),
-            foreground: "#1b1f23".into(),
-            muted: "#4b5563".into(),
-            rule: "#d7dce2".into(),
-            accent: "#0072b2".into(),
-            palette: okabe_ito(),
+            foreground: "#1a1233".into(),
+            muted: "#5b5480".into(),
+            rule: "#e4def5".into(),
+            accent: "#1634c2".into(),
+            palette: noche(),
             bases: BaseColors::default(),
             insertion: "#8e44ad".into(),
-            corner_radius: 2.5,
-            // Liberation Sans is metrically compatible with Arial and is
-            // commonly present on Linux and HPC systems. Keeping those two
-            // first makes the text-width table agree with the renderer instead
-            // of relying on an unknown generic sans-serif fallback.
-            font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
-            font_size: 12.0,
-            label_font_size: 12.0,
-            title_font_size: 16.0,
+            corner_radius: 3.5,
+            font_family: TEXT_FONTS.into(),
+            mono_family: MONO_FONTS.into(),
+            font_size: 11.5,
+            label_font_size: 11.0,
+            title_font_size: 17.0,
             cap_height_ratio: 0.72,
             tokens: VisualTokens::default(),
         }
     }
 
-    /// Light ink on a dark page, for terminals and dark-mode documents.
+    /// Light ink on a deep indigo page, for dark-mode documents and screens.
+    ///
+    /// The page is the one the documentation site draws its figures on at
+    /// night, so a figure made with this sits on it without a seam.
     pub fn dark() -> Self {
         Theme {
-            background: "#14181d".into(),
-            foreground: "#e6edf3".into(),
-            muted: "#aab4c0".into(),
-            rule: "#3a424c".into(),
-            accent: "#3987e5".into(),
-            palette: okabe_ito_dark(),
+            background: "#120b2b".into(),
+            foreground: "#efeaff".into(),
+            muted: "#b3a9e0".into(),
+            rule: "#2e2558".into(),
+            accent: "#6275fc".into(),
+            palette: noche_dark(),
             bases: BaseColors::default(),
-            insertion: "#8e44ad".into(),
-            corner_radius: 2.5,
-            font_family: "Liberation Sans, Arial, Helvetica, sans-serif".into(),
-            font_size: 12.0,
-            label_font_size: 12.0,
-            title_font_size: 16.0,
+            insertion: "#c59fe1".into(),
+            corner_radius: 3.5,
+            font_family: TEXT_FONTS.into(),
+            mono_family: MONO_FONTS.into(),
+            font_size: 11.5,
+            label_font_size: 11.0,
+            title_font_size: 17.0,
             cap_height_ratio: 0.72,
             tokens: VisualTokens::default(),
         }
@@ -236,34 +254,42 @@ impl Default for Theme {
     }
 }
 
-/// Six hues from the Okabe-Ito palette, ordered and trimmed so that every pair
-/// stays apart under colour vision deficiency, not just neighbouring ones.
+/// Text stack: Inter, then fonts every system has.
+const TEXT_FONTS: &str = "Inter, Liberation Sans, Arial, Helvetica, sans-serif";
+
+/// Coordinate stack: JetBrains Mono, then monospaced fonts every system has.
+const MONO_FONTS: &str = "JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace";
+
+/// Six hues for a white page: indigo, pink, teal, ochre, plum and orange.
 ///
-/// Six is where the measurement stopped, not where the eye got bored. Every
-/// pair of these clears a CVD separation of 6.7 in OKLab hundredths, inside the
-/// band that is sound when identity is also carried by something other than
-/// colour, which here is always a legend or a letter. A seventh hue could not
-/// be added without some pair collapsing: an olive against the vermillion came
-/// out at 1.8 under protanopia, indistinguishable.
-fn okabe_ito() -> Vec<String> {
+/// Chosen by slot, one hue range each so the palette reads as six named
+/// colours, and inside each range the lightness and chroma that keep the worst
+/// pair furthest apart. Measured in OKLab hundredths after simulating
+/// protanopia, deuteranopia and tritanopia (Machado, Oliveira and Fernandes,
+/// 2009, at full severity), the closest pair under any of them is 10.7, the
+/// ochre against the orange under deuteranopia. The Okabe-Ito set this
+/// replaces came to 6.7. Every entry reaches a contrast of 3.1 against white,
+/// which is the floor for a mark that has to be seen rather than read.
+fn noche() -> Vec<String> {
     [
-        "#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#7b3294",
+        "#1634c2", "#e63f9f", "#108169", "#b78a2c", "#69437c", "#b0540e",
     ]
     .iter()
     .map(|s| s.to_string())
     .collect()
 }
 
-/// The dark mode steps, chosen against the dark surface rather than lightened
-/// from the light ones.
+/// The same six hues stepped for the dark page, in the same order.
 ///
-/// A dark background wants a narrower lightness band than a light one, so an
-/// automatic flip of the light palette fails: half of it lands outside the band
-/// and two of the entries stop being distinguishable. These were stepped for
-/// the dark surface and validated there.
-fn okabe_ito_dark() -> Vec<String> {
+/// A dark page wants its marks lighter and a narrower band of lightness, so
+/// these are measured against it rather than lightened from the light set. The
+/// closest pair is 14.4, the yellow against the orange under deuteranopia, and
+/// the lowest contrast against the page is 4.9. The set this replaces measured
+/// 1.6 under deuteranopia, its green against its pink, which a reader with
+/// that deficiency cannot tell apart.
+fn noche_dark() -> Vec<String> {
     [
-        "#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#9085e9",
+        "#6275fc", "#e4488c", "#41f5ea", "#fcdc67", "#b7a1f5", "#ee9a69",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -435,8 +461,8 @@ pub fn contrast_ink(color: &str) -> &'static str {
 
 /// The dark ink [`contrast_ink`] hands out, which is also
 /// [`Theme::light`]'s foreground, and its channels.
-const DARK_INK: &str = "#1b1f23";
-const DARK_INK_RGB: (u8, u8, u8) = (0x1b, 0x1f, 0x23);
+const DARK_INK: &str = "#1a1233";
+const DARK_INK_RGB: (u8, u8, u8) = (0x1a, 0x12, 0x33);
 
 /// sRGB relative luminance, as WCAG 2.x defines it: undo the transfer function
 /// on each channel, then weight them by the response of the eye.
@@ -487,15 +513,15 @@ mod tests {
         let mut dark = Theme::dark();
         assert_eq!(dark.surface(), Theme::dark().background);
         dark.background = "none".into();
-        assert_eq!(dark.surface(), "#1b1f23", "light ink means a dark page");
+        assert_eq!(dark.surface(), DARK_INK, "light ink means a dark page");
     }
 
     #[test]
     fn ink_flips_with_the_brightness_of_the_box() {
         assert_eq!(contrast_ink("#000000"), "#ffffff");
         assert_eq!(contrast_ink("#0072b2"), "#ffffff");
-        assert_eq!(contrast_ink("#ffffff"), "#1b1f23");
-        assert_eq!(contrast_ink("#f0e442"), "#1b1f23");
+        assert_eq!(contrast_ink("#ffffff"), DARK_INK);
+        assert_eq!(contrast_ink("#f0e442"), DARK_INK);
     }
 
     #[test]
@@ -505,16 +531,16 @@ mod tests {
         // #33a02c is 3.384 against white and 4.898 against the dark ink, and
         // #e08214 is 2.848 against white, under the 3:1 floor, against 5.820.
         let bases = BaseColors::conventional();
-        assert_eq!(contrast_ink(&bases.a), "#1b1f23", "A #33a02c");
+        assert_eq!(contrast_ink(&bases.a), DARK_INK, "A #33a02c");
         assert_eq!(contrast_ink(&bases.c), "#ffffff", "C #1f78b4");
-        assert_eq!(contrast_ink(&bases.g), "#1b1f23", "G #e08214");
+        assert_eq!(contrast_ink(&bases.g), DARK_INK, "G #e08214");
         assert_eq!(contrast_ink(&bases.t), "#ffffff", "T #e31a1c");
 
         let safe = BaseColors::colorblind_safe();
-        assert_eq!(contrast_ink(&safe.a), "#1b1f23", "A #009e73");
+        assert_eq!(contrast_ink(&safe.a), DARK_INK, "A #009e73");
         assert_eq!(contrast_ink(&safe.c), "#ffffff", "C #0072b2");
-        assert_eq!(contrast_ink(&safe.g), "#1b1f23", "G #e69f00");
-        assert_eq!(contrast_ink(&safe.t), "#1b1f23", "T #d55e00");
+        assert_eq!(contrast_ink(&safe.g), DARK_INK, "G #e69f00");
+        assert_eq!(contrast_ink(&safe.t), DARK_INK, "T #d55e00");
     }
 
     #[test]
@@ -524,7 +550,7 @@ mod tests {
             let (hi, lo) = if x > y { (x, y) } else { (y, x) };
             (hi + 0.05) / (lo + 0.05)
         };
-        let dark = relative_luminance(0x1b, 0x1f, 0x23);
+        let dark = relative_luminance(DARK_INK_RGB.0, DARK_INK_RGB.1, DARK_INK_RGB.2);
         for r in (0..=255).step_by(17) {
             for g in (0..=255).step_by(17) {
                 for b in (0..=255).step_by(17) {
@@ -532,7 +558,7 @@ mod tests {
                     let hex = format!("#{r:02x}{g:02x}{b:02x}");
                     let luma = relative_luminance(r, g, b);
                     let want = if ratio(luma, dark) > ratio(luma, 1.0) {
-                        "#1b1f23"
+                        DARK_INK
                     } else {
                         "#ffffff"
                     };
@@ -547,6 +573,127 @@ mod tests {
         assert_eq!(contrast_ink("red"), "#ffffff");
         assert_eq!(contrast_ink("#fff"), "#ffffff");
         assert_eq!(contrast_ink("#zzzzzz"), "#ffffff");
+    }
+
+    /// sRGB channel to linear light.
+    fn linear(c: u8) -> f64 {
+        let s = c as f64 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    /// Linear RGB to OKLab, in hundredths, which is the unit the palettes'
+    /// comments quote.
+    fn oklab([r, g, b]: [f64; 3]) -> [f64; 3] {
+        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+        [
+            100.0 * (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s),
+            100.0 * (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s),
+            100.0 * (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s),
+        ]
+    }
+
+    /// The worst pair of a palette in OKLab hundredths, over normal vision and
+    /// protanopia, deuteranopia and tritanopia simulated at full severity
+    /// (Machado, Oliveira and Fernandes, 2009).
+    fn worst_pair(palette: &[String]) -> f64 {
+        const VISIONS: [[[f64; 3]; 3]; 4] = [
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [
+                [0.152286, 1.052583, -0.204868],
+                [0.114503, 0.786281, 0.099216],
+                [-0.003882, -0.048116, 1.051998],
+            ],
+            [
+                [0.367322, 0.860646, -0.227968],
+                [0.280085, 0.672501, 0.047413],
+                [-0.011820, 0.042940, 0.968881],
+            ],
+            [
+                [1.255528, -0.076749, -0.178779],
+                [-0.078411, 0.930809, 0.147602],
+                [0.004733, 0.691367, 0.303900],
+            ],
+        ];
+        let seen = |colour: &str, vision: &[[f64; 3]; 3]| {
+            let (r, g, b) = parse_hex(colour).unwrap();
+            let rgb = [linear(r), linear(g), linear(b)];
+            oklab(std::array::from_fn(|row| {
+                (0..3)
+                    .map(|col| vision[row][col] * rgb[col])
+                    .sum::<f64>()
+                    .clamp(0.0, 1.0)
+            }))
+        };
+        let mut worst = f64::INFINITY;
+        for (i, a) in palette.iter().enumerate() {
+            for b in &palette[i + 1..] {
+                for vision in &VISIONS {
+                    let (p, q) = (seen(a, vision), seen(b, vision));
+                    let distance =
+                        ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2))
+                            .sqrt();
+                    worst = worst.min(distance);
+                }
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn every_pair_of_either_palette_stays_apart_for_every_reader() {
+        // The numbers the palettes' comments quote, held to. The dark palette
+        // these replaced said it had been validated and came to 1.6.
+        let light = worst_pair(&Theme::light().palette);
+        let dark = worst_pair(&Theme::dark().palette);
+        assert!((light - 10.7).abs() < 0.05, "light {light:.2}");
+        assert!((dark - 14.4).abs() < 0.05, "dark {dark:.2}");
+        // And every mark can be seen on its own page, 3:1 being the floor for
+        // something that has to be seen rather than read.
+        for theme in [Theme::light(), Theme::dark()] {
+            let (r, g, b) = parse_hex(&theme.background).unwrap();
+            let page = relative_luminance(r, g, b);
+            for colour in &theme.palette {
+                let (r, g, b) = parse_hex(colour).unwrap();
+                let mark = relative_luminance(r, g, b);
+                let (hi, lo) = if mark > page {
+                    (mark, page)
+                } else {
+                    (page, mark)
+                };
+                assert!(
+                    (hi + 0.05) / (lo + 0.05) >= 3.0,
+                    "{colour} on {}",
+                    theme.background
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_two_palettes_name_the_same_hues_in_the_same_order() {
+        // A figure keeps the names of its colours when it changes page: the
+        // first series is the indigo one on either. Checked on the hue angle
+        // in OKLab, which is what "the same colour" means across a lightness
+        // step.
+        let hue = |colour: &str| {
+            let (r, g, b) = parse_hex(colour).unwrap();
+            let [_, a, b] = oklab([linear(r), linear(g), linear(b)]);
+            b.atan2(a).to_degrees().rem_euclid(360.0)
+        };
+        for (light, dark) in Theme::light().palette.iter().zip(&Theme::dark().palette) {
+            let apart = (hue(light) - hue(dark)).abs();
+            let apart = apart.min(360.0 - apart);
+            assert!(
+                apart < 30.0,
+                "{light} and {dark} are {apart:.0} degrees apart"
+            );
+        }
     }
 
     #[test]
@@ -634,7 +781,7 @@ mod tests {
     fn profiles_and_emphasis_are_resolved_in_one_place() {
         assert_eq!(
             Theme::for_profile(RenderProfile::Dark).background,
-            "#14181d"
+            Theme::dark().background
         );
         assert!(
             Theme::for_profile(RenderProfile::Presentation).font_size > Theme::light().font_size

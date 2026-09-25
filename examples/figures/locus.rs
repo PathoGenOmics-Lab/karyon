@@ -125,7 +125,7 @@ pub fn example_dark(
     // The dark theme is a selected set of colours rather than an inversion of
     // the light one, so it is worth rendering and looking at.
     let dark = Plot::over(region.cloned().unwrap_or_else(overview_window))
-        .title("The same locus, dark theme")
+        .title("rpoB locus, resistance determining region")
         .theme(Theme::dark())
         .width(width.unwrap_or(900.0))
         .add_coverage_at(WINDOW_START, depth)
@@ -137,12 +137,10 @@ pub fn example_dark(
             Feature::new(759_806, 763_325)
                 .name("rpoB")
                 .strand(Strand::Forward),
-            // The light palette's vermilion rather than the dark palette's,
-            // because that is what the committed figure has always drawn.
             Feature::new(761_081, 761_162)
                 .name("RRDR")
                 .strand(Strand::Forward)
-                .color("#d55e00"),
+                .color(Theme::dark().color(1)),
         ])
         .label("annotation")
         .add_variants(vec![

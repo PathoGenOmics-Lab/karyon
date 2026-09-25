@@ -49,7 +49,7 @@ use std::path::Path;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{Density, RenderProfile};
-use crate::svg::{fit_text, text_width, Anchor, SvgWriter};
+use crate::svg::{fit_text_by, mono_width, text_width_strong, Anchor, SvgWriter, TextStyle};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 
@@ -393,40 +393,69 @@ impl Figure {
             svg.describe(&self.document_name(), &self.document_description());
         }
 
+        let locus = self.region.to_string();
+        let (pill_width, pill_height) = locus_pill(&locus, &theme);
         if let Some(title) = &self.title {
             let room = if self.show_region_label {
-                let locus_width = text_width(&self.region.to_string(), theme.font_size);
                 layout.width
                     - layout.margin_right
-                    - locus_width
+                    - pill_width
                     - theme.tokens.label_gap
                     - layout.margin_left
             } else {
                 layout.width - layout.margin_right - layout.margin_left
             };
-            let visible_title = fit_text(title, room.max(0.0), theme.title_font_size);
+            // A title too long for its line is set a little smaller before it
+            // is cut short, as a category too long for its strip is: a point
+            // less type costs far less than the end of the sentence.
+            let room = room.max(0.0);
+            let largest = theme.title_font_size;
+            let smallest = largest * 0.85;
+            let mut size = largest;
+            while size > smallest && text_width_strong(title, size) > room {
+                size = (size - 0.5).max(smallest);
+            }
+            let visible_title = fit_text_by(title, room, |text| text_width_strong(text, size));
             svg.text_bold(
                 layout.margin_left,
                 layout.header_baseline,
                 &visible_title,
                 &theme.foreground,
-                theme.title_font_size,
+                size,
                 Anchor::Start,
             );
         }
         if self.show_region_label {
-            svg.text(
-                layout.width - layout.margin_right,
+            // The locus in a pill, in the monospaced stack: it is a pair of
+            // coordinates to be read digit by digit against the ruler, not a
+            // phrase, and the pill keeps it from reading as the end of the
+            // title beside it.
+            let right = layout.width - layout.margin_right;
+            let middle = layout.header_baseline - theme.font_size * 0.35;
+            svg.rect_rounded(
+                right - pill_width,
+                middle - pill_height / 2.0,
+                pill_width,
+                pill_height,
+                pill_height / 2.0,
+                &mix(&theme.foreground, theme.surface(), 0.9),
+            );
+            svg.text_styled(
+                right - pill_width / 2.0,
                 layout.header_baseline,
-                &self.region.to_string(),
+                &locus,
                 &theme.muted,
                 theme.font_size,
-                Anchor::End,
+                Anchor::Middle,
+                TextStyle {
+                    family: Some(&theme.mono_family),
+                    ..TextStyle::default()
+                },
             );
         }
 
         let mut y = layout.margin_top + layout.header_height;
-        for (index, (track, height)) in self.tracks.iter().zip(&layout.track_heights).enumerate() {
+        for (track, height) in self.tracks.iter().zip(&layout.track_heights) {
             let band = Rect {
                 x: layout.plot_x,
                 y,
@@ -453,19 +482,29 @@ impl Figure {
                 // room reserved for it would start off the left edge of the
                 // image and lose its first characters.
                 //
-                // They are set in the foreground ink, one step above the tick
-                // labels beside them: a track's name is what a reader looks
-                // for, and in the same grey as the numbers it read as one more
-                // of them.
+                // They are set semibold and a little spaced, in the quieter
+                // ink: the weight is what sets a track's name apart from the
+                // tick labels beside it, so the ink can step back and leave
+                // the data the loudest thing in the figure. The name keeps the
+                // case it was given, since `katG` and `KATG` are not the same
+                // gene.
                 let right = band.x - layout.axis_width - 10.0 * self.visual_scale;
-                let visible = fit_text(label, right - layout.margin_left, theme.label_font_size);
-                svg.text(
+                let size = theme.label_font_size;
+                let visible = fit_text_by(label, right - layout.margin_left, |text| {
+                    label_width(text, size)
+                });
+                svg.text_styled(
                     right,
-                    band.mid_y() + theme.label_font_size * 0.35,
+                    band.mid_y() + size * 0.35,
                     &visible,
-                    &theme.foreground,
-                    theme.label_font_size,
+                    &theme.muted,
+                    size,
                     Anchor::End,
+                    TextStyle {
+                        weight: Some(600),
+                        tracking: LABEL_TRACKING,
+                        ..TextStyle::default()
+                    },
                 );
             }
 
@@ -482,32 +521,10 @@ impl Figure {
             track.draw(&mut ctx);
             svg.end_group();
 
-            // A hairline between one track and the next, across the label
-            // gutter as well as the plot, so a name is read with the band it
-            // names and not the one beside it. Halfway down the gap, and
-            // lighter than the rules inside the tracks, since it separates
-            // rather than measures.
-            //
-            // Only between two named tracks: a ruler under the last one is part
-            // of the plot it measures, and a rule above it reads as a second
-            // axis line.
-            let next_named = self
-                .tracks
-                .get(index + 1)
-                .is_some_and(|next| next.label().is_some());
-            if track.label().is_some() && next_named && layout.track_gap >= 6.0 * self.visual_scale
-            {
-                let between = (y + height + layout.track_gap / 2.0).round() + 0.5;
-                svg.line(
-                    layout.margin_left,
-                    between,
-                    layout.width - layout.margin_right,
-                    between,
-                    &mix(&theme.rule, theme.surface(), 0.45),
-                    theme.tokens.hairline,
-                );
-            }
-
+            // No rule between one track and the next. The gap separates them
+            // and each name sits level with the middle of its own band; a
+            // hairline across the full width was one more line in a figure
+            // made of lines, and the one that measured nothing.
             y += height + layout.track_gap;
         }
 
@@ -636,13 +653,27 @@ impl Figure {
             .tracks
             .iter()
             .filter_map(|track| track.label())
-            .map(|label| text_width(label, theme.label_font_size))
+            .map(|label| label_width(label, theme.label_font_size))
             .fold(0.0f64, f64::max);
         (widest + 14.0 * self.visual_scale).clamp(
             MIN_AUTO_LABEL_WIDTH * self.visual_scale,
             MAX_AUTO_LABEL_WIDTH * self.visual_scale,
         )
     }
+}
+
+/// Extra space after every letter of a track's name, in ems.
+const LABEL_TRACKING: f64 = 0.03;
+
+/// How wide a track's name is as it is set: semibold, and spaced out.
+fn label_width(label: &str, size: f64) -> f64 {
+    text_width_strong(label, size) + LABEL_TRACKING * size * label.chars().count() as f64
+}
+
+/// The width and height of the pill the locus sits in beside the title.
+fn locus_pill(locus: &str, theme: &Theme) -> (f64, f64) {
+    let height = theme.font_size + 9.0 * theme.font_size / 11.5;
+    (mono_width(locus, theme.font_size) + height, height)
 }
 
 impl crate::rings::Drawing for Figure {
@@ -763,7 +794,10 @@ mod tests {
             .push(FeatureTrack::new(vec![Feature::new(0, 10)]));
         assert!(presentation.dimensions().1 > manuscript.dimensions().1);
         let svg = presentation.to_svg();
-        assert!(svg.contains(r#"font-size="21.6""#), "a 16 px title at 1.35");
+        assert!(
+            svg.contains(r#"font-size="22.95""#),
+            "a 17 px title at 1.35"
+        );
     }
 
     #[test]
@@ -1015,16 +1049,25 @@ mod tests {
 
         let drawn = drawn_text(&svg);
         assert!(!drawn.contains(name), "the whole name was drawn: {drawn}");
-        assert!(drawn.contains("NC_000962\u{2026}"), "{drawn}");
-        // Right aligned at x = 90, so the ink starts inside the left margin.
-        assert!(90.0 - text_width("NC_000962\u{2026}", 12.0) >= 16.0);
+        let shown = drawn
+            .split_whitespace()
+            .find(|word| word.ends_with('\u{2026}'))
+            .unwrap_or_else(|| panic!("no shortened name in {drawn}"));
+        assert!(
+            name.starts_with(shown.trim_end_matches('\u{2026}')),
+            "{shown}"
+        );
+        assert!(shown.len() > "NC_0".len(), "kept too little of it: {shown}");
+        // Right aligned at x = 90, so the ink starts inside the left margin,
+        // measured as it is set: semibold, and spaced.
+        assert!(90.0 - label_width(shown, Theme::light().label_font_size) >= 16.0);
     }
 
     #[test]
     fn a_label_that_fits_the_gutter_is_left_exactly_as_it_was() {
         let name = "enrich / deplete";
         let svg = Figure::new(region())
-            .label_width(100.0)
+            .label_width(130.0)
             .show_region_label(false)
             .push(CoverageTrack::new(0, vec![10.0; 1000]).label(name))
             .to_svg();
@@ -1064,13 +1107,15 @@ mod tests {
                 rest[x..].split('"').next().unwrap().parse().unwrap()
             })
             .collect();
+        // The document writes three decimals, so that is as close as the
+        // comparison can be.
         assert_eq!(clips.len(), 2);
         assert!(
-            (clips[0] - 16.0).abs() < 1e-9,
+            (clips[0] - 16.0).abs() < 1e-3,
             "the strip this track asked for: {clips:?}"
         );
         assert!(
-            (clips[1] - layout.plot_x).abs() < 1e-9,
+            (clips[1] - layout.plot_x).abs() < 1e-3,
             "and no strip at all for the track that asked for none: {clips:?}"
         );
     }
@@ -1127,33 +1172,45 @@ mod tests {
     }
 
     #[test]
-    fn named_tracks_are_ruled_apart_and_the_ruler_is_not() {
+    fn no_rule_runs_between_one_track_and_the_next() {
+        // The gap separates the bands. A line across the whole width between
+        // them was the one line in the figure that measured nothing.
         let theme = Theme::light();
-        let separator = format!(r#"stroke="{}""#, mix(&theme.rule, theme.surface(), 0.45));
         let two = Figure::new(region())
+            .show_region_label(false)
             .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
             .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("more"))
-            .push(AxisTrack::new())
             .to_svg();
-        assert_eq!(two.matches(&separator).count(), 1, "one rule, not two");
-        let one = Figure::new(region())
-            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
-            .push(AxisTrack::new())
-            .to_svg();
-        assert!(!one.contains(&separator), "nothing above the ruler");
+        let full_width = format!(r#"<line x1="{}" "#, crate::svg::num(Margin::default().left));
+        assert!(!two.contains(&full_width), "{two}");
+        assert!(!two.contains(&theme.rule), "{two}");
     }
 
     #[test]
-    fn a_track_is_named_in_the_foreground_ink() {
+    fn a_track_is_named_semibold_in_the_quiet_ink_and_keeps_its_case() {
+        // The weight sets a name apart from the tick labels beside it, so the
+        // ink can step back; and a name is never re-cased, since `katG` and
+        // `KATG` are different genes.
         let theme = Theme::light();
         let svg = Figure::new(region())
-            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("genes"))
+            .push(FeatureTrack::new(vec![Feature::new(0, 10)]).label("katG"))
             .to_svg();
         let named = format!(
-            r#"fill="{}" font-size="12" text-anchor="end">genes<"#,
-            theme.foreground
+            r#"fill="{}" font-size="{}" text-anchor="end" font-weight="600" letter-spacing="0.03em">katG<"#,
+            theme.muted,
+            crate::svg::num(theme.label_font_size)
         );
         assert!(svg.contains(&named), "{svg}");
+    }
+
+    #[test]
+    fn the_locus_sits_in_a_pill_in_the_monospaced_stack() {
+        let theme = Theme::light();
+        let svg = Figure::new(region()).title("a locus").to_svg();
+        let locus = format!(r#"font-family="{}">chr1:1-1000</text>"#, theme.mono_family);
+        assert!(svg.contains(&locus), "{svg}");
+        let pill = mix(&theme.foreground, theme.surface(), 0.9);
+        assert!(svg.contains(&format!(r#"fill="{pill}""#)), "{svg}");
     }
 
     #[test]
@@ -1194,7 +1251,10 @@ mod tests {
 
         assert!(scaled.layout().plot_x > normal.layout().plot_x);
         assert!(scaled.dimensions().1 > normal.dimensions().1);
-        assert!(scaled.to_svg().contains(r#"font-size="24""#));
+        assert!(
+            scaled.to_svg().contains(r#"font-size="25.5""#),
+            "a 17 px title at 1.5"
+        );
     }
 
     #[test]

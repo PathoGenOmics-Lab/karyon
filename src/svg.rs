@@ -80,6 +80,22 @@ pub struct SvgWriter {
     name: String,
     /// What it shows, for `<desc>`.
     description: String,
+    /// The fades already defined, so a colour asked for twice is one gradient.
+    fades: Vec<(String, String)>,
+}
+
+/// How a run of text is set, beyond its ink, size and anchor.
+///
+/// Everything here is optional, and the default is the document's own face at
+/// its regular weight with no extra spacing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TextStyle<'a> {
+    /// A font stack to set this text in instead of the document's.
+    pub family: Option<&'a str>,
+    /// A numeric weight, such as 600 for semibold.
+    pub weight: Option<u16>,
+    /// Extra space after every letter, in ems.
+    pub tracking: f64,
 }
 
 impl SvgWriter {
@@ -102,6 +118,34 @@ impl SvgWriter {
             id_prefix: prefix.into(),
             ..SvgWriter::default()
         }
+    }
+
+    /// A paint that fades `color` from `top` opacity at the top of whatever
+    /// it fills to `bottom` at its foot, returned as the `url(#...)` to fill
+    /// with.
+    ///
+    /// What an area under a line wears. A flat wash is the same strength at
+    /// the peak as at the baseline, and it is the baseline that carries the
+    /// least: the eye reads the edge, and a fade puts the colour where the
+    /// line is. The gradient runs over the box of the shape it fills, so one
+    /// definition serves an area of any height, and a colour asked for again
+    /// gets the one already written.
+    pub fn fade_down(&mut self, color: &str, top: f64, bottom: f64) -> String {
+        let key = format!("{color}|{}|{}", num(top), num(bottom));
+        if let Some((_, paint)) = self.fades.iter().find(|(known, _)| *known == key) {
+            return paint.clone();
+        }
+        let id = format!("{}karyon-fade-{}", self.id_prefix, self.next_id);
+        self.next_id += 1;
+        let _ = write!(
+            self.defs,
+            r#"<linearGradient id="{id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{color}" stop-opacity="{}"/><stop offset="1" stop-color="{color}" stop-opacity="{}"/></linearGradient>"#,
+            num(top.clamp(0.0, 1.0)),
+            num(bottom.clamp(0.0, 1.0))
+        );
+        let paint = format!("url(#{id})");
+        self.fades.push((key, paint.clone()));
+        paint
     }
 
     /// The next unused id, carrying whatever prefix this document was given.
@@ -452,6 +496,42 @@ impl SvgWriter {
     /// A text label. `y` is the text baseline, not its centre or its top.
     pub fn text(&mut self, x: f64, y: f64, content: &str, fill: &str, size: f64, anchor: Anchor) {
         self.write_text(x, y, content, Ink { fill, size, anchor }, false);
+    }
+
+    /// A text label set in another face, weight or spacing than the document's.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_styled(
+        &mut self,
+        x: f64,
+        y: f64,
+        content: &str,
+        fill: &str,
+        size: f64,
+        anchor: Anchor,
+        style: TextStyle<'_>,
+    ) {
+        if content.is_empty() || size <= 0.0 || !finite(&[x, y, size]) {
+            return;
+        }
+        let _ = write!(
+            self.body,
+            r#"<text x="{}" y="{}" fill="{}" font-size="{}" text-anchor="{}""#,
+            num(x),
+            num(y),
+            fill,
+            num(size),
+            anchor.as_str()
+        );
+        if let Some(family) = style.family {
+            let _ = write!(self.body, r#" font-family="{}""#, escape(family));
+        }
+        if let Some(weight) = style.weight {
+            let _ = write!(self.body, r#" font-weight="{weight}""#);
+        }
+        if style.tracking.is_finite() && style.tracking != 0.0 {
+            let _ = write!(self.body, r#" letter-spacing="{}em""#, num(style.tracking));
+        }
+        let _ = write!(self.body, ">{}</text>", escape(content));
     }
 
     /// A bold text label, for titles and for letters that must read at speed.
@@ -922,24 +1002,44 @@ pub fn escape(text: &str) -> String {
 /// Advance width of a string, used to reserve room and to decide whether a
 /// label fits where it is going.
 ///
-/// The widths are shared by Liberation Sans, Arial and Helvetica, the first
-/// three faces in [`Theme::font_family`](crate::Theme::font_family), so for the
-/// default theme this is exact rather than approximate. That
-/// matters more than it sounds: one flat width per character under-reserves for
-/// a run of capitals by about a fifth, which is precisely what a column of
-/// sample accessions is, and a label that overruns the space reserved for it
-/// gets clipped.
+/// The default font stack leads with Inter and falls back to Liberation Sans,
+/// Arial and Helvetica, and the page that draws the text decides which of them
+/// it has. So each character is measured as the wider of the two designs, and
+/// text never runs past the room made for it in whichever one draws it; in the
+/// narrower one it has a little room to spare. Measured one character at a
+/// time rather than with one flat width, because a flat width under-reserves
+/// for a run of capitals by about a fifth, which is precisely what a column of
+/// sample accessions is, and a label that overruns its room gets clipped.
 ///
 /// A character outside printable ASCII falls back to a wide default, so an
-/// accented name reserves a little too much rather than too little. Another
-/// font stack will disagree in the third significant figure.
+/// accented name reserves a little too much rather than too little. Text set
+/// in a heavier weight is measured with [`text_width_strong`], and numbers in
+/// the monospaced stack with [`mono_width`].
 pub fn text_width(text: &str, font_size: f64) -> f64 {
+    measure(text, font_size, &REGULAR_WIDTHS)
+}
+
+/// [`text_width`] for text set semibold or bold, which is wider in Inter.
+///
+/// Titles and track names are set heavier than the numbers around them, and
+/// measured as the light weight they ran up to a twentieth past their room.
+pub fn text_width_strong(text: &str, font_size: f64) -> f64 {
+    measure(text, font_size, &STRONG_WIDTHS)
+}
+
+/// Advance width of a string in the monospaced stack: six tenths of an em a
+/// character, which JetBrains Mono, Liberation Mono and Menlo all share.
+pub fn mono_width(text: &str, font_size: f64) -> f64 {
+    0.6 * font_size * text.chars().count() as f64
+}
+
+fn measure(text: &str, font_size: f64, widths: &[u16; 95]) -> f64 {
     let per_mille: f64 = text
         .chars()
         .map(|c| {
             let index = c as u32;
             if (32..127).contains(&index) {
-                HELVETICA_WIDTHS[index as usize - 32] as f64
+                widths[index as usize - 32] as f64
             } else {
                 600.0
             }
@@ -966,14 +1066,24 @@ pub fn fit_text_shrinking(text: &str, room: f64, font_size: f64, smallest: f64) 
 /// Fits visible text to `room`, using one ellipsis while preserving the full
 /// source string for callers to expose through a tooltip or accessible label.
 pub fn fit_text(text: &str, room: f64, font_size: f64) -> String {
-    if text.is_empty() || room <= 0.0 || font_size <= 0.0 {
+    if font_size <= 0.0 {
         return String::new();
     }
-    if text_width(text, font_size) <= room {
+    fit_text_by(text, room, |candidate| text_width(candidate, font_size))
+}
+
+/// [`fit_text`] for text measured some other way: set heavier, spaced out or
+/// in the monospaced stack, where the regular measure would say it fits when
+/// it does not.
+pub fn fit_text_by(text: &str, room: f64, measure: impl Fn(&str) -> f64) -> String {
+    if text.is_empty() || room <= 0.0 {
+        return String::new();
+    }
+    if measure(text) <= room {
         return text.to_string();
     }
     let ellipsis = "\u{2026}";
-    if text_width(ellipsis, font_size) > room {
+    if measure(ellipsis) > room {
         return String::new();
     }
     let mut chars: Vec<char> = text.chars().collect();
@@ -981,27 +1091,45 @@ pub fn fit_text(text: &str, room: f64, font_size: f64) -> String {
         chars.pop();
         let mut candidate: String = chars.iter().collect();
         candidate.push_str(ellipsis);
-        if text_width(&candidate, font_size) <= room {
+        if measure(&candidate) <= room {
             return candidate;
         }
     }
     ellipsis.to_string()
 }
 
-/// Helvetica advance widths for printable ASCII, in thousandths of an em,
-/// starting at the space character.
-const HELVETICA_WIDTHS: [u16; 95] = [
-    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278,
-    278, // ' ' to '/'
-    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584,
+/// Advance widths for printable ASCII, in thousandths of an em, starting at
+/// the space character: for each, the wider of Helvetica (which Arial and
+/// Liberation Sans share) and Inter at its regular weight. Inter's were
+/// measured in a browser from the font the documentation site serves, one
+/// character at a time at 1000 pixels.
+const REGULAR_WIDTHS: [u16; 95] = [
+    281, 288, 466, 633, 642, 982, 667, 300, 365, 365, 501, 662, 288, 460, 288,
+    360, // ' ' to '/'
+    631, 556, 610, 618, 646, 593, 620, 566, 619, 620, 288, 302, 662, 662, 662,
     556, // '0' to '?'
-    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722,
+    1015, 690, 667, 730, 722, 667, 611, 778, 743, 278, 571, 672, 565, 903, 753,
     778, // '@' to 'O'
-    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469,
+    667, 778, 722, 667, 646, 744, 690, 985, 682, 679, 629, 365, 360, 365, 471,
     556, // 'P' to '_'
-    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556,
-    556, // '`' to 'o'
-    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, // 'p' to '~'
+    333, 562, 612, 571, 612, 583, 370, 613, 591, 242, 242, 549, 242, 876, 591,
+    600, // '`' to 'o'
+    612, 612, 376, 528, 327, 591, 562, 818, 546, 562, 552, 426, 333, 426, 662, // 'p' to '~'
+];
+
+/// As [`REGULAR_WIDTHS`], with Inter's semibold widths in the running as well.
+const STRONG_WIDTHS: [u16; 95] = [
+    281, 338, 552, 649, 655, 1015, 672, 339, 377, 377, 559, 679, 334, 468, 334,
+    388, // ' ' to '/'
+    674, 556, 630, 645, 676, 622, 650, 581, 651, 650, 334, 343, 679, 679, 679,
+    559, // '0' to '?'
+    1016, 747, 667, 740, 722, 667, 611, 778, 747, 281, 584, 719, 565, 932, 762,
+    778, // '@' to 'O'
+    667, 778, 722, 667, 668, 744, 747, 1038, 738, 731, 664, 377, 388, 377, 487,
+    556, // 'P' to '_'
+    365, 581, 630, 588, 630, 596, 398, 632, 623, 271, 271, 580, 271, 912, 622,
+    613, // '`' to 'o'
+    630, 630, 407, 560, 366, 623, 600, 850, 580, 602, 573, 469, 372, 469, 679, // 'p' to '~'
 ];
 
 /// A number inside a range, or a fallback when it is not a number at all.
@@ -1250,10 +1378,20 @@ mod tests {
     }
 
     #[test]
-    fn text_width_matches_what_a_renderer_actually_draws() {
-        // Measured with getComputedTextLength in a browser, at font-size 9.
-        assert!((text_width("ERR5001", 9.0) - 39.015).abs() < 0.01);
-        assert!((text_width("SNP distance", 9.0) - 54.522).abs() < 0.01);
+    fn text_width_is_never_narrower_than_either_face_draws_it() {
+        // Measured in a browser at font-size 9: Arial with getComputedTextLength,
+        // Inter from its advance widths. The measure is the wider of the two, so
+        // a label never runs past its room in either, and it is not much wider
+        // than that, or the room reserved would be wasted.
+        for (text, arial, inter) in [
+            ("ERR5001", 39.015, 37.359),
+            ("SNP distance", 54.522, 56.979),
+        ] {
+            let width = text_width(text, 9.0);
+            let wider = f64::max(arial, inter);
+            assert!(width >= wider - 0.01, "{text}: {width} against {wider}");
+            assert!(width <= wider * 1.05, "{text}: {width} against {wider}");
+        }
         // Capitals are far wider than lowercase, which is the whole reason for
         // the table: one flat factor clips a column of accessions.
         assert!(text_width("MMMM", 10.0) > text_width("iiii", 10.0) * 3.0);

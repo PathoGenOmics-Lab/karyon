@@ -8,6 +8,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Every figure is drawn in a new visual system, the one karyon's mark and its
+  site are drawn in. The palettes are indigo, pink, teal, ochre, plum and
+  orange, measured so that the closest pair stays 10.7 apart in OKLab hundredths
+  on a white page and 14.4 on the dark one under simulated protanopia,
+  deuteranopia and tritanopia; the Okabe-Ito set they replace came to 6.7, and
+  the previous dark set to 1.6, two of its colours one colour to a reader with
+  deuteranopia. A test holds both to their numbers. The two themes hand out the
+  same hues in the same order, so a figure keeps the names of its colours when
+  it changes page, and the dark page is the deep indigo the site draws on. Text
+  is set in Inter with coordinates in JetBrains Mono, both falling back to fonts
+  every system has, and measured as the wider of Inter and Helvetica, so a label
+  never overruns its room in either. Track names are semibold in the quieter ink
+  and keep the case they were given; the locus sits in a pill beside the title;
+  a title too long for its line is set smaller before it is cut short; the ruler
+  is drawn in the quiet inks; the hairline between tracks is gone; and a
+  coverage area fades from its line to the baseline rather than wearing a flat
+  wash. The dark ink `contrast_ink` hands out is the new foreground, `#1a1233`.
+  Every committed figure changes.
 - A structural variant's arc is measured against the widest call in view, not
   the widest in the track. One translocation reaching 1.2 Mb away used to set
   the scale for everything, and a 10 kb deletion in view arched to a tenth of
@@ -53,6 +71,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Theme::mono_family`, the font stack coordinates are set in, and in
+  `karyon::svg` the pieces the new look is made of: `text_width_strong` and
+  `mono_width` beside `text_width`, `fit_text_by` for text measured some other
+  way, `TextStyle` and `SvgWriter::text_styled` for a run of text in another
+  face, weight or spacing, and `SvgWriter::fade_down`, a fill that fades a
+  colour from the top of a shape to its foot and is written once per colour.
 - `CopyNumberTrack` and `--copy-number`, for the segments a copy number caller
   fitted. A window track fills from its baseline out to the value, so a segment
   called at exactly the ploidy draws nothing, and that is most of a genome:

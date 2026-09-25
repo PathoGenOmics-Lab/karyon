@@ -11,7 +11,7 @@ that keep a set of figures consistent.
 </figure>
 
 <figure class="k-plate" markdown>
-![The same locus drawn with the dark theme: the depth profile, reference row, gene, variants and ruler in light ink and the dark palette on a near-black page](../assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
+![The same locus drawn with the dark theme: the depth profile, reference row, gene, variants and ruler in light ink and the dark palette on a deep indigo page](../assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
 <figcaption>The dark theme: the same tracks, a second set of colours.</figcaption>
 </figure>
 
@@ -44,17 +44,19 @@ A theme is chosen per figure:
 
 ## The two themes
 
-`Theme::light()` is dark ink on a white page, for manuscripts and slides, and
-the default. `Theme::dark()` is light ink on a dark page, for terminals and
-dark-mode documents.
+`Theme::light()` is deep indigo ink on a white page, for manuscripts and slides,
+and the default. `Theme::dark()` is light ink on a deep indigo page, the one the
+documentation site draws its figures on at night, for dark-mode documents and
+screens.
 
 The dark theme is **a selected set of colours, not an inversion** of the light
-one. A dark page wants a narrower band of lightness than a white one, so a
-flipped light palette puts half its colours outside that band and two of them
-stop being distinguishable. The dark colours were chosen against the dark page
-and checked there, and the two palettes share no entry. Nothing converts a light
-figure into a dark one, so the page a figure is going on is decided before it is
-built.
+one. A dark page wants its marks lighter and a narrower band of lightness than a
+white one, so a flipped light palette puts half its colours outside that band
+and some of them stop being distinguishable. The two palettes name the same six
+hues in the same order, each measured against its own page, so a figure keeps
+the names of its colours when it changes page: the first series is indigo on
+either. Nothing converts a light figure into a dark one, so the page a figure is
+going on is decided before it is built.
 
 A theme goes on a figure with `theme(...)` on `Plot`, `Figure`, `Rings`, `Map`
 and `PhyloMap`. On `Panels` it styles only the sheet's own page, title, letters
@@ -69,19 +71,20 @@ need.
 
 | Field | Type | `light()` | `dark()` | What it is for |
 |:--|:--|:--|:--|:--|
-| `background` | `String` | `#ffffff` | `#14181d` | the page; `"none"` for [a transparent SVG](#a-transparent-background) |
-| `foreground` | `String` | `#1b1f23` | `#e6edf3` | titles, track labels, primary axes and tick marks |
-| `muted` | `String` | `#4b5563` | `#aab4c0` | secondary text: tick labels, the locus, legends, captions |
-| `rule` | `String` | `#d7dce2` | `#3a424c` | quiet baselines, guides and separators |
-| `accent` | `String` | `#0072b2` | `#3987e5` | a track that was not given a colour |
+| `background` | `String` | `#ffffff` | `#120b2b` | the page; `"none"` for [a transparent SVG](#a-transparent-background) |
+| `foreground` | `String` | `#1a1233` | `#efeaff` | titles, branches, text drawn on marks: the strongest ink |
+| `muted` | `String` | `#5b5480` | `#b3a9e0` | secondary text: track names, tick labels, the locus, legends, captions |
+| `rule` | `String` | `#e4def5` | `#2e2558` | quiet baselines, the ruler, guides |
+| `accent` | `String` | `#1634c2` | `#6275fc` | a track that was not given a colour |
 | `palette` | `Vec<String>` | six colours | six colours | [categorical colours](#the-categorical-palette), handed out by `color(index)` |
 | `bases` | `BaseColors` | `conventional()` | `conventional()` | [nucleotide colours](#nucleotide-colours) |
-| `insertion` | `String` | `#8e44ad` | `#8e44ad` | an insertion mark in a read pileup, kept off the palette so it never passes for a series |
-| `corner_radius` | `f64` | `2.5` | `2.5` | the corner radius of a data mark, in pixels |
-| `font_family` | `String` | `Liberation Sans, Arial, Helvetica, sans-serif` | the same | the font stack written on the root `<svg>` |
-| `font_size` | `f64` | `12.0` | `12.0` | tick labels and in-plot annotations, in pixels |
-| `label_font_size` | `f64` | `12.0` | `12.0` | track labels in the left gutter |
-| `title_font_size` | `f64` | `16.0` | `16.0` | the figure title |
+| `insertion` | `String` | `#8e44ad` | `#c59fe1` | an insertion mark in a read pileup, kept off the palette so it never passes for a series |
+| `corner_radius` | `f64` | `3.5` | `3.5` | the corner radius of a data mark, in pixels |
+| `font_family` | `String` | `Inter, Liberation Sans, Arial, Helvetica, sans-serif` | the same | the font stack written on the root `<svg>` |
+| `mono_family` | `String` | `JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace` | the same | coordinates: the ruler and the locus beside the title |
+| `font_size` | `f64` | `11.5` | `11.5` | tick labels and in-plot annotations, in pixels |
+| `label_font_size` | `f64` | `11.0` | `11.0` | track names in the left gutter, set semibold |
+| `title_font_size` | `f64` | `17.0` | `17.0` | the figure title |
 | `cap_height_ratio` | `f64` | `0.72` | `0.72` | the height of a capital letter as a fraction of the font size |
 | `tokens` | `VisualTokens` | `VisualTokens::default()` | the same | stroke, marker, tick, feature, legend and spacing sizes: see [tokens](#tokens-and-emphasis) |
 
@@ -100,17 +103,18 @@ theme as it was. The `visual_scale` of a figure does this for you: see
 
 ## The categorical palette
 
-Six hues from the Okabe-Ito palette, ordered and trimmed so that **every pair**
-stays apart under colour vision deficiency, not only neighbouring ones.
+Six hues, indigo, pink, teal, ochre, plum and orange, measured so that **every
+pair** stays apart under colour vision deficiency, not only neighbouring ones.
+The indigo and the pink are the ones karyon's own mark is drawn in.
 
-| Slot | `light()` | `dark()` |
-|:--|:--|:--|
-| 0 | `#0072b2` | `#3987e5` |
-| 1 | `#d55e00` | `#d95926` |
-| 2 | `#009e73` | `#199e70` |
-| 3 | `#cc79a7` | `#c98500` |
-| 4 | `#e69f00` | `#d55181` |
-| 5 | `#7b3294` | `#9085e9` |
+| Slot | Hue | `light()` | `dark()` |
+|:--|:--|:--|:--|
+| 0 | indigo | `#1634c2` | `#6275fc` |
+| 1 | pink | `#e63f9f` | `#e4488c` |
+| 2 | teal | `#108169` | `#41f5ea` |
+| 3 | ochre | `#b78a2c` | `#fcdc67` |
+| 4 | plum | `#69437c` | `#b7a1f5` |
+| 5 | orange | `#b0540e` | `#ee9a69` |
 
 `theme.color(index)` reads a slot and wraps at the end, so a track with more
 categories than the palette has reuses colours rather than panicking. An empty
@@ -132,17 +136,22 @@ one series and a figure with two would disagree about the first colour.
 diamond, triangle), and categorical points take a shape and a colour together,
 so a category survives a greyscale print.
 
-??? info "Why six colours"
+??? info "How the six were chosen"
     Two categories a reader cannot tell apart are one category, so the default
     palette is the one that survives colour vision deficiency. It was measured,
-    not chosen by eye: every pair of the six light colours stays at least 6.7
-    apart in OKLab hundredths under simulated colour vision deficiency, which is
-    sound when identity is also carried by something other than colour. In
-    karyon it always is, by a legend, a letter or a label.
+    not chosen by eye. Each slot keeps to a range of hue, so the palette reads
+    as six named colours, and inside each range the lightness and chroma were
+    searched for the pair that ends up furthest apart after simulating
+    protanopia, deuteranopia and tritanopia (Machado, Oliveira and Fernandes,
+    2009, at full severity). The closest pair of the light six is **10.7** apart
+    in OKLab hundredths, and of the dark six **14.4**; the Okabe-Ito set they
+    replace came to 6.7, and the previous dark set to 1.6, two colours a reader
+    with deuteranopia sees as one. Every colour reaches a contrast of 3:1
+    against its own page, the floor for a mark that has to be seen. A test in
+    the crate holds both palettes to these numbers.
 
-    Six is where the measurement stopped. A seventh hue could not be added
-    without some pair collapsing: an olive tried against the vermillion came out
-    1.8 apart under protanopia, which no reader can separate.
+    Colour is never the only carrier of identity in karyon: a legend, a letter,
+    a label or a shape always says it too, which is what keeps six enough.
 
 ## Nucleotide colours
 
@@ -187,16 +196,16 @@ and `mix` and `contrast_ink` are in `karyon::theme`.
 | `theme.surface()` | the background, or a colour standing in for a transparent one | the colour a tint is blended towards |
 | `mix(a, b, t)` | `a` blended towards `b`, with `t` from 0 (all `a`) to 1 (all `b`) | shades that belong to the theme |
 | `wash(color, &theme)` | `mix(color, theme.surface(), 0.62)` | the body of a large filled shape |
-| `contrast_ink(color)` | `#1b1f23` or `#ffffff` | text drawn on a colour chosen at run time |
+| `contrast_ink(color)` | `#1a1233` or `#ffffff` | text drawn on a colour chosen at run time |
 
 ```rust
 use karyon::theme::{contrast_ink, mix};
 use karyon::{wash, Theme};
 
 let theme = Theme::light();
-assert_eq!(wash(theme.color(0), &theme), "#9ec9e2"); // the body of a gene
-assert_eq!(mix(theme.surface(), &theme.foreground, 0.5), "#8d8f91");
-assert_eq!(contrast_ink(theme.color(0)), "#ffffff"); // text on #0072b2
+assert_eq!(wash(theme.color(0), &theme), "#a6b2e8"); // the body of a gene
+assert_eq!(mix(theme.surface(), &theme.foreground, 0.5), "#8d8999");
+assert_eq!(contrast_ink(theme.color(0)), "#ffffff"); // text on #1634c2
 ```
 
 - **`surface()`** exists because `background` may be `"none"`, and blending
@@ -205,7 +214,7 @@ assert_eq!(contrast_ink(theme.color(0)), "#ffffff"); // text on #0072b2
   the bar under a base that agrees with the reference and the zebra tint on a
   variable-site panel are all tints towards the page. A transparent page is
   whatever the SVG lands on, so the theme guesses from its own ink: dark ink
-  means a light page (`#ffffff`), light ink a dark one (`#1b1f23`).
+  means a light page (`#ffffff`), light ink a dark one (`#1a1233`).
 - **`mix`** is for a greyscale that belongs to its theme. Cytogenetic bands are
   specified as shades from white to black, and hardcoded shades make a dark
   figure look like a light one someone forgot to invert; mixing the theme's own
@@ -247,10 +256,15 @@ the viewer must have the fonts: a machine without them substitutes, and text
 sets slightly differently there.
 
 That matters because karyon decides how wide a string is before it draws it: the
-label gutter, whether a name fits inside its feature, where a title must be
-shortened. `karyon::svg::text_width(text, font_size)` answers from the advance
-widths Liberation Sans, Arial and Helvetica share, the first three fonts in the
-default stack, so for the default theme the answer is exact. One flat width per
+label gutter, whether a name fits inside its feature, where a title must be set
+smaller or shortened. The default stack leads with Inter and falls back to
+Liberation Sans, Arial and Helvetica, and which of them draws the text is the
+viewer's machine's business. So `karyon::svg::text_width(text, font_size)`
+measures every character as the wider of the two designs, measured one
+character at a time: text never runs past its room in either, and in the
+narrower one it has a little to spare. `text_width_strong` does the same for
+semibold and bold text, which Inter sets wider, and `mono_width` measures the
+monospaced stack at six tenths of an em a character. One flat width per
 character would under-reserve a run of capitals by about a fifth, which is
 exactly what a column of sample accessions is. A character outside printable
 ASCII counts as a wide one, so an accented name reserves a little too much
@@ -264,15 +278,15 @@ use karyon::svg::text_width;
 use karyon::{fit_text, Theme};
 
 let theme = Theme::light();
-assert_eq!(text_width("ERR1234567", theme.label_font_size), 72.036);
-assert_eq!(fit_text("NC_000962.3 read depth", 84.0, 12.0), "NC_000962.3\u{2026}");
+assert!((text_width("ERR1234567", theme.label_font_size) - 69.52).abs() < 1e-9);
+assert_eq!(fit_text("NC_000962.3 read depth", 84.0, 12.0), "NC_000962.\u{2026}");
 ```
 
 `cap_height_ratio` is the one font setting that is not a size. Letters stretched
 to fill a box, in a logo stack or in the cells of an alignment, a pileup, a
 variable-site panel or a dynseq track, are sized by working back from the box
-height, and that needs the height of a capital. `0.72` suits Liberation Sans and
-Arial.
+height, and that needs the height of a capital. `0.72` suits Inter, Liberation
+Sans and Arial alike.
 
 !!! warning "Change the font and its measurements together"
     With a `font_family` of different metrics, `text_width` disagrees with the

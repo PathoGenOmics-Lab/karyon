@@ -483,14 +483,21 @@ impl Track for CoverageTrack {
                     d.push(' ');
                     d.push_str(&num(baseline));
                     d.push('Z');
-                    // A wash under a drawn line, rather than a saturated block.
+                    // A fade under a drawn line, rather than a saturated block.
                     // The line is what carries the shape; the fill only says
-                    // which side of it is under the curve.
-                    ctx.svg.path(
-                        &d,
-                        &color,
-                        self.fill_opacity.unwrap_or(ctx.theme.tokens.area_opacity),
-                    );
+                    // which side of it is under the curve, and it is strongest
+                    // up against the line and gone by the baseline, which is
+                    // where there is least to say. An opacity asked for is a
+                    // flat wash of exactly that, since whoever asked for it
+                    // wanted that number.
+                    match self.fill_opacity {
+                        Some(opacity) => ctx.svg.path(&d, &color, opacity),
+                        None => {
+                            let top = (ctx.theme.tokens.area_opacity * 3.0).min(1.0);
+                            let paint = ctx.svg.fade_down(&color, top, 0.03);
+                            ctx.svg.path(&d, &paint, 1.0);
+                        }
+                    }
                 }
                 ctx.svg
                     .polyline(&run, &color, ctx.theme.tokens.stroke * 1.25);
