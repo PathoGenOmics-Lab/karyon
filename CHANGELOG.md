@@ -489,6 +489,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ones as what it had. The items are read one by one now, and a piece that is
   not a change is still skipped rather than failing the tree, but it is counted
   by `Mutations::unread` rather than dropped without a word.
+  `Mutation::parse_list` takes braces as separators too, so the text a braced
+  list prints as, `{A123T,S:D614G,C241T}`, reads as all three changes rather
+  than the middle one.
 - A dynseq band shorter than its own labels no longer panics. The two bounds of
   the clamp that keeps a label inside the band cross once the band is shorter
   than the text is tall, and `clamp` panics rather than choosing, which a track

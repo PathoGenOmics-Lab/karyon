@@ -570,6 +570,24 @@ fn a_change_is_carried_by_everything_below_where_it_happened() {
 }
 
 #[test]
+fn a_list_printed_in_braces_is_read_to_its_first_and_last_change() {
+    // A braced annotation prints with its braces, and that text handed to
+    // `parse_list` split into `{A123T` and `C241T}`, neither of which is a
+    // change, so the middle one was all it read.
+    let tree = Tree::parse_annotated_newick("(a[&muts={A123T,S:D614G,C241T}]:0.1,b:0.1);").unwrap();
+    let a = tree.node_named("a").unwrap();
+    let printed = tree.annotation(a, "muts").unwrap().to_string();
+    assert_eq!(printed, "{A123T,S:D614G,C241T}");
+    assert_eq!(
+        Mutation::parse_list(&printed)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["A123T", "S:D614G", "C241T"]
+    );
+}
+
+#[test]
 fn a_list_in_braces_is_read_to_its_first_and_last_change() {
     // BEAST writes a list of values in braces, a list of changes is as often
     // written in quotes, and the two below are the same five changes on the

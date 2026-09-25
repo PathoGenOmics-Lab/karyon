@@ -113,22 +113,26 @@ impl Mutation {
     /// Reads a list of them, however the file separated it.
     ///
     /// Commas, semicolons, pipes and spaces all appear as separators, so all
-    /// four are taken. A piece that is not a mutation is skipped rather than
-    /// failing the list, since a writer that adds a note beside the changes
-    /// should not cost a reader the changes.
+    /// four are taken, and so are braces, which a list read from annotated
+    /// Newick prints inside: `{A123T,S:D614G}` is two changes. A piece that is
+    /// not a mutation is skipped rather than failing the list, since a writer
+    /// that adds a note beside the changes should not cost a reader the
+    /// changes.
     pub fn parse_list(text: &str) -> Vec<Mutation> {
         pieces(text).filter_map(Mutation::parse).collect()
     }
 }
 
-/// The pieces a list of changes is written in, separated the four ways
+/// The pieces a list of changes is written in, separated the ways
 /// [`Mutation::parse_list`] takes.
 ///
 /// Two separators side by side leave an empty piece between them, which is
 /// spacing rather than anything the file said, so it is not handed on to be
-/// read or counted.
+/// read or counted. Braces are separators too: a braced list printed as text
+/// keeps them, and split on commas alone its first piece began with one and
+/// its last ended with the other, so neither read as a change.
 fn pieces(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|c: char| c == ',' || c == ';' || c == '|' || c.is_whitespace())
+    text.split(|c: char| matches!(c, ',' | ';' | '|' | '{' | '}') || c.is_whitespace())
         .filter(|piece| !piece.is_empty())
 }
 
