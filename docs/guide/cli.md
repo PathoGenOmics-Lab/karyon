@@ -621,6 +621,18 @@ A failing command prints one line to standard error, starting with `karyon:`,
 and exits with status 1. Success exits with 0, and so do `--help` and
 `--version`. The first problem stops the command, and nothing is written.
 
+A figure drawn with something its reader should know is still drawn and still
+exits with 0, and the something goes to standard error, after `karyon:` too:
+a sequence no file gives the length of, drawn only as far as its rows reach; a
+BAM named on its own over a window of reads, drawn as its depth; and bases too
+narrow for their letters, with the `--width` that would letter them:
+
+```text
+$ karyon NC_000962.3:761,100-761,500 aln.bam H37Rv.fa -o reads.svg
+karyon: aln.bam is drawn as its depth; --pileup aln.bam draws its reads
+karyon: the bases are blocks of colour at this width, too narrow for their letters; --width 3000 draws the letters
+```
+
 The command line is checked before any file is opened:
 
 ```text

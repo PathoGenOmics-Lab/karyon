@@ -643,8 +643,9 @@ The command reads Newick only; the library also reads a NEXUS trees block, with
 
 ### SAM { #sam }
 
-Aligned reads as text, usually piped from `samtools view` as
-[Binary formats](cli.md#binary-formats) shows.
+Aligned reads as text. A BAM is read as it is and a CRAM is piped from
+`samtools view`, as [compressed and binary files](cli.md#binary-formats) shows;
+both arrive as these records.
 
 ```text
 @HD    VN:1.6  SO:coordinate

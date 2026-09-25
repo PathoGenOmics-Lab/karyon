@@ -26,7 +26,9 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 ```
 
 Open `rpoB.svg` in a browser: the depth of the reads, the genes and the calls,
-over the gene rpoB with a margin either side, and a ruler underneath.
+over the gene rpoB with a margin either side, and a ruler underneath. Hover
+over a call, a gene or a read and the browser says exactly where it is and
+what it is, as `variant, 761,155, missense, AF 0.98`.
 
 | Part | What it does |
 |:--|:--|
@@ -54,7 +56,7 @@ its samples, are drawn the same way:
 
 ```bash
 karyon 1 gwas.assoc --threshold genome-wide -o scan.svg
-karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
+karyon tree.nwk --traits samples.tsv --columns lineage --scale-bar -o tree.svg
 ```
 
 - **A place is named as the files name it.** PLINK writes a chromosome as `1`
@@ -63,7 +65,7 @@ karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
   instead, so it can be drawn under the depth of a BAM:
   `karyon NC_000962.3 reads.bam gwas.assoc --rename 1=NC_000962.3 -o scan.svg`.
   A sequence no file gives the length of is drawn as far as the rows reach,
-  and karyon says so.
+  and karyon says so; write the span, as `1:1-4,411,532`, to draw all of it.
 - **The table is read by its header.** PLINK, PLINK 2, REGENIE, BOLT-LMM,
   GEMMA, SAIGE and the GWAS Catalog each name their columns, and a p-value is
   drawn as -log10 of itself. `--threshold genome-wide` draws the line at

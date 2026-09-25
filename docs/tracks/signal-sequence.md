@@ -22,7 +22,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
 | Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--color`, `--height`, `--format` |
-| Reads | bedGraph, `samtools depth`, or one value per line (`read::signal::spans`) |
+| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`) |
 
 === "Rust"
 
