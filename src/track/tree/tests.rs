@@ -993,7 +993,7 @@ fn trait_columns_align_exact_metadata_with_terminal_taxa() {
         "continuous minimum: {svg}"
     );
     assert!(svg.contains(&colour(0)), "continuous maximum: {svg}");
-    assert!(svg.contains(">\u{2014}</text>"), "missing value: {svg}");
+    assert!(svg.contains(">n/a</text>"), "missing value: {svg}");
 }
 
 #[test]
