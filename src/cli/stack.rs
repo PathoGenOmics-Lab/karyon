@@ -86,6 +86,26 @@ pub enum BuildError {
         /// The locus that was asked for.
         region: String,
     },
+    /// A reference whose bases stop before the region starts, or start after
+    /// it ends.
+    ///
+    /// The record was the right one and none of it is in the window, so the
+    /// track would be drawn empty: letters, frames and mismatches all need a
+    /// base to stand on. It was drawn empty, and the command exited nought.
+    Beyond {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// The record, by the name the file gives it.
+        record: String,
+        /// The first base it holds, 1-based.
+        first: u64,
+        /// The last base it holds, 1-based.
+        last: u64,
+        /// The locus that was asked for.
+        region: String,
+    },
     /// A file holds several of a thing and the command asked for none of them.
     ///
     /// The `--format` case turned round: there the shape is ambiguous and the
@@ -211,6 +231,19 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::Beyond {
+                track,
+                path,
+                record,
+                first,
+                last,
+                region,
+            } => write!(
+                f,
+                "--{track} {path}: {record} holds bases {} to {}, and none of them is in {region}",
+                crate::track::axis::group_thousands(*first),
+                crate::track::axis::group_thousands(*last),
+            ),
             BuildError::Ambiguous {
                 track,
                 path,
@@ -597,7 +630,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let bases = second_sequence(name, source, region, open)?;
+            let reference = second_sequence(name, source, region, open)?;
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -620,7 +653,12 @@ fn track(
             // one as long as the window allocates a byte and eight more per
             // base of it, which a sixty byte file across a chromosome should
             // not be able to ask for.
-            let mut letters = clip(&bases, region);
+            // Indexed from the start of the window, so a reference that starts
+            // later, as a slice may, is padded to it with the letter for a
+            // base nobody read.
+            let (from, clipped) = reference.clip(region)?;
+            let mut letters = vec![b'N'; (from - region.start()) as usize];
+            letters.extend(clipped);
             let reach = found
                 .spans
                 .iter()
@@ -670,8 +708,8 @@ fn track(
             Box::new(named(track, label, JunctionTrack::label))
         }
         Kind::Sequence => {
-            let bases = sequence(name, &path, &text, region)?;
-            let mut track = SequenceTrack::new(region.start(), clip(&bases, region));
+            let (from, bases) = sequence(name, &path, &text, region)?.clip(region)?;
+            let mut track = SequenceTrack::new(from, bases);
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -1415,8 +1453,8 @@ fn track(
         // alignment columns, so it takes the second. Using the window's start
         // for a logo offsets every column by it, and the figure looks fine.
         Kind::Orfs => {
-            let bases = sequence(name, &path, &text, region)?;
-            let mut track = OrfTrack::new(region.start(), clip(&bases, region));
+            let (from, bases) = sequence(name, &path, &text, region)?.clip(region)?;
+            let mut track = OrfTrack::new(from, bases);
             if let Some(px) = spec.row_height {
                 track = track.lane_height(px);
             }
@@ -1583,8 +1621,8 @@ fn track(
             // tracks use, so a read hanging over the left edge is compared
             // against nothing rather than against the wrong base.
             if let Some(source) = spec.second.as_ref() {
-                let bases = second_sequence(name, source, region, open)?;
-                track = track.reference(region.start(), clip(&bases, region));
+                let (from, bases) = second_sequence(name, source, region, open)?.clip(region)?;
+                track = track.reference(from, bases);
             }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
@@ -1638,7 +1676,7 @@ fn second_sequence(
     source: &Source,
     region: &Region,
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
-) -> Result<Vec<u8>, BuildError> {
+) -> Result<Reference, BuildError> {
     let (fasta, path) = fetch(track, source, open)?;
     sequence(track, &path, &fasta, region)
 }
@@ -1662,8 +1700,11 @@ fn sequence(
     path: &str,
     fasta: &str,
     region: &Region,
-) -> Result<Vec<u8>, BuildError> {
-    let mut records = wrap(track, path, read::seq::fasta(fasta))?;
+) -> Result<Reference, BuildError> {
+    let mut records: Vec<Reference> = wrap(track, path, read::seq::fasta(fasta))?
+        .into_iter()
+        .map(|(name, bases)| Reference::new(track, path, name, bases))
+        .collect();
     if records.is_empty() {
         return Err(BuildError::Empty {
             track,
@@ -1672,16 +1713,30 @@ fn sequence(
         });
     }
     if records.len() == 1 {
-        return Ok(records.swap_remove(0).1);
+        return Ok(records.swap_remove(0));
     }
-    let found: Vec<usize> = records
+    let named: Vec<usize> = records
         .iter()
         .enumerate()
-        .filter(|(_, (name, _))| name == region.seq())
+        .filter(|(_, record)| record.sequence == region.seq())
         .map(|(index, _)| index)
         .collect();
+    // Several slices of one sequence are one sequence in pieces, and the
+    // window picks the piece: only the ones it touches are candidates. Two
+    // whole records sharing a name are still refused, since the first of them
+    // is a sequence nobody chose.
+    let slices = named.iter().all(|at| records[*at].is_slice());
+    let found: Vec<usize> = if named.len() > 1 && slices {
+        named
+            .iter()
+            .copied()
+            .filter(|at| records[*at].touches(region))
+            .collect()
+    } else {
+        named
+    };
     match found.as_slice() {
-        [index] => Ok(records.swap_remove(*index).1),
+        [index] => Ok(records.swap_remove(*index)),
         [] => {
             // Every name, so a sequence spelt two ways can be seen against
             // what the file calls it. Capped, as a tree's tips are, because a
@@ -1690,7 +1745,7 @@ fn sequence(
             let mut held: Vec<String> = records
                 .iter()
                 .take(24)
-                .map(|(name, _)| name.clone())
+                .map(|record| record.name.clone())
                 .collect();
             if records.len() > held.len() {
                 held.push(format!("and {} more", records.len() - held.len()));
@@ -1710,6 +1765,89 @@ fn sequence(
             name: region.seq().to_string(),
             held: many.len(),
         }),
+    }
+}
+
+/// One record of a FASTA: its bases, and where the first of them sits.
+struct Reference {
+    /// Which flag read it and from where, for a refusal to name.
+    track: &'static str,
+    path: String,
+    /// The header's name, as the file gives it.
+    name: String,
+    /// The sequence the bases belong to: the name, or the part of it before
+    /// the span when the record is a slice.
+    sequence: String,
+    /// The 0-based position of the first base on that sequence.
+    offset: u64,
+    bases: Vec<u8>,
+}
+
+impl Reference {
+    /// A record, read as a slice where its header says it is one.
+    ///
+    /// `samtools faidx ref.fa chr1:101-160` writes the sixty bases under the
+    /// header `>chr1:101-160`, and the only way to know they start at 101 is
+    /// to read the header. They were drawn from base 1 instead, so a window on
+    /// 101 to 160 held no base of a file that held exactly that window, and the
+    /// band came out empty. A header is read as a span only when the span is
+    /// as long as the record, so a sequence whose own name merely looks like
+    /// one keeps its name and its bases where they were.
+    fn new(track: &'static str, path: &str, name: String, bases: Vec<u8>) -> Self {
+        let slice = name.rsplit_once(':').and_then(|(sequence, span)| {
+            let (first, last) = span.split_once('-')?;
+            let first: u64 = first.parse().ok()?;
+            let last: u64 = last.parse().ok()?;
+            (!sequence.is_empty()
+                && first >= 1
+                && last >= first
+                && last - first + 1 == bases.len() as u64)
+                .then(|| (sequence.to_string(), first - 1))
+        });
+        let (sequence, offset) = slice.unwrap_or_else(|| (name.clone(), 0));
+        Reference {
+            track,
+            path: path.to_string(),
+            name,
+            sequence,
+            offset,
+            bases,
+        }
+    }
+
+    /// Whether the header named a span, as `samtools faidx` writes one.
+    fn is_slice(&self) -> bool {
+        self.name != self.sequence
+    }
+
+    /// Whether any base of the record is in the window.
+    fn touches(&self, region: &Region) -> bool {
+        let end = self.offset + self.bases.len() as u64;
+        self.offset < region.end() && end > region.start()
+    }
+
+    /// The bases the window holds, and the position of the first of them.
+    ///
+    /// Refused when it holds none. A reference that ends before the window
+    /// starts drew an empty band, with every letter, frame and mismatch the
+    /// track exists for missing, and the command exited nought. A window that
+    /// runs past the end draws the bases there are, which is what the
+    /// sequence says.
+    fn clip(&self, region: &Region) -> Result<(u64, Vec<u8>), BuildError> {
+        if !self.touches(region) {
+            return Err(BuildError::Beyond {
+                track: self.track,
+                path: self.path.clone(),
+                record: self.name.clone(),
+                first: self.offset + 1,
+                last: self.offset + self.bases.len() as u64,
+                region: region.to_string(),
+            });
+        }
+        let from = region.start().max(self.offset);
+        let to = region.end().min(self.offset + self.bases.len() as u64);
+        let bases = self.bases[(from - self.offset) as usize..(to - self.offset) as usize].to_vec();
+        Ok((from, bases))
     }
 }
 
@@ -1751,19 +1889,6 @@ fn compared_row(
             held: many.len(),
         }),
     }
-}
-
-/// Cuts a whole reference down to the region on display.
-///
-/// A FASTA record is the whole sequence and the figure is a window on it, so
-/// the bases the region names are the ones the track gets.
-fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
-    let start = region.start() as usize;
-    if start >= bases.len() {
-        return Vec::new();
-    }
-    let end = (region.end() as usize).min(bases.len());
-    bases[start..end].to_vec()
 }
 
 #[cfg(test)]
@@ -2574,16 +2699,116 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
     #[test]
     fn a_reference_is_cut_down_to_the_region() {
         let region = Region::parse("chr1:11-20").unwrap();
-        let bases: Vec<u8> = (b'A'..=b'Z').collect();
-        assert_eq!(clip(&bases, &region), b"KLMNOPQRST".to_vec());
+        let whole = Reference::new("sequence", "r.fa", "chr1".into(), (b'A'..=b'Z').collect());
+        assert_eq!(whole.clip(&region).unwrap(), (10, b"KLMNOPQRST".to_vec()));
     }
 
     #[test]
     fn a_reference_shorter_than_the_region_is_not_an_index_panic() {
+        let short = Reference::new("sequence", "r.fa", "chr1".into(), b"ACGT".to_vec());
         let region = Region::parse("chr1:1-1000").unwrap();
-        assert_eq!(clip(b"ACGT", &region), b"ACGT".to_vec());
+        assert_eq!(short.clip(&region).unwrap(), (0, b"ACGT".to_vec()));
+        // And one that holds no base of the window says so rather than
+        // drawing an empty band.
         let past = Region::parse("chr1:100-200").unwrap();
-        assert!(clip(b"ACGT", &past).is_empty());
+        let error = short.clip(&past).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "--sequence r.fa: chr1 holds bases 1 to 4, and none of them is in chr1:100-200"
+        );
+    }
+
+    /// `samtools faidx ref.fa pX:101-160` writes sixty bases under the header
+    /// `>pX:101-160`. They were drawn from base 1, so a window on exactly the
+    /// bases the file held came out as an empty band.
+    #[test]
+    fn a_slice_samtools_cut_out_is_drawn_where_its_header_says() {
+        let plasmid: String = "ACGT".repeat(40);
+        let slice = format!(">pX:101-160\n{}\n", &plasmid[100..160]);
+        let draw = |locus: &str| build(&over(locus, "--sequence", "s.fa"), |_| Ok(slice.clone()));
+        let letters = |svg: &str| -> String {
+            svg.split("<text")
+                .skip(1)
+                .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
+                .filter(|text| matches!(*text, "A" | "C" | "G" | "T"))
+                .collect()
+        };
+        assert_eq!(letters(&draw("pX:101-160").unwrap()), plasmid[100..160]);
+        // Part of the window is in the slice, and that part is drawn where it
+        // sits on the plasmid.
+        assert_eq!(letters(&draw("pX:151-170").unwrap()), plasmid[150..160]);
+        // None of it is, and the refusal says what the slice holds.
+        let error = draw("pX:1-60").unwrap_err().to_string();
+        assert!(
+            error.contains("pX:101-160 holds bases 101 to 160, and none of them is in pX:1-60"),
+            "{error}"
+        );
+
+        // A header that only looks like a span keeps its name and its bases
+        // where they were: the span is not as long as the record.
+        let named = Reference::new("sequence", "r.fa", "chr1:1-10".into(), b"ACGT".to_vec());
+        assert!(!named.is_slice());
+        assert_eq!(named.offset, 0);
+    }
+
+    #[test]
+    fn several_slices_of_one_sequence_are_picked_by_the_window() {
+        let fasta = ">chr1:1-4\nACGT\n>chr1:11-14\nTTTT\n";
+        let svg = build(&over("chr1:11-14", "--sequence", "s.fa"), |_| {
+            Ok(fasta.to_string())
+        })
+        .unwrap();
+        assert_eq!(svg.matches(">T</text>").count(), 4, "{svg}");
+        // Two whole records sharing a name are still refused.
+        let twice = ">chr1\nACGT\n>chr1\nTTTT\n";
+        let error = build(&over("chr1:1-4", "--sequence", "s.fa"), |_| {
+            Ok(twice.to_string())
+        })
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("2 records called chr1"),
+            "{error}"
+        );
+    }
+
+    /// Every flag that reads a reference refuses one with nothing in the
+    /// window, rather than drawing a track with nothing to stand on: a pileup
+    /// whose reference is elsewhere drew every read as agreeing with it.
+    #[test]
+    fn every_track_that_reads_a_reference_refuses_one_outside_the_window() {
+        let fasta = ">chr1\nACGTACGTAC\n";
+        for line in [
+            "chr1:101-160 --sequence r.fa",
+            "chr1:101-160 --orfs r.fa",
+            "chr1:101-160 --pileup reads.sam --with-sequence r.fa",
+            "chr1:101-160 --dynseq scores.bg --with-sequence r.fa",
+        ] {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let crate::cli::args::Request::Draw(invocation) =
+                crate::cli::args::parse(&args).unwrap()
+            else {
+                unreachable!("every line draws")
+            };
+            let error = build(&invocation, |source| {
+                let Source::Path(path) = source else {
+                    unreachable!("every source is a file")
+                };
+                let path = path.to_string_lossy();
+                Ok(if path.ends_with(".fa") {
+                    fasta.to_string()
+                } else if path.ends_with(".sam") {
+                    "r1\t0\tchr1\t101\t60\t4M\t*\t0\t0\tACGT\tIIII\n".to_string()
+                } else {
+                    "chr1\t100\t104\t0.5\n".to_string()
+                })
+            })
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("chr1 holds bases 1 to 10, and none of them is in chr1:101-160"),
+                "{line}: {error}"
+            );
+        }
     }
 
     #[test]

@@ -517,21 +517,23 @@ CTTGCATGCAACGGATTACGATCG
 |:--|:--|
 | Read by | `--sequence`, `--orfs` and `--with-sequence`; `read::seq::fasta` |
 | What is read | each record's name (the header up to its first space) and its sequence lines, joined, case kept |
-| Coordinates | none: a record starts at its own first base, so byte n is 0-based position n |
-| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it |
+| Coordinates | a record starts at its own first base, so byte n is 0-based position n; a header written as `name:start-end` by `samtools faidx`, whose span is as long as the record, starts at `start` |
+| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it; a record with no base in the region |
 
 `--sequence`, `--orfs` and `--with-sequence` take the file's only record
 whatever it is called, or, in a file of several, the one named like the
 region's sequence, and cut the region out of it by position. Lower case
-is kept, since a soft-masked reference says something by it. A region past the
-end of the record is not an error: the track has no bases there and draws
-nothing.
+is kept, since a soft-masked reference says something by it. A region that
+runs past the end of the record draws the bases there are, and one holding no
+base of the record at all is refused, since the track would have nothing to
+draw.
 
-!!! warning "Hand `--sequence` the whole sequence"
-    A slice from `samtools faidx ref.fa chr1:101-200` is read as if it began at
-    base 1, so over `chr1:101-200` it draws nothing, and over another window it
-    draws the wrong bases, without an error. Give it the reference and let the
-    region do the cutting.
+A slice from `samtools faidx ref.fa chr1:101-200` is read where its header
+puts it, so it draws over `chr1:101-200` and over any window inside it. A
+header is taken for a span only when the span is exactly as long as the record,
+so a sequence whose own name looks like one keeps its bases from 1. Several
+slices of one sequence in one file are one sequence in pieces, and the region
+picks the piece it falls in.
 
 ### Aligned FASTA { #aligned-fasta }
 

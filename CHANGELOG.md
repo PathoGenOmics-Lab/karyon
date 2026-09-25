@@ -413,6 +413,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A FASTA record cut out by `samtools faidx`, headed `>chr1:101-160`, is read
+  where its header puts it. It was read from base 1, so a window on exactly the
+  bases it held drew an empty band, and any other window drew the wrong bases,
+  without an error. A header is read as a span only when the span is as long as
+  the record, and several slices of one sequence are picked by the window.
+- `--sequence`, `--orfs`, `--dynseq` and the reference a pileup reads refuse a
+  record with no base in the window, saying which bases it holds. The track was
+  drawn empty and the command exited nought, and a pileup whose reference was
+  elsewhere drew every read as agreeing with it. A window that runs past the end
+  of a record still draws the bases there are.
 - A command line that gives one option two values is refused, naming the flag
   and the track, where the last value won without a word: a `--label` meant for
   the next track and written before its flag renamed this one, and a second
