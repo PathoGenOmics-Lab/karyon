@@ -5,7 +5,7 @@
       <img src=".github/logo/karyon.svg" alt="karyon" width="351">
     </picture>
   </h1>
-  <p><strong>Genomic track plots for Rust. Composable tracks over a shared coordinate axis, rendered to standalone SVG.</strong></p>
+  <p><strong>Genomic figures from the command line or from Rust: tracks over one shared coordinate axis, rendered to standalone SVG.</strong></p>
 
   <p>
     <a href="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml"><img src="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -52,7 +52,19 @@ changes, only the region:
 
 <img src="assets/example-zoom.svg" alt="The same locus at base resolution, with the reference sequence drawn as coloured letters" width="100%">
 
-That figure is this much code:
+From a shell, a figure like it is one command:
+
+```bash
+cargo install --git https://github.com/PathoGenOmics-Lab/karyon
+karyon NC_000962.3:761,000-762,999 --coverage depth.bedgraph --label depth \
+  --sequence H37Rv.fa --features genes.gff3 --variants calls.vcf -o rpoB.svg
+```
+
+`karyon --help` fits on one screen, and `karyon help coverage` lists what one
+track takes. The [Playground](https://pathogenomics-lab.github.io/karyon/playground/)
+runs the same program in your browser, with nothing to install.
+
+From Rust, that figure is this much code:
 
 ```rust
 use karyon::{plot, Feature, Strand, Variant};
