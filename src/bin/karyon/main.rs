@@ -55,7 +55,8 @@ TRACKS
     --features <FILE>    genes and other intervals, BED or GFF3
     --variants <FILE>    point calls, VCF
     --windows <FILE>     a statistic in windows, bedGraph
-    --manhattan <FILE>   association statistics, a table of position and value
+    --manhattan <FILE>   association statistics, a table of position and value;
+                         a column headed P, pvalue or p_wald is drawn as -log10
     --tree <FILE>        a phylogeny, Newick
     --msa <FILE>         a multiple sequence alignment, aligned FASTA
     --snps <FILE>        the variable sites of an alignment, aligned FASTA
@@ -121,7 +122,8 @@ TRACK OPTIONS, each describing the track before it, once
     --height <PX>        for the tracks that do not size themselves by rows
     --threshold <V|genome-wide>
                          the line a scan is read against, in the units the
-                         file is in; genome-wide is -log10(5e-8), which is a
+                         file is in, so a p-value where it holds p-values;
+                         genome-wide is -log10(5e-8), which is a
                          correction for a million tests and wrong wherever a
                          million were not run. On a phylogeny it is the least
                          support worth showing, and hides the weaker values

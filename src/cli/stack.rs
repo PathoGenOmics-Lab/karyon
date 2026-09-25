@@ -30,7 +30,9 @@ use crate::{
     TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
+use crate::cli::args::{
+    Invocation, Kind, Palette, Source, Style, Threshold, TrackSpec, TreeSupport,
+};
 use crate::read;
 use crate::track::traits::Traits;
 use crate::Mutations;
@@ -105,6 +107,19 @@ pub enum BuildError {
         last: u64,
         /// The locus that was asked for.
         region: String,
+    },
+    /// A threshold given as a number no p-value can be, for a scan whose file
+    /// held p-values.
+    ///
+    /// The threshold is in the file's units, and 7.3 was the right number for
+    /// a file of `-log10(p)` and is no p-value at all.
+    NotAPValue {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// The number given.
+        given: f64,
     },
     /// A file holds several of a thing and the command asked for none of them.
     ///
@@ -231,6 +246,11 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::NotAPValue { track, path, given } => write!(
+                f,
+                "--{track} {path} holds p-values, so --threshold is a p-value too, between 0 \
+                 and 1, and {given} is not one; give it as 5e-8, or as genome-wide"
+            ),
             BuildError::Beyond {
                 track,
                 path,
@@ -770,13 +790,33 @@ fn track(
             Box::new(named(track, label, WindowTrack::label))
         }
         Kind::Manhattan => {
-            let points = wrap(name, &path, read::point::associations(&text, region))?;
-            if points.is_empty() {
+            let table = wrap(name, &path, read::point::association_table(&text, region))?;
+            if table.points.is_empty() {
                 return Err(empty("association statistics"));
             }
-            let mut track = ManhattanTrack::new(points);
-            if let Some(threshold) = spec.threshold {
-                track = track.threshold(threshold);
+            let mut track = ManhattanTrack::new(table.points);
+            // Drawn as -log10, and the axis says so, since the file said p.
+            if table.p_values {
+                track = track.unit(" -log10 p");
+            }
+            match spec.threshold {
+                None => {}
+                Some(Threshold::GenomeWide) => {
+                    track = track.threshold(Threshold::GenomeWide.drawn());
+                }
+                // In the units the file is in, so a p-value where the file
+                // held p-values, drawn where its points are.
+                Some(Threshold::At(value)) if table.p_values => {
+                    if !(value > 0.0 && value <= 1.0) {
+                        return Err(BuildError::NotAPValue {
+                            track: name,
+                            path: path.clone(),
+                            given: value,
+                        });
+                    }
+                    track = track.threshold(-value.log10());
+                }
+                Some(Threshold::At(value)) => track = track.threshold(value),
             }
             if let Some(height) = height {
                 track = track.height(height);
@@ -1018,7 +1058,7 @@ fn track(
                 });
             }
             if let Some(minimum) = spec.threshold {
-                track = track.support_threshold(minimum);
+                track = track.support_threshold(minimum.drawn());
             }
             if spec.scale_bar {
                 track = track.scale_bar();
@@ -3116,6 +3156,62 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
             .collect();
         assert_eq!(text, ["phylogeny", "a", "b", "c", "d"], "{svg}");
+    }
+
+    /// A scan as association tools write it, a column of p-values under the
+    /// header P. It was drawn as written, so the hit at 4e-12 sat on the floor
+    /// of the figure and the null at 0.9 at the top, and the command exited
+    /// nought.
+    #[test]
+    fn a_scan_of_p_values_is_drawn_with_its_strongest_hit_highest() {
+        const SCAN: &str = "CHR\tBP\tP\nchr1\t100\t0.5\nchr1\t200\t4e-12\nchr1\t300\t0.9\n";
+        let draw = |line: &str| {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let crate::cli::args::Request::Draw(invocation) =
+                crate::cli::args::parse(&args).unwrap()
+            else {
+                unreachable!("a scan is drawn")
+            };
+            build(&invocation, |_| Ok(SCAN.to_string()))
+        };
+        let svg = draw("chr1:1-400 --manhattan gwas.tsv").unwrap();
+        // Points in the order of their positions, left to right.
+        let mut points: Vec<(f64, f64)> = svg
+            .split("<circle cx=\"")
+            .skip(1)
+            .filter_map(|piece| {
+                let (cx, rest) = piece.split_once('"')?;
+                let cy = rest.split_once("cy=\"")?.1.split_once('"')?.0;
+                Some((cx.parse().ok()?, cy.parse().ok()?))
+            })
+            .collect();
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(points.len(), 3, "{svg}");
+        let heights: Vec<f64> = points.iter().map(|(_, cy)| *cy).collect();
+        assert!(
+            heights[1] < heights[0] && heights[0] < heights[2],
+            "the hit at 4e-12 is not the highest: {heights:?}"
+        );
+        assert!(
+            svg.contains("-log10 p"),
+            "the axis does not say what it shows"
+        );
+
+        // The threshold is in the file's units: a p-value, drawn at -log10 of
+        // itself, which for 5e-8 is the convention asked for by name.
+        let named = draw("chr1:1-400 --manhattan gwas.tsv --threshold genome-wide").unwrap();
+        assert_eq!(
+            draw("chr1:1-400 --manhattan gwas.tsv --threshold 5e-8").unwrap(),
+            named
+        );
+        // The number that was right for a file of -log10 values is no p-value.
+        let error = draw("chr1:1-400 --manhattan gwas.tsv --threshold 7.3").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("holds p-values, so --threshold is a p-value too"),
+            "{error}"
+        );
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

@@ -2215,7 +2215,9 @@ fn every_format_puts_the_same_interval_on_the_same_bases() {
 
         // Single points, where three more formats count from one.
         let vcf = format!("chr1\t{first}\t.\tC\tT\t.\t.\t.\n");
-        let association = format!("{first}\t1e-9\n");
+        // A statistic above one: a header-less column of values under one is
+        // refused, since it reads as p-values and cannot say whether it is.
+        let association = format!("{first}\t9\n");
         let matrix = format!("sample\t{first}\nS1\t1\n");
         let calls = read::point::variants(&vcf, &region)
             .unwrap_or_else(|e| panic!("seed {seed}: vcf: {e}"));

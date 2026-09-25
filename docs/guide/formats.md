@@ -431,17 +431,25 @@ Pf3D7_07_v3   4150  0.40
 | Columns | two or three: an optional sequence name, then a position and a value |
 | Coordinates | 1-based: position 4100 is 0-based 4099 |
 | Skipped | a header on the first line; a two-column table names no sequence |
-| Refused | any other number of columns; a position of 0; a header-like word after the first line |
+| Refused | any other number of columns; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
 
-!!! warning "Give it -log10(p), not p"
-    The value is drawn as written, higher meaning stronger, and `--threshold`
-    is in the same units: `genome-wide` is -log10(5e-8), about 7.3. A column of
-    raw p-values draws the strongest hits at the bottom. Convert first, for
-    example:
+A scan is drawn higher meaning stronger, and the header says what the value
+column holds:
 
-    ```bash
-    awk 'NR == 1 { print; next } { $3 = -log($3) / log(10); print }' scan.tsv > scan-log10.tsv
-    ```
+- **p-values**: a column named `P`, `pvalue`, `pval`, `p.value`, `P-value`, or
+  starting with `p_` as `p_wald` and `P_BOLT_LMM` do, and a q-value, `FDR` or
+  `padj` column, is drawn as -log10 of itself, and the axis says `-log10 p`.
+  `--threshold` is then a p-value too: `--threshold 5e-8` draws the line where
+  `genome-wide` does.
+- **Anything else** is drawn as written, in the units `--threshold` is given
+  in. A name that mentions a logarithm, as `LOG10P`, `-log10(p)` and
+  `mlog10p` do, is always read as one already taken.
+
+A table with no header says nothing about its values. If every one of them lies
+between 0 and 1 it is refused, since that is how p-values look and drawn as
+written they put the strongest hit at the bottom; add a first line naming the
+column, `P` to have the values converted or what they are to have them drawn as
+written.
 
 ### The matrix table { #the-matrix-table }
 

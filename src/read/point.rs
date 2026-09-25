@@ -99,19 +99,59 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
     Ok(calls)
 }
 
+/// What an association table held inside the window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Associations {
+    /// The tested positions in the window, each with the statistic drawn: the
+    /// value as written, or `-log10` of it where the file wrote p-values.
+    pub points: Vec<Association>,
+    /// Whether the value column held p-values, converted on the way in.
+    ///
+    /// A threshold is given in the units the file is in, so a threshold for a
+    /// file of p-values is a p-value too and wants the same conversion.
+    pub p_values: bool,
+}
+
 /// Reads association statistics from a table.
+///
+/// The points of [`association_table`], which says what the value column held
+/// as well.
+pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, ReadError> {
+    association_table(text, region).map(|table| table.points)
+}
+
+/// Reads association statistics from a table, and says whether they were
+/// p-values.
 ///
 /// Two or three columns: a position, a value, and optionally a sequence name
 /// in front of them. A header line naming the columns is allowed and skipped.
 /// Positions are 1-based, as every association tool writes them.
 ///
-/// The value is handed over as it is written, and the track draws it as given,
-/// higher meaning stronger, so a scan is written as `-log10(p)` or another
-/// score that grows with the evidence. A column of raw p-values would put the
-/// strongest hits at the bottom; [`Association::from_p_value`] converts one.
-pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, ReadError> {
-    let mut points = Vec::new();
+/// A scan is drawn higher meaning stronger, so what comes back is a statistic
+/// that grows with the evidence. The header says what the value column holds:
+/// a column named as p-values are, `P`, `p_wald`, `P_BOLT_LMM`, `p.value`,
+/// `P-value`, or a q-value or FDR column, is converted to `-log10` with
+/// [`Association::from_p_value`], and anything else is drawn as written, a
+/// `-log10(p)` or `LOG10P` column included. Every tool that writes a p-value
+/// column names it one of these ways.
+///
+/// # Errors
+///
+/// The line that does not read: a position that is not one, a value that is
+/// not a number, a table that is not two or three columns wide, or, in a
+/// column of p-values, a value outside nought to one. And the whole file when
+/// it has no header and every value in it lies between nought and one: that is
+/// how a column of p-values looks, and drawn as written it put the strongest
+/// hit at the bottom of the figure and exited nought, while nothing in the
+/// file can say whether it was one.
+pub fn association_table(text: &str, region: &Region) -> Result<Associations, ReadError> {
+    let mut points: Vec<(u64, f64, usize)> = Vec::new();
     let mut first = true;
+    let mut named: Option<&str> = None;
+    // Whether every value in the file, read or not, lies between nought and
+    // one, which is what decides a table with no header.
+    let mut stated = false;
+    let mut probabilities = true;
     for (line, row) in lines(text) {
         let fields = columns(row);
         let (sequence, at, value) = match fields.as_slice() {
@@ -136,7 +176,18 @@ pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, Rea
         if first {
             first = false;
             if at.parse::<u64>().is_err() {
+                named = Some(value.trim());
                 continue;
+            }
+        }
+
+        // Every row counts here, on any sequence and in any window, and read
+        // leniently: a row this figure does not draw is not otherwise parsed,
+        // and a scan whose peaks are all on another chromosome is still a scan.
+        if let Ok(number) = value.trim().parse::<f64>() {
+            if number.is_finite() {
+                stated = true;
+                probabilities &= (0.0..=1.0).contains(&number);
             }
         }
 
@@ -149,9 +200,65 @@ pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, Rea
         if !region.contains(pos) {
             continue;
         }
-        points.push(Association::new(pos, number::<f64>(value, "value", line)?));
+        points.push((pos, number::<f64>(value, "value", line)?, line));
     }
-    Ok(points)
+
+    let p_values = match named {
+        Some(name) => names_p_values(name),
+        None if stated && probabilities => {
+            return Err(ReadError::whole(
+                "every value lies between 0 and 1, as p-values do, and the table has no \
+                 header to say whether they are; a scan is drawn as -log10(p), so name the \
+                 value column on a first line: P to have the values drawn as -log10(P), or \
+                 what they are, such as mlog10p, to draw them as written",
+            ))
+        }
+        None => false,
+    };
+
+    let mut converted = Vec::with_capacity(points.len());
+    for (pos, value, line) in points {
+        if !p_values {
+            converted.push(Association::new(pos, value));
+            continue;
+        }
+        if !(0.0..=1.0).contains(&value) {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "the value column is named as p-values are, and a p-value lies \
+                     between 0 and 1, not {value}; a column of -log10(p) is drawn as \
+                     written when its name says so, as mlog10p does"
+                ),
+            ));
+        }
+        converted.push(Association::from_p_value(pos, value));
+    }
+    Ok(Associations {
+        points: converted,
+        p_values,
+    })
+}
+
+/// Whether a column name says it holds p-values, or q-values, which a scan
+/// draws as `-log10` of themselves.
+///
+/// A name that mentions a logarithm has had it taken already, so `LOG10P`,
+/// `-log10(p)` and `mlog10p` are drawn as written.
+fn names_p_values(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("log") {
+        return false;
+    }
+    let squashed: String = lower.chars().filter(char::is_ascii_alphanumeric).collect();
+    matches!(
+        squashed.as_str(),
+        "p" | "pval" | "pvals" | "pvalue" | "pvalues" | "q" | "qval" | "qvalue" | "fdr" | "padj"
+    ) || lower.starts_with("p_")
+        || lower.starts_with("p.")
+        || lower.starts_with("p-")
+        || squashed.ends_with("pvalue")
+        || squashed.ends_with("pval")
 }
 
 /// A 1-based coordinate as the 0-based one the rest of the crate counts in.
@@ -457,7 +564,8 @@ pos\tp
             points[0].pos, 4_099,
             "position 4100 is 4099 counting from zero"
         );
-        assert_eq!(points[0].value, 3.2e-9);
+        // A column called p holds p-values, drawn as -log10 of themselves.
+        assert!((points[0].value - -(3.2e-9f64).log10()).abs() < 1e-12);
     }
 
     #[test]
@@ -482,7 +590,7 @@ Pf3D7_07_v3   4150  0.40
 
     #[test]
     fn a_table_with_no_header_reads_from_its_first_line() {
-        let text = "4100\t3.2e-9\n4150\t0.4\n";
+        let text = "4100\t8.5\n4150\t0.4\n";
         let region = Region::parse("Pf3D7_07_v3:4,000-4,200").unwrap();
         let points = associations(text, &region).unwrap();
         assert_eq!(points.len(), 2);
@@ -507,7 +615,7 @@ Pf3D7_07_v3\t4150\t0.4
 
     #[test]
     fn points_outside_the_window_are_left_out() {
-        let text = "10\t0.5\n4100\t3.2e-9\n900000\t0.2\n";
+        let text = "10\t0.5\n4100\t8.5\n900000\t0.2\n";
         let region = Region::parse("Pf3D7_07_v3:4,000-4,200").unwrap();
         let points = associations(text, &region).unwrap();
         assert_eq!(points.len(), 1);
@@ -534,6 +642,90 @@ locus\t0.4
         let error = associations(text, &region).unwrap_err();
         assert_eq!(error.line, 2);
         assert!(error.to_string().contains("value"), "{error}");
+    }
+
+    /// The column's name says what it holds, and every tool that writes
+    /// p-values names the column one of these ways. Drawn as written, a
+    /// column of them put the strongest hit on the floor of the scan and the
+    /// weakest at the top, and the command exited nought.
+    #[test]
+    fn a_column_named_as_p_values_are_is_drawn_as_minus_log10() {
+        let region = Region::parse("chr1:1-1000").unwrap();
+        for name in [
+            "P",
+            "p",
+            "p_wald",
+            "P_BOLT_LMM",
+            "p.value",
+            "P-value",
+            "PVAL",
+            "frequentist_add_pvalue",
+            "FDR",
+            "q",
+            "padj",
+        ] {
+            let text = format!("chr\tpos\t{name}\nchr1\t100\t1e-8\nchr1\t200\t0.5\n");
+            let table = association_table(&text, &region).unwrap();
+            assert!(table.p_values, "{name} is a p-value column");
+            let values: Vec<f64> = table.points.iter().map(|point| point.value).collect();
+            assert!((values[0] - 8.0).abs() < 1e-12, "{name}: {values:?}");
+            assert!(values[0] > values[1], "{name}: the strong hit is lower");
+        }
+    }
+
+    #[test]
+    fn a_column_named_as_anything_else_is_drawn_as_written() {
+        let region = Region::parse("chr1:1-1000").unwrap();
+        // The last three are named after a p-value and hold its logarithm,
+        // which is why a name mentioning one is read as written first.
+        for name in [
+            "LOG10P",
+            "-log10(p)",
+            "mlog10p",
+            "neglog10p",
+            "score",
+            "PIP",
+            "pos_prob",
+            "log10_pvalue",
+            "-log10(pval)",
+            "P_log10",
+        ] {
+            let text = format!("chr\tpos\t{name}\nchr1\t100\t0.9\nchr1\t200\t0.2\n");
+            let table = association_table(&text, &region).unwrap();
+            assert!(!table.p_values, "{name} is not a p-value column");
+            let values: Vec<f64> = table.points.iter().map(|point| point.value).collect();
+            assert_eq!(values, [0.9, 0.2], "{name}");
+        }
+    }
+
+    #[test]
+    fn a_p_value_outside_nought_to_one_is_refused_on_its_line() {
+        // A column named P that holds -log10 values: converting 8.49 would
+        // draw a point below the floor.
+        let text = "pos\tP\n100\t0.3\n200\t8.49\n";
+        let region = Region::parse("chr1:1-1000").unwrap();
+        let error = association_table(text, &region).unwrap_err();
+        assert_eq!(error.line, 3);
+        assert!(error.to_string().contains("between 0 and 1"), "{error}");
+    }
+
+    #[test]
+    fn a_table_with_no_header_and_only_values_under_one_is_refused() {
+        // Nothing in the file says whether these are p-values, and they look
+        // like them. Drawn as written, the strongest hit was the lowest.
+        let region = Region::parse("chr1:1-1000").unwrap();
+        let error = association_table("chr1\t100\t1e-8\nchr1\t200\t0.5\n", &region).unwrap_err();
+        assert_eq!(error.line, 0, "the whole file, not one line");
+        assert!(
+            error.to_string().contains("P to have the values drawn"),
+            "{error}"
+        );
+        // One value above one anywhere in the file, even on a sequence this
+        // figure does not draw, and it is a statistic to draw as written.
+        let text = "chr1\t100\t0.9\nchr1\t200\t0.5\nchr2\t300\t12.5\n";
+        let table = association_table(text, &region).unwrap();
+        assert!(!table.p_values);
+        assert_eq!(table.points.len(), 2);
     }
 
     #[test]

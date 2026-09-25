@@ -986,8 +986,9 @@ pub struct TrackSpec {
     /// `--no-names`, which leaves out the names a track writes beside or on
     /// what it draws. Not the track's own name, which is `--label`.
     pub no_names: bool,
-    /// `--threshold`, the line a scan is read against.
-    pub threshold: Option<f64>,
+    /// `--threshold`, the line a scan is read against, or the least support
+    /// a phylogeny shows.
+    pub threshold: Option<Threshold>,
     /// `--compare-to`, the row every other row is read against.
     pub compare_to: Option<String>,
     /// `--projection`, the shape a phylogeny is laid out in.
@@ -1070,6 +1071,31 @@ impl TrackSpec {
             sample: None,
             traits: None,
             columns: None,
+        }
+    }
+}
+
+/// `--threshold`, as it was asked for.
+///
+/// Kept apart rather than turned into a number here, because what a number
+/// means depends on the file: in the units the file is in, so for a scan read
+/// from p-values it is a p-value, and the line is drawn at `-log10` of it. The
+/// convention asked for by name is already on the scale the scan is drawn on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Threshold {
+    /// A number, as it was written.
+    At(f64),
+    /// `genome-wide`: `-log10(5e-8)`, about 7.3.
+    GenomeWide,
+}
+
+impl Threshold {
+    /// The line on the scale a scan is drawn on: `-log10(5e-8)` for the
+    /// convention, and a number as it was written.
+    pub fn drawn(self) -> f64 {
+        match self {
+            Threshold::At(value) => value,
+            Threshold::GenomeWide => -(5e-8f64).log10(),
         }
     }
 }
@@ -1313,10 +1339,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 // Bonferroni correction for a million tests is the wrong
                 // number wherever a million tests were not run.
                 let value = if text == "genome-wide" {
-                    -(5e-8f64).log10()
+                    Threshold::GenomeWide
                 } else {
                     match text.parse::<f64>() {
-                        Ok(number) if number.is_finite() => number,
+                        Ok(number) if number.is_finite() => Threshold::At(number),
                         _ => {
                             return Err(ArgError::BadValue {
                                 flag: "--threshold",
@@ -1331,6 +1357,16 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     return Err(ArgError::WrongTrack {
                         flag: "--threshold",
                         track: track.kind.flag(),
+                    });
+                }
+                // The convention is a line on a scan. On a phylogeny it was
+                // 7.3 read as a support value, which hid every value on a tree
+                // whose support runs to one.
+                if value == Threshold::GenomeWide && track.kind != Kind::Manhattan {
+                    return Err(ArgError::BadValue {
+                        flag: "--threshold",
+                        given: text.clone(),
+                        expected: "a support value on a phylogeny, as in 0.7",
                     });
                 }
                 track.threshold = Some(value);
@@ -2244,14 +2280,21 @@ mod tests {
     #[test]
     fn a_threshold_is_a_number_or_the_convention_by_name() {
         let it = draw("chr1:1-1000 --manhattan a.tsv --threshold 5.5");
-        assert_eq!(it.tracks[0].threshold, Some(5.5));
+        assert_eq!(it.tracks[0].threshold, Some(Threshold::At(5.5)));
 
         // The word is worth having only if it is the number the field means by
         // it, so this pins the number and not just that a word was accepted.
         let named = draw("chr1:1-1000 --manhattan a.tsv --threshold genome-wide");
-        let wanted = -(5e-8f64).log10();
-        assert!((named.tracks[0].threshold.unwrap() - wanted).abs() < 1e-12);
+        assert_eq!(named.tracks[0].threshold, Some(Threshold::GenomeWide));
+        let wanted = Threshold::GenomeWide.drawn();
         assert!((wanted - 7.301_029_995_663_981).abs() < 1e-9);
+        // And on a phylogeny, where a threshold is a support value, the
+        // convention for a scan is refused rather than read as 7.3.
+        let error = parse(&args("--tree t.nwk --threshold genome-wide")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::BadValue { flag, .. } if flag == "--threshold"),
+            "{error:?}"
+        );
 
         assert_eq!(
             draw("chr1:1-1000 --manhattan a.tsv").tracks[0].threshold,
@@ -3217,7 +3260,7 @@ mod tests {
         ));
         assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
         assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
-        assert_eq!(it.tracks[0].threshold, Some(0.9));
+        assert_eq!(it.tracks[0].threshold, Some(Threshold::At(0.9)));
         assert!(it.tracks[0].scale_bar);
 
         for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {

@@ -413,6 +413,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--manhattan` reads a column of p-values as one. A table headed `P`,
+  `pvalue`, `p.value`, `p_wald`, `P_BOLT_LMM` or another name every
+  association tool writes, or a q-value or `FDR` column, is drawn as `-log10`
+  of itself with the axis saying so, where it was drawn as written: the
+  strongest hit sat on the floor of the scan, the null at the top, and the
+  command exited nought. `--threshold` is then a p-value as well, since it is
+  given in the file's units, so `5e-8` draws the line `genome-wide` does and
+  `7.3` is refused. A table with no header whose every value lies between 0 and
+  1 is refused, asking for a header, since nothing in it says whether it holds
+  p-values; a name mentioning a logarithm is drawn as written. `genome-wide` is
+  refused on a phylogeny, where it was read as a support value of 7.3.
+  `read::point::association_table` returns the points and what they were.
 - A FASTA record cut out by `samtools faidx`, headed `>chr1:101-160`, is read
   where its header puts it. It was read from base 1, so a window on exactly the
   bases it held drew an empty band, and any other window drew the wrong bases,
