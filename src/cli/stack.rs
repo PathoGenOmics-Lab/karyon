@@ -21,6 +21,7 @@
 use std::fmt;
 use std::fs;
 use std::io::{self, Read as _};
+use std::path::Path;
 
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
@@ -107,6 +108,17 @@ pub enum BuildError {
         last: u64,
         /// The locus that was asked for.
         region: String,
+    },
+    /// A file that is not text, with the command that writes the text.
+    NotText {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// What its first bytes say it is.
+        binary: Binary,
+        /// The command to write in place of its name, where there is a name.
+        instead: Option<String>,
     },
     /// A threshold given as a number no p-value can be, for a scan whose file
     /// held p-values.
@@ -246,6 +258,23 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::NotText {
+                track,
+                path,
+                binary,
+                instead,
+            } => match instead {
+                Some(command) => write!(
+                    f,
+                    "--{track} {path}: {binary}; write <({command}) where its name is, \
+                     or turn it into text first"
+                ),
+                None => write!(
+                    f,
+                    "--{track} {path}: {binary}; pipe it through the tool that writes \
+                     it as text first"
+                ),
+            },
             BuildError::NotAPValue { track, path, given } => write!(
                 f,
                 "--{track} {path} holds p-values, so --threshold is a p-value too, between 0 \
@@ -400,7 +429,18 @@ pub fn build_with(
             plot = axis.done();
             continue;
         }
-        plot = plot.add_boxed(track(spec, region, &mut open, &mut parsed)?);
+        let built = match track(spec, region, &mut open, &mut parsed) {
+            Ok(built) => built,
+            Err(error) => {
+                return Err(explained(
+                    error,
+                    spec,
+                    invocation.region.as_ref(),
+                    &mut open,
+                ))
+            }
+        };
+        plot = plot.add_boxed(built);
     }
     Ok(plot.to_svg())
 }
@@ -580,13 +620,309 @@ fn shortened(path: &str) -> &str {
 /// thing in the crate that reads a path. A caller with no filesystem, which is
 /// every caller in a browser, passes its own closure instead.
 pub fn open_from_disk(source: &Source) -> io::Result<String> {
-    match source {
-        Source::Path(path) => fs::read_to_string(path),
+    let (bytes, path) = match source {
+        Source::Path(path) => (fs::read(path)?, Some(path.as_path())),
         Source::Stdin => {
-            let mut text = String::new();
-            io::stdin().read_to_string(&mut text)?;
-            Ok(text)
+            let mut bytes = Vec::new();
+            io::stdin().read_to_end(&mut bytes)?;
+            (bytes, None)
         }
+    };
+    String::from_utf8(bytes).map_err(|error| {
+        // What a genomics file is when it is not text is nearly always one of
+        // a few formats, and naming it is what turns "stream did not contain
+        // valid UTF-8" into the command that reads it.
+        match Binary::of(error.as_bytes(), path) {
+            Some(binary) => io::Error::new(io::ErrorKind::InvalidData, binary),
+            None => io::Error::new(io::ErrorKind::InvalidData, error),
+        }
+    })
+}
+
+/// A file that is not text, by the format its first bytes say it is.
+///
+/// Carried inside the [`io::Error`] [`open_from_disk`] returns, so that
+/// [`build`] can turn it into a message naming the tool that reads it, and a
+/// caller opening files some other way is not obliged to know about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Binary {
+    /// gzip or bgzip, and not BAM or BCF by its name.
+    Gzip,
+    /// bzip2.
+    Bzip2,
+    /// xz.
+    Xz,
+    /// Zstandard.
+    Zstd,
+    /// BAM, which is bgzip by its bytes and BAM by its name.
+    Bam,
+    /// CRAM.
+    Cram,
+    /// BCF, which is bgzip by its bytes and BCF by its name.
+    Bcf,
+    /// bigWig.
+    BigWig,
+    /// bigBed.
+    BigBed,
+    /// UCSC's 2bit.
+    TwoBit,
+}
+
+impl Binary {
+    /// The format a file's first bytes, and for bgzip its name, say it is.
+    pub fn of(bytes: &[u8], path: Option<&Path>) -> Option<Binary> {
+        let named = |ending: &str| {
+            path.and_then(|path| path.extension())
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case(ending))
+        };
+        let magic = |mark: &[u8]| bytes.starts_with(mark);
+        // The UCSC formats write a four byte number in the machine's order, so
+        // either order is the format.
+        let either = |mark: [u8; 4]| {
+            let mut turned = mark;
+            turned.reverse();
+            magic(&mark) || magic(&turned)
+        };
+        Some(if magic(&[0x1f, 0x8b]) {
+            if named("bam") {
+                Binary::Bam
+            } else if named("bcf") {
+                Binary::Bcf
+            } else {
+                Binary::Gzip
+            }
+        } else if magic(b"CRAM") {
+            Binary::Cram
+        } else if magic(b"BZh") {
+            Binary::Bzip2
+        } else if magic(&[0xfd, b'7', b'z', b'X', b'Z', 0x00]) {
+            Binary::Xz
+        } else if magic(&[0x28, 0xb5, 0x2f, 0xfd]) {
+            Binary::Zstd
+        } else if either([0x26, 0xfc, 0x8f, 0x88]) {
+            Binary::BigWig
+        } else if either([0xeb, 0xf2, 0x89, 0x87]) {
+            Binary::BigBed
+        } else if either([0x43, 0x27, 0x41, 0x1a]) {
+            Binary::TwoBit
+        } else {
+            return None;
+        })
+    }
+
+    /// What the format is called, as a sentence would say it.
+    fn called(self) -> &'static str {
+        match self {
+            Binary::Gzip => "compressed with gzip",
+            Binary::Bzip2 => "compressed with bzip2",
+            Binary::Xz => "compressed with xz",
+            Binary::Zstd => "compressed with zstd",
+            Binary::Bam => "BAM",
+            Binary::Cram => "CRAM",
+            Binary::Bcf => "BCF",
+            Binary::BigWig => "bigWig",
+            Binary::BigBed => "bigBed",
+            Binary::TwoBit => "2bit",
+        }
+    }
+
+    /// The command that writes the text a `kind` track reads out of `path`,
+    /// cut to the window where the tool can do that.
+    fn reader(self, kind: Kind, path: &str, region: Option<&Region>) -> String {
+        let window = region.map(|region| region.to_string());
+        let near = |region: &Region| {
+            format!(
+                "-chrom={} -start={} -end={}",
+                region.seq(),
+                region.start(),
+                region.end()
+            )
+        };
+        match self {
+            Binary::Gzip => format!("gzip -dc {path}"),
+            Binary::Bzip2 => format!("bzip2 -dc {path}"),
+            Binary::Xz => format!("xz -dc {path}"),
+            Binary::Zstd => format!("zstd -dc {path}"),
+            Binary::Bam | Binary::Cram => match (kind, window) {
+                (Kind::Coverage, Some(window)) => format!("samtools depth -a -r {window} {path}"),
+                (Kind::Coverage, None) => format!("samtools depth -a {path}"),
+                (_, Some(window)) => format!("samtools view -h {path} {window}"),
+                (_, None) => format!("samtools view -h {path}"),
+            },
+            Binary::Bcf => format!("bcftools view {path}"),
+            Binary::BigWig => match region {
+                Some(region) => format!("bigWigToBedGraph {} {path} /dev/stdout", near(region)),
+                None => format!("bigWigToBedGraph {path} /dev/stdout"),
+            },
+            Binary::BigBed => match region {
+                Some(region) => format!("bigBedToBed {} {path} /dev/stdout", near(region)),
+                None => format!("bigBedToBed {path} /dev/stdout"),
+            },
+            Binary::TwoBit => match region {
+                Some(region) => format!("twoBitToFa -seq={} {path} /dev/stdout", region.seq()),
+                None => format!("twoBitToFa {path} /dev/stdout"),
+            },
+        }
+    }
+}
+
+impl fmt::Display for Binary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the file is {}, and karyon reads text", self.called())
+    }
+}
+
+impl std::error::Error for Binary {}
+
+/// A refusal made plainer where the program can see what went wrong.
+///
+/// The two a first attempt meets most. A file that is not text failed with
+/// "stream did not contain valid UTF-8", which says nothing about what the
+/// file is or what reads it; it now names the format and the command to write
+/// in place of the file's name. And a window that held nothing said only that,
+/// though the usual reason is a file that names its sequences `1` where the
+/// region says `chr1`; it now says what the file does hold, and where.
+fn explained(
+    error: BuildError,
+    spec: &TrackSpec,
+    region: Option<&Region>,
+    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+) -> BuildError {
+    match error {
+        BuildError::Open { track, path, cause } => {
+            let binary = cause
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<Binary>())
+                .copied();
+            match binary {
+                Some(binary) => {
+                    // A pipe has no name to write a command in place of.
+                    let instead = matches!(spec.source, Some(Source::Path(_)))
+                        .then(|| binary.reader(spec.kind, &path, region));
+                    BuildError::NotText {
+                        track,
+                        path,
+                        binary,
+                        instead,
+                    }
+                }
+                None => BuildError::Open { track, path, cause },
+            }
+        }
+        BuildError::Empty {
+            track,
+            path,
+            wanted,
+        } => {
+            // Read again, and only here: a pipe cannot be, and a figure that
+            // drew has no need to know.
+            let held = match (region, spec.source.as_ref(), sequence_column(spec.kind)) {
+                (Some(_), Some(source @ Source::Path(_)), Some(column)) => open(source)
+                    .map(|text| sequences_named(&text, column))
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            match region {
+                Some(region) if !held.is_empty() => BuildError::Elsewhere {
+                    track,
+                    path,
+                    wanted,
+                    held: held.iter().map(|(_, count)| count).sum(),
+                    named: listed(&held),
+                    region: region.to_string(),
+                },
+                _ => BuildError::Empty {
+                    track,
+                    path,
+                    wanted,
+                },
+            }
+        }
+        other => other,
+    }
+}
+
+/// Where a track's file writes the sequence a row is on.
+struct SequenceColumn {
+    /// The column holding the sequence's name.
+    name: usize,
+    /// Columns one of which holds a position, which is what tells a row from
+    /// a header: a header has a word there.
+    position: &'static [usize],
+    /// The fewest columns a row has.
+    width: usize,
+}
+
+/// The column each format keeps its sequence in, for the tracks that read
+/// one.
+fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
+    let at = |name: usize, position: &'static [usize], width: usize| SequenceColumn {
+        name,
+        position,
+        width,
+    };
+    Some(match kind {
+        Kind::Coverage
+        | Kind::Windows
+        | Kind::Dynseq
+        | Kind::Junctions
+        | Kind::Methylation
+        | Kind::Variants
+        | Kind::Structural
+        | Kind::Ideogram
+        | Kind::CopyNumber => at(0, &[1], 2),
+        // BED puts the start in column two and GFF3 in column four.
+        Kind::Features => at(0, &[1, 3], 3),
+        Kind::Clades => at(0, &[3], 4),
+        // A table of two columns is a position and a value, and names none.
+        Kind::Manhattan => at(0, &[1], 3),
+        Kind::Pileup | Kind::SplitReads | Kind::Bisulfite => at(2, &[3], 4),
+        Kind::Domains => at(0, &[6], 7),
+        _ => return None,
+    })
+}
+
+/// The sequences a file's rows are on, each once with how many rows it has,
+/// in the order the file first names them.
+fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
+    let mut held: Vec<(String, usize)> = Vec::new();
+    for (_, line) in read::lines(text) {
+        let cols = read::columns(line);
+        let placed = column.position.iter().any(|at| {
+            cols.get(*at)
+                .is_some_and(|field| field.trim().parse::<u64>().is_ok())
+        });
+        if cols.len() < column.width || !placed {
+            continue;
+        }
+        let name = cols[column.name].trim();
+        match held.iter_mut().find(|(seen, _)| seen == name) {
+            Some((_, count)) => *count += 1,
+            None => held.push((name.to_string(), 1)),
+        }
+    }
+    held
+}
+
+/// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
+/// five, how many more.
+fn listed(held: &[(String, usize)]) -> String {
+    const SHOWN: usize = 5;
+    let names: Vec<&str> = held
+        .iter()
+        .take(SHOWN)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let rest = held.len().saturating_sub(SHOWN);
+    match (names.as_slice(), rest) {
+        ([one], 0) => (*one).to_string(),
+        (many, 0) => format!(
+            "{} and {}",
+            many[..many.len() - 1].join(", "),
+            many[many.len() - 1]
+        ),
+        (many, rest) => format!("{} and {rest} more sequences", many.join(", ")),
     }
 }
 
@@ -3211,6 +3547,144 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 .to_string()
                 .contains("holds p-values, so --threshold is a p-value too"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_text_is_known_by_its_first_bytes() {
+        let path = |name: &str| Some(Path::new(name).to_path_buf());
+        let of = |bytes: &[u8], name: &str| Binary::of(bytes, path(name).as_deref());
+        let gzip = [0x1f, 0x8b, 0x08, 0x04];
+        assert_eq!(of(&gzip, "calls.vcf.gz"), Some(Binary::Gzip));
+        assert_eq!(of(&gzip, "reads.BAM"), Some(Binary::Bam));
+        assert_eq!(of(&gzip, "calls.bcf"), Some(Binary::Bcf));
+        assert_eq!(of(b"CRAM\x03\x01", "reads.cram"), Some(Binary::Cram));
+        assert_eq!(of(b"BZh91AY", "a.bz2"), Some(Binary::Bzip2));
+        assert_eq!(
+            of(&[0xfd, b'7', b'z', b'X', b'Z', 0], "a.xz"),
+            Some(Binary::Xz)
+        );
+        assert_eq!(of(&[0x28, 0xb5, 0x2f, 0xfd], "a.zst"), Some(Binary::Zstd));
+        // The UCSC formats in either byte order.
+        assert_eq!(of(&[0x26, 0xfc, 0x8f, 0x88], "d.bw"), Some(Binary::BigWig));
+        assert_eq!(of(&[0x88, 0x8f, 0xfc, 0x26], "d.bw"), Some(Binary::BigWig));
+        assert_eq!(of(&[0xeb, 0xf2, 0x89, 0x87], "f.bb"), Some(Binary::BigBed));
+        assert_eq!(
+            of(&[0x43, 0x27, 0x41, 0x1a], "g.2bit"),
+            Some(Binary::TwoBit)
+        );
+        // Text that is not UTF-8 is not a format.
+        assert_eq!(of(&[b'c', b'h', b'r', 0xff], "a.bed"), None);
+    }
+
+    /// "stream did not contain valid UTF-8" was the whole of what a first try
+    /// with a compressed VCF or a BAM was told.
+    #[test]
+    fn a_file_that_is_not_text_is_answered_with_the_command_that_reads_it() {
+        let line = |text: &str| -> Invocation {
+            let args: Vec<String> = text.split_whitespace().map(String::from).collect();
+            match parse(&args).unwrap() {
+                Request::Draw(invocation) => *invocation,
+                other => panic!("expected a figure, got {other:?}"),
+            }
+        };
+        for (command, binary, wanted) in [
+            (
+                "chr1:1-5000 --variants calls.vcf.gz",
+                Binary::Gzip,
+                "<(gzip -dc calls.vcf.gz)",
+            ),
+            (
+                "chr1:1-5000 --pileup reads.bam",
+                Binary::Bam,
+                "<(samtools view -h reads.bam chr1:1-5000)",
+            ),
+            (
+                "chr1:1-5000 --coverage reads.bam",
+                Binary::Bam,
+                "<(samtools depth -a -r chr1:1-5000 reads.bam)",
+            ),
+            (
+                "chr1:1-5000 --variants calls.bcf",
+                Binary::Bcf,
+                "<(bcftools view calls.bcf)",
+            ),
+            (
+                "chr1:1-5000 --coverage depth.bw",
+                Binary::BigWig,
+                "<(bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout)",
+            ),
+        ] {
+            let error = build(&line(command), |_| {
+                Err(io::Error::new(io::ErrorKind::InvalidData, binary))
+            })
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(wanted), "{command}: {error}");
+            assert!(error.contains("karyon reads text"), "{error}");
+        }
+        // A pipe has no name to write a command in place of.
+        let error = build(&line("chr1:1-5000 --pileup -"), |_| {
+            Err(io::Error::new(io::ErrorKind::InvalidData, Binary::Bam))
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("pipe it through the tool"), "{error}");
+    }
+
+    /// The usual reason a window holds nothing is a file that names its
+    /// sequences one way and a region that names them another.
+    #[test]
+    fn a_window_that_holds_nothing_says_what_the_file_holds_and_where() {
+        const VCF: &str = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG\t.\t.\t.
+chr1\t200\t.\tA\tG\t.\t.\t.
+chr2\t300\t.\tA\tG\t.\t.\t.
+";
+        let error = build(&over("1:1-5000", "--variants", "calls.vcf"), |_| {
+            Ok(VCF.to_string())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "--variants calls.vcf: no variants in 1:1-5000, though the file holds 3 on chr1 and chr2"
+        );
+        // A header is not a sequence: a bedGraph's column two says which rows
+        // are rows.
+        let bedgraph = "chrom\tstart\tend\tvalue\n1\t0\t10\t5\n";
+        let error = build(&over("chr1:1-5000", "--coverage", "d.bg"), |_| {
+            Ok(bedgraph.to_string())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.ends_with("though the file holds 1 on 1"), "{error}");
+        // Read from a pipe, there is nothing to read twice.
+        let error = build(
+            &over("1:1-5000", "--variants", "-"),
+            |_| Ok(VCF.to_string()),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "--variants standard input: no variants in the region"
+        );
+    }
+
+    #[test]
+    fn a_list_of_sequences_reads_as_a_sentence() {
+        let held = |names: &[&str]| -> Vec<(String, usize)> {
+            names.iter().map(|name| ((*name).to_string(), 1)).collect()
+        };
+        assert_eq!(listed(&held(&["chr1"])), "chr1");
+        assert_eq!(listed(&held(&["1", "2"])), "1 and 2");
+        assert_eq!(listed(&held(&["1", "2", "3"])), "1, 2 and 3");
+        assert_eq!(
+            listed(&held(&["1", "2", "3", "4", "5", "6", "7"])),
+            "1, 2, 3, 4, 5 and 2 more sequences"
         );
     }
 
