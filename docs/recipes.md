@@ -641,7 +641,8 @@ grammar on one screen, and [Command line](guide/cli.md) is the long form.
 Render one stack twice, once for a paper and once for a dark slide.
 
 <figure class="k-plate" markdown>
-![The locus figure drawn on a dark page, with the depth profile, reference, annotation and variants in colours chosen for it](assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
+![The locus figure, with the depth profile, reference, annotation and variants](assets/figures/example.svg){ width="900" height="305" loading="lazy" }
+<figcaption>Drawn in this page's theme: switch the page between light and dark with the button at the top to see both.</figcaption>
 </figure>
 
 === "Rust"

@@ -1264,42 +1264,30 @@ body {
 
 /* --------------------------------------------------------------------------
    Live figures: every committed figure, drawn by the program in the page
-   (assets/karyon-figures.js). The plate is the figure's own page, so a
-   figure drawn dark sits on a dark plate and one drawn light on a white one.
+   (assets/karyon-figures.js) on exactly what is behind it. No card and no
+   frame: the figure is part of the page, in the page's light or dark.
    Written without the `.md-typeset` scope, because the larger view is a
    dialog outside the article.
    -------------------------------------------------------------------------- */
 
-:root {
-  --k-fig-light: #ffffff;
-  --k-fig-dark: #120b2b;
-}
-
 .k-fig {
-  --k-fig-ground: var(--k-fig-light);
+  --k-fig-ground: var(--md-default-bg-color);
   position: relative;
   display: block;
   margin: 0;
-  padding: 0.8rem;
-  border-radius: var(--k-radius);
-  background: var(--k-fig-ground);
-  box-shadow: var(--k-plate-edge), var(--k-glow);
+  padding: 0;
+  border-radius: var(--k-radius-small);
+  background: transparent;
   outline: none;
-  transition: box-shadow 0.18s;
-}
-
-[data-md-color-scheme="slate"] .k-fig {
-  --k-fig-ground: var(--k-fig-dark);
 }
 
 .k-fig:focus-visible {
-  box-shadow: 0 0 0 2px var(--md-accent-fg-color), var(--k-glow);
+  box-shadow: 0 0 0 2px var(--md-accent-fg-color);
 }
 
 .k-fig__stage {
   position: relative;
   overflow: hidden;
-  border-radius: calc(var(--k-radius) - 0.35rem);
   /* A vertical swipe still scrolls the page; a sideways one or a pinch is
      the figure's. */
   touch-action: pan-y;
@@ -1323,10 +1311,38 @@ body {
   box-shadow: none;
 }
 
-/* On a dark page the file under a figure is a white rectangle, so it is held
-   back while the program draws, and shown after all if it never does. */
-[data-md-color-scheme="slate"] .k-fig[data-state="waiting"] .k-fig__stage > img {
+/* The file under a figure is drawn light on white, which is neither this
+   page's colour nor, at night, its mode, so it is held back while the
+   program draws and shown only if the program never arrives. Its room is
+   kept, so nothing moves when the figure appears, and it breathes a little
+   meanwhile so the gap does not read as nothing. */
+.k-fig[data-state="waiting"] .k-fig__stage > img {
   visibility: hidden;
+}
+
+.k-fig[data-state="waiting"] .k-fig__stage {
+  border-radius: var(--k-radius-small);
+  background: color-mix(in srgb, var(--md-default-fg-color) 5%, transparent);
+  animation: k-fig-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes k-fig-breathe {
+  50% {
+    background: color-mix(in srgb, var(--md-default-fg-color) 9%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k-fig[data-state="waiting"] .k-fig__stage {
+    animation: none;
+  }
+}
+
+/* The program never came: the file, on the white it was written on. */
+.k-fig[data-state="static"] .k-fig__stage > img {
+  padding: 0.8rem;
+  border-radius: var(--k-radius);
+  background: #ffffff;
 }
 
 .k-fig--moves .k-fig__stage,
@@ -1343,9 +1359,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.15rem;
-  margin-top: 0.55rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid color-mix(in srgb, var(--k-fig-ground) 80%, #8e82c4);
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid color-mix(in srgb, var(--k-fig-ground) 84%, #8e82c4);
   opacity: 0.62;
   transition: opacity 0.16s;
 }
@@ -1438,7 +1454,7 @@ body {
 }
 
 .k-fig-dialog .k-fig {
-  box-shadow: var(--k-plate-edge);
+  box-shadow: none;
 }
 
 /* A card's thumbnail: drawn in the page's colours, cropped to the card the
@@ -1460,6 +1476,17 @@ body {
   height: 100%;
 }
 
+/* The card is the ground a thumbnail is drawn on, so the link around it
+   paints nothing of its own. */
 .md-typeset .k-plots > ul > li > p:first-child a:has(.k-fig) {
-  background: var(--k-fig-ground, #ffffff);
+  background: transparent;
+}
+
+/* The two figures the command line draws in the page, the home page's and
+   the playground's, are drawn with their theme's own page under them. That
+   page is left out here, so they sit on the page they are in like every
+   other figure. It is the first rectangle the document paints. */
+.md-typeset .k-stage-plot > svg > rect:first-of-type,
+.pg-plot > svg > rect:first-of-type {
+  fill: transparent;
 }

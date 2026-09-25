@@ -67,9 +67,10 @@
 //! Only a stack of tracks has a width to change, and only one whose tracks lay
 //! their marks along a region has a window to move. A sheet, a circle, a map
 //! or a tree keeps its own and says nothing, so a page can ask every figure the
-//! same question. The two figures that exist to show one theme, the dark
-//! example and the sheet of the web profile, keep that theme the same way, and
-//! its page colour with it, whatever the page is running in. Which figure
+//! same question. The one figure that exists to show one theme, the dark
+//! example, keeps it the same way, and its page colour with it, whatever the
+//! page is running in; the site shows the light example in its place, drawn
+//! in the page's own theme like everything else. Which figure
 //! moves is what [`figures`] is for: it takes nothing, or an empty buffer, and
 //! answers with every figure there is and the window each one is drawn over,
 //! so a page knows which it can pan and zoom along the genome, and how far.
@@ -1276,9 +1277,9 @@ mod tests {
                     "{name}"
                 );
             }
-            // The two that exist to show one theme keep it, and every other
+            // The one that exists to show one theme keeps it, and every other
             // one is drawn in the page's.
-            let keeps = matches!(*name, "example-dark" | "example-visual-system");
+            let keeps = *name == "example-dark";
             assert_eq!(light == dark, keeps, "{name}: the theme asked for");
             if keeps {
                 continue;

@@ -106,7 +106,11 @@ impl AnnotationValue {
 /// The trait strips already spell an absent annotation this way, so a value
 /// that is not a number is spelled the same: both say there is nothing here to
 /// read, which is the only thing a reader can act on.
-pub const ABSENT: &str = "\u{2014}";
+///
+/// `n/a` rather than a dash, which in a column of numbers reads as a minus
+/// sign or a range, and rather than `NA`, which a column of places can hold as
+/// a value of its own: North America, or Namibia.
+pub const ABSENT: &str = "n/a";
 
 impl fmt::Display for AnnotationValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

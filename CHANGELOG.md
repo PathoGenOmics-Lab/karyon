@@ -8,6 +8,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The site's figures are part of the page rather than pictures laid on it: each
+  is drawn on exactly the colour behind it, the page or the card it sits in,
+  with no plate, frame or shadow, in the page's light or dark. None keeps a
+  theme of its own any more: the visual-system sheet takes the one it is given
+  like every other figure, and the pages that showed the dark example beside the
+  light one show one figure and say to switch the page to see the other. While
+  the program arrives a figure keeps its room and shows nothing rather than the
+  file, which is light on white, and the file shows only if the program never
+  does. The home page's and the playground's figures, which the command line
+  draws, leave their page transparent for the same reason.
+- An annotation with no value to show is marked `n/a`, where it was an em-dash:
+  in a trait strip, a ring and a tooltip, and wherever an annotation that is not
+  a number is written out. A dash in a column of numbers reads as a minus sign
+  or a range, and `NA` is a value a column of places can hold, North America or
+  Namibia. `example-phylogenetics.svg` and `example-phylo-layouts.svg` change in
+  those three cells, and no committed file holds an em-dash any more.
 - Every figure is drawn in a new visual system, the one karyon's mark and its
   site are drawn in. The palettes are indigo, pink, teal, ochre, plum and
   orange, measured so that the closest pair stays 10.7 apart in OKLab hundredths
