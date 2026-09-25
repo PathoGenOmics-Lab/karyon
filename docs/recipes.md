@@ -473,7 +473,7 @@ Plot::over(genome.region())
         track
             .bands(genome.boundaries())
             .genome_wide_threshold()
-            .unit(" -log10 p")
+            .axis_title("-log10 p")
     })
     .add_genome(genome)
     .label("contigs")

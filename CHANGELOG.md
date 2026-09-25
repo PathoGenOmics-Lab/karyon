@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- What a value axis measures is written under the track's name, `-log10 p`
+  under a scan and `AF` under the calls, where it was words after the top
+  tick: `10 -log10 p` read as ten minus something, and nothing named the
+  calls' axis at all. `Track::axis_title` says it, `ManhattanTrack` and
+  `VariantTrack` take one, and the command line sets both. A unit written as a
+  symbol, the `x` of `50x`, stays on the tick. All three simulated users read
+  the scan's axis wrong or asked what the calls' axis was.
+- The significance line says where it is: `p = 5e-8` for
+  `genome_wide_threshold`, `p = 1e-5` for the new `p_value_threshold(1e-5)`,
+  and the value itself for `threshold`, over the line, or under it where the
+  line runs along the top of the band. `threshold_label` says something else,
+  or nothing.
+- A VCF call with no `AF` has no value, where it had 1. It still stands full
+  height, but an axis beside it said it was a fraction of one, and a file with
+  no `AF` at all drew a scale of 0 to 1 that measured nothing.
+- Eight committed figures change with these: `example.svg`,
+  `example-dark.svg`, `example-zoom.svg`, `example-ideogram.svg`,
+  `example-pileup.svg`, `example-association.svg`, `example-genomewide.svg`
+  and `gallery.svg`.
+
 - `karyon --help` fits on one screen: three examples, the grammar, every track
   grouped by what it draws, the figure options, and where to ask for more. It printed the whole
   of the help, some two hundred lines, which `karyon help all` still does, and

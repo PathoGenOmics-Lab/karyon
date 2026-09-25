@@ -68,7 +68,7 @@ pub fn example_pileup(
             .value(fraction)
             .category("candidate SNV")])
         .label("call")
-        .adjust(|track| track.height(34.0))
+        .adjust(|track| track.height(34.0).axis_title("AF"))
         .add_sequence_at(START, reference.clone())
         .label("reference")
         .add_pileup(reads)

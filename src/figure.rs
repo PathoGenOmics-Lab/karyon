@@ -49,7 +49,9 @@ use std::path::Path;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{Density, RenderProfile};
-use crate::svg::{fit_text_by, mono_width, text_width_strong, Anchor, SvgWriter, TextStyle};
+use crate::svg::{
+    fit_text_by, mono_width, text_width, text_width_strong, Anchor, SvgWriter, TextStyle,
+};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Rect, Track};
 
@@ -510,6 +512,35 @@ impl Figure {
                 h: *height,
             };
 
+            // What the value axis measures goes under the name, a line of
+            // its own in the ticks' ink, so the name and the title read as one
+            // block centred on the band.
+            let title = track.axis_title().filter(|title| !title.is_empty());
+            let title_size = theme.font_size - 1.0;
+            let lift = match (track.label(), title) {
+                (Some(_), Some(_)) => (title_size + 3.0 * self.visual_scale) / 2.0,
+                _ => 0.0,
+            };
+            if let Some(title) = title {
+                let right = band.x - layout.axis_width - 10.0 * self.visual_scale;
+                let visible = fit_text_by(title, right - layout.margin_left, |text| {
+                    text_width(text, title_size)
+                });
+                let baseline = if track.label().is_some() {
+                    band.mid_y() + theme.label_font_size * 0.35 + lift
+                } else {
+                    band.mid_y() + title_size * 0.35
+                };
+                svg.text(
+                    right,
+                    baseline,
+                    &visible,
+                    &theme.muted,
+                    title_size,
+                    Anchor::End,
+                );
+            }
+
             if let Some(label) = track.label() {
                 // Labels sit to the left of the widest value axis, so a track
                 // with an axis and one without still line their names up, and
@@ -530,7 +561,7 @@ impl Figure {
                 });
                 svg.text_styled(
                     right,
-                    band.mid_y() + size * 0.35,
+                    band.mid_y() + size * 0.35 - lift,
                     &visible,
                     &theme.muted,
                     size,
@@ -619,7 +650,11 @@ impl Figure {
         };
         let header_baseline = margin_top + theme.title_font_size;
 
-        let gutter = if self.tracks.iter().any(|t| t.label().is_some()) {
+        let named = self
+            .tracks
+            .iter()
+            .any(|t| t.label().is_some() || t.axis_title().is_some());
+        let gutter = if named {
             self.label_width.map_or_else(
                 || self.automatic_label_width(theme),
                 |width| width * spacing,
@@ -684,12 +719,17 @@ impl Figure {
 
     /// Room for the widest label plus the quiet gap between labels and axes.
     fn automatic_label_width(&self, theme: &Theme) -> f64 {
-        let widest = self
+        let names = self
             .tracks
             .iter()
             .filter_map(|track| track.label())
-            .map(|label| label_width(label, theme.label_font_size))
-            .fold(0.0f64, f64::max);
+            .map(|label| label_width(label, theme.label_font_size));
+        let titles = self
+            .tracks
+            .iter()
+            .filter_map(|track| track.axis_title())
+            .map(|title| text_width(title, theme.font_size - 1.0));
+        let widest = names.chain(titles).fold(0.0f64, f64::max);
         (widest + 14.0 * self.visual_scale).clamp(
             MIN_AUTO_LABEL_WIDTH * self.visual_scale,
             MAX_AUTO_LABEL_WIDTH * self.visual_scale,
@@ -1279,6 +1319,59 @@ mod tests {
             crate::svg::num(theme.label_font_size)
         );
         assert!(svg.contains(&named), "{svg}");
+    }
+
+    /// A track that says what its axis measures has it written under its
+    /// name, the two lines centred on the band together, and a title alone
+    /// still has a gutter to go in.
+    #[test]
+    fn an_axis_title_goes_under_the_track_s_name() {
+        struct Titled(Option<&'static str>);
+        impl Track for Titled {
+            fn height(&self, _scale: &Scale) -> f64 {
+                60.0
+            }
+            fn label(&self) -> Option<&str> {
+                self.0
+            }
+            fn axis_title(&self) -> Option<&str> {
+                Some("-log10 p")
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let y_of = |svg: &str, text: &str| -> f64 {
+            let at = svg.find(&format!(">{text}<")).expect("the text");
+            let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+            let y = &tag[tag.find(" y=\"").unwrap() + 4..];
+            y[..y.find('"').unwrap()].parse().unwrap()
+        };
+        let both = Figure::new(region()).push(Titled(Some("scan"))).to_svg();
+        let (name, title) = (y_of(&both, "scan"), y_of(&both, "-log10 p"));
+        assert!(
+            title > name,
+            "the title at {title} is not under the name at {name}"
+        );
+        // Alone, the title takes the name's place, and the gutter is kept for it.
+        let alone = Figure::new(region()).push(Titled(None));
+        assert!(alone.layout().plot_x > Margin::default().left);
+        assert!(alone.to_svg().contains(">-log10 p<"));
+        // A title wider than any name widens the gutter to fit it.
+        struct Wide;
+        impl Track for Wide {
+            fn height(&self, _scale: &Scale) -> f64 {
+                40.0
+            }
+            fn label(&self) -> Option<&str> {
+                Some("a")
+            }
+            fn axis_title(&self) -> Option<&str> {
+                Some("a title a good deal wider than the name")
+            }
+            fn draw(&self, _ctx: &mut DrawContext<'_>) {}
+        }
+        let wide = Figure::new(region()).push(Wide);
+        let named = Figure::new(region()).push(Titled(Some("a")));
+        assert!(wide.layout().plot_x > named.layout().plot_x);
     }
 
     #[test]

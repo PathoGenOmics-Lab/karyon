@@ -1823,7 +1823,9 @@ fn track(
             if variants.is_empty() {
                 return Err(empty("variants"));
             }
-            let mut track = VariantTrack::new(variants);
+            // A stem is as tall as the allele fraction the VCF's AF gives, and
+            // the axis says so; a file with no AF draws no axis to title.
+            let mut track = VariantTrack::new(variants).axis_title("AF");
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -1859,13 +1861,12 @@ fn track(
             let mut track = ManhattanTrack::new(table.points);
             // Drawn as -log10, and the axis says so, since the file said p.
             if table.p_values {
-                track = track.unit(" -log10 p");
+                track = track.axis_title("-log10 p");
             }
+            // The line says where it is, as a p-value wherever it is one.
             match spec.threshold {
                 None => {}
-                Some(Threshold::GenomeWide) => {
-                    track = track.threshold(Threshold::GenomeWide.drawn());
-                }
+                Some(Threshold::GenomeWide) => track = track.genome_wide_threshold(),
                 // In the units the file is in, so a p-value where the file
                 // held p-values, drawn where its points are.
                 Some(Threshold::At(value)) if table.p_values => {
@@ -1876,7 +1877,7 @@ fn track(
                             given: value,
                         });
                     }
-                    track = track.threshold(-value.log10());
+                    track = track.p_value_threshold(value);
                 }
                 Some(Threshold::At(value)) => track = track.threshold(value),
             }
@@ -4274,6 +4275,12 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             draw("chr1:1-400 --manhattan gwas.tsv --threshold 5e-8").unwrap(),
             named
         );
+        // The line says the p-value it is at, and the axis's title is a line
+        // of its own rather than words after the top tick.
+        assert!(named.contains(">p = 5e-8</text>"), "{named}");
+        assert!(named.contains(">-log10 p</text>"), "{named}");
+        let own = draw("chr1:1-400 --manhattan gwas.tsv --threshold 1e-5").unwrap();
+        assert!(own.contains(">p = 1e-5</text>"), "{own}");
         // The number that was right for a file of -log10 values is no p-value.
         let error = draw("chr1:1-400 --manhattan gwas.tsv --threshold 7.3").unwrap_err();
         assert!(
@@ -4659,6 +4666,19 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
         let svg = drawn_from("1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap();
         assert_eq!(locus_of(&svg), "1:1-4800");
+    }
+
+    /// A stem's height is the AF the VCF gives, and the axis says so; with
+    /// no AF there is no axis, and nothing to title.
+    #[test]
+    fn the_calls_axis_is_titled_by_what_it_measures() {
+        let header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+        let with_af = format!("{header}chr1\t50\t.\tA\tG\t.\t.\tAF=0.4\n");
+        let svg = drawn_from("chr1:1-100 calls.vcf", &[("calls.vcf", &with_af)]).unwrap();
+        assert!(svg.contains(">AF</text>"), "{svg}");
+        let without = format!("{header}chr1\t50\t.\tA\tG\t.\t.\t.\n");
+        let svg = drawn_from("chr1:1-100 calls.vcf", &[("calls.vcf", &without)]).unwrap();
+        assert!(!svg.contains(">AF</text>"), "{svg}");
     }
 
     /// The names in a figure's gutter, top to bottom.

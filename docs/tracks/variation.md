@@ -58,6 +58,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | `.axis(QuantitativeAxis::new())` | Replaces the value axis | automatic |
 | `.show_legend(false)` | Shows or hides the category legend | shown |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
+| `.axis_title("AF")` | What the stems measure, under the track's name while the axis is drawn (set by the command line) | none |
 | `.color("#555555")` | Colour of variants without a category | theme accent |
 
 #### Notes
@@ -68,7 +69,7 @@ A variant with no value gets a full-height stem, which is right when there is no
 
 Lollipops read well up to a few hundred calls; past that the heads smear, and `Tick` is the answer. Ticks carry no tooltip, since a mark nobody can isolate is not worth naming.
 
-From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call per allele, and a call with no `AF` gets a value of 1. Rows without an alternate allele, most of a gVCF, are skipped.
+From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call per allele, and a call with no `AF` has no value, and stands full height. Rows without an alternate allele, most of a gVCF, are skipped.
 
 ## StructuralTrack { #structuraltrack }
 
@@ -359,7 +360,7 @@ Association statistics: one point per test, height by significance, a line where
     plot("NC_000962.3:759,001-765,000")?
         .add_manhattan(points)
         .label("association")
-        .adjust(|track| track.threshold(6.0).unit(" -log10 p"))
+        .adjust(|track| track.p_value_threshold(1e-6).axis_title("-log10 p"))
         .save("scan.svg")?;
     ```
 
@@ -376,22 +377,25 @@ Association statistics: one point per test, height by significance, a line where
 |:--|:--|:--|
 | `.label("association")` | Names the track in the left gutter (`--label`) | none |
 | `.height(120.0)` | Band height in pixels (`--height`) | `90` |
-| `.threshold(6.0)` | Draws a line at this value and colours what reaches it (`--threshold`) | none |
-| `.genome_wide_threshold()` | The line at `-log10(5e-8)`, about 7.3 (`--threshold genome-wide`) | none |
+| `.threshold(6.0)` | Draws a line at this value, labelled with it, and colours what reaches it (`--threshold`, for a file of scores) | none |
+| `.p_value_threshold(1e-6)` | The line at `-log10` of a p-value, labelled `p = 1e-6` (`--threshold`, for a file of p-values) | none |
+| `.genome_wide_threshold()` | The line at `-log10(5e-8)`, about 7.3, labelled `p = 5e-8` (`--threshold genome-wide`) | none |
+| `.threshold_label("FDR 5%")` | Words on the line in place of its value; `""` for none | the value |
 | `.bands(genome.boundaries())` | Alternates the point colour at each position, for sequences laid end to end | none |
 | `.radius(3.0)` | Radius of a point | `2.2` |
 | `.max(12.0)` | Pins the top of the axis | the tallest point or the threshold, rounded up |
 | `.axis(QuantitativeAxis::new())` | Replaces the value axis | automatic |
 | `.color("#9ca3af")` | Colour of points below the line | theme muted grey |
 | `.significant_color("#d55e00")` | Colour of points at or above it | a palette colour |
-| `.unit(" -log10 p")` | Suffix after each axis number | none |
+| `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values) | none |
+| `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 
 #### Notes
 
 There is no default threshold, on purpose, and `significant()` returns nothing until there is one. `genome_wide_threshold` is a Bonferroni correction for a million independent tests: the convention in human GWAS, and often the wrong number elsewhere, because the right one follows from how many independent tests were really run, and a shorter genome or stronger linkage leaves far fewer than a million.
 
-`Association::from_p_value` converts a p-value to `-log10(p)`; `Association::new` plots the value as it is. The command line reads the header: a column named as p-values are, `P`, `pvalue`, `p_wald` and the like, is drawn as `-log10` with the axis saying so, and `--threshold` is then a p-value too; any other column, `-log10(p)` or another score, is drawn as written with a `--threshold` in the same units. [The association table](../guide/formats.md#the-association-table) has the whole rule. In Rust, name the units with `unit`.
+`Association::from_p_value` converts a p-value to `-log10(p)`; `Association::new` plots the value as it is. The command line reads the header: a column named as p-values are, `P`, `pvalue`, `p_wald` and the like, is drawn as `-log10` with the axis saying so, and `--threshold` is then a p-value too; any other column, `-log10(p)` or another score, is drawn as written with a `--threshold` in the same units. [The association table](../guide/formats.md#the-association-table) has the whole rule. In Rust, name what the axis measures with `axis_title`.
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 

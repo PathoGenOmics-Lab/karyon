@@ -267,6 +267,17 @@ pub trait Track {
         None
     }
 
+    /// What the value axis measures, written under the name in the gutter,
+    /// such as `-log10 p` or `AF`, or `None` for an axis that needs no title.
+    ///
+    /// A word set after the top tick as a unit reads as part of that number,
+    /// and `10 -log10 p` reads as ten minus something. Under the track's name
+    /// it is the axis's title, and the ticks keep their numbers to themselves.
+    /// A symbol that is a unit, the `x` of `50x`, stays on the tick.
+    fn axis_title(&self) -> Option<&str> {
+        None
+    }
+
     /// How much room this track wants for a value axis, in pixels.
     ///
     /// A track that returns more than zero gets [`DrawContext::axis`], a strip

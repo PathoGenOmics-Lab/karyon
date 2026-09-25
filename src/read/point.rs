@@ -51,8 +51,9 @@ use super::{columns, lines, number, ReadError};
 /// from the shape of the call: a substitution, an insertion or a deletion,
 /// which is `REF` against `ALT` and needs no annotation.
 ///
-/// The value is the allele fraction, from `AF` in `INFO` when present, and 1.0
-/// when not, since a call with no fraction is a call.
+/// The value is the allele fraction, from `AF` in `INFO` when present, and
+/// none when not: a call with no fraction is still a call, and stands full
+/// height, but it is not a fraction of 1, which is what the axis would say.
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
 pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> {
@@ -93,7 +94,11 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
         let fractions = allele_fractions(info, alternates.len(), line)?;
         for (index, alt) in alternates.iter().enumerate() {
             let category = consequence(info, alt).unwrap_or_else(|| shape(reference, alt));
-            calls.push(Variant::new(pos).value(fractions[index]).category(category));
+            let mut call = Variant::new(pos).category(category);
+            if let Some(fraction) = fractions.as_ref().map(|all| all[index]) {
+                call = call.value(fraction);
+            }
+            calls.push(call);
         }
     }
     Ok(calls)
@@ -499,18 +504,22 @@ fn info_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
 /// that is what a caller writing one `AF` for the row means. Any other count
 /// is a row that does not add up, and saying so beats guessing which allele
 /// the numbers belong to.
-fn allele_fractions(info: &str, alternates: usize, line: usize) -> Result<Vec<f64>, ReadError> {
+fn allele_fractions(
+    info: &str,
+    alternates: usize,
+    line: usize,
+) -> Result<Option<Vec<f64>>, ReadError> {
     let Some(field) = info_field(info, "AF") else {
         // A call with no fraction is a call, and it gets a full height stem.
-        return Ok(vec![1.0; alternates]);
+        return Ok(None);
     };
     let mut values = Vec::with_capacity(alternates);
     for value in field.split(',') {
         values.push(number::<f64>(value, "AF", line)?);
     }
     match values.len() {
-        1 => Ok(vec![values[0]; alternates]),
-        given if given == alternates => Ok(values),
+        1 => Ok(Some(vec![values[0]; alternates])),
+        given if given == alternates => Ok(Some(values)),
         given => Err(ReadError::at(
             line,
             format!("AF has {given} values for {alternates} alternate alleles"),
@@ -680,11 +689,16 @@ NC_045512.2\t21580\t.\tACGT\tA\t.\t.\tDP=9
         assert!(error.to_string().contains("AF has 2 values"), "{error}");
     }
 
+    /// A call with no `AF` is still a call, drawn full height, and it has no
+    /// value: a value of one put an axis beside it, and then a title on the
+    /// axis, saying the call was a fraction of one.
     #[test]
     fn a_call_with_no_fraction_is_still_a_call() {
         let text = "chrIV\t900\t.\tC\tT\t.\t.\tDP=30\n";
         let region = Region::parse("chrIV:800-1000").unwrap();
-        assert_eq!(variants(text, &region).unwrap()[0].value, Some(1.0));
+        let calls = variants(text, &region).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].value, None);
     }
 
     #[test]

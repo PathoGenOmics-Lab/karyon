@@ -89,7 +89,7 @@ pub fn example_genomewide(
             track
                 .bands(genome.boundaries())
                 .genome_wide_threshold()
-                .unit(" -log10 p")
+                .axis_title("-log10 p")
                 .height(96.0)
         })
         // From the first base of the assembly rather than from the left edge

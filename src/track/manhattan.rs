@@ -105,9 +105,11 @@ pub struct ManhattanTrack {
     radius: f64,
     max: Option<f64>,
     threshold: Option<f64>,
+    threshold_label: Option<String>,
     color: Option<String>,
     significant_color: Option<String>,
     unit: String,
+    title: Option<String>,
     show_scale: bool,
     bands: Vec<u64>,
     axis: QuantitativeAxis,
@@ -123,9 +125,11 @@ impl ManhattanTrack {
             radius: 2.2,
             max: None,
             threshold: None,
+            threshold_label: None,
             color: None,
             significant_color: None,
             unit: String::new(),
+            title: None,
             show_scale: true,
             bands: Vec::new(),
             axis: QuantitativeAxis::new(),
@@ -192,12 +196,29 @@ impl ManhattanTrack {
     }
 
     /// Draws a horizontal line at `value` and colours what rises above it.
+    ///
+    /// The line is labelled with its value, as the axis writes its numbers;
+    /// [`ManhattanTrack::threshold_label`] says something else.
     pub fn threshold(mut self, value: f64) -> Self {
         self.threshold = Some(value);
+        self.threshold_label = None;
         self
     }
 
-    /// The usual genome-wide threshold, `-log10(5e-8)`, about 7.3.
+    /// Draws the line at the p-value `p`, on a track whose points are
+    /// `-log10 p`, and labels it with the p-value, as `p = 1e-5`.
+    ///
+    /// A `p` outside nought to one is no p-value, and draws no line.
+    pub fn p_value_threshold(mut self, p: f64) -> Self {
+        if p > 0.0 && p <= 1.0 {
+            self = self.threshold(-p.log10());
+            self.threshold_label = Some(format!("p = {}", p_text(p)));
+        }
+        self
+    }
+
+    /// The usual genome-wide threshold, p = 5e-8, drawn at `-log10(5e-8)`,
+    /// about 7.3.
     ///
     /// It is a Bonferroni correction for a million independent tests, which is
     /// the convention in human GWAS and frequently the wrong number everywhere
@@ -205,7 +226,21 @@ impl ManhattanTrack {
     /// really run, and a shorter genome or stronger linkage leaves far fewer
     /// than a million. Set your own if you know it.
     pub fn genome_wide_threshold(self) -> Self {
-        self.threshold(-(5e-8f64).log10())
+        self.p_value_threshold(5e-8)
+    }
+
+    /// Sets the words written on the threshold line, in place of its value;
+    /// an empty string writes none.
+    pub fn threshold_label(mut self, label: impl Into<String>) -> Self {
+        self.threshold_label = Some(label.into());
+        self
+    }
+
+    /// What the value axis measures, written under the track's name, such as
+    /// `-log10 p`.
+    pub fn axis_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Sets the colour of points below the threshold.
@@ -220,7 +255,11 @@ impl ManhattanTrack {
         self
     }
 
-    /// Sets a unit suffix for the axis labels, such as `" -log10 p"`.
+    /// Sets a unit suffix for the top tick's label.
+    ///
+    /// What the axis measures, such as `-log10 p`, is a title rather than a
+    /// unit, and reads as one under the track's name:
+    /// [`ManhattanTrack::axis_title`].
     pub fn unit(mut self, unit: impl Into<String>) -> Self {
         self.unit = unit.into();
         self.axis.unit = self.unit.clone();
@@ -303,6 +342,12 @@ impl Track for ManhattanTrack {
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    fn axis_title(&self) -> Option<&str> {
+        (self.show_scale && !self.points.is_empty())
+            .then_some(self.title.as_deref())
+            .flatten()
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
@@ -478,6 +523,54 @@ impl Track for ManhattanTrack {
                 }
             }
         }
+
+        // Last, so no point is drawn over the words. A dashed line with
+        // nothing on it was a line the reader had to be told the meaning of.
+        if let (Some(threshold), Some(text)) = (self.threshold, self.threshold_text()) {
+            if threshold >= floor && threshold <= ceiling {
+                // Over the line where a line of text fits there, and under it
+                // where the line runs along the top of the band, rather than
+                // pushed down onto the line and struck through by it.
+                let y = y_of(threshold);
+                let gap = ctx.theme.tokens.row_gap;
+                let baseline = if y - gap - size * 0.8 >= band.y {
+                    y - gap
+                } else {
+                    y + gap + size * 0.8
+                };
+                ctx.svg.text(
+                    band.x + ctx.theme.tokens.label_gap,
+                    baseline,
+                    &text,
+                    &significant,
+                    size,
+                    Anchor::Start,
+                );
+            }
+        }
+    }
+}
+
+impl ManhattanTrack {
+    /// The words on the threshold line: what was set, or the value as the
+    /// axis writes its numbers, and none for an empty label.
+    fn threshold_text(&self) -> Option<String> {
+        let value = self.threshold?;
+        match &self.threshold_label {
+            Some(label) if label.is_empty() => None,
+            Some(label) => Some(label.clone()),
+            None => Some(self.axis.format.format(value)),
+        }
+    }
+}
+
+/// A p-value as it is usually written: `0.05` and `0.001` as they are, and
+/// smaller ones in scientific notation, `5e-8`.
+fn p_text(p: f64) -> String {
+    if p >= 1e-3 {
+        format!("{p}")
+    } else {
+        format!("{p:e}")
     }
 }
 
@@ -562,6 +655,111 @@ mod tests {
             .push(ManhattanTrack::new(points))
             .to_svg();
         assert_eq!(one, none);
+    }
+
+    /// The text of every `<text>` in a document, in order.
+    fn words(svg: &str) -> Vec<String> {
+        svg.split("<text")
+            .skip(1)
+            .filter_map(|piece| {
+                let body = &piece[piece.find('>')? + 1..];
+                Some(body[..body.find("</text>")?].to_string())
+            })
+            .collect()
+    }
+
+    /// A dashed line with nothing on it had to be explained to every reader,
+    /// and `-log10 p` after the top tick read as ten minus something.
+    #[test]
+    fn the_threshold_says_its_value_and_the_axis_says_what_it_measures() {
+        let points = vec![Association::new(100, 12.0), Association::new(900, 1.0)];
+        let drawn = |track: ManhattanTrack| {
+            words(&Figure::new(region()).push(track.label("scan")).to_svg())
+        };
+        let genome_wide = drawn(
+            ManhattanTrack::new(points.clone())
+                .genome_wide_threshold()
+                .axis_title("-log10 p"),
+        );
+        assert!(
+            genome_wide.contains(&"p = 5e-8".to_string()),
+            "{genome_wide:?}"
+        );
+        assert!(
+            genome_wide.contains(&"-log10 p".to_string()),
+            "{genome_wide:?}"
+        );
+        assert!(
+            genome_wide.iter().all(|word| !word.ends_with(" -log10 p")),
+            "a tick carries the title: {genome_wide:?}"
+        );
+        let own = drawn(ManhattanTrack::new(points.clone()).p_value_threshold(1e-5));
+        assert!(own.contains(&"p = 1e-5".to_string()), "{own:?}");
+        let loose = drawn(ManhattanTrack::new(points.clone()).p_value_threshold(0.05));
+        assert!(loose.contains(&"p = 0.05".to_string()), "{loose:?}");
+        // In the axis's own units, a line says the number it is at.
+        let plain = drawn(ManhattanTrack::new(points.clone()).threshold(6.0));
+        assert!(plain.contains(&"6".to_string()), "{plain:?}");
+        // Unless it is told to say something else, or nothing.
+        let named = drawn(
+            ManhattanTrack::new(points.clone())
+                .threshold(6.0)
+                .threshold_label("FDR 5%"),
+        );
+        assert!(named.contains(&"FDR 5%".to_string()), "{named:?}");
+        let quiet = drawn(
+            ManhattanTrack::new(points.clone())
+                .genome_wide_threshold()
+                .threshold_label(""),
+        );
+        assert!(
+            !quiet.iter().any(|word| word.starts_with("p =")),
+            "{quiet:?}"
+        );
+        // A p outside nought to one draws no line.
+        assert_eq!(
+            ManhattanTrack::new(points.clone())
+                .p_value_threshold(0.0)
+                .threshold,
+            None
+        );
+        assert_eq!(
+            ManhattanTrack::new(points.clone())
+                .p_value_threshold(2.0)
+                .threshold,
+            None
+        );
+        // No scale, no title for it.
+        let hidden = ManhattanTrack::new(points)
+            .axis_title("-log10 p")
+            .show_scale(false);
+        assert_eq!(Track::axis_title(&hidden), None);
+    }
+
+    /// A line along the top of the band has no room over it, and a label
+    /// pushed down onto it was struck through.
+    #[test]
+    fn a_threshold_at_the_top_is_labelled_under_its_line() {
+        let track =
+            ManhattanTrack::new(vec![Association::new(100, 7.0), Association::new(900, 1.0)])
+                .genome_wide_threshold();
+        let svg = Figure::new(region()).push(track).to_svg();
+        let line_y: f64 = {
+            let at = svg.find("stroke-dasharray").expect("a dashed line");
+            let tag = &svg[svg[..at].rfind("<line").expect("the line")..at];
+            let y1 = &tag[tag.find("y1=\"").unwrap() + 4..];
+            y1[..y1.find('"').unwrap()].parse().unwrap()
+        };
+        let label_y: f64 = {
+            let at = svg.find(">p = 5e-8<").expect("the label");
+            let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+            let y = &tag[tag.find(" y=\"").unwrap() + 4..];
+            y[..y.find('"').unwrap()].parse().unwrap()
+        };
+        assert!(
+            label_y > line_y,
+            "the label at {label_y} is over the line at {line_y}"
+        );
     }
 
     #[test]

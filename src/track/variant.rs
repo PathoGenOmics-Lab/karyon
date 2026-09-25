@@ -133,6 +133,7 @@ pub struct VariantTrack {
     show_scale: bool,
     color: Option<String>,
     axis: QuantitativeAxis,
+    title: Option<String>,
 }
 
 impl VariantTrack {
@@ -149,6 +150,7 @@ impl VariantTrack {
             show_scale: true,
             color: None,
             axis: QuantitativeAxis::new(),
+            title: None,
         }
     }
 
@@ -203,6 +205,13 @@ impl VariantTrack {
     /// Draws or hides the value axis.
     pub fn show_scale(mut self, show: bool) -> Self {
         self.show_scale = show;
+        self
+    }
+
+    /// What the stems measure, written under the track's name while the
+    /// value axis is drawn, such as `AF` for the allele fraction a VCF gives.
+    pub fn axis_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
@@ -291,6 +300,10 @@ impl Track for VariantTrack {
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    fn axis_title(&self) -> Option<&str> {
+        self.has_scale().then_some(self.title.as_deref()).flatten()
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
@@ -619,6 +632,27 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+
+    /// The title names what the stems measure, and there is nothing to
+    /// title where no stem measures anything.
+    #[test]
+    fn the_axis_is_titled_only_while_it_is_drawn() {
+        let valued = vec![Variant::new(10).value(0.4), Variant::new(20).value(0.9)];
+        let titled = VariantTrack::new(valued.clone()).axis_title("AF");
+        assert_eq!(Track::axis_title(&titled), Some("AF"));
+        let svg = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(titled.clone().label("calls"))
+            .to_svg();
+        assert!(svg.contains(">AF</text>"), "{svg}");
+        assert_eq!(Track::axis_title(&titled.clone().show_scale(false)), None);
+        assert_eq!(Track::axis_title(&titled.style(VariantStyle::Tick)), None);
+        let unvalued = VariantTrack::new(vec![Variant::new(10)]).axis_title("AF");
+        assert_eq!(
+            Track::axis_title(&unvalued),
+            None,
+            "no value, no scale, no title"
+        );
+    }
 
     #[test]
     fn categories_keep_their_first_appearance_order() {
