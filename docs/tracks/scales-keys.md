@@ -127,7 +127,7 @@ A key to the colours as a band of its own: filled squares, dots, lines, washed a
 | | |
 |:--|:--|
 | Rust | `.add_legend(legend)` on `plot()`; `LegendTrack::new(legend)` |
-| Command line | none: library only, as a key is built from what the other tracks drew rather than read from a file |
+| Command line | drawn under the figure for the colours `--traits` and a tree's colour columns deal, each once; `--no-legend` leaves it out |
 | Reads | nothing; build a `Legend` |
 
 === "Rust"
@@ -177,4 +177,4 @@ A legend is a horizontal strip of the figure that carries no coordinates, which 
 
 Keys wrap onto another row when they run out of width, so the band's height depends on how wide the figure is. Nothing is ever dropped for want of room, because a key that is not drawn is worse than a legend two rows tall.
 
-Nothing builds a legend for you: which colours a reader needs explained is a judgement about the figure, not about a track. A key should copy the mark it explains, which is what `area` and `outline` are for. Take a ramp's ends from the track that owns them, as `LocusTrack::ramp_ends` allows, so the key cannot drift from the ribbons; `CopyNumberTrack::legend(&theme)` and `Traits::legend(&theme)` hand you a finished `Legend`. A [VariantTrack](variation.md#varianttrack) draws its own category key, which `show_legend(false)` turns off.
+In Rust nothing builds a legend for you: which colours a reader needs explained is a judgement about the figure, not about a track. The command line takes that judgement for the colours it deals itself: every level and ramp that `--traits` and a tree's colour columns put on the figure is named in one key under the ruler, a colour used by two tracks named once, and `--no-legend` leaves the key out. A key should copy the mark it explains, which is what `area` and `outline` are for. Take a ramp's ends from the track that owns them, as `LocusTrack::ramp_ends` allows, so the key cannot drift from the ribbons; `CopyNumberTrack::legend(&theme)` and `Traits::legend(&theme)` hand you a finished `Legend`. A [VariantTrack](variation.md#varianttrack) draws its own category key, which `show_legend(false)` turns off.

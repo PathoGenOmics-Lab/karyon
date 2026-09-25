@@ -94,10 +94,12 @@ line flag that draws it, and the route opens its page in this gallery.
 | A circular chromosome or plasmid | [Circular genome](../guide/plot.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
 | A latitude and longitude per sample | [Map](../guide/maps.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
 
-!!! tip "BAM, CRAM and BCF"
-    Binary formats come in through a pipe: `samtools view`, `samtools depth`
-    and `bcftools view` already write the text these readers take, and a track
-    file can be `-` for standard input. See [file formats](../guide/formats.md).
+!!! tip "BAM, compressed files, CRAM and BCF"
+    A BAM file and anything compressed with gzip or bgzip (`.vcf.gz`,
+    `.gff3.gz`) are read as they are. CRAM and BCF come in through a pipe:
+    `samtools view` and `bcftools view` write the text these readers take, and
+    a track file can be `-` for standard input. See
+    [compressed and binary files](../guide/cli.md#binary-formats).
 
 !!! note "Tracks and drawings"
     Most plots here are tracks: bands that stack over one shared coordinate

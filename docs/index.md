@@ -47,16 +47,14 @@ are drawn on the same scale, not because anyone placed them.
 
     ```bash
     karyon NC_000962.3:761,000-762,999 \
-      --coverage depth.bg --label depth --aggregate min \
-      --sequence reference.fa --label reference \
-      --features genes.gff3 --label annotation \
-      --variants calls.vcf --label variants \
+      depth.bg --aggregate min reference.fa annotation.gff3 variants.vcf \
       --title 'rpoB locus, resistance determining region' \
       -o example.svg
     ```
 
 </div>
 
+Each file is drawn as what its name says it holds and labelled after itself.
 The ruler, the depth axis, the colour key and the accessible title and
 description are added for you. The whole program is
 [`examples/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/locus.rs),
