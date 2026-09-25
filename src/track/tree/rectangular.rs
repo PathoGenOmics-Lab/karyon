@@ -25,6 +25,7 @@ pub(super) fn draw_tree_scene(
     default_color: &str,
     width: f64,
     color_by: Option<&str>,
+    color_levels: &[String],
     dnds: Option<&DnDsLayer>,
     show_nodes: bool,
     support_style: SupportStyle,
@@ -38,7 +39,14 @@ pub(super) fn draw_tree_scene(
     branch_geometry: BranchGeometry,
     name_leaves: bool,
 ) {
-    let colors = branch_colors(tree, scene, color_by, ctx.theme, default_color);
+    let colors = branch_colors(
+        tree,
+        scene,
+        color_by,
+        color_levels,
+        ctx.theme,
+        default_color,
+    );
     let styles = branch_styles(tree, &colors, dnds, ctx.theme, width);
     let y_of = |row: f64| area.y + row_pitch / 2.0 + row * row_pitch;
 
@@ -442,6 +450,7 @@ pub(super) fn branch_colors(
     tree: &Tree,
     scene: &TreeScene,
     key: Option<&str>,
+    levels: &[String],
     theme: &Theme,
     default_color: &str,
 ) -> PerNode<String> {
@@ -450,58 +459,60 @@ pub(super) fn branch_colors(
         return colors;
     };
     let values = branch_values(tree, key);
-    let visible: Vec<usize> = scene
+    let domain = TraitDomain::ordered(levels, values.iter().flatten().copied());
+    let continuous = is_continuous(&values);
+    for node in scene
         .placements
         .iter()
         .flatten()
         .map(|placement| placement.node)
-        .collect();
-    let numeric: Vec<f64> = visible
-        .iter()
-        .filter_map(|node| values[*node].and_then(AnnotationValue::as_number))
-        .collect();
-    let all_numeric = numeric.len()
-        == visible
-            .iter()
-            .filter(|node| values[**node].is_some())
-            .count()
-        && !numeric.is_empty();
-    if all_numeric {
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
-        for node in scene
-            .placements
-            .iter()
-            .flatten()
-            .map(|placement| placement.node)
-        {
-            if let Some(value) = values[node].and_then(AnnotationValue::as_number) {
-                let fraction = if maximum <= minimum {
-                    1.0
-                } else {
-                    (value - minimum) / (maximum - minimum)
-                };
-                colors.set(node, mix(&theme.muted, &theme.accent, fraction));
-            }
-        }
-    } else {
-        let mut categories = BTreeMap::new();
-        for node in scene
-            .placements
-            .iter()
-            .flatten()
-            .map(|placement| placement.node)
-        {
-            let Some(value) = values[node] else {
-                continue;
-            };
-            let value = value.to_string();
-            let next = categories.len();
-            let index = *categories.entry(value).or_insert(next);
-            colors.set(node, theme.color(index).to_string());
+    {
+        let color = if continuous {
+            domain
+                .fraction(values[node])
+                .map(|fraction| mix(&theme.muted, &theme.accent, fraction))
+        } else {
+            domain
+                .category(values[node])
+                .map(|index| theme.color(index).to_string())
+        };
+        if let Some(color) = color {
+            colors.set(node, color);
         }
     }
     colors
+}
+
+/// Whether `--color-by` reads an annotation as a ramp rather than as levels:
+/// when every value it has anywhere in the tree is a number.
+///
+/// Over the whole tree, as the domain is, so folding a clade of the only
+/// words cannot turn the rest of the tree into a ramp.
+pub(super) fn is_continuous(values: &[Option<&AnnotationValue>]) -> bool {
+    let mut stated = values.iter().flatten().peekable();
+    stated.peek().is_some() && stated.all(|value| value.as_number().is_some())
+}
+
+/// The levels and the range one annotation covers, over the whole tree.
+///
+/// Every colour the track paints for `key` is read off this one count: the
+/// branches `--color-by` colours, the strips beside the tips in all three
+/// projections, [`TreeTrack::strips`] and [`TreeTrack::legend`]. It used to be
+/// worked out from the nodes on screen, once per picture, so the key a caller
+/// built from the sample sheet named the levels in the order the sheet sorts
+/// its rows while the tree numbered them in the order it met them, and a
+/// figure of two countries printed each one's colour beside the other's name.
+/// Counting from what is on screen also meant that folding a clade could
+/// repaint the rest of the tree. Counting over every node, in the tree's own
+/// order, gives one answer per tree and key whatever is folded or scrolled
+/// away, and the values folded rows show are their tips' values, so none is
+/// left without a colour.
+///
+/// `levels` is the order a column carries from its sample sheet, dealt the
+/// palette first, so a level is the colour here that it is in every other strip
+/// the sheet is drawn in. Empty, the tree deals the palette in its own order.
+pub(super) fn tree_domain(tree: &Tree, key: &str, levels: &[String]) -> TraitDomain {
+    TraitDomain::ordered(levels, branch_values(tree, key).into_iter().flatten())
 }
 
 pub(super) fn inherited_annotation<'a>(
@@ -705,28 +716,12 @@ pub(super) fn draw_trait_columns(
         .collect();
 
     for column in columns {
-        // The domain is every placement and not only the terminals, because a
-        // value inherited from an internal node is a value this column has and
-        // a level nobody drew still has to keep its colour.
-        // Every placement, and then every value a row will actually be drawn
-        // with. The first half is why a level nobody drew still keeps its
-        // colour; the second half is because a folded row shows what its tips
-        // agree on, and that value is not attached to any node the walk above
-        // passes, so without it the cell has a value and no colour to draw it
-        // in: forty rows of lineage came out as forty empty outlines.
-        let domain = TraitDomain::new(
-            scene
-                .placements
-                .iter()
-                .flatten()
-                .filter_map(|placement| inherited_annotation(tree, placement.node, &column.key))
-                .chain(
-                    scene
-                        .terminals
-                        .iter()
-                        .filter_map(|node| row_annotation(tree, *node, &column.key, collapsed)),
-                ),
-        );
+        // Over the whole tree and not the rows on screen, for the reasons
+        // `tree_domain` gives. A folded row shows what its tips agree on, and
+        // that is one of their values, so it has a colour here: counting only
+        // the nodes the walk placed once left forty rows of lineage as forty
+        // empty outlines.
+        let domain = tree_domain(tree, &column.key, &column.levels);
         let rows: Vec<TraitRow<'_>> = names
             .iter()
             .zip(&scene.terminals)

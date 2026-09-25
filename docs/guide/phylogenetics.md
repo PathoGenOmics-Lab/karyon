@@ -113,13 +113,17 @@ the carriers, and refuses a change the tree does not carry.
 with a calendar axis underneath. The command line has no time axis and draws
 branch length instead.
 
-`color_by(key)` uses a ramp when every visible value is a number and the
+`color_by(key)` uses a ramp when every value in the tree is a number and the
 categorical palette otherwise. A branch with no value takes its nearest
 annotated ancestor's, or failing that the value all its descendants share, so
 a clade of one lineage is coloured whole and not only at its tips.
 
 Each `TraitColumn` is one strip beside the tips. Levels are coloured in the
-order they are first met, so the same file always colours the same way. A
+order the tree meets them, counted over the whole tree, so folding a clade does
+not repaint the rest. A column that came from a sample sheet carries the
+sheet's order instead (`TraitColumn::levels`), so a lineage is the colour here
+that it is beside every other track the sheet is drawn with. `legend(&theme)`
+hands back a key read off the same count as the branches and the strips. A
 missing value is an empty outline whose tooltip says missing, never a zero, and
 `show_values(false)` drops the text inside the cells.
 

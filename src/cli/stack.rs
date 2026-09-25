@@ -413,7 +413,11 @@ fn strip(
         });
     }
 
-    Ok(Some(Traits::new(held.rows.clone()).spread(wanted)))
+    // From the sheet rather than from its rows, so every column deals its
+    // levels the palette in the order the file lists them. A phylogeny is
+    // handed these same columns, and that shared order is what makes a
+    // lineage one colour beside the tree and beside the matrix under it.
+    Ok(Some(Traits::from_sheet(held).spread(wanted)))
 }
 
 fn slurp(
@@ -2780,6 +2784,81 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             svg.contains(">lineage</text>"),
             "the heading is legible: {svg}"
         );
+    }
+
+    /// The colour drawn under each tooltip that starts with `title`, in order.
+    fn painted(svg: &str, title: &str) -> Vec<String> {
+        svg.split("<title>")
+            .skip(1)
+            .filter(|piece| piece.starts_with(title))
+            .filter_map(|piece| {
+                let after = piece.split("</title>").nth(1)?;
+                ["fill=\"#", "stroke=\"#"]
+                    .iter()
+                    .filter_map(|attribute| {
+                        after.find(attribute).map(|at| at + attribute.len() - 1)
+                    })
+                    .min()
+                    .map(|at| after[at..at + 7].to_string())
+            })
+            .collect()
+    }
+
+    /// One sheet, a tree and a matrix under it: a lineage is one colour in
+    /// both strips. The tree dealt the palette in the order it met its tips and
+    /// the matrix in the order its sheet sorted the names, so each of the three
+    /// lineages here came out in a different colour on each side, in a figure
+    /// whose whole point is to read one strip against the other.
+    #[test]
+    fn a_sheet_shared_by_a_tree_and_a_matrix_colours_each_level_once() {
+        const TREE: &str = "((Zed:1,Yan:1):1,(Abe:1,Bo:1):1);";
+        // Three orders that all disagree: the file lists L1 first, the names
+        // sort L2 first (Abe), and the tree meets L4 first (Zed).
+        const SHEET: &str = "sample\tlineage\nBo\tL1\nZed\tL4\nAbe\tL2\nYan\tL4\n";
+        const MATRIX: &str = "sample\t100\t200\nZed\t1\t0\nYan\t0\t1\nAbe\t1\t1\nBo\t0\t0\n";
+        let open = |source: &Source| -> io::Result<String> {
+            let Source::Path(path) = source else {
+                unreachable!("every source here is a file")
+            };
+            let path = path.to_string_lossy();
+            Ok(if path.ends_with(".nwk") {
+                TREE
+            } else if path.ends_with("m.tsv") {
+                MATRIX
+            } else {
+                SHEET
+            }
+            .to_string())
+        };
+        let svg = build(
+            &sheeted("chr:1-300 --tree t.nwk --traits s.tsv --matrix m.tsv --traits s.tsv"),
+            open,
+        )
+        .unwrap();
+
+        let colours = [
+            ("L2", painted(&svg, "Abe; lineage L2")),
+            ("L1", painted(&svg, "Bo; lineage L1")),
+            ("L4", painted(&svg, "Zed; lineage L4")),
+        ];
+        for (level, both) in &colours {
+            assert_eq!(
+                both.len(),
+                2,
+                "{level} is drawn beside the tree and the matrix"
+            );
+            assert_eq!(both[0], both[1], "{level} is two colours: {both:?}");
+        }
+        // And the palette is dealt in the order the file lists the levels,
+        // which is neither order the two tracks met them in.
+        let theme = crate::Theme::light();
+        assert_eq!(
+            colours[1].1[0],
+            theme.color(0),
+            "L1 comes first in the file"
+        );
+        assert_eq!(colours[2].1[0], theme.color(1));
+        assert_eq!(colours[0].1[0], theme.color(2));
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

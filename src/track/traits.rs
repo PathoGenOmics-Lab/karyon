@@ -49,8 +49,9 @@
 //! column is an empty outline, which is the one mark here that cannot be
 //! mistaken for a level, and its tooltip says the word.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::read::sheet::Sheet;
 use crate::svg::{fit_text, fit_text_shrinking, Anchor};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::legend::Legend;
@@ -90,6 +91,7 @@ pub struct TraitColumn {
     pub(crate) width: f64,
     pub(crate) ring_width: f64,
     pub(crate) show_values: bool,
+    pub(crate) levels: Vec<String>,
 }
 
 impl TraitColumn {
@@ -104,7 +106,29 @@ impl TraitColumn {
             width: 56.0,
             ring_width: 10.0,
             show_values: true,
+            levels: Vec::new(),
         }
+    }
+
+    /// Sets the order the levels are dealt their colours in: the first level
+    /// named takes the palette's first colour, and a level met that is not
+    /// named here takes the next one free.
+    ///
+    /// A column made by [`Traits::spread`] or added with [`Traits::column`]
+    /// already carries the order its sheet lists the levels in. Handing that
+    /// column to a phylogeny as well, with
+    /// [`TreeTrack::trait_column`](crate::track::tree::TreeTrack::trait_column),
+    /// is what makes a level one colour in both strips: the tree meets its
+    /// tips in its own order, and without this each track dealt the palette
+    /// in the order it met the levels.
+    pub fn levels(mut self, order: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.levels = order.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// The order the levels are dealt their colours in, if one was set.
+    pub fn level_order(&self) -> &[String] {
+        &self.levels
     }
 
     /// Builds a continuous column from numeric annotation `key`.
@@ -214,17 +238,36 @@ impl TraitColumn {
 /// from the value alone.
 pub(crate) struct TraitDomain {
     pub(crate) categories: BTreeMap<String, usize>,
+    /// The levels some value actually held, which a key names; the ones an
+    /// order reserved and nobody here holds keep their colour and stay out of
+    /// the key.
+    met: BTreeSet<String>,
     pub(crate) minimum: f64,
     pub(crate) maximum: f64,
 }
 
 impl TraitDomain {
     pub(crate) fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
+        Self::ordered(&[], values)
+    }
+
+    /// The same, with `levels` dealt the palette first, in that order.
+    pub(crate) fn ordered<'a>(
+        levels: &[String],
+        values: impl IntoIterator<Item = &'a AnnotationValue>,
+    ) -> Self {
         let values: Vec<&AnnotationValue> = values.into_iter().collect();
         let mut categories = BTreeMap::new();
-        for value in &values {
+        for level in levels {
             let next = categories.len();
-            categories.entry(value.to_string()).or_insert(next);
+            categories.entry(level.clone()).or_insert(next);
+        }
+        let mut met = BTreeSet::new();
+        for value in &values {
+            let value = value.to_string();
+            let next = categories.len();
+            categories.entry(value.clone()).or_insert(next);
+            met.insert(value);
         }
         let numeric: Vec<f64> = values
             .iter()
@@ -233,6 +276,7 @@ impl TraitDomain {
             .collect();
         TraitDomain {
             categories,
+            met,
             minimum: numeric.iter().copied().fold(f64::MAX, f64::min),
             maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
         }
@@ -283,6 +327,13 @@ impl TraitDomain {
             .map(|(name, index)| (name.as_str(), *index))
             .collect();
         levels.sort_by_key(|(_, index)| *index);
+        levels
+    }
+
+    /// The levels a key names: the ones some value held, in palette order.
+    pub(crate) fn keyed(&self) -> Vec<(&str, usize)> {
+        let mut levels = self.levels();
+        levels.retain(|(level, _)| self.met.contains(*level));
         levels
     }
 }
@@ -507,6 +558,8 @@ const STRIP_LEVELS: usize = 6;
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Traits {
     rows: BTreeMap<String, Annotations>,
+    /// The rows in the order their levels are met, which deals the palette.
+    order: Vec<String>,
     columns: Vec<TraitColumn>,
     heading_room: f64,
     gap: f64,
@@ -514,19 +567,65 @@ pub struct Traits {
 
 impl Traits {
     /// Starts from what is known about each named row, with no columns yet.
+    ///
+    /// The levels of a column are dealt their colours in the order the names
+    /// sort, which is the only order a map of rows has.
+    /// [`Traits::from_sheet`] keeps the order of the file instead.
     pub fn new(rows: BTreeMap<String, Annotations>) -> Self {
+        let order = rows.keys().cloned().collect();
         Traits {
             rows,
+            order,
             columns: Vec::new(),
             heading_room: 52.0,
             gap: 2.0,
         }
     }
 
+    /// Starts from a sample sheet, dealing each column's levels their colours
+    /// in the order the file first gives them.
+    ///
+    /// So a sample appended to the end of the file never repaints the ones
+    /// above it, whatever it is called, which sorting the names cannot
+    /// promise: a new sample called `AAA` would have been met first.
+    pub fn from_sheet(sheet: &Sheet) -> Self {
+        let mut traits = Traits::new(sheet.rows.clone());
+        traits.order = sheet.order.clone();
+        traits
+    }
+
     /// Adds one column drawn exactly as it was built.
+    ///
+    /// A categorical column given no [`TraitColumn::levels`] of its own is
+    /// given the order these rows meet its levels in, so the column can be
+    /// handed to a phylogeny too and colour each level the same there.
     pub fn column(mut self, column: TraitColumn) -> Self {
+        let column = self.ordered(column);
         self.columns.push(column);
         self
+    }
+
+    /// A column carrying the order its levels are met in here, unless it
+    /// already carries one.
+    fn ordered(&self, column: TraitColumn) -> TraitColumn {
+        if column.scale != TraitScale::Categorical || !column.levels.is_empty() {
+            return column;
+        }
+        let met = self
+            .domain(&column)
+            .levels()
+            .into_iter()
+            .map(|(level, _)| level.to_string())
+            .collect::<Vec<_>>();
+        column.levels(met)
+    }
+
+    /// Every stated value of `key`, in the order the rows are met.
+    fn stated<'a>(&'a self, key: &'a str) -> impl Iterator<Item = &'a AnnotationValue> + 'a {
+        self.order
+            .iter()
+            .filter_map(|name| self.rows.get(name))
+            .filter_map(move |held| held.get(key))
     }
 
     /// Adds a strip for each key, taking the mark from what the values are.
@@ -544,11 +643,7 @@ impl Traits {
     pub fn spread(mut self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
         for key in keys {
             let key = key.into();
-            let stated: Vec<&AnnotationValue> = self
-                .rows
-                .values()
-                .filter_map(|held| held.get(&key))
-                .collect();
+            let stated: Vec<&AnnotationValue> = self.stated(&key).collect();
             let numeric =
                 !stated.is_empty() && stated.iter().all(|value| value.as_number().is_some());
 
@@ -563,7 +658,8 @@ impl Traits {
                     column
                 }
             };
-            self.columns.push(column.width(14.0).show_values(false));
+            let column = self.ordered(column.width(14.0).show_values(false));
+            self.columns.push(column);
         }
         self
     }
@@ -641,23 +737,38 @@ impl Traits {
     /// rather than about a column, so the caller decides whether the figure
     /// needs one and where it goes, and this only spares them writing the
     /// colours down a second time and getting them wrong.
+    ///
+    /// It keys the strips this sheet draws beside the rows of a track, which
+    /// number their levels in the order the sheet sorts its rows. A phylogeny
+    /// does not draw from a sheet: it numbers the levels along its own walk,
+    /// so its key is [`TreeTrack::legend`](crate::track::tree::TreeTrack::legend)
+    /// and not this, which would name each colour beside another level.
     pub fn legend(&self, theme: &Theme) -> Legend {
         let mut legend = Legend::new();
         for column in &self.columns {
             let domain = self.domain(column);
             match column.scale {
                 TraitScale::Continuous => {
+                    // A column with no number in it has no range to show, and
+                    // its ends would be the placeholders the count starts at.
+                    if domain.minimum > domain.maximum {
+                        continue;
+                    }
                     let (low, high) = self.ramp_ends(column);
+                    // The colours first and the values after, which is the
+                    // order `Legend::ramp` takes them in. They were the other
+                    // way round, so the ramp was painted with `fill="2015.17"`
+                    // and labelled with two colour codes.
                     legend = legend.ramp(
                         column.label.clone(),
-                        low,
-                        high,
                         theme.muted.clone(),
                         theme.accent.clone(),
+                        low,
+                        high,
                     );
                 }
                 TraitScale::Categorical => {
-                    for (level, index) in domain.levels() {
+                    for (level, index) in domain.keyed() {
                         legend = legend.key(
                             format!("{}: {level}", column.label),
                             theme.color(index).to_string(),
@@ -685,9 +796,10 @@ impl Traits {
         )
     }
 
-    /// The levels and the range one column covers over every row named here.
+    /// The levels and the range one column covers over every row named here,
+    /// dealt the palette in the column's own order where it has one.
     fn domain(&self, column: &TraitColumn) -> TraitDomain {
-        TraitDomain::new(self.rows.values().filter_map(|held| held.get(&column.key)))
+        TraitDomain::ordered(&column.levels, self.stated(&column.key))
     }
 
     /// Draws the strip beside rows that have already been laid out.
@@ -816,6 +928,101 @@ D\tL1\thuman\t95
                 "{name} changed colour"
             );
         }
+    }
+
+    #[test]
+    fn a_ramp_in_the_key_runs_between_the_theme_colours_and_is_labelled_with_the_values() {
+        // `Legend::ramp` takes the two colours and then the two values, and
+        // the key passed them the other way round: the ramp was painted with
+        // `fill="48.2"` and labelled with two colour codes.
+        let theme = Theme::light();
+        let legend = traits().legend(&theme);
+        let ramps: Vec<_> = legend
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                crate::track::legend::LegendItem::Ramp {
+                    label,
+                    from,
+                    to,
+                    low,
+                    high,
+                } => Some((label, from, to, low, high)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ramps.len(), 1, "one continuous column, one ramp");
+        let (label, from, to, low, high) = ramps[0];
+        assert_eq!(label, "depth");
+        assert_eq!((from, to), (&theme.muted, &theme.accent));
+        assert_eq!((low.as_str(), high.as_str()), ("48.2", "95"));
+
+        let svg = Figure::new(Region::new("chr1", 0, 40).unwrap())
+            .show_region_label(false)
+            .push(crate::track::legend::LegendTrack::new(legend))
+            .to_svg();
+        assert!(
+            !svg.contains("fill=\"48.2\""),
+            "a value painted as a colour"
+        );
+        assert!(svg.contains(">48.2</text>"), "the low end is not written");
+    }
+
+    #[test]
+    fn a_column_with_no_number_in_it_is_not_keyed_as_a_ramp() {
+        // A column asked for as continuous and holding no number has no
+        // range, and its ends were the placeholders an empty count starts at,
+        // printed as a range three hundred digits long.
+        let held = sheet("sample\tdepth\nA\t\nB\t\n").expect("a sheet");
+        let traits = Traits::new(held.rows).column(TraitColumn::continuous("depth"));
+        let legend = traits.legend(&Theme::light());
+        assert!(legend.items().is_empty(), "{:?}", legend.items());
+    }
+
+    #[test]
+    fn a_sample_appended_to_the_sheet_never_repaints_the_ones_above_it() {
+        // Dealt in the order the names sort, a new sample called AA with a
+        // new lineage was met first and took the first colour from L4, and
+        // every sample of every lineage changed. Dealt in the order the file
+        // lists them, an appended row only ever adds a colour.
+        let dealt = |text: &str| {
+            let held = sheet(text).expect("a sheet");
+            let traits = Traits::from_sheet(&held).spread(["lineage"]);
+            let theme = Theme::light();
+            let column = &traits.columns()[0];
+            let domain = traits.domain(column);
+            ["A", "B", "D"].map(|name| {
+                let value = traits.values(name).and_then(|held| held.get("lineage"));
+                domain.color(column, value, &theme)
+            })
+        };
+        assert_eq!(dealt(&format!("{SHEET}AA\tL7\thuman\t50\n")), dealt(SHEET));
+        assert_eq!(dealt(SHEET)[0].as_deref(), Some(Theme::light().color(0)));
+    }
+
+    #[test]
+    fn a_column_carries_the_order_its_sheet_lists_the_levels_in() {
+        // What a phylogeny is handed, so it deals the palette the same way.
+        let held = sheet(SHEET).expect("a sheet");
+        let traits = Traits::from_sheet(&held).spread(["lineage", "depth"]);
+        assert_eq!(traits.columns()[0].level_order(), ["L4", "L2", "L1"]);
+        assert!(
+            traits.columns()[1].level_order().is_empty(),
+            "a ramp has no levels"
+        );
+        // An order given by hand is kept rather than replaced.
+        let chosen = Traits::from_sheet(&held)
+            .column(TraitColumn::categorical("lineage").levels(["L1", "L2", "L4"]));
+        assert_eq!(chosen.columns()[0].level_order(), ["L1", "L2", "L4"]);
+        let legend = chosen.legend(&Theme::light());
+        let first = &legend.items()[0];
+        let crate::track::legend::LegendItem::Key { label, color, .. } = first else {
+            panic!("a categorical key: {first:?}");
+        };
+        assert_eq!(
+            (label.as_str(), color.as_str()),
+            ("lineage: L1", Theme::light().color(0))
+        );
     }
 
     #[test]

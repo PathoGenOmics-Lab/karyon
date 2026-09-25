@@ -557,6 +557,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         &track.tree,
         &scene,
         track.color_by.as_deref(),
+        track.color_levels(),
         ctx.theme,
         &color,
     );
@@ -760,6 +761,7 @@ pub(super) fn unrooted_branch_colors(
     tree: &Tree,
     scene: &UnrootedScene,
     key: Option<&str>,
+    levels: &[String],
     theme: &Theme,
     default_color: &str,
 ) -> PerNode<String> {
@@ -767,40 +769,24 @@ pub(super) fn unrooted_branch_colors(
     let Some(key) = key else {
         return colors;
     };
+    // The count the other two projections colour by, over the whole tree
+    // rather than the nodes left visible, so folding a clade does not
+    // repaint the rest. See `tree_domain`.
     let values = branch_values(tree, key);
-    let numeric: Vec<f64> = scene
-        .visible
-        .iter()
-        .filter_map(|node| values[*node].and_then(AnnotationValue::as_number))
-        .collect();
-    let present = scene
-        .visible
-        .iter()
-        .filter(|node| values[**node].is_some())
-        .count();
-    if !numeric.is_empty() && numeric.len() == present {
-        let minimum = numeric.iter().copied().fold(f64::MAX, f64::min);
-        let maximum = numeric.iter().copied().fold(f64::MIN, f64::max);
-        for node in &scene.visible {
-            if let Some(value) = values[*node].and_then(AnnotationValue::as_number) {
-                let fraction = if maximum <= minimum {
-                    1.0
-                } else {
-                    (value - minimum) / (maximum - minimum)
-                };
-                colors.set(*node, mix(&theme.muted, &theme.accent, fraction));
-            }
-        }
-    } else {
-        let mut categories = BTreeMap::new();
-        for node in &scene.visible {
-            let Some(value) = values[*node] else {
-                continue;
-            };
-            let value = value.to_string();
-            let next = categories.len();
-            let index = *categories.entry(value).or_insert(next);
-            colors.set(*node, theme.color(index).to_string());
+    let domain = TraitDomain::ordered(levels, values.iter().flatten().copied());
+    let continuous = is_continuous(&values);
+    for node in &scene.visible {
+        let color = if continuous {
+            domain
+                .fraction(values[*node])
+                .map(|fraction| mix(&theme.muted, &theme.accent, fraction))
+        } else {
+            domain
+                .category(values[*node])
+                .map(|index| theme.color(index).to_string())
+        };
+        if let Some(color) = color {
+            colors.set(*node, color);
         }
     }
     colors
@@ -825,18 +811,9 @@ pub(super) fn draw_unrooted_trait_rings(
             .iter()
             .map(|node| row_annotation(&track.tree, *node, &column.key, track.folded()))
             .collect();
-        // Chained with the values the rows are drawn with, so a folded clade
-        // that agrees on a value has a colour for it. See the note in
-        // rectangular.rs.
-        let domain = TraitDomain::new(
-            scene
-                .visible
-                .iter()
-                .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
-                .chain(scene.terminals.iter().filter_map(|node| {
-                    row_annotation(&track.tree, *node, &column.key, track.folded())
-                })),
-        );
+        // The whole tree's count, the one every colour of this key comes
+        // from. See `tree_domain`.
+        let domain = tree_domain(&track.tree, &column.key, &column.levels);
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]
                 .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);

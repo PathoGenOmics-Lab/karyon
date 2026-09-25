@@ -413,6 +413,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A level of a sample sheet is one colour in every strip of a figure and in its
+  key. The strip beside a tree dealt the palette in the order the tree met its
+  tips and the strip beside a matrix in the order the sheet sorted its names, so
+  one sheet drawn beside both put each lineage in a different colour on each
+  side. Every column `Traits` makes now carries the order its levels are
+  coloured in, `Traits::from_sheet` takes that order from the file, so a sample
+  appended at the end repaints nothing, and a tree handed the column deals its
+  colours the same way; `--traits` does all of this. `Sheet` gains `order` and
+  `levels`, and `TraitColumn` gains `levels` and `level_order`.
+- `TreeTrack::legend` keys a tree's branch colours and strips from the count
+  they are painted from. The only key there was, `Traits::legend`, numbered the
+  levels the sheet's way, so a figure of two countries printed each one's
+  colour beside the other's name. A tree now counts over every node rather than
+  the ones on screen, so folding a clade no longer repaints the rest:
+  `example-phylogenetics.svg` drew the same sample in two shades in its open
+  and its folded panel, and draws it in one.
+- `Traits::legend` draws a ramp in the theme's colours and labels it with the
+  column's range. It passed the two the other way round, so the ramp was
+  painted with `fill="48.2"` and labelled with two colour codes. A continuous
+  column with no number in it is left out of either key rather than labelled
+  with the placeholders an empty count starts at.
 - A figure's width floor grows with `visual_scale`, as the margins and the label
   gutter it adds up do. It added them up unscaled, so at `visual_scale(2.0)` a
   figure held to its floor was 234 pixels wide with its plotting area starting
