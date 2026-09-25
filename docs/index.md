@@ -152,7 +152,7 @@ above it change: every frame is a new run of it.
   --variants calls.vcf --label variants \
   --title 'rpoB locus, resistance determining region'</code></pre>
   <div class="k-stage-plot" data-karyon-plot>
-    <img src="assets/figures/example-live.svg" alt="A stack of three rows over two kilobases: a depth profile with a dropout in it, the rpoB gene running off both edges with its resistance determining region on the row beneath it, and variant lollipops coloured by consequence, over a coordinate ruler" width="860" height="264" loading="lazy">
+    <img src="assets/figures/example-live.svg" alt="A stack of three rows over two kilobases: a depth profile with a dropout in it, the rpoB gene running off both edges with its resistance determining region on the row beneath it, and variant lollipops coloured by consequence, over a coordinate ruler" width="860" height="265" loading="lazy">
   </div>
   <p class="k-stage-status" data-karyon-status aria-live="polite">Drawn in advance from the command above. It becomes interactive once the program has loaded.</p>
 </div>

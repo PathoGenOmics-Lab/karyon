@@ -83,6 +83,17 @@
 //! `moves` is 1 for a figure drawn over a region and 0 for one that is not,
 //! whose region is then empty. Handed back to [`figure`] as it is, a region
 //! draws the figure the file holds.
+//!
+//! Answering that for every figure is building every figure, about a fifth of
+//! a second, and a page that shows three of them has no use for the other
+//! forty. [`figure_region`] answers it for one: the buffer in is the name as
+//! [`figure`] takes it, and the answer is that figure's entry of the list.
+//!
+//! ```text
+//! in   [u32 len][name]
+//! out  [u8 ok][u32 len]        1, and the length of what follows
+//!      [u8 moves] [u32 len][region]
+//! ```
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -282,6 +293,43 @@ pub extern "C" fn figures(_ptr: *const u8, _len: usize) -> *mut u8 {
     CATALOGUE.with(|kept| framed(true, kept.get_or_init(catalogue)))
 }
 
+/// Says whether one committed figure moves along the genome, and over what.
+///
+/// The answer is that figure's entry of what [`figures`] answers with, framed
+/// the same way; a page asks this once for each figure it holds rather than
+/// having every figure built to find out about a few.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer holding one length-prefixed name.
+#[no_mangle]
+pub unsafe extern "C" fn figure_region(ptr: *const u8, len: usize) -> *mut u8 {
+    let mut input = std::slice::from_raw_parts(ptr, len);
+    let Some(name) = text(&mut input) else {
+        return answer(false, "the figure's name is not in the shape this expects");
+    };
+    let Some(build) = committed::builder(&name) else {
+        return answer(false, &format!("no committed figure is called {name}"));
+    };
+    framed(true, &region_entry(build))
+}
+
+/// One figure's entry of the list: whether it moves, and over what.
+fn region_entry(build: committed::Builder) -> Vec<u8> {
+    let mut out = Vec::new();
+    match build(&Theme::light(), None, None).region() {
+        Some(region) => {
+            out.push(1);
+            put_text(&mut out, &region.to_string());
+        }
+        None => {
+            out.push(0);
+            put_text(&mut out, "");
+        }
+    }
+    out
+}
+
 thread_local! {
     /// What [`figures`] answers with, worked out the first time it is asked.
     ///
@@ -300,21 +348,11 @@ thread_local! {
 /// stale. Asked, the figure answers with the region it was drawn over, and
 /// that is the one thing a page cannot get wrong by handing it back.
 fn catalogue() -> Vec<u8> {
-    let light = Theme::light();
     let mut out: Vec<u8> = Vec::new();
     out.extend_from_slice(&(committed::FIGURES.len() as u32).to_le_bytes());
     for (name, build) in committed::FIGURES {
         put_text(&mut out, name);
-        match build(&light, None, None).region() {
-            Some(region) => {
-                out.push(1);
-                put_text(&mut out, &region.to_string());
-            }
-            None => {
-                out.push(0);
-                put_text(&mut out, "");
-            }
-        }
+        out.extend_from_slice(&region_entry(*build));
     }
     out
 }
@@ -1426,6 +1464,53 @@ mod tests {
         };
         assert_eq!(ok, 1);
         assert_eq!(read, body);
+    }
+
+    #[test]
+    fn one_figure_answers_with_its_own_entry_of_the_list() {
+        // The same bytes as its entry in `figures`, for a figure that moves and
+        // for one that does not, and a name nobody committed is a message.
+        let body = catalogue();
+        let mut at = &body[..];
+        number(&mut at).unwrap();
+        let mut entries = BTreeMap::new();
+        for _ in committed::FIGURES {
+            let name = text(&mut at).unwrap();
+            let start = at;
+            let (_, rest) = at.split_first().unwrap();
+            at = rest;
+            text(&mut at).unwrap();
+            entries.insert(name, start[..start.len() - at.len()].to_vec());
+        }
+        let ask_region = |name: &str| {
+            let mut input = Vec::new();
+            put_text(&mut input, name);
+            // Safety: the pointers are this module's own, used and freed the
+            // way the page uses and frees them.
+            unsafe {
+                let into = alloc(input.len());
+                std::ptr::copy_nonoverlapping(input.as_ptr(), into, input.len());
+                let out = figure_region(into, input.len());
+                dealloc(into, input.len());
+                let ok = *out;
+                let len = u32::from_le_bytes(
+                    std::slice::from_raw_parts(out.add(1), 4)
+                        .try_into()
+                        .unwrap(),
+                ) as usize;
+                let read = std::slice::from_raw_parts(out.add(5), len).to_vec();
+                dealloc(out, 5 + len);
+                (ok, read)
+            }
+        };
+        for name in ["example-genomewide", "example-circular"] {
+            let (ok, read) = ask_region(name);
+            assert_eq!(ok, 1, "{name}");
+            assert_eq!(&read, &entries[name], "{name}");
+        }
+        let (ok, read) = ask_region("example-nothing");
+        assert_eq!(ok, 0);
+        assert!(String::from_utf8(read).unwrap().contains("example-nothing"));
     }
 
     #[test]

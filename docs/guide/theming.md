@@ -6,7 +6,7 @@ that keep a set of figures consistent.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler, in dark ink on a white page](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler, in dark ink on a white page](../assets/figures/example.svg){ width="900" height="304" loading="lazy" data-karyon-theme="light" }
 <figcaption>The light theme, the default.</figcaption>
 </figure>
 

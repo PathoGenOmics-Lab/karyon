@@ -49,6 +49,9 @@ on:
       # would go on running whatever was built the last time a paragraph moved.
       - "src/**"
       - "playground/**"
+      # The committed figures are compiled into the page's program from the
+      # examples' own builders, so a changed example is a changed site.
+      - "examples/**"
       - "Cargo.toml"
   pull_request:
     paths: *site

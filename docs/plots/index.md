@@ -4,6 +4,10 @@ Find the plot for the question you are asking of your data: start from what the
 data describes, or from the file you already have.
 { .k-lead }
 
+Every figure here is drawn by karyon in your browser, in this page's light or
+dark. On the pages they lead to, drag a figure along its genome, zoom it with
+the buttons under it or a pinch, and hover a mark for what it holds.
+
 ## Browse by what you want to show
 
 <div class="k-plots" markdown>

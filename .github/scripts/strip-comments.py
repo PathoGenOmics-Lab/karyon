@@ -31,8 +31,8 @@ from pathlib import Path
 # exactly as they arrived.
 OURS = ("stylesheets/karyon.css", "stylesheets/home.css", "stylesheets/playground.css",
         "stylesheets/tree-viewer.css",
-        "assets/figure-viewer.js", "assets/karyon-live.js", "assets/karyon-wasm.js",
-        "assets/playground.js")
+        "assets/figure-viewer.js", "assets/karyon-figures.js", "assets/karyon-live.js",
+        "assets/karyon-wasm.js", "assets/playground.js")
 
 
 def strip_css(text):

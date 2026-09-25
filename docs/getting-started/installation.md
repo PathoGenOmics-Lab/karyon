@@ -106,6 +106,14 @@ one takes the directory to write into:
 cargo run --example locus -- assets
 ```
 
+The code that builds each of those figures is in `examples/figures/`, and the
+site compiles the same files into the page, so the figures you see here are
+drawn in your browser rather than shown: in the page's light or dark, at the
+width of the column. A figure over a stretch of genome can be dragged along it
+and zoomed into, down to the bases, with the buttons under it, a pinch, or the
+wheel with ctrl or cmd held; the others zoom as a picture. **SVG** under a
+figure saves the view you are looking at.
+
 ## Requirements
 
 | | |

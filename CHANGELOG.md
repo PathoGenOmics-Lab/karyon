@@ -71,6 +71,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The documentation site draws every committed figure itself instead of showing
+  the file. The page's copy of the program holds the code that wrote each
+  figure, so a figure is drawn in the page's own light or dark and laid out at
+  the width of the column it sits in, which on a phone is the difference between
+  labels at their own size and a 900 pixel figure squeezed to a third of it. A
+  figure over a stretch of genome is dragged along it and zoomed into, down to
+  the bases, with the buttons under it, a pinch or the wheel with ctrl held,
+  every frame the program run again over the new window; a tree, a map, a circle
+  or a sheet zooms as a picture. A mark says what it holds under the pointer,
+  **Larger** redraws the figure at the width of the window, and **SVG** saves
+  the view on screen. The gallery's cards follow the page's light or dark too.
+  The file is still in the page and is what shows with JavaScript off. The
+  playground's program gains `figure_region`, which says whether one figure runs
+  along the genome without building the other forty-five to find out.
 - `Theme::mono_family`, the font stack coordinates are set in, and in
   `karyon::svg` the pieces the new look is made of: `text_width_strong` and
   `mono_width` beside `text_width`, `fit_text_by` for text measured some other
