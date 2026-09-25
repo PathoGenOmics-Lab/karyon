@@ -147,11 +147,14 @@ pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, Rea
 pub fn association_table(text: &str, region: &Region) -> Result<Associations, ReadError> {
     // A table of more columns, as association tools write them, is read by
     // the names its header gives the columns.
+    if let Some((line, wide)) = hashed_header(text) {
+        return wide.read(text, region, line);
+    }
     if let Some((line, head)) = lines(text).next() {
         let names = columns(head);
         if names.len() > 3 {
             return match Wide::of(&names) {
-                Some(wide) => wide.read(text, region),
+                Some(wide) => wide.read(text, region, line),
                 None => Err(ReadError::at(
                     line,
                     format!(
@@ -264,6 +267,71 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
     })
 }
 
+/// A header written behind a `#`, as PLINK 2 writes `#CHROM POS ID ... P`,
+/// and the line it is on.
+///
+/// [`lines`] passes over every line starting with `#` as a comment, which is
+/// what one is above a table of two or three columns. Here it is the header
+/// only when it names what a scan is drawn from, so a comment stays one.
+fn hashed_header(text: &str) -> Option<(usize, Wide)> {
+    let (line, head) = text
+        .strip_prefix('\u{feff}')
+        .unwrap_or(text)
+        .lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim_end_matches('\r')))
+        .find(|(_, line)| !line.trim().is_empty() && !line.starts_with("##"))?;
+    let names = columns(head);
+    if !head.starts_with('#') || names.len() <= 3 {
+        return None;
+    }
+    Wide::of(&names).map(|wide| (line, wide))
+}
+
+/// The sequences an association table's rows are on, each once with how many
+/// rows it has, in the order the file first names them; nothing for a table
+/// that names none.
+///
+/// The column is the one the header names, which for BOLT-LMM is the second,
+/// behind the variant's own name, and the first in a table of three.
+pub fn association_sequences(text: &str) -> Vec<(String, usize)> {
+    let (column, header) = match hashed_header(text) {
+        Some((line, wide)) => match wide.sequence {
+            Some(at) => (at, Some(line)),
+            None => return Vec::new(),
+        },
+        None => {
+            let Some((line, head)) = lines(text).next() else {
+                return Vec::new();
+            };
+            let names = columns(head);
+            match names.len() {
+                3 => (0, names[1].trim().parse::<u64>().is_err().then_some(line)),
+                wide if wide > 3 => match Wide::of(&names).and_then(|wide| wide.sequence) {
+                    Some(at) => (at, Some(line)),
+                    None => return Vec::new(),
+                },
+                _ => return Vec::new(),
+            }
+        }
+    };
+    let mut held: Vec<(String, usize)> = Vec::new();
+    for (line, row) in lines(text) {
+        if Some(line) == header {
+            continue;
+        }
+        let fields = columns(row);
+        let Some(name) = fields.get(column).map(|name| name.trim()) else {
+            continue;
+        };
+        match held.iter_mut().find(|(seen, _)| seen == name) {
+            Some((_, count)) => *count += 1,
+            None => held.push((name.to_string(), 1)),
+        }
+    }
+    held
+}
+
 /// Where a wide association table keeps what a scan draws, by the names its
 /// header gives the columns.
 ///
@@ -296,7 +364,15 @@ impl Wide {
             "bp_hg19",
             "bp_hg38",
         ])?;
-        let sequence = find(&["chr", "chrom", "#chrom", "chromosome", "seqname", "contig"]);
+        let sequence = find(&[
+            "chr",
+            "#chr",
+            "chrom",
+            "#chrom",
+            "chromosome",
+            "seqname",
+            "contig",
+        ]);
         // A p-value first, since a table holding both was written to be read
         // by it, and the logarithm of one after.
         let (value, p_values) = names
@@ -317,13 +393,14 @@ impl Wide {
         })
     }
 
-    fn read(&self, text: &str, region: &Region) -> Result<Associations, ReadError> {
+    /// The rows after the header, which is on line `header`.
+    fn read(&self, text: &str, region: &Region, header: usize) -> Result<Associations, ReadError> {
         let widest = self
             .position
             .max(self.value)
             .max(self.sequence.unwrap_or(0));
         let mut points = Vec::new();
-        for (line, row) in lines(text).skip(1) {
+        for (line, row) in lines(text).filter(|(line, _)| *line != header) {
             let fields = columns(row);
             if fields.len() <= widest {
                 return Err(ReadError::at(
@@ -877,9 +954,63 @@ locus\t0.4
         assert!(!table.p_values);
         assert_eq!(table.points[0].value, 7.5);
 
+        // With no sequence column every row is on the figure's sequence, and
+        // the header is still not a row.
+        let unplaced = "SNP BP A1 P\nrs1 100 A 0.5\nrs2 250 A 1e-4\n";
+        let table = association_table(unplaced, &region).unwrap();
+        assert_eq!(table.points.len(), 2);
+
         // A wide header naming nothing to draw says what it did name.
         let error = association_table("A B C D\n1 2 3 4\n", &region).unwrap_err();
         assert!(error.to_string().contains("A B C D"), "{error}");
+    }
+
+    /// PLINK 2 writes its header behind a `#`, where every other reader here
+    /// sees a comment. It read the first row of numbers as the header and
+    /// refused the file.
+    #[test]
+    fn a_plink_2_header_behind_a_hash_is_read_as_the_header() {
+        let region = Region::parse("1:1-1000").unwrap();
+        let plink2 = "#CHROM\tPOS\tID\tREF\tALT\tA1\tTEST\tOBS_CT\tBETA\tSE\tT_STAT\tP\n\
+                      1\t100\trs1\tA\tG\tG\tADD\t500\t0.1\t0.02\t5.0\t1e-3\n\
+                      1\t200\trs2\tA\tG\tG\tADD\t500\t0.3\t0.02\t9.0\t1e-9\n\
+                      1\t300\trs3\tA\tG\tG\tADD\t500\t0.0\t0.02\t0.1\tNA\n\
+                      2\t150\trs4\tA\tG\tG\tADD\t500\t0.3\t0.02\t9.0\t0.5\n";
+        let table = association_table(plink2, &region).unwrap();
+        assert!(table.p_values);
+        let positions: Vec<u64> = table.points.iter().map(|point| point.pos).collect();
+        assert_eq!(positions, [99, 199]);
+        // Above a table of three columns, a line behind a `#` is a comment.
+        let commented = "# a scan\nchrom pos P\n1 100 0.001\n";
+        let table = association_table(commented, &region).unwrap();
+        assert_eq!(table.points.len(), 1);
+        assert!(table.p_values);
+    }
+
+    #[test]
+    fn an_association_table_says_which_sequences_its_rows_are_on() {
+        let owned = |pairs: &[(&str, usize)]| -> Vec<(String, usize)> {
+            pairs
+                .iter()
+                .map(|(name, count)| (name.to_string(), *count))
+                .collect()
+        };
+        let plink = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 480 A 1e-9\n2 rs3 5 A 0.1\n";
+        assert_eq!(association_sequences(plink), owned(&[("1", 2), ("2", 1)]));
+        let plink2 = "#CHROM POS ID P\n7 100 rs1 0.5\n";
+        assert_eq!(association_sequences(plink2), owned(&[("7", 1)]));
+        // BOLT-LMM keeps the chromosome second, behind the variant's name.
+        let bolt = "SNP\tCHR\tBP\tP_BOLT_LMM\nrs1\t3\t100\t0.5\n";
+        assert_eq!(association_sequences(bolt), owned(&[("3", 1)]));
+        let named = "chrom pos P\nchr1 100 0.5\n";
+        assert_eq!(association_sequences(named), owned(&[("chr1", 1)]));
+        let bare = "chr1 100 0.5\nchr2 200 0.1\n";
+        assert_eq!(
+            association_sequences(bare),
+            owned(&[("chr1", 1), ("chr2", 1)])
+        );
+        assert!(association_sequences("100 0.5\n200 0.1\n").is_empty());
+        assert!(association_sequences("SNP BP A1 P\nrs1 100 A 0.5\n").is_empty());
     }
 
     #[test]

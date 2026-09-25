@@ -113,8 +113,9 @@ pub enum BuildError {
     Nowhere {
         /// The word.
         name: String,
-        /// The sequences the files do name.
-        sequences: Vec<String>,
+        /// The files of the figure that name sequences, in a header or on
+        /// their rows, gathered by the sequences they name.
+        held: Vec<Naming>,
         /// Genes named nearly the same, which may be what was meant.
         near: Vec<String>,
         /// Whether any file of the figure is an annotation to look genes up in.
@@ -278,21 +279,42 @@ impl fmt::Display for BuildError {
             }
             BuildError::Nowhere {
                 name,
-                sequences,
+                held,
                 near,
                 annotated,
             } => {
                 write!(f, "no gene and no sequence is called {name}")?;
-                if !near.is_empty() {
-                    write!(f, "; did you mean {}?", near.join(" or "))?;
-                } else if !annotated {
+                match near.as_slice() {
+                    [] => write!(f, ".")?,
+                    [one] => write!(f, "; did you mean {one}?")?,
+                    [many @ .., last] => {
+                        write!(f, "; did you mean {} or {last}?", many.join(", "))?
+                    }
+                }
+                // What each file calls its sequences, since a name that is
+                // nowhere is most often one file's name for what another
+                // calls otherwise, as PLINK writes 1 for NC_000962.3.
+                for (files, sequences) in held {
+                    let files: Vec<(String, usize)> =
+                        files.iter().map(|file| (file.clone(), 0)).collect();
+                    let verb = if files.len() == 1 { "names" } else { "name" };
+                    let noun = if sequences.len() == 1 {
+                        "sequence"
+                    } else {
+                        "sequences"
+                    };
                     write!(
                         f,
-                        "; to find a gene by name, add the annotation that names it, as --features genes.gff3."
+                        " {} {verb} the {noun} {}.",
+                        listed_as(&files, "files"),
+                        listed(sequences)
                     )?;
                 }
-                if !sequences.is_empty() {
-                    write!(f, " The files name the sequences {}.", sequences.join(", "))?;
+                if near.is_empty() && !annotated {
+                    write!(
+                        f,
+                        " To find a gene by name, add the annotation that names it, as --features genes.gff3."
+                    )?;
                 }
                 Ok(())
             }
@@ -533,6 +555,10 @@ pub fn build_files(
     Ok(figure.to_svg())
 }
 
+/// Files that name the same sequences, and those sequences, each with how
+/// many rows the files give it.
+type Naming = (Vec<String>, Vec<(String, usize)>);
+
 /// Where a place named by a word is, and whether it was a gene.
 struct Placed {
     region: Region,
@@ -604,7 +630,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
 
     if let Some((_, length)) = lengths.iter().find(|(sequence, _)| sequence == name) {
         let region = Region::new(name, 0, (*length).max(1))
-            .map_err(|_| nowhere(name, &lengths, &names, annotated))?;
+            .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
         return Ok(Placed { region, gene: None });
     }
 
@@ -627,7 +653,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 .map(|(_, length)| *length);
             let stop = (end + margin).min(length.unwrap_or(u64::MAX));
             let region = Region::new(sequence, start.saturating_sub(margin), stop.max(start + 1))
-                .map_err(|_| nowhere(name, &lengths, &names, annotated))?;
+                .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
             return Ok(Placed {
                 region,
                 gene: Some(spelled.unwrap_or_else(|| name.to_string())),
@@ -653,14 +679,55 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
             return Ok(Placed { region, gene: None });
         }
     }
-    Err(nowhere(name, &lengths, &names, annotated))
+    Err(nowhere(name, invocation, files, &names, annotated))
 }
 
-fn nowhere(name: &str, lengths: &[(String, u64)], names: &[String], annotated: bool) -> BuildError {
-    let mut sequences: Vec<String> = Vec::new();
-    for (sequence, _) in lengths {
-        if !sequences.contains(sequence) && sequences.len() < 8 {
-            sequences.push(sequence.clone());
+/// The refusal of a name no file of the figure has, with the genes named
+/// nearly the same and the sequences each file does name.
+fn nowhere(
+    name: &str,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    names: &[String],
+    annotated: bool,
+) -> BuildError {
+    // Read again, and only here, as the empty window's message is: a figure
+    // that finds its place has no need to know.
+    let mut held: Vec<Naming> = Vec::new();
+    for spec in &invocation.tracks {
+        let Some(source) = spec.source.as_ref() else {
+            continue;
+        };
+        let mut sequences: Vec<(String, usize)> = match files.sequences(source) {
+            Ok(Some(lengths)) => lengths.into_iter().map(|(name, _)| (name, 0)).collect(),
+            _ => match files.text(source) {
+                Ok(text) => {
+                    let mut sequences: Vec<(String, usize)> = sequence_lengths(&text)
+                        .into_iter()
+                        .map(|(name, _)| (name, 0))
+                        .collect();
+                    sequences.extend(rows_on(spec.kind, &text));
+                    sequences
+                }
+                Err(_) => continue,
+            },
+        };
+        let mut seen: Vec<String> = Vec::new();
+        sequences.retain(|(name, _)| {
+            let first = !seen.contains(name);
+            seen.push(name.clone());
+            first
+        });
+        if sequences.is_empty() {
+            continue;
+        }
+        let same = held.iter().position(|(_, known)| {
+            known.len() == sequences.len() && known.iter().zip(&sequences).all(|(a, b)| a.0 == b.0)
+        });
+        match same {
+            Some(at) => held[at].0.push(called(source)),
+            None if held.len() < 4 => held.push((vec![called(source)], sequences)),
+            None => {}
         }
     }
     // Names within two edits, or the same letters in another case.
@@ -679,7 +746,7 @@ fn nowhere(name: &str, lengths: &[(String, u64)], names: &[String], annotated: b
     near.dedup_by(|a, b| a.1 == b.1);
     BuildError::Nowhere {
         name: name.to_string(),
-        sequences,
+        held,
         near: near
             .into_iter()
             .take(3)
@@ -1354,8 +1421,16 @@ fn default_label(spec: &TrackSpec) -> Option<String> {
         .strip_suffix(".gz")
         .or_else(|| file.strip_suffix(".bgz"))
         .unwrap_or(file);
-    let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
-    (!stem.is_empty()).then(|| stem.to_string())
+    let (stem, extension) = file.rsplit_once('.').unwrap_or((file, ""));
+    if stem.is_empty() {
+        return None;
+    }
+    // A BAM drawn as a line is its depth, and a name that says reads would
+    // have the line read as a count of them.
+    if spec.kind == Kind::Coverage && extension.eq_ignore_ascii_case("bam") {
+        return Some(format!("{stem} depth"));
+    }
+    Some(stem.to_string())
 }
 
 /// The kind a file named on its own turns out to be once it is read, where
@@ -1425,10 +1500,10 @@ fn explained(
         } => {
             // Read again, and only here: a pipe cannot be, and a figure that
             // drew has no need to know.
-            let held = match (region, spec.source.as_ref(), sequence_column(spec.kind)) {
-                (Some(_), Some(source @ Source::Path(_)), Some(column)) => files
+            let held = match (region, spec.source.as_ref()) {
+                (Some(_), Some(source @ Source::Path(_))) => files
                     .text(source)
-                    .map(|text| sequences_named(&text, column))
+                    .map(|text| rows_on(spec.kind, &text))
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
@@ -1492,6 +1567,18 @@ fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
     })
 }
 
+/// The sequences a track's file has rows on, each once with how many rows,
+/// in the order the file first names them.
+///
+/// An association table says in its header which column that is, and BOLT-LMM
+/// writes it second, behind each variant's own name.
+fn rows_on(kind: Kind, text: &str) -> Vec<(String, usize)> {
+    if kind == Kind::Manhattan {
+        return read::point::association_sequences(text);
+    }
+    sequence_column(kind).map_or_else(Vec::new, |column| sequences_named(text, column))
+}
+
 /// The sequences a file's rows are on, each once with how many rows it has,
 /// in the order the file first names them.
 fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
@@ -1517,6 +1604,11 @@ fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
 /// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
 /// five, how many more.
 fn listed(held: &[(String, usize)]) -> String {
+    listed_as(held, "sequences")
+}
+
+/// [`listed`], for names of things other than sequences.
+fn listed_as(held: &[(String, usize)], things: &str) -> String {
     const SHOWN: usize = 5;
     let names: Vec<&str> = held
         .iter()
@@ -1531,7 +1623,7 @@ fn listed(held: &[(String, usize)]) -> String {
             many[..many.len() - 1].join(", "),
             many[many.len() - 1]
         ),
-        (many, rest) => format!("{} and {rest} more sequences", many.join(", ")),
+        (many, rest) => format!("{} and {rest} more {things}", many.join(", ")),
     }
 }
 
@@ -4500,7 +4592,54 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let error = drawn_from("rpoC genes.gff3", &[("genes.gff3", GENES)]).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "no gene and no sequence is called rpoC; did you mean rpoB? The files name the sequences chr1."
+            "no gene and no sequence is called rpoC; did you mean rpoB? genes.gff3 names the sequence chr1."
+        );
+    }
+
+    /// A name no file has is most often one file's name for what another
+    /// calls otherwise, as PLINK writes 1 for a chromosome a FASTA names in
+    /// full, so the refusal says what each file does call its sequences. It
+    /// said to add an annotation, and named only sequences a header gave.
+    #[test]
+    fn a_name_no_file_has_is_answered_with_what_each_file_calls_its_sequences() {
+        let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
+        let error = drawn_from("NC_1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. To find \
+             a gene by name, add the annotation that names it, as --features genes.gff3."
+        );
+        // Files that name the same sequences are named together.
+        let vcf = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t50\t.\tA\tG\t.\t.\t.\n";
+        let error = drawn_from(
+            "chrZ genes.gff3 calls.vcf gwas.assoc",
+            &[
+                ("genes.gff3", GENES),
+                ("calls.vcf", vcf),
+                ("gwas.assoc", scan),
+            ],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no gene and no sequence is called chrZ. genes.gff3 and calls.vcf name the \
+             sequence chr1. gwas.assoc names the sequence 1."
+        );
+        // BOLT-LMM writes the chromosome second, behind the variant's name,
+        // which the empty window's message took for the sequence.
+        let bolt = "SNP\tCHR\tBP\tA1FREQ\tP_BOLT_LMM\nrs1\t1\t100\t0.1\t1e-3\n\
+                    rs2\t2\t300\t0.1\t0.5\n";
+        let error = drawn_from(
+            "chr9:1-1000 --manhattan bolt.stats",
+            &[("bolt.stats", bolt)],
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .ends_with("though the file holds 2 on 1 and 2"),
+            "{error}"
         );
     }
 
@@ -4553,6 +4692,11 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_eq!(default_label(&piped), None);
         let compressed = TrackSpec::new(Kind::Variants, Some(Source::Path("calls.vcf.gz".into())));
         assert_eq!(default_label(&compressed).as_deref(), Some("calls"));
+        // A BAM drawn as a line is its depth, which a name saying reads hid.
+        let depth = TrackSpec::new(Kind::Coverage, Some(Source::Path("reads.bam".into())));
+        assert_eq!(default_label(&depth).as_deref(), Some("reads depth"));
+        let reads = TrackSpec::new(Kind::Pileup, Some(Source::Path("reads.bam".into())));
+        assert_eq!(default_label(&reads).as_deref(), Some("reads"));
     }
 
     /// modkit writes bedMethyl as `.bed`, and a `.bed` of four columns whose
