@@ -413,6 +413,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A command line that gives one option two values is refused, naming the flag
+  and the track, where the last value won without a word: a `--label` meant for
+  the next track and written before its flag renamed this one, and a second
+  `--height` undid the first. `--highlight`, which adds clades to a list, and
+  the flags that only switch something on still take any number.
+- `-o` refuses a name that promises a format karyon does not write, such as
+  `fig.png`, `fig.pdf` or `fig.svgz`, and says to write SVG and convert it. The
+  figure was written as SVG under the name, and the command exited nought.
+- `--height` takes a number of pixels above nought, as `--row-height` already
+  did. `NaN` parsed as a number, so a track given it shrank to its floor and the
+  figure exited nought without it; an infinity, nought and a negative height
+  drew nothing.
 - A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
   region. None of them is drawn in a window, so the command line made a reader
   invent one, `tree:1-1`, which the figure then printed as its locus. The

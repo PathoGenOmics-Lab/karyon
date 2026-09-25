@@ -21,7 +21,8 @@ Four rules cover every command:
 2. **Each track flag starts a track** and takes the file after it. Tracks stack
    from top to bottom in the order you write them.
 3. **The options after a track flag describe that track**, up to the next track
-   flag.
+   flag. Each is said once per track: a second `--label` for the same track is
+   refused, since it was almost always meant for the next one.
 4. **Figure options** such as `--title` and `-o` belong to no track and can go
    anywhere on the line.
 
@@ -513,6 +514,11 @@ karyon Chr1:1-50,000 --manhattan gwas.tsv --label association > scan.svg
 `-o` always names a file: `-o -` writes a file called `-`. Leave `-o` out to
 write to standard output.
 
+The figure is SVG whatever the file is called, so a name that promises another
+format, such as `fig.png` or `fig.pdf`, is refused rather than written as SVG
+under it. Write `fig.svg` and convert it with `rsvg-convert`, Inkscape or a
+browser.
+
 The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not
 replaced.
@@ -568,6 +574,15 @@ karyon: invalid locus "NC_000962.3:0-1000": 1-based coordinates start at 1, not 
 
 $ karyon NC_000962.3:761,000-763,000 --label depth
 karyon: --label describes the track before it, and no track has been given yet
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --label depth --label reads
+karyon: --label is given twice to one coverage track, which takes one; a flag describes the track written before it
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --height NaN
+karyon: --height does not take "NaN", only a number of pixels above nought, as in 80
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph -o rpoB.png
+karyon: rpoB.png names a PNG file, and karyon writes SVG: write the figure to a file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser
 
 $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --aggregate median
 karyon: --aggregate does not take "median", only max, mean or min

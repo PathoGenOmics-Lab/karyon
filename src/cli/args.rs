@@ -130,6 +130,28 @@ pub enum ArgError {
         /// The track that has columns and no sheet.
         track: &'static str,
     },
+    /// An output file named for a format karyon does not write.
+    ///
+    /// The figure is SVG whatever the name says, and a file called `fig.png`
+    /// holding SVG opens as a broken image, or not at all, everywhere a PNG is
+    /// expected, after the command has said nothing and exited nought.
+    NotSvg {
+        /// The path as it was written.
+        path: String,
+        /// The format its name promises, as it is usually spelt.
+        format: &'static str,
+    },
+    /// A modifier given a second value where it takes one.
+    ///
+    /// The last one used to win without a word, so a `--label` meant for the
+    /// next track and written before its flag renamed this one, and a second
+    /// `--height` quietly undid the first.
+    Twice {
+        /// The flag.
+        flag: &'static str,
+        /// The track it was given twice to, or `None` for a figure option.
+        track: Option<&'static str>,
+    },
     /// A track drawn from two files was given one.
     MissingSecond {
         /// The flag that names the other file.
@@ -211,6 +233,19 @@ impl fmt::Display for ArgError {
                 f,
                 "--mutations needs --carrying, which names the change to mark the carriers of"
             ),
+            ArgError::NotSvg { path, format } => write!(
+                f,
+                "{path} names a {format} file, and karyon writes SVG: write the figure to a \
+                 file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser"
+            ),
+            ArgError::Twice { flag, track: Some(track) } => write!(
+                f,
+                "{flag} is given twice to one {track} track, which takes one; \
+                 a flag describes the track written before it"
+            ),
+            ArgError::Twice { flag, track: None } => {
+                write!(f, "{flag} is given twice, and a figure takes one")
+            }
             ArgError::Unsourced { track } => write!(
                 f,
                 "--columns picks out of the sheet --traits names, and this {track} track was given no sheet"
@@ -1111,6 +1146,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
+    // Every value-taking flag given so far, with the track it went to, or
+    // `None` for a figure option. See `once`.
+    let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
 
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -1172,7 +1210,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         match arg.as_str() {
             "--label" => {
                 let text = value("--label")?.clone();
-                last(&mut tracks, "--label")?.label = Some(text);
+                once(&mut tracks, &mut given, "--label")?.label = Some(text);
             }
             "--ploidy" => {
                 let text = value("--ploidy")?;
@@ -1189,7 +1227,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         given: text.clone(),
                         expected: "a number of copies above nought, as in 2",
                     })?;
-                let track = last(&mut tracks, "--ploidy")?;
+                let track = once(&mut tracks, &mut given, "--ploidy")?;
                 if track.kind != Kind::CopyNumber {
                     return Err(ArgError::WrongTrack {
                         flag: "--ploidy",
@@ -1200,7 +1238,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--sample" => {
                 let text = value("--sample")?.clone();
-                let track = last(&mut tracks, "--sample")?;
+                let track = once(&mut tracks, &mut given, "--sample")?;
                 if track.kind != Kind::CopyNumber {
                     return Err(ArgError::WrongTrack {
                         flag: "--sample",
@@ -1223,7 +1261,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 } else {
                     Source::Path(PathBuf::from(word))
                 };
-                let track = last(&mut tracks, "--traits")?;
+                let track = once(&mut tracks, &mut given, "--traits")?;
                 if !track.kind.takes_traits() {
                     return Err(ArgError::WrongTrack {
                         flag: "--traits",
@@ -1234,7 +1272,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--columns" => {
                 let text = value("--columns")?.clone();
-                let track = last(&mut tracks, "--columns")?;
+                let track = once(&mut tracks, &mut given, "--columns")?;
                 if !track.kind.takes_traits() {
                     return Err(ArgError::WrongTrack {
                         flag: "--columns",
@@ -1288,7 +1326,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         }
                     }
                 };
-                let track = last(&mut tracks, "--threshold")?;
+                let track = once(&mut tracks, &mut given, "--threshold")?;
                 if !track.kind.takes_threshold() {
                     return Err(ArgError::WrongTrack {
                         flag: "--threshold",
@@ -1304,7 +1342,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "a number of rows, or all",
                 })?;
-                let track = last(&mut tracks, "--max-rows")?;
+                let track = once(&mut tracks, &mut given, "--max-rows")?;
                 if !track.kind.takes_max_rows() {
                     return Err(ArgError::WrongTrack {
                         flag: "--max-rows",
@@ -1327,7 +1365,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--projection")?;
+                let track = once(&mut tracks, &mut given, "--projection")?;
                 if !track.kind.takes_projection() {
                     return Err(ArgError::WrongTrack {
                         flag: "--projection",
@@ -1338,7 +1376,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--color-by" => {
                 let key = value("--color-by")?.clone();
-                let track = last(&mut tracks, "--color-by")?;
+                let track = once(&mut tracks, &mut given, "--color-by")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--color-by",
@@ -1362,7 +1400,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--support-style")?;
+                let track = once(&mut tracks, &mut given, "--support-style")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--support-style",
@@ -1390,7 +1428,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--mutations" => {
                 let key = value("--mutations")?.clone();
-                let track = last(&mut tracks, "--mutations")?;
+                let track = once(&mut tracks, &mut given, "--mutations")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--mutations",
@@ -1401,7 +1439,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--carrying" => {
                 let spelling = value("--carrying")?.clone();
-                let track = last(&mut tracks, "--carrying")?;
+                let track = once(&mut tracks, &mut given, "--carrying")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--carrying",
@@ -1423,7 +1461,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--shape")?;
+                let track = once(&mut tracks, &mut given, "--shape")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--shape",
@@ -1457,7 +1495,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         expected: "a clade name, a tip name, or two tip names separated by a comma",
                     });
                 }
-                let track = last(&mut tracks, "--focus")?;
+                let track = once(&mut tracks, &mut given, "--focus")?;
                 if !track.kind.takes_focus() {
                     return Err(ArgError::WrongTrack {
                         flag: "--focus",
@@ -1468,7 +1506,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--compare-to" => {
                 let name = value("--compare-to")?.clone();
-                let track = last(&mut tracks, "--compare-to")?;
+                let track = once(&mut tracks, &mut given, "--compare-to")?;
                 if !track.kind.takes_compare_to() {
                     return Err(ArgError::WrongTrack {
                         flag: "--compare-to",
@@ -1494,7 +1532,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "a number of reads",
                 })?;
-                let track = last(&mut tracks, "--min-reads")?;
+                let track = once(&mut tracks, &mut given, "--min-reads")?;
                 if !track.kind.takes_min_reads() {
                     return Err(ArgError::WrongTrack {
                         flag: "--min-reads",
@@ -1535,7 +1573,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         given: text.clone(),
                         expected: "a number of pixels above nought, as in 20",
                     })?;
-                let track = last(&mut tracks, "--row-height")?;
+                let track = once(&mut tracks, &mut given, "--row-height")?;
                 if !track.kind.takes_row_height() {
                     return Err(ArgError::WrongTrack {
                         flag: "--row-height",
@@ -1546,12 +1584,21 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--height" => {
                 let text = value("--height")?;
-                let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
-                    flag: "--height",
-                    given: text.clone(),
-                    expected: "a number of pixels",
-                })?;
-                let track = last(&mut tracks, "--height")?;
+                let px = text
+                    .parse::<f64>()
+                    .ok()
+                    // Refused at both ends, as `--row-height` is. `NaN`
+                    // parses, and a track given it collapsed to its floor or
+                    // to nothing and the figure exited nought without it; an
+                    // infinity asks for a band no renderer can lay out, and
+                    // nought or less draws nothing.
+                    .filter(|px| px.is_finite() && *px > 0.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--height",
+                        given: text.clone(),
+                        expected: "a number of pixels above nought, as in 80",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--height")?;
                 if !track.kind.takes_height() {
                     return Err(ArgError::WrongTrack {
                         flag: "--height",
@@ -1574,7 +1621,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--aggregate")?;
+                let track = once(&mut tracks, &mut given, "--aggregate")?;
                 if !track.kind.takes_aggregate() {
                     return Err(ArgError::WrongTrack {
                         flag: "--aggregate",
@@ -1595,7 +1642,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--style")?;
+                let track = once(&mut tracks, &mut given, "--style")?;
                 // A track with no styles at all is the wrong track for the
                 // flag rather than a track given the wrong word, and saying so
                 // needs a different error. It used to fall through to the one
@@ -1656,7 +1703,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         expected: "a colour, as in '#d55e00'",
                     });
                 }
-                let track = last(&mut tracks, "--color")?;
+                let track = once(&mut tracks, &mut given, "--color")?;
                 if !matches!(
                     track.kind,
                     Kind::Coverage | Kind::Features | Kind::Junctions
@@ -1691,7 +1738,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 } else {
                     Source::Path(PathBuf::from(word))
                 };
-                let track = last(&mut tracks, flag)?;
+                let track = once(&mut tracks, &mut given, flag)?;
                 if track.kind.second_flag() != Some(flag)
                     && track.kind.optional_second() != Some(flag)
                 {
@@ -1709,7 +1756,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     _ => "--modification",
                 };
                 let chosen = value(flag)?.clone();
-                let track = last(&mut tracks, flag)?;
+                let track = once(&mut tracks, &mut given, flag)?;
                 if track.kind.selector() != Some(flag) {
                     return Err(ArgError::WrongTrack {
                         flag,
@@ -1725,7 +1772,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "percent or fraction",
                 })?;
-                let track = last(&mut tracks, "--identity")?;
+                let track = once(&mut tracks, &mut given, "--identity")?;
                 if track.kind != Kind::Loci {
                     return Err(ArgError::WrongTrack {
                         flag: "--identity",
@@ -1741,7 +1788,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "bedgraph, depth, values, bed or gff3",
                 })?;
-                let track = last(&mut tracks, "--format")?;
+                let track = once(&mut tracks, &mut given, "--format")?;
                 // Three tracks read more than one format, and not the same
                 // ones: a signal is one of three shapes and an interval file is
                 // BED or GFF3. A signal word after an interval track goes
@@ -1773,8 +1820,12 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.format = Some(format);
             }
-            "--title" => title = Some(value("--title")?.clone()),
+            "--title" => {
+                figure_once(&mut given, "--title")?;
+                title = Some(value("--title")?.clone());
+            }
             "--width" => {
+                figure_once(&mut given, "--width")?;
                 let text = value("--width")?;
                 let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
                     flag: "--width",
@@ -1795,6 +1846,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 width = Some(px);
             }
             "--theme" => {
+                figure_once(&mut given, "--theme")?;
                 let text = value("--theme")?;
                 theme = match text.as_str() {
                     "light" => Palette::Light,
@@ -1810,7 +1862,17 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
-            "-o" | "--output" => output = Some(PathBuf::from(value("-o")?)),
+            "-o" | "--output" => {
+                figure_once(&mut given, "-o")?;
+                let path = PathBuf::from(value("-o")?);
+                if let Some(format) = named_format(&path) {
+                    return Err(ArgError::NotSvg {
+                        path: path.display().to_string(),
+                        format,
+                    });
+                }
+                output = Some(path);
+            }
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(ArgError::UnknownFlag(flag.to_string()))
             }
@@ -1895,6 +1957,77 @@ fn stdin_taken(tracks: &[TrackSpec]) -> bool {
         .iter()
         .flat_map(|t| [t.source.as_ref(), t.second.as_ref(), t.traits.as_ref()])
         .any(|source| matches!(source, Some(Source::Stdin)))
+}
+
+/// The format a file name promises when it is one karyon does not write.
+///
+/// Only names that promise something: a path ending in `.svg`, with no
+/// extension, or with one that names no image format is written as asked. A
+/// compressed SVG is on the list, since a reader of `.svgz` expects gzip.
+fn named_format(path: &std::path::Path) -> Option<&'static str> {
+    const OTHERS: &[(&str, &str)] = &[
+        ("png", "PNG"),
+        ("jpg", "JPEG"),
+        ("jpeg", "JPEG"),
+        ("gif", "GIF"),
+        ("bmp", "BMP"),
+        ("tif", "TIFF"),
+        ("tiff", "TIFF"),
+        ("webp", "WebP"),
+        ("avif", "AVIF"),
+        ("heic", "HEIC"),
+        ("pdf", "PDF"),
+        ("eps", "EPS"),
+        ("ps", "PostScript"),
+        ("emf", "EMF"),
+        ("wmf", "WMF"),
+        ("svgz", "compressed SVG"),
+    ];
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    OTHERS
+        .iter()
+        .find(|(ending, _)| *ending == extension)
+        .map(|(_, format)| *format)
+}
+
+/// The track a modifier belongs to, refusing a value it already has.
+///
+/// For the modifiers that take one value per track. The last one written used
+/// to win without a word, which is the worst way a command line can disagree
+/// with itself: a `--label` meant for the next track and written before its
+/// flag renamed this one, and a second `--height` undid the first. A flag
+/// that adds to a list, as `--highlight` does, and one that is only on or off
+/// go through [`last`] instead, since saying either twice means the same as
+/// saying it once.
+fn once<'a>(
+    tracks: &'a mut [TrackSpec],
+    given: &mut Vec<(Option<usize>, &'static str)>,
+    flag: &'static str,
+) -> Result<&'a mut TrackSpec, ArgError> {
+    let index = tracks
+        .len()
+        .checked_sub(1)
+        .ok_or(ArgError::NoTrackYet(flag))?;
+    if given.contains(&(Some(index), flag)) {
+        return Err(ArgError::Twice {
+            flag,
+            track: Some(tracks[index].kind.flag()),
+        });
+    }
+    given.push((Some(index), flag));
+    Ok(&mut tracks[index])
+}
+
+/// The same for a figure option, which belongs to no track.
+fn figure_once(
+    given: &mut Vec<(Option<usize>, &'static str)>,
+    flag: &'static str,
+) -> Result<(), ArgError> {
+    if given.contains(&(None, flag)) {
+        return Err(ArgError::Twice { flag, track: None });
+    }
+    given.push((None, flag));
+    Ok(())
 }
 
 /// The track a modifier belongs to, which is the one before it.
@@ -2034,6 +2167,52 @@ mod tests {
             assert!(
                 matches!(error, ArgError::BadValue { flag, .. } if flag == "--row-height"),
                 "{word} should be refused, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_height_is_a_finite_number_of_pixels_above_nought() {
+        assert_eq!(
+            draw("chr1:1-1000 --coverage d.bg --height 80").tracks[0].height,
+            Some(80.0)
+        );
+        // `NaN` parses as a number, and a coverage track given it shrank to
+        // its floor while the figure exited nought; the rest draw nothing.
+        for word in ["NaN", "inf", "-inf", "0", "-5", "tall"] {
+            let line = format!("chr1:1-1000 --coverage d.bg --height {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--height"),
+                "{word} should be refused, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_output_named_for_another_format_is_refused_rather_than_written_as_svg() {
+        // The figure is SVG whatever the name says, and a `fig.png` holding
+        // SVG is a broken image everywhere a PNG is opened.
+        for (name, format) in [
+            ("fig.png", "PNG"),
+            ("fig.PDF", "PDF"),
+            ("out/fig.jpeg", "JPEG"),
+            ("fig.tiff", "TIFF"),
+            ("fig.eps", "EPS"),
+            ("fig.svgz", "compressed SVG"),
+        ] {
+            let error = parse(&args(&format!("chr1:1-10 -o {name}"))).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::NotSvg { format: said, .. } if *said == format),
+                "{name}: {error:?}"
+            );
+            assert!(error.to_string().contains(".svg"), "{error}");
+        }
+        // A name that promises SVG, or nothing, is written as asked.
+        for name in ["fig.svg", "FIG.SVG", "fig", "fig.v2", "-"] {
+            assert!(
+                draw(&format!("chr1:1-10 --output {name}")).output.is_some(),
+                "{name}"
             );
         }
     }

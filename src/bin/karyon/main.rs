@@ -89,7 +89,7 @@ TRACKS
                          InterProScan table; --analysis says which
     --axis               the coordinate ruler, put where this flag sits
 
-TRACK OPTIONS, each describing the track before it
+TRACK OPTIONS, each describing the track before it, once
     --label <TEXT>       the name in the left gutter
     --against <FILE>     the right-hand tree of a tanglegram
     --with-sequence <FILE> the reference, FASTA. A dynseq track draws its
@@ -210,7 +210,8 @@ FIGURE OPTIONS
     --theme <NAME>       light or dark
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
-    -o, --output <FILE>  standard output by default
+    -o, --output <FILE>  standard output by default. The figure is SVG, so a
+                         name ending in .png, .pdf or another format is refused
     -h, --help
     -V, --version
 
@@ -371,6 +372,102 @@ mod tests {
                 "{flag} is not in docs/guide/cli.md"
             );
         }
+    }
+
+    /// Every option that takes a value takes one: given twice, to one track or
+    /// to the figure, it is refused rather than the last one winning.
+    ///
+    /// Driven by the help text, so an option added there is checked here or
+    /// the test says which one it has no line for. `--highlight` is the one
+    /// that adds to a list, so a second one is a second clade and not a
+    /// contradiction.
+    #[test]
+    fn every_option_that_takes_a_value_refuses_a_second_one() {
+        // A line each option means something on, and a value it takes.
+        const LINES: &[(&str, &str, &str)] = &[
+            ("--label", "chr1:1-10 --coverage d.bg", "depth"),
+            ("--against", "--tanglegram a.nwk", "b.nwk"),
+            ("--with-sequence", "chr1:1-10 --pileup r.sam", "ref.fa"),
+            ("--with-tree", "chr1:1-10 --clades c.gff", "t.nwk"),
+            ("--links", "chr1:1-10 --loci l.bed", "l.tsv"),
+            (
+                "--identity",
+                "chr1:1-10 --loci l.bed --links l.tsv",
+                "percent",
+            ),
+            ("--modification", "chr1:1-10 --methylation m.bed", "m"),
+            ("--context", "chr1:1-10 --bisulfite b.txt", "CpG"),
+            ("--analysis", "chr1:1-10 --domains d.tsv", "Pfam"),
+            ("--ploidy", "chr1:1-10 --copy-number c.tsv", "2"),
+            ("--sample", "chr1:1-10 --copy-number c.tsv --ploidy 2", "s1"),
+            ("--traits", "chr1:1-10 --matrix m.tsv", "s.tsv"),
+            ("--columns", "chr1:1-10 --matrix m.tsv --traits s.tsv", "a"),
+            ("--height", "chr1:1-10 --coverage d.bg", "50"),
+            ("--threshold", "chr1:1-10 --manhattan m.tsv", "7"),
+            ("--projection", "--tree t.nwk", "circular"),
+            ("--color-by", "--tree t.nwk", "lineage"),
+            ("--support-style", "--tree t.nwk", "both"),
+            ("--mutations", "--tree t.nwk --carrying A1T", "muts"),
+            ("--carrying", "--tree t.nwk --mutations muts", "A1T"),
+            ("--shape", "--tree t.nwk", "cladogram"),
+            ("--focus", "--tree t.nwk", "a"),
+            ("--compare-to", "chr1:1-10 --msa a.fa", "r"),
+            ("--min-reads", "chr1:1-10 --junctions j.tab", "2"),
+            ("--row-height", "chr1:1-10 --features f.bed", "10"),
+            ("--max-rows", "chr1:1-10 --pileup r.sam", "10"),
+            ("--aggregate", "chr1:1-10 --coverage d.bg", "max"),
+            ("--style", "chr1:1-10 --coverage d.bg", "line"),
+            ("--color", "chr1:1-10 --coverage d.bg", "#d55e00"),
+            ("--format", "chr1:1-10 --coverage d.bg", "bedgraph"),
+            ("--title", "chr1:1-10", "a"),
+            ("--width", "chr1:1-10", "500"),
+            ("--theme", "chr1:1-10", "dark"),
+            ("--output", "chr1:1-10", "a.svg"),
+        ];
+        let options = HELP
+            .split_once("\nTRACK OPTIONS")
+            .expect("the help text has a TRACK OPTIONS section")
+            .1
+            .split_once("\nCOORDINATES")
+            .expect("the options end before COORDINATES")
+            .0;
+        let mut checked = 0;
+        for line in options.lines() {
+            // An option that takes a value is written with its placeholder:
+            // "    --label <TEXT>", and "    -o, --output <FILE>".
+            let Some(entry) = line.strip_prefix("    ") else {
+                continue;
+            };
+            let Some((names, _)) = entry.split_once(" <") else {
+                continue;
+            };
+            let Some(flag) = names
+                .rsplit(", ")
+                .next()
+                .filter(|flag| flag.starts_with("--"))
+            else {
+                continue;
+            };
+            if flag == "--highlight" {
+                continue;
+            }
+            let Some((_, context, value)) = LINES.iter().find(|(name, ..)| *name == flag) else {
+                panic!("{flag} takes a value and has no line in this test");
+            };
+            let line = format!("{context} {flag} {value} {flag} {value}");
+            let error = run(&line
+                .split_whitespace()
+                .map(String::from)
+                .collect::<Vec<_>>())
+            .expect_err(&line);
+            assert!(error.contains("given twice"), "{line}: {error}");
+            checked += 1;
+        }
+        assert_eq!(
+            checked,
+            LINES.len(),
+            "a line here names an option the help does not"
+        );
     }
 
     /// The same loop for the words `--style` takes, against the parser's own
