@@ -116,6 +116,12 @@ pub enum ArgError {
     /// which no node carries, and the tree came out with nothing marked, which
     /// is the figure of a change nobody carries.
     MissingMutations,
+    /// A key saying where the changes are kept, and no change to look for.
+    ///
+    /// Only `--carrying` asks anything of the changes. Without it they were
+    /// read, found and set aside, and the tree came out byte for byte as it
+    /// would have with `--mutations` left off.
+    MissingCarrying,
     /// Checked once the whole line is read rather than where the flag sits, so
     /// that `--columns` before `--traits` and after it are the same command.
     /// Two modifiers of one track are not in an order, and refusing one of the
@@ -199,6 +205,10 @@ impl fmt::Display for ArgError {
             ArgError::MissingMutations => write!(
                 f,
                 "--carrying needs --mutations, which names the annotation the changes are kept under"
+            ),
+            ArgError::MissingCarrying => write!(
+                f,
+                "--mutations needs --carrying, which names the change to mark the carriers of"
             ),
             ArgError::Unsourced { track } => write!(
                 f,
@@ -1825,6 +1835,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         if spec.carrying.is_some() && spec.mutations.is_none() {
             return Err(ArgError::MissingMutations);
         }
+        if spec.mutations.is_some() && spec.carrying.is_none() {
+            return Err(ArgError::MissingCarrying);
+        }
         // Late for the same reason: `--columns` may be written before the
         // `--traits` it picks from, and both orders describe one track.
         if spec.columns.is_some() && spec.traits.is_none() {
@@ -3015,6 +3028,19 @@ mod tests {
             let it = draw(line);
             assert_eq!(it.tracks[0].carrying.as_deref(), Some("S:D614G"), "{line}");
         }
+    }
+
+    /// The other way round: `--mutations` names where the changes are kept,
+    /// and only `--carrying` asks anything of them. Alone it read them, found
+    /// them and drew the tree byte for byte as it would have with the flag
+    /// left off.
+    #[test]
+    fn a_key_is_refused_without_a_change_to_look_for() {
+        let error = parse(&args("tree:1-1 --tree t.nwk --mutations muts")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--mutations needs --carrying, which names the change to mark the carriers of"
+        );
     }
 
     /// Three tracks read more than one format, and they do not read the same

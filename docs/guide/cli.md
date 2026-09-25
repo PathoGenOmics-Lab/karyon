@@ -179,7 +179,7 @@ no use for it is refused by name rather than ignored, as in
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
-| `--mutations <KEY>` | the annotation the changes are kept under | `--tree` | no changes read |
+| `--mutations <KEY>` | the annotation the changes are kept under; needs `--carrying` | `--tree` | no changes read |
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |
 | `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | `phylogram` |
@@ -395,11 +395,11 @@ keeps the changes on its branches, under a key the writing tool chose:
 karyon phylo:1-1 --tree tree.nwk --mutations mutations --carrying S:D614G
 ```
 
-`--mutations` names the key, and `--carrying` is refused without it. `A123T`,
-`S:D614G`, and either with `nt:` or `aa:` in front are all read. `--carrying`
-then marks everything at or below a branch where that change happened, which is
-every tip that carries it, and colours by the answer unless `--color-by` says
-otherwise. A change that arose twice marks both clades.
+`--mutations` names the key, and each of the two is refused without the other.
+`A123T`, `S:D614G`, and either with `nt:` or `aa:` in front are all read.
+`--carrying` then marks everything at or below a branch where that change
+happened, which is every tip that carries it, and colours by the answer unless
+`--color-by` says otherwise. A change that arose twice marks both clades.
 
 A clade, tip, change or `--color-by` key the tree does not hold is refused with
 what it does hold, rather than drawing the whole tree:
