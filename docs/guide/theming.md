@@ -6,13 +6,8 @@ that keep a set of figures consistent.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler, in dark ink on a white page](../assets/figures/example.svg){ width="900" height="305" loading="lazy" data-karyon-theme="light" }
-<figcaption>The light theme, the default.</figcaption>
-</figure>
-
-<figure class="k-plate" markdown>
-![The same locus drawn with the dark theme: the depth profile, reference row, gene, variants and ruler in light ink and the dark palette on a deep indigo page](../assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
-<figcaption>The dark theme: the same tracks, a second set of colours.</figcaption>
+![A depth profile over two kilobases of the rpoB locus with a dropout, a reference row, the rpoB gene with its resistance determining region, variant lollipops coloured by consequence and a coordinate ruler](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
+<figcaption>Drawn in this page's own theme. Switch the page between light and dark with the button at the top, and the figure is drawn again in the other: the same tracks, a second set of colours.</figcaption>
 </figure>
 
 A theme is chosen per figure:

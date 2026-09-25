@@ -478,7 +478,8 @@ karyon NC_000962.3:761,000-762,999 \
 ```
 
 <figure class="k-plate" markdown>
-![The rpoB locus on a dark background, with depth, reference, annotation and variant bands and variant colours chosen for the dark theme](../assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
+![The rpoB locus with depth, reference, annotation and variant bands](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
+<figcaption>Drawn in this page's theme; switch the page to dark with the button at the top to see what `--theme dark` draws.</figcaption>
 </figure>
 
 ## Standard input

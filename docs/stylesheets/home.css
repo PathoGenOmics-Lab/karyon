@@ -449,11 +449,11 @@
   font-size: 0.66rem;
 }
 
-/* The figure's own page under it: the program draws in the page's light or
-   dark, and a white frame round a dark figure is a hole in the page. */
+/* No frame of its own: the program draws in the page's light or dark and its
+   page is left transparent (karyon.css), so the figure sits on the stage. */
 .md-typeset .k-stage-plot {
   padding: 0.6rem;
-  background: var(--k-fig-light, #ffffff);
+  background: transparent;
   cursor: grab;
 }
 
@@ -545,8 +545,4 @@
   .kh-btn:hover {
     transform: none;
   }
-}
-
-[data-md-color-scheme="slate"] .md-typeset .k-stage-plot {
-  background: var(--k-fig-dark, #120b2b);
 }

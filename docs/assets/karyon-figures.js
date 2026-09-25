@@ -9,9 +9,13 @@
    over a new window; a tree, a map, a circle or a sheet of panels zooms as a
    picture. Anything the figure names on a mark, it says under the pointer.
 
+   A figure is drawn on exactly what is behind it, the page or the card it
+   sits in, in that page's light or dark, so it is part of the page rather
+   than a picture laid on it.
+
    The file stays in the page as it was written, and is what shows with
-   JavaScript off, before the program arrives, and if it never does. Nothing
-   is fetched but the program, and nothing is sent anywhere.
+   JavaScript off or if the program never arrives. Nothing is fetched but the
+   program, and nothing is sent anywhere.
 
    No dependencies, in a crate that has none. */
 
@@ -32,17 +36,55 @@
      there by the time the reader is. */
   var AHEAD = "600px 0px";
 
-  /* The file shows until the program has drawn over it. On a dark page that
-     file is a white rectangle, so it is held back for this long instead, and
-     shown after all if the program is slower than that or never arrives. */
-  var PATIENCE = 4000;
-
   var serial = 0;
   var all = [];
   var tip = null;
 
-  function scheme(fig) {
-    return fig.pinned || (K.dark() ? "dark" : "light");
+  function scheme() {
+    return K.dark() ? "dark" : "light";
+  }
+
+  /* ------------------------------------------------------------- ground */
+
+  function channels(css) {
+    var m = /rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(css || "");
+    if (!m) return null;
+    var alpha = m[4] === undefined ? 1 : m[4].slice(-1) === "%" ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), alpha];
+  }
+
+  function hex(c) {
+    return "#" + c.slice(0, 3).map(function (v) {
+      var h = Math.round(clamp(v, 0, 255)).toString(16);
+      return h.length < 2 ? "0" + h : h;
+    }).join("");
+  }
+
+  /* The colour a figure is drawn on: whatever is behind it, the page or the
+     card it sits in. The first element up the tree that paints a background
+     settles it, with any translucent ones between laid over it, so a figure
+     inside a glassy panel is drawn on the colour the eye sees there. Asked
+     each time the figure is drawn, since the page changes it between light
+     and dark. */
+  function groundOf(host) {
+    var layers = [];
+    for (var node = host.parentElement; node && node.nodeType === 1; node = node.parentElement) {
+      var c = channels(getComputedStyle(node).backgroundColor);
+      if (!c || c[3] === 0) continue;
+      layers.push(c);
+      if (c[3] >= 0.999) break;
+    }
+    var base = layers.length && layers[layers.length - 1][3] >= 0.999 ? layers.pop() : [255, 255, 255, 1];
+    for (var i = layers.length - 1; i >= 0; i--) {
+      var a = layers[i][3];
+      base = [
+        layers[i][0] * a + base[0] * (1 - a),
+        layers[i][1] * a + base[1] * (1 - a),
+        layers[i][2] * a + base[2] * (1 - a),
+        1,
+      ];
+    }
+    return hex(base);
   }
 
   function regionText(view) {
@@ -92,7 +134,6 @@
     this.img = img;
     this.stem = stem;
     this.alt = img.getAttribute("alt") || "";
-    this.pinned = img.getAttribute("data-karyon-theme") || "";
     this.thumb = !!options.thumb;
     this.wide = !!options.wide;
     this.prefix = "k" + ++serial + "-";
@@ -122,17 +163,6 @@
 
     if (!this.thumb) this.controls();
   }
-
-  /* Starts the wait for the program the first time the figure is about to be
-     seen, and shows the file after all if the wait runs out. */
-  Figure.prototype.wait = function () {
-    var host = this.host;
-    if (this.waited) return;
-    this.waited = true;
-    setTimeout(function () {
-      if (host.dataset.state === "waiting") host.dataset.state = "static";
-    }, PATIENCE);
-  };
 
   Figure.prototype.controls = function () {
     var self = this;
@@ -212,10 +242,12 @@
     if (!K.ready()) return;
     var width = this.thumb ? 0 : Math.round(this.stage.clientWidth);
     if (!this.thumb && width < 40) return;
-    var want = [scheme(this), width, this.view ? regionText(this.view) : ""].join("|");
+    var ground = groundOf(this.host);
+    var want = [scheme(), ground, width, this.view ? regionText(this.view) : ""].join("|");
     if (!force && want === this.drawn) return;
     var answer = K.figure(this.stem, {
-      theme: scheme(this),
+      theme: scheme(),
+      background: ground,
       width: width,
       region: this.view ? regionText(this.view) : "",
       prefix: this.prefix,
@@ -244,14 +276,8 @@
       this.plotArea();
       if (!this.moves && this.box) this.applyBox();
     }
-    // The plate under the figure is the figure's own page, read off the
-    // rectangle it paints first, so a figure that keeps its own theme on any
-    // page, such as the dark example, is not framed in the other one.
-    var ground = svg.querySelector(":scope > rect");
-    if (ground && ground.getAttribute("x") === "0" && ground.getAttribute("y") === "0") {
-      this.host.style.setProperty("--k-fig-ground", ground.getAttribute("fill"));
-    }
-    this.host.dataset.scheme = scheme(this);
+    this.host.style.setProperty("--k-fig-ground", ground);
+    this.host.dataset.scheme = scheme();
     this.host.dataset.state = "live";
     this.say();
   };
@@ -488,7 +514,7 @@
      so it names itself the way a file the program wrote does. */
   Figure.prototype.save = function () {
     var answer = K.figure(this.stem, {
-      theme: scheme(this),
+      theme: scheme(),
       width: this.moves ? this.width : 0,
       region: this.view ? regionText(this.view) : "",
       prefix: "",
@@ -535,7 +561,6 @@
     var big = new Figure(img, fig.stem, { wide: true });
     big.host.kFigure = big;
     big.opener = fig;
-    big.pinned = fig.pinned;
     larger = { dialog: dialog, figure: big };
     dialog.addEventListener("close", function () {
       if (larger && larger.dialog === dialog) larger = null;
@@ -570,7 +595,6 @@
       var match = FIGURE.exec(img.getAttribute("src") || "");
       if (!match) continue;
       if (img.closest(".k-live") || img.closest(".k-fig")) continue;
-      if (img.hasAttribute("data-karyon-static")) continue;
       found.push({ img: img, stem: match[1], thumb: !!img.closest("a") });
     }
     return found;
@@ -590,13 +614,22 @@
       all.push(fig);
     });
 
+    /* Fetched now rather than when the first figure scrolls near, since a
+       page that holds figures is going to want the program, and every moment
+       it takes to arrive is a moment a figure shows as a blank. If it never
+       arrives, every figure shows the file it was written as. */
+    K.load().then(null, function () {
+      all.forEach(function (fig) {
+        if (fig.host.dataset.state === "waiting") fig.host.dataset.state = "static";
+      });
+    });
+
     var shown = new IntersectionObserver(
       function (entries) {
         entries.forEach(function (entry) {
           var fig = entry.target.kFigure;
           fig.visible = entry.isIntersecting;
           if (!entry.isIntersecting) return;
-          fig.wait();
           K.load().then(
             function () {
               fig.learn();

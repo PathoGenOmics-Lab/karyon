@@ -12,12 +12,12 @@ use karyon::{
 
 /// `example-visual-system.svg`: one visual grammar across genomic tracks.
 ///
-/// The sheet shows what the web profile does, palette included, so it keeps
-/// the profile it sets and `theme` is ignored. A sheet is as wide as its
-/// panels and has no window of its own, so `width` and `region` are ignored
-/// too.
+/// The sheet shows what the web profile does to type, marks and spacing, and
+/// takes `theme` for its colours, so it is drawn on whichever page it goes on
+/// like every other figure. A sheet is as wide as its panels and has no window
+/// of its own, so `width` and `region` are ignored.
 pub fn example_visual_system(
-    _theme: &Theme,
+    theme: &Theme,
     _width: Option<f64>,
     _region: Option<&Region>,
 ) -> Box<dyn Drawing> {
@@ -46,6 +46,8 @@ pub fn example_visual_system(
 
     let overview = Figure::new(region.clone())
         .profile(RenderProfile::Web)
+        // The profile's sizes, on whichever page the figure is going on.
+        .theme(theme.clone())
         .width(780.0)
         .title("One visual grammar across genomic tracks")
         .push(
@@ -88,6 +90,8 @@ pub fn example_visual_system(
         .collect();
     let centred = Figure::new(region)
         .profile(RenderProfile::Web)
+        // The profile's sizes, on whichever page the figure is going on.
+        .theme(theme.clone())
         .width(780.0)
         .title("Shared axes, reference lines and non-colour encodings")
         .push(
@@ -105,6 +109,7 @@ pub fn example_visual_system(
         .push(AxisTrack::new().label("position"));
 
     let sheet = Panels::new()
+        .theme(theme.clone())
         .title("Karyon visual system")
         .push_captioned(&overview, "A", "Profile, annotation and categorical events")
         .push_captioned(
