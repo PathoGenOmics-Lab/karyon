@@ -650,6 +650,42 @@ pub fn leaf_order(tree: &Tree, names: &[String]) -> Vec<usize> {
     order
 }
 
+/// The tree to draw beside rows: cut to the tips whose row is among the
+/// first `drawn` of `rows`, and with how many of its tips have no row at all.
+///
+/// Drawn whole, a tree with a tip the panel lacks put every row after that
+/// tip beside the branch of the tip before it, and the last branch below the
+/// last row: the rows were put in the tree's order, but the tree was never
+/// cut to the rows. A row hidden under a cap goes from the tree too, so no
+/// branch leads off the band to a row that is not there. `None` when no tip
+/// has a row that is drawn.
+pub(crate) fn tree_beside_rows<'a>(
+    tree: &'a Tree,
+    rows: &[String],
+    drawn: usize,
+) -> (Option<std::borrow::Cow<'a, Tree>>, usize) {
+    use std::collections::HashSet;
+    let all: HashSet<&str> = rows.iter().map(String::as_str).collect();
+    let shown: HashSet<&str> = rows.iter().take(drawn).map(String::as_str).collect();
+    let leaves = tree.leaf_names();
+    let without_row = leaves
+        .iter()
+        .filter(|leaf| !all.contains(leaf.as_str()))
+        .count();
+    let kept: Vec<&str> = leaves
+        .iter()
+        .map(String::as_str)
+        .filter(|leaf| shown.contains(leaf))
+        .collect();
+    if kept.len() == leaves.len() {
+        return (Some(std::borrow::Cow::Borrowed(tree)), without_row);
+    }
+    (
+        tree.keep_tips(kept).map(std::borrow::Cow::Owned),
+        without_row,
+    )
+}
+
 /// How the branches of a tree are drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TreeStyle<'a> {

@@ -11,7 +11,7 @@ use crate::scale::Scale;
 use crate::svg::{fit_text, text_width, Anchor};
 use crate::theme::{contrast_ink, mix, wash};
 use crate::track::traits::Traits;
-use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -273,7 +273,11 @@ impl Track for DomainTrack {
         let backbone = mix(&ctx.theme.rule, &ctx.theme.foreground, 0.12);
         let zebra = mix(ctx.theme.surface(), &ctx.theme.rule, 0.16);
 
-        if let Some(tree) = &self.tree {
+        let names: Vec<String> = self.rows.iter().map(|row| row.name.clone()).collect();
+        let (tree, without_row) = self.tree.as_ref().map_or((None, 0), |tree| {
+            tree_beside_rows(tree, &names, names.len())
+        });
+        if let Some(tree) = tree.as_deref() {
             draw_tree(
                 ctx.svg,
                 tree,
@@ -415,6 +419,9 @@ impl Track for DomainTrack {
             },
             &placed,
         );
+        if without_row > 0 {
+            crate::track::band_note(ctx, &crate::track::tips_without_rows(without_row));
+        }
     }
 }
 

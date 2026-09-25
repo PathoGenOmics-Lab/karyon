@@ -113,6 +113,39 @@ use crate::scale::Scale;
 use crate::svg::SvgWriter;
 use crate::theme::Theme;
 
+/// A line of small print at the bottom right of a band, over a wash of the
+/// page so the marks under it do not read through: what the track left out,
+/// said where it was left out.
+pub(crate) fn band_note(ctx: &mut DrawContext<'_>, text: &str) {
+    let band = ctx.band;
+    let size = ctx.theme.font_size - 1.0;
+    let width = crate::svg::text_width(text, size) + 6.0;
+    ctx.svg.rect_opacity(
+        band.right() - width,
+        band.bottom() - size - 3.0,
+        width,
+        size + 3.0,
+        &ctx.theme.background,
+        0.8,
+    );
+    ctx.svg.text(
+        band.right() - 3.0,
+        band.bottom() - 2.0,
+        text,
+        &ctx.theme.muted,
+        size,
+        crate::svg::Anchor::End,
+    );
+}
+
+/// What a panel says of the tips of its tree that have no row.
+pub(crate) fn tips_without_rows(count: usize) -> String {
+    match count {
+        1 => "1 tip of the tree has no row".to_string(),
+        n => format!("{n} tips of the tree have no row"),
+    }
+}
+
 /// An axis-aligned rectangle in output pixels, y growing downwards.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {

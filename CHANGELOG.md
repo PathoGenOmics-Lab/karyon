@@ -582,6 +582,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A tree beside an alignment, a matrix, a panel of variable sites or a
+  domain panel is cut to the rows it has. Drawn whole, a tree with a tip the
+  panel lacked put every row after that tip beside the branch of the tip
+  before it and the last branch below the last row, with nothing to say so;
+  the band now says how many tips have no row. A row hidden under a cap goes
+  from the tree too, so no branch leads off the band. `Tree::keep_tips` is the
+  cut, as ape's `keep.tip` makes one.
+- The tree beside a matrix with metadata strips starts level with the rows,
+  under the strips' headings; it sat a heading's height above them.
 - `--features` draws a gene once. An annotation writes it at every level, and
   each was drawn as a feature of its own: NCBI's five rows for one gene came out
   as the chromosome, named `ANONYMOUS`, the gene, its transcript, two exons and

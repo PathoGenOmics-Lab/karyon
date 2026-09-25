@@ -30,7 +30,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::traits::Traits;
-use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -359,19 +359,25 @@ impl Track for MatrixTrack {
 
         // The tree takes the left of the strip and the names the right of it,
         // so a leaf, its name and its row of cells all sit on one line.
-        if let Some(tree) = &self.tree {
+        let names: Vec<String> = self.rows.iter().map(|row| row.name.clone()).collect();
+        let (tree, without_row) = self.tree.as_ref().map_or((None, 0), |tree| {
+            tree_beside_rows(tree, &names, names.len())
+        });
+        if let Some(tree) = tree.as_deref() {
             let area = Rect {
                 x: ctx.axis.x + 2.0,
                 y: band.y + head,
                 w: (self.tree_width - 6.0).max(1.0),
                 h: (band.h - head).max(1.0),
             };
+            // Level with the rows, which start under the headings: the first
+            // tip sat a heading's height above its row.
             draw_tree(
                 ctx.svg,
                 tree,
                 area,
                 self.row_height + self.row_gap,
-                band.y + self.row_height / 2.0,
+                band.y + head + self.row_height / 2.0,
                 TreeStyle {
                     shape: self.tree_shape,
                     color: &ctx.theme.foreground,
@@ -452,6 +458,9 @@ impl Track for MatrixTrack {
             },
             &placed,
         );
+        if without_row > 0 {
+            crate::track::band_note(ctx, &crate::track::tips_without_rows(without_row));
+        }
     }
 }
 

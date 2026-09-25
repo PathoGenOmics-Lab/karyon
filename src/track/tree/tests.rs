@@ -2179,3 +2179,164 @@ fn a_phylogram_draws_its_scale_bar_unless_asked_not_to() {
     );
     assert!(!drawn(TreeTrack::new(bare)).contains(bar));
 }
+
+/// The centre of every row, from where its name is set, and the height of
+/// every tip branch, in a panel with an ultrametric tree beside it, whose
+/// tips all end at one x.
+fn rows_and_tips(svg: &str, names: &[&str]) -> (Vec<f64>, Vec<f64>) {
+    let attr = |tag: &str, key: &str| -> Option<f64> {
+        tag.split(&format!(" {key}=\""))
+            .nth(1)?
+            .split('"')
+            .next()?
+            .parse()
+            .ok()
+    };
+    // A name's baseline is its row's centre and 0.35 of its size, the rule
+    // every row of the crate sets its name by.
+    let rows: Vec<f64> = names
+        .iter()
+        .map(|name| {
+            let at = svg
+                .find(&format!(">{name}</text>"))
+                .unwrap_or_else(|| panic!("no row {name}"));
+            let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+            attr(tag, "y").unwrap() - 0.35 * attr(tag, "font-size").unwrap()
+        })
+        .collect();
+    let horizontal: Vec<(f64, f64)> = svg
+        .split("<line")
+        .skip(1)
+        .filter_map(|piece| {
+            let tag = piece.split('>').next()?;
+            let (x1, y1, x2, y2) = (
+                attr(tag, "x1")?,
+                attr(tag, "y1")?,
+                attr(tag, "x2")?,
+                attr(tag, "y2")?,
+            );
+            (y1 == y2 && x2 > x1 && x2 < 140.0).then_some((x2, y1))
+        })
+        .collect();
+    let right = horizontal
+        .iter()
+        .map(|line| line.0)
+        .fold(f64::MIN, f64::max);
+    let mut tips: Vec<f64> = horizontal
+        .iter()
+        .filter(|line| (line.0 - right).abs() < 0.01)
+        .map(|line| line.1)
+        .collect();
+    tips.sort_by(f64::total_cmp);
+    (rows, tips)
+}
+
+/// Every row sits beside its own tip when the tree has a tip the panel lacks.
+/// Drawn whole, the tree put each row after the missing one beside the branch
+/// of the tip before it, and nothing said so.
+#[test]
+fn a_panel_beside_a_tree_with_a_tip_it_lacks_keeps_every_row_on_its_tip() {
+    use crate::read::sheet::sheet;
+    use crate::track::traits::Traits;
+    use crate::{DomainArchitecture, DomainTrack, MatrixRow, MatrixTrack, MsaSequence, MsaTrack};
+    use crate::{SnpSite, SnpTrack};
+    let tree = || Tree::parse_newick("((tipA:0.1,tipB:0.1):0.3,(tipC:0.1,tipD:0.1):0.3);").unwrap();
+    let names = ["tipA", "tipC", "tipD"];
+    // Headings over the rows, which the matrix left out of its tree's start.
+    let traits = || {
+        let held = sheet("sample\tgroup\ntipA\tx\ntipC\ty\ntipD\tx\n").unwrap();
+        Traits::from_sheet(&held).spread(held.columns.clone())
+    };
+    let check = |panel: &str, svg: String| {
+        let (rows, tips) = rows_and_tips(&svg, &names);
+        assert_eq!(
+            tips.len(),
+            rows.len(),
+            "{panel}: {} tips for {} rows",
+            tips.len(),
+            rows.len()
+        );
+        for (row, tip) in rows.iter().zip(&tips) {
+            assert!(
+                (row - tip).abs() < 0.6,
+                "{panel}: row centred at {row}, tip at {tip}"
+            );
+        }
+        assert!(
+            svg.contains("1 tip of the tree has no row"),
+            "{panel}: {svg}"
+        );
+    };
+    let sequences: Vec<MsaSequence> = names
+        .iter()
+        .map(|name| MsaSequence::new(*name, b"ACGTACGTAC".to_vec()))
+        .collect();
+    check(
+        "alignment",
+        Figure::new(Region::new("aln", 0, 10).unwrap())
+            .push(
+                MsaTrack::new(sequences.clone())
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let rows: Vec<MatrixRow> = names
+        .iter()
+        .map(|name| MatrixRow::new(*name, vec![1.0]))
+        .collect();
+    check(
+        "matrix",
+        Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(
+                MatrixTrack::new(vec![10], rows)
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let sites = vec![SnpSite::new(5, b'A', b"AGG".to_vec())];
+    let names_owned: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+    check(
+        "variable sites",
+        Figure::new(Region::new("sites", 0, 1).unwrap())
+            .push(
+                SnpTrack::new(names_owned, sites)
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let domains: Vec<DomainArchitecture> = names
+        .iter()
+        .map(|name| DomainArchitecture::new(*name, 100))
+        .collect();
+    check(
+        "domains",
+        Figure::new(Region::new("protein", 0, 100).unwrap())
+            .push(DomainTrack::new(domains).tree(tree()).traits(traits()))
+            .to_svg(),
+    );
+}
+
+/// The tree beside rows is cut to the rows that are drawn, so no branch leads
+/// off the band to a row a cap left out, and counts the tips with no row.
+#[test]
+fn the_tree_beside_rows_is_cut_to_the_rows_drawn() {
+    let tree = Tree::parse_newick("((tipA,tipB),(tipC,tipD));").unwrap();
+    let rows: Vec<String> = ["tipA", "tipC", "tipD", "tipZ"]
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    let (cut, without_row) = tree_beside_rows(&tree, &rows, 2);
+    assert_eq!(cut.unwrap().leaf_names(), ["tipA", "tipC"]);
+    assert_eq!(without_row, 1, "tipB has no row; tipD's is only hidden");
+    // Every tip on a drawn row: the tree itself, not a copy.
+    let (whole, none) = tree_beside_rows(
+        &tree,
+        &["tipA", "tipB", "tipC", "tipD"].map(String::from),
+        4,
+    );
+    assert!(matches!(whole, Some(std::borrow::Cow::Borrowed(_))));
+    assert_eq!(none, 0);
+}
