@@ -67,6 +67,14 @@ $ karyon chr1:1-10 --coverge depth.bedgraph
 karyon: unknown flag --coverge; did you mean --coverage?
 ```
 
+A flag another tool spells, `--vcf`, `--region`, `--metadata` or `--legend`,
+is answered with how karyon says the same thing:
+
+```text
+$ karyon rpoB --vcf calls.vcf.gz
+karyon: unknown flag --vcf; variant calls are --variants FILE, or the VCF named on its own
+```
+
 ### A worked example
 
 ```bash

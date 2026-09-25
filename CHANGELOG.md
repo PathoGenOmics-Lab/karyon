@@ -8,8 +8,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `karyon --help` fits on one screen: the grammar, every track grouped by what
-  it draws, the figure options, and where to ask for more. It printed the whole
+- `karyon --help` fits on one screen: three examples, the grammar, every track
+  grouped by what it draws, the figure options, and where to ask for more. It printed the whole
   of the help, some two hundred lines, which `karyon help all` still does, and
   `karyon` with nothing after it prints the short help rather than an error.
 
@@ -93,7 +93,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - A file named on its own is a track of the kind its name says, under any
-  `.gz`: BAM and CRAM draw their depth, SAM its reads, VCF its calls, GFF3, GTF
+  `.gz`: BAM draws its depth, SAM its reads, VCF its calls, GFF3, GTF
   and BED features, bedGraph a signal, FASTA the reference, Newick a tree, PAF
   synteny, and a PLINK or REGENIE table a scan. Its options come after it, as
   they do after a track flag, and a flag in front still chooses the kind. A
@@ -106,10 +106,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whole, as long as a FASTA, a BAM header, a `##sequence-region` or a
   `##contig` says, or as far as a file reaches on it. A gene at two places is
   refused with both, and a name at none with the nearest names the annotation
-  has. So `karyon rpoB reads.bam genes.gff3 calls.vcf.gz` is a whole figure.
-- Every track given no `--label` is called after its file: `reads` for
-  `data/reads.bam`, `calls` for `calls.vcf.gz`. Standard input, a pipe the
-  shell names and a tanglegram's two trees get no name.
+  has and the sequences each file names, in a header or on its rows, since the
+  name is most often one file's for what another calls otherwise, as PLINK
+  writes `1`. So `karyon rpoB reads.bam genes.gff3 calls.vcf.gz` is a whole
+  figure. One position, `chr1:18,350`, is answered with a span around it.
+- Every track given no `--label` is called after its file: `calls` for
+  `calls.vcf.gz`, `reads` for the reads of `data/reads.bam` and `reads depth`
+  for its depth. Standard input, a pipe the shell names and a tanglegram's two
+  trees get no name.
+- A flag another tool spells for something karyon says otherwise, `--vcf`,
+  `--region`, `--metadata`, `--legend` and some sixty more, is answered with
+  how karyon says it, and any other unknown flag says where the tracks and
+  their options are listed.
 - A key to the colours of a tree's branches and of every `--traits` strip is
   drawn under the figure, each level once however many strips show it.
   `--no-legend` leaves it out. The three simulated users each drew a tree
@@ -119,7 +127,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reference right above it, which is how one simulated user nearly missed the
   variant the figure was for.
 - `--manhattan` reads an association tool's own table by its header: PLINK,
-  PLINK 2, REGENIE, BOLT, GEMMA, SAIGE and the GWAS Catalog's format, finding
+  PLINK 2, whose header is written behind a `#`, REGENIE, BOLT, GEMMA, SAIGE
+  and the GWAS Catalog's format, finding
   the position and the p-value, or its logarithm, by their names, and leaving
   out a test written as `NA`. It read two or three columns only, and PLINK's
   ten had to be cut down first.

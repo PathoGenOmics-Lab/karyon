@@ -51,10 +51,15 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 === "Command line"
 
     ```bash
-    karyon --tree tree.nwk --traits samples.tsv --color-by lineage \
-      --support-style symbols --scale-bar --label phylogeny \
-      -o tree.svg
+    karyon --tree tree.nwk --traits samples.tsv --columns host \
+      --color-by lineage --support-style symbols --scale-bar \
+      --label phylogeny -o tree.svg
     ```
+
+    `--traits` draws every column of the sheet beside the tips unless
+    `--columns` names the ones to draw, in the order given; `--color-by`
+    may name any column of it, drawn or not. A key under the figure names
+    each colour, by its column.
 
 #### Options
 

@@ -261,10 +261,10 @@ karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 
 ```bash
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
-karyon chr1:1-60 --coverage depth.txt -o first.svg
+karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 ```
 
-[Every flag](guide/cli.md)
+[Your first figure](getting-started/quickstart.md) · [Every flag](guide/cli.md)
 </div>
 
 <div class="kh-way" markdown>

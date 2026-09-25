@@ -1,8 +1,8 @@
 # Your first figure
 
 Point karyon at the files you have and a place, and it draws them on one axis.
-The first step uses your own files; the ones after make their own, so all you
-need for them is karyon itself.
+The first two steps use your own files; the ones after make their own, so all
+you need for them is karyon itself.
 { .k-lead }
 
 <div class="k-steps" markdown>
@@ -36,7 +36,8 @@ over the gene rpoB with a margin either side, and a ruler underneath.
 | `calls.vcf.gz` | The calls. A file compressed with gzip or bgzip is read as the file inside. |
 | `-o rpoB.svg` | The output file. Without it the SVG goes to standard output, ready for a pipe. |
 
-Each track is called after its file in the left margin. To choose the kind
+Each track is called after its file in the left margin, and the depth of a
+BAM after the file and `depth`, as `reads depth`. To choose the kind
 yourself, put its flag in front: `--pileup reads.bam` draws the reads rather
 than their depth. The options for a track go after it: `reads.bam --label depth
 --height 60`. `karyon help pileup` lists what one track takes, and `karyon
@@ -44,7 +45,32 @@ than their depth. The options for a track go after it: `reads.bam --label depth
 
 A file whose name does not say what it holds, a `.tsv` or a `.txt`, needs its
 track's flag in front. When a place is not in any of the files, karyon says so
-and names what the files do hold.
+and names what each file does hold.
+
+### Draw a scan or a tree
+
+An association tool's table, and a tree with a sheet of what is known about
+its samples, are drawn the same way:
+
+```bash
+karyon 1 gwas.assoc --threshold genome-wide -o scan.svg
+karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
+```
+
+- **A place is named as the files name it.** PLINK writes a chromosome as `1`
+  where a FASTA may call it `NC_000962.3`, so a PLINK table is placed on `1`.
+  A sequence no file gives the length of is drawn as far as the rows reach;
+  write the span, as `1:1-4,411,532`, to draw all of it.
+- **The table is read by its header.** PLINK, PLINK 2, REGENIE, BOLT-LMM,
+  GEMMA, SAIGE and the GWAS Catalog each name their columns, and a p-value is
+  drawn as -log10 of itself. `--threshold genome-wide` draws the line at
+  p = 5e-8, and `--threshold 1e-5` wherever you say.
+- **A figure of trees alone needs no place.** `--traits` puts the sheet's
+  columns beside the tips, every column unless `--columns` names the ones to
+  draw, and a key under the figure names each colour.
+- **One position is not a place.** Around a variant, write a span, as
+  `NC_000962.3:761,000-761,400`; given `NC_000962.3:761,200`, karyon answers
+  with that span.
 
 ### Or make a figure from nothing
 
