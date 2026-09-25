@@ -465,7 +465,12 @@ FIGURE OPTIONS
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
     --no-legend          leave out the key to the colours a tree's branches and
-                         the strips of a --traits sheet are painted in
+                         the strips of a --traits sheet are painted in, and
+                         to the bases where they are blocks too narrow for
+                         their letters
+    --rename <FROM=TO>   read a sequence a file calls FROM as the figure's TO,
+                         as --rename 1=NC_000962.3 for a PLINK table beside a
+                         FASTA; several joined by commas, or the flag again
     -o, --output <FILE>  standard output by default. The figure is SVG, so a
                          name ending in .png, .pdf or another format is refused
     -h, --help
@@ -533,8 +538,14 @@ fn run(args: &[String]) -> Result<(), String> {
 
     // Read through `Disk`, which takes compressed files out of their wrapper
     // and reads a BAM a window at a time through its index.
-    let svg = stack::build_files(&invocation, &mut stack::Disk::default(), |_, _| None)
+    let mut disk = stack::Disk::default();
+    let svg = stack::build_files(&invocation, &mut disk, |_, _| None)
         .map_err(|error| error.to_string())?;
+    // A figure drawn with something its reader should know is still a figure,
+    // so what it says goes to standard error and the exit stays nought.
+    for note in &disk.notes {
+        eprintln!("karyon: {note}");
+    }
     match &invocation.output {
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?

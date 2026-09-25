@@ -98,6 +98,15 @@ pub enum ArgError {
     ExtraRegion(String),
     /// No locus at all.
     NoRegion,
+    /// One sequence renamed to two names.
+    RenamedTwice {
+        /// The name the files use.
+        from: String,
+        /// The first name it was given.
+        first: String,
+        /// The second.
+        second: String,
+    },
     /// A locus whose span is larger than a figure is drawn over.
     HugeRegion {
         /// The locus as it was written.
@@ -244,6 +253,14 @@ impl fmt::Display for ArgError {
                 f,
                 "the first argument is the region, as in NC_000962.3:761,000-763,000; \
                  only a figure of --tree, --tanglegram and --snps tracks goes without one"
+            ),
+            ArgError::RenamedTwice {
+                from,
+                first,
+                second,
+            } => write!(
+                f,
+                "--rename names {from} twice, as {first} and as {second}; a sequence is one of them"
             ),
             ArgError::HugeRegion { given, span } => write!(
                 f,
@@ -1239,6 +1256,9 @@ pub struct Invocation {
     /// Cleared by `--no-legend`: the key to the colours of a phylogeny's
     /// branches and of every strip of metadata.
     pub legend: bool,
+    /// `--rename FROM=TO`: a sequence a file calls `FROM` is the figure's
+    /// `TO`, as PLINK's `1` is the FASTA's `NC_000962.3`.
+    pub renames: Vec<(String, String)>,
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1334,6 +1354,7 @@ pub const FLAGS: &[&str] = &[
     "--no-axis",
     "--no-region-label",
     "--no-legend",
+    "--rename",
     "-o",
     "--output",
     "--help",
@@ -1545,6 +1566,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut output = None;
     let mut named: Option<String> = None;
     let mut legend = true;
+    let mut renames: Vec<(String, String)> = Vec::new();
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
     let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
@@ -2229,6 +2251,35 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.format = Some(format);
             }
+            "--rename" => {
+                let text = value("--rename")?;
+                for pair in text.split(',').filter(|pair| !pair.trim().is_empty()) {
+                    let Some((from, to)) = pair
+                        .split_once('=')
+                        .map(|(from, to)| (from.trim(), to.trim()))
+                        .filter(|(from, to)| !from.is_empty() && !to.is_empty())
+                    else {
+                        return Err(ArgError::BadValue {
+                            flag: "--rename",
+                            given: text.clone(),
+                            expected: "FROM=TO, as 1=NC_000962.3, or several joined by commas",
+                        });
+                    };
+                    // The same pair twice says one thing twice; one name made two
+                    // is a choice nobody made, and drew whichever came last.
+                    match renames.iter().find(|(known, _)| known == from) {
+                        Some((_, first)) if first != to => {
+                            return Err(ArgError::RenamedTwice {
+                                from: from.to_string(),
+                                first: first.clone(),
+                                second: to.to_string(),
+                            })
+                        }
+                        Some(_) => {}
+                        None => renames.push((from.to_string(), to.to_string())),
+                    }
+                }
+            }
             "--title" => {
                 figure_once(&mut given, "--title")?;
                 title = Some(value("--title")?.clone());
@@ -2392,6 +2443,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         output,
         named,
         legend,
+        renames,
     })))
 }
 
@@ -3792,6 +3844,37 @@ mod tests {
             let error = parse(&args(&format!("chr1:1-100 {word}"))).unwrap_err();
             assert!(matches!(error, ArgError::Unplaced(_)), "{word}: {error:?}");
             assert!(error.to_string().contains("--traits"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_rename_is_one_name_for_another_and_never_two() {
+        let it = draw("chr1:1-10 --rename 1=NC_1,2=NC_2 --rename 3=NC_3 --rename 1=NC_1");
+        assert_eq!(
+            it.renames,
+            [
+                ("1".to_string(), "NC_1".to_string()),
+                ("2".to_string(), "NC_2".to_string()),
+                ("3".to_string(), "NC_3".to_string()),
+            ]
+        );
+        let error = parse(&args("chr1:1-10 --rename 1=A --rename 1=B")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--rename names 1 twice, as A and as B; a sequence is one of them"
+        );
+        for bad in ["1", "=NC_1", "1=", "1=NC_1,2"] {
+            let error = parse(&args(&format!("chr1:1-10 --rename {bad}"))).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--rename",
+                        ..
+                    }
+                ),
+                "{bad}: {error:?}"
+            );
         }
     }
 

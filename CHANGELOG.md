@@ -121,6 +121,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--rename FROM=TO` reads a sequence a file calls `FROM` as the figure's `TO`,
+  so a PLINK table that writes `1` is drawn beside a FASTA and a BAM that say
+  `NC_000962.3`, on their length. A file is read by the figure's name first
+  and by a renamed one only where that finds nothing. A figure on a name a file
+  does not use says which `--rename` would draw it, where one plainly would:
+  the one sequence the file names, or the figure's own with a `chr` more or
+  less. One name renamed two ways is refused. All three simulated users had to
+  find out by reading the file that PLINK named the chromosome `1`.
+- A sequence drawn whole to where its rows reach, because no file gives its
+  length, says so on standard error: all three simulated users saw that the
+  figure stopped at the last tested position only from the corner label. `Files::note` is how the
+  figure tells whoever drew it, and `Disk::notes` keeps what it was told.
 - A file named on its own is a track of the kind its name says, under any
   `.gz`: BAM draws its depth, SAM its reads, VCF its calls, GFF3, GTF
   and BED features, bedGraph a signal, FASTA the reference, Newick a tree, PAF

@@ -88,6 +88,8 @@ pub enum BuildError {
         named: String,
         /// The locus that was asked for.
         region: String,
+        /// The `--rename` that would draw it, where one plainly would.
+        rename: Option<Box<(String, String)>>,
     },
     /// A reference whose bases stop before the region starts, or start after
     /// it ends.
@@ -120,6 +122,8 @@ pub enum BuildError {
         near: Vec<String>,
         /// Whether any file of the figure is an annotation to look genes up in.
         annotated: bool,
+        /// The `--rename` that would find it, where one plainly would.
+        rename: Option<Box<(String, String)>>,
     },
     /// A gene named at more than one place.
     Several {
@@ -269,11 +273,16 @@ impl fmt::Display for BuildError {
                 held,
                 named,
                 region,
+                rename,
             } => {
                 write!(f, "--{track} {path}: no {wanted} in {region}")?;
                 write!(f, ", though the file holds {held}")?;
                 if !named.is_empty() {
                     write!(f, " on {named}")?;
+                }
+                if let Some(pair) = rename {
+                    let (from, to) = pair.as_ref();
+                    write!(f, "; if {from} is {to}, add --rename {from}={to}")?;
                 }
                 Ok(())
             }
@@ -282,6 +291,7 @@ impl fmt::Display for BuildError {
                 held,
                 near,
                 annotated,
+                rename,
             } => {
                 write!(f, "no gene and no sequence is called {name}")?;
                 match near.as_slice() {
@@ -309,6 +319,10 @@ impl fmt::Display for BuildError {
                         listed_as(&files, "files"),
                         listed(sequences)
                     )?;
+                }
+                if let Some(pair) = rename {
+                    let (from, to) = pair.as_ref();
+                    write!(f, " If {from} is {to}, add --rename {from}={to}.")?;
                 }
                 if near.is_empty() && !annotated {
                     write!(
@@ -487,6 +501,17 @@ pub fn build_files(
         .as_ref()
         .or(placed.as_ref().map(|placed| &placed.region));
     let region = known.unwrap_or(&unnamed);
+    // A sequence no file gives the length of ends where its rows do, which
+    // is a figure worth drawing and an end worth saying where it came from:
+    // three simulated users read it as the end of the chromosome.
+    if let Some(file) = placed.as_ref().and_then(|placed| placed.reached.as_ref()) {
+        files.note(&format!(
+            "{} is drawn to {}, as far as {file} reaches, since no file says how long it \
+             is; add its FASTA or BAM, or write the span, to draw all of it",
+            region.seq(),
+            crate::track::axis::group_thousands(region.end())
+        ));
+    }
     let mut plot = Plot::over(region.clone());
     // A figure placed by a gene's name is about that gene, and says so.
     let gene = placed.as_ref().and_then(|placed| placed.gene.as_ref());
@@ -542,7 +567,29 @@ pub fn build_files(
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
-            Err(error) => return Err(explained(error, spec, known, files)),
+            // A file that calls the figure's sequence by a name --rename
+            // gives it is read by that name, and drawn under the figure's.
+            Err(error) => {
+                let mut again = None;
+                for alias in called_by(invocation, region.seq()).into_iter().skip(1) {
+                    let Ok(renamed) = Region::new(alias, region.start(), region.end()) else {
+                        continue;
+                    };
+                    let context = Context {
+                        region: &renamed,
+                        theme: &theme,
+                        reference: reference.as_ref(),
+                    };
+                    if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
+                        again = Some(built);
+                        break;
+                    }
+                }
+                match again {
+                    Some(built) => built,
+                    None => return Err(explained(error, spec, known, files)),
+                }
+            }
         };
         plot = plot.add_boxed(built);
     }
@@ -567,6 +614,33 @@ struct Placed {
     region: Region,
     /// The gene's name as its annotation spells it, where the place is a gene.
     gene: Option<String>,
+    /// The file whose rows reach furthest, where no file says how long the
+    /// sequence is and the figure ends where the rows do.
+    reached: Option<String>,
+}
+
+/// The name the figure gives a sequence a file calls `name`: the one
+/// `--rename` gives it, or its own.
+fn renamed(invocation: &Invocation, name: String) -> String {
+    invocation
+        .renames
+        .iter()
+        .find(|(from, _)| *from == name)
+        .map_or(name, |(_, to)| to.clone())
+}
+
+/// The names the files may call the figure's sequence `name` by: its own, and
+/// every one `--rename` makes it.
+fn called_by<'a>(invocation: &'a Invocation, name: &'a str) -> Vec<&'a str> {
+    std::iter::once(name)
+        .chain(
+            invocation
+                .renames
+                .iter()
+                .filter(|(_, to)| to == name)
+                .map(|(from, _)| from.as_str()),
+        )
+        .collect()
 }
 
 /// Finds a place named by a word in the figure's own files.
@@ -584,9 +658,10 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
     let mut lengths: Vec<(String, u64)> = Vec::new();
     let mut spans: Vec<(String, u64, u64)> = Vec::new();
     let mut names: Vec<String> = Vec::new();
-    let mut furthest: Option<u64> = None;
+    let mut furthest: Option<(u64, String)> = None;
     let mut annotated = false;
     let mut spelled: Option<String> = None;
+    let aliases = called_by(invocation, name);
     let open_error = |spec: &TrackSpec, source: &Source, cause: io::Error| BuildError::Open {
         track: spec.kind.flag(),
         path: called(source),
@@ -599,42 +674,71 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 .sequences(source)
                 .map_err(|cause| open_error(spec, source, cause))?
             {
-                lengths.extend(held);
+                lengths.extend(held.into_iter().map(|(n, l)| (renamed(invocation, n), l)));
                 continue;
             }
             // A file that will not open is its track's to report.
             let Ok(text) = files.text(source) else {
                 continue;
             };
-            lengths.extend(sequence_lengths(&text));
+            lengths.extend(
+                sequence_lengths(&text)
+                    .into_iter()
+                    .map(|(n, l)| (renamed(invocation, n), l)),
+            );
             if matches!(spec.kind, Kind::Features | Kind::Loci)
                 && spec.source.as_ref() == Some(source)
             {
                 annotated = true;
                 let found = read::interval::named(&text, name);
                 spelled = spelled.or(found.spelled);
-                spans.extend(found.spans);
+                spans.extend(
+                    found
+                        .spans
+                        .into_iter()
+                        .map(|(sequence, start, end)| (renamed(invocation, sequence), start, end)),
+                );
                 names.extend(found.names);
             }
-            let reach = if spec.kind == Kind::Manhattan {
-                read::point::association_table(
-                    &text,
-                    &Region::new(name, 0, 1 << 28)
-                        .unwrap_or_else(|_| Region::new("x", 0, 1).expect("a window")),
-                )
-                .ok()
-                .and_then(|table| table.points.iter().map(|point| point.pos + 1).max())
-            } else {
-                sequence_column(spec.kind).and_then(|column| reach_on(&text, &column, name))
-            };
-            furthest = furthest.max(reach);
+            // As far as its rows reach on the sequence, under any name the
+            // figure gives it.
+            let reach = aliases
+                .iter()
+                .filter_map(|alias| {
+                    if spec.kind == Kind::Manhattan {
+                        read::point::association_table(
+                            &text,
+                            &Region::new(*alias, 0, 1 << 28)
+                                .unwrap_or_else(|_| Region::new("x", 0, 1).expect("a window")),
+                        )
+                        .ok()
+                        .and_then(|table| table.points.iter().map(|point| point.pos + 1).max())
+                    } else {
+                        sequence_column(spec.kind)
+                            .and_then(|column| reach_on(&text, &column, alias))
+                    }
+                })
+                .max();
+            if let Some(reach) = reach {
+                let further = match &furthest {
+                    None => true,
+                    Some((known, _)) => reach > *known,
+                };
+                if further {
+                    furthest = Some((reach, called(source)));
+                }
+            }
         }
     }
 
     if let Some((_, length)) = lengths.iter().find(|(sequence, _)| sequence == name) {
         let region = Region::new(name, 0, (*length).max(1))
             .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
-        return Ok(Placed { region, gene: None });
+        return Ok(Placed {
+            region,
+            gene: None,
+            reached: None,
+        });
     }
 
     // One gene written at several levels overlaps itself: merged, it is one
@@ -659,6 +763,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
             return Ok(Placed {
                 region,
+                reached: None,
                 gene: Some(spelled.unwrap_or_else(|| name.to_string())),
             });
         }
@@ -677,9 +782,13 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
         }
     }
 
-    if let Some(end) = furthest {
+    if let Some((end, file)) = furthest {
         if let Ok(region) = Region::new(name, 0, end.max(1)) {
-            return Ok(Placed { region, gene: None });
+            return Ok(Placed {
+                region,
+                gene: None,
+                reached: Some(file),
+            });
         }
     }
     Err(nowhere(name, invocation, files, &names, annotated))
@@ -747,8 +856,25 @@ fn nowhere(
         .collect();
     near.sort();
     near.dedup_by(|a, b| a.1 == b.1);
+    // A name the files hold under another spelling is most likely that one.
+    // Where no annotation is there to look genes up in, a word that is no
+    // sequence is most likely the one sequence the files do name.
+    let mut every: Vec<(String, usize)> = Vec::new();
+    for (_, sequences) in &held {
+        for (sequence, count) in sequences {
+            if !every.iter().any(|(known, _)| known == sequence) {
+                every.push((sequence.clone(), *count));
+            }
+        }
+    }
+    let rename = if near.is_empty() {
+        rename_for(&every, name, !annotated).map(Box::new)
+    } else {
+        None
+    };
     BuildError::Nowhere {
         name: name.to_string(),
+        rename,
         held,
         near: near
             .into_iter()
@@ -1136,6 +1262,11 @@ pub trait Files {
     fn sequences(&mut self, _source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
         Ok(None)
     }
+
+    /// Something about a figure drawn anyway that whoever asked for it should
+    /// know, such as where the end of a sequence was taken from. The default
+    /// keeps it, as a page with nowhere to print it does.
+    fn note(&mut self, _message: &str) {}
 }
 
 impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
@@ -1155,6 +1286,8 @@ impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
 #[derive(Debug, Default)]
 pub struct Disk {
     kept: std::collections::HashMap<Source, String>,
+    /// What [`Files::note`] was told, for the command line to print.
+    pub notes: Vec<String>,
 }
 
 impl Disk {
@@ -1179,6 +1312,10 @@ impl Disk {
 }
 
 impl Files for Disk {
+    fn note(&mut self, message: &str) {
+        self.notes.push(message.to_string());
+    }
+
     fn text(&mut self, source: &Source) -> io::Result<String> {
         if let Some(text) = self.kept.get(source) {
             return Ok(text.clone());
@@ -1492,6 +1629,7 @@ fn explained(
                     held: held.iter().map(|(_, count)| count).sum(),
                     named: listed(&held),
                     region: region.to_string(),
+                    rename: rename_for(&held, region.seq(), true).map(Box::new),
                 },
                 _ => BuildError::Empty {
                     track,
@@ -1576,6 +1714,31 @@ fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
         }
     }
     held
+}
+
+/// The `--rename` that would draw a file's rows under the figure's name
+/// `figure`, where one plainly would: the name among `held` that is the
+/// figure's own with a `chr` more or less, or, where `alone` allows, the one
+/// sequence the file names. None where the file already names the figure's.
+fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(String, String)> {
+    if held.iter().any(|(name, _)| name == figure) {
+        return None;
+    }
+    let bare = |name: &str| {
+        let lower = name.to_ascii_lowercase();
+        lower.strip_prefix("chr").unwrap_or(&lower).to_string()
+    };
+    let spelled: Vec<&String> = held
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| bare(name) == bare(figure))
+        .collect();
+    let from = match (spelled.as_slice(), held) {
+        ([one], _) => (*one).clone(),
+        ([], [(one, _)]) if alone => one.clone(),
+        _ => return None,
+    };
+    Some((from, figure.to_string()))
 }
 
 /// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
@@ -1703,6 +1866,7 @@ fn track(
                     held: found.records,
                     named: String::new(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -1748,6 +1912,7 @@ fn track(
                     held: found.records,
                     named: String::new(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -2177,6 +2342,7 @@ fn track(
                     held: found.records,
                     named: code.clone(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -2212,6 +2378,7 @@ fn track(
                     held: found.records,
                     named: String::new(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
             let mut track = StructuralTrack::new(found.variants);
@@ -2238,6 +2405,7 @@ fn track(
                     held: found.records,
                     named: String::new(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
             let mut track = SplitReadTrack::new(found.reads);
@@ -2274,6 +2442,7 @@ fn track(
                     held: found.records,
                     named: context.clone(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -2319,6 +2488,7 @@ fn track(
                     held: found.records,
                     named: analysis.clone(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
             if found.rows.iter().all(|row| row.features.is_empty()) {
@@ -2383,6 +2553,7 @@ fn track(
                     held: found.records,
                     named: found.sequences.join(", "),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -2447,6 +2618,7 @@ fn track(
                     held: found.records,
                     named: String::new(),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -2658,6 +2830,7 @@ fn track(
                     held: found.records,
                     named: found.samples.join(", "),
                     region: region.to_string(),
+                    rename: None,
                 });
             }
 
@@ -4372,7 +4545,8 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         .to_string();
         assert_eq!(
             error,
-            "--variants calls.vcf: no variants in 1:1-5000, though the file holds 3 on chr1 and chr2"
+            "--variants calls.vcf: no variants in 1:1-5000, though the file holds 3 on chr1 and chr2; \
+             if chr1 is 1, add --rename chr1=1"
         );
         // A header is not a sequence: a bedGraph's column two says which rows
         // are rows.
@@ -4382,7 +4556,10 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         })
         .unwrap_err()
         .to_string();
-        assert!(error.ends_with("though the file holds 1 on 1"), "{error}");
+        assert!(
+            error.ends_with("though the file holds 1 on 1; if 1 is chr1, add --rename 1=chr1"),
+            "{error}"
+        );
         // Read from a pipe, there is nothing to read twice.
         let error = build(
             &over("1:1-5000", "--variants", "-"),
@@ -4526,6 +4703,122 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         })
     }
 
+    /// Files held in memory, and what the figure told whoever drew it.
+    struct Held {
+        files: Vec<(String, String)>,
+        notes: Vec<String>,
+    }
+
+    impl Files for Held {
+        fn text(&mut self, source: &Source) -> io::Result<String> {
+            let Source::Path(path) = source else {
+                unreachable!("every source is a file")
+            };
+            let path = path.to_string_lossy();
+            self.files
+                .iter()
+                .find(|(name, _)| *name == path)
+                .map(|(_, text)| text.clone())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_string()))
+        }
+
+        fn note(&mut self, message: &str) {
+            self.notes.push(message.to_string());
+        }
+    }
+
+    /// The figure `line` draws from `held`, and the notes it made.
+    fn drawn_noting(
+        line: &str,
+        held: &[(&str, &str)],
+    ) -> (Result<String, BuildError>, Vec<String>) {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let mut files = Held {
+            files: held
+                .iter()
+                .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+                .collect(),
+            notes: Vec::new(),
+        };
+        let drawn = build_files(&invocation, &mut files, |_, _| None);
+        (drawn, files.notes)
+    }
+
+    /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file
+    /// had to call it one name before the two could be drawn together.
+    #[test]
+    fn a_file_that_calls_the_sequence_otherwise_is_read_by_that_name() {
+        let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
+        let fasta = format!(">NC_1\n{}\n", "ACGT".repeat(1_500));
+        let held = [("gwas.assoc", scan), ("ref.fa", fasta.as_str())];
+        // Named as the FASTA names it, the scan's rows are found under its own
+        // name, and the figure runs the FASTA's length.
+        let (svg, notes) = drawn_noting("NC_1 ref.fa gwas.assoc --rename 1=NC_1", &held);
+        let svg = svg.unwrap();
+        assert_eq!(locus_of(&svg), "NC_1:1-6000");
+        assert_eq!(svg.matches("<circle").count(), 2, "{svg}");
+        assert!(notes.is_empty(), "{notes:?}");
+        // With nothing to give the length, the figure ends where the rows do,
+        // and says so.
+        let (svg, notes) = drawn_noting("NC_1 gwas.assoc --rename 1=NC_1", &held);
+        assert_eq!(locus_of(&svg.unwrap()), "NC_1:1-4800");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("NC_1 is drawn to 4,800, as far as gwas.assoc reaches"),
+            "{notes:?}"
+        );
+        // Without --rename each refusal says which one to write.
+        let error = drawn_from("NC_1 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("If 1 is NC_1, add --rename 1=NC_1."),
+            "{error}"
+        );
+        let error = drawn_from("NC_1:1-5000 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.ends_with("; if 1 is NC_1, add --rename 1=NC_1"),
+            "{error}"
+        );
+    }
+
+    /// The command line prints what the figure noted, so the files it reads
+    /// through have to keep it.
+    #[test]
+    fn the_disk_keeps_what_the_figure_notes() {
+        let mut disk = Disk::default();
+        disk.note("chr1 is drawn to 4,800");
+        assert_eq!(disk.notes, ["chr1 is drawn to 4,800"]);
+    }
+
+    /// A name that is the figure's own with a chr more or less is plainly
+    /// that sequence; among several other names nothing is guessed.
+    #[test]
+    fn a_rename_is_offered_only_where_one_plainly_fits() {
+        assert_eq!(
+            rename_for(&[("7".into(), 3), ("8".into(), 2)], "chr7", false),
+            Some(("7".to_string(), "chr7".to_string()))
+        );
+        assert_eq!(
+            rename_for(&[("7".into(), 3), ("8".into(), 2)], "NC_1", true),
+            None
+        );
+        assert_eq!(
+            rename_for(&[("1".into(), 3)], "NC_1", true),
+            Some(("1".to_string(), "NC_1".to_string()))
+        );
+        assert_eq!(rename_for(&[("1".into(), 3)], "NC_1", false), None);
+        assert_eq!(rename_for(&[("NC_1".into(), 3)], "NC_1", true), None);
+        // A gene named nearly right is a typo, and no rename is offered for it.
+        let error = drawn_from("rpoC genes.gff3", &[("genes.gff3", GENES)]).unwrap_err();
+        assert!(!error.to_string().contains("--rename"), "{error}");
+    }
+
     const GENES: &str = "\
 ##gff-version 3
 ##sequence-region chr1 1 50000
@@ -4594,8 +4887,9 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let error = drawn_from("NC_1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. To find \
-             a gene by name, add the annotation that names it, as --features genes.gff3."
+            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. If 1 is \
+             NC_1, add --rename 1=NC_1. To find a gene by name, add the annotation that names \
+             it, as --features genes.gff3."
         );
         // Files that name the same sequences are named together.
         let vcf = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
