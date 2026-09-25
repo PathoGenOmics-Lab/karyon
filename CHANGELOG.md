@@ -339,6 +339,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A figure's width floor grows with `visual_scale`, as the margins and the label
+  gutter it adds up do. It added them up unscaled, so at `visual_scale(2.0)` a
+  figure held to its floor was 234 pixels wide with its plotting area starting
+  at 332, and the track and its name were drawn off the right of the image.
+  Nothing changes at the plain scale, and every committed figure is byte for
+  byte what it was.
 - `--methylation` draws a window whose every position went unmeasured, with
   their number in the band's corner, rather than refusing it. It was refused as
   holding no modified bases though the file held some, which reads as though the

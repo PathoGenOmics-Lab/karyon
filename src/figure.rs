@@ -208,6 +208,9 @@ impl Figure {
     /// Fonts, margins, the label gutter, gaps and rounded corners move together,
     /// so a slide-sized figure can be made more assertive without retuning each
     /// value independently. Data marks retain their meaning and coordinates.
+    /// The one width that moves is the floor: a width too narrow for the
+    /// scaled margins and gutter is raised to what they need, as it is at the
+    /// plain scale.
     pub fn visual_scale(mut self, factor: f64) -> Self {
         self.visual_scale = if factor.is_finite() {
             factor.max(0.25)
@@ -536,16 +539,21 @@ impl Figure {
         // width never reached the floor, so the same settings written in two
         // orders drew two figures. The default is held to it as well, since
         // 900 is a width like any other and was set before everything else.
-        let floor = self.margin.left
+        // It is scaled as the layout below scales what it adds up: added up
+        // unscaled, a figure at twice the visual scale was held to the width
+        // of one at the plain scale, and its plotting area started past the
+        // right edge of the image.
+        let spacing = self.visual_scale;
+        let floor = (self.margin.left
             + self.margin.right
             + self.label_width.unwrap_or(DEFAULT_LABEL_WIDTH)
-            + 50.0;
+            + 50.0)
+            * spacing;
         let width = if self.width.is_finite() {
             self.width.max(floor)
         } else {
             floor
         };
-        let spacing = self.visual_scale;
         let margin_top = self.margin.top * spacing;
         let margin_right = self.margin.right * spacing;
         let margin_bottom = self.margin.bottom * spacing;
@@ -890,6 +898,43 @@ mod tests {
             layout.plot_x,
             layout.plot_x + layout.plot_width
         );
+    }
+
+    #[test]
+    fn the_floor_grows_with_the_visual_scale_the_margins_and_gutter_grow_with() {
+        // The layout multiplies the margins and the gutter by the visual
+        // scale, and the floor added them up unmultiplied. At twice the scale
+        // a figure held to its floor was 234 pixels wide and started its
+        // plotting area at 332, so the track and its name were both drawn
+        // off the right of the image.
+        let floored = |scale: f64| {
+            Figure::new(region())
+                .visual_scale(scale)
+                .label_width(150.0)
+                .width(1.0)
+                .push(CoverageTrack::new(0, vec![10.0; 1000]).label("depth"))
+        };
+        let unscaled = floored(1.0).layout().plot_width;
+        for scale in [1.0, 2.0, 3.5] {
+            let figure = floored(scale);
+            let (width, _) = figure.dimensions();
+            let layout = figure.layout();
+            assert!(
+                layout.plot_x + layout.plot_width + layout.margin_right <= width,
+                "at {scale} the plotting area runs from {} to {} on an image {width} wide",
+                layout.plot_x,
+                layout.plot_x + layout.plot_width
+            );
+            // The area grows with everything else, rather than being what is
+            // left of an image that did not.
+            assert!(
+                layout.plot_width >= unscaled * scale * 0.99,
+                "at {scale} the plotting area is {} wide, against {unscaled} unscaled",
+                layout.plot_width
+            );
+        }
+        // Nothing moves at the scale every committed figure is drawn at.
+        assert_eq!(floored(1.0).dimensions().0, 234.0);
     }
 
     #[test]

@@ -397,7 +397,7 @@ can sit anywhere in the chain.
 | `title(impl Into<String>)` | none | the bold line above the tracks |
 | `theme(Theme)` | `Theme::light()` | colours and fonts: see [Styling](theming.md) |
 | `profile(RenderProfile)` | the `Manuscript` values | theme, visual scale and density in one call |
-| `visual_scale(f64)` | `1.0` | type, marks, bands, margins, gaps and corners together; never the width or the coordinates |
+| `visual_scale(f64)` | `1.0` | type, marks, bands, margins, gaps and corners together; never the coordinates, and the width only where it is below the floor |
 | `density(Density)` | `Density::Balanced` | how tightly repeated rows and marks are packed |
 | `margin(Margin)` | `14, 18, 14, 16` | whitespace top, right, bottom and left |
 | `label_width(f64)` | measured | the width of the left gutter that holds track labels |
@@ -640,9 +640,10 @@ the space to the left of the track labels.
 Values that would break the document are corrected rather than passed through.
 A width too small to leave a plotting area is raised to the smallest one that
 does, and a width that is not a finite number is replaced by that floor. The
-floor depends on the margins and `label_width`, so it is worked out when the
-figure is laid out: `width` written before them draws the same figure as `width`
-written after, and the default of 900 is held to it too. A margin side or a
+floor depends on the margins, `label_width` and the visual scale, so it is
+worked out when the figure is laid out: `width` written before them draws the
+same figure as `width` written after, and the default of 900 is held to it
+too. A margin side or a
 `label_width` that is negative or not finite becomes zero, and so does a
 negative `track_gap`. A `visual_scale` below `0.25` is raised to it, and one
 that is not finite is taken as `1.0`.
