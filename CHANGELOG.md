@@ -413,6 +413,78 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--features` draws a gene once. An annotation writes it at every level, and
+  each was drawn as a feature of its own: NCBI's five rows for one gene came out
+  as the chromosome, named `ANONYMOUS`, the gene, its transcript, two exons and
+  the CDS. A GFF3 row whose `Parent=` or `Derives_from=` names a row in the
+  file is now left out, so is a `region`, `chromosome`, `scaffold` or similar
+  row from base 1 that describes the sequence itself, and a part whose whole is
+  not in the file is still drawn. GTF is read with its own names, `gene_name`
+  and `gene_id`, where every GTF gene was drawn nameless beside its own CDS.
+- `--manhattan` reads a column of p-values as one. A table headed `P`,
+  `pvalue`, `p.value`, `p_wald`, `P_BOLT_LMM` or another name every
+  association tool writes, or a q-value or `FDR` column, is drawn as `-log10`
+  of itself with the axis saying so, where it was drawn as written: the
+  strongest hit sat on the floor of the scan, the null at the top, and the
+  command exited nought. `--threshold` is then a p-value as well, since it is
+  given in the file's units, so `5e-8` draws the line `genome-wide` does and
+  `7.3` is refused. A table with no header whose every value lies between 0 and
+  1 is refused, asking for a header, since nothing in it says whether it holds
+  p-values; a name mentioning a logarithm is drawn as written. `genome-wide` is
+  refused on a phylogeny, where it was read as a support value of 7.3.
+  `read::point::association_table` returns the points and what they were.
+- A FASTA record cut out by `samtools faidx`, headed `>chr1:101-160`, is read
+  where its header puts it. It was read from base 1, so a window on exactly the
+  bases it held drew an empty band, and any other window drew the wrong bases,
+  without an error. A header is read as a span only when the span is as long as
+  the record, and several slices of one sequence are picked by the window.
+- `--sequence`, `--orfs`, `--dynseq` and the reference a pileup reads refuse a
+  record with no base in the window, saying which bases it holds. The track was
+  drawn empty and the command exited nought, and a pileup whose reference was
+  elsewhere drew every read as agreeing with it. A window that runs past the end
+  of a record still draws the bases there are.
+- A command line that gives one option two values is refused, naming the flag
+  and the track, where the last value won without a word: a `--label` meant for
+  the next track and written before its flag renamed this one, and a second
+  `--height` undid the first. `--highlight`, which adds clades to a list, and
+  the flags that only switch something on still take any number.
+- `-o` refuses a name that promises a format karyon does not write, such as
+  `fig.png`, `fig.pdf` or `fig.svgz`, and says to write SVG and convert it. The
+  figure was written as SVG under the name, and the command exited nought.
+- `--height` takes a number of pixels above nought, as `--row-height` already
+  did. `NaN` parsed as a number, so a track given it shrank to its floor and the
+  figure exited nought without it; an infinity, nought and a negative height
+  drew nothing.
+- A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
+  region. None of them is drawn in a window, so the command line made a reader
+  invent one, `tree:1-1`, which the figure then printed as its locus. The
+  library draws no locus above a figure where no track shows the window, and
+  keeps it out of the figure's accessible name and description:
+  `example-snps.svg` and `example-tanglegram.svg` lose `sites:1-34` and
+  `taxa:1-8` from their `<title>`, and nothing drawn changes. An ideogram marks
+  the window on its chromosome and keeps its locus; `Track::shows_region` says
+  which tracks do. A region given to a tree is still accepted.
+- A level of a sample sheet is one colour in every strip of a figure and in its
+  key. The strip beside a tree dealt the palette in the order the tree met its
+  tips and the strip beside a matrix in the order the sheet sorted its names, so
+  one sheet drawn beside both put each lineage in a different colour on each
+  side. Every column `Traits` makes now carries the order its levels are
+  coloured in, `Traits::from_sheet` takes that order from the file, so a sample
+  appended at the end repaints nothing, and a tree handed the column deals its
+  colours the same way; `--traits` does all of this. `Sheet` gains `order` and
+  `levels`, and `TraitColumn` gains `levels` and `level_order`.
+- `TreeTrack::legend` keys a tree's branch colours and strips from the count
+  they are painted from. The only key there was, `Traits::legend`, numbered the
+  levels the sheet's way, so a figure of two countries printed each one's
+  colour beside the other's name. A tree now counts over every node rather than
+  the ones on screen, so folding a clade no longer repaints the rest:
+  `example-phylogenetics.svg` drew the same sample in two shades in its open
+  and its folded panel, and draws it in one.
+- `Traits::legend` draws a ramp in the theme's colours and labels it with the
+  column's range. It passed the two the other way round, so the ramp was
+  painted with `fill="48.2"` and labelled with two colour codes. A continuous
+  column with no number in it is left out of either key rather than labelled
+  with the placeholders an empty count starts at.
 - A figure's width floor grows with `visual_scale`, as the margins and the label
   gutter it adds up do. It added them up unscaled, so at `visual_scale(2.0)` a
   figure held to its floor was 234 pixels wide with its plotting area starting

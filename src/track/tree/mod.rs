@@ -691,6 +691,45 @@ pub fn draw_tree(
     );
 }
 
+/// One annotation's entries in a tree's key, from the whole tree's count.
+///
+/// A ramp is labelled with the two ends of the range it runs over, and a
+/// continuous annotation with no number anywhere has no range and is left
+/// out rather than keyed from the placeholder the empty count starts at.
+fn key_of(
+    legend: crate::track::legend::Legend,
+    label: &str,
+    scale: TraitScale,
+    tree: &Tree,
+    key: &str,
+    levels: &[String],
+    theme: &Theme,
+) -> crate::track::legend::Legend {
+    let domain = rectangular::tree_domain(tree, key, levels);
+    match scale {
+        TraitScale::Continuous => {
+            if domain.minimum > domain.maximum {
+                return legend;
+            }
+            legend.ramp(
+                label,
+                theme.muted.clone(),
+                theme.accent.clone(),
+                text_rounded(domain.minimum, 3),
+                text_rounded(domain.maximum, 3),
+            )
+        }
+        TraitScale::Categorical => {
+            domain
+                .keyed()
+                .into_iter()
+                .fold(legend, |legend, (level, index)| {
+                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
+                })
+        }
+    }
+}
+
 /// The same drawing, with the branches named.
 ///
 /// An internal node's riser always carries its support, since there is nothing
@@ -1693,9 +1732,7 @@ impl TreeTrack {
             .iter()
             .map(|column| {
                 let values = rectangular::branch_values(&self.tree, &column.key);
-                let domain = crate::track::traits::TraitDomain::new(
-                    values.iter().flatten().copied().collect::<Vec<_>>(),
-                );
+                let domain = rectangular::tree_domain(&self.tree, &column.key, &column.levels);
                 let mut levels: Vec<crate::TraitLevel> = Vec::new();
                 let mut of: Vec<Option<usize>> = vec![None; nodes];
                 match column.scale {
@@ -1743,6 +1780,67 @@ impl TreeTrack {
                 }
             })
             .collect()
+    }
+
+    /// A key for the colours this track paints: the annotation
+    /// [`TreeTrack::color_by`] colours the branches by, then every trait
+    /// column, each level in the colour it is drawn in.
+    ///
+    /// Read off the count the branches and the strips are painted from, which
+    /// runs over the whole tree in its own order. A key built from the sample
+    /// sheet instead, with [`Traits::legend`](crate::track::traits::Traits::legend),
+    /// numbers the levels in the order the sheet sorts its rows, and that is a
+    /// different order: a figure of two countries printed each one's colour
+    /// beside the other's name.
+    ///
+    /// A column that repeats the branch key with the same scale is not keyed
+    /// twice. Nothing calls this on its own, since whether a figure wants a
+    /// key and where it goes is the caller's decision, as it is for
+    /// [`Traits::legend`](crate::track::traits::Traits::legend).
+    pub fn legend(&self, theme: &Theme) -> crate::track::legend::Legend {
+        let mut legend = crate::track::legend::Legend::new();
+        let mut keyed: Vec<(&str, TraitScale)> = Vec::new();
+        if let Some(key) = &self.color_by {
+            let values = rectangular::branch_values(&self.tree, key);
+            let scale = if rectangular::is_continuous(&values) {
+                TraitScale::Continuous
+            } else {
+                TraitScale::Categorical
+            };
+            let levels = self.color_levels();
+            legend = key_of(legend, key, scale, &self.tree, key, levels, theme);
+            keyed.push((key, scale));
+        }
+        for column in &self.trait_columns {
+            if keyed.contains(&(column.key.as_str(), column.scale)) {
+                continue;
+            }
+            legend = key_of(
+                legend,
+                &column.label,
+                column.scale,
+                &self.tree,
+                &column.key,
+                &column.levels,
+                theme,
+            );
+            keyed.push((&column.key, column.scale));
+        }
+        legend
+    }
+
+    /// The order the branch colour key's levels are dealt the palette in: the
+    /// one a trait column over the same key carries from its sheet, so the
+    /// branches and the strip beside them agree, and otherwise none.
+    fn color_levels(&self) -> &[String] {
+        self.color_by
+            .as_deref()
+            .and_then(|key| {
+                self.trait_columns
+                    .iter()
+                    .find(|column| column.key == key && column.scale == TraitScale::Categorical)
+            })
+            .map_or(&[], |column| column.levels.as_slice())
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
@@ -1952,6 +2050,7 @@ impl TreeTrack {
             &color,
             self.line_width,
             self.color_by.as_deref(),
+            self.color_levels(),
             self.dnds_layer().as_ref(),
             self.show_nodes,
             self.support_style,

@@ -51,8 +51,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 === "Command line"
 
     ```bash
-    karyon tree:1-1 --no-region-label \
-      --tree tree.nwk --traits samples.tsv --color-by lineage \
+    karyon --tree tree.nwk --traits samples.tsv --color-by lineage \
       --support-style symbols --scale-bar --label phylogeny \
       -o tree.svg
     ```
@@ -231,7 +230,7 @@ Two trees over the same taxa, drawn facing each other with every shared tip join
 === "Command line"
 
     ```bash
-    karyon taxa:1-8 --no-region-label --tanglegram core.nwk --against accessory.nwk -o tanglegram.svg
+    karyon --tanglegram core.nwk --against accessory.nwk -o tanglegram.svg
     ```
 
 #### Options

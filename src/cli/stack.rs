@@ -30,7 +30,9 @@ use crate::{
     TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
-use crate::cli::args::{Invocation, Kind, Palette, Source, Style, TrackSpec, TreeSupport};
+use crate::cli::args::{
+    Invocation, Kind, Palette, Source, Style, Threshold, TrackSpec, TreeSupport,
+};
 use crate::read;
 use crate::track::traits::Traits;
 use crate::Mutations;
@@ -85,6 +87,39 @@ pub enum BuildError {
         named: String,
         /// The locus that was asked for.
         region: String,
+    },
+    /// A reference whose bases stop before the region starts, or start after
+    /// it ends.
+    ///
+    /// The record was the right one and none of it is in the window, so the
+    /// track would be drawn empty: letters, frames and mismatches all need a
+    /// base to stand on. It was drawn empty, and the command exited nought.
+    Beyond {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// The record, by the name the file gives it.
+        record: String,
+        /// The first base it holds, 1-based.
+        first: u64,
+        /// The last base it holds, 1-based.
+        last: u64,
+        /// The locus that was asked for.
+        region: String,
+    },
+    /// A threshold given as a number no p-value can be, for a scan whose file
+    /// held p-values.
+    ///
+    /// The threshold is in the file's units, and 7.3 was the right number for
+    /// a file of `-log10(p)` and is no p-value at all.
+    NotAPValue {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// The number given.
+        given: f64,
     },
     /// A file holds several of a thing and the command asked for none of them.
     ///
@@ -211,6 +246,24 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::NotAPValue { track, path, given } => write!(
+                f,
+                "--{track} {path} holds p-values, so --threshold is a p-value too, between 0 \
+                 and 1, and {given} is not one; give it as 5e-8, or as genome-wide"
+            ),
+            BuildError::Beyond {
+                track,
+                path,
+                record,
+                first,
+                last,
+                region,
+            } => write!(
+                f,
+                "--{track} {path}: {record} holds bases {} to {}, and none of them is in {region}",
+                crate::track::axis::group_thousands(*first),
+                crate::track::axis::group_thousands(*last),
+            ),
             BuildError::Ambiguous {
                 track,
                 path,
@@ -310,7 +363,12 @@ pub fn build_with(
     mut open: impl FnMut(&Source) -> io::Result<String>,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
-    let region = &invocation.region;
+    // A figure of phylogenies and variable-site panels names no region, and
+    // none of its tracks asks the window anything. The figure still wants
+    // one to lay its width out over, so it is given one that nothing prints:
+    // a figure that shows no window draws no locus and no ruler.
+    let unnamed = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
+    let region = invocation.region.as_ref().unwrap_or(&unnamed);
     let mut plot = Plot::over(region.clone());
     if let Some(title) = &invocation.title {
         plot = plot.title(title);
@@ -413,7 +471,11 @@ fn strip(
         });
     }
 
-    Ok(Some(Traits::new(held.rows.clone()).spread(wanted)))
+    // From the sheet rather than from its rows, so every column deals its
+    // levels the palette in the order the file lists them. A phylogeny is
+    // handed these same columns, and that shared order is what makes a
+    // lineage one colour beside the tree and beside the matrix under it.
+    Ok(Some(Traits::from_sheet(held).spread(wanted)))
 }
 
 fn slurp(
@@ -588,7 +650,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let bases = second_sequence(name, source, region, open)?;
+            let reference = second_sequence(name, source, region, open)?;
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -611,7 +673,12 @@ fn track(
             // one as long as the window allocates a byte and eight more per
             // base of it, which a sixty byte file across a chromosome should
             // not be able to ask for.
-            let mut letters = clip(&bases, region);
+            // Indexed from the start of the window, so a reference that starts
+            // later, as a slice may, is padded to it with the letter for a
+            // base nobody read.
+            let (from, clipped) = reference.clip(region)?;
+            let mut letters = vec![b'N'; (from - region.start()) as usize];
+            letters.extend(clipped);
             let reach = found
                 .spans
                 .iter()
@@ -661,8 +728,8 @@ fn track(
             Box::new(named(track, label, JunctionTrack::label))
         }
         Kind::Sequence => {
-            let bases = sequence(name, &path, &text, region)?;
-            let mut track = SequenceTrack::new(region.start(), clip(&bases, region));
+            let (from, bases) = sequence(name, &path, &text, region)?.clip(region)?;
+            let mut track = SequenceTrack::new(from, bases);
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -723,13 +790,33 @@ fn track(
             Box::new(named(track, label, WindowTrack::label))
         }
         Kind::Manhattan => {
-            let points = wrap(name, &path, read::point::associations(&text, region))?;
-            if points.is_empty() {
+            let table = wrap(name, &path, read::point::association_table(&text, region))?;
+            if table.points.is_empty() {
                 return Err(empty("association statistics"));
             }
-            let mut track = ManhattanTrack::new(points);
-            if let Some(threshold) = spec.threshold {
-                track = track.threshold(threshold);
+            let mut track = ManhattanTrack::new(table.points);
+            // Drawn as -log10, and the axis says so, since the file said p.
+            if table.p_values {
+                track = track.unit(" -log10 p");
+            }
+            match spec.threshold {
+                None => {}
+                Some(Threshold::GenomeWide) => {
+                    track = track.threshold(Threshold::GenomeWide.drawn());
+                }
+                // In the units the file is in, so a p-value where the file
+                // held p-values, drawn where its points are.
+                Some(Threshold::At(value)) if table.p_values => {
+                    if !(value > 0.0 && value <= 1.0) {
+                        return Err(BuildError::NotAPValue {
+                            track: name,
+                            path: path.clone(),
+                            given: value,
+                        });
+                    }
+                    track = track.threshold(-value.log10());
+                }
+                Some(Threshold::At(value)) => track = track.threshold(value),
             }
             if let Some(height) = height {
                 track = track.height(height);
@@ -971,7 +1058,7 @@ fn track(
                 });
             }
             if let Some(minimum) = spec.threshold {
-                track = track.support_threshold(minimum);
+                track = track.support_threshold(minimum.drawn());
             }
             if spec.scale_bar {
                 track = track.scale_bar();
@@ -1406,8 +1493,8 @@ fn track(
         // alignment columns, so it takes the second. Using the window's start
         // for a logo offsets every column by it, and the figure looks fine.
         Kind::Orfs => {
-            let bases = sequence(name, &path, &text, region)?;
-            let mut track = OrfTrack::new(region.start(), clip(&bases, region));
+            let (from, bases) = sequence(name, &path, &text, region)?.clip(region)?;
+            let mut track = OrfTrack::new(from, bases);
             if let Some(px) = spec.row_height {
                 track = track.lane_height(px);
             }
@@ -1574,8 +1661,8 @@ fn track(
             // tracks use, so a read hanging over the left edge is compared
             // against nothing rather than against the wrong base.
             if let Some(source) = spec.second.as_ref() {
-                let bases = second_sequence(name, source, region, open)?;
-                track = track.reference(region.start(), clip(&bases, region));
+                let (from, bases) = second_sequence(name, source, region, open)?.clip(region)?;
+                track = track.reference(from, bases);
             }
             if let Some(cap) = spec.max_rows {
                 track = track.max_rows(cap.rows());
@@ -1629,7 +1716,7 @@ fn second_sequence(
     source: &Source,
     region: &Region,
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
-) -> Result<Vec<u8>, BuildError> {
+) -> Result<Reference, BuildError> {
     let (fasta, path) = fetch(track, source, open)?;
     sequence(track, &path, &fasta, region)
 }
@@ -1653,8 +1740,11 @@ fn sequence(
     path: &str,
     fasta: &str,
     region: &Region,
-) -> Result<Vec<u8>, BuildError> {
-    let mut records = wrap(track, path, read::seq::fasta(fasta))?;
+) -> Result<Reference, BuildError> {
+    let mut records: Vec<Reference> = wrap(track, path, read::seq::fasta(fasta))?
+        .into_iter()
+        .map(|(name, bases)| Reference::new(track, path, name, bases))
+        .collect();
     if records.is_empty() {
         return Err(BuildError::Empty {
             track,
@@ -1663,16 +1753,30 @@ fn sequence(
         });
     }
     if records.len() == 1 {
-        return Ok(records.swap_remove(0).1);
+        return Ok(records.swap_remove(0));
     }
-    let found: Vec<usize> = records
+    let named: Vec<usize> = records
         .iter()
         .enumerate()
-        .filter(|(_, (name, _))| name == region.seq())
+        .filter(|(_, record)| record.sequence == region.seq())
         .map(|(index, _)| index)
         .collect();
+    // Several slices of one sequence are one sequence in pieces, and the
+    // window picks the piece: only the ones it touches are candidates. Two
+    // whole records sharing a name are still refused, since the first of them
+    // is a sequence nobody chose.
+    let slices = named.iter().all(|at| records[*at].is_slice());
+    let found: Vec<usize> = if named.len() > 1 && slices {
+        named
+            .iter()
+            .copied()
+            .filter(|at| records[*at].touches(region))
+            .collect()
+    } else {
+        named
+    };
     match found.as_slice() {
-        [index] => Ok(records.swap_remove(*index).1),
+        [index] => Ok(records.swap_remove(*index)),
         [] => {
             // Every name, so a sequence spelt two ways can be seen against
             // what the file calls it. Capped, as a tree's tips are, because a
@@ -1681,7 +1785,7 @@ fn sequence(
             let mut held: Vec<String> = records
                 .iter()
                 .take(24)
-                .map(|(name, _)| name.clone())
+                .map(|record| record.name.clone())
                 .collect();
             if records.len() > held.len() {
                 held.push(format!("and {} more", records.len() - held.len()));
@@ -1701,6 +1805,89 @@ fn sequence(
             name: region.seq().to_string(),
             held: many.len(),
         }),
+    }
+}
+
+/// One record of a FASTA: its bases, and where the first of them sits.
+struct Reference {
+    /// Which flag read it and from where, for a refusal to name.
+    track: &'static str,
+    path: String,
+    /// The header's name, as the file gives it.
+    name: String,
+    /// The sequence the bases belong to: the name, or the part of it before
+    /// the span when the record is a slice.
+    sequence: String,
+    /// The 0-based position of the first base on that sequence.
+    offset: u64,
+    bases: Vec<u8>,
+}
+
+impl Reference {
+    /// A record, read as a slice where its header says it is one.
+    ///
+    /// `samtools faidx ref.fa chr1:101-160` writes the sixty bases under the
+    /// header `>chr1:101-160`, and the only way to know they start at 101 is
+    /// to read the header. They were drawn from base 1 instead, so a window on
+    /// 101 to 160 held no base of a file that held exactly that window, and the
+    /// band came out empty. A header is read as a span only when the span is
+    /// as long as the record, so a sequence whose own name merely looks like
+    /// one keeps its name and its bases where they were.
+    fn new(track: &'static str, path: &str, name: String, bases: Vec<u8>) -> Self {
+        let slice = name.rsplit_once(':').and_then(|(sequence, span)| {
+            let (first, last) = span.split_once('-')?;
+            let first: u64 = first.parse().ok()?;
+            let last: u64 = last.parse().ok()?;
+            (!sequence.is_empty()
+                && first >= 1
+                && last >= first
+                && last - first + 1 == bases.len() as u64)
+                .then(|| (sequence.to_string(), first - 1))
+        });
+        let (sequence, offset) = slice.unwrap_or_else(|| (name.clone(), 0));
+        Reference {
+            track,
+            path: path.to_string(),
+            name,
+            sequence,
+            offset,
+            bases,
+        }
+    }
+
+    /// Whether the header named a span, as `samtools faidx` writes one.
+    fn is_slice(&self) -> bool {
+        self.name != self.sequence
+    }
+
+    /// Whether any base of the record is in the window.
+    fn touches(&self, region: &Region) -> bool {
+        let end = self.offset + self.bases.len() as u64;
+        self.offset < region.end() && end > region.start()
+    }
+
+    /// The bases the window holds, and the position of the first of them.
+    ///
+    /// Refused when it holds none. A reference that ends before the window
+    /// starts drew an empty band, with every letter, frame and mismatch the
+    /// track exists for missing, and the command exited nought. A window that
+    /// runs past the end draws the bases there are, which is what the
+    /// sequence says.
+    fn clip(&self, region: &Region) -> Result<(u64, Vec<u8>), BuildError> {
+        if !self.touches(region) {
+            return Err(BuildError::Beyond {
+                track: self.track,
+                path: self.path.clone(),
+                record: self.name.clone(),
+                first: self.offset + 1,
+                last: self.offset + self.bases.len() as u64,
+                region: region.to_string(),
+            });
+        }
+        let from = region.start().max(self.offset);
+        let to = region.end().min(self.offset + self.bases.len() as u64);
+        let bases = self.bases[(from - self.offset) as usize..(to - self.offset) as usize].to_vec();
+        Ok((from, bases))
     }
 }
 
@@ -1742,19 +1929,6 @@ fn compared_row(
             held: many.len(),
         }),
     }
-}
-
-/// Cuts a whole reference down to the region on display.
-///
-/// A FASTA record is the whole sequence and the figure is a window on it, so
-/// the bases the region names are the ones the track gets.
-fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
-    let start = region.start() as usize;
-    if start >= bases.len() {
-        return Vec::new();
-    }
-    let end = (region.end() as usize).min(bases.len());
-    bases[start..end].to_vec()
 }
 
 #[cfg(test)]
@@ -2565,16 +2739,116 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
     #[test]
     fn a_reference_is_cut_down_to_the_region() {
         let region = Region::parse("chr1:11-20").unwrap();
-        let bases: Vec<u8> = (b'A'..=b'Z').collect();
-        assert_eq!(clip(&bases, &region), b"KLMNOPQRST".to_vec());
+        let whole = Reference::new("sequence", "r.fa", "chr1".into(), (b'A'..=b'Z').collect());
+        assert_eq!(whole.clip(&region).unwrap(), (10, b"KLMNOPQRST".to_vec()));
     }
 
     #[test]
     fn a_reference_shorter_than_the_region_is_not_an_index_panic() {
+        let short = Reference::new("sequence", "r.fa", "chr1".into(), b"ACGT".to_vec());
         let region = Region::parse("chr1:1-1000").unwrap();
-        assert_eq!(clip(b"ACGT", &region), b"ACGT".to_vec());
+        assert_eq!(short.clip(&region).unwrap(), (0, b"ACGT".to_vec()));
+        // And one that holds no base of the window says so rather than
+        // drawing an empty band.
         let past = Region::parse("chr1:100-200").unwrap();
-        assert!(clip(b"ACGT", &past).is_empty());
+        let error = short.clip(&past).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "--sequence r.fa: chr1 holds bases 1 to 4, and none of them is in chr1:100-200"
+        );
+    }
+
+    /// `samtools faidx ref.fa pX:101-160` writes sixty bases under the header
+    /// `>pX:101-160`. They were drawn from base 1, so a window on exactly the
+    /// bases the file held came out as an empty band.
+    #[test]
+    fn a_slice_samtools_cut_out_is_drawn_where_its_header_says() {
+        let plasmid: String = "ACGT".repeat(40);
+        let slice = format!(">pX:101-160\n{}\n", &plasmid[100..160]);
+        let draw = |locus: &str| build(&over(locus, "--sequence", "s.fa"), |_| Ok(slice.clone()));
+        let letters = |svg: &str| -> String {
+            svg.split("<text")
+                .skip(1)
+                .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
+                .filter(|text| matches!(*text, "A" | "C" | "G" | "T"))
+                .collect()
+        };
+        assert_eq!(letters(&draw("pX:101-160").unwrap()), plasmid[100..160]);
+        // Part of the window is in the slice, and that part is drawn where it
+        // sits on the plasmid.
+        assert_eq!(letters(&draw("pX:151-170").unwrap()), plasmid[150..160]);
+        // None of it is, and the refusal says what the slice holds.
+        let error = draw("pX:1-60").unwrap_err().to_string();
+        assert!(
+            error.contains("pX:101-160 holds bases 101 to 160, and none of them is in pX:1-60"),
+            "{error}"
+        );
+
+        // A header that only looks like a span keeps its name and its bases
+        // where they were: the span is not as long as the record.
+        let named = Reference::new("sequence", "r.fa", "chr1:1-10".into(), b"ACGT".to_vec());
+        assert!(!named.is_slice());
+        assert_eq!(named.offset, 0);
+    }
+
+    #[test]
+    fn several_slices_of_one_sequence_are_picked_by_the_window() {
+        let fasta = ">chr1:1-4\nACGT\n>chr1:11-14\nTTTT\n";
+        let svg = build(&over("chr1:11-14", "--sequence", "s.fa"), |_| {
+            Ok(fasta.to_string())
+        })
+        .unwrap();
+        assert_eq!(svg.matches(">T</text>").count(), 4, "{svg}");
+        // Two whole records sharing a name are still refused.
+        let twice = ">chr1\nACGT\n>chr1\nTTTT\n";
+        let error = build(&over("chr1:1-4", "--sequence", "s.fa"), |_| {
+            Ok(twice.to_string())
+        })
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("2 records called chr1"),
+            "{error}"
+        );
+    }
+
+    /// Every flag that reads a reference refuses one with nothing in the
+    /// window, rather than drawing a track with nothing to stand on: a pileup
+    /// whose reference is elsewhere drew every read as agreeing with it.
+    #[test]
+    fn every_track_that_reads_a_reference_refuses_one_outside_the_window() {
+        let fasta = ">chr1\nACGTACGTAC\n";
+        for line in [
+            "chr1:101-160 --sequence r.fa",
+            "chr1:101-160 --orfs r.fa",
+            "chr1:101-160 --pileup reads.sam --with-sequence r.fa",
+            "chr1:101-160 --dynseq scores.bg --with-sequence r.fa",
+        ] {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let crate::cli::args::Request::Draw(invocation) =
+                crate::cli::args::parse(&args).unwrap()
+            else {
+                unreachable!("every line draws")
+            };
+            let error = build(&invocation, |source| {
+                let Source::Path(path) = source else {
+                    unreachable!("every source is a file")
+                };
+                let path = path.to_string_lossy();
+                Ok(if path.ends_with(".fa") {
+                    fasta.to_string()
+                } else if path.ends_with(".sam") {
+                    "r1\t0\tchr1\t101\t60\t4M\t*\t0\t0\tACGT\tIIII\n".to_string()
+                } else {
+                    "chr1\t100\t104\t0.5\n".to_string()
+                })
+            })
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("chr1 holds bases 1 to 10, and none of them is in chr1:101-160"),
+                "{line}: {error}"
+            );
+        }
     }
 
     #[test]
@@ -2779,6 +3053,164 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         assert!(
             svg.contains(">lineage</text>"),
             "the heading is legible: {svg}"
+        );
+    }
+
+    /// The colour drawn under each tooltip that starts with `title`, in order.
+    fn painted(svg: &str, title: &str) -> Vec<String> {
+        svg.split("<title>")
+            .skip(1)
+            .filter(|piece| piece.starts_with(title))
+            .filter_map(|piece| {
+                let after = piece.split("</title>").nth(1)?;
+                ["fill=\"#", "stroke=\"#"]
+                    .iter()
+                    .filter_map(|attribute| {
+                        after.find(attribute).map(|at| at + attribute.len() - 1)
+                    })
+                    .min()
+                    .map(|at| after[at..at + 7].to_string())
+            })
+            .collect()
+    }
+
+    /// One sheet, a tree and a matrix under it: a lineage is one colour in
+    /// both strips. The tree dealt the palette in the order it met its tips and
+    /// the matrix in the order its sheet sorted the names, so each of the three
+    /// lineages here came out in a different colour on each side, in a figure
+    /// whose whole point is to read one strip against the other.
+    #[test]
+    fn a_sheet_shared_by_a_tree_and_a_matrix_colours_each_level_once() {
+        const TREE: &str = "((Zed:1,Yan:1):1,(Abe:1,Bo:1):1);";
+        // Three orders that all disagree: the file lists L1 first, the names
+        // sort L2 first (Abe), and the tree meets L4 first (Zed).
+        const SHEET: &str = "sample\tlineage\nBo\tL1\nZed\tL4\nAbe\tL2\nYan\tL4\n";
+        const MATRIX: &str = "sample\t100\t200\nZed\t1\t0\nYan\t0\t1\nAbe\t1\t1\nBo\t0\t0\n";
+        let open = |source: &Source| -> io::Result<String> {
+            let Source::Path(path) = source else {
+                unreachable!("every source here is a file")
+            };
+            let path = path.to_string_lossy();
+            Ok(if path.ends_with(".nwk") {
+                TREE
+            } else if path.ends_with("m.tsv") {
+                MATRIX
+            } else {
+                SHEET
+            }
+            .to_string())
+        };
+        let svg = build(
+            &sheeted("chr:1-300 --tree t.nwk --traits s.tsv --matrix m.tsv --traits s.tsv"),
+            open,
+        )
+        .unwrap();
+
+        let colours = [
+            ("L2", painted(&svg, "Abe; lineage L2")),
+            ("L1", painted(&svg, "Bo; lineage L1")),
+            ("L4", painted(&svg, "Zed; lineage L4")),
+        ];
+        for (level, both) in &colours {
+            assert_eq!(
+                both.len(),
+                2,
+                "{level} is drawn beside the tree and the matrix"
+            );
+            assert_eq!(both[0], both[1], "{level} is two colours: {both:?}");
+        }
+        // And the palette is dealt in the order the file lists the levels,
+        // which is neither order the two tracks met them in.
+        let theme = crate::Theme::light();
+        assert_eq!(
+            colours[1].1[0],
+            theme.color(0),
+            "L1 comes first in the file"
+        );
+        assert_eq!(colours[2].1[0], theme.color(1));
+        assert_eq!(colours[0].1[0], theme.color(2));
+    }
+
+    /// A tree drawn with no region prints none, and draws no ruler: the
+    /// window the figure lays its width over is one nothing is drawn in.
+    #[test]
+    fn a_tree_drawn_with_no_region_prints_no_window() {
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        let args: Vec<String> = "--tree t.nwk --label phylogeny"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let crate::cli::args::Request::Draw(invocation) = crate::cli::args::parse(&args).unwrap()
+        else {
+            unreachable!("a tree is drawn")
+        };
+        let svg = build(&invocation, |_| Ok(TREE.to_string())).unwrap();
+        assert!(!svg.contains("phylogeny:1-1"), "{svg}");
+        assert!(!svg.contains("1-1"), "a window was printed: {svg}");
+        assert!(svg.contains("<title id=\"karyon-title\">phylogeny</title>"));
+        // Every tip is drawn, and nothing else is written as text: no locus
+        // and no tick of a ruler.
+        let text: Vec<&str> = svg
+            .split("<text")
+            .skip(1)
+            .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
+            .collect();
+        assert_eq!(text, ["phylogeny", "a", "b", "c", "d"], "{svg}");
+    }
+
+    /// A scan as association tools write it, a column of p-values under the
+    /// header P. It was drawn as written, so the hit at 4e-12 sat on the floor
+    /// of the figure and the null at 0.9 at the top, and the command exited
+    /// nought.
+    #[test]
+    fn a_scan_of_p_values_is_drawn_with_its_strongest_hit_highest() {
+        const SCAN: &str = "CHR\tBP\tP\nchr1\t100\t0.5\nchr1\t200\t4e-12\nchr1\t300\t0.9\n";
+        let draw = |line: &str| {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let crate::cli::args::Request::Draw(invocation) =
+                crate::cli::args::parse(&args).unwrap()
+            else {
+                unreachable!("a scan is drawn")
+            };
+            build(&invocation, |_| Ok(SCAN.to_string()))
+        };
+        let svg = draw("chr1:1-400 --manhattan gwas.tsv").unwrap();
+        // Points in the order of their positions, left to right.
+        let mut points: Vec<(f64, f64)> = svg
+            .split("<circle cx=\"")
+            .skip(1)
+            .filter_map(|piece| {
+                let (cx, rest) = piece.split_once('"')?;
+                let cy = rest.split_once("cy=\"")?.1.split_once('"')?.0;
+                Some((cx.parse().ok()?, cy.parse().ok()?))
+            })
+            .collect();
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(points.len(), 3, "{svg}");
+        let heights: Vec<f64> = points.iter().map(|(_, cy)| *cy).collect();
+        assert!(
+            heights[1] < heights[0] && heights[0] < heights[2],
+            "the hit at 4e-12 is not the highest: {heights:?}"
+        );
+        assert!(
+            svg.contains("-log10 p"),
+            "the axis does not say what it shows"
+        );
+
+        // The threshold is in the file's units: a p-value, drawn at -log10 of
+        // itself, which for 5e-8 is the convention asked for by name.
+        let named = draw("chr1:1-400 --manhattan gwas.tsv --threshold genome-wide").unwrap();
+        assert_eq!(
+            draw("chr1:1-400 --manhattan gwas.tsv --threshold 5e-8").unwrap(),
+            named
+        );
+        // The number that was right for a file of -log10 values is no p-value.
+        let error = draw("chr1:1-400 --manhattan gwas.tsv --threshold 7.3").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("holds p-values, so --threshold is a p-value too"),
+            "{error}"
         );
     }
 

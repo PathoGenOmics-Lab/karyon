@@ -15,11 +15,14 @@ Four rules cover every command:
 1. **The region comes first.** It is a locus string, 1-based and inclusive as
    samtools and IGV write it: a sequence name, a colon and a span. Commas and
    underscores inside the numbers are ignored, so `NC_000962.3:761,000-762,999`
-   and `NC_000962.3:761000-762999` are the same 2,000 bases.
+   and `NC_000962.3:761000-762999` are the same 2,000 bases. A figure made only
+   of `--tree`, `--tanglegram` and `--snps` tracks takes no region, since none
+   of them is drawn in a window.
 2. **Each track flag starts a track** and takes the file after it. Tracks stack
    from top to bottom in the order you write them.
 3. **The options after a track flag describe that track**, up to the next track
-   flag.
+   flag. Each is said once per track: a second `--label` for the same track is
+   refused, since it was almost always meant for the next one.
 4. **Figure options** such as `--title` and `-o` belong to no track and can go
    anywhere on the line.
 
@@ -104,7 +107,7 @@ reads nothing.
 | `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
-| `--features <FILE>` | genes and other intervals | [BED](formats.md#bed) or [GFF3](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
+| `--features <FILE>` | genes and other intervals, a gene drawn once | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
 | `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
@@ -175,7 +178,7 @@ no use for it is refused by name rather than ignored, as in
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
 | `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--junctions`, `--axis` | the track's own |
-| `--threshold <V|genome-wide>` | a number, or `genome-wide` for -log10(5e-8) | `--manhattan`; `--tree`, as the least support worth showing | no line on a scan; every support value on a tree |
+| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing | no line on a scan; every support value on a tree |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
@@ -253,7 +256,7 @@ A tanglegram names its two trees after their files, so the figure says which is
 which:
 
 ```bash
-karyon tangle:1-1 --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
+karyon --tanglegram before.nwk --against after.nwk --label topology -o tangle.svg
 ```
 
 A locus track joins the names in `--links` to the gene names of the loci file
@@ -312,7 +315,7 @@ smallest clades into triangles until it fits, so every tip is still on the
 figure inside a triangle that says how many it holds.
 
 ```bash
-karyon phylo:1-1 --tree big.nwk --max-rows 200 --label phylogeny
+karyon --tree big.nwk --max-rows 200 --label phylogeny
 ```
 
 ### The row others are read against
@@ -363,7 +366,7 @@ karyon: --matrix samples.tsv has no column called linage; it has lineage, host, 
 A `--tree` track has the most options of any track. A typical figure:
 
 ```bash
-karyon phylo:1-1 --tree big.nwk --max-rows 60 \
+karyon --tree big.nwk --max-rows 60 \
   --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
 ```
 
@@ -392,7 +395,7 @@ keeps the changes on its branches, under a key the writing tool chose:
 ```
 
 ```bash
-karyon phylo:1-1 --tree tree.nwk --mutations mutations --carrying S:D614G
+karyon --tree tree.nwk --mutations mutations --carrying S:D614G
 ```
 
 `--mutations` names the key, and each of the two is refused without the other.
@@ -405,7 +408,7 @@ A clade, tip, change or `--color-by` key the tree does not hold is refused with
 what it does hold, rather than drawing the whole tree:
 
 ```text
-$ karyon tree:1-1 --tree tree.nwk --focus ERR9
+$ karyon --tree tree.nwk --focus ERR9
 karyon: --tree tree.nwk has no tip or clade called ERR9; it has ERR01, ERR02, ERR03
 ```
 
@@ -511,6 +514,11 @@ karyon Chr1:1-50,000 --manhattan gwas.tsv --label association > scan.svg
 `-o` always names a file: `-o -` writes a file called `-`. Leave `-o` out to
 write to standard output.
 
+The figure is SVG whatever the file is called, so a name that promises another
+format, such as `fig.png` or `fig.pdf`, is refused rather than written as SVG
+under it. Write `fig.svg` and convert it with `rsvg-convert`, Inkscape or a
+browser.
+
 The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not
 replaced.
@@ -559,13 +567,22 @@ The command line is checked before any file is opened:
 
 ```text
 $ karyon --coverage depth.bedgraph
-karyon: the first argument is the region, as in NC_000962.3:761,000-763,000
+karyon: the first argument is the region, as in NC_000962.3:761,000-763,000; only a figure of --tree, --tanglegram and --snps tracks goes without one
 
 $ karyon NC_000962.3:0-1000 --coverage depth.bedgraph
 karyon: invalid locus "NC_000962.3:0-1000": 1-based coordinates start at 1, not 0
 
 $ karyon NC_000962.3:761,000-763,000 --label depth
 karyon: --label describes the track before it, and no track has been given yet
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --label depth --label reads
+karyon: --label is given twice to one coverage track, which takes one; a flag describes the track written before it
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --height NaN
+karyon: --height does not take "NaN", only a number of pixels above nought, as in 80
+
+$ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph -o rpoB.png
+karyon: rpoB.png names a PNG file, and karyon writes SVG: write the figure to a file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser
 
 $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --aggregate median
 karyon: --aggregate does not take "median", only max, mean or min

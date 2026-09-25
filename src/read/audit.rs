@@ -214,7 +214,7 @@ fn audit_vcf_one_base() {
 
 #[test]
 fn audit_association_one_base() {
-    let points = point::associations("100\t1e-9\n", &region("chr1:1-200")).unwrap();
+    let points = point::associations("100\t9\n", &region("chr1:1-200")).unwrap();
     assert_eq!(points[0].pos, TARGET);
 }
 
@@ -489,7 +489,7 @@ fn audit_point_readers_use_the_half_open_end_of_the_window() {
     assert_eq!(vcf(201), 0);
 
     let assoc = |pos: u64| {
-        let text = format!("{pos}\t0.5\n");
+        let text = format!("{pos}\t2.5\n");
         point::associations(&text, &window()).unwrap().len()
     };
     assert_eq!(assoc(101), 1);

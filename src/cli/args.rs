@@ -130,6 +130,28 @@ pub enum ArgError {
         /// The track that has columns and no sheet.
         track: &'static str,
     },
+    /// An output file named for a format karyon does not write.
+    ///
+    /// The figure is SVG whatever the name says, and a file called `fig.png`
+    /// holding SVG opens as a broken image, or not at all, everywhere a PNG is
+    /// expected, after the command has said nothing and exited nought.
+    NotSvg {
+        /// The path as it was written.
+        path: String,
+        /// The format its name promises, as it is usually spelt.
+        format: &'static str,
+    },
+    /// A modifier given a second value where it takes one.
+    ///
+    /// The last one used to win without a word, so a `--label` meant for the
+    /// next track and written before its flag renamed this one, and a second
+    /// `--height` quietly undid the first.
+    Twice {
+        /// The flag.
+        flag: &'static str,
+        /// The track it was given twice to, or `None` for a figure option.
+        track: Option<&'static str>,
+    },
     /// A track drawn from two files was given one.
     MissingSecond {
         /// The flag that names the other file.
@@ -187,7 +209,8 @@ impl fmt::Display for ArgError {
             }
             ArgError::NoRegion => write!(
                 f,
-                "the first argument is the region, as in NC_000962.3:761,000-763,000"
+                "the first argument is the region, as in NC_000962.3:761,000-763,000; \
+                 only a figure of --tree, --tanglegram and --snps tracks goes without one"
             ),
             ArgError::HugeRegion { given, span } => write!(
                 f,
@@ -210,6 +233,19 @@ impl fmt::Display for ArgError {
                 f,
                 "--mutations needs --carrying, which names the change to mark the carriers of"
             ),
+            ArgError::NotSvg { path, format } => write!(
+                f,
+                "{path} names a {format} file, and karyon writes SVG: write the figure to a \
+                 file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser"
+            ),
+            ArgError::Twice { flag, track: Some(track) } => write!(
+                f,
+                "{flag} is given twice to one {track} track, which takes one; \
+                 a flag describes the track written before it"
+            ),
+            ArgError::Twice { flag, track: None } => {
+                write!(f, "{flag} is given twice, and a figure takes one")
+            }
             ArgError::Unsourced { track } => write!(
                 f,
                 "--columns picks out of the sheet --traits names, and this {track} track was given no sheet"
@@ -591,6 +627,18 @@ impl Kind {
         matches!(self, Kind::Manhattan | Kind::Tree)
     }
 
+    /// Whether this track is drawn in the region, so a command line with it
+    /// has to name one.
+    ///
+    /// A phylogeny, a tanglegram and a panel of variable sites lay themselves
+    /// out without asking where the window is: a tree's x is a branch length,
+    /// and a variable-site panel places its own columns by site index. A
+    /// figure made of nothing else needs no region. Everything else does,
+    /// the ruler included, since measuring a window is all it does.
+    pub fn needs_region(self) -> bool {
+        !matches!(self, Kind::Tree | Kind::Tanglegram | Kind::Snps)
+    }
+
     fn takes_height(self) -> bool {
         matches!(
             self,
@@ -938,8 +986,9 @@ pub struct TrackSpec {
     /// `--no-names`, which leaves out the names a track writes beside or on
     /// what it draws. Not the track's own name, which is `--label`.
     pub no_names: bool,
-    /// `--threshold`, the line a scan is read against.
-    pub threshold: Option<f64>,
+    /// `--threshold`, the line a scan is read against, or the least support
+    /// a phylogeny shows.
+    pub threshold: Option<Threshold>,
     /// `--compare-to`, the row every other row is read against.
     pub compare_to: Option<String>,
     /// `--projection`, the shape a phylogeny is laid out in.
@@ -1026,6 +1075,31 @@ impl TrackSpec {
     }
 }
 
+/// `--threshold`, as it was asked for.
+///
+/// Kept apart rather than turned into a number here, because what a number
+/// means depends on the file: in the units the file is in, so for a scan read
+/// from p-values it is a p-value, and the line is drawn at `-log10` of it. The
+/// convention asked for by name is already on the scale the scan is drawn on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Threshold {
+    /// A number, as it was written.
+    At(f64),
+    /// `genome-wide`: `-log10(5e-8)`, about 7.3.
+    GenomeWide,
+}
+
+impl Threshold {
+    /// The line on the scale a scan is drawn on: `-log10(5e-8)` for the
+    /// convention, and a number as it was written.
+    pub fn drawn(self) -> f64 {
+        match self {
+            Threshold::At(value) => value,
+            Threshold::GenomeWide => -(5e-8f64).log10(),
+        }
+    }
+}
+
 /// Which theme was asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Palette {
@@ -1039,7 +1113,13 @@ pub enum Palette {
 #[derive(Debug)]
 pub struct Invocation {
     /// The region every track is drawn over.
-    pub region: Region,
+    ///
+    /// `None` only where no track is drawn in one: a stack of phylogenies,
+    /// tanglegrams and variable-site panels, which [`Kind::needs_region`]
+    /// names. Each of those lays itself out without asking where the window
+    /// is, and a figure of them was made to carry an invented one, `x:1-1`,
+    /// which it then printed.
+    pub region: Option<Region>,
     /// The tracks, in the order they were written and will be drawn.
     pub tracks: Vec<TrackSpec>,
     /// `--title`.
@@ -1092,6 +1172,9 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
+    // Every value-taking flag given so far, with the track it went to, or
+    // `None` for a figure option. See `once`.
+    let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
 
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -1153,7 +1236,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         match arg.as_str() {
             "--label" => {
                 let text = value("--label")?.clone();
-                last(&mut tracks, "--label")?.label = Some(text);
+                once(&mut tracks, &mut given, "--label")?.label = Some(text);
             }
             "--ploidy" => {
                 let text = value("--ploidy")?;
@@ -1170,7 +1253,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         given: text.clone(),
                         expected: "a number of copies above nought, as in 2",
                     })?;
-                let track = last(&mut tracks, "--ploidy")?;
+                let track = once(&mut tracks, &mut given, "--ploidy")?;
                 if track.kind != Kind::CopyNumber {
                     return Err(ArgError::WrongTrack {
                         flag: "--ploidy",
@@ -1181,7 +1264,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--sample" => {
                 let text = value("--sample")?.clone();
-                let track = last(&mut tracks, "--sample")?;
+                let track = once(&mut tracks, &mut given, "--sample")?;
                 if track.kind != Kind::CopyNumber {
                     return Err(ArgError::WrongTrack {
                         flag: "--sample",
@@ -1204,7 +1287,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 } else {
                     Source::Path(PathBuf::from(word))
                 };
-                let track = last(&mut tracks, "--traits")?;
+                let track = once(&mut tracks, &mut given, "--traits")?;
                 if !track.kind.takes_traits() {
                     return Err(ArgError::WrongTrack {
                         flag: "--traits",
@@ -1215,7 +1298,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--columns" => {
                 let text = value("--columns")?.clone();
-                let track = last(&mut tracks, "--columns")?;
+                let track = once(&mut tracks, &mut given, "--columns")?;
                 if !track.kind.takes_traits() {
                     return Err(ArgError::WrongTrack {
                         flag: "--columns",
@@ -1256,10 +1339,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 // Bonferroni correction for a million tests is the wrong
                 // number wherever a million tests were not run.
                 let value = if text == "genome-wide" {
-                    -(5e-8f64).log10()
+                    Threshold::GenomeWide
                 } else {
                     match text.parse::<f64>() {
-                        Ok(number) if number.is_finite() => number,
+                        Ok(number) if number.is_finite() => Threshold::At(number),
                         _ => {
                             return Err(ArgError::BadValue {
                                 flag: "--threshold",
@@ -1269,11 +1352,21 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         }
                     }
                 };
-                let track = last(&mut tracks, "--threshold")?;
+                let track = once(&mut tracks, &mut given, "--threshold")?;
                 if !track.kind.takes_threshold() {
                     return Err(ArgError::WrongTrack {
                         flag: "--threshold",
                         track: track.kind.flag(),
+                    });
+                }
+                // The convention is a line on a scan. On a phylogeny it was
+                // 7.3 read as a support value, which hid every value on a tree
+                // whose support runs to one.
+                if value == Threshold::GenomeWide && track.kind != Kind::Manhattan {
+                    return Err(ArgError::BadValue {
+                        flag: "--threshold",
+                        given: text.clone(),
+                        expected: "a support value on a phylogeny, as in 0.7",
                     });
                 }
                 track.threshold = Some(value);
@@ -1285,7 +1378,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "a number of rows, or all",
                 })?;
-                let track = last(&mut tracks, "--max-rows")?;
+                let track = once(&mut tracks, &mut given, "--max-rows")?;
                 if !track.kind.takes_max_rows() {
                     return Err(ArgError::WrongTrack {
                         flag: "--max-rows",
@@ -1308,7 +1401,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--projection")?;
+                let track = once(&mut tracks, &mut given, "--projection")?;
                 if !track.kind.takes_projection() {
                     return Err(ArgError::WrongTrack {
                         flag: "--projection",
@@ -1319,7 +1412,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--color-by" => {
                 let key = value("--color-by")?.clone();
-                let track = last(&mut tracks, "--color-by")?;
+                let track = once(&mut tracks, &mut given, "--color-by")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--color-by",
@@ -1343,7 +1436,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--support-style")?;
+                let track = once(&mut tracks, &mut given, "--support-style")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--support-style",
@@ -1371,7 +1464,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--mutations" => {
                 let key = value("--mutations")?.clone();
-                let track = last(&mut tracks, "--mutations")?;
+                let track = once(&mut tracks, &mut given, "--mutations")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--mutations",
@@ -1382,7 +1475,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--carrying" => {
                 let spelling = value("--carrying")?.clone();
-                let track = last(&mut tracks, "--carrying")?;
+                let track = once(&mut tracks, &mut given, "--carrying")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--carrying",
@@ -1404,7 +1497,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--shape")?;
+                let track = once(&mut tracks, &mut given, "--shape")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
                         flag: "--shape",
@@ -1438,7 +1531,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         expected: "a clade name, a tip name, or two tip names separated by a comma",
                     });
                 }
-                let track = last(&mut tracks, "--focus")?;
+                let track = once(&mut tracks, &mut given, "--focus")?;
                 if !track.kind.takes_focus() {
                     return Err(ArgError::WrongTrack {
                         flag: "--focus",
@@ -1449,7 +1542,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--compare-to" => {
                 let name = value("--compare-to")?.clone();
-                let track = last(&mut tracks, "--compare-to")?;
+                let track = once(&mut tracks, &mut given, "--compare-to")?;
                 if !track.kind.takes_compare_to() {
                     return Err(ArgError::WrongTrack {
                         flag: "--compare-to",
@@ -1475,7 +1568,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "a number of reads",
                 })?;
-                let track = last(&mut tracks, "--min-reads")?;
+                let track = once(&mut tracks, &mut given, "--min-reads")?;
                 if !track.kind.takes_min_reads() {
                     return Err(ArgError::WrongTrack {
                         flag: "--min-reads",
@@ -1516,7 +1609,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         given: text.clone(),
                         expected: "a number of pixels above nought, as in 20",
                     })?;
-                let track = last(&mut tracks, "--row-height")?;
+                let track = once(&mut tracks, &mut given, "--row-height")?;
                 if !track.kind.takes_row_height() {
                     return Err(ArgError::WrongTrack {
                         flag: "--row-height",
@@ -1527,12 +1620,21 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--height" => {
                 let text = value("--height")?;
-                let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
-                    flag: "--height",
-                    given: text.clone(),
-                    expected: "a number of pixels",
-                })?;
-                let track = last(&mut tracks, "--height")?;
+                let px = text
+                    .parse::<f64>()
+                    .ok()
+                    // Refused at both ends, as `--row-height` is. `NaN`
+                    // parses, and a track given it collapsed to its floor or
+                    // to nothing and the figure exited nought without it; an
+                    // infinity asks for a band no renderer can lay out, and
+                    // nought or less draws nothing.
+                    .filter(|px| px.is_finite() && *px > 0.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--height",
+                        given: text.clone(),
+                        expected: "a number of pixels above nought, as in 80",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--height")?;
                 if !track.kind.takes_height() {
                     return Err(ArgError::WrongTrack {
                         flag: "--height",
@@ -1555,7 +1657,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--aggregate")?;
+                let track = once(&mut tracks, &mut given, "--aggregate")?;
                 if !track.kind.takes_aggregate() {
                     return Err(ArgError::WrongTrack {
                         flag: "--aggregate",
@@ -1576,7 +1678,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         })
                     }
                 };
-                let track = last(&mut tracks, "--style")?;
+                let track = once(&mut tracks, &mut given, "--style")?;
                 // A track with no styles at all is the wrong track for the
                 // flag rather than a track given the wrong word, and saying so
                 // needs a different error. It used to fall through to the one
@@ -1637,7 +1739,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                         expected: "a colour, as in '#d55e00'",
                     });
                 }
-                let track = last(&mut tracks, "--color")?;
+                let track = once(&mut tracks, &mut given, "--color")?;
                 if !matches!(
                     track.kind,
                     Kind::Coverage | Kind::Features | Kind::Junctions
@@ -1672,7 +1774,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 } else {
                     Source::Path(PathBuf::from(word))
                 };
-                let track = last(&mut tracks, flag)?;
+                let track = once(&mut tracks, &mut given, flag)?;
                 if track.kind.second_flag() != Some(flag)
                     && track.kind.optional_second() != Some(flag)
                 {
@@ -1690,7 +1792,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     _ => "--modification",
                 };
                 let chosen = value(flag)?.clone();
-                let track = last(&mut tracks, flag)?;
+                let track = once(&mut tracks, &mut given, flag)?;
                 if track.kind.selector() != Some(flag) {
                     return Err(ArgError::WrongTrack {
                         flag,
@@ -1706,7 +1808,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "percent or fraction",
                 })?;
-                let track = last(&mut tracks, "--identity")?;
+                let track = once(&mut tracks, &mut given, "--identity")?;
                 if track.kind != Kind::Loci {
                     return Err(ArgError::WrongTrack {
                         flag: "--identity",
@@ -1722,7 +1824,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "bedgraph, depth, values, bed or gff3",
                 })?;
-                let track = last(&mut tracks, "--format")?;
+                let track = once(&mut tracks, &mut given, "--format")?;
                 // Three tracks read more than one format, and not the same
                 // ones: a signal is one of three shapes and an interval file is
                 // BED or GFF3. A signal word after an interval track goes
@@ -1754,8 +1856,12 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.format = Some(format);
             }
-            "--title" => title = Some(value("--title")?.clone()),
+            "--title" => {
+                figure_once(&mut given, "--title")?;
+                title = Some(value("--title")?.clone());
+            }
             "--width" => {
+                figure_once(&mut given, "--width")?;
                 let text = value("--width")?;
                 let px = text.parse::<f64>().map_err(|_| ArgError::BadValue {
                     flag: "--width",
@@ -1776,6 +1882,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 width = Some(px);
             }
             "--theme" => {
+                figure_once(&mut given, "--theme")?;
                 let text = value("--theme")?;
                 theme = match text.as_str() {
                     "light" => Palette::Light,
@@ -1791,7 +1898,17 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
-            "-o" | "--output" => output = Some(PathBuf::from(value("-o")?)),
+            "-o" | "--output" => {
+                figure_once(&mut given, "-o")?;
+                let path = PathBuf::from(value("-o")?);
+                if let Some(format) = named_format(&path) {
+                    return Err(ArgError::NotSvg {
+                        path: path.display().to_string(),
+                        format,
+                    });
+                }
+                output = Some(path);
+            }
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(ArgError::UnknownFlag(flag.to_string()))
             }
@@ -1847,7 +1964,14 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         }
     }
 
-    let region = region.ok_or(ArgError::NoRegion)?;
+    // A stack that no track is drawn in a window for needs none, and one that
+    // holds a single track that is drawn in one needs it: a tree beside a
+    // coverage track is still measured against the coverage's window.
+    if region.is_none()
+        && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
+    {
+        return Err(ArgError::NoRegion);
+    }
     Ok(Request::Draw(Box::new(Invocation {
         region,
         tracks,
@@ -1869,6 +1993,77 @@ fn stdin_taken(tracks: &[TrackSpec]) -> bool {
         .iter()
         .flat_map(|t| [t.source.as_ref(), t.second.as_ref(), t.traits.as_ref()])
         .any(|source| matches!(source, Some(Source::Stdin)))
+}
+
+/// The format a file name promises when it is one karyon does not write.
+///
+/// Only names that promise something: a path ending in `.svg`, with no
+/// extension, or with one that names no image format is written as asked. A
+/// compressed SVG is on the list, since a reader of `.svgz` expects gzip.
+fn named_format(path: &std::path::Path) -> Option<&'static str> {
+    const OTHERS: &[(&str, &str)] = &[
+        ("png", "PNG"),
+        ("jpg", "JPEG"),
+        ("jpeg", "JPEG"),
+        ("gif", "GIF"),
+        ("bmp", "BMP"),
+        ("tif", "TIFF"),
+        ("tiff", "TIFF"),
+        ("webp", "WebP"),
+        ("avif", "AVIF"),
+        ("heic", "HEIC"),
+        ("pdf", "PDF"),
+        ("eps", "EPS"),
+        ("ps", "PostScript"),
+        ("emf", "EMF"),
+        ("wmf", "WMF"),
+        ("svgz", "compressed SVG"),
+    ];
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    OTHERS
+        .iter()
+        .find(|(ending, _)| *ending == extension)
+        .map(|(_, format)| *format)
+}
+
+/// The track a modifier belongs to, refusing a value it already has.
+///
+/// For the modifiers that take one value per track. The last one written used
+/// to win without a word, which is the worst way a command line can disagree
+/// with itself: a `--label` meant for the next track and written before its
+/// flag renamed this one, and a second `--height` undid the first. A flag
+/// that adds to a list, as `--highlight` does, and one that is only on or off
+/// go through [`last`] instead, since saying either twice means the same as
+/// saying it once.
+fn once<'a>(
+    tracks: &'a mut [TrackSpec],
+    given: &mut Vec<(Option<usize>, &'static str)>,
+    flag: &'static str,
+) -> Result<&'a mut TrackSpec, ArgError> {
+    let index = tracks
+        .len()
+        .checked_sub(1)
+        .ok_or(ArgError::NoTrackYet(flag))?;
+    if given.contains(&(Some(index), flag)) {
+        return Err(ArgError::Twice {
+            flag,
+            track: Some(tracks[index].kind.flag()),
+        });
+    }
+    given.push((Some(index), flag));
+    Ok(&mut tracks[index])
+}
+
+/// The same for a figure option, which belongs to no track.
+fn figure_once(
+    given: &mut Vec<(Option<usize>, &'static str)>,
+    flag: &'static str,
+) -> Result<(), ArgError> {
+    if given.contains(&(None, flag)) {
+        return Err(ArgError::Twice { flag, track: None });
+    }
+    given.push((None, flag));
+    Ok(())
 }
 
 /// The track a modifier belongs to, which is the one before it.
@@ -2013,6 +2208,52 @@ mod tests {
     }
 
     #[test]
+    fn a_height_is_a_finite_number_of_pixels_above_nought() {
+        assert_eq!(
+            draw("chr1:1-1000 --coverage d.bg --height 80").tracks[0].height,
+            Some(80.0)
+        );
+        // `NaN` parses as a number, and a coverage track given it shrank to
+        // its floor while the figure exited nought; the rest draw nothing.
+        for word in ["NaN", "inf", "-inf", "0", "-5", "tall"] {
+            let line = format!("chr1:1-1000 --coverage d.bg --height {word}");
+            let error = parse(&args(&line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag, .. } if flag == "--height"),
+                "{word} should be refused, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_output_named_for_another_format_is_refused_rather_than_written_as_svg() {
+        // The figure is SVG whatever the name says, and a `fig.png` holding
+        // SVG is a broken image everywhere a PNG is opened.
+        for (name, format) in [
+            ("fig.png", "PNG"),
+            ("fig.PDF", "PDF"),
+            ("out/fig.jpeg", "JPEG"),
+            ("fig.tiff", "TIFF"),
+            ("fig.eps", "EPS"),
+            ("fig.svgz", "compressed SVG"),
+        ] {
+            let error = parse(&args(&format!("chr1:1-10 -o {name}"))).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::NotSvg { format: said, .. } if *said == format),
+                "{name}: {error:?}"
+            );
+            assert!(error.to_string().contains(".svg"), "{error}");
+        }
+        // A name that promises SVG, or nothing, is written as asked.
+        for name in ["fig.svg", "FIG.SVG", "fig", "fig.v2", "-"] {
+            assert!(
+                draw(&format!("chr1:1-10 --output {name}")).output.is_some(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn height_and_row_height_do_not_overlap() {
         // Two flags for one thing would be a grammar that cannot be read. A
         // track sizes itself by rows or it takes a height, and no track does
@@ -2039,14 +2280,21 @@ mod tests {
     #[test]
     fn a_threshold_is_a_number_or_the_convention_by_name() {
         let it = draw("chr1:1-1000 --manhattan a.tsv --threshold 5.5");
-        assert_eq!(it.tracks[0].threshold, Some(5.5));
+        assert_eq!(it.tracks[0].threshold, Some(Threshold::At(5.5)));
 
         // The word is worth having only if it is the number the field means by
         // it, so this pins the number and not just that a word was accepted.
         let named = draw("chr1:1-1000 --manhattan a.tsv --threshold genome-wide");
-        let wanted = -(5e-8f64).log10();
-        assert!((named.tracks[0].threshold.unwrap() - wanted).abs() < 1e-12);
+        assert_eq!(named.tracks[0].threshold, Some(Threshold::GenomeWide));
+        let wanted = Threshold::GenomeWide.drawn();
         assert!((wanted - 7.301_029_995_663_981).abs() < 1e-9);
+        // And on a phylogeny, where a threshold is a support value, the
+        // convention for a scan is refused rather than read as 7.3.
+        let error = parse(&args("--tree t.nwk --threshold genome-wide")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::BadValue { flag, .. } if flag == "--threshold"),
+            "{error:?}"
+        );
 
         assert_eq!(
             draw("chr1:1-1000 --manhattan a.tsv").tracks[0].threshold,
@@ -2294,7 +2542,7 @@ mod tests {
     #[test]
     fn the_region_can_sit_anywhere_but_only_once() {
         let it = draw("--coverage d.bg chr1:1-1000");
-        assert_eq!(it.region.seq(), "chr1");
+        assert_eq!(it.region.as_ref().unwrap().seq(), "chr1");
         let err = parse(&args("chr1:1-1000 chr2:1-1000")).unwrap_err();
         assert!(matches!(err, ArgError::ExtraRegion(_)));
     }
@@ -2918,13 +3166,38 @@ mod tests {
              and a figure is drawn over at most 268435455"
         );
         // A whole large sequence is an ordinary figure and stays one.
-        assert_eq!(draw("chr1:1-248956422").region.len(), 248_956_422);
+        assert_eq!(draw("chr1:1-248956422").region.unwrap().len(), 248_956_422);
     }
 
     #[test]
     fn a_missing_region_is_its_own_message() {
         let err = parse(&args("--coverage d.bg")).unwrap_err();
         assert!(err.to_string().contains("the first argument is the region"));
+    }
+
+    /// A tree is not drawn in a window, and a command line of trees was made
+    /// to invent one, `x:1-1`, which the figure then printed as its locus.
+    #[test]
+    fn a_figure_of_phylogenies_and_site_panels_names_no_region() {
+        for line in [
+            "--tree t.nwk",
+            "--tree t.nwk --traits s.tsv --projection circular",
+            "--tanglegram a.nwk --against b.nwk",
+            "--snps aln.fa",
+            "--tree t.nwk --snps aln.fa",
+        ] {
+            let invocation = draw(line);
+            assert!(invocation.region.is_none(), "{line} kept a region");
+        }
+        // One track drawn in a window, and the window has to be named.
+        for line in ["--tree t.nwk --coverage d.bg", "--axis", "--msa aln.fa"] {
+            let err = parse(&args(line)).unwrap_err();
+            assert!(matches!(err, ArgError::NoRegion), "{line}: {err}");
+            assert!(err.to_string().contains("--tree"), "{err}");
+        }
+        // And a region given to a tree is still taken, so no command line
+        // that worked stops working.
+        assert!(draw("tree:1-1 --tree t.nwk").region.is_some());
     }
     #[test]
     fn focus_takes_a_clade_a_tip_or_a_pair_and_refuses_the_rest() {
@@ -2987,7 +3260,7 @@ mod tests {
         ));
         assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
         assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
-        assert_eq!(it.tracks[0].threshold, Some(0.9));
+        assert_eq!(it.tracks[0].threshold, Some(Threshold::At(0.9)));
         assert!(it.tracks[0].scale_bar);
 
         for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {

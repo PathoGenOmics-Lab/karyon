@@ -22,7 +22,7 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
 |:--|:--|
 | Rust | `.add_features(features)` on `plot()`; `FeatureTrack::new(features)` |
 | Command line | `--features FILE`, with `--row-height`, `--no-names`, `--color`, `--format` |
-| Reads | BED or GFF3, told apart by their columns (`read::interval::features`) |
+| Reads | BED, GFF3 or GTF, told apart by their columns, with a gene drawn once rather than again for each transcript, exon and CDS (`read::interval::features`) |
 
 === "Rust"
 

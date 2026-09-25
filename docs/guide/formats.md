@@ -155,7 +155,8 @@ than a value per base.
 
 ### A feature file { #a-feature-file }
 
-`--features` and `--loci` read BED or GFF3, and decide which in this order:
+`--features` and `--loci` read BED or GFF3, GTF counting as GFF3, and decide
+which in this order:
 
 1. `--format bed` or `--format gff3`, if given.
 2. A `##gff-version` line anywhere in the file means GFF3.
@@ -298,25 +299,36 @@ NC_000962.3  RefSeq  gene  763370  767320  .  +  .  ID=gene-Rv0668;Name=rpoC
 | | |
 |:--|:--|
 | Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods), `--clades` as [clade blocks](#gubbins-clade-blocks) |
-| Columns | 1 sequence, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
-| Ignored | 2 source, 3 type, 6 score, 8 phase |
+| Columns | 1 sequence, 3 type, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
+| Ignored | 2 source, 6 score, 8 phase |
 | Coordinates | 1-based and inclusive: the start moves back one and the end stays, so `759807 763325` is 0-based `759806..763325` |
-| Skipped | a trailing `##FASTA` section, whose lines name no sequence |
+| Skipped | a trailing `##FASTA` section, whose lines name no sequence; a row describing the whole sequence; a row whose parent is in the file |
 | Refused | fewer than 5 columns; a start of 0; an end before its start |
 
 Attribute values are percent-decoded, so
 `Name=chromosomal%20replication%2C%20initiator` reads as
 `chromosomal replication, initiator`.
 
-!!! tip "Every feature type is drawn"
-    Column three is ignored, so an annotation holding `gene`, `mRNA`, `exon`
-    and `CDS` records over one locus draws all of them, stacked in rows. Filter
-    first to draw one type:
+`--features` draws each thing once. An annotation writes a gene at every level,
+the gene, its transcripts, their exons and the CDS, and a row whose `Parent=`
+or `Derives_from=` names a row in the file is left out, so the gene stands for
+all of them. A part whose whole is not in the file, a file cut down to CDS rows
+for instance, is drawn. A `region`, `chromosome`, `scaffold`, `supercontig`,
+`databank_entry` or `source` row that starts at base 1 describes the sequence
+rather than something on it, as NCBI's first row for each sequence does, and is
+left out too. To draw one level on purpose, filter first:
 
-    ```bash
-    awk '$3 == "gene"' annotation.gff3 \
-      | karyon NC_000962.3:759,000-768,000 --features - --label genes -o genes.svg
-    ```
+```bash
+awk '$3 == "CDS"' annotation.gff3 \
+  | karyon NC_000962.3:759,000-768,000 --features - --label CDS -o cds.svg
+```
+
+GTF is read as GFF3 is, with its `key "value";` attributes: a gene is named by
+`gene_name` and failing that `gene_id`, a transcript by `transcript_name` or
+`transcript_id`, and anything else by the gene it belongs to. A transcript
+stands for its exons and a gene for its transcripts in the same way, so
+GENCODE draws one row a gene, StringTie, which writes no gene rows, one a
+transcript, and a table browser GTF of exons alone one an exon.
 
 ### cytoBand { #cytoband }
 
@@ -431,17 +443,25 @@ Pf3D7_07_v3   4150  0.40
 | Columns | two or three: an optional sequence name, then a position and a value |
 | Coordinates | 1-based: position 4100 is 0-based 4099 |
 | Skipped | a header on the first line; a two-column table names no sequence |
-| Refused | any other number of columns; a position of 0; a header-like word after the first line |
+| Refused | any other number of columns; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
 
-!!! warning "Give it -log10(p), not p"
-    The value is drawn as written, higher meaning stronger, and `--threshold`
-    is in the same units: `genome-wide` is -log10(5e-8), about 7.3. A column of
-    raw p-values draws the strongest hits at the bottom. Convert first, for
-    example:
+A scan is drawn higher meaning stronger, and the header says what the value
+column holds:
 
-    ```bash
-    awk 'NR == 1 { print; next } { $3 = -log($3) / log(10); print }' scan.tsv > scan-log10.tsv
-    ```
+- **p-values**: a column named `P`, `pvalue`, `pval`, `p.value`, `P-value`, or
+  starting with `p_` as `p_wald` and `P_BOLT_LMM` do, and a q-value, `FDR` or
+  `padj` column, is drawn as -log10 of itself, and the axis says `-log10 p`.
+  `--threshold` is then a p-value too: `--threshold 5e-8` draws the line where
+  `genome-wide` does.
+- **Anything else** is drawn as written, in the units `--threshold` is given
+  in. A name that mentions a logarithm, as `LOG10P`, `-log10(p)` and
+  `mlog10p` do, is always read as one already taken.
+
+A table with no header says nothing about its values. If every one of them lies
+between 0 and 1 it is refused, since that is how p-values look and drawn as
+written they put the strongest hit at the bottom; add a first line naming the
+column, `P` to have the values converted or what they are to have them drawn as
+written.
 
 ### The matrix table { #the-matrix-table }
 
@@ -517,21 +537,23 @@ CTTGCATGCAACGGATTACGATCG
 |:--|:--|
 | Read by | `--sequence`, `--orfs` and `--with-sequence`; `read::seq::fasta` |
 | What is read | each record's name (the header up to its first space) and its sequence lines, joined, case kept |
-| Coordinates | none: a record starts at its own first base, so byte n is 0-based position n |
-| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it |
+| Coordinates | a record starts at its own first base, so byte n is 0-based position n; a header written as `name:start-end` by `samtools faidx`, whose span is as long as the record, starts at `start` |
+| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it; a record with no base in the region |
 
 `--sequence`, `--orfs` and `--with-sequence` take the file's only record
 whatever it is called, or, in a file of several, the one named like the
 region's sequence, and cut the region out of it by position. Lower case
-is kept, since a soft-masked reference says something by it. A region past the
-end of the record is not an error: the track has no bases there and draws
-nothing.
+is kept, since a soft-masked reference says something by it. A region that
+runs past the end of the record draws the bases there are, and one holding no
+base of the record at all is refused, since the track would have nothing to
+draw.
 
-!!! warning "Hand `--sequence` the whole sequence"
-    A slice from `samtools faidx ref.fa chr1:101-200` is read as if it began at
-    base 1, so over `chr1:101-200` it draws nothing, and over another window it
-    draws the wrong bases, without an error. Give it the reference and let the
-    region do the cutting.
+A slice from `samtools faidx ref.fa chr1:101-200` is read where its header
+puts it, so it draws over `chr1:101-200` and over any window inside it. A
+header is taken for a span only when the span is exactly as long as the record,
+so a sequence whose own name looks like one keeps its bases from 1. Several
+slices of one sequence in one file are one sequence in pieces, and the region
+picks the piece it falls in.
 
 ### Aligned FASTA { #aligned-fasta }
 
@@ -576,7 +598,7 @@ A phylogeny, read whole as one tree.
 |:--|:--|
 | Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse_annotated_newick` |
 | What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations |
-| Coordinates | none: the region is not compared with anything, so `phylo:1-1` serves as well as any |
+| Coordinates | none: a figure of trees takes no region, and one given is not compared with anything |
 | Refused | an empty file; unbalanced parentheses; a comma outside any clade; more than one root; a branch length that is not a number or has nothing to attach to |
 
 - The trailing `;` is optional and whitespace is ignored, so a tree written

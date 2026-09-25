@@ -35,6 +35,8 @@
 //! interval from where either coordinate put it, or a band would vanish while
 //! its end still set the length of the chromosome.
 
+use std::collections::BTreeSet;
+
 use crate::{Band, Feature, Region, Stain, Strand};
 
 use super::Format;
@@ -69,31 +71,137 @@ pub fn features(
     format: Option<Format>,
 ) -> Result<Vec<Feature>, ReadError> {
     let flavour = flavour(text, format);
-    let mut features = Vec::new();
+    // The sequence is checked before the rest of the line is understood, so
+    // that a whole genome annotation costs one comparison per row it does not
+    // need. It also means the FASTA section some GFF3 files carry at the end
+    // goes past without being read as a broken feature.
+    let rows = lines(text)
+        .map(|(at, line)| (at, columns(line)))
+        .filter(|(_, cols)| cols.first().copied().unwrap_or_default() == region.seq());
 
-    for (at, line) in lines(text) {
-        let cols = columns(line);
-        // The sequence is checked before the rest of the line is understood, so
-        // that a whole genome annotation costs one comparison per row it does
-        // not need. It also means the FASTA section some GFF3 files carry at the
-        // end goes past without being read as a broken feature.
-        if cols.first().copied().unwrap_or_default() != region.seq() {
-            continue;
+    let mut features = Vec::new();
+    if flavour == Flavour::Bed {
+        for (at, cols) in rows {
+            keep(bed(&cols, at)?, region, &mut features);
         }
-        let feature = match flavour {
-            Flavour::Bed => bed(&cols, at)?,
-            Flavour::Gff3 => gff3(&cols, at)?,
-        };
-        // A feature the window does not touch is not drawn, and it would still
-        // take a row in the track's layout, which is what decides how tall the
-        // track is. So it is dropped here rather than carried.
-        if feature.end <= region.start() || feature.start >= region.end() {
-            continue;
-        }
-        features.push(feature);
+        return Ok(features);
     }
 
+    // A GFF3 or GTF annotation writes a gene once for every level of it, the
+    // gene, each transcript, each exon and each CDS, and a feature track drew
+    // every one as a feature of its own: five rows for one gene, the gene
+    // beside its own CDS. So a row whose parent is in the file is left out,
+    // and the parent stands for it. A row whose parent is not here, because
+    // the file was cut down to exons or never had genes, is still drawn.
+    let rows: Vec<(usize, Vec<&str>)> = rows.collect();
+    let declared: BTreeSet<(&str, &str)> = rows
+        .iter()
+        .filter(|(_, cols)| !describes_sequence(cols))
+        .filter_map(|(_, cols)| declared_as(cols))
+        .collect();
+    for (at, cols) in &rows {
+        // Read before it is set aside, so a broken row stops the file on its
+        // line whether or not it would have been drawn.
+        let feature = gff3(cols, *at)?;
+        if describes_sequence(cols)
+            || parents_of(cols)
+                .iter()
+                .any(|parent| declared.contains(parent))
+        {
+            continue;
+        }
+        keep(feature, region, &mut features);
+    }
     Ok(features)
+}
+
+/// Keeps a feature that touches the window.
+///
+/// A feature the window does not touch is not drawn, and it would still take a
+/// row in the track's layout, which is what decides how tall the track is. So
+/// it is dropped here rather than carried.
+fn keep(feature: Feature, region: &Region, into: &mut Vec<Feature>) {
+    if feature.end <= region.start() || feature.start >= region.end() {
+        return;
+    }
+    into.push(feature);
+}
+
+/// Whether a GFF3 row describes the sequence it is on rather than something
+/// on it.
+///
+/// NCBI opens each sequence with a `region` row from its first base to its
+/// last, named `ANONYMOUS` as often as not, Ensembl with a `chromosome` or a
+/// `scaffold` row, and a converted GenBank file with a `source` or a
+/// `databank_entry`. Drawn, it was a feature as long as the chromosome under
+/// the window, named as if it were a gene. A row of one of these types that
+/// does not start at base 1 marks part of a sequence, and is drawn.
+fn describes_sequence(cols: &[&str]) -> bool {
+    const SEQUENCES: &[&str] = &[
+        "region",
+        "chromosome",
+        "scaffold",
+        "supercontig",
+        "databank_entry",
+        "source",
+    ];
+    matches!(cols.get(3).map(|start| start.trim()), Some("1"))
+        && cols
+            .get(2)
+            .is_some_and(|kind| SEQUENCES.contains(&kind.trim()))
+}
+
+/// The name another row could call this one by, and the kind of name it is.
+///
+/// GFF3 names every record it means to be a parent with `ID=`. GTF has no
+/// such key: a gene is known by its `gene_id` and a transcript by its
+/// `transcript_id`, and the two are kept apart because a file may give a gene
+/// and its one transcript the same word.
+fn declared_as<'a>(cols: &[&'a str]) -> Option<(&'static str, &'a str)> {
+    let attributes = cols.get(8)?;
+    if let Some(id) = raw_attribute(attributes, "ID") {
+        return Some(("id", id));
+    }
+    match cols.get(2)?.trim() {
+        "gene" => gtf_attribute(attributes, "gene_id").map(|id| ("gene", id)),
+        "transcript" | "mRNA" => {
+            gtf_attribute(attributes, "transcript_id").map(|id| ("transcript", id))
+        }
+        _ => None,
+    }
+}
+
+/// The rows this one is a part of, by the names [`declared_as`] gives them.
+///
+/// GFF3 says so with `Parent=`, a list, and `Derives_from=`, which a
+/// polypeptide uses to point at its transcript. A GTF row is part of its
+/// transcript and of its gene, a transcript of its gene, and a gene of
+/// nothing.
+fn parents_of<'a>(cols: &[&'a str]) -> Vec<(&'static str, &'a str)> {
+    let Some(attributes) = cols.get(8) else {
+        return Vec::new();
+    };
+    let mut parents: Vec<(&'static str, &'a str)> = ["Parent", "Derives_from"]
+        .into_iter()
+        .filter_map(|key| raw_attribute(attributes, key))
+        .flat_map(|list| list.split(','))
+        .map(|parent| ("id", parent.trim()))
+        .collect();
+    if !parents.is_empty() {
+        return parents;
+    }
+    let kind = cols.get(2).map_or("", |kind| kind.trim());
+    if kind != "gene" {
+        if kind != "transcript" && kind != "mRNA" {
+            if let Some(transcript) = gtf_attribute(attributes, "transcript_id") {
+                parents.push(("transcript", transcript));
+            }
+        }
+        if let Some(gene) = gtf_attribute(attributes, "gene_id") {
+            parents.push(("gene", gene));
+        }
+    }
+    parents
 }
 
 /// Reads a cytoBand table: `chrom start end name stain`, 0-based half-open.
@@ -229,7 +337,11 @@ pub(crate) fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     // stays where it is because it was already one past the last base once the
     // count started at zero.
     let mut feature = Feature::new(start - 1, end);
-    if let Some(name) = cols.get(8).and_then(|attributes| gff3_name(attributes)) {
+    let kind = cols.get(2).map_or("", |kind| kind.trim());
+    if let Some(name) = cols
+        .get(8)
+        .and_then(|attributes| gff3_name(attributes).or_else(|| gtf_name(kind, attributes)))
+    {
         feature = feature.name(name);
     }
     if let Some(strand) = cols.get(6) {
@@ -247,6 +359,32 @@ fn gff3_name(attributes: &str) -> Option<String> {
     ["Name", "gene", "ID"]
         .into_iter()
         .find_map(|key| attribute(attributes, key))
+}
+
+/// The name a GTF record goes by.
+///
+/// GTF writes its ninth column as `key "value";` pairs, which no GFF3 key
+/// reads, so every gene of a GTF file was drawn with no name at all. A gene is
+/// called by its `gene_name` and failing that its `gene_id`; a transcript by
+/// its own name first, since the isoforms of one gene share the gene's; and
+/// anything else by the gene it belongs to.
+fn gtf_name(kind: &str, attributes: &str) -> Option<String> {
+    let keys: &[&str] = match kind {
+        "gene" => &["gene_name", "gene_id"],
+        "transcript" | "mRNA" => &["transcript_name", "transcript_id", "gene_name", "gene_id"],
+        _ => &["gene_name", "gene_id", "transcript_name", "transcript_id"],
+    };
+    keys.iter()
+        .find_map(|key| gtf_attribute(attributes, key))
+        .and_then(|value| label(Some(value)))
+}
+
+/// One `key "value"` out of a GTF ninth column, without its quotes.
+fn gtf_attribute<'a>(attributes: &'a str, key: &str) -> Option<&'a str> {
+    attributes.split(';').find_map(|pair| {
+        let (found, value) = pair.trim().split_once(char::is_whitespace)?;
+        (found == key).then(|| value.trim().trim_matches('"'))
+    })
 }
 
 /// One `key=value` out of the ninth column, exactly as it was written.
@@ -574,6 +712,118 @@ chr21\t10900000\t12000000\tp11.1\tacen
 chr21\t12000000\t46709983\tq22.3\tgneg
 chr20\t0\t64444167\tp13\tgneg
 ";
+
+    fn names(features: &[Feature]) -> Vec<&str> {
+        features
+            .iter()
+            .map(|feature| feature.name.as_deref().unwrap_or("?"))
+            .collect()
+    }
+
+    /// NCBI writes a gene five times: the sequence it is on, the gene, its
+    /// transcript, each exon and the CDS. Every one was drawn, the first as a
+    /// feature as long as the chromosome named ANONYMOUS.
+    #[test]
+    fn a_gene_written_at_every_level_is_drawn_once() {
+        let text = "\
+##gff-version 3
+chr1\tRefSeq\tregion\t1\t20000\t.\t+\t.\tID=chr1:1..20000;Name=ANONYMOUS;genome=chromosome
+chr1\tRefSeq\tgene\t1500\t2900\t.\t+\t.\tID=gene-A;Name=geneA
+chr1\tRefSeq\tmRNA\t1500\t2900\t.\t+\t.\tID=rna-A;Parent=gene-A;gene=geneA
+chr1\tRefSeq\texon\t1500\t1900\t.\t+\t.\tID=exon-A-1;Parent=rna-A;gene=geneA
+chr1\tRefSeq\texon\t2300\t2900\t.\t+\t.\tID=exon-A-2;Parent=rna-A;gene=geneA
+chr1\tRefSeq\tCDS\t1550\t1900\t.\t+\t0\tID=cds-A;Parent=rna-A;Name=NP_1
+chr1\tRefSeq\tCDS\t2300\t2800\t.\t+\t2\tID=cds-A;Parent=rna-A;Name=NP_1
+chr1\tRefSeq\tpseudogene\t5000\t6000\t.\t-\t.\tID=gene-B;Name=geneB
+";
+        let features = read(text, "chr1:1-20000", None);
+        assert_eq!(names(&features), ["geneA", "geneB"]);
+        assert_eq!((features[0].start, features[0].end), (1_499, 2_900));
+    }
+
+    #[test]
+    fn a_row_that_marks_part_of_a_sequence_is_still_drawn() {
+        // Only a row from the first base describes the sequence: Ensembl's
+        // chromosome line is left out, and a region further along is a region.
+        let text = "\
+##gff-version 3
+2\tGRCh38\tchromosome\t1\t242193529\t.\t.\t.\tID=chromosome:2
+2\tmanual\tregion\t100\t200\t.\t+\t.\tID=roi;Name=target
+";
+        assert_eq!(names(&read(text, "2:1-1000", None)), ["target"]);
+    }
+
+    #[test]
+    fn a_part_whose_whole_is_not_in_the_file_is_drawn() {
+        // Cut down to CDS rows, the genes they name are elsewhere, and a
+        // file of nothing but parts is still a file of features.
+        let text = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t400\t.\t+\t0\tID=cds1;Parent=gene1;Name=dnaA
+chr1\t.\tCDS\t500\t900\t.\t+\t0\tID=cds2;Parent=gene2;Name=dnaN
+";
+        assert_eq!(names(&read(text, "chr1:1-1000", None)), ["dnaA", "dnaN"]);
+    }
+
+    #[test]
+    fn a_polypeptide_is_part_of_the_transcript_it_derives_from() {
+        let text = "\
+##gff-version 3
+chr1\t.\tgene\t100\t900\t.\t+\t.\tID=g1;Name=abc
+chr1\t.\tmRNA\t100\t900\t.\t+\t.\tID=t1;Parent=g1
+chr1\t.\tpolypeptide\t150\t850\t.\t+\t.\tID=p1;Derives_from=t1;Name=ABC
+";
+        assert_eq!(names(&read(text, "chr1:1-1000", None)), ["abc"]);
+    }
+
+    /// GTF writes its attributes as `key "value";`, which no GFF3 key reads,
+    /// so every gene came out nameless, and the gene beside its own CDS.
+    #[test]
+    fn a_gtf_is_drawn_once_a_gene_and_by_its_name() {
+        let gencode = "\
+chr1\tHAVANA\tgene\t1500\t2900\t.\t+\t.\tgene_id \"ENSG1\"; gene_name \"geneA\";
+chr1\tHAVANA\ttranscript\t1500\t2900\t.\t+\t.\tgene_id \"ENSG1\"; transcript_id \"ENST1\"; gene_name \"geneA\";
+chr1\tHAVANA\texon\t1500\t1900\t.\t+\t.\tgene_id \"ENSG1\"; transcript_id \"ENST1\"; exon_number 1;
+chr1\tHAVANA\tCDS\t1550\t1900\t.\t+\t0\tgene_id \"ENSG1\"; transcript_id \"ENST1\";
+chr1\tHAVANA\tgene\t3200\t4400\t.\t-\t.\tgene_id \"ENSG2\";
+";
+        assert_eq!(
+            names(&read(gencode, "chr1:1-5000", None)),
+            ["geneA", "ENSG2"]
+        );
+
+        // StringTie writes no gene rows: each transcript stands for its exons,
+        // and the isoforms of one gene are told apart by their own names.
+        let stringtie = "\
+chr1\tStringTie\ttranscript\t100\t900\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.1\";
+chr1\tStringTie\texon\t100\t300\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.1\";
+chr1\tStringTie\ttranscript\t100\t700\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.2\";
+chr1\tStringTie\texon\t500\t700\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.2\";
+";
+        assert_eq!(
+            names(&read(stringtie, "chr1:1-1000", None)),
+            ["STRG.1.1", "STRG.1.2"]
+        );
+
+        // A table browser GTF has exons and nothing above them, so each exon
+        // is drawn, under the gene it belongs to.
+        let exons = "\
+chr1\thg38\texon\t100\t300\t.\t+\t.\tgene_id \"NM_1\"; transcript_id \"NM_1\"; gene_name \"abc\";
+chr1\thg38\texon\t500\t700\t.\t+\t.\tgene_id \"NM_1\"; transcript_id \"NM_1\"; gene_name \"abc\";
+";
+        assert_eq!(names(&read(exons, "chr1:1-1000", None)), ["abc", "abc"]);
+    }
+
+    #[test]
+    fn a_broken_row_stops_the_file_even_where_it_would_have_been_left_out() {
+        let text = "\
+##gff-version 3
+chr1\t.\tgene\t100\t900\t.\t+\t.\tID=g1;Name=abc
+chr1\t.\tCDS\tten\t900\t.\t+\t0\tID=c1;Parent=g1
+";
+        let error = features(text, &region("chr1:1-1000"), None).unwrap_err();
+        assert_eq!(error.line, 3);
+    }
 
     #[test]
     fn cytoband_coordinates_pass_straight_through() {

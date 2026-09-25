@@ -227,8 +227,7 @@ The variable columns of an alignment and nothing else, spaced evenly, one row pe
 === "Command line"
 
     ```bash
-    karyon sites:1-34 --no-region-label \
-      --snps isolates.fa --compare-to H37Rv --label isolates \
+    karyon --snps isolates.fa --compare-to H37Rv --label isolates \
       -o snps.svg
     ```
 
@@ -392,7 +391,7 @@ Association statistics: one point per test, height by significance, a line where
 
 There is no default threshold, on purpose, and `significant()` returns nothing until there is one. `genome_wide_threshold` is a Bonferroni correction for a million independent tests: the convention in human GWAS, and often the wrong number elsewhere, because the right one follows from how many independent tests were really run, and a shorter genome or stronger linkage leaves far fewer than a million.
 
-`Association::from_p_value` converts a p-value to `-log10(p)`; `Association::new` plots the value as it is, and so does the command line. Give `--manhattan` a column of `-log10(p)`, or any other score, and a `--threshold` in the same units, and name them with `unit` in Rust.
+`Association::from_p_value` converts a p-value to `-log10(p)`; `Association::new` plots the value as it is. The command line reads the header: a column named as p-values are, `P`, `pvalue`, `p_wald` and the like, is drawn as `-log10` with the axis saying so, and `--threshold` is then a p-value too; any other column, `-log10(p)` or another score, is drawn as written with a `--threshold` in the same units. [The association table](../guide/formats.md#the-association-table) has the whole rule. In Rust, name the units with `unit`.
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 

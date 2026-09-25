@@ -1906,3 +1906,212 @@ fn a_continuous_column_comes_back_in_bands() {
     );
     assert_ne!(strip.levels[0].color, strip.levels[15].color);
 }
+
+/// The colour drawn under each tooltip that starts with `title`, in order.
+///
+/// A strip cell and a branch each carry their own `<title>` and are drawn
+/// right after it, so the first paint after the title is the one it names.
+fn painted_under(svg: &str, title: &str) -> Vec<String> {
+    svg.split("<title>")
+        .skip(1)
+        .filter(|piece| piece.starts_with(title))
+        .filter_map(|piece| {
+            let after = piece.split("</title>").nth(1)?;
+            ["fill=\"#", "stroke=\"#"]
+                .iter()
+                .filter_map(|attribute| {
+                    after
+                        .find(attribute)
+                        .map(|at| (at, &after[at + attribute.len() - 1..]))
+                })
+                .min_by_key(|(at, _)| *at)
+                .map(|(_, rest)| rest[..7].to_string())
+        })
+        .collect()
+}
+
+/// Three orders of three countries that all disagree. The tree meets Spain
+/// first (Zed and Yan), a sheet sorting its rows by name meets Portugal first
+/// (Abe), and sorting the countries themselves puts Peru first.
+fn countries() -> Tree {
+    Tree::parse_annotated_newick(
+        "((Zed[&country=Spain]:1,Yan[&country=Spain]:1):1,\
+         (Abe[&country=Portugal]:1,Bo[&country=Peru]:1):1);",
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_key_a_tree_hands_out_names_each_level_in_the_colour_it_is_drawn_in() {
+    // A key built from the sample sheet numbered the levels the way the sheet
+    // sorts its rows, and the tree numbers them the way it meets them, so a
+    // figure of two countries printed each one's colour beside the other's
+    // name. The tree's own key is read off the count it paints from.
+    let track = TreeTrack::new(countries())
+        .color_by("country")
+        .trait_categorical("country");
+    let legend = track.legend(&Theme::light());
+    let svg = drawn(track);
+
+    let mut keyed = 0;
+    for item in legend.items() {
+        let crate::track::legend::LegendItem::Key { label, color, .. } = item else {
+            panic!("a categorical key has no ramp: {item:?}");
+        };
+        let level = label.strip_prefix("country: ").expect("keyed by country");
+        let tip = match level {
+            "Spain" => "Zed",
+            "Portugal" => "Abe",
+            "Peru" => "Bo",
+            other => panic!("a level the tree does not hold: {other}"),
+        };
+        let cells = painted_under(&svg, &format!("{tip}; country {level}"));
+        assert_eq!(
+            cells,
+            std::slice::from_ref(color),
+            "the {level} cell against its key"
+        );
+        let branches = painted_under(&svg, &format!("country {level}"));
+        assert!(!branches.is_empty(), "no branch says {level}");
+        assert!(
+            branches.iter().all(|painted| painted == color),
+            "a {level} branch in {branches:?} against the key's {color}"
+        );
+        keyed += 1;
+    }
+    assert_eq!(keyed, 3, "every level once, and the column not twice");
+    assert_eq!(painted_under(&svg, "Zed; country Spain"), [colour(0)]);
+}
+
+#[test]
+fn folding_a_clade_does_not_repaint_the_rest_of_the_tree() {
+    // The first clade disagrees, so folded it shows nothing, and the levels
+    // only it held are then nowhere on screen. Counted from the nodes on
+    // screen, Spain was met first and took the first colour, on its branch
+    // and in its cell alike; counted over the tree, it keeps the one it had.
+    let tree = Tree::parse_annotated_newick(
+        "((A[&country=Peru]:1,B[&country=Chile]:1)mixed:1,\
+         (C[&country=Spain]:1,D[&country=Peru]:1):1);",
+    )
+    .unwrap();
+    let mixed = tree.node_named("mixed").unwrap();
+    for projection in [
+        TreeProjection::Rectangular,
+        TreeProjection::Circular,
+        TreeProjection::Unrooted,
+    ] {
+        let track = || {
+            TreeTrack::new(tree.clone())
+                .projection(projection)
+                .color_by("country")
+                .trait_categorical("country")
+        };
+        let whole = drawn(track());
+        let shut = drawn(track().collapse(mixed));
+        for title in ["C; country Spain", "country Spain"] {
+            let open = painted_under(&whole, title);
+            assert!(!open.is_empty(), "{title} is not drawn in {projection:?}");
+            assert_eq!(
+                painted_under(&shut, title)[0],
+                open[0],
+                "{title} changed colour when a clade folded, in {projection:?}"
+            );
+        }
+        assert_eq!(painted_under(&shut, "C; country Spain"), [colour(2)]);
+    }
+}
+
+#[test]
+fn every_projection_paints_a_level_in_the_same_colour() {
+    // One count serves all three, so a level is one colour however the tree
+    // is laid out, on its branches and in its cells.
+    let colours = |projection: TreeProjection| {
+        let svg = drawn(
+            TreeTrack::new(countries())
+                .projection(projection)
+                .color_by("country")
+                .trait_categorical("country"),
+        );
+        [
+            "Zed; country Spain",
+            "Abe; country Portugal",
+            "Bo; country Peru",
+            "country Spain",
+            "country Peru",
+        ]
+        .map(|title| painted_under(&svg, title)[0].clone())
+    };
+    let rectangular = colours(TreeProjection::Rectangular);
+    assert_eq!(
+        rectangular[..3],
+        [colour(0), colour(1), colour(2)],
+        "the tree's own order"
+    );
+    assert_eq!(colours(TreeProjection::Circular), rectangular);
+    assert_eq!(colours(TreeProjection::Unrooted), rectangular);
+}
+
+#[test]
+fn a_numeric_key_is_keyed_as_a_ramp_over_the_whole_tree() {
+    let tree =
+        Tree::parse_annotated_newick("((A[&year=2001]:1,B[&year=2019]:1):1,C[&year=2010]:2);")
+            .unwrap();
+    let legend = TreeTrack::new(tree)
+        .color_by("year")
+        .legend(&Theme::light());
+    let [crate::track::legend::LegendItem::Ramp {
+        label, low, high, ..
+    }] = legend.items()
+    else {
+        panic!("one ramp: {:?}", legend.items());
+    };
+    assert_eq!(
+        (label.as_str(), low.as_str(), high.as_str()),
+        ("year", "2001", "2019")
+    );
+}
+
+#[test]
+fn a_ramp_with_no_number_under_it_is_left_out_of_the_key() {
+    // A column asked for as continuous over an annotation nobody carries has
+    // no range, and its ends would be the placeholders an empty count starts
+    // at: a range three hundred digits long.
+    let legend = TreeTrack::new(tree())
+        .trait_continuous("nothing")
+        .legend(&Theme::light());
+    assert!(legend.items().is_empty(), "{:?}", legend.items());
+}
+
+#[test]
+fn a_column_from_a_sheet_colours_the_tree_the_way_the_sheet_does() {
+    // The sheet lists Portugal first, then Peru, then Spain; the tree meets
+    // Spain first. Handed the sheet's column, the tree deals the palette in
+    // the sheet's order, so its strip, its branches and its key agree with the
+    // strip the same sheet draws beside any other track.
+    let column = TraitColumn::categorical("country").levels(["Portugal", "Peru", "Spain", "Chile"]);
+    let track = TreeTrack::new(countries())
+        .color_by("country")
+        .trait_column(column);
+    let legend = track.legend(&Theme::light());
+    let svg = drawn(track);
+    assert_eq!(painted_under(&svg, "Abe; country Portugal"), [colour(0)]);
+    assert_eq!(painted_under(&svg, "Bo; country Peru"), [colour(1)]);
+    assert_eq!(painted_under(&svg, "Zed; country Spain"), [colour(2)]);
+    assert!(painted_under(&svg, "country Spain")
+        .iter()
+        .all(|painted| *painted == colour(2)));
+    // Chile is in the sheet and on no tip here: it keeps its colour for the
+    // other strips and stays out of this key.
+    let keyed: Vec<&str> = legend
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            crate::track::legend::LegendItem::Key { label, .. } => Some(label.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        keyed,
+        ["country: Portugal", "country: Peru", "country: Spain"]
+    );
+}

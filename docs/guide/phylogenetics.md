@@ -67,7 +67,7 @@ them, since each leaves a compact tree.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --mutations muts --carrying S:D614G -o carriers.svg
+    karyon --tree outbreak.nwk --mutations muts --carrying S:D614G -o carriers.svg
     ```
 
 A change belongs to the branch above the node that carries it, so `carriers`
@@ -105,7 +105,7 @@ the carriers, and refuses a change the tree does not carry.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --traits samples.tsv --columns country,depth \
+    karyon --tree outbreak.nwk --traits samples.tsv --columns country,depth \
       --color-by country --no-region-label -o outbreak.svg
     ```
 
@@ -113,13 +113,17 @@ the carriers, and refuses a change the tree does not carry.
 with a calendar axis underneath. The command line has no time axis and draws
 branch length instead.
 
-`color_by(key)` uses a ramp when every visible value is a number and the
+`color_by(key)` uses a ramp when every value in the tree is a number and the
 categorical palette otherwise. A branch with no value takes its nearest
 annotated ancestor's, or failing that the value all its descendants share, so
 a clade of one lineage is coloured whole and not only at its tips.
 
 Each `TraitColumn` is one strip beside the tips. Levels are coloured in the
-order they are first met, so the same file always colours the same way. A
+order the tree meets them, counted over the whole tree, so folding a clade does
+not repaint the rest. A column that came from a sample sheet carries the
+sheet's order instead (`TraitColumn::levels`), so a lineage is the colour here
+that it is beside every other track the sheet is drawn with. `legend(&theme)`
+hands back a key read off the same count as the branches and the strips. A
 missing value is an empty outline whose tooltip says missing, never a zero, and
 `show_values(false)` drops the text inside the cells.
 
@@ -173,7 +177,7 @@ missing value is an empty outline whose tooltip says missing, never a zero, and
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --projection circular -o circular.svg
+    karyon --tree outbreak.nwk --projection circular -o circular.svg
     ```
 
 A projection changes coordinates and nothing else: lengths, dates, annotations
@@ -235,7 +239,7 @@ There is no time axis or root diamond, because both need a root.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --traits samples.tsv --projection unrooted -o rings.svg
+    karyon --tree outbreak.nwk --traits samples.tsv --projection unrooted -o rings.svg
     ```
 
 A `TraitColumn` is one dataset: a column beside a rectangular tree, a ring
@@ -309,7 +313,7 @@ scan (G), and the [evolution and surveillance tracks](../tracks/evolution-survei
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --support-style both --threshold 0.7 --scale-bar -o support.svg
+    karyon --tree outbreak.nwk --support-style both --threshold 0.7 --scale-bar -o support.svg
     ```
 
 Support, events and branch length answer different questions, so each has a
@@ -510,7 +514,7 @@ looks like a positive-selection hit.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree outbreak.nwk --highlight outbreak -o clades.svg
+    karyon --tree outbreak.nwk --highlight outbreak -o clades.svg
     ```
 
 `CladeHighlight` shades a clade in any projection and gives its tip count in
@@ -605,7 +609,7 @@ tree does not name stays at the bottom rather than disappearing.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tanglegram core.nwk --against accessory.nwk -o tangle.svg
+    karyon --tanglegram core.nwk --against accessory.nwk -o tangle.svg
     ```
 
 Each tip is joined to its twin in the other tree, so a disagreement is a
@@ -641,8 +645,8 @@ neither untangles nor colours them.
 === "Command line"
 
     ```bash
-    karyon phylogeny:1-1 --tree big.nwk --max-rows 200 -o overview.svg
-    karyon phylogeny:1-1 --tree big.nwk --focus L4_D001,L4_H148 -o clade.svg
+    karyon --tree big.nwk --max-rows 200 -o overview.svg
+    karyon --tree big.nwk --focus L4_D001,L4_H148 -o clade.svg
     ```
 
 A rectangular tree is a row per tip and `row_height` stops at two pixels:

@@ -296,6 +296,17 @@ pub trait Track {
         true
     }
 
+    /// Whether this track shows where the window is, so that a figure holding
+    /// it prints the locus at its top right.
+    ///
+    /// Everything on the coordinates does, and that is the default. An
+    /// ideogram is not on them, since it draws the whole chromosome, and it
+    /// marks the window on it, so it says yes too. A phylogeny says neither:
+    /// a locus above one names a window the tree is not drawn in.
+    fn shows_region(&self) -> bool {
+        self.on_coordinates()
+    }
+
     /// Draws the track inside `ctx.band`.
     fn draw(&self, ctx: &mut DrawContext<'_>);
 }

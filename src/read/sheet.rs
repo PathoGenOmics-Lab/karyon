@@ -69,12 +69,44 @@ pub struct Sheet {
     /// sheet of mostly empty strips is a sheet of unknowns or a file read with
     /// the wrong separator.
     pub blank: usize,
+    /// The names in the order the file lists them.
+    ///
+    /// [`Sheet::rows`] is keyed by name, which sorts the rows, and the order a
+    /// column's levels are dealt their colours in has to come from the file
+    /// instead: a sample appended at the end then never repaints the ones
+    /// above it, whatever it is called. See [`Sheet::levels`].
+    pub order: Vec<String>,
 }
 
 impl Sheet {
     /// The names the sheet holds, in order.
     pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
         self.rows.keys().map(String::as_str)
+    }
+
+    /// The values one column holds, each once, in the order the file first
+    /// gives them.
+    ///
+    /// This is the order the column's levels are coloured in, by every track
+    /// the sheet is joined to and by a phylogeny it is copied onto, so a level
+    /// is one colour in every strip of a figure and in its key. It is what
+    /// [`Traits::from_sheet`](crate::track::traits::Traits::from_sheet) hands
+    /// each column it makes.
+    pub fn levels(&self, column: &str) -> Vec<String> {
+        // A set beside the list, because a column of depths has as many
+        // values as rows and a search of the list per row is quadratic.
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut levels: Vec<String> = Vec::new();
+        for name in &self.order {
+            let Some(value) = self.rows.get(name).and_then(|held| held.get(column)) else {
+                continue;
+            };
+            let value = value.to_string();
+            if seen.insert(value.clone()) {
+                levels.push(value);
+            }
+        }
+        levels
     }
 
     /// How many of `rows` the sheet has an entry for.
@@ -149,6 +181,7 @@ pub fn sheet(text: &str) -> Result<Sheet, ReadError> {
         columns: names.clone(),
         records: 0,
         blank: 0,
+        order: Vec::new(),
     };
 
     for (at, line) in rows {
@@ -183,6 +216,7 @@ pub fn sheet(text: &str) -> Result<Sheet, ReadError> {
         if found.rows.insert(name.clone(), held).is_some() {
             return Err(ReadError::at(at, format!("{name:?} is named twice")));
         }
+        found.order.push(name);
     }
 
     Ok(found)

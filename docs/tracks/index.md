@@ -161,9 +161,9 @@ plot("chr1:1-1,000")?
 
 - **The join is by name**, so the strips follow whatever order the rows are in, including the order a phylogeny put them in. A row the sheet says nothing about gets an empty outline, the one mark in a strip that cannot be mistaken for a level.
 - **`Traits::spread` picks the mark.** A column whose every stated value is a number gets a ramp; anything else gets the categorical palette, and a column with more levels than the palette's six gets `TraitStyle::Symbol`, which carries the level in a shape as well as a hue. `TraitColumn::categorical`, `continuous`, `bar`, `binary` and `symbol` build a column by hand, for `Traits::column`.
-- **Levels are numbered as they are first met**, never sorted, so a figure redrawn from the same file colours the same way, and one more sample does not repaint the others.
-- **One vocabulary.** The strips beside a tree and beside a matrix are drawn by the same code, so the same lineage is the same colour in both, which is most of the reason to put them in one figure.
-- **Nothing adds a key for you.** `Traits::legend(&theme)` builds one naming every level and both ends of every ramp; where it goes, and whether the figure needs it, is yours to decide.
+- **Levels are coloured in the order the sheet lists them**, never sorted, when the strip comes from `Traits::from_sheet`: a figure redrawn from the same file colours the same way, and a sample added at the end of the file does not repaint the others. `Traits::new` takes a map of rows and has no file order, so it deals the colours in the order the names sort.
+- **One vocabulary.** Every column `Traits` makes carries that order (`TraitColumn::level_order`), and a phylogeny handed the same column deals its colours the same way, so a lineage is one colour beside the tree, beside the matrix and in the key, which is most of the reason to put them in one figure. `--traits` does this for you.
+- **Nothing adds a key for you.** `Traits::legend(&theme)` builds one naming every level and both ends of every ramp, and `TreeTrack::legend(&theme)` does the same for a tree's branches and strips; where it goes, and whether the figure needs it, is yours to decide.
 
 From the command line this is `--traits FILE`, and `--columns A,B` to choose and order the columns, after `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`. The sample sheet format is in [File formats](../guide/formats.md).
 

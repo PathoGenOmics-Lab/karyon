@@ -72,7 +72,7 @@ line flag that draws it, and the route opens its page in this gallery.
 | Per-base model attribution: bedGraph, plus the reference as FASTA | [Per-base attribution](../tracks/signal-sequence.md#dynseqtrack), `--dynseq` with `--with-sequence` | [Signal and sequence](signal-sequence.md) |
 | Aligned sequences of a motif: aligned FASTA | [Sequence logo](../tracks/signal-sequence.md#logotrack), `--logo` | [Signal and sequence](signal-sequence.md) |
 | A reference sequence: FASTA | [Reference sequence](../tracks/signal-sequence.md#sequencetrack), `--sequence`, or [six reading frames](../tracks/annotation.md#orftrack), `--orfs` | [Signal and sequence](signal-sequence.md), [Annotation and coordinates](annotation-coordinates.md) |
-| Genes and other intervals: BED or GFF3 | [Features](../tracks/annotation.md#featuretrack), `--features` | [Annotation and coordinates](annotation-coordinates.md) |
+| Genes and other intervals: BED, GFF3 or GTF | [Features](../tracks/annotation.md#featuretrack), `--features` | [Annotation and coordinates](annotation-coordinates.md) |
 | Point calls: VCF | [Point variants](../tracks/variation.md#varianttrack), `--variants` | [Variation and association](variation-association.md) |
 | Structural calls: VCF with symbolic alleles or `SVTYPE` | [Structural variants](../tracks/variation.md#structuraltrack), `--structural` | [Variation and association](variation-association.md) |
 | Copy number segments: CNVkit `.cns`, ASCAT or `.seg` | [Copy number](../tracks/variation.md#copynumbertrack), `--copy-number` with `--ploidy` | [Variation and association](variation-association.md) |
