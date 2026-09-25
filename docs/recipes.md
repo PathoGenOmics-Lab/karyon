@@ -526,7 +526,6 @@ Figure::new(Region::new("phylogeny", 0, 1)?)
             .support_threshold(0.70)
             .branch_labels("event")
             .branch_label_size(7.0)
-            .scale_bar()
             .scale_bar_length(0.1)
             .scale_bar_unit("substitutions/site"),
     )
@@ -545,7 +544,7 @@ To root the tree first, `reroot_outgroup(["A01", "A02"])` roots it on a named
 outgroup, and leaves it alone unless the names form exactly one clade;
 `reroot_midpoint()` roots it halfway along its longest tip-to-tip path. From
 the command line, `--tree` takes `--color-by`, `--support-style both`,
-`--threshold` and `--scale-bar`; branch labels are in the library.
+`--threshold` and `--no-scale-bar`; branch labels are in the library.
 
 ### Two trees face to face
 

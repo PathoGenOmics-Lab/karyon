@@ -9,7 +9,7 @@ itself as it was.
 !!! note "Command line or library"
     `--tree` reads annotated Newick and reaches metadata strips (`--traits`),
     branch colour (`--color-by`), `--projection`, `--support-style`,
-    `--scale-bar`, `--shape`, folding (`--max-rows`), `--focus`, `--mutations`
+    `--no-scale-bar`, `--shape`, folding (`--max-rows`), `--focus`, `--mutations`
     and `--highlight`; every flag is in [Command line](cli.md). Calendar time,
     rerooting, branch geometry, dN/dS, node glyphs and the ancestral and
     selection layers are library only.
@@ -305,7 +305,6 @@ scan (G), and the [evolution and surveillance tracks](../tracks/evolution-survei
         .support_threshold(0.70)
         .branch_labels("mutation")
         .branch_label_size(7.0)
-        .scale_bar()
         .scale_bar_length(0.1)
         .scale_bar_unit("substitutions/site");
     ```
@@ -313,7 +312,7 @@ scan (G), and the [evolution and surveillance tracks](../tracks/evolution-survei
 === "Command line"
 
     ```bash
-    karyon --tree outbreak.nwk --support-style both --threshold 0.7 --scale-bar -o support.svg
+    karyon --tree outbreak.nwk --support-style both --threshold 0.7 -o support.svg
     ```
 
 Support, events and branch length answer different questions, so each has a

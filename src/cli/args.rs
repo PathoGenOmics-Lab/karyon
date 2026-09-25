@@ -1106,8 +1106,9 @@ pub struct TrackSpec {
     pub color_by: Option<String>,
     /// `--support-style`, how a node's support value is shown.
     pub support_style: Option<TreeSupport>,
-    /// `--scale-bar`, a rule in the tree's own branch-length units.
-    pub scale_bar: bool,
+    /// `--no-scale-bar`: no rule in the tree's own branch-length units,
+    /// which a phylogram draws by default.
+    pub no_scale_bar: bool,
     /// `--shape`, whether branch lengths are drawn or every branch is one step.
     pub cladogram: bool,
     /// `--mutations`, the annotation each branch keeps its changes under.
@@ -1171,7 +1172,7 @@ impl TrackSpec {
             focus: None,
             color_by: None,
             support_style: None,
-            scale_bar: false,
+            no_scale_bar: false,
             cladogram: false,
             mutations: None,
             carrying: None,
@@ -1327,7 +1328,7 @@ pub const FLAGS: &[&str] = &[
     "--mutations",
     "--carrying",
     "--shape",
-    "--scale-bar",
+    "--no-scale-bar",
     "--focus",
     "--compare-to",
     "--no-counts",
@@ -1431,6 +1432,10 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     (
         &["dark", "light"],
         "the theme is --theme dark or --theme light",
+    ),
+    (
+        &["scale-bar", "scalebar"],
+        "a phylogram draws its scale bar by default, and --no-scale-bar leaves it out",
     ),
     (
         &["flank", "padding", "pad", "margin", "extend"],
@@ -1901,15 +1906,15 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.cladogram = cladogram;
             }
-            "--scale-bar" => {
-                let track = last(&mut tracks, "--scale-bar")?;
+            "--no-scale-bar" => {
+                let track = last(&mut tracks, "--no-scale-bar")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
-                        flag: "--scale-bar",
+                        flag: "--no-scale-bar",
                         track: track.kind.flag(),
                     });
                 }
-                track.scale_bar = true;
+                track.no_scale_bar = true;
             }
             "--focus" => {
                 let text = value("--focus")?;
@@ -3992,14 +3997,18 @@ mod tests {
     fn the_three_marks_a_phylogeny_carries_land_only_on_a_phylogeny() {
         let it = draw(concat!(
             "tree:1-1 --tree t.nwk --color-by lineage ",
-            "--support-style both --threshold 0.9 --scale-bar"
+            "--support-style both --threshold 0.9 --no-scale-bar"
         ));
         assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
         assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
         assert_eq!(it.tracks[0].threshold, Some(Threshold::At(0.9)));
-        assert!(it.tracks[0].scale_bar);
+        assert!(it.tracks[0].no_scale_bar);
 
-        for flag in ["--color-by lineage", "--support-style both", "--scale-bar"] {
+        for flag in [
+            "--color-by lineage",
+            "--support-style both",
+            "--no-scale-bar",
+        ] {
             let line = format!("chr1:1-1000 --coverage d.bg {flag}");
             let refused = parse(&args(&line)).unwrap_err().to_string();
             assert!(refused.contains("coverage"), "{line}: {refused}");

@@ -56,7 +56,7 @@ its samples, are drawn the same way:
 
 ```bash
 karyon 1 gwas.assoc --threshold genome-wide -o scan.svg
-karyon tree.nwk --traits samples.tsv --columns lineage --scale-bar -o tree.svg
+karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 ```
 
 - **A place is named as the files name it.** PLINK writes a chromosome as `1`
@@ -72,7 +72,8 @@ karyon tree.nwk --traits samples.tsv --columns lineage --scale-bar -o tree.svg
   p = 5e-8, and `--threshold 1e-5` wherever you say.
 - **A figure of trees alone needs no place.** `--traits` puts the sheet's
   columns beside the tips, every column unless `--columns` names the ones to
-  draw, and a key under the figure names each colour.
+  draw, and a key under the figure names each colour. A tree with branch
+  lengths draws a scale bar in their units; `--no-scale-bar` leaves it out.
 - **One position is not a place.** Around a variant, write a span, as
   `NC_000962.3:761,000-761,400`; given `NC_000962.3:761,200`, karyon answers
   with that span.

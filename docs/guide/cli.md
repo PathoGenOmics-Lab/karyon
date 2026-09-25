@@ -235,7 +235,7 @@ no use for it is refused by name rather than ignored, as in
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |
 | `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | `phylogram` |
-| `--scale-bar` | nothing | `--tree` | no bar |
+| `--no-scale-bar` | nothing | `--tree` | a scale bar on a phylogram with branch lengths |
 | `--focus <NAME[,N]>` | a clade label, a tip, or two tips | `--tree` | the whole tree |
 | `--compare-to <NAME>` | a row, named as its FASTA header names it | `--msa`, `--snps` | the consensus for `--msa`; the first record for `--snps` |
 | `--no-counts` | nothing | `--snps`, `--junctions` | counts printed |
@@ -416,7 +416,7 @@ A `--tree` track has the most options of any track. A typical figure:
 
 ```bash
 karyon --tree big.nwk --max-rows 60 \
-  --traits samples.tsv --color-by lineage --support-style symbols --scale-bar
+  --traits samples.tsv --color-by lineage --support-style symbols
 ```
 
 - `--projection` lays the tree out as `rectangular`, `circular` or `unrooted`.
@@ -429,8 +429,10 @@ karyon --tree big.nwk --max-rows 60 \
   too, so a lineage comes out as a coloured clade.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
-- `--scale-bar` draws a rule in the tree's own branch-length units. It is not
-  the ruler at the bottom, which measures the region.
+- A phylogram draws a scale bar, a rule in its own branch-length units, and
+  `--no-scale-bar` leaves it out. It is not the ruler at the bottom, which
+  measures the region, and a cladogram or a tree with no branch lengths draws
+  none.
 - `--focus` draws one clade and nothing else, named by its own label, by a tip
   inside it, or by two tips it spans. A folded triangle gives the pair in its
   tooltip, and the [tree viewer](../tree.md) opens a clade the same way.

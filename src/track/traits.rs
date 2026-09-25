@@ -353,9 +353,9 @@ impl TraitDomain {
     /// The levels in the order their colours were assigned.
     ///
     /// The map is keyed by the text so that a lookup is a lookup, which puts
-    /// its entries in the order the words sort. A legend has to name them in
-    /// the order the palette went round instead, or the key and the strips
-    /// disagree about which blue is which.
+    /// its entries in the order the words sort. Each level travels with its
+    /// own colour's index, so the order they are listed in never moves a
+    /// colour from one level to another.
     pub(crate) fn levels(&self) -> Vec<(&str, usize)> {
         let mut levels: Vec<(&str, usize)> = self
             .categories
@@ -366,11 +366,58 @@ impl TraitDomain {
         levels
     }
 
-    /// The levels a key names: the ones some value held, in palette order.
+    /// The levels a key names: the ones some value held, in the order a
+    /// reader looks them up in, `L1` before `L2` before `L10`.
+    ///
+    /// The colours were dealt in the order the sheet lists the levels, which
+    /// keeps a figure's colours where they were when a sample is added, and
+    /// listed that way the key read L4, L2, L1: all three simulated users
+    /// asked why. Each level keeps its own colour, whatever place it takes.
     pub(crate) fn keyed(&self) -> Vec<(&str, usize)> {
         let mut levels = self.levels();
         levels.retain(|(level, _)| self.met.contains(*level));
+        levels.sort_by(|a, b| natural(a.0, b.0));
         levels
+    }
+}
+
+/// Two names in the order a reader looks them up in: a run of digits by its
+/// value, so `L2` comes before `L10` and `1.2` before `1.10`, and letters
+/// without regard to case, with the text as it is written breaking a tie.
+pub(crate) fn natural(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (mut x, mut y) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        let (Some(&c), Some(&d)) = (x.peek(), y.peek()) else {
+            return match (x.peek(), y.peek()) {
+                (None, None) => a.cmp(b),
+                (None, Some(_)) => Ordering::Less,
+                _ => Ordering::Greater,
+            };
+        };
+        if c.is_ascii_digit() && d.is_ascii_digit() {
+            let run = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+                let mut digits = String::new();
+                while let Some(&digit) = chars.peek().filter(|c| c.is_ascii_digit()) {
+                    digits.push(digit);
+                    chars.next();
+                }
+                digits
+            };
+            let (m, n) = (run(&mut x), run(&mut y));
+            let (m, n) = (m.trim_start_matches('0'), n.trim_start_matches('0'));
+            let order = m.len().cmp(&n.len()).then_with(|| m.cmp(n));
+            if order != Ordering::Equal {
+                return order;
+            }
+        } else {
+            let order = c.to_lowercase().cmp(d.to_lowercase());
+            if order != Ordering::Equal {
+                return order;
+            }
+            x.next();
+            y.next();
+        }
     }
 }
 
@@ -947,6 +994,34 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// A key is read by looking a level up, so it lists them as a reader
+    /// sorts them, and each level keeps the colour the sheet dealt it.
+    #[test]
+    fn a_key_lists_its_levels_as_a_reader_sorts_them() {
+        let mut names = vec!["L4", "L2", "L10", "L1", "b", "A", "a", "1.10", "1.2", "L02"];
+        names.sort_by(|a, b| natural(a, b));
+        assert_eq!(
+            names,
+            // Equal in value, L02 and L2 fall back on the text as written.
+            ["1.2", "1.10", "A", "a", "b", "L1", "L02", "L2", "L4", "L10"]
+        );
+        // The sheet deals L4, L2, L1 their colours in that order; the key
+        // names them L1, L2, L4, each still in its own colour.
+        let text = "sample\tlineage\nS1\tL4\nS2\tL2\nS3\tL1\n";
+        let held = sheet(text).unwrap();
+        let traits = Traits::from_sheet(&held).spread(held.columns.clone());
+        let theme = Theme::light();
+        let key = keyed_colours(&traits.legend(&theme));
+        assert_eq!(
+            key,
+            [
+                ("lineage: L1".to_string(), theme.color(2).to_string()),
+                ("lineage: L2".to_string(), theme.color(1).to_string()),
+                ("lineage: L4".to_string(), theme.color(0).to_string()),
+            ]
+        );
     }
 
     /// A level the order does not list is dealt the next colour of the

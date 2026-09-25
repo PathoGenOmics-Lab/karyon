@@ -2311,8 +2311,8 @@ fn track(
             if let Some(minimum) = spec.threshold {
                 track = track.support_threshold(minimum.drawn());
             }
-            if spec.scale_bar {
-                track = track.scale_bar();
+            if spec.no_scale_bar {
+                track = track.show_scale_bar(false);
             }
             if spec.cladogram {
                 track = track.shape(TreeShape::Cladogram);
@@ -4419,14 +4419,15 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         assert!(!svg.contains("phylogeny:1-1"), "{svg}");
         assert!(!svg.contains("1-1"), "a window was printed: {svg}");
         assert!(svg.contains("<title id=\"karyon-title\">phylogeny</title>"));
-        // Every tip is drawn, and nothing else is written as text: no locus
-        // and no tick of a ruler.
+        // Every tip is drawn, and nothing else is written as text but the
+        // length of the scale bar, which measures branches: no locus and no
+        // tick of a ruler.
         let text: Vec<&str> = svg
             .split("<text")
             .skip(1)
             .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
             .collect();
-        assert_eq!(text, ["phylogeny", "a", "b", "c", "d"], "{svg}");
+        assert_eq!(text, ["phylogeny", "a", "b", "c", "d", "0.02"], "{svg}");
     }
 
     /// A scan as association tools write it, a column of p-values under the
@@ -5193,6 +5194,18 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             key_colour(&alone, "lineage: L4"),
             key_colour(&alone, "country: Kenya")
         );
+    }
+
+    /// A phylogram draws its scale bar by default, and --no-scale-bar is how
+    /// a figure goes without it.
+    #[test]
+    fn a_tree_has_its_scale_bar_unless_told_otherwise() {
+        let held = [("t.nwk", "((a:0.1,b:0.1):0.05,(c:0.1,d:0.1):0.05);")];
+        let bar = "branch length scale";
+        assert!(drawn_from("--tree t.nwk", &held).unwrap().contains(bar));
+        assert!(!drawn_from("--tree t.nwk --no-scale-bar", &held)
+            .unwrap()
+            .contains(bar));
     }
 
     /// Bases too narrow for their letters are blocks of colour, which the key

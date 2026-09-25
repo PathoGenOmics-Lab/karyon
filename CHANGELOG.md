@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The key names a column's levels as a reader looks them up, `L1`, `L2`,
+  `L4`, `L10`, each in the colour it was dealt, where it named them in the
+  order the sheet dealt them their colours: `L4`, `L2`, `L1`, which all three
+  simulated users asked about. The colours are dealt as they were, so no strip
+  and no branch changes colour.
+- A phylogram draws its branch-length scale bar by default, since its widths
+  measured nothing a reader could name without one; `--no-scale-bar` and
+  `TreeTrack::show_scale_bar(false)` leave it out, and `--scale-bar` is gone,
+  answered with the new default. A cladogram, a time-scaled tree and a tree
+  with no branch lengths draw none, and hold no room for one. Five committed
+  figures gain a bar: `example-phylo-annotations.svg`,
+  `example-phylo-faces.svg`, `example-phylo-dnds.svg`,
+  `example-evolutionary-surveillance.svg` and `example-selection-atlas.svg`.
 - What a value axis measures is written under the track's name, `-log10 p`
   under a scan and `AF` under the calls, where it was words after the top
   tick: `10 -log10 p` read as ten minus something, and nothing named the

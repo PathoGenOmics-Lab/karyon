@@ -462,8 +462,9 @@ TRACK OPTIONS, each describing the track before it, once
     --shape <HOW>        phylogram or cladogram, for a phylogeny: whether a
                          branch is as long as its length says or every branch
                          is one step, which is the shape to read a topology by
-    --scale-bar          a rule in the tree's own branch-length units, which is
-                         not the ruler along the bottom: that one measures the
+    --no-scale-bar       leave out the rule in the tree's own branch-length
+                         units, which a phylogram draws by default. It is not
+                         the ruler along the bottom: that one measures the
                          region, and is left out of a figure holding nothing
                          but phylogenies
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named

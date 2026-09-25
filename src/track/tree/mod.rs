@@ -1042,7 +1042,10 @@ impl TreeTrack {
             support_threshold: 0.0,
             branch_labels: None,
             branch_label_size: 8.0,
-            scale_bar: None,
+            // On by default: a phylogram's widths are its branch lengths, and
+            // with no rule to read them against they measured nothing a
+            // reader could name. A tree that is not a phylogram draws none.
+            scale_bar: Some(ScaleBar::default()),
             trait_columns: Vec::new(),
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
@@ -1616,16 +1619,20 @@ impl TreeTrack {
         })
     }
 
-    /// Adds an automatically sized branch-length scale bar to a phylogram.
+    /// Draws the automatically sized branch-length scale bar, which a
+    /// phylogram draws by default: this undoes
+    /// [`TreeTrack::show_scale_bar`]`(false)`.
     ///
-    /// Cladograms and explicitly time-scaled trees omit it because their axes
-    /// do not represent evolutionary branch length.
+    /// Cladograms, explicitly time-scaled trees and trees with no branch
+    /// lengths omit it, because their widths do not measure evolutionary
+    /// branch length.
     pub fn scale_bar(mut self) -> Self {
         self.scale_bar.get_or_insert_with(ScaleBar::default);
         self
     }
 
-    /// Draws or removes the branch-length scale bar.
+    /// Draws or removes the branch-length scale bar, which a phylogram
+    /// draws by default.
     pub fn show_scale_bar(mut self, show: bool) -> Self {
         if show {
             self.scale_bar.get_or_insert_with(ScaleBar::default);
@@ -1844,9 +1851,16 @@ impl TreeTrack {
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
+        // A tree with no branch lengths has nothing to measure, and room held
+        // for its bar was an empty strip under every topology.
+        let measured = self
+            .tree
+            .nodes()
+            .iter()
+            .any(|node| node.branch_length.is_some_and(|length| length > 0.0));
         self.scale_bar
             .as_ref()
-            .filter(|_| self.shape == TreeShape::Phylogram && self.time.is_none())
+            .filter(|_| measured && self.shape == TreeShape::Phylogram && self.time.is_none())
     }
 
     /// Width the tip names need.
