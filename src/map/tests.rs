@@ -258,6 +258,39 @@ fn phylo_time_guides_fall_on_whole_years_with_the_unit_once() {
 }
 
 #[test]
+fn phylo_time_settings_count_the_same_written_before_time_or_after_it() {
+    // `time` started its layout afresh, so a direction or a unit written
+    // before it was dropped without a word, as the tree track's were.
+    let map = || {
+        PhyloMap::new(
+            Tree::parse_annotated_newick(
+                "(A[&date=2023,place=Near]:1,B[&date=2025,place=Near]:1)[&date=2022];",
+            )
+            .unwrap(),
+        )
+        .location_by("place")
+        .coordinate(GeoLocation::new("Near", 0.0, 0.0))
+    };
+    type Setting = (&'static str, fn(PhyloMap) -> PhyloMap);
+    let settings: [Setting; 2] = [
+        ("time_direction", |map| {
+            map.time_direction(TimeDirection::Decreasing)
+        }),
+        ("time_unit", |map| map.time_unit("year")),
+    ];
+    let plain = map().time("date").to_svg();
+    for (setting, apply) in settings {
+        let before = apply(map()).time("date").to_svg();
+        let after = apply(map().time("date")).to_svg();
+        assert_ne!(after, plain, "{setting} changes nothing to compare");
+        assert_eq!(
+            before, after,
+            "{setting} written before time, then after it"
+        );
+    }
+}
+
+#[test]
 fn an_incomplete_phylo_time_layout_is_explicit() {
     let tree =
         Tree::parse_annotated_newick("(A[&date=2023,place=Near]:1,B[&place=Near]:1);").unwrap();

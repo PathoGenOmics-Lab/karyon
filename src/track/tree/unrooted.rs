@@ -319,7 +319,7 @@ pub(super) struct UnrootedGeometry {
 impl UnrootedGeometry {
     pub(super) fn new(track: &TreeTrack, theme: &Theme, scene: &UnrootedScene, area: Rect) -> Self {
         let size = theme.font_size - 1.0;
-        let name = |node: &usize| terminal_label(&track.tree, *node, &track.collapsed);
+        let name = |node: &usize| terminal_label(&track.tree, *node, track.folded());
         let label_extent = if track.show_tips {
             scene
                 .terminals
@@ -542,7 +542,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     let scene = UnrootedScene::new(
         &track.tree,
         track.shape,
-        &track.collapsed,
+        track.folded(),
         track.radial.start_degrees,
     );
     let header_room = track.annotation_header_room();
@@ -560,10 +560,12 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         ctx.theme,
         &color,
     );
+    let dnds = track.dnds_layer();
+    let labels = track.branch_label_layer();
     let styles = branch_styles(
         &track.tree,
         &colors,
-        track.dnds.as_ref(),
+        dnds.as_ref(),
         ctx.theme,
         track.line_width,
     );
@@ -631,11 +633,8 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
             &track.tree,
             owner,
             track.color_by.as_deref(),
-            track.dnds.as_ref(),
-            track
-                .branch_labels
-                .as_ref()
-                .map(|labels| labels.key.as_str()),
+            dnds.as_ref(),
+            track.branch_labels.as_deref(),
             !track.show_tips && scene.terminals.contains(node),
             true,
         );
@@ -650,7 +649,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         if title.is_some() {
             ctx.svg.end_group();
         }
-        if let Some(labels) = &track.branch_labels {
+        if let Some(labels) = &labels {
             draw_branch_annotation(ctx, &track.tree, owner, labels, (x0, y0), (x1, y1));
         }
         draw_branch_rate_mixtures(
@@ -739,7 +738,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                 } else {
                     angle.to_degrees() + 180.0
                 },
-                &terminal_label(&track.tree, *node, &track.collapsed),
+                &terminal_label(&track.tree, *node, track.folded()),
                 &ctx.theme.muted,
                 size,
                 if right {
@@ -824,7 +823,7 @@ pub(super) fn draw_unrooted_trait_rings(
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
             .iter()
-            .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
+            .map(|node| row_annotation(&track.tree, *node, &column.key, track.folded()))
             .collect();
         // Chained with the values the rows are drawn with, so a folded clade
         // that agrees on a value has a colour for it. See the note in
@@ -835,7 +834,7 @@ pub(super) fn draw_unrooted_trait_rings(
                 .iter()
                 .filter_map(|node| inherited_annotation(&track.tree, *node, &column.key))
                 .chain(scene.terminals.iter().filter_map(|node| {
-                    row_annotation(&track.tree, *node, &column.key, &track.collapsed)
+                    row_annotation(&track.tree, *node, &column.key, track.folded())
                 })),
         );
         for (row, node) in scene.terminals.iter().enumerate() {
@@ -844,7 +843,7 @@ pub(super) fn draw_unrooted_trait_rings(
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
             let half = (step / 2.0 - gap_angle).max(step * 0.12);
             let value = values[row];
-            let name = terminal_label(&track.tree, *node, &track.collapsed);
+            let name = terminal_label(&track.tree, *node, track.folded());
             let title = match value {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),

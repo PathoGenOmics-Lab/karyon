@@ -137,10 +137,11 @@ missing value is an empty outline whose tooltip says missing, never a zero, and
         .time_unit("years BP");
     ```
 
-    Call `time` before `time_direction`, `time_unit` and `show_time_axis`,
-    which do nothing without it. If a tip has no value the track falls back to
-    its ordinary layout, without a time axis. Where a missing date must be an
-    error instead, check `Tree::time_layout` first: it returns `None`.
+    `time_direction`, `time_unit` and `show_time_axis` do nothing without
+    `time`, and count the same written before it or after it. If a tip has no
+    value the track falls back to its ordinary layout, without a time axis.
+    Where a missing date must be an error instead, check `Tree::time_layout`
+    first: it returns `None`.
 
 ## Change the projection, not the tree
 
@@ -427,8 +428,9 @@ dotted branch, not a zero.
 
 `dnds_significance(key, maximum)` thickens a branch whose own test value is at
 most `maximum`, so width carries the evidence and colour the effect size.
-`dnds` and `color_by` replace each other, and the other `dnds_` settings need
-`dnds` first. The estimates come from upstream: karyon computes no dN, dS,
+`dnds` and `color_by` replace each other, and the other `dnds_` settings do
+nothing without `dnds` and count the same written before it or after it. The
+estimates come from upstream: karyon computes no dN, dS,
 tests or corrections, and calls ω above the neutral band diversifying, not
 proof of positive selection.
 

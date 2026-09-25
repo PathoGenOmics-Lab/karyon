@@ -10,6 +10,20 @@ fn region() -> Region {
     Region::new("tree", 0, 1).unwrap()
 }
 
+/// A setting by name, for the tests that write it before something and after
+/// it and compare the two figures.
+type Setting = (&'static str, fn(TreeTrack) -> TreeTrack);
+
+/// One track on a figure of its own, for the tests that draw a track two ways
+/// and compare what comes out.
+fn drawn(track: TreeTrack) -> String {
+    Figure::new(region())
+        .width(640.0)
+        .show_region_label(false)
+        .push(track)
+        .to_svg()
+}
+
 #[test]
 fn a_row_cap_collapses_until_the_tree_fits_and_keeps_every_tip() {
     // The point of collapsing rather than cutting the list: a pileup that
@@ -89,6 +103,48 @@ fn a_row_cap_bounds_a_height_nothing_else_could_bound() {
     );
     assert!(height(Some(40)) < height(None) / 4.0);
     assert!(height(Some(40)) < height(Some(200)));
+}
+
+#[test]
+fn a_row_cap_is_worked_out_against_the_tree_it_draws_whatever_the_order() {
+    // The cap folded clades when it was called, against the tree and the hand
+    // folds as they stood then. A reroot written after it kept the folds of
+    // the shape it replaced, and those are the wrong clades once the tree
+    // hangs from somewhere else; a `collapse` written after it folded one
+    // clade more on top of a tree already fitted to the cap; and
+    // `max_rows(None)` written after it lifted the cap and kept every fold.
+    let tree = balanced(16);
+    let clade = |first: &str, last: &str| {
+        let ends = [
+            tree.node_named(first).unwrap(),
+            tree.node_named(last).unwrap(),
+        ];
+        tree.mrca(&ends).unwrap()
+    };
+    let (first_four, middle_four) = (clade("t0", "t3"), clade("t8", "t11"));
+    let track = || TreeTrack::new(tree.clone());
+    for (setting, before, after) in [
+        (
+            "reroot",
+            drawn(track().reroot(first_four).max_rows(Some(6))),
+            drawn(track().max_rows(Some(6)).reroot(first_four)),
+        ),
+        (
+            "collapse",
+            drawn(track().collapse(middle_four).max_rows(Some(6))),
+            drawn(track().max_rows(Some(6)).collapse(middle_four)),
+        ),
+        (
+            "max_rows(None)",
+            drawn(track().max_rows(None)),
+            drawn(track().max_rows(Some(6)).max_rows(None)),
+        ),
+    ] {
+        assert_eq!(
+            before, after,
+            "{setting} written before the cap, then after it"
+        );
+    }
 }
 
 /// A balanced tree of `tips` leaves named t0 upwards, for the cap tests.
@@ -283,6 +339,32 @@ fn branch_event_labels_are_direct_exact_and_projection_independent() {
 }
 
 #[test]
+fn a_branch_label_size_counts_the_same_written_before_the_labels_or_after_them() {
+    // `branch_labels` started its labels afresh at eight pixels, so a size
+    // written before it was dropped without a word.
+    let source = "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);";
+    for projection in [
+        TreeProjection::Rectangular,
+        TreeProjection::Circular,
+        TreeProjection::Unrooted,
+    ] {
+        let track =
+            || TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).projection(projection);
+        let before = drawn(track().branch_label_size(11.0).branch_labels("event"));
+        let after = drawn(track().branch_labels("event").branch_label_size(11.0));
+        assert_ne!(
+            after,
+            drawn(track().branch_labels("event")),
+            "the size changes nothing to compare in {projection:?}"
+        );
+        assert_eq!(
+            before, after,
+            "the size written before the labels, then after them, in {projection:?}"
+        );
+    }
+}
+
+#[test]
 fn dnds_is_direct_diverging_and_projection_independent() {
     let source = concat!(
         "((A[&omega=0.2,p=0.01]:0.8,B:0.8)",
@@ -338,14 +420,53 @@ fn the_last_branch_colour_encoding_wins() {
         .color_by("country")
         .dnds("omega");
     assert!(dnds.color_by.is_none());
-    assert_eq!(
-        dnds.dnds.as_ref().map(|layer| layer.key.as_str()),
-        Some("omega")
-    );
+    assert_eq!(dnds.dnds.as_deref(), Some("omega"));
 
     let categorical = TreeTrack::new(tree).dnds("omega").color_by("country");
     assert_eq!(categorical.color_by.as_deref(), Some("country"));
     assert!(categorical.dnds.is_none());
+}
+
+#[test]
+fn dnds_settings_count_the_same_written_before_dnds_or_after_it() {
+    // `dnds` started its layer afresh, so every other `dnds_` setting written
+    // before it was dropped without a word, and only `dnds_label` said so.
+    let source = concat!(
+        "((A[&omega=0.2,p=0.01]:0.8,B:0.8)",
+        "AB[&omega=5,p=0.03]:0.6,",
+        "C[&omega=1.08,p=0.4]:1.4);"
+    );
+    let settings: [Setting; 4] = [
+        ("dnds_label", |track| track.dnds_label("Branch ω")),
+        ("dnds_neutral_band", |track| {
+            track.dnds_neutral_band(0.9, 1.1)
+        }),
+        ("dnds_saturation", |track| track.dnds_saturation(8.0)),
+        ("dnds_significance", |track| {
+            track.dnds_significance("p", 0.05)
+        }),
+    ];
+    for projection in [
+        TreeProjection::Rectangular,
+        TreeProjection::Circular,
+        TreeProjection::Unrooted,
+    ] {
+        let track =
+            || TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).projection(projection);
+        let plain = drawn(track().dnds("omega"));
+        for (setting, apply) in settings {
+            let before = drawn(apply(track()).dnds("omega"));
+            let after = drawn(apply(track().dnds("omega")));
+            assert_ne!(
+                after, plain,
+                "{setting} changes nothing to compare in {projection:?}"
+            );
+            assert_eq!(
+                before, after,
+                "{setting} written before dnds, then after it, in {projection:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -548,7 +669,7 @@ fn track_builders_reroot_by_node_name_outgroup_and_midpoint() {
     let ab = named_tree.node_named("AB").unwrap();
     let by_node = TreeTrack::new(named_tree.clone()).reroot(ab);
     assert_eq!(by_node.tree().root(), ab);
-    assert!(by_node.show_root);
+    assert!(by_node.shows_root());
 
     let by_name = TreeTrack::new(named_tree).reroot_named("CD");
     assert_eq!(
@@ -560,14 +681,14 @@ fn track_builders_reroot_by_node_name_outgroup_and_midpoint() {
 
     let outgroup_tree = Tree::parse_newick("(((A:1,B:1)AB:2,C:3)ING:4,(O1:2,O2:2)OUT:5);").unwrap();
     let by_outgroup = TreeTrack::new(outgroup_tree).reroot_outgroup(["O1", "O2"]);
-    assert!(by_outgroup.show_root);
+    assert!(by_outgroup.shows_root());
     assert_eq!(by_outgroup.tree().leaf_count(), 5);
 
     let midpoint_tree = Tree::parse_newick("((A:1,B:1)AB:1,C:4);").unwrap();
     let old_nodes = midpoint_tree.nodes().len();
     let by_midpoint = TreeTrack::new(midpoint_tree).reroot_midpoint();
     assert_eq!(by_midpoint.tree().root(), old_nodes);
-    assert!(by_midpoint.show_root);
+    assert!(by_midpoint.shows_root());
 }
 
 #[test]
@@ -591,7 +712,40 @@ fn selected_root_markers_are_explicit_and_only_belong_to_rooted_projections() {
     assert!(!unrooted.contains("selected root"), "{unrooted}");
 
     let unchanged = TreeTrack::new(tree).reroot_named("missing");
-    assert!(!unchanged.show_root);
+    assert!(!unchanged.shows_root());
+}
+
+#[test]
+fn a_hidden_root_stays_hidden_whether_it_was_hidden_before_the_reroot_or_after() {
+    // A reroot marks the root it chose by turning on the switch `show_root`
+    // turns off, so `show_root(false)` written before a reroot was undone by
+    // it and the diamond came back.
+    let tree = Tree::parse_newick("((A:1,B:1)AB:2,(C:1,D:1)CD:2);").unwrap();
+    let ab = tree.node_named("AB").unwrap();
+    // The node is the one `reroot` takes; the other three find their own.
+    type Reroot = (&'static str, fn(TreeTrack, usize) -> TreeTrack);
+    let reroots: [Reroot; 4] = [
+        ("reroot", |track, node| track.reroot(node)),
+        ("reroot_named", |track, _| track.reroot_named("AB")),
+        ("reroot_outgroup", |track, _| {
+            track.reroot_outgroup(["C", "D"])
+        }),
+        ("reroot_midpoint", |track, _| track.reroot_midpoint()),
+    ];
+    for (reroot, apply) in reroots {
+        let track = || TreeTrack::new(tree.clone());
+        let before = drawn(apply(track().show_root(false), ab));
+        let after = drawn(apply(track(), ab).show_root(false));
+        assert!(
+            drawn(apply(track(), ab)).contains("<title>selected root</title>"),
+            "{reroot} marks the root it chose unless asked not to"
+        );
+        assert!(!after.contains("selected root"), "{reroot}: {after}");
+        assert_eq!(
+            before, after,
+            "show_root(false) written before {reroot}, then after it"
+        );
+    }
 }
 
 #[test]
@@ -676,6 +830,41 @@ fn a_time_tree_draws_calendar_values_on_its_axis() {
         svg.contains("text-anchor=\"end\">2025 year</text>"),
         "{svg}"
     );
+}
+
+#[test]
+fn time_settings_count_the_same_written_before_time_or_after_it() {
+    // `time` started its axis afresh, so a direction, a unit or a hidden axis
+    // written before it was dropped without a word: the unit came out only
+    // when `time_unit` was written after `time`. An unrooted tree is left out
+    // because it draws no time at all.
+    let source = "((A[&date=2024]:1,B[&date=2025]:2)AB:1,C[&date=2023]:3);";
+    let settings: [Setting; 3] = [
+        ("time_direction", |track| {
+            track.time_direction(TimeDirection::Decreasing)
+        }),
+        ("time_unit", |track| track.time_unit("years")),
+        ("show_time_axis", |track| track.show_time_axis(false)),
+    ];
+    for projection in [TreeProjection::Rectangular, TreeProjection::Circular] {
+        let track =
+            || TreeTrack::new(Tree::parse_annotated_newick(source).unwrap()).projection(projection);
+        let plain = drawn(track().time("date"));
+        for (setting, apply) in settings {
+            let before = drawn(apply(track()).time("date"));
+            let after = drawn(apply(track().time("date")));
+            assert_ne!(
+                after, plain,
+                "{setting} changes nothing to compare in {projection:?}"
+            );
+            assert_eq!(
+                before, after,
+                "{setting} written before time, then after it, in {projection:?}"
+            );
+        }
+        let before = drawn(track().time_unit("years").time("date"));
+        assert!(before.contains(" years</text>"), "{before}");
+    }
 }
 
 #[test]

@@ -339,6 +339,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A phylogeny's settings count the same in whatever order they are written.
+  `time`, `dnds` and `branch_labels` started their layer afresh, so a unit, a
+  direction or a hidden axis written before `time`, a `dnds_` setting written
+  before `dnds` and a label size written before `branch_labels` were dropped
+  without a word. A reroot turned the root marker back on after
+  `show_root(false)`. And `max_rows` folded clades when it was called: a reroot
+  written after it kept the folds of the shape it replaced, which are the wrong
+  clades once the tips have moved, a `collapse` after it folded one clade more
+  on a tree already fitted to the cap, and `max_rows(None)` after it lifted the
+  cap and kept every fold. Each setting is now kept on its own, and the layers
+  and the folds are put together when the tree is drawn. `PhyloMap` dropped a
+  direction or a unit written before `time` the same way, and no longer does.
+  Every committed figure is byte for byte what it was.
 - `ManhattanTrack` keeps one point of each look on each pixel instead of drawing
   every test. A point drawn over one of its own shape and colour on the same
   pixel adds an element to the document and nothing to the picture, and a

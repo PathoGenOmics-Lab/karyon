@@ -582,7 +582,7 @@ pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_
     let height = size + 7.0;
     let y = top + height / 2.0 + size * 0.34;
     let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
-    if let Some(dnds) = &track.dnds {
+    if let Some(dnds) = &track.dnds_layer() {
         x = draw_dnds_legend(ctx, dnds, x, top, height, size, &chip);
     }
     for mixture in &track.rate_mixtures {

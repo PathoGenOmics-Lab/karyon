@@ -55,7 +55,13 @@ pub struct PhyloMap {
     projection: GeoProjection,
     connector: PhyloConnector,
     shape: TreeShape,
-    time: Option<PhyloTime>,
+    // The annotation `time` places the nodes on, with its direction and unit
+    // kept in fields of their own. They were kept inside what `time` built,
+    // which it started afresh, so a direction or a unit written before it was
+    // dropped without a word.
+    time: Option<String>,
+    time_direction: TimeDirection,
+    time_unit: Option<String>,
     diameter: f64,
     margin: f64,
     start_degrees: f64,
@@ -90,6 +96,8 @@ impl PhyloMap {
             connector: PhyloConnector::Aggregated,
             shape: TreeShape::Phylogram,
             time: None,
+            time_direction: TimeDirection::Increasing,
+            time_unit: None,
             diameter: 760.0,
             margin: 18.0,
             start_degrees: -95.0,
@@ -144,29 +152,33 @@ impl PhyloMap {
     }
 
     /// Places nodes by the finite numeric annotation `key` when every tip has it.
+    ///
+    /// [`PhyloMap::time_direction`] and [`PhyloMap::time_unit`] count the same
+    /// written before this or after it.
     pub fn time(mut self, key: impl Into<String>) -> Self {
-        self.time = Some(PhyloTime {
-            key: key.into(),
-            direction: TimeDirection::Increasing,
-            unit: None,
-        });
+        self.time = Some(key.into());
         self
     }
 
     /// Changes the direction of the configured time values.
     pub fn time_direction(mut self, direction: TimeDirection) -> Self {
-        if let Some(time) = &mut self.time {
-            time.direction = direction;
-        }
+        self.time_direction = direction;
         self
     }
 
     /// Adds a unit to concentric time-guide labels.
     pub fn time_unit(mut self, unit: impl Into<String>) -> Self {
-        if let Some(time) = &mut self.time {
-            time.unit = Some(unit.into());
-        }
+        self.time_unit = Some(unit.into());
         self
+    }
+
+    /// The time layout as it is drawn, put together from its settings.
+    fn phylo_time(&self) -> Option<PhyloTime> {
+        Some(PhyloTime {
+            key: self.time.clone()?,
+            direction: self.time_direction,
+            unit: self.time_unit.clone(),
+        })
     }
 
     /// Sets the diameter of the tree-bearing circle in pixels.
@@ -302,7 +314,7 @@ impl PhyloMap {
     /// Width and height of the rendered document.
     pub fn dimensions(&self) -> (f64, f64) {
         let theme = self.theme.clone().scaled(self.visual_scale);
-        let scene = PhyloScene::new(&self.tree, self.shape, self.time.as_ref());
+        let scene = PhyloScene::new(&self.tree, self.shape, self.phylo_time().as_ref());
         let categories = phylo_categories(&self.tree, &scene, &self.location_key);
         let layout = self.layout(&theme, !categories.is_empty());
         (layout.width, layout.height)
@@ -316,7 +328,7 @@ impl PhyloMap {
     /// Renders with generated SVG ids prefixed for nesting in [`Panels`](crate::Panels).
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let theme = self.theme.clone().scaled(self.visual_scale);
-        let scene = PhyloScene::new(&self.tree, self.shape, self.time.as_ref());
+        let scene = PhyloScene::new(&self.tree, self.shape, self.phylo_time().as_ref());
         let categories = phylo_categories(&self.tree, &scene, &self.location_key);
         let layout = self.layout(&theme, !categories.is_empty());
         let names = location_names(&self.locations);
@@ -678,7 +690,7 @@ pub(super) fn draw_phylo_time_guides(
     scene: &PhyloScene,
     layout: PhyloLayout,
 ) {
-    let Some(time) = &map.time else {
+    let Some(time) = map.phylo_time() else {
         return;
     };
     let ticks = crate::style::time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());

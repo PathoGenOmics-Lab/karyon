@@ -33,6 +33,7 @@
 //! for exactly the same reason.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use crate::scale::Scale;
 use crate::style::LinePattern;
@@ -831,8 +832,20 @@ fn draw(
 ///     .to_svg();
 /// assert!(svg.contains("<line"));
 /// ```
+///
+/// The settings can be written in any order. One written before the method
+/// that turns its layer on, such as [`TreeTrack::time_unit`] before
+/// [`TreeTrack::time`], counts the same as one written after it.
 #[derive(Debug, Clone)]
 pub struct TreeTrack {
+    // Every setting is kept in a field of its own, written by its own method
+    // and by nothing else, and the time axis, the dN/dS colouring, the branch
+    // labels and the folds are put together from them when the tree is drawn.
+    // They used to be put together when the method that turns them on was
+    // called, which started them afresh: a unit written before `time`, a
+    // label size written before `branch_labels` or a hidden root written
+    // before a reroot was dropped without a word, and the same settings drew
+    // two different figures depending on the order they were written in.
     tree: Tree,
     label: Option<String>,
     row_height: f64,
@@ -843,21 +856,38 @@ pub struct TreeTrack {
     color: Option<String>,
     line_width: f64,
     show_tips: bool,
-    time: Option<TimeAxis>,
+    time: Option<String>,
+    time_direction: TimeDirection,
+    time_unit: Option<String>,
+    show_time_axis: bool,
     color_by: Option<String>,
-    dnds: Option<DnDsLayer>,
+    dnds: Option<String>,
+    dnds_label: String,
+    dnds_neutral_band: (f64, f64),
+    dnds_saturation: f64,
+    dnds_significance: Option<DnDsSignificance>,
     rate_mixtures: Vec<BranchRateMixture>,
     homoplasy_layers: Vec<HomoplasyLayer>,
     branch_event_layers: Vec<BranchEventLayer>,
     branch_interval_layers: Vec<BranchIntervalLayer>,
     ancestral_state_layers: Vec<AncestralStateLayer>,
+    /// The clades folded by hand, with [`TreeTrack::collapse`].
     collapsed: BTreeSet<usize>,
     max_rows: Option<usize>,
+    /// Every clade drawn folded: the ones folded by hand and the ones the row
+    /// cap folds on top of them. Worked out the first time the tree is drawn,
+    /// against the tree as it is by then, and emptied by every method that
+    /// changes what it depends on.
+    folds: OnceLock<BTreeSet<usize>>,
     show_nodes: bool,
-    show_root: bool,
+    /// `None` until [`TreeTrack::show_root`] is written, and a reroot marks
+    /// the root it chose only while it is.
+    show_root: Option<bool>,
+    rerooted: bool,
     support_style: SupportStyle,
     support_threshold: f64,
-    branch_labels: Option<BranchLabels>,
+    branch_labels: Option<String>,
+    branch_label_size: f64,
     scale_bar: Option<ScaleBar>,
     trait_columns: Vec<TraitColumn>,
     node_glyphs: Vec<NodeGlyph>,
@@ -886,19 +916,6 @@ struct DnDsLayer {
 struct DnDsSignificance {
     key: String,
     maximum: f64,
-}
-
-impl DnDsLayer {
-    fn new(key: impl Into<String>) -> Self {
-        DnDsLayer {
-            key: key.into(),
-            label: "dN/dS (ω)".to_string(),
-            neutral_lower: 0.95,
-            neutral_upper: 1.05,
-            saturation: 4.0,
-            significance: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -958,8 +975,15 @@ impl TreeTrack {
             line_width: 1.2,
             show_tips: true,
             time: None,
+            time_direction: TimeDirection::Increasing,
+            time_unit: None,
+            show_time_axis: true,
             color_by: None,
             dnds: None,
+            dnds_label: "dN/dS (ω)".to_string(),
+            dnds_neutral_band: (0.95, 1.05),
+            dnds_saturation: 4.0,
+            dnds_significance: None,
             rate_mixtures: Vec::new(),
             homoplasy_layers: Vec::new(),
             branch_event_layers: Vec::new(),
@@ -967,11 +991,14 @@ impl TreeTrack {
             ancestral_state_layers: Vec::new(),
             collapsed: BTreeSet::new(),
             max_rows: None,
+            folds: OnceLock::new(),
             show_nodes: false,
-            show_root: false,
+            show_root: None,
+            rerooted: false,
             support_style: SupportStyle::None,
             support_threshold: 0.0,
             branch_labels: None,
+            branch_label_size: 8.0,
             scale_bar: None,
             trait_columns: Vec::new(),
             node_glyphs: Vec::new(),
@@ -1093,8 +1120,7 @@ impl TreeTrack {
     /// handled rather than represented as an unchanged builder.
     pub fn reroot(mut self, node: usize) -> Self {
         if self.tree.reroot(node) {
-            self.show_root = true;
-            self.fold_to_fit();
+            self.after_reroot();
         }
         self
     }
@@ -1103,8 +1129,7 @@ impl TreeTrack {
     pub fn reroot_named(mut self, name: &str) -> Self {
         if let Some(node) = self.tree.node_named(name) {
             if self.tree.reroot(node) {
-                self.show_root = true;
-                self.fold_to_fit();
+                self.after_reroot();
             }
         }
         self
@@ -1128,8 +1153,7 @@ impl TreeTrack {
             nodes.push(node);
         }
         if self.tree.reroot_outgroup(&nodes).is_some() {
-            self.show_root = true;
-            self.fold_to_fit();
+            self.after_reroot();
         }
         self
     }
@@ -1139,16 +1163,35 @@ impl TreeTrack {
     /// Missing, negative or non-finite branch lengths leave the tree unchanged.
     pub fn reroot_midpoint(mut self) -> Self {
         if self.tree.reroot_midpoint().is_some() {
-            self.show_root = true;
-            self.fold_to_fit();
+            self.after_reroot();
         }
         self
     }
 
+    /// What every reroot that worked leaves behind.
+    ///
+    /// The root it chose is marked, unless [`TreeTrack::show_root`] says
+    /// otherwise before the reroot or after it, and the folds are emptied to
+    /// be worked out again: rerooting moves the tips about, and a fold worked
+    /// out against the old shape would collapse the wrong clades.
+    fn after_reroot(&mut self) {
+        self.rerooted = true;
+        self.folds = OnceLock::new();
+    }
+
     /// Draws or hides the selected root marker in rooted projections.
+    ///
+    /// A reroot draws it unless this hides it, written before the reroot or
+    /// after it.
     pub fn show_root(mut self, show: bool) -> Self {
-        self.show_root = show;
+        self.show_root = Some(show);
         self
+    }
+
+    /// Whether the root is marked: as [`TreeTrack::show_root`] says, and where
+    /// it says nothing, once a reroot has chosen it.
+    fn shows_root(&self) -> bool {
+        self.show_root.unwrap_or(self.rerooted)
     }
 
     /// Sets the branch colour.
@@ -1174,37 +1217,36 @@ impl TreeTrack {
     /// Every tip must carry the annotation. Missing internal values are
     /// inferred from child values and branch lengths.
     pub fn time(mut self, key: impl Into<String>) -> Self {
-        self.time = Some(TimeAxis {
-            key: key.into(),
-            direction: TimeDirection::Increasing,
-            unit: None,
-            show_axis: true,
-        });
+        self.time = Some(key.into());
         self
     }
 
     /// Chooses whether time values increase or decrease from root to tips.
     pub fn time_direction(mut self, direction: TimeDirection) -> Self {
-        if let Some(time) = &mut self.time {
-            time.direction = direction;
-        }
+        self.time_direction = direction;
         self
     }
 
     /// Adds a unit after temporal axis values.
     pub fn time_unit(mut self, unit: impl Into<String>) -> Self {
-        if let Some(time) = &mut self.time {
-            time.unit = Some(unit.into());
-        }
+        self.time_unit = Some(unit.into());
         self
     }
 
     /// Draws or hides the temporal axis created by [`TreeTrack::time`].
     pub fn show_time_axis(mut self, show: bool) -> Self {
-        if let Some(time) = &mut self.time {
-            time.show_axis = show;
-        }
+        self.show_time_axis = show;
         self
+    }
+
+    /// The time axis as it is drawn, put together from its settings.
+    fn time_axis(&self) -> Option<TimeAxis> {
+        Some(TimeAxis {
+            key: self.time.clone()?,
+            direction: self.time_direction,
+            unit: self.time_unit.clone(),
+            show_axis: self.show_time_axis,
+        })
     }
 
     /// Colours each incoming branch by one node annotation.
@@ -1223,18 +1265,17 @@ impl TreeTrack {
     /// SVG tooltips describe the biological regimes without treating ω > 1 as
     /// proof of selection by itself.
     pub fn dnds(mut self, key: impl Into<String>) -> Self {
-        self.dnds = Some(DnDsLayer::new(key));
+        self.dnds = Some(key.into());
         self.color_by = None;
         self
     }
 
     /// Replaces the visible label of the dN/dS legend.
     ///
-    /// This has no effect until [`TreeTrack::dnds`] has selected an annotation.
+    /// Like every `dnds_` setting, it is drawn once [`TreeTrack::dnds`] has
+    /// selected an annotation, and counts the same written before it or after.
     pub fn dnds_label(mut self, label: impl Into<String>) -> Self {
-        if let Some(dnds) = &mut self.dnds {
-            dnds.label = label.into();
-        }
+        self.dnds_label = label.into();
         self
     }
 
@@ -1244,10 +1285,7 @@ impl TreeTrack {
     /// unchanged. The default is `0.95..=1.05`.
     pub fn dnds_neutral_band(mut self, lower: f64, upper: f64) -> Self {
         if lower.is_finite() && upper.is_finite() && (0.0..=1.0).contains(&lower) && upper >= 1.0 {
-            if let Some(dnds) = &mut self.dnds {
-                dnds.neutral_lower = lower;
-                dnds.neutral_upper = upper;
-            }
+            self.dnds_neutral_band = (lower, upper);
         }
         self
     }
@@ -1258,9 +1296,7 @@ impl TreeTrack {
     /// cool colours. Values between them retain continuous differences.
     pub fn dnds_saturation(mut self, fold: f64) -> Self {
         if fold.is_finite() && fold > 1.0 {
-            if let Some(dnds) = &mut self.dnds {
-                dnds.saturation = fold;
-            }
+            self.dnds_saturation = fold;
         }
         self
     }
@@ -1272,14 +1308,24 @@ impl TreeTrack {
     /// visual channels. Missing or non-numeric test values are not emphasised.
     pub fn dnds_significance(mut self, key: impl Into<String>, maximum: f64) -> Self {
         if maximum.is_finite() && maximum >= 0.0 {
-            if let Some(dnds) = &mut self.dnds {
-                dnds.significance = Some(DnDsSignificance {
-                    key: key.into(),
-                    maximum,
-                });
-            }
+            self.dnds_significance = Some(DnDsSignificance {
+                key: key.into(),
+                maximum,
+            });
         }
         self
+    }
+
+    /// The dN/dS colouring as it is drawn, put together from its settings.
+    fn dnds_layer(&self) -> Option<DnDsLayer> {
+        Some(DnDsLayer {
+            key: self.dnds.clone()?,
+            label: self.dnds_label.clone(),
+            neutral_lower: self.dnds_neutral_band.0,
+            neutral_upper: self.dnds_neutral_band.1,
+            saturation: self.dnds_saturation,
+            significance: self.dnds_significance.clone(),
+        })
     }
 
     /// Adds a compact, weighted omega-class capsule to matching branches.
@@ -1345,6 +1391,7 @@ impl TreeTrack {
             .is_some_and(|clade| !clade.is_leaf())
         {
             self.collapsed.insert(node);
+            self.folds = OnceLock::new();
         }
         self
     }
@@ -1370,18 +1417,28 @@ impl TreeTrack {
     /// default would fold figures nobody asked to fold.
     pub fn max_rows(mut self, rows: Option<usize>) -> Self {
         self.max_rows = rows.map(|rows| rows.max(1));
-        self.fold_to_fit();
+        self.folds = OnceLock::new();
         self
+    }
+
+    /// Every clade drawn folded, worked out the first time it is asked for.
+    fn folded(&self) -> &BTreeSet<usize> {
+        self.folds.get_or_init(|| self.fold_to_fit())
     }
 
     /// Collapses the smallest clades until the visible terminals fit the cap.
     ///
-    /// Called again after every rerooting, because rerooting moves the tips
-    /// about and a fold worked out against the old shape would collapse the
-    /// wrong clades.
-    fn fold_to_fit(&mut self) {
+    /// Worked out when the tree is drawn rather than when the cap is written,
+    /// because what is written after the cap changes what it has to fold. It
+    /// used to fold straight away: a reroot written after it kept the folds of
+    /// the shape it replaced, which are the wrong clades once the tips have
+    /// moved; a clade collapsed by hand after it was folded on top of a tree
+    /// already fitted to the cap; and `max_rows(None)` after it lifted the cap
+    /// and kept every fold.
+    fn fold_to_fit(&self) -> BTreeSet<usize> {
+        let mut collapsed = self.collapsed.clone();
         let Some(cap) = self.max_rows else {
-            return;
+            return collapsed;
         };
         let nodes = self.tree.nodes();
         // How many rows each node contributes as things stand, which is one
@@ -1411,7 +1468,7 @@ impl TreeTrack {
         let root = self.tree.root();
         let mut total = rows[root];
         if total <= cap {
-            return;
+            return collapsed;
         }
 
         // Smallest clade first, and the index breaks a tie, so the same tree
@@ -1461,9 +1518,10 @@ impl TreeTrack {
             });
             inside[*node] = above;
             if folded[*node] && !above {
-                self.collapsed.insert(*node);
+                collapsed.insert(*node);
             }
         }
+        collapsed
     }
 
     /// Draws or hides a point at every visible internal node.
@@ -1497,19 +1555,22 @@ impl TreeTrack {
     /// other events that belong to one branch. Long text is fitted to the
     /// available segment while the complete value remains in its tooltip.
     pub fn branch_labels(mut self, key: impl Into<String>) -> Self {
-        self.branch_labels = Some(BranchLabels {
-            key: key.into(),
-            size: 8.0,
-        });
+        self.branch_labels = Some(key.into());
         self
     }
 
     /// Sets the font size of labels created by [`TreeTrack::branch_labels`].
     pub fn branch_label_size(mut self, size: f64) -> Self {
-        if let Some(labels) = &mut self.branch_labels {
-            labels.size = finite_within(size, 5.0, 18.0, 8.0);
-        }
+        self.branch_label_size = finite_within(size, 5.0, 18.0, 8.0);
         self
+    }
+
+    /// The branch labels as they are drawn, put together from their settings.
+    fn branch_label_layer(&self) -> Option<BranchLabels> {
+        Some(BranchLabels {
+            key: self.branch_labels.clone()?,
+            size: self.branch_label_size,
+        })
     }
 
     /// Adds an automatically sized branch-length scale bar to a phylogram.
@@ -1708,15 +1769,14 @@ impl TreeTrack {
         scene
             .terminals
             .iter()
-            .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
+            .map(|node| text_width(&terminal_label(&self.tree, *node, self.folded()), size))
             .fold(0.0f64, f64::max)
             + 6.0
     }
 
     fn axis_room(&self, theme: &Theme) -> f64 {
         let time = self
-            .time
-            .as_ref()
+            .time_axis()
             .filter(|time| time.show_axis)
             .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0);
         let scale = self
@@ -1779,7 +1839,7 @@ impl TreeTrack {
         if let Some(size) = self.radial.size {
             return size;
         }
-        let terminals = visible_terminals(&self.tree, &self.collapsed);
+        let terminals = visible_terminals(&self.tree, self.folded());
         let tips = terminals.len().max(1) as f64;
         let size = (theme.font_size - 1.0).min(self.row_height.max(1.0));
 
@@ -1790,7 +1850,7 @@ impl TreeTrack {
         let extent = if self.show_tips {
             terminals
                 .iter()
-                .map(|node| text_width(&terminal_label(&self.tree, *node, &self.collapsed), size))
+                .map(|node| text_width(&terminal_label(&self.tree, *node, self.folded()), size))
                 .fold(0.0f64, f64::max)
                 + 6.0
         } else {
@@ -1864,7 +1924,8 @@ impl TreeTrack {
             .color
             .clone()
             .unwrap_or_else(|| ctx.theme.foreground.clone());
-        let scene = TreeScene::new(&self.tree, self.shape, self.time.as_ref(), &self.collapsed);
+        let time = self.time_axis();
+        let scene = TreeScene::new(&self.tree, self.shape, time.as_ref(), self.folded());
         let tips = self.tip_width(ctx.theme, &scene);
         let axis_room = self.axis_room(ctx.theme);
         let traits = self.trait_width(ctx.theme);
@@ -1887,11 +1948,11 @@ impl TreeTrack {
             &color,
             self.line_width,
             self.color_by.as_deref(),
-            self.dnds.as_ref(),
+            self.dnds_layer().as_ref(),
             self.show_nodes,
             self.support_style,
             self.support_threshold,
-            self.branch_labels.as_ref(),
+            self.branch_label_layer().as_ref(),
             &self.rate_mixtures,
             &self.homoplasy_layers,
             &self.branch_event_layers,
@@ -1901,7 +1962,7 @@ impl TreeTrack {
             !self.show_tips,
         );
         draw_rectangular_node_glyphs(self, ctx, &scene, area);
-        if self.show_root {
+        if self.shows_root() {
             if let Some(root) = scene.placements[self.tree.root()] {
                 draw_root_marker(
                     ctx,
@@ -1939,7 +2000,7 @@ impl TreeTrack {
                         );
                     }
                 }
-                let name = terminal_label(&self.tree, *node, &self.collapsed);
+                let name = terminal_label(&self.tree, *node, self.folded());
                 ctx.svg.text(
                     names_at,
                     middle + size * 0.35,
@@ -1954,13 +2015,13 @@ impl TreeTrack {
             ctx,
             &self.tree,
             &scene,
-            &self.collapsed,
+            self.folded(),
             area,
             tips + glyph_x,
             &self.trait_columns,
             self.row_height,
         );
-        if let Some(time) = self.time.as_ref().filter(|time| time.show_axis) {
+        if let Some(time) = time.as_ref().filter(|time| time.show_axis) {
             draw_time_axis(ctx, &scene, area, time);
         }
         if let Some(bar) = self.branch_scale() {
@@ -1974,11 +2035,11 @@ impl Track for TreeTrack {
     fn height(&self, scale: &Scale) -> f64 {
         match self.projection {
             TreeProjection::Rectangular => {
-                let rows = visible_terminals(&self.tree, &self.collapsed).len().max(1) as f64;
+                let rows = visible_terminals(&self.tree, self.folded()).len().max(1) as f64;
                 let (_, glyph_y) = self.rectangular_glyph_padding();
                 rows * self.row_height
                     + glyph_y * 2.0
-                    + if self.time.as_ref().is_some_and(|time| time.show_axis) {
+                    + if self.time_axis().is_some_and(|time| time.show_axis) {
                         22.0
                     } else {
                         0.0
