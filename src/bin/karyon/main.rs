@@ -40,12 +40,16 @@ USAGE
     karyon <PLACE> <FILE>... [options] -o fig.svg
 
     karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
+    karyon 1 gwas.assoc --threshold genome-wide -o scan.svg
+    karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
-names, or a sequence drawn whole. Each file is a track of the kind its name
-says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, and
-.gz or not; its options come after it. A track flag chooses the kind, as
---pileup reads.bam. The figure is SVG, on standard output unless -o names one.
+names, or a sequence drawn whole, named as the files name it; a figure of
+trees alone needs none. Each file is a track of the kind its name says, BAM,
+VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, and .gz or not;
+its options come after it. A BAM is drawn as its depth, and a track flag
+chooses another kind, as --pileup reads.bam. The figure is SVG, on standard
+output unless -o names one.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
