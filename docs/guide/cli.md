@@ -478,6 +478,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--theme <NAME>` | `light` or `dark` | `light` |
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
+| `--no-legend` | leaves out the key to the colours of a tree's branches and of `--traits` strips | drawn under the figure |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |

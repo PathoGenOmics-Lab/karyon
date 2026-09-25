@@ -141,6 +141,8 @@ pub enum ArgError {
         /// The format its name promises, as it is usually spelt.
         format: &'static str,
     },
+    /// A file named on its own whose name does not say what it holds.
+    Unplaced(String),
     /// A modifier given a second value where it takes one.
     ///
     /// The last one used to win without a word, so a `--label` meant for the
@@ -235,6 +237,11 @@ impl fmt::Display for ArgError {
             ArgError::MissingCarrying => write!(
                 f,
                 "--mutations needs --carrying, which names the change to mark the carriers of"
+            ),
+            ArgError::Unplaced(file) => write!(
+                f,
+                "{file}: its name does not say what it holds; put its track before it, as \
+                 --matrix {file} or --manhattan {file}, or give it to a track as --traits {file}"
             ),
             ArgError::NotSvg { path, format } => write!(
                 f,
@@ -628,6 +635,58 @@ impl Kind {
 
     fn takes_threshold(self) -> bool {
         matches!(self, Kind::Manhattan | Kind::Tree)
+    }
+
+    /// The track a file's name says it holds, for a file named on the
+    /// command line with no track flag in front of it.
+    ///
+    /// By the extension a tool writes, under any `.gz`: a BAM or CRAM is
+    /// drawn as its depth, and `--pileup` draws its reads; a SAM as its
+    /// reads; a VCF as its calls; GFF3, GTF and BED as features; bedGraph as
+    /// a signal; FASTA as the reference; a Newick file as a tree; PAF as
+    /// synteny; a PLINK or REGENIE association table as a scan. A name that
+    /// could be several things, `.tsv` or `.txt`, says nothing, and the file
+    /// has to be given its flag.
+    pub fn for_file(name: &str) -> Option<Kind> {
+        let lower = name.to_ascii_lowercase();
+        let lower = lower
+            .strip_suffix(".gz")
+            .or_else(|| lower.strip_suffix(".bgz"))
+            .unwrap_or(&lower);
+        let file = lower.rsplit(['/', '\\']).next().unwrap_or(lower);
+        if file.ends_with("sj.out.tab") {
+            return Some(Kind::Junctions);
+        }
+        if file.contains("cytoband") {
+            return Some(Kind::Ideogram);
+        }
+        for ending in [
+            ".assoc.linear",
+            ".assoc.logistic",
+            ".glm.linear",
+            ".glm.logistic",
+            ".glm.firth",
+        ] {
+            if file.ends_with(ending) {
+                return Some(Kind::Manhattan);
+            }
+        }
+        let (_, extension) = file.rsplit_once('.')?;
+        Some(match extension {
+            "bam" | "cram" | "bedgraph" | "bdg" | "bg" | "depth" | "bw" | "bigwig" => {
+                Kind::Coverage
+            }
+            "sam" => Kind::Pileup,
+            "vcf" | "bcf" => Kind::Variants,
+            "gff" | "gff3" | "gtf" | "bed" | "bb" | "bigbed" => Kind::Features,
+            "fa" | "fasta" | "fna" | "fas" | "ffn" | "frn" | "2bit" => Kind::Sequence,
+            "aln" | "afa" | "msa" => Kind::Msa,
+            "nwk" | "newick" | "tree" | "tre" | "treefile" | "nhx" => Kind::Tree,
+            "paf" => Kind::Synteny,
+            "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
+            "bedmethyl" => Kind::Methylation,
+            _ => return None,
+        })
     }
 
     /// Whether this track is drawn in the region, so a command line with it
@@ -1035,11 +1094,16 @@ pub struct TrackSpec {
     /// them in. `None` draws every column the sheet has, in the order its
     /// header named them.
     pub columns: Option<Vec<String>>,
+    /// Whether the kind was read off the file's name, the file having been
+    /// named on its own with no track flag in front of it. Such a track may
+    /// be told apart once its file is read: a `.bed` that is modkit's
+    /// bedMethyl is drawn as methylation.
+    pub guessed: bool,
 }
 
 impl TrackSpec {
     /// A track with nothing said about it yet.
-    fn new(kind: Kind, source: Option<Source>) -> Self {
+    pub(crate) fn new(kind: Kind, source: Option<Source>) -> Self {
         TrackSpec {
             kind,
             source,
@@ -1074,6 +1138,7 @@ impl TrackSpec {
             sample: None,
             traits: None,
             columns: None,
+            guessed: false,
         }
     }
 }
@@ -1137,6 +1202,15 @@ pub struct Invocation {
     pub region_label: bool,
     /// `-o`, or standard output when absent.
     pub output: Option<PathBuf>,
+    /// A place named by a word rather than by coordinates: a gene the
+    /// annotation names, or a sequence, drawn whole.
+    ///
+    /// The figure's files say where that is, so it is found when they are
+    /// read, and `region` is `None` until then.
+    pub named: Option<String>,
+    /// Cleared by `--no-legend`: the key to the colours of a phylogeny's
+    /// branches and of every strip of metadata.
+    pub legend: bool,
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1231,6 +1305,7 @@ pub const FLAGS: &[&str] = &[
     "--theme",
     "--no-axis",
     "--no-region-label",
+    "--no-legend",
     "-o",
     "--output",
     "--help",
@@ -1267,7 +1342,7 @@ pub fn nearest_flag(given: &str) -> Option<&'static str> {
 }
 
 /// Edits between two words, counting a swap of neighbouring letters as one.
-fn edits(a: &str, b: &str) -> usize {
+pub(crate) fn edits(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let mut table = vec![vec![0usize; b.len() + 1]; a.len() + 1];
@@ -1349,6 +1424,8 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
+    let mut named: Option<String> = None;
+    let mut legend = true;
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
     let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
@@ -2075,6 +2152,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
+            "--no-legend" => legend = false,
             "-o" | "--output" => {
                 figure_once(&mut given, "-o")?;
                 let path = PathBuf::from(value("-o")?);
@@ -2089,11 +2167,37 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(ArgError::UnknownFlag(flag.to_string()))
             }
-            locus => {
-                if region.is_some() {
-                    return Err(ArgError::ExtraRegion(locus.to_string()));
+            word => {
+                // A file named on its own is a track of the kind its name says,
+                // and the options after it describe it as they would after its
+                // flag.
+                if let Some(kind) = Kind::for_file(word) {
+                    let mut track = TrackSpec::new(kind, Some(Source::Path(PathBuf::from(word))));
+                    track.guessed = true;
+                    tracks.push(track);
+                    continue;
                 }
-                let parsed = Region::parse(locus).map_err(ArgError::BadRegion)?;
+                // Standard input has no name to go by, so it takes its flag.
+                if word == "-" || looks_like_a_file(word) {
+                    return Err(ArgError::Unplaced(word.to_string()));
+                }
+                if region.is_some() || named.is_some() {
+                    return Err(ArgError::ExtraRegion(word.to_string()));
+                }
+                let parsed = match Region::parse(word) {
+                    Ok(parsed) => parsed,
+                    // A word with coordinates in it is a locus written wrong,
+                    // and says so. Any other word names a place: a gene, or a
+                    // sequence drawn whole, found once the files are read.
+                    Err(error) => {
+                        if written_as_a_locus(word) {
+                            return Err(ArgError::BadRegion(error));
+                        }
+                        named = Some(word.to_string());
+                        continue;
+                    }
+                };
+                let locus = word;
                 // A track that keeps one value per base of the window sizes its
                 // buffer from the span, so a span past every sequence anyone
                 // has is an allocation that fails rather than a figure.
@@ -2143,8 +2247,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 
     // A stack that no track is drawn in a window for needs none, and one that
     // holds a single track that is drawn in one needs it: a tree beside a
-    // coverage track is still measured against the coverage's window.
+    // coverage track is still measured against the coverage's window. A place
+    // named by a word is a window too, found once the files are read.
     if region.is_none()
+        && named.is_none()
         && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
     {
         return Err(ArgError::NoRegion);
@@ -2158,7 +2264,31 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         axis,
         region_label,
         output,
+        named,
+        legend,
     })))
+}
+
+/// Whether a word is a file's name, going by an extension a tool would give
+/// one, though not one [`Kind::for_file`] can place.
+fn looks_like_a_file(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    let lower = lower.strip_suffix(".gz").unwrap_or(&lower);
+    matches!(
+        lower.rsplit_once('.').map(|(_, extension)| extension),
+        Some("tsv" | "txt" | "csv" | "tab" | "table" | "out" | "dat" | "json" | "xls" | "xlsx")
+    )
+}
+
+/// Whether a word is written the way a locus is, a name and a span, so that
+/// failing to read it as one is the error rather than a place to look up.
+fn written_as_a_locus(word: &str) -> bool {
+    word.rsplit_once(':').is_some_and(|(_, span)| {
+        !span.is_empty()
+            && span
+                .chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, ',' | '_' | '-'))
+    })
 }
 
 /// Whether standard input has already been spoken for.
@@ -3397,6 +3527,81 @@ mod tests {
             Request::HelpOn(topic) if topic == "tree"
         ));
         assert!(matches!(parse(&args("help")).unwrap(), Request::Help));
+    }
+
+    #[test]
+    fn a_file_named_on_its_own_is_the_track_its_name_says() {
+        let it = draw("rpoB reads.bam genes.gff3 calls.vcf.gz tree.nwk --label phylogeny");
+        let kinds: Vec<Kind> = it.tracks.iter().map(|track| track.kind).collect();
+        assert_eq!(
+            kinds,
+            [Kind::Coverage, Kind::Features, Kind::Variants, Kind::Tree]
+        );
+        assert!(it.tracks.iter().all(|track| track.guessed));
+        // An option after a file describes that file's track.
+        assert_eq!(it.tracks[3].label.as_deref(), Some("phylogeny"));
+        assert_eq!(it.named.as_deref(), Some("rpoB"));
+        assert!(it.region.is_none());
+
+        for (file, kind) in [
+            ("reads.sam", Kind::Pileup),
+            ("calls.bcf", Kind::Variants),
+            ("genes.GTF.gz", Kind::Features),
+            ("depth.bedgraph.gz", Kind::Coverage),
+            ("ref.fna", Kind::Sequence),
+            ("core.aln", Kind::Msa),
+            ("pair.paf", Kind::Synteny),
+            ("scan.assoc", Kind::Manhattan),
+            ("scan.PHENO1.glm.linear", Kind::Manhattan),
+            ("step1.regenie", Kind::Manhattan),
+            ("run/SJ.out.tab", Kind::Junctions),
+            ("hg38.cytoBand.txt", Kind::Ideogram),
+            ("calls.bedmethyl", Kind::Methylation),
+        ] {
+            assert_eq!(Kind::for_file(file), Some(kind), "{file}");
+        }
+        assert_eq!(Kind::for_file("samples.tsv"), None);
+
+        // A flag in front still chooses the kind, and the file keeps it.
+        let chosen = draw("chr1:1-100 --pileup reads.bam");
+        assert_eq!(chosen.tracks[0].kind, Kind::Pileup);
+        assert!(!chosen.tracks[0].guessed);
+    }
+
+    #[test]
+    fn a_file_whose_name_says_nothing_is_asked_for_its_track() {
+        for word in ["samples.tsv", "values.txt", "-"] {
+            let error = parse(&args(&format!("chr1:1-100 {word}"))).unwrap_err();
+            assert!(matches!(error, ArgError::Unplaced(_)), "{word}: {error:?}");
+            assert!(error.to_string().contains("--traits"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_word_is_a_locus_a_gene_or_a_sequence() {
+        assert!(draw("chr1:1-100 --coverage d.bg").region.is_some());
+        assert_eq!(
+            draw("NC_000962.3 reads.bam").named.as_deref(),
+            Some("NC_000962.3")
+        );
+        // Written as a locus and wrong, it is refused as one rather than
+        // looked up as a gene called that.
+        for bad in ["chr1:0-100", "chr1:200-100", "chr1:1-"] {
+            let error = parse(&args(&format!("{bad} --coverage d.bg"))).unwrap_err();
+            assert!(matches!(error, ArgError::BadRegion(_)), "{bad}: {error:?}");
+        }
+        // Two places are one too many, whichever way each is written.
+        let error = parse(&args("rpoB katG reads.bam")).unwrap_err();
+        assert!(matches!(error, ArgError::ExtraRegion(_)), "{error:?}");
+        // No place at all, and a track that is drawn in one.
+        let error = parse(&args("reads.bam genes.gff3")).unwrap_err();
+        assert!(matches!(error, ArgError::NoRegion), "{error:?}");
+    }
+
+    #[test]
+    fn the_key_is_drawn_unless_it_is_asked_not_to_be() {
+        assert!(draw("--tree t.nwk").legend);
+        assert!(!draw("--tree t.nwk --no-legend").legend);
     }
 
     #[test]

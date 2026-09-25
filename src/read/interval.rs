@@ -204,6 +204,96 @@ fn parents_of<'a>(cols: &[&'a str]) -> Vec<(&'static str, &'a str)> {
     parents
 }
 
+/// Where an annotation names a gene, for placing a figure by the gene's name.
+#[derive(Debug, Default)]
+pub struct Named {
+    /// Each row that goes by the name: its sequence, and its span, 0-based
+    /// and half-open.
+    pub spans: Vec<(String, u64, u64)>,
+    /// Every name the annotation gives, each once, for suggesting the nearest
+    /// when none is the name asked for.
+    pub names: Vec<String>,
+    /// The name as the annotation spells it, where a row goes by it: `rpoB`
+    /// for a figure asked for as `rpob`.
+    pub spelled: Option<String>,
+}
+
+/// The rows of an annotation, on any sequence, that go by `name`.
+///
+/// A GFF3 row goes by its `Name`, `gene`, `locus_tag` and `ID`, a GTF row by
+/// its `gene_name`, `gene_id`, `transcript_name` and `transcript_id`, and a
+/// BED row by its fourth column. The name is matched exactly, and failing
+/// that in any case, so `RPOB` finds `rpoB` where nothing is called `RPOB`.
+pub fn named(text: &str, name: &str) -> Named {
+    let flavour = flavour(text, None);
+    let mut found = Named::default();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut loose = Vec::new();
+    for (_, line) in lines(text) {
+        let cols = columns(line);
+        let (start, end, calls): (Option<u64>, Option<u64>, Vec<String>) = match flavour {
+            Flavour::Bed => (
+                cols.get(1).and_then(|v| v.trim().parse().ok()),
+                cols.get(2).and_then(|v| v.trim().parse().ok()),
+                cols.get(3)
+                    .map(|v| vec![v.trim().to_string()])
+                    .unwrap_or_default(),
+            ),
+            Flavour::Gff3 => {
+                let attributes = cols.get(8).copied().unwrap_or_default();
+                let mut calls: Vec<String> = ["Name", "gene", "locus_tag", "ID"]
+                    .into_iter()
+                    .filter_map(|key| attribute(attributes, key))
+                    .collect();
+                calls.extend(
+                    ["gene_name", "gene_id", "transcript_name", "transcript_id"]
+                        .into_iter()
+                        .filter_map(|key| gtf_attribute(attributes, key).map(str::to_string)),
+                );
+                (
+                    cols.get(3)
+                        .and_then(|v| v.trim().parse::<u64>().ok())
+                        .map(|v| v.saturating_sub(1)),
+                    cols.get(4).and_then(|v| v.trim().parse().ok()),
+                    calls,
+                )
+            }
+        };
+        let (Some(start), Some(end), Some(sequence)) = (start, end, cols.first()) else {
+            continue;
+        };
+        if describes_sequence(&cols) {
+            continue;
+        }
+        for call in &calls {
+            if seen.insert(call.clone()) {
+                found.names.push(call.clone());
+            }
+        }
+        if calls.iter().any(|call| call == name) {
+            found
+                .spans
+                .push((sequence.to_string(), start, end.max(start + 1)));
+            found.spelled = Some(name.to_string());
+        } else if let Some(call) = calls.iter().find(|call| call.eq_ignore_ascii_case(name)) {
+            loose.push((
+                sequence.to_string(),
+                start,
+                end.max(start + 1),
+                call.clone(),
+            ));
+        }
+    }
+    if found.spans.is_empty() {
+        found.spelled = loose.first().map(|(_, _, _, call)| call.clone());
+        found.spans = loose
+            .into_iter()
+            .map(|(sequence, start, end, _)| (sequence, start, end))
+            .collect();
+    }
+    found
+}
+
 /// Reads a cytoBand table: `chrom start end name stain`, 0-based half-open.
 ///
 /// Returns the length of the sequence, taken as the highest end seen, and the

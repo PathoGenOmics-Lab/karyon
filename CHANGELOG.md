@@ -92,6 +92,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A file named on its own is a track of the kind its name says, under any
+  `.gz`: BAM and CRAM draw their depth, SAM its reads, VCF its calls, GFF3, GTF
+  and BED features, bedGraph a signal, FASTA the reference, Newick a tree, PAF
+  synteny, and a PLINK or REGENIE table a scan. Its options come after it, as
+  they do after a track flag, and a flag in front still chooses the kind. A
+  `.bed` that is modkit's bedMethyl is drawn as methylation, and one of four
+  columns ending in a number as a signal. A name that says nothing, `.tsv` or
+  `.txt`, is refused asking for the track's flag.
+- The place a figure is drawn over may be a word: a gene, found in the
+  figure's annotation by the names GFF3, GTF and BED give it and drawn with a
+  margin of a tenth of its length, titled with its name; or a sequence, drawn
+  whole, as long as a FASTA, a BAM header, a `##sequence-region` or a
+  `##contig` says, or as far as a file reaches on it. A gene at two places is
+  refused with both, and a name at none with the nearest names the annotation
+  has. So `karyon rpoB reads.bam genes.gff3 calls.vcf.gz` is a whole figure.
+- Every track given no `--label` is called after its file: `reads` for
+  `data/reads.bam`, `calls` for `calls.vcf.gz`. Standard input, a pipe the
+  shell names and a tanglegram's two trees get no name.
+- A key to the colours of a tree's branches and of every `--traits` strip is
+  drawn under the figure, each level once however many strips show it.
+  `--no-legend` leaves it out. The three simulated users each drew a tree
+  coloured by lineage and found no way to say which colour was which.
+- A pileup with no `--with-sequence` reads its reads against the reference the
+  figure's `--sequence` draws. It drew every read as agreeing, with the
+  reference right above it, which is how one simulated user nearly missed the
+  variant the figure was for.
+- `--manhattan` reads an association tool's own table by its header: PLINK,
+  PLINK 2, REGENIE, BOLT, GEMMA, SAIGE and the GWAS Catalog's format, finding
+  the position and the p-value, or its logarithm, by their names, and leaving
+  out a test written as `NA`. It read two or three columns only, and PLINK's
+  ten had to be cut down first.
+
 - A file compressed with gzip or bgzip is read as the text inside it, by every
   track and from standard input: a `.vcf.gz`, a `.gff3.gz` or a `.bed.gz` needs
   no pipe. The decoder is the crate's own, `read::gzip`, so the crate still

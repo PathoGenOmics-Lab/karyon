@@ -145,6 +145,30 @@ pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, Rea
 /// hit at the bottom of the figure and exited nought, while nothing in the
 /// file can say whether it was one.
 pub fn association_table(text: &str, region: &Region) -> Result<Associations, ReadError> {
+    // A table of more columns, as association tools write them, is read by
+    // the names its header gives the columns.
+    if let Some((line, head)) = lines(text).next() {
+        let names = columns(head);
+        if names.len() > 3 {
+            return match Wide::of(&names) {
+                Some(wide) => wide.read(text, region),
+                None => Err(ReadError::at(
+                    line,
+                    format!(
+                        "an association table of {} columns is read by its header, and none \
+                         of these names a position (BP, POS) and a p-value or its logarithm \
+                         (P, LOG10P): {}",
+                        names.len(),
+                        names
+                            .iter()
+                            .map(|name| name.trim())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ),
+                )),
+            };
+        }
+    }
     let mut points: Vec<(u64, f64, usize)> = Vec::new();
     let mut first = true;
     let mut named: Option<&str> = None;
@@ -238,6 +262,112 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
         points: converted,
         p_values,
     })
+}
+
+/// Where a wide association table keeps what a scan draws, by the names its
+/// header gives the columns.
+///
+/// PLINK writes `CHR SNP BP A1 ... P`, PLINK 2 `#CHROM POS ID ... P`, REGENIE
+/// `CHROM GENPOS ... LOG10P`, BOLT `SNP CHR BP ... P_BOLT_LMM`, GEMMA
+/// `chr rs ps ... p_wald`, SAIGE `CHR POS ... p.value`, and the GWAS Catalog
+/// `chromosome base_pair_location ... p_value`: a position and a p-value, or
+/// its logarithm, are in every one of them, and are found by their names.
+struct Wide {
+    sequence: Option<usize>,
+    position: usize,
+    value: usize,
+    p_values: bool,
+}
+
+impl Wide {
+    fn of(names: &[&str]) -> Option<Wide> {
+        let lower: Vec<String> = names
+            .iter()
+            .map(|name| name.trim().to_ascii_lowercase())
+            .collect();
+        let find = |set: &[&str]| lower.iter().position(|name| set.contains(&name.as_str()));
+        let position = find(&[
+            "bp",
+            "pos",
+            "position",
+            "base_pair_location",
+            "genpos",
+            "ps",
+            "bp_hg19",
+            "bp_hg38",
+        ])?;
+        let sequence = find(&["chr", "chrom", "#chrom", "chromosome", "seqname", "contig"]);
+        // A p-value first, since a table holding both was written to be read
+        // by it, and the logarithm of one after.
+        let (value, p_values) = names
+            .iter()
+            .position(|name| names_p_values(name.trim()))
+            .map(|at| (at, true))
+            .or_else(|| {
+                lower
+                    .iter()
+                    .position(|name| name.contains("log") && name.contains('p'))
+                    .map(|at| (at, false))
+            })?;
+        Some(Wide {
+            sequence,
+            position,
+            value,
+            p_values,
+        })
+    }
+
+    fn read(&self, text: &str, region: &Region) -> Result<Associations, ReadError> {
+        let widest = self
+            .position
+            .max(self.value)
+            .max(self.sequence.unwrap_or(0));
+        let mut points = Vec::new();
+        for (line, row) in lines(text).skip(1) {
+            let fields = columns(row);
+            if fields.len() <= widest {
+                return Err(ReadError::at(
+                    line,
+                    format!(
+                        "this row has {} columns, and the header puts what is drawn in column {}",
+                        fields.len(),
+                        widest + 1
+                    ),
+                ));
+            }
+            if let Some(at) = self.sequence {
+                if fields[at].trim() != region.seq() {
+                    continue;
+                }
+            }
+            let pos = position(fields[self.position].trim(), "position", line)?;
+            if !region.contains(pos) {
+                continue;
+            }
+            // A test the tool could not run is written as NA, and has nothing
+            // to draw.
+            let value = fields[self.value].trim();
+            if matches!(value, "" | "." | "-" | "NA" | "na" | "nan" | "NaN") {
+                continue;
+            }
+            let value: f64 = number(value, "value", line)?;
+            if !self.p_values {
+                points.push(Association::new(pos, value));
+                continue;
+            }
+            if !(0.0..=1.0).contains(&value) {
+                return Err(ReadError::at(
+                    line,
+                    format!("a p-value lies between 0 and 1, not {value}"),
+                ));
+            }
+            points.push(Association::from_p_value(pos, value));
+        }
+        Ok(Associations {
+            points,
+            p_values: self.p_values,
+        })
+    }
 }
 
 /// Whether a column name says it holds p-values, or q-values, which a scan
@@ -726,6 +856,30 @@ locus\t0.4
         let table = association_table(text, &region).unwrap();
         assert!(!table.p_values);
         assert_eq!(table.points.len(), 2);
+    }
+
+    /// PLINK's own output, spaced as PLINK spaces it, with a test it could
+    /// not run: the table is read by its header, and the NA is left out.
+    #[test]
+    fn an_association_tool_s_own_table_is_read_by_its_header() {
+        let region = Region::parse("1:1-1000").unwrap();
+        let plink = " CHR          SNP         BP   A1      F_A      F_U   A2        CHISQ            P           OR \n   1     rs1        100    A   0.3357   0.4500    G        3.776       0.1        1.625 \n   1     rs2        200    A   0.3357   0.4500    G           NA          NA           NA \n   1     rs3        300    A   0.3357   0.4500    G        3.776       1e-9       1.625 \n   2     rs4        100    A   0.3357   0.4500    G        3.776       0.5        1.625 \n";
+        let table = association_table(plink, &region).unwrap();
+        assert!(table.p_values);
+        let points: Vec<(u64, f64)> = table.points.iter().map(|p| (p.pos, p.value)).collect();
+        assert_eq!(points.len(), 2, "{points:?}");
+        assert_eq!(points[0].0, 99);
+        assert!((points[1].1 - 9.0).abs() < 1e-9);
+
+        // REGENIE writes the logarithm, and it is drawn as written.
+        let regenie = "CHROM GENPOS ID ALLELE0 ALLELE1 A1FREQ N TEST BETA SE CHISQ LOG10P EXTRA\n1 150 rs1 A G 0.1 900 ADD 0.1 0.01 3.2 7.5 NA\n";
+        let table = association_table(regenie, &region).unwrap();
+        assert!(!table.p_values);
+        assert_eq!(table.points[0].value, 7.5);
+
+        // A wide header naming nothing to draw says what it did name.
+        let error = association_table("A B C D\n1 2 3 4\n", &region).unwrap_err();
+        assert!(error.to_string().contains("A B C D"), "{error}");
     }
 
     #[test]

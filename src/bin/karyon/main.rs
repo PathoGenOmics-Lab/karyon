@@ -37,15 +37,15 @@ const SHORT: &str = "\
 karyon, genomic tracks on one shared coordinate axis
 
 USAGE
-    karyon <REGION> --<track> <FILE> [options] [--<track> <FILE> ...] -o fig.svg
+    karyon <PLACE> <FILE>... [options] -o fig.svg
 
-    karyon chr1:10,000-20,000 --coverage depth.bedgraph --label depth \\
-      --features genes.gff3 --variants calls.vcf -o locus.svg
+    karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 
-The region comes first, and a figure of trees needs none. Each --<track> starts
-a track and the options after it describe that track, so tracks stack in the
-order they are written. The figure is SVG, on standard output unless -o names
-a file.
+The place comes first: a region as chr1:10,000-20,000, a gene the annotation
+names, or a sequence drawn whole. Each file is a track of the kind its name
+says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, and
+.gz or not; its options come after it. A track flag chooses the kind, as
+--pileup reads.bam. The figure is SVG, on standard output unless -o names one.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -272,11 +272,16 @@ const HELP: &str = "\
 karyon, genomic track plots on one shared coordinate axis
 
 USAGE
-    karyon <REGION> [TRACK...] [OPTIONS]
+    karyon <PLACE> [FILE | TRACK FILE]... [OPTIONS]
 
-The region comes first, as a 1-based inclusive locus string. Each track flag
-starts a track and the flags after it describe that one, so the order of the
-flags is the order of the stack. A coordinate ruler is added at the bottom
+The place comes first: a 1-based inclusive locus string, a gene the figure's
+annotation names, drawn with a margin, or a sequence's name, drawn whole. A
+file named on its own is a track of the kind its name says: BAM and CRAM draw
+their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
+bedGraph a signal, FASTA the reference, Newick a tree, PAF synteny, and a
+PLINK or REGENIE table a scan; a .gz is read as the file inside. Each track
+flag starts a track of its own kind, and the flags after a track describe
+that one, so the order of the words is the order of the stack. A coordinate ruler is added at the bottom
 unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
 in the figure is laid on the coordinates: a phylogeny is not, so a stack of
 trees gets no ruler measuring a window it is not drawn in, and a figure made
@@ -455,6 +460,8 @@ FIGURE OPTIONS
     --theme <NAME>       light or dark
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
+    --no-legend          leave out the key to the colours a tree's branches and
+                         the strips of a --traits sheet are painted in
     -o, --output <FILE>  standard output by default. The figure is SVG, so a
                          name ending in .png, .pdf or another format is refused
     -h, --help
