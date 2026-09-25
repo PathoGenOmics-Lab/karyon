@@ -342,8 +342,7 @@ in the order the shell lists them.
 Show the columns of an alignment where the samples differ, and nothing else.
 
 ```bash
-karyon sites:1-40 --snps core.aln --label isolates \
-  --no-region-label -o sites.svg
+karyon --snps core.aln --label isolates -o sites.svg
 ```
 
 - `--snps` compares every record of an aligned FASTA with the first
@@ -583,8 +582,8 @@ disagreement is a crossing you can point at.
 === "Command line"
 
     ```bash
-    karyon taxa:1-8 --tanglegram core.nwk --against accessory.nwk \
-      --label '8 isolates' --no-region-label -o tanglegram.svg
+    karyon --tanglegram core.nwk --against accessory.nwk \
+      --label '8 isolates' -o tanglegram.svg
     ```
 
 The header reports the crossings before and after `untangle`

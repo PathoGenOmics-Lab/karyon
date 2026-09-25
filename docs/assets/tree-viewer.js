@@ -303,7 +303,7 @@
   // Export asks the program for.
   function command() {
     var at = painter && painter.looking();
-    var argv = ["tree:1-1", "--tree", tree.name];
+    var argv = ["--tree", tree.name];
     if (cladogram) argv = argv.concat(["--shape", "cladogram"]);
     if (projection === "disc") argv = argv.concat(["--projection", "circular"]);
     if (projection === "spread") argv = argv.concat(["--projection", "unrooted"]);
@@ -322,7 +322,6 @@
       argv = argv.concat(["--highlight", hits.names.join(",")]);
     }
     if (sheet) argv = argv.concat(["--traits", sheet.name]);
-    argv.push("--no-region-label");
     return argv;
   }
 

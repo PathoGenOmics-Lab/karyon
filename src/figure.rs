@@ -275,9 +275,26 @@ impl Figure {
     }
 
     /// Shows or hides the locus string in the top right corner.
+    ///
+    /// A figure where no track [shows the window](Track::shows_region) never
+    /// shows it, whatever this says: a locus above a phylogeny names a window
+    /// the tree is not drawn in, which every figure is given, and reads as a
+    /// claim about where the tree is.
     pub fn show_region_label(mut self, show: bool) -> Self {
         self.show_region_label = show;
         self
+    }
+
+    /// Whether the locus is drawn: asked for, and something in the figure
+    /// shows the window it names.
+    fn shows_region_label(&self) -> bool {
+        self.show_region_label && self.names_region()
+    }
+
+    /// Whether the window means anything to a reader of this figure: empty,
+    /// or holding a track that [shows where it is](Track::shows_region).
+    fn names_region(&self) -> bool {
+        self.tracks.is_empty() || self.tracks.iter().any(|track| track.shows_region())
     }
 
     /// Appends a track below the ones already added.
@@ -324,14 +341,28 @@ impl Figure {
         (layout.width, layout.total_height)
     }
 
-    /// What the document calls itself: the visible title, or the locus.
+    /// What the document calls itself: the visible title, and the locus where
+    /// anything is measured against it.
     ///
-    /// A figure always has one of the two, so the `<title>` is never empty and
-    /// a reader hovering the image is never told nothing.
+    /// Never empty, so a reader hovering the image is never told nothing. A
+    /// figure with no title and nothing on coordinates, a phylogeny drawn on
+    /// its own, is named by what its tracks are called; it was named by the
+    /// window every figure is given, which for a tree was a placeholder the
+    /// command line made up.
     fn document_name(&self) -> String {
-        match &self.title {
-            Some(title) => format!("{}, {}", title, self.region),
-            None => self.region.to_string(),
+        let region = self.names_region().then(|| self.region.to_string());
+        match (&self.title, region) {
+            (Some(title), Some(region)) => format!("{title}, {region}"),
+            (Some(title), None) => title.clone(),
+            (None, Some(region)) => region,
+            (None, None) => {
+                let labels: Vec<&str> = self.tracks.iter().filter_map(|t| t.label()).collect();
+                if labels.is_empty() {
+                    "A karyon figure".to_string()
+                } else {
+                    labels.join(", ")
+                }
+            }
         }
     }
 
@@ -353,13 +384,17 @@ impl Figure {
             1 => "one track".to_string(),
             n => format!("{n} tracks"),
         };
+        // The window only where something shows it.
+        let over = if self.names_region() {
+            format!(" over {}", self.region)
+        } else {
+            String::new()
+        };
         if labels.is_empty() {
-            format!("A karyon figure over {}, with {}.", self.region, stack)
+            format!("A karyon figure{over}, with {stack}.")
         } else {
             format!(
-                "A karyon figure over {}, with {}, drawn top to bottom: {}.",
-                self.region,
-                stack,
+                "A karyon figure{over}, with {stack}, drawn top to bottom: {}.",
                 labels.join(", ")
             )
         }
@@ -396,7 +431,7 @@ impl Figure {
         let locus = self.region.to_string();
         let (pill_width, pill_height) = locus_pill(&locus, &theme);
         if let Some(title) = &self.title {
-            let room = if self.show_region_label {
+            let room = if self.shows_region_label() {
                 layout.width
                     - layout.margin_right
                     - pill_width
@@ -425,7 +460,7 @@ impl Figure {
                 Anchor::Start,
             );
         }
-        if self.show_region_label {
+        if self.shows_region_label() {
             // The locus in a pill, in the monospaced stack: it is a pair of
             // coordinates to be read digit by digit against the ruler, not a
             // phrase, and the pill keeps it from reading as the end of the
@@ -576,7 +611,7 @@ impl Figure {
         let margin_bottom = self.margin.bottom * spacing;
         let margin_left = self.margin.left * spacing;
         let track_gap = self.track_gap * spacing;
-        let has_header = self.title.is_some() || self.show_region_label;
+        let has_header = self.title.is_some() || self.shows_region_label();
         let header_height = if has_header {
             theme.title_font_size + 12.0 * spacing
         } else {
@@ -1022,6 +1057,49 @@ mod tests {
         let svg = Figure::new(region()).show_region_label(false).to_svg();
         assert!(!drawn_text(&svg).contains("chr1:1-1000"));
         assert!(svg.contains("<title id=\"karyon-title\">chr1:1-1000</title>"));
+    }
+
+    #[test]
+    fn a_figure_nothing_is_measured_in_does_not_print_or_speak_its_window() {
+        // A phylogeny is not drawn in the window every figure is given, so a
+        // locus above it, or in its accessible name, is a claim about where
+        // the tree is. The command line had to make one up for a tree, and
+        // printed it: "x:1-1".
+        let tree = crate::Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
+        let bare = Figure::new(region())
+            .push(crate::TreeTrack::new(tree.clone()))
+            .to_svg();
+        assert!(!bare.contains("chr1:1-1000"), "{bare}");
+        assert!(bare.contains("<title id=\"karyon-title\">A karyon figure</title>"));
+        assert!(bare.contains("A karyon figure, with one track."));
+
+        let titled = Figure::new(region())
+            .title("Outbreak")
+            .push(crate::TreeTrack::new(tree.clone()).label("phylogeny"))
+            .to_svg();
+        assert!(!titled.contains("chr1:1-1000"), "{titled}");
+        assert!(titled.contains("<title id=\"karyon-title\">Outbreak</title>"));
+
+        let labelled = Figure::new(region())
+            .push(crate::TreeTrack::new(tree).label("phylogeny"))
+            .to_svg();
+        assert!(labelled.contains("<title id=\"karyon-title\">phylogeny</title>"));
+
+        // An ideogram is not on the coordinates either, and it marks the
+        // window on its chromosome, so the locus names something on the page.
+        let banded = Figure::new(region())
+            .push(crate::IdeogramTrack::new(5_000, Vec::new()))
+            .to_svg();
+        assert!(drawn_text(&banded).contains("chr1:1-1000"), "{banded}");
+
+        // One track on coordinates and the window is back, pill and all.
+        let mixed = Figure::new(region())
+            .push(crate::TreeTrack::new(
+                crate::Tree::parse_newick("(A:1,B:1);").unwrap(),
+            ))
+            .push(AxisTrack::new())
+            .to_svg();
+        assert!(drawn_text(&mixed).contains("chr1:1-1000"));
     }
 
     /// Everything the figure actually draws as text, with the title and the

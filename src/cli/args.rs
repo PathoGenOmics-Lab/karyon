@@ -187,7 +187,8 @@ impl fmt::Display for ArgError {
             }
             ArgError::NoRegion => write!(
                 f,
-                "the first argument is the region, as in NC_000962.3:761,000-763,000"
+                "the first argument is the region, as in NC_000962.3:761,000-763,000; \
+                 only a figure of --tree, --tanglegram and --snps tracks goes without one"
             ),
             ArgError::HugeRegion { given, span } => write!(
                 f,
@@ -589,6 +590,18 @@ impl Kind {
 
     fn takes_threshold(self) -> bool {
         matches!(self, Kind::Manhattan | Kind::Tree)
+    }
+
+    /// Whether this track is drawn in the region, so a command line with it
+    /// has to name one.
+    ///
+    /// A phylogeny, a tanglegram and a panel of variable sites lay themselves
+    /// out without asking where the window is: a tree's x is a branch length,
+    /// and a variable-site panel places its own columns by site index. A
+    /// figure made of nothing else needs no region. Everything else does,
+    /// the ruler included, since measuring a window is all it does.
+    pub fn needs_region(self) -> bool {
+        !matches!(self, Kind::Tree | Kind::Tanglegram | Kind::Snps)
     }
 
     fn takes_height(self) -> bool {
@@ -1039,7 +1052,13 @@ pub enum Palette {
 #[derive(Debug)]
 pub struct Invocation {
     /// The region every track is drawn over.
-    pub region: Region,
+    ///
+    /// `None` only where no track is drawn in one: a stack of phylogenies,
+    /// tanglegrams and variable-site panels, which [`Kind::needs_region`]
+    /// names. Each of those lays itself out without asking where the window
+    /// is, and a figure of them was made to carry an invented one, `x:1-1`,
+    /// which it then printed.
+    pub region: Option<Region>,
     /// The tracks, in the order they were written and will be drawn.
     pub tracks: Vec<TrackSpec>,
     /// `--title`.
@@ -1847,7 +1866,14 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         }
     }
 
-    let region = region.ok_or(ArgError::NoRegion)?;
+    // A stack that no track is drawn in a window for needs none, and one that
+    // holds a single track that is drawn in one needs it: a tree beside a
+    // coverage track is still measured against the coverage's window.
+    if region.is_none()
+        && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
+    {
+        return Err(ArgError::NoRegion);
+    }
     Ok(Request::Draw(Box::new(Invocation {
         region,
         tracks,
@@ -2294,7 +2320,7 @@ mod tests {
     #[test]
     fn the_region_can_sit_anywhere_but_only_once() {
         let it = draw("--coverage d.bg chr1:1-1000");
-        assert_eq!(it.region.seq(), "chr1");
+        assert_eq!(it.region.as_ref().unwrap().seq(), "chr1");
         let err = parse(&args("chr1:1-1000 chr2:1-1000")).unwrap_err();
         assert!(matches!(err, ArgError::ExtraRegion(_)));
     }
@@ -2918,13 +2944,38 @@ mod tests {
              and a figure is drawn over at most 268435455"
         );
         // A whole large sequence is an ordinary figure and stays one.
-        assert_eq!(draw("chr1:1-248956422").region.len(), 248_956_422);
+        assert_eq!(draw("chr1:1-248956422").region.unwrap().len(), 248_956_422);
     }
 
     #[test]
     fn a_missing_region_is_its_own_message() {
         let err = parse(&args("--coverage d.bg")).unwrap_err();
         assert!(err.to_string().contains("the first argument is the region"));
+    }
+
+    /// A tree is not drawn in a window, and a command line of trees was made
+    /// to invent one, `x:1-1`, which the figure then printed as its locus.
+    #[test]
+    fn a_figure_of_phylogenies_and_site_panels_names_no_region() {
+        for line in [
+            "--tree t.nwk",
+            "--tree t.nwk --traits s.tsv --projection circular",
+            "--tanglegram a.nwk --against b.nwk",
+            "--snps aln.fa",
+            "--tree t.nwk --snps aln.fa",
+        ] {
+            let invocation = draw(line);
+            assert!(invocation.region.is_none(), "{line} kept a region");
+        }
+        // One track drawn in a window, and the window has to be named.
+        for line in ["--tree t.nwk --coverage d.bg", "--axis", "--msa aln.fa"] {
+            let err = parse(&args(line)).unwrap_err();
+            assert!(matches!(err, ArgError::NoRegion), "{line}: {err}");
+            assert!(err.to_string().contains("--tree"), "{err}");
+        }
+        // And a region given to a tree is still taken, so no command line
+        // that worked stops working.
+        assert!(draw("tree:1-1 --tree t.nwk").region.is_some());
     }
     #[test]
     fn focus_takes_a_clade_a_tip_or_a_pair_and_refuses_the_rest() {

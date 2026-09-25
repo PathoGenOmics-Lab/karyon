@@ -227,8 +227,7 @@ The variable columns of an alignment and nothing else, spaced evenly, one row pe
 === "Command line"
 
     ```bash
-    karyon sites:1-34 --no-region-label \
-      --snps isolates.fa --compare-to H37Rv --label isolates \
+    karyon --snps isolates.fa --compare-to H37Rv --label isolates \
       -o snps.svg
     ```
 

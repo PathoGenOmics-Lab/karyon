@@ -413,6 +413,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
+  region. None of them is drawn in a window, so the command line made a reader
+  invent one, `tree:1-1`, which the figure then printed as its locus. The
+  library draws no locus above a figure where no track shows the window, and
+  keeps it out of the figure's accessible name and description:
+  `example-snps.svg` and `example-tanglegram.svg` lose `sites:1-34` and
+  `taxa:1-8` from their `<title>`, and nothing drawn changes. An ideogram marks
+  the window on its chromosome and keeps its locus; `Track::shows_region` says
+  which tracks do. A region given to a tree is still accepted.
 - A level of a sample sheet is one colour in every strip of a figure and in its
   key. The strip beside a tree dealt the palette in the order the tree met its
   tips and the strip beside a matrix in the order the sheet sorted its names, so

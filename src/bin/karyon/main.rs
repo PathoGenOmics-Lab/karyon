@@ -39,8 +39,9 @@ starts a track and the flags after it describe that one, so the order of the
 flags is the order of the stack. A coordinate ruler is added at the bottom
 unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
 in the figure is laid on the coordinates: a phylogeny is not, so a stack of
-trees gets no ruler measuring a window it is not drawn in. Any track file
-may be - for standard input, and one track may take it.
+trees gets no ruler measuring a window it is not drawn in, and a figure made
+only of --tree, --tanglegram and --snps tracks takes no region at all. Any
+track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, samtools depth, or values

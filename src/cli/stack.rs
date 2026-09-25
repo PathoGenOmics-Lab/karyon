@@ -310,7 +310,12 @@ pub fn build_with(
     mut open: impl FnMut(&Source) -> io::Result<String>,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
-    let region = &invocation.region;
+    // A figure of phylogenies and variable-site panels names no region, and
+    // none of its tracks asks the window anything. The figure still wants
+    // one to lay its width out over, so it is given one that nothing prints:
+    // a figure that shows no window draws no locus and no ruler.
+    let unnamed = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
+    let region = invocation.region.as_ref().unwrap_or(&unnamed);
     let mut plot = Plot::over(region.clone());
     if let Some(title) = &invocation.title {
         plot = plot.title(title);
@@ -2859,6 +2864,33 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         );
         assert_eq!(colours[2].1[0], theme.color(1));
         assert_eq!(colours[0].1[0], theme.color(2));
+    }
+
+    /// A tree drawn with no region prints none, and draws no ruler: the
+    /// window the figure lays its width over is one nothing is drawn in.
+    #[test]
+    fn a_tree_drawn_with_no_region_prints_no_window() {
+        const TREE: &str = "((a:0.1,b:0.1):0.1,(c:0.1,d:0.1):0.1);";
+        let args: Vec<String> = "--tree t.nwk --label phylogeny"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let crate::cli::args::Request::Draw(invocation) = crate::cli::args::parse(&args).unwrap()
+        else {
+            unreachable!("a tree is drawn")
+        };
+        let svg = build(&invocation, |_| Ok(TREE.to_string())).unwrap();
+        assert!(!svg.contains("phylogeny:1-1"), "{svg}");
+        assert!(!svg.contains("1-1"), "a window was printed: {svg}");
+        assert!(svg.contains("<title id=\"karyon-title\">phylogeny</title>"));
+        // Every tip is drawn, and nothing else is written as text: no locus
+        // and no tick of a ruler.
+        let text: Vec<&str> = svg
+            .split("<text")
+            .skip(1)
+            .filter_map(|piece| piece.split('>').nth(1)?.split('<').next())
+            .collect();
+        assert_eq!(text, ["phylogeny", "a", "b", "c", "d"], "{svg}");
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

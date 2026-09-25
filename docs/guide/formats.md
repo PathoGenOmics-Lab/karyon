@@ -576,7 +576,7 @@ A phylogeny, read whole as one tree.
 |:--|:--|
 | Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse_annotated_newick` |
 | What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations |
-| Coordinates | none: the region is not compared with anything, so `phylo:1-1` serves as well as any |
+| Coordinates | none: a figure of trees takes no region, and one given is not compared with anything |
 | Refused | an empty file; unbalanced parentheses; a comma outside any clade; more than one root; a branch length that is not a number or has nothing to attach to |
 
 - The trailing `;` is optional and whitespace is ignored, so a tree written

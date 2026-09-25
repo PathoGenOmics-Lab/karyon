@@ -403,6 +403,12 @@ impl Track for IdeogramTrack {
         false
     }
 
+    /// The window is marked on the chromosome, so the locus above names
+    /// something the reader can see.
+    fn shows_region(&self) -> bool {
+        true
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band_area = ctx.band;
         // Room under the chromosome for band names, when they are wanted, and
