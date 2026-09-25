@@ -189,7 +189,10 @@ impl fmt::Display for ArgError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ArgError::NoArguments => write!(f, "no arguments: try karyon --help"),
-            ArgError::UnknownFlag(flag) => write!(f, "unknown flag {flag}"),
+            ArgError::UnknownFlag(flag) => match nearest_flag(flag) {
+                Some(meant) => write!(f, "unknown flag {flag}; did you mean {meant}?"),
+                None => write!(f, "unknown flag {flag}; karyon --help lists them"),
+            },
             ArgError::MissingValue(flag) => write!(f, "{flag} needs a value"),
             ArgError::BadValue {
                 flag,
@@ -1141,10 +1144,152 @@ pub struct Invocation {
 pub enum Request {
     /// Draw this.
     Draw(Box<Invocation>),
-    /// Print the help text.
+    /// Print the help text that fits on a screen.
     Help,
+    /// Print the help on one topic: a track, named with its dashes or
+    /// without them, or `all` for the whole of it.
+    ///
+    /// Asked for as `karyon help coverage`, or with `--help` after a track
+    /// flag, `karyon chr1:1-100 --coverage d.bg --help`, which is where a
+    /// reader in the middle of writing one is.
+    HelpOn(String),
     /// Print the version.
     Version,
+}
+
+/// Every flag the grammar answers to, for a mistyped one to be matched against.
+///
+/// A test holds this to the parse loop's own arms, so a flag added there and
+/// left out of here fails rather than going unsuggested.
+pub const FLAGS: &[&str] = &[
+    "--coverage",
+    "--copy-number",
+    "--dynseq",
+    "--junctions",
+    "--sequence",
+    "--features",
+    "--variants",
+    "--windows",
+    "--manhattan",
+    "--tree",
+    "--msa",
+    "--snps",
+    "--ideogram",
+    "--matrix",
+    "--pileup",
+    "--synteny",
+    "--dotplot",
+    "--orfs",
+    "--logo",
+    "--tanglegram",
+    "--clades",
+    "--loci",
+    "--methylation",
+    "--structural",
+    "--split-reads",
+    "--bisulfite",
+    "--domains",
+    "--axis",
+    "--label",
+    "--ploidy",
+    "--sample",
+    "--traits",
+    "--columns",
+    "--no-names",
+    "--threshold",
+    "--max-rows",
+    "--projection",
+    "--color-by",
+    "--support-style",
+    "--highlight",
+    "--mutations",
+    "--carrying",
+    "--shape",
+    "--scale-bar",
+    "--focus",
+    "--compare-to",
+    "--no-counts",
+    "--min-reads",
+    "--fade-by-mapq",
+    "--row-height",
+    "--height",
+    "--aggregate",
+    "--style",
+    "--log",
+    "--color",
+    "--against",
+    "--with-tree",
+    "--links",
+    "--with-sequence",
+    "--modification",
+    "--context",
+    "--analysis",
+    "--identity",
+    "--format",
+    "--title",
+    "--width",
+    "--theme",
+    "--no-axis",
+    "--no-region-label",
+    "-o",
+    "--output",
+    "--help",
+    "--version",
+];
+
+/// The flag a mistyped one was most likely meant to be, if one is close.
+///
+/// Close is two edits for a long flag and one for a short one, counting a
+/// swap of two neighbouring letters as one, so `--coverge`, `--colour`,
+/// `-title` and `--lable` each find theirs and a word that is no flag at all
+/// finds nothing rather than a guess.
+pub fn nearest_flag(given: &str) -> Option<&'static str> {
+    let allowed = if given.len() > 8 { 2 } else { 1 };
+    let mut best: Option<(usize, &'static str)> = None;
+    let mut tied = false;
+    for flag in FLAGS {
+        let distance = edits(given, flag);
+        if distance > allowed {
+            continue;
+        }
+        match best {
+            Some((closest, _)) if distance > closest => {}
+            Some((closest, _)) if distance == closest => tied = true,
+            _ => {
+                best = Some((distance, flag));
+                tied = false;
+            }
+        }
+    }
+    // Two flags as close as each other are a coin toss, and a suggestion
+    // that picks one is a guess dressed as an answer.
+    best.filter(|_| !tied).map(|(_, flag)| flag)
+}
+
+/// Edits between two words, counting a swap of neighbouring letters as one.
+fn edits(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut table = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in table.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in table[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let change = usize::from(a[i - 1] != b[j - 1]);
+            let mut best = (table[i - 1][j] + 1)
+                .min(table[i][j - 1] + 1)
+                .min(table[i - 1][j - 1] + change);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                best = best.min(table[i - 2][j - 2] + 1);
+            }
+            table[i][j] = best;
+        }
+    }
+    table[a.len()][b.len()]
 }
 
 /// Reads `args`, which must not include the program name.
@@ -1157,12 +1302,44 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     if args.is_empty() {
         return Err(ArgError::NoArguments);
     }
-    if args.iter().any(|a| a == "-h" || a == "--help") {
-        return Ok(Request::Help);
+    // `karyon help` and `karyon help coverage`, the way most command lines
+    // take a topic.
+    if args[0] == "help" {
+        return Ok(match args.get(1) {
+            Some(topic) => Request::HelpOn(topic.clone()),
+            None => Request::Help,
+        });
+    }
+    if let Some(at) = args.iter().position(|a| a == "-h" || a == "--help") {
+        // After a track flag, the help asked for is that track's.
+        let track = args[..at]
+            .iter()
+            .rev()
+            .find(|word| Kind::ALL.iter().any(|kind| kind.dashed() == word.as_str()));
+        return Ok(match track {
+            Some(flag) => Request::HelpOn(flag.clone()),
+            None => Request::Help,
+        });
     }
     if args.iter().any(|a| a == "-V" || a == "--version") {
         return Ok(Request::Version);
     }
+    // `--flag=value` is the same as `--flag value`, as most command lines take
+    // it. Only a word that starts with two dashes is split, and only at its
+    // first `=`, so a title or a colour holding one is left as it was.
+    let split: Vec<String> = args
+        .iter()
+        .flat_map(|word| {
+            match word
+                .strip_prefix("--")
+                .and_then(|rest| rest.split_once('='))
+            {
+                Some((flag, value)) => vec![format!("--{flag}"), value.to_string()],
+                None => vec![word.clone()],
+            }
+        })
+        .collect();
+    let args = &split[..];
 
     let mut region: Option<Region> = None;
     let mut tracks: Vec<TrackSpec> = Vec::new();
@@ -3167,6 +3344,59 @@ mod tests {
         );
         // A whole large sequence is an ordinary figure and stays one.
         assert_eq!(draw("chr1:1-248956422").region.unwrap().len(), 248_956_422);
+    }
+
+    #[test]
+    fn a_mistyped_flag_is_answered_with_the_one_it_was_meant_to_be() {
+        for (typed, meant) in [
+            ("--coverge", "--coverage"),
+            ("--colour", "--color"),
+            ("-title", "--title"),
+            ("--lable", "--label"),
+            ("--hieght", "--height"),
+            ("--varaints", "--variants"),
+        ] {
+            assert_eq!(nearest_flag(typed), Some(meant), "{typed}");
+            let error = parse(&args(&format!("chr1:1-10 {typed} x"))).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("unknown flag {typed}; did you mean {meant}?")
+            );
+        }
+        // Nothing close is nothing suggested, rather than a guess.
+        for typed in ["--nonsense", "--gff", "--x"] {
+            assert_eq!(nearest_flag(typed), None, "{typed}");
+        }
+    }
+
+    #[test]
+    fn a_flag_and_its_value_may_be_joined_by_an_equals_sign() {
+        let it = draw("chr1:1-10 --coverage=d.bg --label=depth --height=80 --title=a=b");
+        assert_eq!(
+            it.tracks[0].source,
+            Some(Source::Path(PathBuf::from("d.bg")))
+        );
+        assert_eq!(it.tracks[0].label.as_deref(), Some("depth"));
+        assert_eq!(it.tracks[0].height, Some(80.0));
+        // Split at the first sign only, so a title holding one keeps it.
+        assert_eq!(it.title.as_deref(), Some("a=b"));
+    }
+
+    #[test]
+    fn help_after_a_track_flag_is_help_on_that_track() {
+        assert!(matches!(
+            parse(&args("chr1:1-10 --coverage d.bg --label x --help")).unwrap(),
+            Request::HelpOn(topic) if topic == "--coverage"
+        ));
+        assert!(matches!(
+            parse(&args("chr1:1-10 --help")).unwrap(),
+            Request::Help
+        ));
+        assert!(matches!(
+            parse(&args("help tree")).unwrap(),
+            Request::HelpOn(topic) if topic == "tree"
+        ));
+        assert!(matches!(parse(&args("help")).unwrap(), Request::Help));
     }
 
     #[test]

@@ -26,6 +26,23 @@ Four rules cover every command:
 4. **Figure options** such as `--title` and `-o` belong to no track and can go
    anywhere on the line.
 
+An option and its value may be written as two words or joined by `=`, as
+`--label depth` or `--label=depth`.
+
+### Asking the program
+
+`karyon --help` fits on one screen: the grammar, every track by what it draws,
+and the figure options. `karyon help coverage`, or `--help` written after a
+track flag, prints one track's entry and only the options that track takes,
+with a link to its page here. `karyon help all` prints everything, every track
+and every option in full. A flag typed wrong is answered with the one it was
+probably meant to be:
+
+```text
+$ karyon chr1:1-10 --coverge depth.bedgraph
+karyon: unknown flag --coverge; did you mean --coverage?
+```
+
 ### A worked example
 
 ```bash
@@ -462,7 +479,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
-| `-h`, `--help` | prints the whole grammar | |
+| `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
 
 `-h` and `-V` are answered before anything else on the line is looked at, so
@@ -528,6 +545,24 @@ replaced.
 BAM, CRAM and BCF are not read, and are not meant to be. samtools and bcftools
 already write the text these readers take, so a pipe does the parsing and the
 library keeps its zero dependencies.
+
+Hand a track a file that is not text and it says what the file is and what to
+write in place of its name. Compressed files, BAM, CRAM, BCF, bigWig, bigBed
+and 2bit are all recognised by their first bytes:
+
+```text
+$ karyon chr1:1-5,000 --pileup reads.bam
+karyon: --pileup reads.bam: the file is BAM, and karyon reads text; write <(samtools view -h reads.bam chr1:1-5000) where its name is, or turn it into text first
+```
+
+`<(command)` is the shell handing the command's output over as though it were
+a file, in bash and zsh, so it works for any track and for a second file as
+well, where `-` can be given to only one:
+
+```bash
+karyon chr1:1-5,000 --variants <(gzip -dc calls.vcf.gz) \
+  --pileup <(samtools view -h reads.bam chr1:1-5000) -o locus.svg
+```
 
 Coverage from an alignment:
 
@@ -608,6 +643,9 @@ karyon: --features nowhere.bed: No such file or directory (os error 2)
 
 $ karyon chr1:1-1000 --features broken.bed
 karyon: --features broken.bed: line 2: end is not a number: "three-hundred-and-fifty"
+
+$ karyon 1:1-5,000 --variants calls.vcf
+karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 on chr1
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns

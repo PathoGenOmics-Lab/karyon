@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `karyon --help` fits on one screen: the grammar, every track grouped by what
+  it draws, the figure options, and where to ask for more. It printed the whole
+  of the help, some two hundred lines, which `karyon help all` still does, and
+  `karyon` with nothing after it prints the short help rather than an error.
+
 - The site's figures are part of the page rather than pictures laid on it: each
   is drawn on exactly the colour behind it, the page or the card it sits in,
   with no plate, frame or shadow, in the page's light or dark. None keeps a
@@ -86,6 +91,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- `karyon help <track>` prints one track's entry and only the options it takes,
+  with a link to its page of the guide, and so does `--help` written after a
+  track flag. The options are the parser's own answer, asked of it option by
+  option, so the help cannot list one the track refuses. `karyon help all`
+  prints the whole of the help.
+- A mistyped flag is answered with the one it was probably meant to be:
+  `unknown flag --coverge; did you mean --coverage?`. And an option may be
+  joined to its value with `=`, as `--label=depth`.
+- A file that is not text says what it is and what to write in place of its
+  name: gzip, bzip2, xz and zstd, BAM, CRAM, BCF, bigWig, bigBed and 2bit are
+  recognised by their first bytes, and the message names the command, cut to
+  the window where the tool can do that, as `<(samtools view -h reads.bam
+  chr1:1-5000)`. It said `stream did not contain valid UTF-8`.
+- A window that holds nothing says what the file does hold, and where: `no
+  variants in 1:1-5000, though the file holds 12 on chr1`, which is the usual
+  reason, a file that names its sequences one way and a region another.
 
 - The documentation site draws every committed figure itself instead of showing
   the file. The page's copy of the program holds the code that wrote each

@@ -79,16 +79,18 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
   least 7 pixels wide and as a coloured block down to 0.6 of a pixel. Below
   that the track prints a hint to zoom in rather than a smear.
 
-!!! note "Give `--sequence` the whole reference"
+!!! note "Give `--sequence` the whole reference, or a slice that says where it is"
     `--sequence` takes the only record of the FASTA, or the one named like the
-    region's sequence when it holds several, and cuts the region out
-    of it by position. It wants the sequence the window is cut from, not only
-    the bases on display: a file holding just those would put them at the
-    start of the sequence, far from the window, and the track would come out
-    empty. Here the two are the same, because the region starts at base 1.
+    region's sequence when it holds several, and cuts the region out of it by
+    position. A record is read from base 1 unless its header says otherwise,
+    as the `>chr1:101-160` that `samtools faidx` writes does, so give it the
+    whole sequence or such a slice. A record with no base in the window is
+    refused, saying which bases it holds. Here the two are the same, because
+    the region starts at base 1.
 
 BAM, CRAM and BCF are not read directly. Let `samtools` or `bcftools` write the
-text and pipe it in; any track file can be `-`, for standard input:
+text and pipe it in; any track file can be `-`, for standard input. Hand a track
+one of those files by mistake and it says which command to use:
 
 ```bash
 samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
