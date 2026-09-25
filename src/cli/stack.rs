@@ -390,6 +390,20 @@ pub fn build(
 pub fn build_with(
     invocation: &Invocation,
     mut open: impl FnMut(&Source) -> io::Result<String>,
+    parsed: impl FnMut(&str, &str) -> Option<Tree>,
+) -> Result<String, BuildError> {
+    build_files(invocation, &mut open, parsed)
+}
+
+/// The same, reading through [`Files`], which may do more than hand over
+/// text: [`Disk`] reads a BAM a window at a time.
+///
+/// # Errors
+///
+/// The same as [`build`].
+pub fn build_files(
+    invocation: &Invocation,
+    files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
     // A figure of phylogenies and variable-site panels names no region, and
@@ -429,16 +443,9 @@ pub fn build_with(
             plot = axis.done();
             continue;
         }
-        let built = match track(spec, region, &mut open, &mut parsed) {
+        let built = match track(spec, region, files, &mut parsed) {
             Ok(built) => built,
-            Err(error) => {
-                return Err(explained(
-                    error,
-                    spec,
-                    invocation.region.as_ref(),
-                    &mut open,
-                ))
-            }
+            Err(error) => return Err(explained(error, spec, invocation.region.as_ref(), files)),
         };
         plot = plot.add_boxed(built);
     }
@@ -456,13 +463,13 @@ pub fn build_with(
 /// Reads the sheet a track's `--traits` names, or nothing where it named none.
 fn sheet(
     spec: &TrackSpec,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<Option<(read::sheet::Sheet, String)>, BuildError> {
     let Some(source) = spec.traits.as_ref() else {
         return Ok(None);
     };
     let name = spec.kind.flag();
-    let (text, path) = fetch(name, source, open)?;
+    let (text, path) = fetch(name, source, files)?;
     let held = wrap(name, &path, read::sheet::sheet(&text))?;
     Ok(Some((held, path)))
 }
@@ -518,14 +525,45 @@ fn strip(
     Ok(Some(Traits::from_sheet(held).spread(wanted)))
 }
 
+/// A track's own file, what it was called, and whether it arrived converted
+/// from a binary alignment file rather than read as it is.
+///
+/// A track that draws reads, or the depth they add up to, asks the files for
+/// that first: a BAM on disk answers with the reads over the window, or their
+/// depth as bedGraph, and anything that cannot answer is read as text.
 fn slurp(
     spec: &TrackSpec,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
-) -> Result<(String, String), BuildError> {
+    region: &Region,
+    files: &mut dyn Files,
+) -> Result<(String, String, bool), BuildError> {
     let Some(source) = spec.source.as_ref() else {
-        return Ok((String::new(), String::new()));
+        return Ok((String::new(), String::new(), false));
     };
-    fetch(spec.kind.flag(), source, open)
+    let converted = match spec.kind {
+        Kind::Coverage => files.depth(source, region),
+        Kind::Pileup | Kind::SplitReads => files.reads(source, region),
+        _ => Ok(None),
+    }
+    .map_err(|cause| BuildError::Open {
+        track: spec.kind.flag(),
+        path: called(source),
+        cause,
+    })?;
+    match converted {
+        Some(text) => Ok((text, called(source), true)),
+        None => {
+            let (text, name) = fetch(spec.kind.flag(), source, files)?;
+            Ok((text, name, false))
+        }
+    }
+}
+
+/// What a source is called in a message.
+fn called(source: &Source) -> String {
+    match source {
+        Source::Path(path) => path.display().to_string(),
+        Source::Stdin => "standard input".to_string(),
+    }
 }
 
 /// Reads one source, and says what it was called.
@@ -536,13 +574,10 @@ fn slurp(
 fn fetch(
     track: &'static str,
     source: &Source,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<(String, String), BuildError> {
-    let name = match source {
-        Source::Path(path) => path.display().to_string(),
-        Source::Stdin => "standard input".to_string(),
-    };
-    let text = open(source).map_err(|cause| BuildError::Open {
+    let name = called(source);
+    let text = files.text(source).map_err(|cause| BuildError::Open {
         track,
         path: name.clone(),
         cause,
@@ -628,6 +663,29 @@ pub fn open_from_disk(source: &Source) -> io::Result<String> {
             (bytes, None)
         }
     };
+    // Compressed text is text: a `.vcf.gz`, a `.bed.gz` or anything bgzip
+    // wrote is taken out of its wrapper here, so every reader takes it as it
+    // takes the plain file. BAM and BCF are compressed the same way and are
+    // not text inside, so they are named rather than unwrapped, by their name
+    // before any work is done and by their first bytes after.
+    let bytes = if read::gzip::is_gzip(&bytes) {
+        if let Some(binary @ (Binary::Bam | Binary::Bcf)) = Binary::of(&bytes, path) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
+        }
+        let inside = read::gzip::decompress(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        for (magic, binary) in [
+            (&b"BAM\x01"[..], Binary::Bam),
+            (&b"BCF\x02"[..], Binary::Bcf),
+        ] {
+            if inside.starts_with(magic) {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
+            }
+        }
+        inside
+    } else {
+        bytes
+    };
     String::from_utf8(bytes).map_err(|error| {
         // What a genomics file is when it is not text is nearly always one of
         // a few formats, and naming it is what turns "stream did not contain
@@ -637,6 +695,155 @@ pub fn open_from_disk(source: &Source) -> io::Result<String> {
             None => io::Error::new(io::ErrorKind::InvalidData, error),
         }
     })
+}
+
+/// Where a figure's files come from.
+///
+/// Text is the one question every source answers: a shell reads a path, a
+/// page looks a name up among its buffers, a test hands over a literal, and
+/// any closure from a source to its text is a `Files`. The other questions
+/// are for sources that are not text, and a reader that cannot answer them
+/// says `None`, which sends the track to [`Files::text`] instead. [`Disk`]
+/// answers them for a BAM, reading only the reads over the window through
+/// its index.
+pub trait Files {
+    /// The text a source holds.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn text(&mut self, source: &Source) -> io::Result<String>;
+
+    /// The depth of the reads a binary alignment file holds over `region`, as
+    /// bedGraph, or `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn depth(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// The reads a binary alignment file holds over `region`, as SAM text, or
+    /// `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn reads(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// The sequences a binary file names, each with its length, or `None`
+    /// for a source that is not one this can read.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn sequences(&mut self, _source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        Ok(None)
+    }
+}
+
+impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        self(source)
+    }
+}
+
+/// The files a command line names, read from disk.
+///
+/// Text is read whole, and compressed text is taken out of its wrapper, by
+/// [`open_from_disk`]. A BAM is read a window at a time, through the `.bai`
+/// beside it where there is one, so a figure of one gene reads the blocks that
+/// gene is in. Every source is read once and kept, since placing a figure by a
+/// gene's name reads the annotation before the track does, and standard input
+/// cannot be read twice.
+#[derive(Debug, Default)]
+pub struct Disk {
+    kept: std::collections::HashMap<Source, String>,
+}
+
+impl Disk {
+    /// The header and the reads over `region`, for a source that is a BAM.
+    fn bam(
+        &mut self,
+        source: &Source,
+        region: &Region,
+    ) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let index = bam_index(path)?;
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::window(file, index.as_ref(), region)
+            .map(Some)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+}
+
+impl Files for Disk {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        if let Some(text) = self.kept.get(source) {
+            return Ok(text.clone());
+        }
+        let text = open_from_disk(source)?;
+        self.kept.insert(source.clone(), text.clone());
+        Ok(text)
+    }
+
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self.bam(source, region)?.map(|(_, records)| {
+            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
+        }))
+    }
+
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self
+            .bam(source, region)?
+            .map(|(header, records)| read::bam::sam(&header, &records)))
+    }
+
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::header_of(file)
+            .map(|header| Some(header.references))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+}
+
+/// Whether a file is a BAM: bgzip on the outside, and BAM's magic inside.
+fn is_bam(path: &Path) -> io::Result<bool> {
+    let mut first = [0u8; 3];
+    let mut file = fs::File::open(path)?;
+    if file.read(&mut first)? < first.len() || !read::gzip::is_gzip(&first) {
+        return Ok(false);
+    }
+    Ok(read::bam::header_of(io::BufReader::new(fs::File::open(path)?)).is_ok())
+}
+
+/// The `.bai` beside a BAM, as `reads.bam.bai` or `reads.bai`, if there is one.
+fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
+    let mut beside = path.as_os_str().to_owned();
+    beside.push(".bai");
+    for candidate in [std::path::PathBuf::from(beside), path.with_extension("bai")] {
+        if candidate.is_file() {
+            let bytes = fs::read(&candidate)?;
+            return read::bam::index(&bytes)
+                .map(Some)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 /// A file that is not text, by the format its first bytes say it is.
@@ -787,7 +994,7 @@ fn explained(
     error: BuildError,
     spec: &TrackSpec,
     region: Option<&Region>,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> BuildError {
     match error {
         BuildError::Open { track, path, cause } => {
@@ -818,7 +1025,8 @@ fn explained(
             // Read again, and only here: a pipe cannot be, and a figure that
             // drew has no need to know.
             let held = match (region, spec.source.as_ref(), sequence_column(spec.kind)) {
-                (Some(_), Some(source @ Source::Path(_)), Some(column)) => open(source)
+                (Some(_), Some(source @ Source::Path(_)), Some(column)) => files
+                    .text(source)
                     .map(|text| sequences_named(&text, column))
                     .unwrap_or_default(),
                 _ => Vec::new(),
@@ -930,10 +1138,10 @@ fn listed(held: &[(String, usize)]) -> String {
 fn track(
     spec: &TrackSpec,
     region: &Region,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
     parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<Box<dyn Track>, BuildError> {
-    let (text, path) = slurp(spec, open)?;
+    let (text, path, converted) = slurp(spec, region, files)?;
     let name = spec.kind.flag();
     let label = spec.label.clone();
     let height = spec.height;
@@ -946,7 +1154,7 @@ fn track(
     // Read before the match rather than inside the arms, because two arms
     // shadow `text` with a second file of their own and a sheet fetched after
     // that would be read out of the wrong one.
-    let sheet = sheet(spec, open)?;
+    let sheet = sheet(spec, files)?;
 
     let built: Box<dyn Track> = match spec.kind {
         Kind::Coverage => {
@@ -959,9 +1167,18 @@ fn track(
             let spans = wrap(
                 name,
                 &path,
-                read::signal::fold_spans(&text, region, spec.format, |start, end, value| {
-                    painted.paint(start, end, value)
-                }),
+                // Depth worked out from a BAM arrives as bedGraph, whatever
+                // `--format` said about a text file.
+                read::signal::fold_spans(
+                    &text,
+                    region,
+                    if converted {
+                        Some(crate::Format::BedGraph)
+                    } else {
+                        spec.format
+                    },
+                    |start, end, value| painted.paint(start, end, value),
+                ),
             )?;
             drop(text);
             if spans == 0 {
@@ -986,7 +1203,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let reference = second_sequence(name, source, region, open)?;
+            let reference = second_sequence(name, source, region, files)?;
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -1421,7 +1638,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let (other, right_path) = fetch(name, source, open)?;
+            let (other, right_path) = fetch(name, source, files)?;
             let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
                 Some(tree) => Ok(tree),
                 None => {
@@ -1651,7 +1868,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let (newick, tree_path) = fetch(name, source, open)?;
+            let (newick, tree_path) = fetch(name, source, files)?;
             let tree = match parsed(&tree_path, newick.trim()) {
                 Some(tree) => tree,
                 None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| {
@@ -1743,7 +1960,7 @@ fn track(
                 });
             }
 
-            let (text, link_path) = fetch(name, source, open)?;
+            let (text, link_path) = fetch(name, source, files)?;
             let joined = wrap(
                 name,
                 &link_path,
@@ -1997,7 +2214,7 @@ fn track(
             // tracks use, so a read hanging over the left edge is compared
             // against nothing rather than against the wrong base.
             if let Some(source) = spec.second.as_ref() {
-                let (from, bases) = second_sequence(name, source, region, open)?.clip(region)?;
+                let (from, bases) = second_sequence(name, source, region, files)?.clip(region)?;
                 track = track.reference(from, bases);
             }
             if let Some(cap) = spec.max_rows {
@@ -2051,9 +2268,9 @@ fn second_sequence(
     track: &'static str,
     source: &Source,
     region: &Region,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<Reference, BuildError> {
-    let (fasta, path) = fetch(track, source, open)?;
+    let (fasta, path) = fetch(track, source, files)?;
     sequence(track, &path, &fasta, region)
 }
 
@@ -3686,6 +3903,100 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             listed(&held(&["1", "2", "3", "4", "5", "6", "7"])),
             "1, 2, 3, 4, 5 and 2 more sequences"
         );
+    }
+
+    /// A directory of its own for a test that reads files from disk, emptied
+    /// when the test is done.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir = std::env::temp_dir().join(format!("karyon-{name}-{}", std::process::id()));
+            fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+
+        fn write(&self, name: &str, bytes: &[u8]) -> String {
+            let path = self.0.join(name);
+            fs::write(&path, bytes).unwrap();
+            path.display().to_string()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn drawn_from_disk(line: &str) -> Result<String, BuildError> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        build_files(&invocation, &mut Disk::default(), |_, _| None)
+    }
+
+    /// A BAM was refused, with the samtools command to pipe it through; it is
+    /// read as it is now, a window at a time through the index beside it.
+    #[test]
+    fn a_bam_on_disk_is_drawn_as_depth_and_as_reads() {
+        let dir = Scratch::new("bam");
+        let bam = dir.write("tiny.bam", &crate::read::bam::fixture::BAM);
+        dir.write("tiny.bam.bai", &crate::read::bam::fixture::BAI);
+        let svg = drawn_from_disk(&format!("chr1:10-35 --coverage {bam} --pileup {bam}")).unwrap();
+        // The pileup draws every mapped record over the window, a to f; g starts
+        // after it, and u is unmapped.
+        for read in ["10 to 19", "15 to 26", "18 to 25", "30 to 139"] {
+            assert!(
+                svg.contains(&format!("read, {read}")),
+                "no read {read}: {svg}"
+            );
+        }
+        // The depth tops out at three, which samtools depth says it does.
+        assert!(svg.contains(">3</text>"), "the depth's top is not 3");
+
+        // And without the index, from the start of the file.
+        fs::remove_file(dir.0.join("tiny.bam.bai")).unwrap();
+        let scanned =
+            drawn_from_disk(&format!("chr1:10-35 --coverage {bam} --pileup {bam}")).unwrap();
+        assert_eq!(scanned, svg);
+    }
+
+    /// A compressed file is text in a wrapper, and is read as the text.
+    #[test]
+    fn a_compressed_file_on_disk_is_read_as_the_text_inside() {
+        let dir = Scratch::new("gzip");
+        // "chr1 1 9 gene0 0 +" as a GFF3 row, compressed by gzip -9 -n.
+        let plain = "##gff-version 3\nchr1\t.\tgene\t10\t90\t.\t+\t.\tID=g1;Name=abcA\n";
+        let gz = dir.write("genes.gff3.gz", &gzip_of(plain.as_bytes()));
+        let svg = drawn_from_disk(&format!("chr1:1-100 --features {gz}")).unwrap();
+        assert!(svg.contains("abcA"), "{svg}");
+    }
+
+    /// A gzip member holding `data` in one stored block, which is all a test
+    /// needs: the reader takes any kind of block.
+    fn gzip_of(data: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
+        out.push(1);
+        let length = data.len() as u16;
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&(!length).to_le_bytes());
+        out.extend_from_slice(data);
+        let mut crc = !0u32;
+        for byte in data {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    0xedb8_8320 ^ (crc >> 1)
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        out.extend_from_slice(&(!crc).to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

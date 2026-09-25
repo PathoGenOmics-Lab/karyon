@@ -260,7 +260,7 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// Where a track's data comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Source {
     /// A file on disk.
     Path(PathBuf),

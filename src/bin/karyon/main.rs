@@ -284,7 +284,8 @@ only of --tree, --tanglegram and --snps tracks takes no region at all. Any
 track file may be - for standard input, and one track may take it.
 
 TRACKS
-    --coverage <FILE>    per-base signal: bedGraph, samtools depth, or values
+    --coverage <FILE>    per-base signal: bedGraph, samtools depth, values, or
+                         the depth of a BAM's reads
     --copy-number <FILE> segmented copy number, a caller's segment table;
                          the ploidy is a track option and is required
     --dynseq <FILE>      per-base model attribution, bedGraph, drawn as the
@@ -304,7 +305,7 @@ TRACKS
     --snps <FILE>        the variable sites of an alignment, aligned FASTA
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
     --matrix <FILE>      a value per sample per site, a table
-    --pileup <FILE>      aligned reads, SAM text from samtools view; takes
+    --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
                          minimap2; the most-aligned target is drawn and named
@@ -324,8 +325,8 @@ TRACKS
                          --modification says which one when a file holds several
     --structural <FILE>  structural calls as arcs between their breakpoints, a
                          VCF carrying symbolic alleles or SVTYPE
-    --split-reads <FILE> molecules that aligned in pieces, SAM carrying an SA
-                         tag; only primary alignments are read
+    --split-reads <FILE> molecules that aligned in pieces, a BAM or SAM carrying
+                         an SA tag; only primary alignments are read
     --bisulfite <FILE>   methylation one molecule at a time, a Bismark
                          methylation extractor file; --context says which
     --domains <FILE>     protein domains on an axis of residues, an
@@ -464,10 +465,12 @@ COORDINATES
     and samtools depth are read 1-based and inclusive. Both come out at the
     same place in the figure.
 
-BINARY FORMATS
-    BAM, CRAM and BCF are not read here. They come in through a pipe, since
-    samtools and bcftools already write what these readers take, and a track
-    handed one says which command writes it:
+COMPRESSED AND BINARY FILES
+    A file compressed with gzip or bgzip is read as the text inside it. A BAM
+    is read by --coverage, --pileup and --split-reads, through the .bai beside
+    it when there is one, so only the reads over the region are read. CRAM,
+    BCF and bigWig are not read here; a track handed one says which command
+    writes what it reads, and a pipe brings that in:
 
     samtools depth -a -r NC_000962.3:761000-763000 aln.bam \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
@@ -517,8 +520,10 @@ fn run(args: &[String]) -> Result<(), String> {
         args::Request::Draw(invocation) => invocation,
     };
 
-    let svg =
-        stack::build(&invocation, stack::open_from_disk).map_err(|error| error.to_string())?;
+    // Read through `Disk`, which takes compressed files out of their wrapper
+    // and reads a BAM a window at a time through its index.
+    let svg = stack::build_files(&invocation, &mut stack::Disk::default(), |_, _| None)
+        .map_err(|error| error.to_string())?;
     match &invocation.output {
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?

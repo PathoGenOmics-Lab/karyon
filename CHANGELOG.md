@@ -92,6 +92,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A file compressed with gzip or bgzip is read as the text inside it, by every
+  track and from standard input: a `.vcf.gz`, a `.gff3.gz` or a `.bed.gz` needs
+  no pipe. The decoder is the crate's own, `read::gzip`, so the crate still
+  brings in no dependency. It checks every member's CRC-32 and length, and a
+  damaged file is an error naming what was wrong. It was checked byte for byte
+  against `gzip -dc` on bgzip, `gzip -1` and `-9`, incompressible and
+  concatenated files, at 230 to 500 MB/s.
+- A BAM is read as it is by `--coverage`, `--pileup` and `--split-reads`,
+  through the `.bai` beside it when there is one, so a figure of one gene reads
+  the blocks that gene is in; without one the file is read from its start and
+  left once the reads pass the window. `read::bam` counts depth the way
+  `samtools depth -a` does by default and writes the reads as `samtools view`
+  prints them, and both were checked against samtools on 300,000 reads with
+  every CIGAR operation, flag and tag type, and a read of 70,000 CIGAR
+  operations kept in its CG tag. CRAM, BCF and bigWig still name the command
+  that reads them. `cli::stack::Files` is what the builder reads through, any
+  closure from a source to its text being one, and `cli::stack::Disk` is the
+  one the command line uses.
+
 - `karyon help <track>` prints one track's entry and only the options it takes,
   with a link to its page of the guide, and so does `--help` written after a
   track flag. The options are the parser's own answer, asked of it option by

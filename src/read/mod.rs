@@ -57,10 +57,12 @@ pub mod align;
 pub mod align_pairs;
 #[cfg(test)]
 mod audit;
+pub mod bam;
 pub mod bisulfite;
 pub mod clade;
 pub mod domain;
 pub mod dynseq;
+pub mod gzip;
 pub mod interval;
 pub mod junction;
 pub mod locus;
