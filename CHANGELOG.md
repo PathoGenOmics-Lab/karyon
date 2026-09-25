@@ -27,6 +27,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `example-dark.svg`, `example-zoom.svg`, `example-ideogram.svg`,
   `example-pileup.svg`, `example-association.svg`, `example-genomewide.svg`
   and `gallery.svg`.
+- Every column of words in a sample sheet deals its own stretch of the
+  palette, by its place in the sheet: two columns take three colours each and
+  three take two. They all dealt it from the first colour, so a lineage and a
+  country were one colour side by side, `L4` and `Kenya` the same blue, and two
+  simulated users called it misleading. The stretch goes by the sheet rather
+  than by what is drawn or how many levels come first, so neither `--columns`
+  nor an appended sample repaints anything. A tree coloured by a column starts
+  where the column does. `TraitColumn::first_color` sets it by hand.
+  `example-snps.svg` changes: its resistance strip no longer shares the
+  lineage strip's colours.
 - The command line names the bases' colours in the key under the figure while
   they are blocks too narrow for their letters, in the reference and in a
   pileup's mismatches, and says nothing of them once each is lettered. No

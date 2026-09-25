@@ -761,7 +761,7 @@ pub(super) fn unrooted_branch_colors(
     tree: &Tree,
     scene: &UnrootedScene,
     key: Option<&str>,
-    levels: &[String],
+    levels: Dealt<'_>,
     theme: &Theme,
     default_color: &str,
 ) -> PerNode<String> {
@@ -773,7 +773,11 @@ pub(super) fn unrooted_branch_colors(
     // rather than the nodes left visible, so folding a clade does not
     // repaint the rest. See `tree_domain`.
     let values = branch_values(tree, key);
-    let domain = TraitDomain::ordered(levels, values.iter().flatten().copied());
+    let domain = TraitDomain::ordered(
+        levels.first,
+        levels.levels,
+        values.iter().flatten().copied(),
+    );
     let continuous = is_continuous(&values);
     for node in &scene.visible {
         let color = if continuous {
@@ -813,7 +817,7 @@ pub(super) fn draw_unrooted_trait_rings(
             .collect();
         // The whole tree's count, the one every colour of this key comes
         // from. See `tree_domain`.
-        let domain = tree_domain(&track.tree, &column.key, &column.levels);
+        let domain = tree_domain(&track.tree, &column.key, column.dealt());
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]
                 .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);

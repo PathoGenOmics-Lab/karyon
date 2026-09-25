@@ -2115,3 +2115,20 @@ fn a_column_from_a_sheet_colours_the_tree_the_way_the_sheet_does() {
         ["country: Portugal", "country: Peru", "country: Spain"]
     );
 }
+
+/// Branches coloured by a column deal the palette as that column's strip
+/// does, from the colour the column starts at, so a level is one colour on a
+/// branch and in the cell beside its tip.
+#[test]
+fn branches_coloured_by_a_column_start_where_the_column_does() {
+    let track = TreeTrack::new(tree())
+        .trait_column(TraitColumn::categorical("country").first_color(3))
+        .color_by("country");
+    assert_eq!(track.color_levels().first, 3);
+    let plain = TreeTrack::new(tree()).color_by("country");
+    assert_eq!(
+        plain.color_levels().first,
+        0,
+        "no column, the palette's start"
+    );
+}

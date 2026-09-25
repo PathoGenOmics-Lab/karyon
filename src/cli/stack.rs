@@ -5048,6 +5048,46 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert!(!bare.contains("lineage: L4"));
     }
 
+    /// The colour of the swatch beside a key's label.
+    fn key_colour(svg: &str, label: &str) -> String {
+        let at = svg
+            .find(&format!(">{label}</text>"))
+            .unwrap_or_else(|| panic!("no key for {label}"));
+        let before = &svg[..svg[..at].rfind("<text").expect("the label's element")];
+        let fill = before.rfind("fill=\"#").expect("a swatch before the label");
+        before[fill + 6..fill + 13].to_string()
+    }
+
+    /// Branches coloured by lineage beside a strip of countries painted a
+    /// lineage and a country one colour; each column keeps its own stretch
+    /// of the palette, whichever of them is drawn.
+    #[test]
+    fn a_tree_s_branches_and_its_strips_keep_to_their_own_colours() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet =
+            "sample\tlineage\tcountry\na\tL4\tKenya\nb\tL4\tSpain\nc\tL2\tKenya\nd\tL1\tVietnam\n";
+        let held = [("t.nwk", tree), ("s.tsv", sheet)];
+        let both = drawn_from("--tree t.nwk --traits s.tsv --color-by lineage", &held).unwrap();
+        assert_ne!(
+            key_colour(&both, "lineage: L4"),
+            key_colour(&both, "country: Kenya")
+        );
+        let alone = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns country --color-by lineage",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(
+            key_colour(&alone, "country: Kenya"),
+            key_colour(&both, "country: Kenya"),
+            "a country's colour hung on which columns were drawn"
+        );
+        assert_ne!(
+            key_colour(&alone, "lineage: L4"),
+            key_colour(&alone, "country: Kenya")
+        );
+    }
+
     /// Bases too narrow for their letters are blocks of colour, which the key
     /// names; with letters, or with nothing drawn, there is nothing to name.
     /// No simulated user could say which colour was which base.

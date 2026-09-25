@@ -39,7 +39,7 @@ use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
-use crate::track::traits::{binary_state, draw_column, TraitDomain, TraitRow};
+use crate::track::traits::{binary_state, draw_column, Dealt, TraitDomain, TraitRow};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
 
@@ -702,7 +702,7 @@ fn key_of(
     scale: TraitScale,
     tree: &Tree,
     key: &str,
-    levels: &[String],
+    levels: Dealt<'_>,
     theme: &Theme,
 ) -> crate::track::legend::Legend {
     let domain = rectangular::tree_domain(tree, key, levels);
@@ -1732,7 +1732,7 @@ impl TreeTrack {
             .iter()
             .map(|column| {
                 let values = rectangular::branch_values(&self.tree, &column.key);
-                let domain = rectangular::tree_domain(&self.tree, &column.key, &column.levels);
+                let domain = rectangular::tree_domain(&self.tree, &column.key, column.dealt());
                 let mut levels: Vec<crate::TraitLevel> = Vec::new();
                 let mut of: Vec<Option<usize>> = vec![None; nodes];
                 match column.scale {
@@ -1821,7 +1821,7 @@ impl TreeTrack {
                 column.scale,
                 &self.tree,
                 &column.key,
-                &column.levels,
+                column.dealt(),
                 theme,
             );
             keyed.push((&column.key, column.scale));
@@ -1832,7 +1832,7 @@ impl TreeTrack {
     /// The order the branch colour key's levels are dealt the palette in: the
     /// one a trait column over the same key carries from its sheet, so the
     /// branches and the strip beside them agree, and otherwise none.
-    fn color_levels(&self) -> &[String] {
+    fn color_levels(&self) -> Dealt<'_> {
         self.color_by
             .as_deref()
             .and_then(|key| {
@@ -1840,7 +1840,7 @@ impl TreeTrack {
                     .iter()
                     .find(|column| column.key == key && column.scale == TraitScale::Categorical)
             })
-            .map_or(&[], |column| column.levels.as_slice())
+            .map_or(Dealt::default(), TraitColumn::dealt)
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
