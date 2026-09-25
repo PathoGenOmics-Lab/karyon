@@ -632,8 +632,9 @@ Write a wide figure on a dark page to standard output, for a pipe.
 Without `-o` the document goes to standard output, so it can be piped into
 whatever converts or embeds it. The dark theme is a set of colours chosen for
 a dark page, not the light one inverted: a dark background wants a narrower
-band of lightness than a flipped palette lands in. `karyon --help` is the whole
-grammar on one screen, and [Command line](guide/cli.md) is the long form.
+band of lightness than a flipped palette lands in. `karyon --help` fits on one
+screen, `karyon help <track>` lists one track's options, and
+[Command line](guide/cli.md) is the long form.
 
 ### The same stack, light and dark
 

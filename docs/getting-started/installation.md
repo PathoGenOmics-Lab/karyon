@@ -34,7 +34,8 @@ karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
 
 ```bash
 karyon --version   # prints karyon and the version number
-karyon --help      # the whole command grammar on one screen
+karyon --help      # what to type, on one screen
+karyon help coverage   # one track: what it reads and the options it takes
 ```
 
 For the library, this small program builds a figure and reports its size:

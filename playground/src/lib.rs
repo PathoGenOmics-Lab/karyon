@@ -173,7 +173,9 @@ fn run(mut input: &[u8]) -> Result<String, String> {
         args::Request::Draw(invocation) => invocation,
         // A page has nowhere to print to and no exit code, so the two requests
         // that are not a figure are answered as text rather than performed.
-        args::Request::Help => return Err("--help prints to a terminal".to_string()),
+        args::Request::Help | args::Request::HelpOn(_) => {
+            return Err("--help prints to a terminal".to_string())
+        }
         // `karyon::VERSION` and not this crate's own, which is the shim's.
         args::Request::Version => return Err(format!("karyon {}", karyon::VERSION)),
     };

@@ -27,7 +27,247 @@ use std::fs;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-/// What `--help` prints.
+/// What `--help` prints: enough to write a first command, on one screen.
+///
+/// The whole of it is `karyon help all`, [`HELP`], which is two hundred lines
+/// and was what `--help` printed. Everything a reader needs to choose is here,
+/// and everything they need to use one track is one `karyon help <track>`
+/// away, which prints only the options that track takes.
+const SHORT: &str = "\
+karyon, genomic tracks on one shared coordinate axis
+
+USAGE
+    karyon <REGION> --<track> <FILE> [options] [--<track> <FILE> ...] -o fig.svg
+
+    karyon chr1:10,000-20,000 --coverage depth.bedgraph --label depth \\
+      --features genes.gff3 --variants calls.vcf -o locus.svg
+
+The region comes first, and a figure of trees needs none. Each --<track> starts
+a track and the options after it describe that track, so tracks stack in the
+order they are written. The figure is SVG, on standard output unless -o names
+a file.
+
+TRACKS, by what they draw
+    signal and sequence   --coverage --windows --methylation --sequence
+                          --logo --dynseq
+    annotation            --features --orfs
+    variation             --variants --structural --copy-number --snps
+                          --matrix --manhattan
+    reads and molecules   --pileup --split-reads --bisulfite --junctions
+    comparison            --msa --domains --dotplot --synteny --loci
+    phylogeny             --tree --tanglegram --clades
+    whole genome          --ideogram
+    scales                --axis
+
+FIGURE OPTIONS, anywhere on the line
+    --title <TEXT>   --width <PX>   --theme light|dark   -o <FILE>
+
+MORE
+    karyon help <track>   what one track reads and the options it takes,
+                          as in karyon help coverage
+    karyon help all       every track and every option, in full
+    https://pathogenomics-lab.github.io/karyon/
+";
+
+/// Where the guide describes each track, under the site's address.
+fn guide_page(kind: args::Kind) -> &'static str {
+    use args::Kind;
+    match kind {
+        Kind::Coverage => "tracks/signal-sequence/#coveragetrack",
+        Kind::Windows => "tracks/signal-sequence/#windowtrack",
+        Kind::Methylation => "tracks/signal-sequence/#methylationtrack",
+        Kind::Sequence => "tracks/signal-sequence/#sequencetrack",
+        Kind::Logo => "tracks/signal-sequence/#logotrack",
+        Kind::Dynseq => "tracks/signal-sequence/#dynseqtrack",
+        Kind::Features => "tracks/annotation/#featuretrack",
+        Kind::Orfs => "tracks/annotation/#orftrack",
+        Kind::Variants => "tracks/variation/#varianttrack",
+        Kind::Structural => "tracks/variation/#structuraltrack",
+        Kind::CopyNumber => "tracks/variation/#copynumbertrack",
+        Kind::Snps => "tracks/variation/#snptrack",
+        Kind::Matrix => "tracks/variation/#matrixtrack",
+        Kind::Manhattan => "tracks/variation/#manhattantrack",
+        Kind::Pileup => "tracks/reads-molecules/#pileuptrack",
+        Kind::SplitReads => "tracks/reads-molecules/#splitreadtrack",
+        Kind::Bisulfite => "tracks/reads-molecules/#bisulfitetrack",
+        Kind::Junctions => "tracks/reads-molecules/#junctiontrack",
+        Kind::Msa => "tracks/comparison/#msatrack",
+        Kind::Domains => "tracks/comparison/#domaintrack",
+        Kind::Dotplot => "tracks/comparison/#dotplottrack",
+        Kind::Synteny => "tracks/comparison/#syntenytrack",
+        Kind::Loci => "tracks/comparison/#locustrack",
+        Kind::Tree => "tracks/phylogeny/#treetrack",
+        Kind::Tanglegram => "tracks/phylogeny/#tanglegramtrack",
+        Kind::Clades => "tracks/phylogeny/#cladetrack",
+        Kind::Ideogram => "tracks/whole-genome/#ideogramtrack",
+        Kind::Axis => "tracks/scales-keys/#axistrack",
+    }
+}
+
+/// The site's address, which every page of help ends by pointing at.
+const GUIDE: &str = "https://pathogenomics-lab.github.io/karyon/";
+
+/// A value each option that takes one accepts, for asking the parser whether
+/// a track takes the option at all.
+///
+/// The help on a track lists the options the parser answers to after that
+/// track and no others, and asks the parser rather than keeping a list, so
+/// the two cannot come apart. The question needs a value the option would
+/// take, since an option reads its value before it looks at the track, and a
+/// value it would refuse says nothing about the track. A test checks there is
+/// one here for every option that takes a value.
+const SAMPLES: &[(&str, &str)] = &[
+    ("--label", "depth"),
+    ("--against", "b.nwk"),
+    ("--with-sequence", "ref.fa"),
+    ("--with-tree", "t.nwk"),
+    ("--links", "l.tsv"),
+    ("--identity", "percent"),
+    ("--modification", "m"),
+    ("--context", "CpG"),
+    ("--analysis", "Pfam"),
+    ("--ploidy", "2"),
+    ("--sample", "s1"),
+    ("--traits", "s.tsv"),
+    ("--columns", "a"),
+    ("--height", "50"),
+    ("--threshold", "7"),
+    ("--projection", "circular"),
+    ("--color-by", "lineage"),
+    ("--support-style", "both"),
+    ("--mutations", "muts"),
+    ("--highlight", "a"),
+    ("--carrying", "A1T"),
+    ("--shape", "cladogram"),
+    ("--focus", "a"),
+    ("--compare-to", "r"),
+    ("--min-reads", "2"),
+    ("--row-height", "10"),
+    ("--max-rows", "10"),
+    ("--aggregate", "max"),
+    ("--style", "line"),
+    ("--color", "#d55e00"),
+    ("--format", "bedgraph"),
+];
+
+/// The lines of one section of [`HELP`], from under its heading to the next.
+fn section(heading: &str) -> &'static str {
+    let from = HELP
+        .find(&format!("\n{heading}"))
+        .and_then(|at| HELP[at + 1..].find('\n').map(|end| at + 1 + end + 1))
+        .unwrap_or(HELP.len());
+    let rest = &HELP[from..];
+    // A heading is a line that starts at the margin with a capital.
+    let to = rest
+        .match_indices('\n')
+        .map(|(at, _)| at + 1)
+        .find(|at| rest[*at..].starts_with(|c: char| c.is_ascii_uppercase()))
+        .unwrap_or(rest.len());
+    &rest[..to]
+}
+
+/// The entries of a section, each a flag and every line written about it.
+fn entries(section: &str) -> Vec<(&str, String)> {
+    let mut found: Vec<(&str, String)> = Vec::new();
+    for line in section.lines() {
+        let continues = line.starts_with("     ") && !found.is_empty();
+        if continues {
+            let text = &mut found.last_mut().expect("an entry to continue").1;
+            text.push_str(line);
+            text.push('\n');
+            continue;
+        }
+        let Some(entry) = line
+            .strip_prefix("    ")
+            .filter(|entry| entry.starts_with('-'))
+        else {
+            continue;
+        };
+        let flag = entry.split_whitespace().next().unwrap_or(entry);
+        found.push((flag.trim_end_matches(','), format!("{line}\n")));
+    }
+    found
+}
+
+/// Whether the parser takes `flag` after a `kind` track.
+///
+/// Asked of the parser itself, so the answer is the grammar's: an option a
+/// track has no use for is refused by name, and that refusal is the one thing
+/// that means no. A line that fails for any other reason, such as a second
+/// file not yet named, took the option.
+fn takes(kind: args::Kind, flag: &str) -> bool {
+    let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
+    if kind != args::Kind::Axis {
+        line.push("x.txt".to_string());
+    }
+    line.push(flag.to_string());
+    if let Some((_, value)) = SAMPLES.iter().find(|(name, _)| *name == flag) {
+        line.push((*value).to_string());
+    }
+    !matches!(args::parse(&line), Err(args::ArgError::WrongTrack { .. }))
+}
+
+/// The help on one topic: everything for `all`, and for a track its entry,
+/// the options it takes and the page of the guide about it.
+fn help_on(topic: &str) -> Result<String, String> {
+    if topic == "all" {
+        return Ok(HELP.to_string());
+    }
+    let dashed = if topic.starts_with("--") {
+        topic.to_string()
+    } else {
+        format!("--{topic}")
+    };
+    let Some(kind) = args::Kind::ALL
+        .iter()
+        .copied()
+        .find(|kind| kind.dashed() == dashed)
+    else {
+        let near = args::nearest_flag(&dashed)
+            .filter(|flag| args::Kind::ALL.iter().any(|kind| kind.dashed() == *flag));
+        return Err(match near {
+            Some(flag) => format!(
+                "no track is called {topic}; did you mean {}? karyon --help lists them",
+                &flag[2..]
+            ),
+            None => format!(
+                "no track is called {topic}; karyon --help lists them, and karyon help all has everything"
+            ),
+        });
+    };
+
+    let mut out = String::new();
+    for (flag, text) in entries(section("TRACKS")) {
+        if flag == kind.dashed() {
+            out.push_str(&text);
+        }
+    }
+    let options: Vec<String> = entries(section("TRACK OPTIONS"))
+        .into_iter()
+        .filter(|(flag, _)| takes(kind, flag))
+        .map(|(_, text)| text)
+        .collect();
+    if !options.is_empty() {
+        out.push_str(&format!(
+            "\nOPTIONS, each written after {} and before the next track\n",
+            kind.dashed()
+        ));
+        for text in options {
+            out.push_str(&text);
+        }
+    }
+    out.push_str(
+        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme, --no-axis,\n\
+         --no-region-label and -o.\n",
+    );
+    out.push_str(&format!(
+        "\nMore, with examples: {GUIDE}{}\n",
+        guide_page(kind)
+    ));
+    Ok(out)
+}
+
+/// What `karyon help all` prints: every track and every option, in full.
 const HELP: &str = "\
 karyon, genomic track plots on one shared coordinate axis
 
@@ -226,7 +466,8 @@ COORDINATES
 
 BINARY FORMATS
     BAM, CRAM and BCF are not read here. They come in through a pipe, since
-    samtools and bcftools already write what these readers take:
+    samtools and bcftools already write what these readers take, and a track
+    handed one says which command writes it:
 
     samtools depth -a -r NC_000962.3:761000-763000 aln.bam \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
@@ -253,10 +494,20 @@ fn main() -> ExitCode {
 
 /// Everything `main` does, with the errors still values.
 fn run(args: &[String]) -> Result<(), String> {
+    // Nothing at all is someone finding out what this is, and the answer is
+    // the help rather than an error telling them to ask for it.
+    if args.is_empty() {
+        print!("{SHORT}");
+        return Ok(());
+    }
     let request = args::parse(args).map_err(|error| error.to_string())?;
     let invocation = match request {
         args::Request::Help => {
-            print!("{HELP}");
+            print!("{SHORT}");
+            return Ok(());
+        }
+        args::Request::HelpOn(topic) => {
+            print!("{}", help_on(&topic)?);
             return Ok(());
         }
         args::Request::Version => {
@@ -342,21 +593,30 @@ mod tests {
         // A match arm on a flag, at the indentation the parse loop is written
         // at, so a flag named in a comment or a message is not mistaken for one
         // the parser answers to.
+        //
+        // Three shapes of arm: `"--label" =>`, `"-o" | "--output" =>`, and
+        // `flag @ ("--against" | "--with-tree" | ...) =>`, which binds the
+        // spelling for the one mechanism several flags share. Reading only the
+        // first shape left the second and third out of this check, and so out
+        // of the list a mistyped flag is matched against.
         let mut flags: Vec<String> = Vec::new();
         for line in PARSER.lines() {
-            let Some(rest) = line.strip_prefix("            \"--") else {
+            let Some(rest) = line.strip_prefix("            ") else {
                 continue;
             };
+            let rest = rest.strip_prefix("flag @ (").unwrap_or(rest);
+            if !rest.starts_with("\"-") {
+                continue;
+            }
             let Some(arms) = rest.split(" =>").next() else {
                 continue;
             };
             if arms.len() == rest.len() {
                 continue;
             }
-            let whole = format!("\"--{arms}");
-            for piece in whole.split(" | ") {
+            for piece in arms.trim_end_matches(')').split(" | ") {
                 let flag = piece.trim().trim_matches('"').to_string();
-                if flag.starts_with("--") && !flags.contains(&flag) {
+                if flag.starts_with('-') && flag != "-" && !flags.contains(&flag) {
                     flags.push(flag);
                 }
             }
@@ -366,6 +626,16 @@ mod tests {
             "only {} flags found; the parse loop has been rewritten and this no longer reads it",
             flags.len()
         );
+        // The list a mistyped flag is matched against is the same list.
+        let mut listed: Vec<&str> = args::FLAGS
+            .iter()
+            .copied()
+            .filter(|flag| !matches!(*flag, "--help" | "--version"))
+            .collect();
+        let mut answered: Vec<&str> = flags.iter().map(String::as_str).collect();
+        listed.sort_unstable();
+        answered.sort_unstable();
+        assert_eq!(listed, answered, "args::FLAGS and the parse loop disagree");
         for flag in &flags {
             assert!(
                 HELP.contains(flag.as_str()),
@@ -381,84 +651,35 @@ mod tests {
     /// Every option that takes a value takes one: given twice, to one track or
     /// to the figure, it is refused rather than the last one winning.
     ///
-    /// Driven by the help text, so an option added there is checked here or
-    /// the test says which one it has no line for. `--highlight` is the one
-    /// that adds to a list, so a second one is a second clade and not a
-    /// contradiction.
+    /// Driven by the help text, so every option written there is checked, on
+    /// a track the parser says takes it. `--highlight` is the one that adds to
+    /// a list, so a second one is a second clade and not a contradiction.
     #[test]
     fn every_option_that_takes_a_value_refuses_a_second_one() {
-        // A line each option means something on, and a value it takes.
-        const LINES: &[(&str, &str, &str)] = &[
-            ("--label", "chr1:1-10 --coverage d.bg", "depth"),
-            ("--against", "--tanglegram a.nwk", "b.nwk"),
-            ("--with-sequence", "chr1:1-10 --pileup r.sam", "ref.fa"),
-            ("--with-tree", "chr1:1-10 --clades c.gff", "t.nwk"),
-            ("--links", "chr1:1-10 --loci l.bed", "l.tsv"),
-            (
-                "--identity",
-                "chr1:1-10 --loci l.bed --links l.tsv",
-                "percent",
-            ),
-            ("--modification", "chr1:1-10 --methylation m.bed", "m"),
-            ("--context", "chr1:1-10 --bisulfite b.txt", "CpG"),
-            ("--analysis", "chr1:1-10 --domains d.tsv", "Pfam"),
-            ("--ploidy", "chr1:1-10 --copy-number c.tsv", "2"),
-            ("--sample", "chr1:1-10 --copy-number c.tsv --ploidy 2", "s1"),
-            ("--traits", "chr1:1-10 --matrix m.tsv", "s.tsv"),
-            ("--columns", "chr1:1-10 --matrix m.tsv --traits s.tsv", "a"),
-            ("--height", "chr1:1-10 --coverage d.bg", "50"),
-            ("--threshold", "chr1:1-10 --manhattan m.tsv", "7"),
-            ("--projection", "--tree t.nwk", "circular"),
-            ("--color-by", "--tree t.nwk", "lineage"),
-            ("--support-style", "--tree t.nwk", "both"),
-            ("--mutations", "--tree t.nwk --carrying A1T", "muts"),
-            ("--carrying", "--tree t.nwk --mutations muts", "A1T"),
-            ("--shape", "--tree t.nwk", "cladogram"),
-            ("--focus", "--tree t.nwk", "a"),
-            ("--compare-to", "chr1:1-10 --msa a.fa", "r"),
-            ("--min-reads", "chr1:1-10 --junctions j.tab", "2"),
-            ("--row-height", "chr1:1-10 --features f.bed", "10"),
-            ("--max-rows", "chr1:1-10 --pileup r.sam", "10"),
-            ("--aggregate", "chr1:1-10 --coverage d.bg", "max"),
-            ("--style", "chr1:1-10 --coverage d.bg", "line"),
-            ("--color", "chr1:1-10 --coverage d.bg", "#d55e00"),
-            ("--format", "chr1:1-10 --coverage d.bg", "bedgraph"),
-            ("--title", "chr1:1-10", "a"),
-            ("--width", "chr1:1-10", "500"),
-            ("--theme", "chr1:1-10", "dark"),
-            ("--output", "chr1:1-10", "a.svg"),
-        ];
-        let options = HELP
-            .split_once("\nTRACK OPTIONS")
-            .expect("the help text has a TRACK OPTIONS section")
-            .1
-            .split_once("\nCOORDINATES")
-            .expect("the options end before COORDINATES")
-            .0;
         let mut checked = 0;
-        for line in options.lines() {
-            // An option that takes a value is written with its placeholder:
-            // "    --label <TEXT>", and "    -o, --output <FILE>".
-            let Some(entry) = line.strip_prefix("    ") else {
-                continue;
-            };
-            let Some((names, _)) = entry.split_once(" <") else {
-                continue;
-            };
-            let Some(flag) = names
-                .rsplit(", ")
-                .next()
-                .filter(|flag| flag.starts_with("--"))
-            else {
-                continue;
-            };
-            if flag == "--highlight" {
+        for (flag, text) in entries(section("TRACK OPTIONS")) {
+            let first = text.lines().next().unwrap_or_default();
+            if flag == "--highlight" || !first.contains(" <") {
                 continue;
             }
-            let Some((_, context, value)) = LINES.iter().find(|(name, ..)| *name == flag) else {
-                panic!("{flag} takes a value and has no line in this test");
+            let kind = args::Kind::ALL
+                .iter()
+                .copied()
+                .find(|kind| takes(*kind, flag))
+                .unwrap_or_else(|| panic!("no track takes {flag}"));
+            let (_, value) = SAMPLES
+                .iter()
+                .find(|(name, _)| *name == flag)
+                .unwrap_or_else(|| panic!("{flag} takes a value and has no sample"));
+            let file = if kind == args::Kind::Axis {
+                ""
+            } else {
+                "x.txt"
             };
-            let line = format!("{context} {flag} {value} {flag} {value}");
+            let line = format!(
+                "chr1:1-10 {} {file} {flag} {value} {flag} {value}",
+                kind.dashed()
+            );
             let error = run(&line
                 .split_whitespace()
                 .map(String::from)
@@ -467,11 +688,151 @@ mod tests {
             assert!(error.contains("given twice"), "{line}: {error}");
             checked += 1;
         }
-        assert_eq!(
-            checked,
-            LINES.len(),
-            "a line here names an option the help does not"
-        );
+        for (flag, value) in [
+            ("--title", "a"),
+            ("--width", "500"),
+            ("--theme", "dark"),
+            ("-o", "a.svg"),
+        ] {
+            let line = format!("chr1:1-10 {flag} {value} {flag} {value}");
+            let error = run(&line
+                .split_whitespace()
+                .map(String::from)
+                .collect::<Vec<_>>())
+            .expect_err(&line);
+            assert!(error.contains("given twice"), "{line}: {error}");
+            checked += 1;
+        }
+        assert!(checked > 30, "only {checked} options were checked");
+    }
+
+    /// The help a reader meets first, which has to fit where they meet it.
+    #[test]
+    fn the_short_help_fits_on_a_screen_and_names_every_track() {
+        let lines: Vec<&str> = SHORT.lines().collect();
+        assert!(lines.len() <= 40, "{} lines", lines.len());
+        for line in &lines {
+            assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
+        }
+        for kind in args::Kind::ALL {
+            let named = SHORT.split_whitespace().any(|word| word == kind.dashed());
+            assert!(named, "the short help does not name {}", kind.dashed());
+        }
+        assert!(SHORT.contains("karyon help <track>"));
+        assert!(SHORT.contains("karyon help all"));
+    }
+
+    /// Every track has help of its own, which points at a page of the guide
+    /// that exists.
+    #[test]
+    fn every_track_has_help_and_a_page_of_the_guide() {
+        let root = env!("CARGO_MANIFEST_DIR");
+        for kind in args::Kind::ALL {
+            let help = help_on(&kind.dashed()[2..]).expect("a track has help");
+            assert!(
+                help.starts_with(&format!("    {}", kind.dashed())),
+                "{help}"
+            );
+            let (page, anchor) = guide_page(kind)
+                .split_once("/#")
+                .expect("a page and an anchor");
+            let path = format!("{root}/docs/{page}.md");
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            assert!(
+                text.contains(&format!("{{ #{anchor} }}")),
+                "{path} has no #{anchor}"
+            );
+            // With the dashes or without them, and after a track flag.
+            assert_eq!(help_on(kind.dashed()).unwrap(), help);
+        }
+    }
+
+    /// What the help on a track lists is what the parser takes after it: a
+    /// few facts, each of which a hand-kept list could get wrong.
+    #[test]
+    fn the_help_on_a_track_lists_the_options_it_takes_and_no_others() {
+        let options = |track: &str| -> Vec<String> {
+            help_on(track)
+                .unwrap()
+                .lines()
+                .skip(1)
+                .filter_map(|line| line.strip_prefix("    --"))
+                .map(|rest| format!("--{}", rest.split_whitespace().next().unwrap_or(rest)))
+                .collect()
+        };
+        let coverage = options("coverage");
+        for flag in [
+            "--label",
+            "--height",
+            "--aggregate",
+            "--style",
+            "--log",
+            "--format",
+        ] {
+            assert!(
+                coverage.contains(&flag.to_string()),
+                "coverage lacks {flag}"
+            );
+        }
+        for flag in ["--ploidy", "--projection", "--row-height", "--traits"] {
+            assert!(
+                !coverage.contains(&flag.to_string()),
+                "coverage lists {flag}"
+            );
+        }
+        assert!(options("copy-number").contains(&"--ploidy".to_string()));
+        assert!(options("tree").contains(&"--projection".to_string()));
+        assert!(!options("tree").contains(&"--aggregate".to_string()));
+        assert!(options("pileup").contains(&"--with-sequence".to_string()));
+    }
+
+    /// A sample that an option would refuse says nothing about which tracks
+    /// take it, since the value is read before the track is looked at: every
+    /// sample has to be one some track accepts.
+    #[test]
+    fn every_sample_is_a_value_its_option_accepts_somewhere() {
+        for (flag, text) in entries(section("TRACK OPTIONS")) {
+            if !text.lines().next().unwrap_or_default().contains(" <") {
+                continue;
+            }
+            let (_, value) = SAMPLES
+                .iter()
+                .find(|(name, _)| *name == flag)
+                .unwrap_or_else(|| panic!("{flag} takes a value and has no sample"));
+            let accepted = args::Kind::ALL.iter().any(|kind| {
+                let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
+                if *kind != args::Kind::Axis {
+                    line.push("x.txt".to_string());
+                }
+                line.extend([flag.to_string(), value.to_string()]);
+                !matches!(
+                    args::parse(&line),
+                    Err(args::ArgError::WrongTrack { .. } | args::ArgError::BadValue { .. })
+                )
+            });
+            assert!(accepted, "no track takes {flag} {value}");
+        }
+    }
+
+    #[test]
+    fn a_topic_that_is_no_track_says_which_one_was_meant() {
+        let error = help_on("coverge").unwrap_err();
+        assert!(error.contains("did you mean coverage?"), "{error}");
+        let error = help_on("genes").unwrap_err();
+        assert!(error.contains("karyon --help lists them"), "{error}");
+        assert_eq!(help_on("all").unwrap(), HELP);
+    }
+
+    #[test]
+    fn nothing_at_all_and_help_after_a_track_print_help_and_not_an_error() {
+        assert!(run(&[]).is_ok());
+        let line: Vec<String> = "chr1:1-10 --coverage d.bg --help"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        assert!(run(&line).is_ok());
+        assert!(run(&["help".to_string(), "tree".to_string()]).is_ok());
+        assert!(run(&["help".to_string(), "nothing".to_string()]).is_err());
     }
 
     /// The same loop for the words `--style` takes, against the parser's own
