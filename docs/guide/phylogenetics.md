@@ -467,7 +467,9 @@ class with an invalid rate or weight is left out.
 `HomoplasyLayer` joins the branches that carry the same annotation with dashed
 curves, once it is on `minimum_occurrences` branches (2 by default), and draws
 at most `maximum_connections` curves (96), so a common event cannot turn a
-dense tree into a web. It calls them recurrent events: whether they are
+dense tree into a web. A brace-delimited list is read one event at a time, as
+`BranchEventLayer` reads it, so a branch carrying `{S45N,E88K}` is joined to
+every branch carrying either. It calls them recurrent events: whether they are
 convergence or reversal is for the analysis to settle.
 
 Site models belong on the coordinate axis:

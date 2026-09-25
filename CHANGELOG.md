@@ -339,6 +339,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `HomoplasyLayer` reads a list annotation one event at a time, as
+  `BranchEventLayer` already did. It read the list whole, as the text it prints
+  as, so a branch carrying `{S45N,E88K}` and one carrying `{S45N}` held two
+  different events and were never joined, while two lists of one change were
+  joined under a tooltip reading `{S45N}`. A change listed twice on one branch
+  is still one branch, and is not joined to itself. Every committed figure is
+  byte for byte what it was.
 - A phylogeny's settings count the same in whatever order they are written.
   `time`, `dnds` and `branch_labels` started their layer afresh, so a unit, a
   direction or a hidden axis written before `time`, a `dnds_` setting written

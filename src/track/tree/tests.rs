@@ -534,6 +534,43 @@ fn recurrent_events_connect_branches_without_inheriting_singletons() {
 }
 
 #[test]
+fn recurrent_events_are_read_out_of_a_list_one_event_at_a_time() {
+    // A list is several events, and the branch event layer draws it as
+    // several. This layer read it whole, as the text it prints as, so
+    // `{S45N,E88K}` and `{S45N}` were two different events and a change on
+    // both branches was never joined, while two lists of one were joined
+    // under a tooltip reading `{S45N}`. A change listed twice on one branch
+    // is still one branch, and is not joined to itself.
+    let source = concat!(
+        "((A[&events={S45N,E88K}]:0.8,B[&events={private}]:0.8):0.6,",
+        "(C[&events={S45N}]:0.7,D[&events={E88K,E88K}]:0.7):0.7);"
+    );
+    for projection in [
+        TreeProjection::Rectangular,
+        TreeProjection::Circular,
+        TreeProjection::Unrooted,
+    ] {
+        let svg = drawn(
+            TreeTrack::new(Tree::parse_annotated_newick(source).unwrap())
+                .projection(projection)
+                .homoplasy("events"),
+        );
+        for event in ["S45N", "E88K"] {
+            assert_eq!(
+                svg.matches(&format!(
+                    "<title>recurrent event events = {event}; 2 branches</title>"
+                ))
+                .count(),
+                1,
+                "one link between the two branches carrying {event} in {projection:?}: {svg}"
+            );
+        }
+        assert!(!svg.contains("events = private"), "{svg}");
+        assert!(!svg.contains("events = {"), "{svg}");
+    }
+}
+
+#[test]
 fn branch_geometry_changes_connections_without_changing_the_owned_tree() {
     let source = "((A:1,B:1)AB:1,C:2)root;";
     let orthogonal = Figure::new(region())

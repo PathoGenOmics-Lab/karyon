@@ -235,6 +235,10 @@ impl BranchRateMixture {
 
 /// Connections between branches carrying the same direct event annotation.
 ///
+/// A list annotation is read one event at a time, as [`BranchEventLayer`]
+/// reads it, so a branch carrying `{S45N,E88K}` is joined to every other
+/// branch carrying either change.
+///
 /// This is deliberately named for a visual hypothesis rather than a proof:
 /// repeated ancestral-state reconstructions can represent convergence,
 /// reversal or uncertainty.  The tooltip calls them recurrent events and
