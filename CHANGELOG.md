@@ -46,6 +46,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   colours, and `Legend::and` joins two keys without saying a colour twice. No
   committed figure changes: the library adds no key a caller did not ask for.
 
+- `karyon help <track>` gives what that track does with an option several
+  tracks share, where it gave every track's: the tree's help ran to seventy
+  lines, through what a scan does with `--threshold` and a pileup with
+  `--max-rows`, and is now fifty-seven. `karyon help all` keeps every word.
 - `karyon --help` fits on one screen: three examples, the grammar, every track
   grouped by what it draws, the figure options, and where to ask for more. It
   printed the whole of the help, some two hundred lines, which `karyon help
