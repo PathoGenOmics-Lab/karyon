@@ -176,7 +176,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 ![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](../assets/figures/example-phylo-faces.svg){ width="1386" height="660" loading="lazy" }
 </figure>
 
-**Support, labels and scale.** `support_style` makes support visible as scaled symbols, labels or both, and `support_threshold` takes a fraction or a percentage: `0.8` and `80.0` both mean eighty per cent. `branch_labels` prints a node's own annotation along its branch and never inherits an ancestor's, which suits mutations and other events that belong to one branch. `scale_bar` adds a ruler in branch-length units to a phylogram and refuses to imply those units on a cladogram or a dated tree.
+**Support, labels and scale.** `support_style` makes support visible as scaled symbols, labels or both, and `support_threshold` takes a fraction or a percentage: `0.8` and `80.0` both mean eighty per cent. A tree's own values are read one way for the whole tree, out of a hundred when any of them runs above one, so a clade at 1 on a bootstrap tree is one per cent. `branch_labels` prints a node's own annotation along its branch and never inherits an ancestor's, which suits mutations and other events that belong to one branch. `scale_bar` adds a ruler in branch-length units to a phylogram and refuses to imply those units on a cladogram or a dated tree.
 
 <figure class="k-plate" markdown>
 ![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }

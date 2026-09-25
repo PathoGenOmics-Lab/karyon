@@ -321,7 +321,9 @@ channel of its own.
 `SupportStyle::None`, the default, keeps support in the tooltips; `Symbols`
 scales a marker by it, `Labels` prints it and `SymbolsAndLabels` does both.
 `support_threshold` hides weaker values in either convention, `0.70` or `70`,
-and a label keeps the value as the file wrote it.
+and a label keeps the value as the file wrote it. The convention is read once
+for the whole tree: one value above one puts every value out of a hundred, so a
+clade at 1 on a bootstrap tree is one per cent and not full support.
 
 `branch_labels(key)` writes a node's own annotation along its incoming branch
 and never inherits, so a mutation is not repeated on every descendant. Labels

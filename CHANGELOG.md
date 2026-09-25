@@ -591,6 +591,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- A tree's support is read out of a hundred or out of one once for the whole
+  tree, out of a hundred when any value runs above one. It was read value by
+  value, so a clade at 1 on a bootstrap tree was drawn as full support, at
+  the largest size and past any threshold asked for.
 - `--features` draws a gene once. An annotation writes it at every level, and
   each was drawn as a feature of its own: NCBI's five rows for one gene came out
   as the chromosome, named `ANONYMOUS`, the gene, its transcript, two exons and

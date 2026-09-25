@@ -1614,8 +1614,11 @@ impl TreeTrack {
 
     /// Chooses how internal-node support is made visible.
     ///
-    /// Values in either the `0..=1` or `0..=100` convention are recognised.
-    /// Their original representation is retained in labels and tooltips.
+    /// Values in either the `0..=1` or `0..=100` convention are recognised,
+    /// once for the whole tree: when any value runs above one, every value is
+    /// read out of a hundred, so a clade at 1 on a bootstrap tree is one
+    /// percent and not full support. Their original representation is
+    /// retained in labels and tooltips.
     pub fn support_style(mut self, style: SupportStyle) -> Self {
         self.support_style = style;
         self
@@ -1626,7 +1629,7 @@ impl TreeTrack {
     /// `0.8` and `80.0` both mean eighty percent. Non-finite values reset the
     /// threshold to zero.
     pub fn support_threshold(mut self, minimum: f64) -> Self {
-        self.support_threshold = support_fraction(minimum).unwrap_or(0.0);
+        self.support_threshold = threshold_fraction(minimum).unwrap_or(0.0);
         self
     }
 
@@ -2104,7 +2107,7 @@ impl TreeTrack {
             self.dnds_layer().as_ref(),
             self.show_nodes,
             self.support_style,
-            self.support_threshold,
+            SupportReading::of(&self.tree, self.support_threshold),
             self.branch_label_layer().as_ref(),
             &self.rate_mixtures,
             &self.homoplasy_layers,

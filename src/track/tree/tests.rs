@@ -336,6 +336,55 @@ fn support_can_be_encoded_visibly_and_filtered_without_losing_tooltips() {
 }
 
 #[test]
+fn support_is_read_out_of_a_hundred_for_the_whole_tree_or_not_at_all() {
+    // A bootstrap out of a hundred, with the (C,D) split found in one
+    // replicate. Read value by value, that 1 was full support: drawn at the
+    // largest size and printed past a threshold of 70.
+    let percent =
+        Tree::parse_newick("((A:0.1,B:0.1)100:0.2,((C:0.1,D:0.1)1:0.1,E:0.2)45:0.2);").unwrap();
+    // The same shape with support written as fractions, where 1 is full.
+    let fraction =
+        Tree::parse_newick("((A:0.1,B:0.1)1:0.2,((C:0.1,D:0.1)0.5:0.1,E:0.2)0.45:0.2);").unwrap();
+    let largest = |svg: &str| {
+        let radii: Vec<f64> = svg
+            .split("<circle")
+            .skip(1)
+            .filter_map(|circle| circle.split("r=\"").nth(1)?.split('"').next()?.parse().ok())
+            .collect();
+        let most = radii.iter().copied().fold(f64::MIN, f64::max);
+        radii.iter().filter(|radius| **radius == most).count()
+    };
+    for (tree, threshold, full, weak) in [(percent, 70.0, "100", "1"), (fraction, 0.7, "1", "0.5")]
+    {
+        for track in [
+            TreeTrack::new(tree.clone()),
+            TreeTrack::new(tree.clone()).circular(),
+            TreeTrack::new(tree.clone()).unrooted(),
+        ] {
+            let draw = |track: TreeTrack| {
+                Figure::new(region())
+                    .width(540.0)
+                    .show_region_label(false)
+                    .push(track)
+                    .to_svg()
+            };
+            let labelled = draw(
+                track
+                    .clone()
+                    .support_style(SupportStyle::SymbolsAndLabels)
+                    .support_threshold(threshold),
+            );
+            assert!(labelled.contains(&format!(">{full}</text>")), "{labelled}");
+            assert!(!labelled.contains(&format!(">{weak}</text>")), "{labelled}");
+            // Every support drawn, only the one fully supported clade is
+            // drawn at the largest size.
+            let sized = draw(track.support_style(SupportStyle::Symbols));
+            assert_eq!(largest(&sized), 1, "{sized}");
+        }
+    }
+}
+
+#[test]
 fn branch_event_labels_are_direct_exact_and_projection_independent() {
     let event_tree = Tree::parse_annotated_newick(
         "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",

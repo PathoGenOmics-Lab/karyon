@@ -267,6 +267,7 @@ pub(super) fn draw_radial_branches(
 ) {
     let dnds = track.dnds_layer();
     let labels = track.branch_label_layer();
+    let reading = SupportReading::of(&track.tree, track.support_threshold);
     for placement in scene.placements.iter().flatten() {
         let node = &track.tree.nodes()[placement.node];
         let Some(parent) = node.parent else {
@@ -379,15 +380,16 @@ pub(super) fn draw_radial_branches(
         }
         let angle = geometry.angle(placement.row);
         let (x, y) = geometry.point(radius, angle);
-        if let Some(support) = node.support.filter(|value| {
-            track.support_style != SupportStyle::None
-                && support_fraction(*value).is_some_and(|value| value >= track.support_threshold)
-        }) {
+        if let Some(support) = node
+            .support
+            .filter(|value| track.support_style != SupportStyle::None && reading.shown(*value))
+        {
             draw_support(
                 ctx,
                 x,
                 y,
                 support,
+                reading,
                 &styles.get(placement.node).color,
                 track.support_style,
             );

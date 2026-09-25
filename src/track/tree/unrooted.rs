@@ -688,6 +688,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     }
 
     if track.show_nodes || track.support_style != SupportStyle::None {
+        let reading = SupportReading::of(&track.tree, track.support_threshold);
         for node in &scene.visible {
             if scene.terminals.contains(node) {
                 continue;
@@ -696,16 +697,16 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                 continue;
             };
             let (x, y) = geometry.node(raw);
-            if let Some(support) = track.tree.nodes()[*node].support.filter(|value| {
-                track.support_style != SupportStyle::None
-                    && support_fraction(*value)
-                        .is_some_and(|value| value >= track.support_threshold)
-            }) {
+            if let Some(support) = track.tree.nodes()[*node]
+                .support
+                .filter(|value| track.support_style != SupportStyle::None && reading.shown(*value))
+            {
                 draw_support(
                     ctx,
                     x,
                     y,
                     support,
+                    reading,
                     &styles.get(*node).color,
                     track.support_style,
                 );

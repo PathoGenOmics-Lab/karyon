@@ -29,7 +29,7 @@ pub(super) fn draw_tree_scene(
     dnds: Option<&DnDsLayer>,
     show_nodes: bool,
     support_style: SupportStyle,
-    support_threshold: f64,
+    support: SupportReading,
     branch_labels: Option<&BranchLabels>,
     rate_mixtures: &[BranchRateMixture],
     homoplasy_layers: &[HomoplasyLayer],
@@ -193,16 +193,17 @@ pub(super) fn draw_tree_scene(
                 ctx.svg.end_group();
             }
         }
-        if let Some(support) = node.support.filter(|value| {
-            support_style != SupportStyle::None
-                && support_fraction(*value).is_some_and(|value| value >= support_threshold)
-        }) {
-            let title = format!("clade support {}", text_rounded(support, 3));
+        if let Some(value) = node
+            .support
+            .filter(|value| support_style != SupportStyle::None && support.shown(*value))
+        {
+            let title = format!("clade support {}", text_rounded(value, 3));
             ctx.svg.begin_titled(&title);
             draw_support(
                 ctx,
                 x,
                 y_of(placement.row),
+                value,
                 support,
                 &styles.get(placement.node).color,
                 support_style,
