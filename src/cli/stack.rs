@@ -120,11 +120,13 @@ pub enum BuildError {
         /// A few of the names, so the mismatch can be seen at a glance.
         examples: Vec<String>,
     },
-    /// A column was asked for by name and the sheet has no such column.
+    /// Something was asked for by name and the file has nothing of that name:
+    /// a column of a sheet, a clade, tip, change or annotation of a tree, a
+    /// record of a FASTA, or the row `--compare-to` names.
     ///
     /// Not [`BuildError::Ambiguous`], which is a file holding several things
     /// and a command naming none of them. Here the command named one and the
-    /// file has not got it, which is nearly always a spelling, so the columns
+    /// file has not got it, which is nearly always a spelling, so the names
     /// it does have are worth printing beside it.
     Unnamed {
         /// Which track wanted it.

@@ -486,6 +486,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2. The gallery example said every track type has a panel, and seven have none;
   it now names them and the examples that draw them. CONTRIBUTING said CI runs
   only by hand, and it runs on every pull request and on `main` after a merge.
+  `BuildError::Unnamed` said it was a column the sheet has not got, and it is
+  any name the file has not got: a clade, a tip, a change, an annotation, a
+  FASTA record or the row `--compare-to` names.
 - A list of changes written in braces is read whole. `Mutations::read` took
   `[&muts={A123T,S:D614G,C241T}]` back as the text it prints as, braces and all,
   so the first piece began with one and the last ended with the other and
