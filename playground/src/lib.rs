@@ -744,6 +744,26 @@ mod tests {
         assert!(svg.contains("depth"));
     }
 
+    /// The command the tree viewer asks for, which names no region since a
+    /// tree is not drawn in one. It used to invent `tree:1-1` and then ask for
+    /// it not to be printed.
+    #[test]
+    fn the_tree_viewer_command_draws_a_tree_with_no_region() {
+        let input = packed(
+            &["--tree", "tree.nwk", "--max-rows", "60"],
+            &[("tree.nwk", "((a:1,b:1):1,(c:1,d:1):1);")],
+        );
+        let svg = run(&input).expect("a figure");
+        assert!(svg.starts_with("<svg"));
+        assert!(!svg.contains("1-1"), "a window was printed: {svg}");
+        for tip in ["a", "b", "c", "d"] {
+            assert!(
+                svg.contains(&format!(">{tip}</text>")),
+                "{tip} is not drawn"
+            );
+        }
+    }
+
     #[test]
     fn a_file_the_page_is_not_holding_says_what_it_is_holding() {
         // A shell can be told to go and look. A page cannot, so the error names
