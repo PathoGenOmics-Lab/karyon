@@ -16,7 +16,7 @@
 //!
 //! Both conversions are the identity, and they are the identity for two
 //! different reasons. Copying [`point`](super::point), which does take one off a
-//! `POS`, would move every call two bases left.
+//! `POS`, would move every call one base left.
 //!
 //! # A length that is absent is not a length of one
 //!

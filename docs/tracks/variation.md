@@ -144,7 +144,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, with `--sample` |
+| Command line | `--copy-number FILE --ploidy COPIES`, with `--sample`, `--height` |
 | Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`) |
 
 === "Rust"
@@ -176,7 +176,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | Method | What it does | Default |
 |:--|:--|:--|
 | `.label("copy number")` | Names the track in the left gutter (`--label`) | none |
-| `.height(100.0)` | Band height in pixels | `74` |
+| `.height(100.0)` | Band height in pixels (`--height`) | `74` |
 | `.cap(8.0)` | Pins the top rung of the ladder, taken literally | at least two copies above the ploidy |
 | `.colors(gain, loss, neutral)` | Inks for gain, loss and the balanced state | from the theme |
 | `.loh_color("#6a3d9a")` | Ink of the lost-heterozygosity mark | from the theme |
@@ -219,7 +219,6 @@ The variable columns of an alignment and nothing else, spaced evenly, one row pe
     let sites = panel.sites().len() as u64;
 
     Plot::over(Region::new("sites", 0, sites)?)
-        .remove_axis()
         .remove_region_label()
         .add_track(panel)
         .save("snps.svg")?;
@@ -228,7 +227,7 @@ The variable columns of an alignment and nothing else, spaced evenly, one row pe
 === "Command line"
 
     ```bash
-    karyon sites:1-34 --no-axis --no-region-label \
+    karyon sites:1-34 --no-region-label \
       --snps isolates.fa --compare-to H37Rv --label isolates \
       -o snps.svg
     ```
@@ -258,9 +257,9 @@ The variable columns of an alignment and nothing else, spaced evenly, one row pe
 
 An alignment of close relatives is almost all agreement: thirty kilobases carrying thirty-four differences would spend 99.9% of its pixels on the part that says nothing. Dropping the invariant columns turns a smear into legible columns. A cell that matches the reference is a quiet bar, alternate columns are tinted so the eye can cross a wide panel, and each row carries its count of differences on the right.
 
-The price is the x axis. Two neighbouring columns may be nine bases or nine kilobases apart, and nothing about the spacing says which, so each column carries its own position turned on end and a ruler does not belong under the panel. The region is the site index space, `Region::new("sites", 0, 34)` for thirty-four sites. `plot()` and the command line append a ruler unless told not to, hence `.remove_axis()` and `--no-axis` above.
+The price is the x axis. Two neighbouring columns may be nine bases or nine kilobases apart, and nothing about the spacing says which, so each column carries its own position turned on end, counted from one like a ruler's, and a ruler does not belong under the panel. The region is the site index space, `Region::new("sites", 0, 34)` for thirty-four sites. The panel answers `false` to `Track::on_coordinates`, so `plot()` and the command line append no ruler for it; a figure that also holds a track on the coordinates keeps the ruler that track is read against.
 
-`from_alignment(reference, &rows)` keeps a column when any row disagrees with the reference row, gaps included, since a deletion is an observation too. Positions are alignment columns; `offset` moves them to where the alignment starts.
+`from_alignment(reference, &rows)` keeps a column when any row disagrees with the reference row, gaps included, since a deletion is an observation too. Positions are alignment columns, counted from 0 and labelled from 1; `offset` moves them to where the alignment starts.
 
 `tree` sorts the rows by descent, so a clade's shared substitutions line up into a block. Rows are matched to leaves by name, and a sample the tree does not mention keeps its place at the bottom rather than vanishing: a row silently dropped from a figure is worse than a row out of order. The same tree beside a [MatrixTrack](#matrixtrack), [MsaTrack](comparison.md#msatrack) or [DomainTrack](comparison.md#domaintrack) sorts it the same way.
 

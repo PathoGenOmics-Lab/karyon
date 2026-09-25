@@ -71,10 +71,8 @@ assert_eq!(region.to_string(), "chr1:101-200");
 **The numbers printed on a figure.** The tick labels of `AxisTrack`, the codon
 numbers of `CodonTrack`, the locus in the top right corner and the positions in
 tooltips all count from one, so any of them can go straight into a browser's
-search box. (A variable-site panel is the one exception,
-[below](#the-region-is-a-coordinate-system).) `AxisTrack` picks its ticks in
-1-based space, so that the labels come out round, and draws each one at
-`scale.x(pos - 1)`.
+search box. `AxisTrack` picks its ticks in 1-based space, so that the labels
+come out round, and draws each one at `scale.x(pos - 1)`.
 
 !!! warning "Converting by hand"
     A VCF `POS` or a GFF3 `start` is `pos - 1` on the way in. A GFF3 `end` goes
@@ -219,9 +217,9 @@ Two rows need a second look. A structural call is the exception among the
 reference base, so `POS` is the base *before* the event, which is already the
 0-based start, and `END` is already the half-open end. Taking one off `POS`, as
 for an ordinary VCF, would move every call a base to the left. And
-`--sequence` and `--orfs` take the first record of a FASTA file whatever its
-name, while `--with-sequence` takes the only record, or the one named like the
-region when the file holds several.
+`--sequence`, `--orfs` and `--with-sequence` take the only record of a FASTA
+file whatever its name, or the one named like the region when the file holds
+several.
 
 Three more things follow from how the readers filter:
 
@@ -295,16 +293,16 @@ region is then written in that unit.
 - **A variable-site panel is not linear in the genome.** It drops the columns
   that agree and spaces the rest evenly, so two neighbouring columns may be
   nine bases or nine kilobases apart. Each column prints its own position
-  underneath instead, and an `AxisTrack` does not belong under the panel. Those
-  labels and the panel's tooltips are the one place a printed position is not
-  shifted to 1-based: they show the position each site holds, and
-  `SnpTrack::from_alignment` numbers alignment columns from 0. Move every
-  position together with `SnpTrack::offset`, or build the `SnpSite` values
-  yourself with the positions you want printed.
+  underneath instead, counted from one like the ruler's, and an `AxisTrack`
+  does not belong under the panel: `SnpTrack` answers `false` to
+  `Track::on_coordinates`, so a plot of the panel alone gets no ruler.
+  `SnpTrack::from_alignment` numbers alignment columns from 0, so the first
+  column is labelled 1. Move every position together with `SnpTrack::offset`,
+  or build the `SnpSite` values yourself, 0-based like every other position.
 - **An ideogram shows where the region is, not what is in it.**
   [`IdeogramTrack`](../tracks/whole-genome.md#ideogramtrack) draws the whole
   sequence across the plot and marks the part in view, so its x is not the
-  ruler's.
+  ruler's, and it answers `false` to `Track::on_coordinates` too.
 - **A phylogeny is not on the axis at all.** A tree's x is a branch length or a
   depth, so `TreeTrack` and `TanglegramTrack` answer `false` to
   `Track::on_coordinates`, and a plot holding nothing but trees gets no ruler.

@@ -182,6 +182,7 @@ Per-site methylation, one lane per strand: forward calls above a midline and rev
 | `.label("6mA")` | Names the track in the left gutter (`--label`; the command line uses the modification code when there is none) | none |
 | `.height(90.0)` | Band height in pixels (`--height`) | `76` |
 | `.min_coverage(10)` | Drops sites called from fewer reads, and prints how many it dropped (`--min-reads`) | `5` |
+| `.no_coverage(3)` | How many positions had no valid coverage, printed beside the floor's count; the command line passes the reader's | `0` |
 | `.saturating_coverage(60)` | Coverage at which a site is drawn at full strength | `30` |
 | `.pair_within(0)` | How far apart the two strands' calls of one site may sit | `1` |
 | `.colors(forward, reverse)` | Colours of the two strands | the strand colours |
@@ -195,7 +196,7 @@ A methylation call is not a variant: the base is the same base, and the measurem
 
 The first is strand. Methylation belongs to one strand of a duplex, so the two strands of a palindromic site are two measurements, and the asymmetry is often the finding. The track refuses to average them. `hemimethylated(by)` returns the forward positions whose partner disagrees by more than `by`, where the partner is the nearest reverse call within `pair_within`: the two modified bases of a `GATC` or a `CpG` sit a base apart, never on one coordinate.
 
-The second is coverage. A site called from four reads and one called from four hundred look the same to anything that plots the fraction alone, so sites under `min_coverage` are dropped, counted by `discarded()` and printed on the band, and the rest fade with depth up to `saturating_coverage`.
+The second is coverage. A site called from four reads and one called from four hundred look the same to anything that plots the fraction alone, so sites under `min_coverage` are dropped, counted by `discarded()` and printed on the band, and the rest fade with depth up to `saturating_coverage`. A position with no valid coverage never becomes a site at all, since it was not measured rather than measured at 0%: `read::methyl::sites` skips it and counts it in `Calls::no_coverage`, and `no_coverage(count)` prints that count beside the other.
 
 A bedMethyl from a dual-mode run holds several modification codes at one position. `--modification` says which to draw, and the command refuses to pick one for you when the file holds more than one.
 
@@ -211,7 +212,7 @@ The reference bases, drawn the way a genome browser draws them: coloured letters
 |:--|:--|
 | Rust | `.add_sequence(seq)` or `.add_sequence_at(start, seq)` on `plot()`; `SequenceTrack::new(start, seq)` |
 | Command line | `--sequence FILE`, with `--height` |
-| Reads | FASTA, the first record, cut to the region (`read::seq::fasta`) |
+| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region (`read::seq::fasta`) |
 
 === "Rust"
 
@@ -248,7 +249,7 @@ Below `block_threshold` the track draws nothing and prints `zoom in to see bases
 
 Colours come from the theme's `bases`, which is `BaseColors::conventional()` unless you change it. Those are the colours readers expect, and adenine and guanine sit close together for a reader with protanopia; `BaseColors::colorblind_safe()` keeps all four apart (see [Styling](../guide/theming.md)). Lower case is drawn as upper case, `U` takes the colour of `T`, and `N` or any other symbol takes one neutral grey.
 
-`--sequence` draws the first record of the FASTA, whatever its name.
+`--sequence` draws the only record of the FASTA, whatever its name, or, in a file of several, the one named like the region's sequence.
 
 ## LogoTrack { #logotrack }
 

@@ -569,6 +569,118 @@ fn a_change_is_carried_by_everything_below_where_it_happened() {
     assert_eq!(path, ["S:D614G", "A1T"], "root to tip, in order");
 }
 
+#[test]
+fn a_list_printed_in_braces_is_read_to_its_first_and_last_change() {
+    // A braced annotation prints with its braces, and that text handed to
+    // `parse_list` split into `{A123T` and `C241T}`, neither of which is a
+    // change, so the middle one was all it read.
+    let tree = Tree::parse_annotated_newick("(a[&muts={A123T,S:D614G,C241T}]:0.1,b:0.1);").unwrap();
+    let a = tree.node_named("a").unwrap();
+    let printed = tree.annotation(a, "muts").unwrap().to_string();
+    assert_eq!(printed, "{A123T,S:D614G,C241T}");
+    assert_eq!(
+        Mutation::parse_list(&printed)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["A123T", "S:D614G", "C241T"]
+    );
+}
+
+#[test]
+fn a_list_in_braces_is_read_to_its_first_and_last_change() {
+    // BEAST writes a list of values in braces, a list of changes is as often
+    // written in quotes, and the two below are the same five changes on the
+    // same branches. Read back as text, the braced list came with its braces
+    // on, so the first piece began with one and the last ended with the other:
+    // neither was a change, the middle of a list of three was all that
+    // survived, and a list of one or two lost everything it held.
+    let braced = Tree::parse_annotated_newick(concat!(
+        "((a[&muts={G5A}]:0.1,b:0.1)ab[&muts={A123T,S:D614G,C241T}]:0.1,",
+        "c[&muts={A123T,T9C}]:0.1);"
+    ))
+    .unwrap();
+    let quoted = Tree::parse_annotated_newick(concat!(
+        "((a[&muts=\"G5A\"]:0.1,b:0.1)ab[&muts=\"A123T,S:D614G,C241T\"]:0.1,",
+        "c[&muts=\"A123T,T9C\"]:0.1);"
+    ))
+    .unwrap();
+
+    for tree in [&braced, &quoted] {
+        let found = Mutations::read(tree, "muts");
+        assert_eq!(
+            found.spellings().collect::<Vec<_>>(),
+            ["A123T", "C241T", "G5A", "S:D614G", "T9C"]
+        );
+        assert_eq!(found.distinct(), 5);
+
+        // In the order the file wrote them, first and last included.
+        let ab = tree.node_named("ab").unwrap();
+        let on_ab: Vec<String> = found.on(ab).iter().map(ToString::to_string).collect();
+        assert_eq!(on_ab, ["A123T", "S:D614G", "C241T"]);
+
+        let named = |nodes: Vec<usize>| {
+            let mut names: Vec<String> = nodes
+                .iter()
+                .filter_map(|node| tree.nodes()[*node].name.clone())
+                .collect();
+            names.sort();
+            names
+        };
+        // A123T opens both lists it is in and happened on both branches, so
+        // it answers with both subtrees.
+        for (spelling, carriers) in [
+            ("A123T", vec!["a", "ab", "b", "c"]),
+            ("S:D614G", vec!["a", "ab", "b"]),
+            ("C241T", vec!["a", "ab", "b"]),
+            ("G5A", vec!["a"]),
+            ("T9C", vec!["c"]),
+        ] {
+            assert_eq!(
+                named(found.carriers(tree, spelling)),
+                carriers,
+                "{spelling}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_piece_that_is_not_a_change_is_counted_rather_than_dropped_in_silence() {
+    // Skipped, because a note beside the changes should not cost a reader the
+    // changes, but counted: a change spelled some way the reader cannot take
+    // apart is missing from every answer about it, and nothing else says so.
+    let tree = Tree::parse_annotated_newick(concat!(
+        "((a[&muts=\"A1T, S_D614G;and a note\"]:0.1,b[&muts={C2G,S:214:EPE,7}]:0.1)",
+        "[&muts={}]:0.1,c[&muts=\"\"]:0.1,d[&other={S_S45N,nuc_A135G}]:0.1);"
+    ))
+    .unwrap();
+
+    let found = Mutations::read(&tree, "muts");
+    assert_eq!(found.spellings().collect::<Vec<_>>(), ["A1T", "C2G"]);
+    assert_eq!(
+        found.unread(),
+        6,
+        "S_D614G, the three words of the note, the insertion S:214:EPE and the 7"
+    );
+
+    // An empty list and an empty string say no change happened there, which
+    // is something the file said rather than something it failed to say.
+    let quiet = Tree::parse_annotated_newick("(a[&muts={}]:0.1,b[&muts=\"\"]:0.1);").unwrap();
+    let none = Mutations::read(&quiet, "muts");
+    assert!(none.is_empty());
+    assert_eq!(none.unread(), 0);
+
+    // Which separates the two ways of reading nothing: a key the file holds
+    // in a spelling this reader does not take apart, and a key it never held.
+    let spelt_otherwise = Mutations::read(&tree, "other");
+    assert!(spelt_otherwise.is_empty());
+    assert_eq!(spelt_otherwise.unread(), 2);
+    let absent = Mutations::read(&tree, "nothing");
+    assert!(absent.is_empty());
+    assert_eq!(absent.unread(), 0);
+}
+
 /// Laying a tree out without a root is a different walk from laying it out
 /// with one, and the difference is the whole point: what a branch hangs from
 /// changes, because the tree is re-rooted at its middle.

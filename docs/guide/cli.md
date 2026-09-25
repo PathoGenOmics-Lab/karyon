@@ -140,9 +140,10 @@ A few things about track flags are worth knowing before they surprise you:
 - **The ruler goes wherever something is measured against it.** It is added at
   the bottom of any figure holding a track laid on the coordinates. `--axis`
   puts it where the flag sits instead, and `--no-axis` leaves the automatic one
-  out. A phylogeny is not laid on the coordinates (its x is branch length), so
-  a figure of nothing but `--tree` and `--tanglegram` gets no ruler unless you
-  write `--axis`.
+  out. A phylogeny is not laid on the coordinates (its x is branch length), nor
+  is a panel of variable sites (its x is a site index) or an ideogram (its x is
+  the whole chromosome), so a figure of nothing but `--tree`, `--tanglegram`,
+  `--snps` and `--ideogram` gets no ruler unless you write `--axis`.
 - **A track flag takes the next word as its file, whatever it is.** A forgotten
   path swallows the flag after it, and the error arrives a word late:
 
@@ -155,9 +156,8 @@ A few things about track flags are worth knowing before they surprise you:
 
 Each option describes the track before it. An option given to a track that has
 no use for it is refused by name rather than ignored, as in
-`--aggregate means nothing to a features track`. The two exceptions are
-`--label`, which every track takes, and `--format`, which is accepted after any
-track and read only by the three that take more than one format.
+`--aggregate means nothing to a features track`. The one exception is
+`--label`, which every track takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
@@ -179,7 +179,7 @@ track and read only by the three that take more than one format.
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
-| `--mutations <KEY>` | the annotation the changes are kept under | `--tree` | no changes read |
+| `--mutations <KEY>` | the annotation the changes are kept under; needs `--carrying` | `--tree` | no changes read |
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |
 | `--shape <HOW>` | `phylogram` or `cladogram` | `--tree` | `phylogram` |
@@ -196,7 +196,7 @@ track and read only by the three that take more than one format.
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
 | `--log` | nothing | `--coverage` | a linear scale |
 | `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions` | the theme's colours |
-| `--format <NAME>` | `bedgraph`, `depth`, `values`, `bed` or `gff3` | read by `--coverage`, `--features` and `--loci` | told from the file |
+| `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
 its rows (a feature track, a pileup, an alignment, a tree) takes `--row-height`
@@ -244,9 +244,10 @@ samtools view aln.bam NC_000962.3:761000-763000 \
 
 The same FASTA twice is not a mistake: the first draws the reference as a track
 of its own, the second gives the pileup the letters to compare against. A FASTA
-given to `--with-sequence` that holds one record is used whatever its header
-says; one that holds several is a genome, and the record named like the
-region's sequence is used, or the command is refused.
+given to `--sequence`, `--orfs` or `--with-sequence` that holds one record is
+used whatever its header says; one that holds several is a genome, and the
+record named like the region's sequence is used, or the command is refused with
+the names the file does hold.
 
 A tanglegram names its two trees after their files, so the figure says which is
 which:
@@ -394,14 +395,14 @@ keeps the changes on its branches, under a key the writing tool chose:
 karyon phylo:1-1 --tree tree.nwk --mutations mutations --carrying S:D614G
 ```
 
-`--mutations` names the key. `A123T`, `S:D614G`, and either with `nt:` or `aa:`
-in front are all read. `--carrying` then marks everything at or below a branch
-where that change happened, which is every tip that carries it, and colours by
-the answer unless `--color-by` says otherwise. A change that arose twice marks
-both clades.
+`--mutations` names the key, and each of the two is refused without the other.
+`A123T`, `S:D614G`, and either with `nt:` or `aa:` in front are all read.
+`--carrying` then marks everything at or below a branch where that change
+happened, which is every tip that carries it, and colours by the answer unless
+`--color-by` says otherwise. A change that arose twice marks both clades.
 
-A clade, tip or change the tree does not hold is refused with what it does hold,
-rather than drawing the whole tree:
+A clade, tip, change or `--color-by` key the tree does not hold is refused with
+what it does hold, rather than drawing the whole tree:
 
 ```text
 $ karyon tree:1-1 --tree tree.nwk --focus ERR9

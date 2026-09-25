@@ -1,12 +1,19 @@
-//! Every kind of plot this crate draws, on one sheet.
+//! Most kinds of plot this crate draws, on one sheet.
 //!
 //! ```text
 //! cargo run --example gallery -- assets
 //! ```
 //!
-//! Keep it that way: **when a new track type is added, give it a panel here.**
-//! An overview that quietly stops covering everything is worse than no
-//! overview, because it looks complete.
+//! The twenty-two panels draw twenty-nine of the thirty-six track types
+//! between them, and a circular chromosome. The seven with no panel are drawn
+//! by other examples: `CopyNumberTrack` by `copy_number`, `DomainTrack` by
+//! `phylogenetics`, `DynseqTrack` and `JunctionTrack` by `regulation`, and
+//! `PhylodynamicTrack`, `SelectionTrack` and `SurveillanceTrack` by
+//! `evolutionary_surveillance`.
+//!
+//! **When a new track type is added, give it a panel here.** An overview that
+//! quietly stops covering everything is worse than no overview, because it
+//! looks complete.
 //!
 //! And the test a new track has to pass to earn a panel: **does it live on the
 //! genomic coordinate axis?** That is the whole reason this crate exists rather
@@ -16,10 +23,10 @@
 //! for exactly that reason.
 //!
 //! The panels do not share a coordinate system with each other, which is the
-//! honest reason they are separate figures rather than one tall stack. Four of
+//! honest reason they are separate figures rather than one tall stack. Five of
 //! them are not in genomic coordinates at all: the alignment counts columns,
-//! the variable site panel counts sites, and the two tree panels measure
-//! evolutionary distance.
+//! the variable site panel counts sites, the squiggle counts samples of
+//! current, and the two tree panels measure evolutionary distance.
 //!
 //! One is in genomic coordinates twice over. The codon ruler counts residues
 //! along the same axis the bases are on, which is the only way to point at a

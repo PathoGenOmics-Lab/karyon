@@ -46,7 +46,9 @@ use crate::tree::Tree;
 /// One position where the sequences disagree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SnpSite {
-    /// Where the site is in whatever coordinates the caller is using.
+    /// Where the site is, 0-based, on whatever axis the caller is counting:
+    /// an alignment column, or a position on a genome. Its label counts from
+    /// one, the way the ruler does.
     pub position: u64,
     /// The reference residue.
     pub reference: u8,
@@ -55,7 +57,7 @@ pub struct SnpSite {
 }
 
 impl SnpSite {
-    /// A site at `position`.
+    /// A site at a 0-based `position`.
     pub fn new(position: u64, reference: u8, alleles: impl Into<Vec<u8>>) -> Self {
         SnpSite {
             position,
@@ -87,6 +89,18 @@ impl SnpSite {
             .filter(|row| self.differs(*row))
             .count()
     }
+}
+
+/// Where a site is as a reader is shown it: counted from one, the way the
+/// ruler, the locus in the corner and every other tooltip count.
+///
+/// A position is 0-based like every position the crate takes, and the label
+/// under a column and the tooltips over it are where one reaches a reader, so
+/// they all come through here and cannot disagree about the one. The add
+/// saturates because a position is a caller's number, and a label is not
+/// worth a panic.
+fn shown(site: &SnpSite) -> u64 {
+    site.position.saturating_add(1)
 }
 
 /// A panel of variable sites, one row per sample.
@@ -376,6 +390,10 @@ impl SnpTrack {
     }
 
     /// Height of the strip under the panel holding the position labels.
+    ///
+    /// Measured on the labels as they are written, which count from one: a
+    /// site at 999 is labelled 1000, and a strip measured a digit short lets
+    /// the clip take the end off that label.
     fn position_strip(&self, theme: &Theme) -> f64 {
         if !self.show_positions || self.sites.is_empty() {
             return 0.0;
@@ -384,7 +402,7 @@ impl SnpTrack {
         let widest = self
             .sites
             .iter()
-            .map(|site| text_width(&site.position.to_string(), size))
+            .map(|site| text_width(&shown(site).to_string(), size))
             .fold(0.0f64, f64::max);
         widest + 6.0
     }
@@ -449,6 +467,13 @@ impl Track for SnpTrack {
         } else {
             widest + 8.0 + tree + gutter
         }
+    }
+
+    // The columns are sites, laid out by the panel itself, so a ruler under it
+    // numbers positions of a window nothing here is drawn on. Each column
+    // carries its own position instead.
+    fn on_coordinates(&self) -> bool {
+        false
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -631,7 +656,7 @@ impl Track for SnpTrack {
                 ctx.svg.text_rotated(
                     (x_of(index) + cell_width / 2.0 + size * 0.35, top + 2.0),
                     -90.0,
-                    &site.position.to_string(),
+                    &shown(site).to_string(),
                     &ctx.theme.muted,
                     size,
                     Anchor::End,
@@ -681,9 +706,8 @@ impl SnpTrack {
     /// reader cannot get by looking: counting coloured cells down a column is
     /// exactly the work a tooltip is for.
     ///
-    /// The position is written **exactly as the column's own label writes it**,
-    /// ungrouped and without the shift to 1-based coordinates the rest of the
-    /// crate applies. This is the crate's one exception to
+    /// The position is the number the column's own label writes, counted from
+    /// one like the ruler, and grouped through
     /// [`group_thousands`](crate::track::axis::group_thousands) like every
     /// other number the crate writes into a tooltip. The drawn column label
     /// stays ungrouped, which is not a disagreement but the same split
@@ -699,7 +723,7 @@ impl SnpTrack {
     fn site_tooltip(&self, site: &SnpSite) -> String {
         let differing = site.count();
         let total = site.alleles.len();
-        let mut text = format!("site, {}", group_thousands(site.position));
+        let mut text = format!("site, {}", group_thousands(shown(site)));
         text.push_str(", reference ");
         text.push((site.reference as char).to_ascii_uppercase());
         if total > 0 {
@@ -721,7 +745,7 @@ impl SnpTrack {
     /// than repeating the reference base, since agreement is the quiet state
     /// and naming it twice would bury the difference.
     fn cell_tooltip(&self, site: &SnpSite, row: usize) -> String {
-        let mut text = format!("site, {}", group_thousands(site.position));
+        let mut text = format!("site, {}", group_thousands(shown(site)));
         text.push_str(", reference ");
         text.push((site.reference as char).to_ascii_uppercase());
         let sample = self.names.get(row).map(String::as_str).unwrap_or("sample");
@@ -920,9 +944,10 @@ mod tests {
             .show_region_label(false)
             .push(panel)
             .to_svg();
-        // Both positions are written out, since the spacing cannot say them.
-        assert!(svg.contains(">100</text>"));
-        assert!(svg.contains(">9100</text>"));
+        // Both positions are written out, since the spacing cannot say them,
+        // and counted from one, as the ruler would count them.
+        assert!(svg.contains(">101</text>"));
+        assert!(svg.contains(">9101</text>"));
         assert!(svg.contains("rotate(-90)"));
     }
 
@@ -1020,10 +1045,11 @@ mod tests {
     #[test]
     fn a_cell_says_where_the_site_is_and_what_this_sample_has() {
         let svg = panel_svg(SnpTrack::from_alignment(0, &alignment()).offset(1_472_000));
-        // Column 4 of the alignment, where sample_1 and sample_2 both differ.
+        // Column 4 of the alignment, where sample_1 and sample_2 both differ,
+        // at 1,472,004 counted from nought and so 1,472,005 as a reader counts.
         // The cell is what a pointer lands on, so the cell is what answers.
         assert!(
-            svg.contains("<title>site, 1,472,004, reference A, sample_1 has T</title>"),
+            svg.contains("<title>site, 1,472,005, reference A, sample_1 has T</title>"),
             "{svg}"
         );
         assert!(groups_balance(&svg));
@@ -1046,7 +1072,7 @@ mod tests {
         // same way, which is the whole point of a participle: `N of M noun
         // participle` is the idiom every count clause in the crate uses.
         assert!(
-            svg.contains("<title>site, 1,472,007, reference T, 1 of 3 samples differing</title>"),
+            svg.contains("<title>site, 1,472,008, reference T, 1 of 3 samples differing</title>"),
             "{svg}"
         );
         assert!(!svg.contains("differs"), "{svg}");
@@ -1075,11 +1101,66 @@ mod tests {
         // a tooltip pays for none, which is the same split VariantTrack makes.
         let sites = vec![SnpSite::new(9_100, b'G', b"T".to_vec())];
         let svg = panel_svg(SnpTrack::new(vec!["s".to_string()], sites));
-        assert!(svg.contains(">9100</text>"), "the label the reader sees");
+        assert!(svg.contains(">9101</text>"), "the label the reader sees");
         assert!(
-            svg.contains("<title>site, 9,100, reference G, s has T</title>"),
+            svg.contains("<title>site, 9,101, reference G, s has T</title>"),
             "{svg}"
         );
+    }
+
+    /// The labels stood on end under the columns, left to right.
+    fn column_labels(svg: &str) -> Vec<String> {
+        svg.split("<text")
+            .skip(1)
+            .filter(|piece| piece.contains("rotate(-90)"))
+            .filter_map(|piece| {
+                let body = &piece[piece.find('>')? + 1..];
+                Some(body[..body.find("</text>")?].to_string())
+            })
+            .collect()
+    }
+
+    /// A column label is a number a reader reads, so it counts from one like
+    /// the ruler, the locus in the corner and every other tooltip. Printed as
+    /// stored it counted from nought: the first column of an alignment was
+    /// labelled 0, and a site a VCF writes at 1,472,001 was labelled 1472000.
+    #[test]
+    fn a_column_is_labelled_from_one_like_the_ruler() {
+        let rows = vec![
+            MsaSequence::new("reference", b"ACGTACGTAC".to_vec()),
+            MsaSequence::new("sample", b"TCGTACGTAG".to_vec()),
+        ];
+        // Columns 0 and 9 differ, which a reader calls the first and the tenth.
+        let svg = panel_svg(SnpTrack::from_alignment(0, &rows));
+        assert_eq!(column_labels(&svg), ["1", "10"], "{svg}");
+        assert!(
+            svg.contains("<title>site, 1, reference A, 1 of 1 sample differing</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>site, 10, reference C, sample has G</title>"),
+            "{svg}"
+        );
+
+        // Moved onto a genome, it is the number a browser's search box takes.
+        let svg = panel_svg(SnpTrack::from_alignment(0, &rows).offset(1_472_000));
+        assert_eq!(column_labels(&svg), ["1472001", "1472010"], "{svg}");
+        assert!(svg.contains("<title>site, 1,472,001, reference A, sample has T</title>"));
+    }
+
+    /// The strip under the panel is as tall as the longest label stood in it,
+    /// so it is measured on the label drawn rather than on the number stored:
+    /// position 999 is written 1000, and measured on 999 the strip was a digit
+    /// short and the clip took the end off the label.
+    #[test]
+    fn the_position_strip_is_measured_on_the_label_drawn_in_it() {
+        let theme = Theme::light();
+        let panel = SnpTrack::new(
+            vec!["s".to_string()],
+            vec![SnpSite::new(999, b'A', b"C".to_vec())],
+        );
+        let size = theme.font_size - 2.0;
+        assert_eq!(panel.position_strip(&theme), text_width("1000", size) + 6.0);
     }
 
     #[test]

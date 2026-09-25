@@ -532,11 +532,15 @@ pub(super) fn draw_homoplasy_links(
             let Some(value) = tree.annotation(*node, &layer.key) else {
                 continue;
             };
-            let label = value.to_string();
-            if label.is_empty() {
-                continue;
+            // A list is several events, read one at a time as the branch
+            // event layer reads it. Read whole, as the text it prints as,
+            // `{S45N,E88K}` and `{S45N}` were two different events and a
+            // change on both branches was never joined. A change listed twice
+            // on one branch is still one branch, so it is not joined to itself.
+            let events: BTreeSet<String> = event_values(value).into_iter().collect();
+            for event in events {
+                groups.entry(event).or_default().push((*node, *point));
             }
-            groups.entry(label).or_default().push((*node, *point));
         }
 
         let mut emitted = 0usize;

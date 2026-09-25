@@ -339,6 +339,174 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A figure's width floor grows with `visual_scale`, as the margins and the label
+  gutter it adds up do. It added them up unscaled, so at `visual_scale(2.0)` a
+  figure held to its floor was 234 pixels wide with its plotting area starting
+  at 332, and the track and its name were drawn off the right of the image.
+  Nothing changes at the plain scale, and every committed figure is byte for
+  byte what it was.
+- `--methylation` draws a window whose every position went unmeasured, with
+  their number in the band's corner, rather than refusing it. It was refused as
+  holding no modified bases though the file held some, which reads as though the
+  calls were somewhere else, when they were in the window with no valid
+  coverage. A floor from `--min-reads` that hides every call already drew the
+  band with its count, and a window with nothing in it at all is still refused.
+- `HomoplasyLayer` reads a list annotation one event at a time, as
+  `BranchEventLayer` already did. It read the list whole, as the text it prints
+  as, so a branch carrying `{S45N,E88K}` and one carrying `{S45N}` held two
+  different events and were never joined, while two lists of one change were
+  joined under a tooltip reading `{S45N}`. A change listed twice on one branch
+  is still one branch, and is not joined to itself. Every committed figure is
+  byte for byte what it was.
+- A phylogeny's settings count the same in whatever order they are written.
+  `time`, `dnds` and `branch_labels` started their layer afresh, so a unit, a
+  direction or a hidden axis written before `time`, a `dnds_` setting written
+  before `dnds` and a label size written before `branch_labels` were dropped
+  without a word. A reroot turned the root marker back on after
+  `show_root(false)`. And `max_rows` folded clades when it was called: a reroot
+  written after it kept the folds of the shape it replaced, which are the wrong
+  clades once the tips have moved, a `collapse` after it folded one clade more
+  on a tree already fitted to the cap, and `max_rows(None)` after it lifted the
+  cap and kept every fold. Each setting is now kept on its own, and the layers
+  and the folds are put together when the tree is drawn. `PhyloMap` dropped a
+  direction or a unit written before `time` the same way, and no longer does.
+  Every committed figure is byte for byte what it was.
+- `ManhattanTrack` keeps one point of each look on each pixel instead of drawing
+  every test. A point drawn over one of its own shape and colour on the same
+  pixel adds an element to the document and nothing to the picture, and a
+  hundred thousand tests over a megabase were a hundred thousand elements and
+  5.9 MB; they are now eleven thousand elements and 0.6 MB, and a million tests
+  are 0.97 MB rather than 59 MB. The point kept is the last one drawn there, so
+  what was on top stays on top, and every point left out is less than a pixel
+  from one of its own look. `example-genomewide.svg` and the whole-assembly
+  panel of the gallery lose the background points that sat on a pixel with one
+  like them, and look the same. A tower of hits packed onto a few pixels shows
+  more of the significant colour than it did, since fewer rings in the page
+  colour are drawn over it.
+- The documentation of `read::point::associations` said the value was a p-value
+  the track would put on a log scale. The track draws it as given, as the format
+  guide and `--threshold` already said, so a table is written as `-log10(p)`,
+  and `Association::from_p_value` converts one.
+- Three playground examples drew something other than what they said. The
+  modified-bases example wrote 1 as the modified count of every row, and the
+  reader takes the fraction as that count over the coverage, as modkit writes
+  it, so a site generated at 88 per cent read "3% modified in 40 reads"; the
+  counts now carry the fraction. The split-reads example offered a `--height`
+  control that the command line refuses for that track, so every choice failed,
+  and it is gone. The variable-sites example offered a window to move along,
+  which the panel does not draw on, and now says so instead.
+- The crate and the site say what the readers and the drawing do. The crate
+  documentation said karyon does no I/O beyond `save_svg`, while the command
+  line's `cli::stack::open_from_disk` reads paths and standard input; it now
+  says drawing does no I/O and names that one function. Its list of what `read`
+  takes had stopped at nine formats and now names the rest, from PAF and
+  bedMethyl to InterProScan's table. The formats page said `--coverage` and
+  `--windows` refuse a value that is not a number, and `nan` and `inf` are read
+  as missing and leave a gap; it says so. `add_windows` offered bars, which
+  `WindowStyle` does not have.
+- A line stops at a missing value and starts again after it, rather than running
+  straight across. A coverage track in the `Area` and `Line` styles joined the
+  last column before a gap to the first one after, so a hundred bases of `NaN`
+  in a three hundred base profile, or a bedGraph row reading `nan`, came out as
+  a 282 pixel segment at a depth nothing measured, filled underneath in the
+  default style, while `Bars` and the track's own documentation left the stretch
+  empty. The same bridge crossed a window with no value or a stretch nobody
+  windowed in a `WindowTrack` drawn as a line, samples with no current in a
+  zoomed `SquiggleTrack` trace, an estimate a `PhylodynamicTrack` could not
+  place on its axis, and, in a `SurveillanceTrack`, a time whose every row was
+  unreadable as a frequency, straight through the diamond saying so. A value
+  standing alone between two gaps is now drawn across its own width, because a
+  line of one point draws nothing: one column of depth in view used to leave the
+  band blank. Every committed figure is byte for byte what it was, since none of
+  them has a gap in a line.
+- `Aggregate::Max` no longer says it is the one for dropouts. The covered bases
+  beside a dropout narrower than a pixel column still set that column's maximum,
+  so it hides exactly that; `Aggregate::Min` shows it, which is what the module
+  documentation and the site already said.
+- A figure's width is held to its floor when the figure is laid out, not when
+  `width` is called, so a margin or a label gutter counts the same written
+  before `width` as after it. The floor is the smallest width that leaves a
+  plotting area, and it was worked out from the margins and `label_width` as
+  they stood at the call: `.width(200.0).label_width(150.0)` drew a figure 200
+  pixels wide and `.label_width(150.0).width(200.0)` one 234 pixels wide,
+  through `plot()` as well, and a `Panels` sheet took whichever it was handed.
+  The default of 900 is held to the floor too, since it is set before everything
+  else, and a 1,000 pixel gutter used to put the plotting area off the right of
+  a 900 pixel image unless `width` was called again afterwards. A `label_width`
+  that is not finite is taken as zero, as a margin side already was, since an
+  infinite gutter made the floor infinite and the document went out as
+  `width="0"`. Every committed figure is byte for byte what it was.
+- A panel of variable sites counts from one, as the ruler, the locus in the
+  corner and every other tooltip do. Its column labels and tooltips printed each
+  position as stored, so on the command line the first column of an alignment
+  was labelled 0, and the `snps` example labelled 1472251 a site a VCF writes at
+  1,472,252. `SnpSite::position` is 0-based like every other position the crate
+  takes, so a site built by hand with the number to be printed now prints one
+  more than it. The panel also answers `false` to `Track::on_coordinates`, and
+  so do `IdeogramTrack` and `LegendTrack`, since none of the three is drawn on
+  the window the ruler measures: `plot()` and the command line gave a panel of
+  sites, an ideogram or a key on its own a ruler numbering that window, and now
+  leave it off, so `--no-axis` is no longer needed under `--snps`. A figure that
+  also holds a track on the coordinates keeps its ruler. In the committed
+  figures only text changes: every column label and site tooltip in
+  `example-snps.svg`, and in the variable-site panel of `gallery.svg`, is one
+  higher.
+- Six command line flags that were accepted and did nothing now do what they say
+  or are refused by name. `--carrying` without `--mutations` put its question to
+  an annotation named after the change, which no node carries, and drew the tree
+  with nothing marked; it is refused, since only `--mutations` names the key the
+  changes are kept under. `--mutations` without `--carrying` read the changes
+  and drew nothing with them; it is refused the other way round, since only
+  `--carrying` asks anything of them. `--color-by` with a key no node carries
+  drew every branch in one colour; it is refused with the keys the tree does
+  carry. `--height` after `--copy-number` was parsed and never passed on, so the
+  band came out at its own 74 pixels, byte for byte the figure without the flag;
+  it is applied. `--format` after any track but `--coverage`, `--features` and
+  `--loci`, or with a word the track before it does not read, such as `depth`
+  after `--features`, parsed and went nowhere; both are refused. And the
+  positions a bedMethyl holds with no valid coverage, which the reader skips and
+  counts rather than drawing at nought per cent, are now counted on the band
+  beside the calls under the floor, through the new
+  `MethylationTrack::no_coverage`.
+- `--sequence` and `--orfs` take a FASTA's record by the sequence the region
+  names, as `--with-sequence` already did, rather than whichever record came
+  first in the file. Handed a whole genome, a region on chr2 drew chr1's bases
+  and read chr1's reading frames, above a pileup of the same command compared
+  against chr2, and the figure looked right at every base. A file of one record
+  is still drawn whatever its header says. A file of several that names none of
+  them is refused with the names it does hold, as `--sequence genome.fa has no
+  record called chr2; it has chr1, chr3`, and a name two records share is
+  refused rather than taken the first of; `--with-sequence` refuses in the same
+  words now, where it said only that no record named anything in the sequence
+  the region names.
+- Documentation that contradicted the code now says what the code does, and
+  nothing drawn changes. `Theme::muted` claimed the track labels, which are set
+  in the foreground ink, and now claims the tick labels it does colour.
+  `BaseColors::colorblind_safe` said green had come to mean adenine, when
+  adenine is green in both sets: what moves is the shade, thymine furthest, from
+  red to vermillion. The crate documentation listed Newick among the formats of
+  `read`, and it is `Tree::parse_newick` that reads it. The structural VCF
+  reader said taking one off `POS` would move every call two bases, where its
+  own audit test shows one. `CodonTrack::show_start` said its chevron points the
+  way the sequence is read, and it points out of the sequence, away from codon
+  2. The gallery example said every track type has a panel, and seven have none;
+  it now names them and the examples that draw them. CONTRIBUTING said CI runs
+  only by hand, and it runs on every pull request and on `main` after a merge.
+  `BuildError::Unnamed` said it was a column the sheet has not got, and it is
+  any name the file has not got: a clade, a tip, a change, an annotation, a
+  FASTA record or the row `--compare-to` names.
+- A list of changes written in braces is read whole. `Mutations::read` took
+  `[&muts={A123T,S:D614G,C241T}]` back as the text it prints as, braces and all,
+  so the first piece began with one and the last ended with the other and
+  neither read as a change: a list of three came back as its middle change, a
+  list of one or two as nothing, and the same list in quotes read in full.
+  `--carrying` then refused a change the tree does carry, naming only the middle
+  ones as what it had. The items are read one by one now, and a piece that is
+  not a change is still skipped rather than failing the tree, but it is counted
+  by `Mutations::unread` rather than dropped without a word.
+  `Mutation::parse_list` takes braces as separators too, so the text a braced
+  list prints as, `{A123T,S:D614G,C241T}`, reads as all three changes rather
+  than the middle one.
 - A dynseq band shorter than its own labels no longer panics. The two bounds of
   the clamp that keeps a label inside the band cross once the band is shorter
   than the text is tall, and `clamp` panics rather than choosing, which a track

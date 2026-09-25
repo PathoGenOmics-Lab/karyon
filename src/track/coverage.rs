@@ -35,7 +35,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::Theme;
-use crate::track::{DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Track};
 
 /// How a coverage track is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +53,10 @@ pub enum CoverageStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Aggregate {
     /// Highest value in the column. Keeps narrow spikes visible, which is
-    /// usually what you want when hunting for duplications or dropouts.
+    /// usually what you want when hunting for duplications, and for the same
+    /// reason hides a dropout narrower than a column: the covered bases beside
+    /// it still set the column's height. [`Aggregate::Min`] is the one that
+    /// shows it.
     Max,
     /// Mean of the column. Truer to the overall level, hides single-base
     /// spikes.
@@ -425,12 +428,13 @@ impl Track for CoverageTrack {
         };
 
         let (columns, step) = column_grid(band.w);
-        let mut points: Vec<(f64, f64)> = Vec::with_capacity(columns);
+        let mut points: Vec<Option<(f64, f64)>> = Vec::with_capacity(columns);
         for column in 0..columns {
             let x = band.x + column as f64 * step;
             let lo = ctx.scale.pos_at_x(x);
             let hi = ctx.scale.pos_at_x(x + step);
             let Some(value) = self.sample(lo, hi) else {
+                points.push(None);
                 continue;
             };
             let y = y_of(value);
@@ -445,30 +449,35 @@ impl Track for CoverageTrack {
                         self.fill_opacity.unwrap_or(1.0),
                     );
                 }
-                _ => points.push((x, y)),
+                _ => points.push(Some((x, y))),
             }
         }
 
-        match self.style {
-            CoverageStyle::Bars => {}
-            CoverageStyle::Line => {
-                ctx.svg
-                    .polyline(&points, &color, ctx.theme.tokens.stroke * 1.25)
-            }
-            CoverageStyle::Area => {
-                if points.len() >= 2 {
-                    let mut d = String::with_capacity(points.len() * 14);
+        // The profile is drawn once per unbroken run of columns. A column with
+        // nothing under it is a gap, and drawn as one line the profile ran
+        // straight across it, from the last value before the gap to the first
+        // one after, at a depth nothing measured.
+        if self.style != CoverageStyle::Bars {
+            for mut run in unbroken(points) {
+                // A column standing alone between two gaps still holds a
+                // value, and a line needs two ends, so it is drawn across its
+                // own width rather than dropped.
+                if let [(x, y)] = run[..] {
+                    run.push((x + step, y));
+                }
+                if self.style == CoverageStyle::Area {
+                    let mut d = String::with_capacity(run.len() * 14);
                     d.push('M');
-                    d.push_str(&num(points[0].0));
+                    d.push_str(&num(run[0].0));
                     d.push(' ');
                     d.push_str(&num(baseline));
-                    for (x, y) in &points {
+                    for (x, y) in &run {
                         d.push_str(" L");
                         d.push_str(&num(*x));
                         d.push(' ');
                         d.push_str(&num(*y));
                     }
-                    let last = points[points.len() - 1].0;
+                    let last = run[run.len() - 1].0;
                     d.push_str(" L");
                     d.push_str(&num(last));
                     d.push(' ');
@@ -482,9 +491,9 @@ impl Track for CoverageTrack {
                         &color,
                         self.fill_opacity.unwrap_or(ctx.theme.tokens.area_opacity),
                     );
-                    ctx.svg
-                        .polyline(&points, &color, ctx.theme.tokens.stroke * 1.25);
                 }
+                ctx.svg
+                    .polyline(&run, &color, ctx.theme.tokens.stroke * 1.25);
             }
         }
 
@@ -653,8 +662,6 @@ fn format_value(value: f64) -> String {
     }
 }
 
-/// One decimal at most, and none at all when it would be a zero.
-#[cfg(test)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,5 +833,119 @@ mod tests {
             .push(CoverageTrack::new(0, vec![1.0, 2.0, 3.0]))
             .to_svg();
         assert!(svg.contains("</svg>"));
+    }
+
+    /// A depth over three hundred bases whose middle hundred were never
+    /// measured.
+    fn holed() -> Vec<f64> {
+        (0..300)
+            .map(|i| {
+                if (100..200).contains(&i) {
+                    f64::NAN
+                } else {
+                    20.0
+                }
+            })
+            .collect()
+    }
+
+    /// `track` alone in a figure over `region`, as a document.
+    fn drawn(region: Region, track: CoverageTrack) -> String {
+        crate::Figure::new(region)
+            .show_region_label(false)
+            .push(track)
+            .to_svg()
+    }
+
+    /// The vertices of every filled area in a document, one list per area.
+    fn areas(svg: &str) -> Vec<Vec<(f64, f64)>> {
+        svg.split("<path d=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .map(|d| {
+                let numbers: Vec<f64> = d
+                    .replace(['M', 'L', 'Z'], " ")
+                    .split_whitespace()
+                    .filter_map(|piece| piece.parse().ok())
+                    .collect();
+                numbers
+                    .chunks_exact(2)
+                    .map(|pair| (pair[0], pair[1]))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Fails on the first pair of neighbouring vertices more than a pixel
+    /// column apart. Each vertex of the profile is a column, so a profile that
+    /// stays with the data never steps further than that.
+    fn assert_no_column_skipped(shapes: &[Vec<(f64, f64)>]) {
+        for shape in shapes {
+            for pair in shape.windows(2) {
+                assert!(
+                    pair[1].0 - pair[0].0 <= 1.0 + 1e-9,
+                    "{:?} is joined to {:?}, {} pixels on, over columns that hold nothing",
+                    pair[0],
+                    pair[1],
+                    pair[1].0 - pair[0].0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_stretch_of_missing_values_is_a_gap_in_the_line() {
+        // The hundred bases in the middle have no value, and the line used to
+        // run straight from the last column before them to the first one
+        // after, drawing a depth across the whole stretch that nothing
+        // measured.
+        let svg = drawn(
+            Region::new("chr1", 0, 300).unwrap(),
+            CoverageTrack::new(0, holed()).style(CoverageStyle::Line),
+        );
+        let lines = crate::track::polylines(&svg);
+        assert_no_column_skipped(&lines);
+        assert_eq!(lines.len(), 2, "one line either side of the gap");
+    }
+
+    #[test]
+    fn a_stretch_of_missing_values_is_a_gap_in_the_area() {
+        // The fill has the same edge as the line on top of it, so it bridged
+        // the same stretch, and filled everything under the bridge as well.
+        let svg = drawn(
+            Region::new("chr1", 0, 300).unwrap(),
+            CoverageTrack::new(0, holed()).style(CoverageStyle::Area),
+        );
+        let fills = areas(&svg);
+        assert_no_column_skipped(&fills);
+        assert_eq!(fills.len(), 2, "one area either side of the gap");
+        let lines = crate::track::polylines(&svg);
+        assert_no_column_skipped(&lines);
+        assert_eq!(lines.len(), 2, "and one edge on each");
+    }
+
+    #[test]
+    fn a_column_standing_alone_is_drawn_rather_than_dropped() {
+        // One base in a megabase, so one pixel column holds a value and every
+        // other column holds nothing. A line needs two ends, and the one value
+        // on screen used to be drawn as no line at all, in both styles, which
+        // is a band that says there is nothing there.
+        let region = Region::new("chr1", 0, 1_000_000).unwrap();
+        for style in [CoverageStyle::Line, CoverageStyle::Area] {
+            let svg = drawn(
+                region.clone(),
+                CoverageTrack::new(500_000, vec![20.0]).style(style),
+            );
+            let lines = crate::track::polylines(&svg);
+            assert_eq!(lines.len(), 1, "{style:?} draws the one value on screen");
+            assert!(
+                (lines[0][1].0 - lines[0][0].0 - 1.0).abs() < 1e-9,
+                "across its own column: {:?}",
+                lines[0]
+            );
+            if style == CoverageStyle::Area {
+                assert_eq!(areas(&svg).len(), 1, "and fills under it");
+            }
+        }
     }
 }

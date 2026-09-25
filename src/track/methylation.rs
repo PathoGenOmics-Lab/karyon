@@ -94,6 +94,7 @@ pub struct MethylationTrack {
     radius: f64,
     show_scale: bool,
     show_stems: bool,
+    no_coverage: usize,
 }
 
 impl MethylationTrack {
@@ -111,6 +112,7 @@ impl MethylationTrack {
             radius: 2.6,
             show_scale: true,
             show_stems: true,
+            no_coverage: 0,
         }
     }
 
@@ -141,6 +143,22 @@ impl MethylationTrack {
     /// small a difference the study is trying to see.
     pub fn min_coverage(mut self, reads: u32) -> Self {
         self.min_coverage = reads;
+        self
+    }
+
+    /// Says how many positions had no valid coverage, to be printed on the band.
+    ///
+    /// A position the pileup could not call was not measured, which is not a
+    /// position measured at nought per cent, so
+    /// [`read::methyl::sites`](crate::read::methyl::sites) makes no site of it
+    /// and counts it in
+    /// [`Calls::no_coverage`](crate::read::methyl::Calls::no_coverage)
+    /// instead. The track is never given those rows and cannot count them
+    /// itself, so the number is handed over here and printed beside the one
+    /// the floor held back: a position left out for having no coverage is left
+    /// out as surely as one left out for having too little.
+    pub fn no_coverage(mut self, positions: usize) -> Self {
+        self.no_coverage = positions;
         self
     }
 
@@ -334,12 +352,21 @@ impl Track for MethylationTrack {
             }
         }
 
+        // One corner for everything left out, so the two counts read as one
+        // sentence rather than two notes drawn over each other.
+        let mut left_out = Vec::new();
         let hidden = self.discarded();
         if hidden > 0 {
+            left_out.push(format!("{hidden} under {}x", self.min_coverage));
+        }
+        if self.no_coverage > 0 {
+            left_out.push(format!("{} with no coverage", self.no_coverage));
+        }
+        if !left_out.is_empty() {
             ctx.svg.text(
                 band.right() - 3.0,
                 band.bottom() - 2.0,
-                &format!("{hidden} under {}x", self.min_coverage),
+                &left_out.join(", "),
                 &ctx.theme.muted,
                 ctx.theme.font_size - 2.0,
                 Anchor::End,

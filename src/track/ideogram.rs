@@ -397,6 +397,12 @@ impl Track for IdeogramTrack {
         self.label.as_deref()
     }
 
+    // The band is the whole chromosome and the ruler measures the window on
+    // display, so nothing here is at the coordinate a tick under it names.
+    fn on_coordinates(&self) -> bool {
+        false
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band_area = ctx.band;
         // Room under the chromosome for band names, when they are wanted, and

@@ -196,10 +196,11 @@ keeping; the default is `max`. The ruler goes on the bottom without being
 asked for.
 
 !!! warning "What `--sequence` takes"
-    The first record of the FASTA, cut to the region by position, so it has to
-    be the whole sequence the region is on. A file of several records is not
-    searched by name: cut the one you want out first, for example with
-    `samtools faidx genome.fa chr7 > chr7.fa`.
+    The record of the FASTA named like the region's sequence, or the file's
+    only record, cut to the region by position, so it has to be the whole
+    sequence the region is on. A file of several records is searched by name
+    and read whole: cut the one you want out first, for example with
+    `samtools faidx genome.fa chr7 > chr7.fa`, to save reading the rest.
 
 ### Zooming to base resolution
 
@@ -289,7 +290,7 @@ the reference painted.
   the bases after it, and keeps what the record carries: `SEQ`, the strand
   from flag bit 16, and `MAPQ`.
 - A mismatch needs a reference to differ from. Without `--with-sequence`
-  (`reference` in Rust) every read is drawn agreeing. Unlike `--sequence`, it
+  (`reference` in Rust) every read is drawn agreeing. Like `--sequence`, it
   takes a whole-genome FASTA and picks the record the region names.
 - `--fade-by-mapq` (`fade_by_quality` in Rust) draws a read fainter the lower
   its mapping quality, and leaves its mismatches at full strength. Colouring
@@ -342,16 +343,16 @@ Show the columns of an alignment where the samples differ, and nothing else.
 
 ```bash
 karyon sites:1-40 --snps core.aln --label isolates \
-  --no-axis --no-region-label -o sites.svg
+  --no-region-label -o sites.svg
 ```
 
 - `--snps` compares every record of an aligned FASTA with the first
   (`--compare-to NAME` picks another), keeps the columns where any record
   differs, gaps included, and spaces them evenly.
 - Evenly spaced columns are not linear in the genome, so a ruler under them
-  would be a lie, and `--no-axis` is not optional. Each column carries its own
-  position instead: on the command line, its index in the alignment counted
-  from 0; in the library, `SnpTrack::offset` shifts it onto the genome.
+  would be a lie, and none is drawn. Each column carries its own position
+  instead, counted from 1 like a ruler: on the command line, its column in the
+  alignment; in the library, `SnpTrack::offset` shifts it onto the genome.
 - The panel places its own columns, so the region is only a label here.
 - `--traits sheet.tsv` draws what is known about each sample as strips beside
   the rows, and `--max-rows` sets how many rows are drawn before the rest are
@@ -683,7 +684,7 @@ Put several figures on one sheet with letters on them, the way a paper figure
 is laid out.
 
 <figure class="k-plate" markdown>
-![Twenty-two panels in three columns on one sheet, showing every kind of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
+![Twenty-two panels in three columns on one sheet, showing most kinds of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
 <figcaption>Twenty-two panels in three columns, one document: <code>cargo run --example gallery -- assets</code>.</figcaption>
 </figure>
 

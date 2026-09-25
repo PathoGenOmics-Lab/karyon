@@ -10,7 +10,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, LinePattern, QuantitativeAxis};
 use crate::svg::{num, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
-use crate::track::{DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Track};
 
 /// Vertical transformation for a phylodynamic estimate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -462,12 +462,37 @@ impl Track for PhylodynamicTrack {
             }
         }
 
-        let line: Vec<(f64, f64)> = points
+        // The line stops at a time whose estimate has no place on this axis,
+        // because it is not a finite number or, on a log axis, not above
+        // nought, and starts again after it. Drawn through, it ran straight
+        // from the estimate before to the one after, as though the trajectory
+        // had passed between them at a time where nothing put it, which the
+        // ribbon already refused to draw. A time that holds another estimate,
+        // one that can be placed, is not a gap.
+        let mut steps: Vec<(u64, Option<(f64, f64)>)> = points
             .iter()
-            .map(|(point, estimate)| (ctx.scale.x_center(point.time), y_of(*estimate)))
+            .map(|(point, estimate)| {
+                let at = (ctx.scale.x_center(point.time), y_of(*estimate));
+                (point.time, Some(at))
+            })
             .collect();
-        ctx.svg
-            .polyline(&line, &color, ctx.theme.tokens.stroke.max(1.8));
+        steps.extend(
+            self.points
+                .iter()
+                .filter(|point| ctx.region.contains(point.time))
+                .filter(|point| self.transformed(point.estimate).is_none())
+                .filter(|point| {
+                    points
+                        .binary_search_by_key(&point.time, |(placed, _)| placed.time)
+                        .is_err()
+                })
+                .map(|point| (point.time, None)),
+        );
+        steps.sort_by_key(|(time, _)| *time);
+        for line in unbroken(steps.into_iter().map(|(_, step)| step)) {
+            ctx.svg
+                .polyline(&line, &color, ctx.theme.tokens.stroke.max(1.8));
+        }
         for (point, estimate) in points {
             let x = ctx.scale.x_center(point.time);
             let y = y_of(estimate);
@@ -616,6 +641,71 @@ mod tests {
             .to_svg();
         assert!(!svg.contains("uncertainty interval"), "{svg}");
         assert!(svg.contains("estimate 4"), "{svg}");
+    }
+
+    #[test]
+    fn a_missing_estimate_breaks_the_line_instead_of_being_interpolated() {
+        // The third time has no estimate, and the line used to run straight
+        // from the second to the fourth, drawing one at the third that nothing
+        // estimated. The ribbon beside it already stopped there.
+        let svg = Figure::new(Region::new("time", 0, 7).unwrap())
+            .show_region_label(false)
+            .push(PhylodynamicTrack::new(vec![
+                PhylodynamicPoint::new(1, 2.0),
+                PhylodynamicPoint::new(2, 3.0),
+                PhylodynamicPoint::new(3, f64::NAN),
+                PhylodynamicPoint::new(4, 5.0),
+                PhylodynamicPoint::new(5, 4.0),
+            ]))
+            .to_svg();
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 2, "one line either side of the gap: {lines:?}");
+        assert!(lines.iter().all(|line| line.len() == 2), "{lines:?}");
+    }
+
+    #[test]
+    fn an_estimate_a_log_axis_cannot_place_breaks_the_line_too() {
+        // Nought has no logarithm, so it has no height on this axis. Joined
+        // across, the trajectory read as though it had stayed between its
+        // neighbours when the estimate says it fell to nothing.
+        let svg = Figure::new(Region::new("time", 0, 5).unwrap())
+            .show_region_label(false)
+            .push(
+                PhylodynamicTrack::new(vec![
+                    PhylodynamicPoint::new(1, 10.0),
+                    PhylodynamicPoint::new(2, 0.0),
+                    PhylodynamicPoint::new(3, 100.0),
+                ])
+                .scale(PhylodynamicScale::Log10),
+            )
+            .to_svg();
+        let lines = crate::track::polylines(&svg);
+        assert!(lines.is_empty(), "joined across the gap: {lines:?}");
+        assert_eq!(
+            svg.matches("<circle").count(),
+            4,
+            "both placed points drawn"
+        );
+    }
+
+    #[test]
+    fn a_time_holding_an_estimate_is_not_a_gap_because_another_row_there_is_missing() {
+        // Two rows at one time, one of them empty. The time has an estimate,
+        // so the line goes through it whichever order the rows came in.
+        for order in [[f64::NAN, 3.0], [3.0, f64::NAN]] {
+            let svg = Figure::new(Region::new("time", 0, 5).unwrap())
+                .show_region_label(false)
+                .push(PhylodynamicTrack::new(vec![
+                    PhylodynamicPoint::new(1, 2.0),
+                    PhylodynamicPoint::new(2, order[0]),
+                    PhylodynamicPoint::new(2, order[1]),
+                    PhylodynamicPoint::new(3, 4.0),
+                ]))
+                .to_svg();
+            let lines = crate::track::polylines(&svg);
+            assert_eq!(lines.len(), 1, "{order:?}: {lines:?}");
+            assert_eq!(lines[0].len(), 3, "{order:?}: {lines:?}");
+        }
     }
 
     /// The height of every mark in the document, in the order it was drawn.

@@ -120,11 +120,13 @@ pub enum BuildError {
         /// A few of the names, so the mismatch can be seen at a glance.
         examples: Vec<String>,
     },
-    /// A column was asked for by name and the sheet has no such column.
+    /// Something was asked for by name and the file has nothing of that name:
+    /// a column of a sheet, a clade, tip, change or annotation of a tree, a
+    /// record of a FASTA, or the row `--compare-to` names.
     ///
     /// Not [`BuildError::Ambiguous`], which is a file holding several things
     /// and a command naming none of them. Here the command named one and the
-    /// file has not got it, which is nearly always a spelling, so the columns
+    /// file has not got it, which is nearly always a spelling, so the names
     /// it does have are worth printing beside it.
     Unnamed {
         /// Which track wanted it.
@@ -241,11 +243,17 @@ impl fmt::Display for BuildError {
                 what,
                 wanted,
                 held,
-            } => write!(
-                f,
-                "--{track} {path} has no {what} called {wanted}; it has {}",
-                held.join(", ")
-            ),
+            } => {
+                write!(f, "--{track} {path} has no {what} called {wanted}; it has ")?;
+                // A plain Newick carries no annotation at all, which is the
+                // ordinary way to ask a tree for a colour key it has not got,
+                // and a list of nothing would leave the sentence unfinished.
+                if held.is_empty() {
+                    write!(f, "none")
+                } else {
+                    write!(f, "{}", held.join(", "))
+                }
+            }
             BuildError::Repeated {
                 track,
                 path,
@@ -653,11 +661,7 @@ fn track(
             Box::new(named(track, label, JunctionTrack::label))
         }
         Kind::Sequence => {
-            let records = wrap(name, &path, read::seq::fasta(&text))?;
-            let (_, bases) = records
-                .into_iter()
-                .next()
-                .ok_or_else(|| empty("sequence"))?;
+            let bases = sequence(name, &path, &text, region)?;
             let mut track = SequenceTrack::new(region.start(), clip(&bases, region));
             if let Some(height) = height {
                 track = track.height(height);
@@ -927,6 +931,35 @@ fn track(
             // something else.
             let coloured = spec.color_by.clone().or_else(|| spec.carrying.clone());
             if let Some(key) = coloured {
+                // A key no node carries colours no branch, and the tree comes
+                // out as it would have without the flag. Looked for on every
+                // node rather than on the tips, since a branch takes its
+                // nearest annotated ancestor's value, and on the tree as it
+                // will be drawn: after `--focus` has cut it, and after the
+                // sheet and the carriers have been written onto it.
+                let tree = track.tree();
+                let nodes = 0..tree.nodes().len();
+                if !nodes
+                    .clone()
+                    .any(|node| tree.annotation(node, &key).is_some())
+                {
+                    let keys: std::collections::BTreeSet<&str> = nodes
+                        .filter_map(|node| tree.annotations(node))
+                        .flat_map(|held| held.keys().map(String::as_str))
+                        .collect();
+                    let mut held: Vec<String> =
+                        keys.iter().take(24).map(|key| key.to_string()).collect();
+                    if keys.len() > held.len() {
+                        held.push(format!("and {} more", keys.len() - held.len()));
+                    }
+                    return Err(BuildError::Unnamed {
+                        track: "tree",
+                        path: path.clone(),
+                        what: "annotation",
+                        wanted: key,
+                        held,
+                    });
+                }
                 track = track.color_by(key);
             }
             if let Some(style) = spec.support_style {
@@ -1003,7 +1036,12 @@ fn track(
             if found.records == 0 {
                 return Err(empty("modified bases"));
             }
-            if found.sites.is_empty() {
+            // Only when the window listed nothing. Positions listed with no
+            // valid coverage are in the window rather than elsewhere, and the
+            // band counts them in its corner, as it counts the calls a floor
+            // hides; refused, they were reported as though the file held its
+            // calls somewhere else.
+            if found.sites.is_empty() && found.no_coverage == 0 {
                 return Err(BuildError::Elsewhere {
                     track: name,
                     path: path.clone(),
@@ -1014,7 +1052,10 @@ fn track(
                 });
             }
 
-            let mut track = MethylationTrack::new(found.sites);
+            // The reader skips a position nobody could call rather than making
+            // a site at nought per cent of it, so its count comes over by hand
+            // or the band says nothing about it.
+            let mut track = MethylationTrack::new(found.sites).no_coverage(found.no_coverage);
             if let Some(reads) = spec.min_reads {
                 track = track.min_coverage(reads);
             }
@@ -1365,8 +1406,7 @@ fn track(
         // alignment columns, so it takes the second. Using the window's start
         // for a logo offsets every column by it, and the figure looks fine.
         Kind::Orfs => {
-            let records = wrap(name, &path, read::seq::fasta(&text))?;
-            let (_, bases) = records.into_iter().next().ok_or_else(|| empty("orfs"))?;
+            let bases = sequence(name, &path, &text, region)?;
             let mut track = OrfTrack::new(region.start(), clip(&bases, region));
             if let Some(px) = spec.row_height {
                 track = track.lane_height(px);
@@ -1488,7 +1528,10 @@ fn track(
                 });
             }
 
-            let track = CopyNumberTrack::at_ploidy(found.segments, ploidy);
+            let mut track = CopyNumberTrack::at_ploidy(found.segments, ploidy);
+            if let Some(height) = height {
+                track = track.height(height);
+            }
             Box::new(named(track, label, CopyNumberTrack::label))
         }
         Kind::Matrix => {
@@ -1579,16 +1622,8 @@ fn msa(
         .collect())
 }
 
-/// Cuts a whole reference down to the region on display.
-///
-/// A FASTA record is the whole sequence and the figure is a window on it, so
-/// the bases the region names are the ones the track gets.
-/// The reference letters a second FASTA holds for this region.
-///
-/// One record in the file is the record the file is about, whatever its header
-/// calls it. More than one is a genome, and then the region picks: one
-/// chromosome's letters under another chromosome's scores, or beside another
-/// chromosome's reads, is a figure that is wrong everywhere and looks right.
+/// The reference letters a second FASTA holds for this region, picked out of
+/// it the way [`sequence`] picks them.
 fn second_sequence(
     track: &'static str,
     source: &Source,
@@ -1596,29 +1631,77 @@ fn second_sequence(
     open: &mut dyn FnMut(&Source) -> io::Result<String>,
 ) -> Result<Vec<u8>, BuildError> {
     let (fasta, path) = fetch(track, source, open)?;
-    let records = wrap(track, &path, read::seq::fasta(&fasta))?;
+    sequence(track, &path, &fasta, region)
+}
+
+/// The record of a FASTA that a figure over this region is drawn from.
+///
+/// One record in the file is the record the file is about, whatever its header
+/// calls it. More than one is a genome, and then the region picks: one
+/// chromosome's letters under another chromosome's scores, or beside another
+/// chromosome's reads, is a figure that is wrong everywhere and looks right. A
+/// name two records share picks neither, since the first of them is a sequence
+/// nobody chose.
+///
+/// Every flag that reads a FASTA for its bases comes through here, since a
+/// command may hand the same file to more than one of them and it has to be
+/// the same sequence to each. `--sequence` and `--orfs` took the first record
+/// instead, so a region on one chromosome drew another's bases above a pileup
+/// read against the right one.
+fn sequence(
+    track: &'static str,
+    path: &str,
+    fasta: &str,
+    region: &Region,
+) -> Result<Vec<u8>, BuildError> {
+    let mut records = wrap(track, path, read::seq::fasta(fasta))?;
     if records.is_empty() {
         return Err(BuildError::Empty {
             track,
-            path,
+            path: path.to_string(),
             wanted: "sequence",
         });
     }
-    let bases = if records.len() == 1 {
-        records.into_iter().next().map(|(_, bases)| bases)
-    } else {
-        records
-            .iter()
-            .find(|(named, _)| named == region.seq())
-            .map(|(_, bases)| bases.clone())
-    };
-    bases.ok_or(BuildError::Unjoined {
-        track,
-        path,
-        what: "record",
-        against: "the sequence the region names",
-        examples: Vec::new(),
-    })
+    if records.len() == 1 {
+        return Ok(records.swap_remove(0).1);
+    }
+    let found: Vec<usize> = records
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, _))| name == region.seq())
+        .map(|(index, _)| index)
+        .collect();
+    match found.as_slice() {
+        [index] => Ok(records.swap_remove(*index).1),
+        [] => {
+            // Every name, so a sequence spelt two ways can be seen against
+            // what the file calls it. Capped, as a tree's tips are, because a
+            // draft assembly would otherwise answer a misspelling with every
+            // contig it has.
+            let mut held: Vec<String> = records
+                .iter()
+                .take(24)
+                .map(|(name, _)| name.clone())
+                .collect();
+            if records.len() > held.len() {
+                held.push(format!("and {} more", records.len() - held.len()));
+            }
+            Err(BuildError::Unnamed {
+                track,
+                path: path.to_string(),
+                what: "record",
+                wanted: region.seq().to_string(),
+                held,
+            })
+        }
+        many => Err(BuildError::Repeated {
+            track,
+            path: path.to_string(),
+            what: "record",
+            name: region.seq().to_string(),
+            held: many.len(),
+        }),
+    }
 }
 
 /// Turns `--compare-to` into a row index, or refuses.
@@ -1661,6 +1744,10 @@ fn compared_row(
     }
 }
 
+/// Cuts a whole reference down to the region on display.
+///
+/// A FASTA record is the whole sequence and the figure is a window on it, so
+/// the bases the region names are the ones the track gets.
 fn clip(bases: &[u8], region: &Region) -> Vec<u8> {
     let start = region.start() as usize;
     if start >= bases.len() {
@@ -1832,9 +1919,148 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         })
         .unwrap_err();
         assert!(
-            matches!(error, BuildError::Unjoined { what: "record", .. }),
+            matches!(error, BuildError::Unnamed { what: "record", .. }),
             "{error}"
         );
+    }
+
+    /// `--sequence` and `--orfs` read the FASTA `--with-sequence` reads, and
+    /// have to pick the same record out of it.
+    ///
+    /// Both took the first record in the file, so a region on chrB drew chrA's
+    /// bases, and chrA's reading frames, at chrB's coordinates. Each is pinned
+    /// to the library call drawing chrB's own bases, since a figure from the
+    /// wrong record is a perfectly good figure.
+    #[test]
+    fn sequence_and_orfs_pick_the_record_the_region_names_and_not_the_first() {
+        use crate::{Figure, OrfTrack, SequenceTrack};
+
+        let first: Vec<u8> = b"ACGT".iter().cycle().take(400).copied().collect();
+        let named: Vec<u8> = b"ATGGCCTAA".iter().cycle().take(400).copied().collect();
+        let genome = format!(
+            ">chrA\n{}\n>chrB\n{}\n",
+            String::from_utf8_lossy(&first),
+            String::from_utf8_lossy(&named)
+        );
+        let region = Region::parse("chrB:101-400").unwrap();
+        let drawn = |flag: &str| {
+            build(&over("chrB:101-400", flag, "genome.fa"), |_| {
+                Ok(genome.clone())
+            })
+            .unwrap()
+        };
+
+        let bases = |record: &[u8]| {
+            Figure::new(region.clone())
+                .push(SequenceTrack::new(100, record[100..400].to_vec()))
+                .push(crate::AxisTrack::new())
+                .to_svg()
+        };
+        assert_ne!(bases(&named), bases(&first), "the records draw alike here");
+        assert_eq!(
+            drawn("--sequence"),
+            bases(&named),
+            "--sequence drew another record than the one the region names"
+        );
+
+        let frames = |record: &[u8]| {
+            Figure::new(region.clone())
+                .push(OrfTrack::new(100, record[100..400].to_vec()))
+                .push(crate::AxisTrack::new())
+                .to_svg()
+        };
+        assert_ne!(
+            frames(&named),
+            frames(&first),
+            "the records read alike here"
+        );
+        assert_eq!(
+            drawn("--orfs"),
+            frames(&named),
+            "--orfs read another record than the one the region names"
+        );
+    }
+
+    /// A genome holding no record of the region's name is refused with what
+    /// it does hold, the way a column or a row that is not there is refused.
+    /// It is nearly always one sequence spelt two ways, as `chr1` and `1`, and
+    /// the two side by side are what the reader needs to see.
+    #[test]
+    fn a_fasta_naming_none_of_the_region_is_refused_with_the_records_it_holds() {
+        let genome = ">chrA\nAAAAAAAAAAAAAAAAAAAA\n>chrC\nCCCCCCCCCCCCCCCCCCCC\n";
+        let open = |source: &Source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("genome.fa") => genome.to_string(),
+                _ => "chrB\t0\t8\t0.5\n".to_string(),
+            })
+        };
+        for (line, flag) in [
+            ("chrB:1-20 --sequence genome.fa", "--sequence"),
+            ("chrB:1-20 --orfs genome.fa", "--orfs"),
+            (
+                "chrB:1-20 --dynseq s.bg --with-sequence genome.fa",
+                "--dynseq",
+            ),
+        ] {
+            let refused = build(&invocation(line), open).unwrap_err().to_string();
+            assert_eq!(
+                refused,
+                format!("{flag} genome.fa has no record called chrB; it has chrA, chrC"),
+                "{line}"
+            );
+        }
+
+        // A draft assembly answers a misspelling with two dozen of its contigs
+        // and a count of the rest, rather than with every one of them.
+        let draft: String = (1..=30).map(|n| format!(">contig_{n}\nACGT\n")).collect();
+        let refused = build(&over("chrB:1-20", "--sequence", "draft.fa"), |_| {
+            Ok(draft.clone())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(refused.ends_with("contig_24, and 6 more"), "{refused}");
+    }
+
+    /// A name two records share picks neither of them. The first would be a
+    /// sequence nobody chose, drawn looking exactly like the one asked for,
+    /// which is why a row two records share is refused as well.
+    #[test]
+    fn a_name_two_records_share_is_refused_rather_than_taken_the_first_of() {
+        let twice = ">chrB\nAAAAAAAAAAAAAAAAAAAA\n>chrB\nGGGGGGGGGGGGGGGGGGGG\n";
+        let refused = build(&over("chrB:1-20", "--sequence", "genome.fa"), |_| {
+            Ok(twice.to_string())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            refused,
+            "--sequence genome.fa has 2 records called chrB, so the name does not pick one"
+        );
+    }
+
+    /// One record is the record the file is about, whatever its header calls
+    /// it, which is the rule `--with-sequence` already kept. The three flags
+    /// that read a reference read it alike, so a file written as `>contig_1`
+    /// under a region on chrB still draws under each of them.
+    #[test]
+    fn a_fasta_of_one_record_is_drawn_whatever_its_header_calls_it() {
+        let single = ">contig_1\nGGGGGGGGGGGGGGGGGGGG\n";
+        let open = |source: &Source| {
+            Ok(match source {
+                Source::Path(path) if path.ends_with("ref.fa") => single.to_string(),
+                _ => "chrB\t0\t8\t0.5\n".to_string(),
+            })
+        };
+        for line in [
+            "chrB:1-20 --sequence ref.fa",
+            "chrB:1-20 --orfs ref.fa",
+            "chrB:1-20 --dynseq s.bg --with-sequence ref.fa",
+        ] {
+            let drawn = build(&invocation(line), open);
+            assert!(drawn.is_ok(), "{line}: {drawn:?}");
+        }
+        let svg = build(&invocation("chrB:1-20 --sequence ref.fa"), open).unwrap();
+        assert!(svg.contains(">G</text>"), "the one record was not drawn");
     }
 
     #[test]
@@ -2285,6 +2511,57 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         );
     }
 
+    /// A panel of variable sites lays out its own columns, so the ruler the
+    /// command line appended numbered a region the panel had thrown most of
+    /// away: over ten columns of which two vary, the ticks 1 to 5 stood under
+    /// the fifth column and 6 to 10 under the ninth. Alone the panel gets no
+    /// ruler, and `--no-axis` has nothing left to do there. Stacked with a
+    /// track on the coordinates the ruler comes back, because that track is
+    /// read against it.
+    #[test]
+    fn a_panel_of_variable_sites_gets_no_ruler_of_its_own() {
+        use crate::{Figure, MsaSequence};
+
+        const ALIGNED: &str = ">ref\nACGTACGTAC\n>s1\nACGTTCGTAC\n>s2\nACGTTCGTGC\n";
+        let rows = vec![
+            MsaSequence::new("ref", b"ACGTACGTAC".to_vec()),
+            MsaSequence::new("s1", b"ACGTTCGTAC".to_vec()),
+            MsaSequence::new("s2", b"ACGTTCGTGC".to_vec()),
+        ];
+        let region = Region::parse("aln:1-10").unwrap();
+
+        let from_cli = build(&over("aln:1-10", "--snps", "a.fa"), |_| {
+            Ok(ALIGNED.to_string())
+        })
+        .unwrap();
+        let bare = Figure::new(region.clone())
+            .push(SnpTrack::from_alignment(0, &rows))
+            .to_svg();
+        let ruled = Figure::new(region)
+            .push(SnpTrack::from_alignment(0, &rows))
+            .push(crate::AxisTrack::new())
+            .to_svg();
+        assert_ne!(bare, ruled, "the ruler cannot be told apart here");
+        assert_eq!(from_cli, bare, "a ruler went under the panel");
+
+        // Stacked under depth, the ruler is the depth's, and it stays.
+        let stacked = |extra: &str| {
+            let line = format!("aln:1-10 --coverage d.bg --snps a.fa {extra}");
+            build(&invocation(&line), |source| {
+                Ok(match source {
+                    Source::Path(path) if path.ends_with("a.fa") => ALIGNED.to_string(),
+                    _ => "aln\t0\t10\t30\n".to_string(),
+                })
+            })
+            .unwrap()
+        };
+        assert_ne!(
+            stacked(""),
+            stacked("--no-axis"),
+            "the depth lost the ruler it is read against"
+        );
+    }
+
     #[test]
     fn a_reference_is_cut_down_to_the_region() {
         let region = Region::parse("chr1:11-20").unwrap();
@@ -2394,6 +2671,35 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         named_empty.tracks[0].selects = Some("m".to_string());
         let error = build(&named_empty, open_from_disk).unwrap_err().to_string();
         assert!(error.contains("no modified bases"), "{error}");
+    }
+
+    /// A window whose every position went unmeasured was refused as holding
+    /// no modified bases while the file held some, which reads as though they
+    /// were elsewhere. They were here, and the band has a way to say so: it
+    /// counts them in its corner, as it counts the calls under the floor, and
+    /// a floor that hides every call already draws the band with that count.
+    #[test]
+    fn a_window_where_nothing_was_measured_is_drawn_with_the_count() {
+        let unmeasured = concat!(
+            "chr1\t1\t2\tm\t0\t+\t1\t2\t0,0,0\t0\t0.00\t0\t0\t0\t0\t0\t0\t0\n",
+            "chr1\t3\t4\tm\t0\t+\t3\t4\t0,0,0\t0\t0.00\t0\t0\t0\t0\t0\t0\t0\n",
+            "chr1\t500\t501\tm\t10\t+\t500\t501\t0,0,0\t10\t50.00\t5\t5\t0\t0\t0\t0\t0\n"
+        );
+        let path = written("unmeasured.bed", unmeasured);
+        let svg = build(&over("chr1:1-100", "--methylation", &path), open_from_disk).unwrap();
+        assert!(svg.contains(">2 with no coverage</text>"), "{svg}");
+
+        // Nothing in the window at all is still refused, with the file's rows.
+        let error = build(
+            &over("chr1:200-300", "--methylation", &path),
+            open_from_disk,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("no modified bases in chr1:200-300"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -2612,5 +2918,95 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             .to_string();
         assert!(refused.contains("no clade called zzz"), "{refused}");
         assert!(refused.contains('a'), "and says what it has: {refused}");
+    }
+
+    /// A key no node carries colours no branch, and the tree came out exactly
+    /// as it would have without the flag. Refused with the keys the tree does
+    /// carry, the way a change it does not carry is, since a misspelt key is
+    /// the usual way to get here.
+    #[test]
+    fn a_colour_key_the_tree_does_not_carry_is_refused_with_the_ones_it_does() {
+        const TREE: &str = concat!(
+            "((a[&lineage=\"L4\"]:0.1,b[&lineage=\"L4\"]:0.1)[&muts=\"C241T\"]:0.1,",
+            "(c[&lineage=\"L2\"]:0.1,d:0.1):0.1);"
+        );
+        const SHEET: &str = "name\thost\na\tcattle\nb\thuman\nc\thuman\nd\tcattle\n";
+        let open = |source: &Source| -> io::Result<String> {
+            Ok(match source {
+                Source::Path(path) if path.to_string_lossy().ends_with(".tsv") => SHEET,
+                _ => TREE,
+            }
+            .to_string())
+        };
+
+        let refused = build(&sheeted("tree:1-1 --tree t.nwk --color-by linage"), open)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            refused,
+            "--tree t.nwk has no annotation called linage; it has lineage, muts"
+        );
+
+        // A key only an internal node carries still colours, since a branch
+        // takes its nearest annotated ancestor's value; and a column of the
+        // sheet is on the tips by the time the key is looked for.
+        for line in [
+            "tree:1-1 --tree t.nwk --color-by lineage",
+            "tree:1-1 --tree t.nwk --color-by muts",
+            "tree:1-1 --tree t.nwk --traits s.tsv --color-by host",
+        ] {
+            assert!(build(&sheeted(line), open).is_ok(), "{line}");
+        }
+
+        // A tree that carries nothing at all says so rather than trailing off.
+        let bare = |_: &Source| -> io::Result<String> { Ok("((a,b),(c,d));".to_string()) };
+        let refused = build(&sheeted("tree:1-1 --tree t.nwk --color-by host"), bare)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            refused,
+            "--tree t.nwk has no annotation called host; it has none"
+        );
+    }
+
+    /// The parser has taken `--height` on a copy number track since the track
+    /// arrived, and this arm never passed it on, so the band came out at its
+    /// own height whatever was asked for, byte for byte the figure it would
+    /// have been without the flag.
+    #[test]
+    fn a_copy_number_track_is_as_tall_as_it_is_asked_to_be() {
+        let table = "chromosome\tstart\tend\tcn\nchr8\t0\t500\t3\nchr8\t500\t1000\t1\n";
+        let tall = |px: u32| -> f64 {
+            let line = format!("chr8:1-1000 --copy-number s.cns --ploidy 2 --height {px}");
+            let svg = build(&sheeted(&line), |_| Ok(table.to_string())).unwrap();
+            svg.split_once(" height=\"")
+                .and_then(|(_, rest)| rest.split('"').next())
+                .and_then(|number| number.parse().ok())
+                .expect("the figure says how tall it is")
+        };
+        assert_eq!(tall(200) - tall(100), 100.0, "the band ignored --height");
+    }
+
+    /// A position the pileup could not call is skipped by the reader rather
+    /// than drawn at nought per cent, and counted. The count stopped there: the
+    /// band printed how many calls its floor held back and said nothing about
+    /// the positions that never became calls at all.
+    #[test]
+    fn positions_nobody_could_call_are_counted_on_the_band() {
+        let pileup = concat!(
+            "chr1\t10\t11\tm\t40\t+\t10\t11\t0,0,0\t40\t95.00\t38\t2\t0\t0\t0\t0\t0\n",
+            "chr1\t20\t21\tm\t0\t+\t20\t21\t0,0,0\t0\t0.00\t0\t0\t0\t0\t12\t0\t4\n",
+            "chr1\t30\t31\tm\t0\t-\t30\t31\t0,0,0\t0\t0.00\t0\t0\t0\t0\t9\t0\t2\n",
+            "chr1\t40\t41\tm\t3\t-\t40\t41\t0,0,0\t3\t66.67\t2\t1\t0\t0\t0\t0\t0\n",
+        );
+        let svg = build(&over("chr1:1-100", "--methylation", "calls.bed"), |_| {
+            Ok(pileup.to_string())
+        })
+        .unwrap();
+        // Beside the floor's own count, in the corner that already holds it.
+        assert!(
+            svg.contains(">1 under 5x, 2 with no coverage</text>"),
+            "{svg}"
+        );
     }
 }

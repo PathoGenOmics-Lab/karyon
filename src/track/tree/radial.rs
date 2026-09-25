@@ -30,7 +30,7 @@ impl RadialGeometry {
                 .iter()
                 .map(|node| {
                     text_width(
-                        &terminal_label(&track.tree, *node, &track.collapsed),
+                        &terminal_label(&track.tree, *node, track.folded()),
                         theme.font_size - 1.0,
                     )
                 })
@@ -151,12 +151,9 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         .color
         .clone()
         .unwrap_or_else(|| ctx.theme.foreground.clone());
-    let scene = TreeScene::new(
-        &track.tree,
-        track.shape,
-        track.time.as_ref(),
-        &track.collapsed,
-    );
+    let time = track.time_axis();
+    let dnds = track.dnds_layer();
+    let scene = TreeScene::new(&track.tree, track.shape, time.as_ref(), track.folded());
     let header_room = track.annotation_header_room();
     let area = Rect {
         x: ctx.band.x,
@@ -175,7 +172,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     let styles = branch_styles(
         &track.tree,
         &colors,
-        track.dnds.as_ref(),
+        dnds.as_ref(),
         ctx.theme,
         track.line_width,
     );
@@ -207,13 +204,13 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
             },
         );
     }
-    if let Some(time) = track.time.as_ref().filter(|time| time.show_axis) {
+    if let Some(time) = time.as_ref().filter(|time| time.show_axis) {
         draw_radial_time_axis(ctx, &scene, &geometry, time);
     }
     draw_radial_padding(track, ctx, &scene, &geometry);
     draw_radial_branches(track, ctx, &scene, &geometry, &styles, &colors);
     draw_radial_node_glyphs(track, ctx, &scene, &geometry);
-    if track.show_root {
+    if track.shows_root() {
         if let Some(root) = scene.placements[track.tree.root()] {
             let (x, y) = geometry.point(
                 geometry.radius(&scene, root.depth),
@@ -267,6 +264,8 @@ pub(super) fn draw_radial_branches(
     styles: &BranchStyles<'_>,
     colors: &PerNode<String>,
 ) {
+    let dnds = track.dnds_layer();
+    let labels = track.branch_label_layer();
     for placement in scene.placements.iter().flatten() {
         let node = &track.tree.nodes()[placement.node];
         let Some(parent) = node.parent else {
@@ -282,11 +281,8 @@ pub(super) fn draw_radial_branches(
             &track.tree,
             placement.node,
             track.color_by.as_deref(),
-            track.dnds.as_ref(),
-            track
-                .branch_labels
-                .as_ref()
-                .map(|labels| labels.key.as_str()),
+            dnds.as_ref(),
+            track.branch_labels.as_deref(),
             !track.show_tips,
             false,
         );
@@ -299,7 +295,7 @@ pub(super) fn draw_radial_branches(
         if title.is_some() {
             ctx.svg.end_group();
         }
-        if let Some(labels) = &track.branch_labels {
+        if let Some(labels) = &labels {
             draw_branch_annotation(ctx, &track.tree, placement.node, labels, (x0, y0), (x1, y1));
         }
         draw_branch_rate_mixtures(
@@ -365,7 +361,7 @@ pub(super) fn draw_radial_branches(
                 ctx.svg.begin_titled(title);
             }
             let connector = connector_style(
-                track.dnds.as_ref(),
+                dnds.as_ref(),
                 ctx.theme,
                 colors.get(placement.node),
                 track.line_width,
@@ -431,7 +427,7 @@ pub(super) fn draw_radial_labels(
         ctx.svg.text_rotated(
             (x, y + size * 0.32),
             rotation,
-            &terminal_label(&track.tree, *node, &track.collapsed),
+            &terminal_label(&track.tree, *node, track.folded()),
             &ctx.theme.muted,
             size,
             anchor,
@@ -688,7 +684,7 @@ pub(super) fn draw_trait_rings(
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
             .iter()
-            .map(|node| row_annotation(&track.tree, *node, &column.key, &track.collapsed))
+            .map(|node| row_annotation(&track.tree, *node, &column.key, track.folded()))
             .collect();
         // Chained with the values the rows are drawn with, so a folded clade
         // that agrees on a value has a colour for it. See the note in
@@ -702,7 +698,7 @@ pub(super) fn draw_trait_rings(
                     inherited_annotation(&track.tree, placement.node, &column.key)
                 })
                 .chain(scene.terminals.iter().filter_map(|node| {
-                    row_annotation(&track.tree, *node, &column.key, &track.collapsed)
+                    row_annotation(&track.tree, *node, &column.key, track.folded())
                 })),
         );
         for (row, node) in scene.terminals.iter().enumerate() {
@@ -723,7 +719,7 @@ pub(super) fn draw_trait_rings(
             };
             let value = values[row];
             let displayed = value.map(ToString::to_string);
-            let name = terminal_label(&track.tree, *node, &track.collapsed);
+            let name = terminal_label(&track.tree, *node, track.folded());
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),

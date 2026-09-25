@@ -42,10 +42,11 @@
 //! according to how many columns it has, and an interval file is BED or GFF3
 //! according to a pragma and to column seven. Either guess can be wrong without
 //! failing, and a wrong one moves every coordinate in the figure by a base,
-//! which is what `--format` settles. It is the one modifier not checked here
-//! against the track it follows, its words spelling formats for two readers at
-//! once: coverage and features ask for a format, and anywhere else it parses
-//! and goes nowhere.
+//! which is what `--format` settles. Its words spell formats for two readers at
+//! once, so it is checked twice: against the track it follows, since only
+//! coverage, features and loci ask for a format, and against that track's half
+//! of the words, since a signal format after an interval track would parse and
+//! go nowhere.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -107,6 +108,20 @@ pub enum ArgError {
     /// it, and a rule in the wrong place does not merely mis-scale the ladder,
     /// it swaps every gain for a loss and says so confidently.
     MissingPloidy,
+    /// A change to look for, and no key saying where the changes are kept.
+    ///
+    /// An annotated Newick keeps its changes under a key the tool that wrote
+    /// it chose, and `--mutations` is the only thing that names it. Without it
+    /// the question was put to an annotation called after the change itself,
+    /// which no node carries, and the tree came out with nothing marked, which
+    /// is the figure of a change nobody carries.
+    MissingMutations,
+    /// A key saying where the changes are kept, and no change to look for.
+    ///
+    /// Only `--carrying` asks anything of the changes. Without it they were
+    /// read, found and set aside, and the tree came out byte for byte as it
+    /// would have with `--mutations` left off.
+    MissingCarrying,
     /// Checked once the whole line is read rather than where the flag sits, so
     /// that `--columns` before `--traits` and after it are the same command.
     /// Two modifiers of one track are not in an order, and refusing one of the
@@ -186,6 +201,14 @@ impl fmt::Display for ArgError {
             ArgError::MissingPloidy => write!(
                 f,
                 "--copy-number needs --ploidy, since where balanced sits is not in the file"
+            ),
+            ArgError::MissingMutations => write!(
+                f,
+                "--carrying needs --mutations, which names the annotation the changes are kept under"
+            ),
+            ArgError::MissingCarrying => write!(
+                f,
+                "--mutations needs --carrying, which names the change to mark the carriers of"
             ),
             ArgError::Unsourced { track } => write!(
                 f,
@@ -1699,7 +1722,37 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
                     given: text.clone(),
                     expected: "bedgraph, depth, values, bed or gff3",
                 })?;
-                last(&mut tracks, "--format")?.format = Some(format);
+                let track = last(&mut tracks, "--format")?;
+                // Three tracks read more than one format, and not the same
+                // ones: a signal is one of three shapes and an interval file is
+                // BED or GFF3. A signal word after an interval track goes
+                // nowhere as surely as any word after a variant track does,
+                // since the guess between BED and GFF3 runs as though it had
+                // not been written.
+                let fits = match track.kind {
+                    Kind::Coverage => {
+                        matches!(format, Format::BedGraph | Format::Depth | Format::Values)
+                    }
+                    Kind::Features | Kind::Loci => matches!(format, Format::Bed | Format::Gff3),
+                    _ => {
+                        return Err(ArgError::WrongTrack {
+                            flag: "--format",
+                            track: track.kind.flag(),
+                        })
+                    }
+                };
+                if !fits {
+                    return Err(ArgError::BadValue {
+                        flag: "--format",
+                        given: text.clone(),
+                        expected: match track.kind {
+                            Kind::Coverage => "bedgraph, depth or values for a coverage track",
+                            Kind::Features => "bed or gff3 for a feature track",
+                            _ => "bed or gff3 for a locus track",
+                        },
+                    });
+                }
+                track.format = Some(format);
             }
             "--title" => title = Some(value("--title")?.clone()),
             "--width" => {
@@ -1776,6 +1829,14 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         // sit anywhere after the track it describes.
         if spec.kind == Kind::CopyNumber && spec.ploidy.is_none() {
             return Err(ArgError::MissingPloidy);
+        }
+        // Late for the same reason: `--mutations` may be written after the
+        // `--carrying` that needs it.
+        if spec.carrying.is_some() && spec.mutations.is_none() {
+            return Err(ArgError::MissingMutations);
+        }
+        if spec.mutations.is_some() && spec.carrying.is_none() {
+            return Err(ArgError::MissingCarrying);
         }
         // Late for the same reason: `--columns` may be written before the
         // `--traits` it picks from, and both orders describe one track.
@@ -2944,5 +3005,82 @@ mod tests {
             refused.contains("none, symbols, labels or both"),
             "{refused}"
         );
+    }
+
+    /// `--carrying` asks who carries a change, and the changes are kept under a
+    /// key the tool that wrote the tree chose, which only `--mutations` names.
+    /// Without it the question was put to an annotation named after the change
+    /// itself, which no node carries, and the tree came out exactly as it would
+    /// have with the flag left off.
+    #[test]
+    fn a_change_is_refused_without_the_key_the_changes_are_kept_under() {
+        let error = parse(&args("tree:1-1 --tree t.nwk --carrying S:D614G")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--carrying needs --mutations, which names the annotation the changes are kept under"
+        );
+
+        // Late, so the key may be named on either side of the change.
+        for line in [
+            "tree:1-1 --tree t.nwk --mutations muts --carrying S:D614G",
+            "tree:1-1 --tree t.nwk --carrying S:D614G --mutations muts",
+        ] {
+            let it = draw(line);
+            assert_eq!(it.tracks[0].carrying.as_deref(), Some("S:D614G"), "{line}");
+        }
+    }
+
+    /// The other way round: `--mutations` names where the changes are kept,
+    /// and only `--carrying` asks anything of them. Alone it read them, found
+    /// them and drew the tree byte for byte as it would have with the flag
+    /// left off.
+    #[test]
+    fn a_key_is_refused_without_a_change_to_look_for() {
+        let error = parse(&args("tree:1-1 --tree t.nwk --mutations muts")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--mutations needs --carrying, which names the change to mark the carriers of"
+        );
+    }
+
+    /// Three tracks read more than one format, and they do not read the same
+    /// ones. Anywhere else `--format` parsed and went nowhere, and so did a
+    /// signal word after an interval track, where the guess between BED and
+    /// GFF3 runs as though nothing had been written.
+    #[test]
+    fn a_format_is_refused_where_nothing_reads_it() {
+        let refusal = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        assert_eq!(
+            refusal("chr1:1-1000 --variants v.vcf --format bed"),
+            "--format means nothing to a variants track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --windows w.bg --format bedgraph"),
+            "--format means nothing to a windows track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --features g.bed --format depth"),
+            "--format does not take \"depth\", only bed or gff3 for a feature track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --loci l.bed --links h.tsv --format values"),
+            "--format does not take \"values\", only bed or gff3 for a locus track"
+        );
+        assert_eq!(
+            refusal("chr1:1-1000 --coverage d.bg --format gff3"),
+            "--format does not take \"gff3\", only bedgraph, depth or values for a coverage track"
+        );
+
+        // And each of the three takes the words that are its own.
+        for (line, format) in [
+            ("chr1:1-1000 --coverage d.txt --format depth", Format::Depth),
+            ("chr1:1-1000 --features g.txt --format gff3", Format::Gff3),
+            (
+                "chr1:1-1000 --loci l.txt --links h.tsv --format bed",
+                Format::Bed,
+            ),
+        ] {
+            assert_eq!(draw(line).tracks[0].format, Some(format), "{line}");
+        }
     }
 }

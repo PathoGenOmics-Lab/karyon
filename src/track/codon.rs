@@ -179,9 +179,10 @@ impl CodonTrack {
         self
     }
 
-    /// Whether to mark the first codon with a chevron pointing the way the
-    /// sequence is read. On by default, and the only thing on a reverse strand
-    /// ruler that says so at a glance.
+    /// Whether to mark the first codon, at the end the count starts from, with
+    /// a chevron pointing out of the sequence, away from codon 2. On by
+    /// default, and the only thing on a reverse strand ruler that says at a
+    /// glance which end that is.
     pub fn show_start(mut self, show: bool) -> Self {
         self.show_start = show;
         self
@@ -436,7 +437,7 @@ impl CodonTrack {
         }
     }
 
-    /// A chevron on the first codon, pointing the way the sequence is read.
+    /// A chevron on the first codon, marking the end the count starts from.
     fn draw_start(&self, ctx: &mut DrawContext<'_>, y: f64, h: f64, ink: &str) {
         let Some((from, to)) = self.span_of(1) else {
             return;

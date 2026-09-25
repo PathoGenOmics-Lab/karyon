@@ -957,8 +957,6 @@
           options: [12, 44, 90] },
         { kind: "data", param: "kinds", value: "everything, including three-piece molecules", label: "What the pieces did",
           options: ["forward hops only", "hops and inversions", "everything, including three-piece molecules"] },
-        { kind: "choice", flag: "--height", after: "--split-reads",
-          label: "How much room the rows get", options: ["80", "160", "300"] },
       ],
       group: "Reads and molecules",
       // Thirty molecules that all hopped forwards, all in two pieces, all the
@@ -1047,9 +1045,16 @@
                        : 9;
               var pct = Math.max(0, Math.min(100, base + (next() - 0.5) * 12));
               var cov = pool[Math.floor(next() * pool.length)];
+              // The reader takes the fraction as the modified count over the
+              // valid coverage, columns twelve and ten, as modkit writes them,
+              // and not from the rounded percentage in column eleven. So the
+              // counts have to carry the fraction: a fixed 1 in column twelve
+              // drew every site at one read over its coverage.
+              var modified = Math.round(cov * pct / 100);
               out += "chr1\t" + at + "\t" + (at + 1) + "\t" + which + "\t" + cov + "\t" +
                      (reverse ? "-" : "+") + "\t" + at + "\t" + (at + 1) + "\t0,0,0\t" +
-                     cov + "\t" + pct.toFixed(2) + "\t1\t1\t0\t0\t0\t0\t0\n";
+                     cov + "\t" + (100 * modified / cov).toFixed(2) + "\t" + modified + "\t" +
+                     (cov - modified) + "\t0\t0\t0\t0\t0\n";
             }
           }
         }
@@ -1145,7 +1150,7 @@
       name: "Only the variable sites",
       bounds: { from: 1, to: 900, min: 60 },
       controls: [
-        { kind: "region" },
+        { kind: "note", label: "The columns are sites the panel lays out itself, each labelled with its own position, so there is no window to move along: the region only names the alignment in the corner." },
         { kind: "data", param: "rows", value: 18, label: "Sequences in the alignment",
           options: [6, 18, 40, 90] },
         { kind: "data", param: "columns", value: 300, label: "Columns the alignment is long",

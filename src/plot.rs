@@ -770,7 +770,7 @@ impl<T: Slot> Plot<T> {
         self.settle().park(VariantTrack::new(variants))
     }
 
-    /// A statistic computed in windows, as a line, bars or steps.
+    /// A statistic computed in windows, drawn as steps or as a line.
     pub fn add_windows(self, windows: impl Into<Vec<Window>>) -> Plot<WindowTrack> {
         self.settle().park(WindowTrack::new(windows))
     }
@@ -986,6 +986,35 @@ mod tests {
             .to_svg();
         assert!(svg.contains("width=\"1200\""));
         assert!(svg.contains(">wide<"));
+    }
+
+    #[test]
+    fn figure_settings_draw_the_same_plot_in_any_order_and_anywhere_in_the_chain() {
+        // They set the figure and not a track, so they can sit anywhere in the
+        // chain. The width was the one that could not: it was floored against
+        // the gutter and the margins as they stood when it was called, so a
+        // width written before them drew a different plot from one after.
+        let margin = Margin {
+            left: 60.0,
+            right: 60.0,
+            ..Margin::default()
+        };
+        let first = window()
+            .width(200.0)
+            .label_width(150.0)
+            .margin(margin)
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .into_figure();
+        let last = window()
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .margin(margin)
+            .label_width(150.0)
+            .width(200.0)
+            .into_figure();
+        assert_eq!(first.dimensions(), last.dimensions());
+        assert_eq!(first.to_svg(), last.to_svg());
     }
 
     #[test]
@@ -1241,7 +1270,9 @@ mod tests {
     fn sample_names_do_not_have_to_be_owned_strings() {
         let sites = vec![SnpSite::new(761_100, b'A', vec![b'A', b'G'])];
         let figure = window().add_snps(["S01", "S02"], sites).into_figure();
-        assert_eq!(figure.track_count(), 2);
+        // The panel alone, since it lays out its own columns and a ruler
+        // under it would measure nothing it draws.
+        assert_eq!(figure.track_count(), 1);
     }
 
     /// Every `add_` whose arguments could be transposed, against the
@@ -1393,5 +1424,64 @@ mod tests {
         // An empty plot is a window with nothing in it, and a window is worth
         // showing.
         assert_eq!(plot("chr1:1-1000").unwrap().into_figure().track_count(), 1);
+    }
+
+    /// A variable-site panel lays out its own columns, one per site, and asks
+    /// the scale nothing, so the ruler appended under one numbered a window
+    /// the panel is not drawn in: ticks at positions of the region running
+    /// under columns that are other positions entirely. On its own it gets no
+    /// ruler. Stacked with a track that is on the coordinates it keeps one,
+    /// because that track is read against it.
+    #[test]
+    fn a_variable_site_panel_is_not_measured_by_the_ruler() {
+        let sites = || vec![SnpSite::new(761_100, b'A', vec![b'G'])];
+        let alone = window().add_snps(["S01"], sites()).into_figure();
+        assert_eq!(alone.track_count(), 1, "the panel, and no ruler under it");
+
+        let under_depth = window()
+            .add_coverage(vec![30.0; 1000])
+            .add_snps(["S01"], sites())
+            .into_figure();
+        assert_eq!(
+            under_depth.track_count(),
+            3,
+            "the depth, the panel, and the ruler the depth is read against"
+        );
+    }
+
+    /// The same for the two other bands whose x is not the figure's. An
+    /// ideogram draws the whole chromosome across its band, so a ruler of the
+    /// region under it spread one kilobase across the width that holds a
+    /// megabase, and a key draws no position at all, so a key under a tree or
+    /// a panel of sites brought back the ruler neither of those wanted.
+    #[test]
+    fn an_ideogram_or_a_key_is_not_measured_by_the_ruler_either() {
+        let bands = || vec![Band::new(0, 1_000_000, Stain::Gneg)];
+        let key = || Legend::new().key("a", "#000000");
+        let tree = || Tree::parse_newick("((a:0.1,b:0.1):0.1,c:0.1);").unwrap();
+
+        let ideogram = window().add_ideogram(1_000_000, bands()).into_figure();
+        assert_eq!(ideogram.track_count(), 1, "the chromosome, and no ruler");
+
+        let keyed = plot("tree:1-1")
+            .unwrap()
+            .add_tree(tree())
+            .add_legend(key())
+            .into_figure();
+        assert_eq!(keyed.track_count(), 2, "the tree and its key, no ruler");
+
+        let sites = window()
+            .add_snps(["S01"], vec![SnpSite::new(761_100, b'A', vec![b'G'])])
+            .add_legend(key())
+            .into_figure();
+        assert_eq!(sites.track_count(), 2, "the panel and its key, no ruler");
+
+        // And neither takes the ruler away from a track that is measured by it.
+        let context = window()
+            .add_ideogram(1_000_000, bands())
+            .add_coverage(vec![30.0; 1000])
+            .add_legend(key())
+            .into_figure();
+        assert_eq!(context.track_count(), 4, "ideogram, depth, key and ruler");
     }
 }

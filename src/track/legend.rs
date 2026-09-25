@@ -485,6 +485,13 @@ impl Track for LegendTrack {
         self.label.as_deref()
     }
 
+    // A key places nothing at a position, so it gives a ruler nothing to
+    // measure. Stacked under a tree or a panel of sites, answering yes here
+    // brought back the ruler those had just declined.
+    fn on_coordinates(&self) -> bool {
+        false
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         self.legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);

@@ -141,17 +141,12 @@ impl Figure {
     /// Sets the image width in pixels.
     ///
     /// Widths that would leave no plotting area are raised to the smallest one
-    /// that does, so a figure is always renderable.
+    /// that does, so a figure is always renderable. That smallest one depends
+    /// on the margins and the label gutter, so it is worked out when the
+    /// figure is laid out, and a [`Figure::margin`] or [`Figure::label_width`]
+    /// counts the same written before this call as after it.
     pub fn width(mut self, width: f64) -> Self {
-        let floor = self.margin.left
-            + self.margin.right
-            + self.label_width.unwrap_or(DEFAULT_LABEL_WIDTH)
-            + 50.0;
-        self.width = if width.is_finite() {
-            width.max(floor)
-        } else {
-            floor
-        };
+        self.width = width;
         self
     }
 
@@ -213,6 +208,9 @@ impl Figure {
     /// Fonts, margins, the label gutter, gaps and rounded corners move together,
     /// so a slide-sized figure can be made more assertive without retuning each
     /// value independently. Data marks retain their meaning and coordinates.
+    /// The one width that moves is the floor: a width too narrow for the
+    /// scaled margins and gutter is raised to what they need, as it is at the
+    /// plain scale.
     pub fn visual_scale(mut self, factor: f64) -> Self {
         self.visual_scale = if factor.is_finite() {
             factor.max(0.25)
@@ -256,8 +254,17 @@ impl Figure {
     /// a figure of unlabelled tracks uses the full width whatever this says.
     /// Without this override the gutter is measured from the widest label and
     /// capped so a single long sample name cannot consume the figure.
+    ///
+    /// A width that is negative or not a number is taken as zero, since the
+    /// gutter is part of the floor the image width is held to, and an image
+    /// width that is not a number is written out as a document zero pixels
+    /// wide.
     pub fn label_width(mut self, width: f64) -> Self {
-        self.label_width = Some(width.max(0.0));
+        self.label_width = Some(if width.is_finite() {
+            width.max(0.0)
+        } else {
+            0.0
+        });
         self
     }
 
@@ -314,7 +321,7 @@ impl Figure {
     /// asking for it means laying the figure out.
     pub fn dimensions(&self) -> (f64, f64) {
         let layout = self.layout();
-        (self.width, layout.total_height)
+        (layout.width, layout.total_height)
     }
 
     /// What the document calls itself: the visible title, or the locus.
@@ -389,13 +396,13 @@ impl Figure {
         if let Some(title) = &self.title {
             let room = if self.show_region_label {
                 let locus_width = text_width(&self.region.to_string(), theme.font_size);
-                self.width
+                layout.width
                     - layout.margin_right
                     - locus_width
                     - theme.tokens.label_gap
                     - layout.margin_left
             } else {
-                self.width - layout.margin_right - layout.margin_left
+                layout.width - layout.margin_right - layout.margin_left
             };
             let visible_title = fit_text(title, room.max(0.0), theme.title_font_size);
             svg.text_bold(
@@ -409,7 +416,7 @@ impl Figure {
         }
         if self.show_region_label {
             svg.text(
-                self.width - layout.margin_right,
+                layout.width - layout.margin_right,
                 layout.header_baseline,
                 &self.region.to_string(),
                 &theme.muted,
@@ -494,7 +501,7 @@ impl Figure {
                 svg.line(
                     layout.margin_left,
                     between,
-                    self.width - layout.margin_right,
+                    layout.width - layout.margin_right,
                     between,
                     &mix(&theme.rule, theme.surface(), 0.45),
                     theme.tokens.hairline,
@@ -505,7 +512,7 @@ impl Figure {
         }
 
         svg.finish(
-            self.width,
+            layout.width,
             layout.total_height,
             &theme.background,
             &theme.font_family,
@@ -527,7 +534,26 @@ impl Figure {
     }
 
     fn layout_with_theme(&self, theme: &Theme) -> Layout {
+        // The floor is settled here and not in `width`, which only ever saw
+        // the settings written before it: a gutter or a margin set after the
+        // width never reached the floor, so the same settings written in two
+        // orders drew two figures. The default is held to it as well, since
+        // 900 is a width like any other and was set before everything else.
+        // It is scaled as the layout below scales what it adds up: added up
+        // unscaled, a figure at twice the visual scale was held to the width
+        // of one at the plain scale, and its plotting area started past the
+        // right edge of the image.
         let spacing = self.visual_scale;
+        let floor = (self.margin.left
+            + self.margin.right
+            + self.label_width.unwrap_or(DEFAULT_LABEL_WIDTH)
+            + 50.0)
+            * spacing;
+        let width = if self.width.is_finite() {
+            self.width.max(floor)
+        } else {
+            floor
+        };
         let margin_top = self.margin.top * spacing;
         let margin_right = self.margin.right * spacing;
         let margin_bottom = self.margin.bottom * spacing;
@@ -557,7 +583,7 @@ impl Figure {
             .map(|t| t.y_axis_width(theme).max(0.0))
             .fold(0.0f64, f64::max);
         let plot_x = margin_left + gutter + axis_width;
-        let plot_width = (self.width - plot_x - margin_right).max(1.0);
+        let plot_width = (width - plot_x - margin_right).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
         // A height that is not a number is not a height. It would reach
@@ -587,6 +613,7 @@ impl Figure {
         const TALLEST: f64 = (1u64 << 53) as f64;
 
         Layout {
+            width,
             scale,
             plot_x,
             axis_width,
@@ -633,6 +660,9 @@ impl crate::rings::Drawing for Figure {
 }
 
 struct Layout {
+    /// The width the figure is drawn at: the one it was given, held to the
+    /// floor.
+    width: f64,
     scale: Scale,
     plot_x: f64,
     axis_width: f64,
@@ -808,6 +838,131 @@ mod tests {
         assert!(width >= 50.0);
         assert!(figure.layout().plot_width >= 1.0);
         assert!(figure.to_svg().starts_with("<svg"));
+    }
+
+    #[test]
+    fn the_settings_a_width_is_floored_against_count_before_it_or_after_it() {
+        // The smallest width that leaves a plotting area depends on the
+        // margins and the label gutter, and `width` used to work it out on the
+        // spot, from whatever those two were when it was called. A gutter or a
+        // margin written after it never reached the floor, so the same
+        // settings written in two orders drew two different figures.
+        let draw = |figure: Figure| {
+            let figure = figure
+                .push(CoverageTrack::new(0, vec![10.0; 1000]).label("depth"))
+                .push(AxisTrack::new());
+            (figure.dimensions(), figure.to_svg())
+        };
+        let wide = Margin {
+            left: 120.0,
+            right: 120.0,
+            ..Margin::default()
+        };
+        let orders = [
+            (
+                Figure::new(region()).width(200.0).label_width(150.0),
+                Figure::new(region()).label_width(150.0).width(200.0),
+            ),
+            (
+                Figure::new(region()).width(200.0).margin(wide),
+                Figure::new(region()).margin(wide).width(200.0),
+            ),
+        ];
+        for (width_first, width_last) in orders {
+            let (first, last) = (draw(width_first), draw(width_last));
+            assert_eq!(first.0, last.0, "the width written first, then last");
+            assert_eq!(first.1, last.1);
+        }
+    }
+
+    #[test]
+    fn the_default_width_is_held_to_the_same_floor_as_one_that_was_asked_for() {
+        // 900 is a width like any other, and it is set when the figure is
+        // made, so before every other setting. A gutter wider than it used to
+        // leave the plotting area off the right of the image, unless `width`
+        // was called afterwards, even with 900, to have it raised.
+        let gutter = |figure: Figure| {
+            figure
+                .label_width(1_000.0)
+                .push(AxisTrack::new().label("position"))
+        };
+        let unset = gutter(Figure::new(region()));
+        let set = gutter(Figure::new(region())).width(900.0);
+        assert_eq!(unset.dimensions(), set.dimensions());
+        assert_eq!(unset.to_svg(), set.to_svg());
+        let (width, _) = unset.dimensions();
+        let layout = unset.layout();
+        assert!(
+            layout.plot_x + layout.plot_width <= width,
+            "the plotting area runs from {} to {} on an image {width} wide",
+            layout.plot_x,
+            layout.plot_x + layout.plot_width
+        );
+    }
+
+    #[test]
+    fn the_floor_grows_with_the_visual_scale_the_margins_and_gutter_grow_with() {
+        // The layout multiplies the margins and the gutter by the visual
+        // scale, and the floor added them up unmultiplied. At twice the scale
+        // a figure held to its floor was 234 pixels wide and started its
+        // plotting area at 332, so the track and its name were both drawn
+        // off the right of the image.
+        let floored = |scale: f64| {
+            Figure::new(region())
+                .visual_scale(scale)
+                .label_width(150.0)
+                .width(1.0)
+                .push(CoverageTrack::new(0, vec![10.0; 1000]).label("depth"))
+        };
+        let unscaled = floored(1.0).layout().plot_width;
+        for scale in [1.0, 2.0, 3.5] {
+            let figure = floored(scale);
+            let (width, _) = figure.dimensions();
+            let layout = figure.layout();
+            assert!(
+                layout.plot_x + layout.plot_width + layout.margin_right <= width,
+                "at {scale} the plotting area runs from {} to {} on an image {width} wide",
+                layout.plot_x,
+                layout.plot_x + layout.plot_width
+            );
+            // The area grows with everything else, rather than being what is
+            // left of an image that did not.
+            assert!(
+                layout.plot_width >= unscaled * scale * 0.99,
+                "at {scale} the plotting area is {} wide, against {unscaled} unscaled",
+                layout.plot_width
+            );
+        }
+        // Nothing moves at the scale every committed figure is drawn at.
+        assert_eq!(floored(1.0).dimensions().0, 234.0);
+    }
+
+    #[test]
+    fn a_gutter_that_is_not_finite_does_not_make_a_document_zero_pixels_wide() {
+        // The gutter is part of the floor a width is held to, so an infinite
+        // one made the floor infinite, and that went out as `width="0"`. It
+        // did so already when `width` came after it, and with the floor
+        // settled at layout it would have in every order.
+        for figure in [
+            Figure::new(region()).label_width(f64::INFINITY),
+            Figure::new(region())
+                .label_width(f64::INFINITY)
+                .width(900.0),
+            Figure::new(region())
+                .width(900.0)
+                .label_width(f64::INFINITY),
+        ] {
+            let figure = figure.push(AxisTrack::new().label("position"));
+            let (width, _) = figure.dimensions();
+            assert_eq!(width, 900.0);
+            let layout = figure.layout();
+            assert!(
+                layout.plot_x + layout.plot_width <= width,
+                "the plotting area runs from {} to {} on an image {width} wide",
+                layout.plot_x,
+                layout.plot_x + layout.plot_width
+            );
+        }
     }
 
     #[test]

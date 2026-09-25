@@ -27,7 +27,7 @@
 
 use std::collections::BTreeMap;
 
-use super::Tree;
+use super::{AnnotationValue, Tree};
 
 /// One change on a branch: where, from what, to what.
 ///
@@ -113,14 +113,27 @@ impl Mutation {
     /// Reads a list of them, however the file separated it.
     ///
     /// Commas, semicolons, pipes and spaces all appear as separators, so all
-    /// four are taken. A piece that is not a mutation is skipped rather than
-    /// failing the list, since a writer that adds a note beside the changes
-    /// should not cost a reader the changes.
+    /// four are taken, and so are braces, which a list read from annotated
+    /// Newick prints inside: `{A123T,S:D614G}` is two changes. A piece that is
+    /// not a mutation is skipped rather than failing the list, since a writer
+    /// that adds a note beside the changes should not cost a reader the
+    /// changes.
     pub fn parse_list(text: &str) -> Vec<Mutation> {
-        text.split(|c: char| c == ',' || c == ';' || c == '|' || c.is_whitespace())
-            .filter_map(Mutation::parse)
-            .collect()
+        pieces(text).filter_map(Mutation::parse).collect()
     }
+}
+
+/// The pieces a list of changes is written in, separated the ways
+/// [`Mutation::parse_list`] takes.
+///
+/// Two separators side by side leave an empty piece between them, which is
+/// spacing rather than anything the file said, so it is not handed on to be
+/// read or counted. Braces are separators too: a braced list printed as text
+/// keeps them, and split on commas alone its first piece began with one and
+/// its last ended with the other, so neither read as a change.
+fn pieces(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| matches!(c, ',' | ';' | '|' | '{' | '}') || c.is_whitespace())
+        .filter(|piece| !piece.is_empty())
 }
 
 impl std::fmt::Display for Mutation {
@@ -140,6 +153,8 @@ pub struct Mutations {
     /// Where each spelling occurs, as the branches it happened on. A spelling
     /// with more than one branch is a change that happened more than once.
     branches: BTreeMap<String, Vec<usize>>,
+    /// Pieces under the key that did not read as a change.
+    unread: usize,
 }
 
 impl Mutations {
@@ -148,22 +163,44 @@ impl Mutations {
     /// Direct branch data and never inherited: a node's own annotation is the
     /// change that happened on the branch above it, and the inheritance is what
     /// [`Mutations::carriers`] works out from the shape of the tree.
+    ///
+    /// The list may be quoted, `"A123T,S:D614G"`, or in braces,
+    /// `{A123T,S:D614G}`, and the two read the same. A piece that is not a
+    /// change is skipped, as [`Mutation::parse_list`] skips it, and counted in
+    /// [`Mutations::unread`].
     pub fn read(tree: &Tree, key: &str) -> Mutations {
         let mut on_branch = vec![Vec::new(); tree.nodes().len()];
         let mut branches: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut unread = 0;
         for (node, held) in on_branch.iter_mut().enumerate() {
             let Some(value) = tree.annotation(node, key) else {
                 continue;
             };
-            let found = Mutation::parse_list(&value.to_string());
-            for mutation in &found {
+            // A list in braces has already been taken apart by the parser, so
+            // it is read item by item. Printed whole it keeps its braces on,
+            // and `{A123T` and `C241T}` are not changes: a list of three came
+            // back as its middle one, and a list of one as nothing at all.
+            let mut values = vec![value];
+            while let Some(value) = values.pop() {
+                if let AnnotationValue::List(items) = value {
+                    values.extend(items.iter().rev());
+                    continue;
+                }
+                for piece in pieces(&value.to_string()) {
+                    match Mutation::parse(piece) {
+                        Some(mutation) => held.push(mutation),
+                        None => unread += 1,
+                    }
+                }
+            }
+            for mutation in held.iter() {
                 branches.entry(mutation.to_string()).or_default().push(node);
             }
-            *held = found;
         }
         Mutations {
             on_branch,
             branches,
+            unread,
         }
     }
 
@@ -180,6 +217,17 @@ impl Mutations {
     /// How many distinct changes the tree carries.
     pub fn distinct(&self) -> usize {
         self.branches.len()
+    }
+
+    /// How many pieces under the key did not read as a change.
+    ///
+    /// Skipped rather than failing the tree, since a note written beside the
+    /// changes should not cost a reader the changes, and counted rather than
+    /// dropped in silence. A change spelled some way this reader does not take
+    /// apart is missing from every answer about it, and a clade that carries
+    /// it then looks exactly like one that does not.
+    pub fn unread(&self) -> usize {
+        self.unread
     }
 
     /// Every spelling the tree carries, in order.

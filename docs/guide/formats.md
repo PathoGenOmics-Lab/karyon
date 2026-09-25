@@ -177,9 +177,9 @@ which is why the order is fixed and `--format` can overrule it.
 | `bed` | BED | `--features`, `--loci` |
 | `gff3`, `gff`, `gtf` | GFF3 | `--features`, `--loci` |
 
-`--format` is accepted after any track and ignored by the ones that read a
-single format. A signal word after `--features` is ignored too, and the guess
-runs as usual.
+`--format` is refused after the tracks that read a single format, and so is a
+word the track before it does not read: a signal word after `--features` would
+change nothing, since the guess runs as usual.
 
 !!! note "`gtf` is a spelling of `gff3`, not a GTF reader"
     A GTF's first eight columns are GFF3's, so its coordinates come out right,
@@ -213,7 +213,7 @@ The three flags read it differently:
 | Columns | exactly four | four or more, the rest ignored | four or more, the rest ignored |
 | A row becomes | its value on every base it covers | one window, kept whole | its score on every base it covers |
 | A base no row covers | 0 | nothing drawn | unscored: no letter, and a gap in the rule beneath |
-| A value that is not a number | refused | refused | leaves its bases unscored |
+| A value that is not a number | refused, but `nan` and `inf` are read as missing and leave a gap | refused, but `nan` and `inf` leave their window empty | leaves its bases unscored |
 
 `--coverage` also refuses overlapping rows, the sign of
 [two-sample depth](#a-coverage-file), unless `--format bedgraph` is given.
@@ -518,11 +518,11 @@ CTTGCATGCAACGGATTACGATCG
 | Read by | `--sequence`, `--orfs` and `--with-sequence`; `read::seq::fasta` |
 | What is read | each record's name (the header up to its first space) and its sequence lines, joined, case kept |
 | Coordinates | none: a record starts at its own first base, so byte n is 0-based position n |
-| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it |
+| Refused | sequence before the first `>`; a `>` with no name; a header with no sequence under it; several records and none named like the region's sequence, or two named like it |
 
-`--sequence` and `--orfs` take the first record and cut the region out of it by
-position. `--with-sequence` takes the file's only record whatever it is called,
-or, in a file of several, the one named like the region's sequence. Lower case
+`--sequence`, `--orfs` and `--with-sequence` take the file's only record
+whatever it is called, or, in a file of several, the one named like the
+region's sequence, and cut the region out of it by position. Lower case
 is kept, since a soft-masked reference says something by it. A region past the
 end of the record is not an error: the track has no bases there and draws
 nothing.
@@ -694,7 +694,7 @@ NC_000913.3  1000  1001  m  30  +  1000  1001  255,0,0  30  86.67  26  4  0  0  
 | Columns | 1 sequence, 2 start, 4 modification code, 6 strand, 10 valid coverage, 12 reads modified; the fraction is column 12 over column 10 |
 | Ignored | 3 end, 5 score, 7 to 9, 11 percent modified (the same fraction, rounded), and 13 to 18 |
 | Coordinates | 0-based, passed through: `1000` is the base 1,001 counted from 1 |
-| Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified |
+| Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified, and whose number `--methylation` prints on the band |
 | Refused | fewer than 18 columns; a strand other than `+` or `-`, since a strand-combined pileup has no strand to draw; more reads modified than valid coverage |
 
 A file holding more than one modification code, such as `m` and `h` from a

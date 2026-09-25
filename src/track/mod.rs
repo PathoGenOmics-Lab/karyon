@@ -165,6 +165,32 @@ pub(crate) fn arc_path(x0: f64, x1: f64, baseline: f64, apex: f64) -> String {
     )
 }
 
+/// The runs of `points` a line may be drawn through, split wherever a value is
+/// missing.
+///
+/// A line is a claim about every place it crosses, not only about its
+/// vertices. Joined across a `None`, it runs straight from the last value
+/// before the hole to the first one after, and draws a value at every point in
+/// between where the data holds none. So a line stops at a missing value and
+/// starts again after it, and the tracks that draw one over values that can be
+/// missing split it here rather than each deciding for itself where a line may
+/// go.
+pub(crate) fn unbroken<T>(points: impl IntoIterator<Item = Option<T>>) -> Vec<Vec<T>> {
+    let mut runs = Vec::new();
+    let mut run = Vec::new();
+    for point in points {
+        match point {
+            Some(point) => run.push(point),
+            None if !run.is_empty() => runs.push(std::mem::take(&mut run)),
+            None => {}
+        }
+    }
+    if !run.is_empty() {
+        runs.push(run);
+    }
+    runs
+}
+
 /// Everything a track needs in order to draw one band.
 pub struct DrawContext<'a> {
     /// Where to write the SVG elements.
@@ -274,9 +300,35 @@ pub trait Track {
     fn draw(&self, ctx: &mut DrawContext<'_>);
 }
 
+/// The vertices of every `<polyline>` in a document, one list per element, in
+/// the order they were drawn.
+#[cfg(test)]
+pub(crate) fn polylines(svg: &str) -> Vec<Vec<(f64, f64)>> {
+    svg.split("<polyline points=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .map(|list| {
+            list.split(' ')
+                .filter_map(|pair| {
+                    let (x, y) = pair.split_once(',')?;
+                    Some((x.parse().ok()?, y.parse().ok()?))
+                })
+                .collect()
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_is_split_at_every_missing_value_and_nowhere_else() {
+        let runs = unbroken([None, Some(1), Some(2), None, None, Some(3), None]);
+        assert_eq!(runs, vec![vec![1, 2], vec![3]]);
+        assert_eq!(unbroken([Some(1), Some(2)]), vec![vec![1, 2]]);
+        assert!(unbroken::<u8>([None, None]).is_empty());
+    }
 
     #[test]
     fn rect_edges_are_consistent() {
