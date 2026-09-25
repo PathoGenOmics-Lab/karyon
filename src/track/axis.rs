@@ -30,7 +30,8 @@
 //! be decoded rather than read.
 
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{mono_width, Anchor, TextStyle};
+use crate::theme::mix;
 use crate::track::{DrawContext, Track};
 
 /// A ruler of genomic coordinates, with tick spacing chosen for the zoom level.
@@ -124,12 +125,16 @@ impl Track for AxisTrack {
         let tick_length = self.tick_length * ctx.visual_scale;
         let label_y = rule_y + tick_length + font;
 
+        // The rule and its ticks in the quiet inks. The ruler measures every
+        // band above it, and drawn in the foreground it was the heaviest line
+        // in a figure whose data is lines.
+        let tick_ink = mix(&ctx.theme.muted, ctx.theme.surface(), 0.5);
         ctx.svg.line(
             band.x,
             rule_y,
             band.right(),
             rule_y,
-            &ctx.theme.foreground,
+            &ctx.theme.rule,
             ctx.theme.tokens.stroke,
         );
 
@@ -137,6 +142,15 @@ impl Track for AxisTrack {
         // One unit for the whole ruler: an axis that switches from kb to Mb
         // half way across is unreadable.
         let unit = tick_unit(ticks.positions.last().copied().unwrap_or(0), ticks.step);
+        let style = TextStyle {
+            family: Some(&ctx.theme.mono_family),
+            ..TextStyle::default()
+        };
+        // Where the last label drawn ends. The first and last labels are
+        // pulled inside the figure, and a label pulled in can land on its
+        // neighbour; that neighbour is left unlabelled rather than printed
+        // through it.
+        let mut last_right = f64::NEG_INFINITY;
         for pos in ticks.positions {
             // Ticks are computed in 1-based space so their labels are round
             // numbers; the scale works in 0-based space.
@@ -150,22 +164,26 @@ impl Track for AxisTrack {
                 rule_y,
                 x,
                 rule_y + tick_length,
-                &ctx.theme.foreground,
+                &tick_ink,
                 ctx.theme.tokens.stroke,
             );
 
             let text = unit.format(pos);
             // Keep the first and last labels from hanging off the figure.
-            let half = text_width(&text, font) / 2.0;
-            let (anchor, tx) = if x - half < band.x {
-                (Anchor::Start, band.x)
+            let half = mono_width(&text, font) / 2.0;
+            let (anchor, tx, left) = if x - half < band.x {
+                (Anchor::Start, band.x, band.x)
             } else if x + half > band.right() {
-                (Anchor::End, band.right())
+                (Anchor::End, band.right(), band.right() - half * 2.0)
             } else {
-                (Anchor::Middle, x)
+                (Anchor::Middle, x, x - half)
             };
+            if left < last_right + font * 0.5 {
+                continue;
+            }
+            last_right = left + half * 2.0;
             ctx.svg
-                .text(tx, label_y, &text, &ctx.theme.muted, font, anchor);
+                .text_styled(tx, label_y, &text, &ctx.theme.muted, font, anchor, style);
         }
     }
 }

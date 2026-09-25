@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 Aligned reads, stacked the way a genome browser stacks them, with the bases that disagree with the reference painted over quiet read bodies. This is the track to open when a variant call looks wrong.
 
 <figure class="k-plate" markdown>
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }
 </figure>
 
 | | |
@@ -85,7 +85,7 @@ Rows are packing, not meaning: reads are sorted by start and dropped into the fi
 One row per molecule and one bar per alignment, with connectors saying in what order and in which orientation that one piece of DNA visited those places. Use it for the reads behind a structural call.
 
 <figure class="k-plate" markdown>
-![Eight molecules each aligned in three pieces, two at a new insertion site and one back to the reference copy of the element on the reverse strand, with the connectors that run backwards drawn under their rows, above a depth profile that doubles over the donor](../assets/figures/example-split.svg){ width="880" height="329" loading="lazy" }
+![Eight molecules each aligned in three pieces, two at a new insertion site and one back to the reference copy of the element on the reverse strand, with the connectors that run backwards drawn under their rows, above a depth profile that doubles over the donor](../assets/figures/example-split.svg){ width="880" height="330" loading="lazy" }
 </figure>
 
 | | |
@@ -146,7 +146,7 @@ Nothing vanishes quietly. A short segment in a wide view is floored at `min_segm
 Methylation one molecule at a time: one row per read, one column per site, a filled circle for methylated, a ring for unmethylated, and nothing where the read did not reach. Use it when the question is which molecules are methylated, not how many.
 
 <figure class="k-plate" markdown>
-![Sixteen molecules across a human imprinting control region, one row each, with filled and open circles per cytosine: some reads are methylated at every site and others at none](../assets/figures/example-bisulfite.svg){ width="880" height="302" loading="lazy" }
+![Sixteen molecules across a human imprinting control region, one row each, with filled and open circles per cytosine: some reads are methylated at every site and others at none](../assets/figures/example-bisulfite.svg){ width="880" height="303" loading="lazy" }
 </figure>
 
 | | |
@@ -205,7 +205,7 @@ From an extractor file, both mates of a pair are one row; where they overlap and
 Splice junctions as arcs, each weighted by the reads that crossed it and labelled with the count: the sashimi plot. Stack it over a [CoverageTrack](signal-sequence.md#coveragetrack) so the arcs meet the steps in depth.
 
 <figure class="k-plate" markdown>
-![Splice junction arcs labelled with their read counts over a depth profile and a model's per-base attribution, with a close-up of the promoter motif below](../assets/figures/example-regulation.svg){ width="810" height="786" loading="lazy" }
+![Splice junction arcs labelled with their read counts over a depth profile and a model's per-base attribution, with a close-up of the promoter motif below](../assets/figures/example-regulation.svg){ width="811" height="788" loading="lazy" }
 </figure>
 
 | | |
@@ -264,7 +264,7 @@ A junction nobody crossed is not an observation. It reaches the track, is not dr
 Raw nanopore current for one read, before it was ever a base. When a basecall is in doubt, or a modification is what is being measured, the current is the evidence and the letters are the summary.
 
 <figure class="k-plate" markdown>
-![Raw nanopore current for one read, drawn as a min to max envelope that resolves into the trace, with the bases the basecaller assigned to each stretch marked above it](../assets/figures/example-squiggle.svg){ width="880" height="184" loading="lazy" }
+![Raw nanopore current for one read, drawn as a min to max envelope that resolves into the trace, with the bases the basecaller assigned to each stretch marked above it](../assets/figures/example-squiggle.svg){ width="880" height="185" loading="lazy" }
 </figure>
 
 | | |

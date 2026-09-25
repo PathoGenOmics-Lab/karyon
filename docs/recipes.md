@@ -128,7 +128,7 @@ Show how often each stretch of a chromosome is gained and lost across a
 cohort, with no track made for it.
 
 <figure class="k-plate" markdown>
-![A cohort landscape over a chromosome arm, gains rising above the line and losses hanging below it, over one tumour's copy number segments on a ladder of whole copies](assets/figures/example-copy-number.svg){ width="900" height="340" loading="lazy" }
+![A cohort landscape over a chromosome arm, gains rising above the line and losses hanging below it, over one tumour's copy number segments on a ladder of whole copies](assets/figures/example-copy-number.svg){ width="900" height="341" loading="lazy" }
 <figcaption>The landscape above one sample's segmentation, from <code>cargo run --example copy_number -- assets</code>.</figcaption>
 </figure>
 
@@ -176,7 +176,7 @@ Stack depth, reference, annotation and calls over one locus, straight from the
 files on disk.
 
 <figure class="k-plate" markdown>
-![A coverage profile with a dropout, the reference sequence, a gene with a marked region inside it, and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![A coverage profile with a dropout, the reference sequence, a gene with a marked region inside it, and variants coloured by consequence, all over one coordinate axis](assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 <figcaption>The same stack over the rpoB locus, from <code>cargo run --example locus -- assets</code>.</figcaption>
 </figure>
 
@@ -207,7 +207,7 @@ asked for.
 Show the same tracks over a few dozen bases, where every base has its letter.
 
 <figure class="k-plate" markdown>
-![Sixty bases of a locus, with the reference drawn as coloured letters under a depth profile and three variant calls](assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+![Sixty bases of a locus, with the reference drawn as coloured letters under a depth profile and three variant calls](assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -253,7 +253,7 @@ Look at the aligned reads under a call, with every base that disagrees with
 the reference painted.
 
 <figure class="k-plate" markdown>
-![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+![A read pileup with reads coloured by strand, mismatches painted against the reference, a deletion, an insertion and a patch of low mapping quality, under a coverage profile and a variant call](assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }
 <figcaption>From <code>cargo run --example pileup -- assets</code>, with the reference attached.</figcaption>
 </figure>
 
@@ -364,7 +364,7 @@ Sort the samples by a phylogeny, so that a clade's shared differences line up
 into a block.
 
 <figure class="k-plate" markdown>
-![A phylogeny on the left, three strips of sample metadata beside it, and a panel of thirty-four variable sites across the isolates, each column labelled with its position](assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }
+![A phylogeny on the left, three strips of sample metadata beside it, and a panel of thirty-four variable sites across the isolates, each column labelled with its position](assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }
 <figcaption>Thirty-four differences in thirty kilobases, from <code>cargo run --example snps -- assets</code>.</figcaption>
 </figure>
 
@@ -412,7 +412,7 @@ clades that did not inherit it from each other.
 Put a Manhattan plot over the genotypes of the samples at the sites it tested.
 
 <figure class="k-plate" markdown>
-![A Manhattan plot with a tower of linked markers, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }
+![A Manhattan plot with a tower of linked markers, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](assets/figures/example-association.svg){ width="940" height="348" loading="lazy" }
 <figcaption>Both panels share the axis, so the haplotype block sits under its tower. From <code>cargo run --example association -- assets</code>.</figcaption>
 </figure>
 
@@ -442,7 +442,7 @@ Lay the contigs of an assembly end to end and plot a scan across all of them
 at once.
 
 <figure class="k-plate" markdown>
-![An association scan across twelve contigs of a draft assembly laid end to end, one peak crossing the threshold, with a depth profile and the contig blocks underneath](assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }
+![An association scan across twelve contigs of a draft assembly laid end to end, one peak crossing the threshold, with a depth profile and the contig blocks underneath](assets/figures/example-genomewide.svg){ width="940" height="289" loading="lazy" }
 <figcaption>Twelve contigs over 3.27 Mb, from <code>cargo run --example genomewide -- assets</code>.</figcaption>
 </figure>
 
@@ -503,7 +503,7 @@ Show support, the changes on each branch and a scale of evolutionary distance
 on one tree.
 
 <figure class="k-plate" markdown>
-![The same annotated tree drawn three ways, rectangular, circular and unrooted, each carrying support symbols with their values, event labels on branches, lineage colours and a distance scale bar](assets/figures/example-phylo-evidence.svg){ width="1736" height="628" loading="lazy" }
+![The same annotated tree drawn three ways, rectangular, circular and unrooted, each carrying support symbols with their values, event labels on branches, lineage colours and a distance scale bar](assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 <figcaption>One track in three projections, from <code>cargo run --example phylogenetics -- assets</code>.</figcaption>
 </figure>
 
@@ -641,7 +641,7 @@ grammar on one screen, and [Command line](guide/cli.md) is the long form.
 Render one stack twice, once for a paper and once for a dark slide.
 
 <figure class="k-plate" markdown>
-![The locus figure drawn on a dark page, with the depth profile, reference, annotation and variants in colours chosen for it](assets/figures/example-dark.svg){ width="900" height="304" loading="lazy" }
+![The locus figure drawn on a dark page, with the depth profile, reference, annotation and variants in colours chosen for it](assets/figures/example-dark.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 === "Rust"
@@ -684,7 +684,7 @@ Put several figures on one sheet with letters on them, the way a paper figure
 is laid out.
 
 <figure class="k-plate" markdown>
-![Twenty-two panels in three columns on one sheet, showing most kinds of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
+![Twenty-two panels in three columns on one sheet, showing most kinds of plot the crate draws, from a genomic stack and a read pileup to sequence logos, trees, a circular chromosome and raw nanopore signal](assets/figures/gallery.svg){ width="3475" height="1903" loading="lazy" }
 <figcaption>Twenty-two panels in three columns, one document: <code>cargo run --example gallery -- assets</code>.</figcaption>
 </figure>
 

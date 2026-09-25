@@ -79,6 +79,10 @@ extra_css:
 # be openable at the size it was drawn. This is the only script the site loads
 # on every page, and it does nothing until a figure is activated.
 extra_javascript:
+  # The program first, then what draws the figures with it, then the viewer
+  # for whatever is still a picture: each skips what the one before took.
+  - assets/karyon-wasm.js
+  - assets/karyon-figures.js
   - assets/figure-viewer.js
 
 markdown_extensions:

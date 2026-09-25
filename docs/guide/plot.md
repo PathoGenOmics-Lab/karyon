@@ -7,7 +7,7 @@ assembly.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![A depth profile over two kilobases of the rpoB locus with a dropout in the middle, a reference row that asks to zoom in to see bases, the rpoB gene with its resistance determining region marked, variant lollipops coloured and shaped by consequence, and a coordinate ruler along the bottom](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![A depth profile over two kilobases of the rpoB locus with a dropout in the middle, a reference row that asks to zoom in to see bases, the rpoB gene with its resistance determining region marked, variant lollipops coloured and shaped by consequence, and a coordinate ruler along the bottom](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 ```rust
@@ -160,7 +160,7 @@ to give each an `add_` of its own: `WindowTrack::gc_skew`,
 and `IdeogramTrack::bare` among them.
 
 <figure class="k-plate" markdown>
-![Two windowed statistics over forty kilobases: pN/pS as bars below the baseline everywhere except one stretch that rises above it in a second colour, and GC skew as a step line, solid above zero and dashed below it](../assets/figures/example-selection.svg){ width="880" height="232" loading="lazy" }
+![Two windowed statistics over forty kilobases: pN/pS as bars below the baseline everywhere except one stretch that rises above it in a second colour, and GC skew as a step line, solid above zero and dashed below it](../assets/figures/example-selection.svg){ width="880" height="233" loading="lazy" }
 </figure>
 
 ```rust
@@ -187,7 +187,7 @@ codon, `SnpTrack::sites` lists the variable sites a panel kept, and
 track as a variable, so build it first and add it with `add_track`:
 
 <figure class="k-plate" markdown>
-![A stretch of the rpoB coding sequence drawn as numbered codons 439 onwards with their translated residues, two variant lollipops above codons 445 and 450, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="169" loading="lazy" }
+![A stretch of the rpoB coding sequence drawn as numbered codons 439 onwards with their translated residues, two variant lollipops above codons 445 and 450, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="170" loading="lazy" }
 </figure>
 
 ```rust
@@ -349,7 +349,7 @@ signal by sample, so a plot of one wants a region in that unit, such as
 `plot("alignment:1-320")`, and the ruler then counts columns.
 
 <figure class="k-plate" markdown>
-![A conservation logo above an alignment of twelve isolates in which only the disagreements are painted, over a ruler that counts alignment columns from 1 to 120](../assets/figures/example-msa.svg){ width="940" height="325" loading="lazy" }
+![A conservation logo above an alignment of twelve isolates in which only the disagreements are painted, over a ruler that counts alignment columns from 1 to 120](../assets/figures/example-msa.svg){ width="940" height="326" loading="lazy" }
 </figure>
 
 The locus printed at the top right is then the one thing that still reads as
@@ -581,9 +581,9 @@ The figure settles the pieces in this order:
    the muted colour at the right.
 2. **The label gutter**, reserved only when at least one track has a label. Its
    width follows the widest label plus 14 pixels, kept between 48 and 160, unless
-   `label_width` sets it. Labels are drawn in the foreground ink, right-aligned
-   against the value axis, and a label wider than the gutter is shortened with an
-   ellipsis.
+   `label_width` sets it. Labels are set semibold in the muted ink, in the case
+   they were given, right-aligned against the value axis, and a label wider
+   than the gutter is shortened with an ellipsis.
 3. **The value axis strip.** Each track says how much room it wants for its own
    ticks. The figure gives **every track the widest of those requests**, so all
    plotting areas start at the same x. A coverage track asks for room to print
@@ -703,7 +703,7 @@ puts finished drawings on one SVG sheet, each with an optional letter and
 caption, without any of them knowing about the others.
 
 <figure class="k-plate" markdown>
-![One sheet of twenty-two panels in three columns, lettered A to V, covering most kinds of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny and transcription units](../assets/figures/gallery.svg){ width="3466" height="1906" loading="lazy" }
+![One sheet of twenty-two panels in three columns, lettered A to V, covering most kinds of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny and transcription units](../assets/figures/gallery.svg){ width="3475" height="1903" loading="lazy" }
 </figure>
 
 ```rust
@@ -884,7 +884,7 @@ region that covers them all, and every track then works across all of them at
 once.
 
 <figure class="k-plate" markdown>
-![An association scan across a draft assembly of twelve contigs laid end to end: association points banded by contig with one peak crossing a dashed genome-wide line, a depth profile that dips at every contig end, and a row naming the contigs underneath](../assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }
+![An association scan across a draft assembly of twelve contigs laid end to end: association points banded by contig with one peak crossing a dashed genome-wide line, a depth profile that dips at every contig end, and a row naming the contigs underneath](../assets/figures/example-genomewide.svg){ width="940" height="289" loading="lazy" }
 </figure>
 
 ```rust

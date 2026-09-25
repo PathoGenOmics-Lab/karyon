@@ -176,7 +176,7 @@ they number. That suits a sequence logo or a short motif, where a base is a
 column you can see rather than a fraction of a pixel.
 
 <figure class="k-plate" markdown>
-![Sixty bases of the rpoB locus at base resolution: a depth profile, the reference drawn as coloured letters, and variant lollipops standing over the middle of the bases they call](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+![Sixty bases of the rpoB locus at base resolution: a depth profile, the reference drawn as coloured letters, and variant lollipops standing over the middle of the bases they call](../assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
 </figure>
 
 ## What a file's numbers become
@@ -277,7 +277,7 @@ data counts, and several tracks put something other than bases on it. The
 region is then written in that unit.
 
 <figure class="k-plate" markdown>
-![Thirty-four variable sites from 30 kb of twelve isolates and a reference, spaced evenly as columns with each site's position printed on end beneath it, beside a tree and three trait strips](../assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }
+![Thirty-four variable sites from 30 kb of twelve isolates and a reference, spaced evenly as columns with each site's position printed on end beneath it, beside a tree and three trait strips](../assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }
 </figure>
 
 | Track | The axis counts | A region for it |
@@ -338,7 +338,7 @@ are matched exactly: `chr1` and `1` never meet.
 ## Codons, a third numbering
 
 <figure class="k-plate" markdown>
-![rpoB codons 439 to 465 drawn as numbered cells carrying their residues, the variants H445Y and S450L standing over the codons they change, and a ruler of bases underneath](../assets/figures/example-codons.svg){ width="880" height="169" loading="lazy" }
+![rpoB codons 439 to 465 drawn as numbered cells carrying their residues, the variants H445Y and S450L standing over the codons they change, and a ruler of bases underneath](../assets/figures/example-codons.svg){ width="880" height="170" loading="lazy" }
 </figure>
 
 A change in a coding sequence is named by residue: BRAF V600E, TP53 R175H, rpoB

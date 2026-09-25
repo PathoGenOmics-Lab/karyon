@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 Point events along the sequence, drawn as lollipops whose height is a value, or as plain ticks once they are too dense for heads: SNPs, indels, insertion sites, peaks. Colour and the legend follow each call's category.
 
 <figure class="k-plate" markdown>
-![Variant calls in rpoB drawn as lollipops whose height is the allele fraction and whose colour is missense or synonymous, under the gene model](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![Variant calls in rpoB drawn as lollipops whose height is the allele fraction and whose colour is missense or synonymous, under the gene model](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 | | |
@@ -75,7 +75,7 @@ From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call 
 Structural variant calls as arcs between their two breakpoints, springing from the axis at both ends, higher the further apart the ends are and heavier the more reads support them. Use it with a [CoverageTrack](signal-sequence.md#coveragetrack) underneath.
 
 <figure class="k-plate" markdown>
-![Five structural variant calls drawn as arcs between their breakpoints: a deletion, a duplication, an inversion, an insertion, and a translocation whose far end leaves the frame. Underneath, a depth profile that drops to nothing under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="287" loading="lazy" }
+![Five structural variant calls drawn as arcs between their breakpoints: a deletion, a duplication, an inversion, an insertion, and a translocation whose far end leaves the frame. Underneath, a depth profile that drops to nothing under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="288" loading="lazy" }
 </figure>
 
 | | |
@@ -138,7 +138,7 @@ The VCF reader takes nothing off `POS` for a symbolic allele, because the specif
 Segmented copy number on a ladder of whole copies, with a lane along the foot marking where one allele was lost. Every called segment is a mark, and only a segment nobody called is blank.
 
 <figure class="k-plate" markdown>
-![Above, the share of a cohort with a gain or a loss along one chromosome arm; below, one tumour's segments on a ladder of whole copies, with its loss of heterozygosity marked along the foot](../assets/figures/example-copy-number.svg){ width="900" height="340" loading="lazy" }
+![Above, the share of a cohort with a gain or a loss along one chromosome arm; below, one tumour's segments on a ladder of whole copies, with its loss of heterozygosity marked along the foot](../assets/figures/example-copy-number.svg){ width="900" height="341" loading="lazy" }
 </figure>
 
 | | |
@@ -200,7 +200,7 @@ A log2 ratio from a `.seg` or `.cns` becomes copies as `ploidy * 2^log2`, and a 
 The variable columns of an alignment and nothing else, spaced evenly, one row per sample, each column labelled with its own position. Put a phylogeny beside it and a clade's shared substitutions line up into a block.
 
 <figure class="k-plate" markdown>
-![A phylogeny, three strips of sample metadata and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](../assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }
+![A phylogeny, three strips of sample metadata and a panel of thirty-four variable sites across twelve isolates, each column labelled with its position](../assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }
 </figure>
 
 | | |
@@ -268,7 +268,7 @@ The price is the x axis. Two neighbouring columns may be nine bases or nine kilo
 One row per sample, one column per site, and a cell saying what that sample had there. The columns sit at their real coordinates, so the matrix shares the axis with whatever is stacked above it: a genotype matrix from a VCF, or a presence and absence matrix of genes.
 
 <figure class="k-plate" markdown>
-![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](../assets/figures/example-pangenome.svg){ width="940" height="263" loading="lazy" }
+![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](../assets/figures/example-pangenome.svg){ width="940" height="264" loading="lazy" }
 </figure>
 
 | | |
@@ -337,7 +337,7 @@ A cell's width is a floor, `min_cell_width`, so it says nothing about how much s
 Association statistics: one point per test, height by significance, a line where significance starts, and the hits above it coloured and ringed. A real signal stacks neighbouring markers into a tower.
 
 <figure class="k-plate" markdown>
-![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](../assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }
+![A Manhattan plot with a tower crossing the significance line, the gene underneath it, and a genotype matrix showing which isolates carry the haplotype](../assets/figures/example-association.svg){ width="940" height="348" loading="lazy" }
 </figure>
 
 | | |
@@ -403,7 +403,7 @@ The x axis is genomic, so this draws one sequence or one region of one. For a sc
 Site-wise molecular selection in two aligned tiers, so evidence and effect never share one colour: `-log10(p)` or a posterior probability above, and a signed `log2(ω)` effect centred on ω = 1 below.
 
 <figure class="k-plate" markdown>
-![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }
+![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
 </figure>
 
 | | |

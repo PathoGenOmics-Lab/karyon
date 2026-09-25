@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 A multiple sequence alignment, row by row, painting only what disagrees with the consensus or with a row you name. In a real alignment most cells agree, and the agreement is the noise.
 
 <figure class="k-plate" markdown>
-![A conservation logo above a multiple sequence alignment, with only the disagreements painted](../assets/figures/example-msa.svg){ width="940" height="325" loading="lazy" }
+![A conservation logo above a multiple sequence alignment, with only the disagreements painted](../assets/figures/example-msa.svg){ width="940" height="326" loading="lazy" }
 </figure>
 
 | | |
@@ -80,7 +80,7 @@ Conservation belongs above the alignment rather than inside it: a [LogoTrack](si
 A protein alignment wants `.coloring(MsaColoring::Residue)`: six physicochemical classes, as many as the validated palette has hues, with glycine and proline in classes of their own.
 
 <figure class="k-plate" markdown>
-![A short protein alignment with residues coloured by class](../assets/figures/example-msa-protein.svg){ width="720" height="173" loading="lazy" }
+![A short protein alignment with residues coloured by class](../assets/figures/example-msa-protein.svg){ width="720" height="174" loading="lazy" }
 </figure>
 
 `tree` matches sequence names to leaves, sorts the rows by descent and draws the tree in the name strip. A chosen comparison row follows its sequence when the rows move, and sequences the tree does not name stay at the bottom rather than being dropped.
@@ -90,7 +90,7 @@ A protein alignment wants `.coloring(MsaColoring::Residue)`: six physicochemical
 Domains, motifs, exons or repeats as labelled intervals along a protein or transcript, one sequence per row, so gains, losses and rearrangements of architecture can be read against each other.
 
 <figure class="k-plate" markdown>
-![Domain architectures in rows sorted by the phylogeny beside them, so domain gains and losses come out as blocks, in a sheet with an alignment sorted the same way and two trees carrying bubbles, bars and ancestral-state donuts](../assets/figures/example-phylo-faces.svg){ width="1384" height="658" loading="lazy" }
+![Domain architectures in rows sorted by the phylogeny beside them, so domain gains and losses come out as blocks, in a sheet with an alignment sorted the same way and two trees carrying bubbles, bars and ancestral-state donuts](../assets/figures/example-phylo-faces.svg){ width="1386" height="660" loading="lazy" }
 </figure>
 
 | | |
@@ -151,7 +151,7 @@ Column one of an InterProScan table names the row rather than selecting it, so e
 Two sequences on two axes, with each alignment block drawn as a diagonal. A forward block runs up to the right and a reversed one down, so a rearrangement has a shape: a translocation sits off the main diagonal and an inversion is an anti-diagonal.
 
 <figure class="k-plate" markdown>
-![A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block](../assets/figures/example-synteny.svg){ width="900" height="436" loading="lazy" }
+![A dotplot above a ribbon plot of the same two chromosomes, showing a colinear region, an inversion as an anti-diagonal and a crossed ribbon, and a translocated block](../assets/figures/example-synteny.svg){ width="900" height="437" loading="lazy" }
 </figure>
 
 | | |
@@ -210,7 +210,7 @@ A PAF names both sequences on every row. From the command line the query is the 
 The same alignment blocks as ribbons between two bars: the compact form of the comparison, which sits in a stack of other tracks and turns an inversion into a twist.
 
 <figure class="k-plate" markdown>
-![The inversion on its own: two bars joined by ribbons that cross where the alignment reverses](../assets/figures/example-synteny-inversion.svg){ width="760" height="250" loading="lazy" }
+![The inversion on its own: two bars joined by ribbons that cross where the alignment reverses](../assets/figures/example-synteny-inversion.svg){ width="760" height="251" loading="lazy" }
 </figure>
 
 | | |
@@ -266,7 +266,7 @@ Ribbons are translucent, so two crossing ones read as two and a pile of them sho
 Several loci from several genomes, one row each, genes drawn as arrows and joined to their matches in the row below by ribbons shaded by identity. Genes that match nothing are outlined, because what one locus has and the other has not is usually the question.
 
 <figure class="k-plate" markdown>
-![The ESX-1 locus in three genomes, one row each, genes drawn as arrows and joined by identity ribbons, with the genes deleted in one of them left outlined and unjoined](../assets/figures/example-cluster.svg){ width="880" height="257" loading="lazy" }
+![The ESX-1 locus in three genomes, one row each, genes drawn as arrows and joined by identity ribbons, with the genes deleted in one of them left outlined and unjoined](../assets/figures/example-cluster.svg){ width="880" height="258" loading="lazy" }
 </figure>
 
 | | |

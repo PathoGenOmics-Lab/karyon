@@ -2842,8 +2842,9 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 .next()
                 .map(|(start, _)| svg[start + 3..].split('"').next().unwrap_or("").to_string())
                 .expect("the label has a y");
-            // The label sits a third of a body below its own row.
-            let row = y.parse::<f64>().unwrap() - 3.85;
+            // The label sits a third of a body below its own row, the body
+            // being a point under the theme's.
+            let row = y.parse::<f64>().unwrap() - (Theme::light().font_size - 1.0) * 0.35;
             let mark = format!("y1=\"{row}\"");
             let line = svg
                 .split(&mark)
@@ -2859,12 +2860,16 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         // a and b are under the branch it happened on, and c has it directly.
         // d is under neither.
         let marked = row_of("a");
-        assert_ne!(marked, "#1b1f23", "a's branch is marked, not plain: {svg}");
+        assert_ne!(
+            marked,
+            Theme::light().foreground,
+            "a's branch is marked, not plain: {svg}"
+        );
         assert_eq!(row_of("b"), marked, "b is under the same branch: {svg}");
         assert_eq!(row_of("c"), marked, "c has it of its own: {svg}");
         assert_eq!(
             row_of("d"),
-            "#1b1f23",
+            Theme::light().foreground,
             "d carries nothing and stays plain: {svg}"
         );
 

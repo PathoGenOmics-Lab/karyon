@@ -449,9 +449,11 @@
   font-size: 0.66rem;
 }
 
+/* The figure's own page under it: the program draws in the page's light or
+   dark, and a white frame round a dark figure is a hole in the page. */
 .md-typeset .k-stage-plot {
   padding: 0.6rem;
-  background: #ffffff;
+  background: var(--k-fig-light, #ffffff);
   cursor: grab;
 }
 
@@ -543,4 +545,8 @@
   .kh-btn:hover {
     transform: none;
   }
+}
+
+[data-md-color-scheme="slate"] .md-typeset .k-stage-plot {
+  background: var(--k-fig-dark, #120b2b);
 }

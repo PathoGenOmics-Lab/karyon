@@ -33,12 +33,82 @@
 //! A framing rather than a text format because there is no parser here to
 //! disagree with: a file may hold any byte, a path may hold a space, and a
 //! command line word may hold both.
+//!
+//! # The committed figures
+//!
+//! The figures the site shows are files the examples write, and the functions
+//! that build them are in `examples/figures/`, one file per example. Those
+//! files are compiled in here as they stand, which is what lets a page draw a
+//! committed figure itself instead of showing the file: in the page's own light
+//! or dark, laid out at the width of the column it sits in, over whatever
+//! window the reader has moved to. It is the code that wrote the file, so a
+//! page that asks for nothing but the figure gets the file back byte for byte,
+//! and a test below holds it to that.
+//!
+//! [`figure`] draws one. The buffer in names it by its file under `assets/`
+//! without the `.svg`, and says what the page wants different; the buffer out
+//! is the one [`render`] answers with.
+//!
+//! ```text
+//! in   [u32 len][name]         the figure, as in example-genomewide
+//!      [u32 len][theme]        light or dark
+//!      [u32 len][background]   a colour for the page under it, or empty for the theme's
+//!      [u32 width]             in pixels, or 0 for the figure's own
+//!      [u32 len][region]       a locus as samtools writes one, or empty for its own
+//!      [u32 len][prefix]       what every id in it starts with, or empty
+//!
+//! out  [u8 ok][u32 len][bytes] the SVG, or what went wrong
+//! ```
+//!
+//! Two figures inlined into one page share one id space, so each is given a
+//! prefix of its own, and a figure given one knows it is going inside another
+//! document and leaves out the `<title>` and `<desc>` that would name it there.
+//!
+//! Only a stack of tracks has a width to change, and only one whose tracks lay
+//! their marks along a region has a window to move. A sheet, a circle, a map
+//! or a tree keeps its own and says nothing, so a page can ask every figure the
+//! same question. The two figures that exist to show one theme, the dark
+//! example and the sheet of the web profile, keep that theme the same way, and
+//! its page colour with it, whatever the page is running in. Which figure
+//! moves is what [`figures`] is for: it takes nothing, or an empty buffer, and
+//! answers with every figure there is and the window each one is drawn over,
+//! so a page knows which it can pan and zoom along the genome, and how far.
+//!
+//! ```text
+//! out  [u8 ok][u32 len]        1, and the length of what follows
+//!      [u32 count]
+//!      count x ([u32 len][name] [u8 moves] [u32 len][region])
+//! ```
+//!
+//! `moves` is 1 for a figure drawn over a region and 0 for one that is not,
+//! whose region is then empty. Handed back to [`figure`] as it is, a region
+//! draws the figure the file holds.
+//!
+//! Answering that for every figure is building every figure, about a fifth of
+//! a second, and a page that shows three of them has no use for the other
+//! forty. [`figure_region`] answers it for one: the buffer in is the name as
+//! [`figure`] takes it, and the answer is that figure's entry of the list.
+//!
+//! ```text
+//! in   [u32 len][name]
+//! out  [u8 ok][u32 len]        1, and the length of what follows
+//!      [u8 moves] [u32 len][region]
+//! ```
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use karyon::cli::{args, stack};
-use karyon::Tree;
+use karyon::{Region, Theme, Tree};
+
+// The examples' own files, which the library's examples compile as well, and
+// there they are held to the oldest compiler the library supports. This crate
+// declares no such version, so without saying it here Clippy asks for
+// functions newer than that, and a change the examples cannot make would fail
+// the lint here and nowhere else. The number is `rust-version` in the root
+// Cargo.toml.
+#[clippy::msrv = "1.74"]
+mod committed;
 
 /// Hands the caller a buffer of `len` bytes to write into.
 ///
@@ -54,7 +124,7 @@ pub extern "C" fn alloc(len: usize) -> *mut u8 {
     ptr
 }
 
-/// Gives back a buffer [`alloc`] or [`render`] handed out.
+/// Gives back a buffer [`alloc`] handed out, or an answer from any of the others.
 ///
 /// # Safety
 ///
@@ -130,6 +200,161 @@ fn run(mut input: &[u8]) -> Result<String, String> {
         remembered,
     )
     .map_err(|error| error.to_string())
+}
+
+/// Draws one of the committed figures the way the page asks for it.
+///
+/// Returns a buffer in the shape [`render`] returns, holding the SVG or the
+/// reason there is not one, and freed the same way. The input is the shape the
+/// module documentation gives under the committed figures.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer written in that input shape.
+#[no_mangle]
+pub unsafe extern "C" fn figure(ptr: *const u8, len: usize) -> *mut u8 {
+    let input = std::slice::from_raw_parts(ptr, len);
+    match drawn(input) {
+        Ok(svg) => answer(true, &svg),
+        Err(message) => answer(false, &message),
+    }
+}
+
+/// The widest figure drawn, in pixels.
+///
+/// The number the command line holds `--width` to, `MAX_WIDTH` in
+/// src/cli/args.rs, and for its reason: a width becomes a column of pixels per
+/// band, and one wider than any page asks for an allocation that fails, which
+/// in a module built to abort is a trap rather than a message. A test holds the
+/// two numbers together.
+const MAX_WIDTH: usize = 100_000;
+
+/// The whole of what [`figure`] does, with the pointer already gone.
+fn drawn(mut input: &[u8]) -> Result<String, String> {
+    let name = text(&mut input).ok_or("the figure's name is not in the shape this expects")?;
+    let scheme = text(&mut input).ok_or("the theme is not in the shape this expects")?;
+    let background = text(&mut input).ok_or("the background is not in the shape this expects")?;
+    let width = number(&mut input).ok_or("the width is not in the shape this expects")?;
+    let window = text(&mut input).ok_or("the region is not in the shape this expects")?;
+    let prefix = text(&mut input).ok_or("the id prefix is not in the shape this expects")?;
+
+    let build =
+        committed::builder(&name).ok_or_else(|| format!("no committed figure is called {name}"))?;
+    let mut theme = match scheme.as_str() {
+        "light" => Theme::light(),
+        "dark" => Theme::dark(),
+        _ => return Err(format!("a figure is drawn light or dark, not {scheme}")),
+    };
+    if !background.is_empty() {
+        // Written into a `fill` attribute as it stands, the way the command
+        // line writes `--color`, so it is refused on the same characters: any
+        // of these would end the attribute early and leave a page that does
+        // not parse, and no spelling of a colour needs one.
+        if background.contains(['"', '\'', '<', '>', '&']) {
+            return Err(format!("{background:?} is not a colour, as in '#1e2129'"));
+        }
+        theme.background = background;
+    }
+    let width = match width {
+        0 => None,
+        px if px > MAX_WIDTH => {
+            return Err(format!(
+                "a figure {px} pixels wide is wider than any page; the most is {MAX_WIDTH}"
+            ))
+        }
+        px => Some(px as f64),
+    };
+    let region = if window.is_empty() {
+        None
+    } else {
+        Some(Region::parse(&window).map_err(|error| error.to_string())?)
+    };
+    // An id is written as it stands and pointed at from `url(#...)`, so the
+    // prefix keeps to the characters that can go in both without quoting.
+    if !prefix
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "an id prefix is letters, digits, '-' and '_', and {prefix:?} is not"
+        ));
+    }
+
+    Ok(build(&theme, width, region.as_ref()).to_svg_with_id_prefix(&prefix))
+}
+
+/// Lists the committed figures, and the window each one moves over.
+///
+/// Returns a buffer in the shape the module documentation gives under the
+/// committed figures, freed like the one [`render`] returns. Nothing is read
+/// from the input, which may be empty.
+#[no_mangle]
+pub extern "C" fn figures(_ptr: *const u8, _len: usize) -> *mut u8 {
+    CATALOGUE.with(|kept| framed(true, kept.get_or_init(catalogue)))
+}
+
+/// Says whether one committed figure moves along the genome, and over what.
+///
+/// The answer is that figure's entry of what [`figures`] answers with, framed
+/// the same way; a page asks this once for each figure it holds rather than
+/// having every figure built to find out about a few.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer holding one length-prefixed name.
+#[no_mangle]
+pub unsafe extern "C" fn figure_region(ptr: *const u8, len: usize) -> *mut u8 {
+    let mut input = std::slice::from_raw_parts(ptr, len);
+    let Some(name) = text(&mut input) else {
+        return answer(false, "the figure's name is not in the shape this expects");
+    };
+    let Some(build) = committed::builder(&name) else {
+        return answer(false, &format!("no committed figure is called {name}"));
+    };
+    framed(true, &region_entry(build))
+}
+
+/// One figure's entry of the list: whether it moves, and over what.
+fn region_entry(build: committed::Builder) -> Vec<u8> {
+    let mut out = Vec::new();
+    match build(&Theme::light(), None, None).region() {
+        Some(region) => {
+            out.push(1);
+            put_text(&mut out, &region.to_string());
+        }
+        None => {
+            out.push(0);
+            put_text(&mut out, "");
+        }
+    }
+    out
+}
+
+thread_local! {
+    /// What [`figures`] answers with, worked out the first time it is asked.
+    ///
+    /// The answer cannot change while the module is loaded, and working it out
+    /// is building every figure there is: about a fifth of a second in a
+    /// browser, most of it the circular chromosome and the gallery that holds a
+    /// second one, and a page that asks again should not pay for it again.
+    static CATALOGUE: std::cell::OnceCell<Vec<u8>> = const { std::cell::OnceCell::new() };
+}
+
+/// The body of what [`figures`] answers with.
+///
+/// Each figure is built to be asked, rather than the answers being written
+/// down beside the list, because a written answer is a second copy of the
+/// region every builder already holds, and it would be the copy that went
+/// stale. Asked, the figure answers with the region it was drawn over, and
+/// that is the one thing a page cannot get wrong by handing it back.
+fn catalogue() -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    out.extend_from_slice(&(committed::FIGURES.len() as u32).to_le_bytes());
+    for (name, build) in committed::FIGURES {
+        put_text(&mut out, name);
+        out.extend_from_slice(&region_entry(*build));
+    }
+    out
 }
 
 /// Hands back the coordinates a phylogeny is drawn at, rather than a drawing.
@@ -467,7 +692,11 @@ fn strings(input: &mut &[u8]) -> Option<Vec<String>> {
 
 /// Packs an answer into the buffer shape the caller reads.
 fn answer(ok: bool, body: &str) -> *mut u8 {
-    let bytes = body.as_bytes();
+    framed(ok, body.as_bytes())
+}
+
+/// Packs any bytes into that shape: the flag, the length, and the bytes.
+fn framed(ok: bool, bytes: &[u8]) -> *mut u8 {
     let mut out = Vec::with_capacity(5 + bytes.len());
     out.push(u8::from(ok));
     out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
@@ -479,6 +708,8 @@ fn answer(ok: bool, body: &str) -> *mut u8 {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     /// Builds the input buffer the way the page does, so the protocol is
@@ -922,5 +1153,452 @@ mod tests {
         asked.extend_from_slice(&1u32.to_le_bytes());
         let flat = positions(&asked).expect("a cladogram lays out too");
         assert_ne!(flat, out, "asking for a cladogram changes the depths");
+    }
+
+    /// A request for [`figure`], packed the way a page packs one.
+    fn ask(
+        name: &str,
+        theme: &str,
+        background: &str,
+        width: u32,
+        region: &str,
+        prefix: &str,
+    ) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        put_text(&mut out, name);
+        put_text(&mut out, theme);
+        put_text(&mut out, background);
+        out.extend_from_slice(&width.to_le_bytes());
+        put_text(&mut out, region);
+        put_text(&mut out, prefix);
+        out
+    }
+
+    /// A figure drawn with nothing asked of it but a theme.
+    fn plain(name: &str, theme: &str) -> String {
+        drawn(&ask(name, theme, "", 0, "", "")).unwrap_or_else(|error| panic!("{name}: {error}"))
+    }
+
+    /// What `assets/` holds for a figure, the file the examples wrote.
+    fn committed_file(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets")
+            .join(format!("{name}.svg"));
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    }
+
+    /// The text between one `key` and the `end` after it, for every `key`.
+    fn after<'a>(svg: &'a str, key: &str, end: char) -> Vec<&'a str> {
+        svg.match_indices(key)
+            .map(|(at, found)| {
+                let rest = &svg[at + found.len()..];
+                &rest[..rest.find(end).unwrap_or(rest.len())]
+            })
+            .collect()
+    }
+
+    /// The words a figure writes, tick labels included, in the order written.
+    fn words(svg: &str) -> Vec<&str> {
+        svg.split("<text")
+            .skip(1)
+            .filter_map(|piece| {
+                let open = piece.find('>')?;
+                let close = piece.find("</text>")?;
+                piece.get(open + 1..close)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_committed_figure_is_listed_and_nothing_else_is() {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let on_disk: BTreeSet<String> = std::fs::read_dir(&folder)
+            .expect("assets/ is where the figures are committed")
+            .filter_map(|entry| {
+                let name = entry.ok()?.file_name().into_string().ok()?;
+                name.strip_suffix(".svg").map(str::to_string)
+            })
+            .collect();
+        let listed: BTreeSet<String> = committed::FIGURES
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .collect();
+        let unlisted: Vec<&String> = on_disk.difference(&listed).collect();
+        let uncommitted: Vec<&String> = listed.difference(&on_disk).collect();
+        assert!(
+            unlisted.is_empty() && uncommitted.is_empty(),
+            "committed and not listed: {unlisted:?}; listed and not committed: {uncommitted:?}"
+        );
+        assert_eq!(
+            listed.len(),
+            committed::FIGURES.len(),
+            "a name listed twice"
+        );
+        assert!(
+            committed::FIGURES
+                .windows(2)
+                .all(|pair| pair[0].0 < pair[1].0),
+            "the list is not sorted by name"
+        );
+    }
+
+    /// The claim the whole arrangement rests on: the page and the file are one
+    /// figure. A figure asked for in light with nothing else changed is the
+    /// file CI holds the examples to, byte for byte.
+    #[test]
+    fn asked_for_nothing_a_figure_is_the_file_it_stands_in_for() {
+        for (name, _) in committed::FIGURES {
+            let svg = plain(name, "light");
+            let file = committed_file(name);
+            if svg != file {
+                let parted = svg
+                    .bytes()
+                    .zip(file.bytes())
+                    .position(|(one, other)| one != other)
+                    .unwrap_or(svg.len().min(file.len()));
+                panic!(
+                    "{name} is not assets/{name}.svg: they part at byte {parted} of {}",
+                    file.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_figure_draws_in_both_themes_and_takes_the_one_it_is_given() {
+        let light_palette = Theme::light().palette;
+        for (name, _) in committed::FIGURES {
+            let light = plain(name, "light");
+            let dark = plain(name, "dark");
+            for svg in [&light, &dark] {
+                assert!(
+                    svg.starts_with("<svg ") && svg.ends_with("</svg>"),
+                    "{name}"
+                );
+            }
+            // The two that exist to show one theme keep it, and every other
+            // one is drawn in the page's.
+            let keeps = matches!(*name, "example-dark" | "example-visual-system");
+            assert_eq!(light == dark, keeps, "{name}: the theme asked for");
+            if keeps {
+                continue;
+            }
+            // Every page in it is dark, the sheet's own and each panel's: a
+            // panel that kept the light theme paints a white rectangle in the
+            // middle of a dark sheet.
+            let pages = after(&dark, r#"<rect x="0" y="0" width=""#, '/');
+            assert!(!pages.is_empty(), "{name} paints no page");
+            for page in pages {
+                assert!(
+                    page.ends_with(&format!(r#"fill="{}""#, Theme::dark().background)),
+                    "{name} in dark has a page that is not: {page}"
+                );
+            }
+            // Not one of the light palette's colours is left in a dark figure,
+            // which is what says that no colour in it was written down as a
+            // literal the theme could not reach.
+            for colour in &light_palette {
+                assert!(
+                    !dark.contains(colour.as_str()),
+                    "{name} in dark still draws {colour}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_region_half_as_wide_moves_the_figure_and_nothing_else_moves() {
+        for (name, build) in committed::FIGURES {
+            let whole = plain(name, "light");
+            match build(&Theme::light(), None, None).region().cloned() {
+                Some(own) => {
+                    let half =
+                        Region::new(own.seq(), own.start(), own.start() + (own.len() / 2).max(1))
+                            .unwrap();
+                    let moved = drawn(&ask(name, "light", "", 0, &half.to_string(), ""))
+                        .unwrap_or_else(|error| panic!("{name} over {half}: {error}"));
+                    assert!(
+                        after(&moved, "viewBox=\"", '"')[0] != after(&whole, "viewBox=\"", '"')[0]
+                            || words(&moved) != words(&whole),
+                        "{name} over {half} is drawn as it is over {own}"
+                    );
+                }
+                None => {
+                    // A drawing with no window along a genome has none to
+                    // move, so a region asked of it changes nothing at all.
+                    let asked = drawn(&ask(name, "light", "", 0, "chr1:1-100", ""))
+                        .unwrap_or_else(|error| panic!("{name}: {error}"));
+                    assert_eq!(asked, whole, "{name} has no window and moved one anyway");
+                }
+            }
+        }
+    }
+
+    /// Moving the window moves what is looked at, not what is there. The
+    /// close-up is the overview's own data over sixty of its bases, so the
+    /// overview moved onto those sixty has to spell out the same sequence: data
+    /// laid from the left edge of whatever window is asked for would spell the
+    /// first sixty bases instead, and look just as plausible.
+    #[test]
+    fn a_window_moved_over_the_overview_reads_the_bases_the_close_up_reads() {
+        let bases = |svg: &str| -> String {
+            words(svg)
+                .into_iter()
+                .filter(|word| matches!(*word, "A" | "C" | "G" | "T"))
+                .collect()
+        };
+        let close = plain("example-zoom", "light");
+        let window = committed::builder("example-zoom").unwrap()(&Theme::light(), None, None)
+            .region()
+            .unwrap()
+            .to_string();
+        let moved = drawn(&ask("example", "light", "", 0, &window, "")).unwrap();
+        assert_eq!(
+            bases(&close).len(),
+            60,
+            "the close-up spells its sixty bases"
+        );
+        assert_eq!(bases(&moved), bases(&close), "over {window}");
+    }
+
+    #[test]
+    fn a_width_is_taken_by_a_stack_of_tracks_and_by_nothing_else() {
+        for (name, build) in committed::FIGURES {
+            let whole = plain(name, "light");
+            let narrow = drawn(&ask(name, "light", "", 700, "", ""))
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            // A figure is the one drawing that has a plotting area to line up,
+            // and the one that has a width of its own.
+            if build(&Theme::light(), None, None)
+                .content_anchor()
+                .is_some()
+            {
+                assert_eq!(after(&narrow, " width=\"", '"')[0], "700", "{name}");
+            } else {
+                assert_eq!(narrow, whole, "{name} has no width and changed anyway");
+            }
+        }
+    }
+
+    #[test]
+    fn a_background_is_the_page_under_the_figure_and_under_every_panel() {
+        let dark = Theme::dark().background;
+        for name in [
+            "example-genomewide",
+            "example-circular",
+            "gallery",
+            "example-maps",
+        ] {
+            let svg = drawn(&ask(name, "dark", "#1e2129", 0, "", ""))
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(svg.contains(r##"fill="#1e2129""##), "{name}");
+            assert!(
+                !svg.contains(&dark),
+                "{name} still paints the theme's own page"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prefix_reaches_every_id_in_every_figure() {
+        for (name, _) in committed::FIGURES {
+            let svg = drawn(&ask(name, "light", "", 0, "", "f7-"))
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let written = after(&svg, " id=\"", '"');
+            for id in &written {
+                assert!(id.starts_with("f7-"), "{name} wrote the id {id}");
+            }
+            for id in after(&svg, "url(#", ')') {
+                assert!(id.starts_with("f7-"), "{name} points at {id}");
+                assert!(
+                    written.contains(&id),
+                    "{name} points at {id}, which is not there"
+                );
+            }
+            // Going inside a page, the figure itself does not name itself.
+            let root = &svg[..svg.find('>').unwrap()];
+            assert!(!root.contains("aria-labelledby"), "{name}: {root}");
+        }
+    }
+
+    #[test]
+    fn the_list_says_which_figures_move_and_over_what() {
+        let body = catalogue();
+        let mut at = &body[..];
+        assert_eq!(number(&mut at), Some(committed::FIGURES.len()));
+        for (name, build) in committed::FIGURES {
+            assert_eq!(text(&mut at).as_deref(), Some(*name));
+            let (moves, rest) = at.split_first().expect("a byte for whether it moves");
+            at = rest;
+            let region = text(&mut at).expect("a region, empty or not");
+            let own = build(&Theme::light(), None, None)
+                .region()
+                .map(|region| region.to_string());
+            assert_eq!(*moves == 1, own.is_some(), "{name}");
+            assert_eq!(region, own.unwrap_or_default(), "{name}");
+            // Handed back as it is, the region draws the file.
+            if *moves == 1 {
+                let svg = drawn(&ask(name, "light", "", 0, &region, "")).unwrap();
+                assert!(
+                    svg == committed_file(name),
+                    "{name} over {region} is not the file"
+                );
+            }
+        }
+        assert!(at.is_empty(), "the list is exactly as long as it says");
+
+        // And the export hands back that body, framed the way render's is.
+        let packed = figures(std::ptr::null(), 0);
+        // Safety: the pointer came from `figures` on the line above and is
+        // freed by its length once read, which is what the page does too.
+        let (ok, read) = unsafe {
+            let ok = *packed;
+            let len = u32::from_le_bytes(
+                std::slice::from_raw_parts(packed.add(1), 4)
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let read = std::slice::from_raw_parts(packed.add(5), len).to_vec();
+            dealloc(packed, 5 + len);
+            (ok, read)
+        };
+        assert_eq!(ok, 1);
+        assert_eq!(read, body);
+    }
+
+    #[test]
+    fn one_figure_answers_with_its_own_entry_of_the_list() {
+        // The same bytes as its entry in `figures`, for a figure that moves and
+        // for one that does not, and a name nobody committed is a message.
+        let body = catalogue();
+        let mut at = &body[..];
+        number(&mut at).unwrap();
+        let mut entries = BTreeMap::new();
+        for _ in committed::FIGURES {
+            let name = text(&mut at).unwrap();
+            let start = at;
+            let (_, rest) = at.split_first().unwrap();
+            at = rest;
+            text(&mut at).unwrap();
+            entries.insert(name, start[..start.len() - at.len()].to_vec());
+        }
+        let ask_region = |name: &str| {
+            let mut input = Vec::new();
+            put_text(&mut input, name);
+            // Safety: the pointers are this module's own, used and freed the
+            // way the page uses and frees them.
+            unsafe {
+                let into = alloc(input.len());
+                std::ptr::copy_nonoverlapping(input.as_ptr(), into, input.len());
+                let out = figure_region(into, input.len());
+                dealloc(into, input.len());
+                let ok = *out;
+                let len = u32::from_le_bytes(
+                    std::slice::from_raw_parts(out.add(1), 4)
+                        .try_into()
+                        .unwrap(),
+                ) as usize;
+                let read = std::slice::from_raw_parts(out.add(5), len).to_vec();
+                dealloc(out, 5 + len);
+                (ok, read)
+            }
+        };
+        for name in ["example-genomewide", "example-circular"] {
+            let (ok, read) = ask_region(name);
+            assert_eq!(ok, 1, "{name}");
+            assert_eq!(&read, &entries[name], "{name}");
+        }
+        let (ok, read) = ask_region("example-nothing");
+        assert_eq!(ok, 0);
+        assert!(String::from_utf8(read).unwrap().contains("example-nothing"));
+    }
+
+    #[test]
+    fn a_figure_comes_back_through_the_pointers_a_page_uses() {
+        let input = ask("example-zoom", "dark", "", 640, "", "zoom-");
+        // Safety: every pointer here is one this module handed out, written
+        // within its length and freed by it, in the order the page does it.
+        let (ok, svg) = unsafe {
+            let into = alloc(input.len());
+            std::ptr::copy_nonoverlapping(input.as_ptr(), into, input.len());
+            let out = figure(into, input.len());
+            dealloc(into, input.len());
+            let ok = *out;
+            let len = u32::from_le_bytes(
+                std::slice::from_raw_parts(out.add(1), 4)
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let svg =
+                String::from_utf8(std::slice::from_raw_parts(out.add(5), len).to_vec()).unwrap();
+            dealloc(out, 5 + len);
+            (ok, svg)
+        };
+        assert_eq!(ok, 1, "{svg}");
+        assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg" width="640" "#));
+        assert!(svg.contains(&Theme::dark().background));
+        assert!(svg.contains(r#"id="zoom-karyon-clip-0""#));
+    }
+
+    #[test]
+    fn a_request_that_makes_no_sense_comes_back_as_a_message() {
+        let refused = |input: Vec<u8>| drawn(&input).unwrap_err();
+        assert!(
+            refused(ask("example-nothing", "light", "", 0, "", "")).contains("no committed figure")
+        );
+        assert!(refused(ask("example", "sepia", "", 0, "", "")).contains("light or dark"));
+        assert!(
+            refused(ask("example", "light", "red\" onload=\"x", 0, "", ""))
+                .contains("not a colour")
+        );
+        assert!(refused(ask("example", "light", "", 0, "chr1", "")).contains("chr1"));
+        assert!(refused(ask("example", "light", "", 0, "", "a b")).contains("id prefix"));
+        assert!(
+            refused(ask("example", "light", "", 100_001, "", "")).contains("wider than any page")
+        );
+        // Cut anywhere, a request is a message and never a panic.
+        let whole = ask("example", "light", "", 0, "", "p-");
+        for cut in 0..whole.len() {
+            let error = drawn(&whole[..cut]).unwrap_err();
+            assert!(error.contains("shape this expects"), "cut {cut}: {error}");
+        }
+    }
+
+    /// The version the examples are linted against here is a copy of the one
+    /// the library promises, so the two are compared rather than trusted: a
+    /// root Cargo.toml that moved on without this would have Clippy here asking
+    /// the examples for functions the library cannot use yet, or not asking for
+    /// ones it can.
+    #[test]
+    fn the_examples_are_linted_here_against_the_version_the_library_promises() {
+        let quoted = |text: &str, key: &str| -> Option<String> {
+            let at = text.find(key)? + key.len();
+            let rest = &text[at..];
+            let open = rest.find('"')? + 1;
+            let close = rest[open..].find('"')? + open;
+            Some(rest[open..close].to_string())
+        };
+        let manifest = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml"),
+        )
+        .unwrap();
+        let promised = quoted(&manifest, "\nrust-version").expect("the library states a version");
+        let linted = quoted(include_str!("lib.rs"), "#[clippy::msrv").expect("the attribute");
+        assert_eq!(linted, promised);
+    }
+
+    /// The width limit is a second copy of the command line's, so the two are
+    /// checked against each other rather than trusted to agree.
+    #[test]
+    fn the_widest_figure_is_the_widest_the_command_line_draws() {
+        let argv = |width: usize| -> Vec<String> {
+            ["chr1:1-200", "--coverage", "d.bg", "--width"]
+                .iter()
+                .map(|word| word.to_string())
+                .chain([width.to_string()])
+                .collect()
+        };
+        assert!(args::parse(&argv(MAX_WIDTH)).is_ok());
+        assert!(args::parse(&argv(MAX_WIDTH + 1)).is_err());
     }
 }

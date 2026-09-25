@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 A quantity with one value per base, drawn up from the floor of its band: read depth, GC content, mappability. Use it for anything whose zero is a real bottom.
 
 <figure class="k-plate" markdown>
-![A depth profile across two kilobases of rpoB with a dropout in it, drawn with the minimum of each pixel column, above the reference, the gene and its variants](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![A depth profile across two kilobases of rpoB with a dropout in it, drawn with the minimum of each pixel column, above the reference, the gene and its variants](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 | | |
@@ -75,7 +75,7 @@ The profile rises from the floor of the band, which says that zero is the bottom
 A statistic computed in windows, drawn either side of a baseline it can fall below: pN/pS centred on one, GC skew and Tajima's D centred on nought. Use it when which side of the line a window falls on is the point.
 
 <figure class="k-plate" markdown>
-![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows below the line in a colour of their own](../assets/figures/example-selection.svg){ width="880" height="232" loading="lazy" }
+![pN/pS and GC skew in windows along forty kilobases, each drawn either side of its own baseline, with the windows below the line in a colour of their own](../assets/figures/example-selection.svg){ width="880" height="233" loading="lazy" }
 </figure>
 
 | | |
@@ -143,7 +143,7 @@ From the command line the baseline stays at nought, so give `--windows` a statis
 Per-site methylation, one lane per strand: forward calls above a midline and reverse calls below, each faded by how many reads it rests on. Use it for modified-base calls pooled per site, such as the output of `modkit pileup`.
 
 <figure class="k-plate" markdown>
-![Dam methylation at GATC sites across the E. coli origin of replication, forward strand calls above the line and reverse below, each faded by how many reads covered it](../assets/figures/example-methylation.svg){ width="880" height="196" loading="lazy" }
+![Dam methylation at GATC sites across the E. coli origin of replication, forward strand calls above the line and reverse below, each faded by how many reads covered it](../assets/figures/example-methylation.svg){ width="880" height="197" loading="lazy" }
 </figure>
 
 | | |
@@ -205,7 +205,7 @@ A bedMethyl from a dual-mode run holds several modification codes at one positio
 The reference bases, drawn the way a genome browser draws them: coloured letters once a base is wide enough, coloured blocks below that, and a hint to zoom in once a base is thinner than a pixel.
 
 <figure class="k-plate" markdown>
-![Sixty bases of rpoB with the reference drawn as coloured letters, between a depth profile and two variant calls](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+![Sixty bases of rpoB with the reference drawn as coloured letters, between a depth profile and two variant calls](../assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
 </figure>
 
 | | |
@@ -256,7 +256,7 @@ Colours come from the theme's `bases`, which is `BaseColors::conventional()` unl
 A sequence logo over consecutive positions, with seven ways to decide what a letter's height means. Five of them measure a symbol against a background and can hang it below the baseline, which a classic logo cannot do.
 
 <figure class="k-plate" markdown>
-![The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it](../assets/figures/example-logo.svg){ width="900" height="378" loading="lazy" }
+![The same eight column motif drawn three ways: as probabilities, as information content in bits, and as enrichment above a line with depletion below it](../assets/figures/example-logo.svg){ width="900" height="379" loading="lazy" }
 </figure>
 
 | | |
@@ -316,7 +316,7 @@ A sequence logo over consecutive positions, with seven ways to decide what a let
 A column that is nearly uniform is flat in bits, and a base missing from it is invisible. The five background-relative scores fix that by letting a symbol fall below the line; `edlogo()` is the one to reach for first. Which score you choose changes the reading, not just the drawing:
 
 <figure class="k-plate" markdown>
-![The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient](../assets/figures/example-logo-scores.svg){ width="760" height="542" loading="lazy" }
+![The same four columns scored five ways, showing that log odds is dominated by an absent base while the KL divergence is dominated by a real gradient](../assets/figures/example-logo-scores.svg){ width="760" height="543" loading="lazy" }
 </figure>
 
 Set `alphabet_size(4)` for DNA and `20` for protein. Left alone, the alphabet is the set of symbols that appear, which is wrong for a motif where one base never shows up: information content is measured against `log2(K)`, and a uniform background is `1/K`.
@@ -324,13 +324,13 @@ Set `alphabet_size(4)` for DNA and `20` for protein. Left alone, the alphabet is
 A logo drawn from four sequences looks identical to one drawn from four thousand. That is an estimation problem, and `stabilize()` answers it by shrinking each column towards the background by as much as its sample size supports; `dash_fit()` reports how far each column moved. It needs counts, so a probability matrix also wants `sample_size`.
 
 <figure class="k-plate" markdown>
-![The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred](../assets/figures/example-logo-stability.svg){ width="700" height="484" loading="lazy" }
+![The same motif proportions at three sample sizes, drawn raw and shrunk. The raw panels are identical; the shrunk ones grow from almost nothing at five sequences to the full logo at five hundred](../assets/figures/example-logo-stability.svg){ width="700" height="485" loading="lazy" }
 </figure>
 
 Symbols are arbitrary strings, so three letter amino acid codes, codons and k-mers plot as readily as bases:
 
 <figure class="k-plate" markdown>
-![A sequence logo whose symbols are three letter amino acid codes](../assets/figures/example-logo-protein.svg){ width="640" height="204" loading="lazy" }
+![A sequence logo whose symbols are three letter amino acid codes](../assets/figures/example-logo-protein.svg){ width="640" height="205" loading="lazy" }
 </figure>
 
 `from_sequences` upper-cases what it counts and skips `-` and `.`, so a column with gaps is normalised over the sequences that have a base there. `--logo` counts from the first alignment column, so its region is the column range, as in `motif:1-8`. `stacks()` returns the computed heights when you want a table rather than a picture.
@@ -340,7 +340,7 @@ Symbols are arbitrary strings, so three letter amino acid codes, codons and k-me
 Per-base model attribution, drawn as the bases themselves at a height proportional to their score, hanging below the line where the score is negative. A motif the model leaned on reads as a word.
 
 <figure class="k-plate" markdown>
-![Per-base attribution drawn as letters that stand above or hang below a line, under splice junction arcs and a depth profile, with a close-up where the letters spell the motif](../assets/figures/example-regulation.svg){ width="810" height="786" loading="lazy" }
+![Per-base attribution drawn as letters that stand above or hang below a line, under splice junction arcs and a depth profile, with a close-up where the letters spell the motif](../assets/figures/example-regulation.svg){ width="811" height="788" loading="lazy" }
 </figure>
 
 | | |

@@ -1261,3 +1261,205 @@ body {
   justify-content: center;
   gap: 0.6rem;
 }
+
+/* --------------------------------------------------------------------------
+   Live figures: every committed figure, drawn by the program in the page
+   (assets/karyon-figures.js). The plate is the figure's own page, so a
+   figure drawn dark sits on a dark plate and one drawn light on a white one.
+   Written without the `.md-typeset` scope, because the larger view is a
+   dialog outside the article.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --k-fig-light: #ffffff;
+  --k-fig-dark: #120b2b;
+}
+
+.k-fig {
+  --k-fig-ground: var(--k-fig-light);
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0.8rem;
+  border-radius: var(--k-radius);
+  background: var(--k-fig-ground);
+  box-shadow: var(--k-plate-edge), var(--k-glow);
+  outline: none;
+  transition: box-shadow 0.18s;
+}
+
+[data-md-color-scheme="slate"] .k-fig {
+  --k-fig-ground: var(--k-fig-dark);
+}
+
+.k-fig:focus-visible {
+  box-shadow: 0 0 0 2px var(--md-accent-fg-color), var(--k-glow);
+}
+
+.k-fig__stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(var(--k-radius) - 0.35rem);
+  /* A vertical swipe still scrolls the page; a sideways one or a pinch is
+     the figure's. */
+  touch-action: pan-y;
+}
+
+.k-fig__stage > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.k-fig .k-fig__stage > img,
+.md-typeset .k-plate .k-fig .k-fig__stage > img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* On a dark page the file under a figure is a white rectangle, so it is held
+   back while the program draws, and shown after all if it never does. */
+[data-md-color-scheme="slate"] .k-fig[data-state="waiting"] .k-fig__stage > img {
+  visibility: hidden;
+}
+
+.k-fig--moves .k-fig__stage,
+.k-fig--moved .k-fig__stage {
+  cursor: grab;
+}
+
+.k-fig--dragging .k-fig__stage {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.k-fig__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--k-fig-ground) 80%, #8e82c4);
+  opacity: 0.62;
+  transition: opacity 0.16s;
+}
+
+/* Quiet until the figure is being looked at, and never out of place: it has
+   its own row under the figure, so it covers nothing the figure drew and the
+   page does not move when it brightens. */
+.k-fig:hover .k-fig__bar,
+.k-fig:focus-within .k-fig__bar,
+.k-fig--moved .k-fig__bar,
+.k-fig-dialog .k-fig__bar {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .k-fig__bar {
+    opacity: 1;
+  }
+}
+
+.k-fig[data-state="waiting"] .k-fig__bar,
+.k-fig[data-state="static"] .k-fig__bar {
+  visibility: hidden;
+}
+
+.k-fig__where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 0.3rem;
+  font: 0.62rem/1 var(--md-code-font-family);
+  color: color-mix(in srgb, var(--k-fig-ground) 35%, #8e82c4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k-fig__key {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--k-fig-ground) 20%, #8e82c4);
+  font: 600 0.64rem/1 var(--md-text-font-family);
+  cursor: pointer;
+}
+
+.k-fig__key:hover,
+.k-fig__key:focus-visible {
+  background: color-mix(in srgb, var(--k-fig-ground) 88%, #8e82c4);
+  color: #ff4fa3;
+  outline: none;
+}
+
+/* What a mark says about itself, under the pointer. */
+.k-fig-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  max-width: min(24rem, 80vw);
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.55rem;
+  background: var(--k-bar);
+  color: var(--md-default-fg-color);
+  box-shadow: 0 0 0 1px var(--k-line-strong), 0 14px 34px -14px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  font: 0.66rem/1.45 var(--md-code-font-family);
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+/* The larger view: the same figure, drawn again at the width of the window. */
+.k-fig-dialog {
+  width: min(96vw, 1700px);
+  max-width: none;
+  max-height: 94vh;
+  padding: 0.9rem;
+  border: 0;
+  border-radius: var(--k-radius);
+  background: var(--md-default-bg-color);
+  box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.7);
+  overflow: auto;
+}
+
+.k-fig-dialog::backdrop {
+  background: rgba(8, 4, 24, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.k-fig-dialog .k-fig {
+  box-shadow: var(--k-plate-edge);
+}
+
+/* A card's thumbnail: drawn in the page's colours, cropped to the card the
+   way the file was, from its top left or, for a wide strip, its top middle. */
+.k-fig--thumb {
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.k-fig--thumb .k-fig__stage {
+  border-radius: 0;
+  aspect-ratio: 4 / 3;
+  touch-action: auto;
+}
+
+.k-fig--thumb .k-fig__stage > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.md-typeset .k-plots > ul > li > p:first-child a:has(.k-fig) {
+  background: var(--k-fig-ground, #ffffff);
+}

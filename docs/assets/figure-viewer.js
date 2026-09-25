@@ -23,7 +23,8 @@
      under assets/figures. The logo and the rest of the site's furniture do not,
      which is the test, rather than a list of the classes they happen to carry.
      Card thumbnails are skipped because they are already links to somewhere
-     better, and the live figure because the program redraws it. */
+     better, and a figure the program draws in the page because it opens
+     larger on its own (assets/karyon-figures.js). */
   function candidates() {
     var found = [];
     var imgs = document.querySelectorAll(".md-typeset img");
@@ -32,7 +33,7 @@
       var src = img.getAttribute("src");
       if (!src || src.indexOf("assets/figures/") === -1) continue;
       if (img.closest("a") || img.closest("button")) continue;
-      if (img.closest(".k-live")) continue;
+      if (img.closest(".k-live") || img.closest(".k-fig")) continue;
       found.push(img);
     }
     return found;

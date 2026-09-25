@@ -168,7 +168,7 @@ pub use crate::style::{
     AxisFormat, Density, Emphasis, LinePattern, MarkStyle, QuantitativeAxis, ReferenceLine,
     RenderProfile, Symbol, VisualTokens,
 };
-pub use crate::svg::{fit_text, Anchor, SvgWriter};
+pub use crate::svg::{fit_text, Anchor, SvgWriter, TextStyle};
 pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::{
     strand_color, Aggregate, AlignmentBlock, AncestralStateLayer, Association, AxisTrack, Band,

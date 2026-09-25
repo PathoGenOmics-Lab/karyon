@@ -9,7 +9,10 @@
 // crate has no dependencies, and a page that needed a bundler to demonstrate a
 // program that needs nothing would be making the wrong point.
 
-self.karyon = (function () {
+// Every page that shows a figure loads this, and a page that runs the program
+// as well loads it again beside its own script. The second copy keeps the
+// first, so the program is fetched once and every script on the page shares it.
+self.karyon = self.karyon || (function () {
   "use strict";
 
   // Worked out from where this script itself was loaded from, rather than
@@ -573,8 +576,99 @@ self.karyon = (function () {
     };
   }
 
+  // ----------------------------------------------------------- the figures
+
+  // One call into the program over the framing every export shares: a buffer
+  // in, and a buffer out that starts with whether it worked and how long the
+  // rest is. Answers `{ok, bytes, ms}`, the bytes copied out of the program's
+  // memory before it is freed.
+  function call(exported, input) {
+    var started = performance.now();
+    var into = wasm.alloc(Math.max(input.length, 1));
+    new Uint8Array(wasm.memory.buffer, into, input.length).set(input);
+    var out;
+    try {
+      out = wasm[exported](into, input.length);
+    } catch (error) {
+      wasm.dealloc(into, Math.max(input.length, 1));
+      return {
+        ok: false,
+        bytes: encoder.encode("the program stopped (" + error.message + ")"),
+        ms: performance.now() - started,
+      };
+    }
+    wasm.dealloc(into, Math.max(input.length, 1));
+    var view = new DataView(wasm.memory.buffer);
+    var ok = view.getUint8(out) === 1;
+    var len = view.getUint32(out + 1, true);
+    var bytes = new Uint8Array(wasm.memory.buffer.slice(out + 5, out + 5 + len));
+    wasm.dealloc(out, 5 + len);
+    return { ok: ok, bytes: bytes, ms: performance.now() - started };
+  }
+
+  function packed(write) {
+    var parts = [];
+    var total = 0;
+    var into = {
+      u32: function (n) {
+        var b = new Uint8Array(4);
+        new DataView(b.buffer).setUint32(0, n, true);
+        parts.push(b);
+        total += 4;
+      },
+      str: function (text) {
+        var bytes = encoder.encode(text);
+        into.u32(bytes.length);
+        parts.push(bytes);
+        total += bytes.length;
+      },
+    };
+    write(into);
+    var out = new Uint8Array(total);
+    var at = 0;
+    parts.forEach(function (part) {
+      out.set(part, at);
+      at += part.length;
+    });
+    return out;
+  }
+
+  // Draws one of the committed figures, named by its file under assets/
+  // without the `.svg`, the way `opts` asks: `theme` light or dark, `width` in
+  // pixels or 0 for its own, `region` or "" for its own, and an id `prefix`.
+  // Answers `{ok, body, ms}` as `run` does.
+  function figure(name, opts) {
+    if (!wasm) return { ok: false, body: "the program has not arrived", ms: 0 };
+    opts = opts || {};
+    var input = packed(function (into) {
+      into.str(name);
+      into.str(opts.theme || (dark() ? "dark" : "light"));
+      into.str(opts.background || "");
+      into.u32(Math.max(0, Math.round(opts.width || 0)));
+      into.str(opts.region || "");
+      into.str(opts.prefix || "");
+    });
+    var answer = call("figure", input);
+    return { ok: answer.ok, body: decoder.decode(answer.bytes), ms: answer.ms };
+  }
+
+  // Whether a committed figure is drawn over genomic coordinates, and which.
+  // Answers `{ok, moves, region}`, or `{ok: false, body}` naming what is wrong.
+  function figureRegion(name) {
+    if (!wasm) return { ok: false, body: "the program has not arrived" };
+    var answer = call("figure_region", packed(function (into) { into.str(name); }));
+    if (!answer.ok) return { ok: false, body: decoder.decode(answer.bytes) };
+    var view = new DataView(answer.bytes.buffer);
+    var moves = answer.bytes[0] === 1;
+    var len = view.getUint32(1, true);
+    var region = decoder.decode(answer.bytes.subarray(5, 5 + len));
+    return { ok: true, moves: moves, region: region };
+  }
+
   return {
     load: load,
+    figure: figure,
+    figureRegion: figureRegion,
     positions: positions,
     tipsAccountedFor: tipsAccountedFor,
     ready: ready,

@@ -7,7 +7,7 @@ changes what a figure says.
 { .k-lead }
 
 <figure class="k-plate" markdown>
-![An association scan across a draft assembly of twelve contigs laid end to end on one axis: association points banded by contig, with a peak on the fourth contig crossing the significance line, a depth profile that dips at every contig join, and the contig names underneath](../assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }
+![An association scan across a draft assembly of twelve contigs laid end to end on one axis: association points banded by contig, with a peak on the fourth contig crossing the significance line, a depth profile that dips at every contig join, and the contig names underneath](../assets/figures/example-genomewide.svg){ width="940" height="289" loading="lazy" }
 </figure>
 
 A four-megabase genome drawn at the default width of 900 pixels leaves about
@@ -134,7 +134,7 @@ that reason: at two and a half bases per pixel, the dropout is the thing worth
 not smoothing away.
 
 <figure class="k-plate" markdown>
-![The rpoB locus over two kilobases: a depth profile whose dropout reaches zero because each pixel column takes its minimum, a reference track too zoomed out for bases that says so, the rpoB gene and its resistance-determining region, and variants coloured by consequence](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }
+![The rpoB locus over two kilobases: a depth profile whose dropout reaches zero because each pixel column takes its minimum, a reference track too zoomed out for bases that says so, the rpoB gene and its resistance-determining region, and variants coloured by consequence](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 </figure>
 
 Two smaller rules go with it:
@@ -242,7 +242,7 @@ many rows a track needs is a property of the zoom.
   dropping them quietly. `max_rows(None)`, or `--max-rows all`, lifts the cap.
 
 <figure class="k-plate" markdown>
-![A read pileup under a depth profile, a candidate call and the reference: reads coloured by strand, mismatches painted where reads disagree with the reference, two reads with a deletion, one with an insertion, and faded reads of low mapping quality](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+![A read pileup under a depth profile, a candidate call and the reference: reads coloured by strand, mismatches painted where reads disagree with the reference, two reads with a deletion, one with an insertion, and faded reads of low mapping quality](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }
 </figure>
 
 ## Where next

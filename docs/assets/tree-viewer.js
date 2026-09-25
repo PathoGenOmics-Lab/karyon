@@ -239,33 +239,33 @@
 
   // ---------------------------------------------------------------- painting
 
-  var theme = { branch: "#1b1f23", muted: "#4b5563", font: "system-ui, sans-serif" };
+  var theme = { branch: "#1a1233", muted: "#5b5480", font: "system-ui, sans-serif" };
 
   function readTheme() {
     var dark = K.dark();
     // Which scheme, so a strip can pick the colour the crate resolved for it.
     theme.dark = dark;
-    theme.branch = dark ? "#e6edf3" : "#1b1f23";
-    theme.muted = dark ? "#aab4c0" : "#4b5563";
+    // The crate's own inks, so a tree painted here and the figure it stands
+    // in for are the same colours: `foreground` and `muted` of each theme.
+    theme.branch = dark ? "#efeaff" : "#1a1233";
+    theme.muted = dark ? "#b3a9e0" : "#5b5480";
     // The rail stands behind the tree, so its ink is quieter than the tree's.
-    // Quieter is not invisible: the first pair tried here measured 1.96 to 1 on
-    // white, and a silhouette nobody can see is the whole point of the rail
-    // thrown away. These are 3.75 and 4.92.
+    // Quieter is not invisible: a silhouette nobody can see is the whole point
+    // of the rail thrown away. These measure 4.27 and 4.58 against the page.
     // The rail and the dial are controls, so the line round them has to clear
-    // the three to one a boundary needs. The pair here was 1.4, which is a line
-    // nobody can find with a mouse; these measure 3.03 and 3.01.
-    theme.frame = dark ? "#62666b" : "#91959a";
-    theme.faint = dark ? "#79838f" : "#7b8591";
+    // the three to one a boundary needs: these measure 3.21 and 3.12.
+    theme.frame = dark ? "#625a8a" : "#8f88ad";
+    theme.faint = dark ? "#7d74a6" : "#7a7399";
     // The mark is the one thing on the canvas that is not a branch, and it is
-    // the page's own accent rather than a fourth hue: the same colour the
-    // working bar uses to say which part of this is live.
-    theme.window = dark ? "rgba(232, 131, 58, 0.24)" : "rgba(213, 94, 0, 0.18)";
-    theme.edge = dark ? "#e8833a" : "#d55e00";
+    // the palette's pink rather than a fourth hue: the colour the site's own
+    // accent is, measured at 3.63 on the light page and 5.21 on the dark one.
+    theme.window = dark ? "rgba(228, 72, 140, 0.24)" : "rgba(230, 63, 159, 0.16)";
+    theme.edge = dark ? "#e4488c" : "#e63f9f";
     // Something for the dial to sit on, since the disc behind it would show
     // through and the small tree would be read as part of the big one.
     // A step off the page rather than exactly it, so the dial reads as a plate
     // laid on the canvas and not as a hole cut in it.
-    theme.plate = dark ? "#1e2327" : "#f4f5f7";
+    theme.plate = dark ? "#1a1238" : "#f1eefb";
   }
 
   // Painted on the spot rather than on a frame callback: a browser does not

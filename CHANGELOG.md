@@ -8,6 +8,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Every figure is drawn in a new visual system, the one karyon's mark and its
+  site are drawn in. The palettes are indigo, pink, teal, ochre, plum and
+  orange, measured so that the closest pair stays 10.7 apart in OKLab hundredths
+  on a white page and 14.4 on the dark one under simulated protanopia,
+  deuteranopia and tritanopia; the Okabe-Ito set they replace came to 6.7, and
+  the previous dark set to 1.6, two of its colours one colour to a reader with
+  deuteranopia. A test holds both to their numbers. The two themes hand out the
+  same hues in the same order, so a figure keeps the names of its colours when
+  it changes page, and the dark page is the deep indigo the site draws on. Text
+  is set in Inter with coordinates in JetBrains Mono, both falling back to fonts
+  every system has, and measured as the wider of Inter and Helvetica, so a label
+  never overruns its room in either. Track names are semibold in the quieter ink
+  and keep the case they were given; the locus sits in a pill beside the title;
+  a title too long for its line is set smaller before it is cut short; the ruler
+  is drawn in the quiet inks; the hairline between tracks is gone; and a
+  coverage area fades from its line to the baseline rather than wearing a flat
+  wash. The dark ink `contrast_ink` hands out is the new foreground, `#1a1233`.
+  Every committed figure changes.
 - A structural variant's arc is measured against the widest call in view, not
   the widest in the track. One translocation reaching 1.2 Mb away used to set
   the scale for everything, and a 10 kb deletion in view arched to a tenth of
@@ -53,6 +71,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The documentation site draws every committed figure itself instead of showing
+  the file. The page's copy of the program holds the code that wrote each
+  figure, so a figure is drawn in the page's own light or dark and laid out at
+  the width of the column it sits in, which on a phone is the difference between
+  labels at their own size and a 900 pixel figure squeezed to a third of it. A
+  figure over a stretch of genome is dragged along it and zoomed into, down to
+  the bases, with the buttons under it, a pinch or the wheel with ctrl held,
+  every frame the program run again over the new window; a tree, a map, a circle
+  or a sheet zooms as a picture. A mark says what it holds under the pointer,
+  **Larger** redraws the figure at the width of the window, and **SVG** saves
+  the view on screen. The gallery's cards follow the page's light or dark too.
+  The file is still in the page and is what shows with JavaScript off. The
+  playground's program gains `figure_region`, which says whether one figure runs
+  along the genome without building the other forty-five to find out.
+- `Theme::mono_family`, the font stack coordinates are set in, and in
+  `karyon::svg` the pieces the new look is made of: `text_width_strong` and
+  `mono_width` beside `text_width`, `fit_text_by` for text measured some other
+  way, `TextStyle` and `SvgWriter::text_styled` for a run of text in another
+  face, weight or spacing, and `SvgWriter::fade_down`, a fill that fades a
+  colour from the top of a shape to its foot and is written once per colour.
 - `CopyNumberTrack` and `--copy-number`, for the segments a copy number caller
   fitted. A window track fills from its baseline out to the value, so a segment
   called at exactly the ploidy draws nothing, and that is most of a genome:
@@ -336,6 +374,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tooltips, and evidence is never allowed to impersonate effect size. The
   `selection_atlas` example combines all three with protein architecture and
   iTOL-style terminal metadata.
+- `Panels::to_svg_with_id_prefix`, and `Panels` is a `Drawing`. A sheet numbers
+  its panels' ids from `p0-`, so two sheets inlined into one page, or one sheet
+  made a panel of another, claimed the same ids and the second sheet's clips
+  resolved to the first one's rectangles. The prefix now goes in front of every
+  panel's, and a sheet given one does not name itself, because it is going
+  inside another document. `to_svg` is what it was.
+- `Drawing::region`, the region a drawing is laid out along when it has one.
+  A `Figure` answers with its own when its tracks are measured against it, and
+  everything else, a circle, a map, a sheet or a stack of trees, answers with
+  none. It is what a viewer pans and zooms, and the one question a page could
+  not otherwise ask of a drawing it was handed.
+- Every example builds its figures in `examples/figures/`, one function per
+  committed SVG, named after the file and taking a theme, a width and a region.
+  The example writes them, and the playground compiles the same files and
+  draws them in the page through two new exports, `figure` and `figures`, so
+  the site can show a committed figure in its own light or dark, at the width
+  of the column and over a window the reader moves. Asked for nothing, each is
+  the committed file byte for byte, and a test holds it to that. The literal
+  colours in the examples are entries of the theme's palette, so a dark figure
+  gets the dark palette; `example-dark.svg` keeps the one it has always drawn.
 
 ### Fixed
 

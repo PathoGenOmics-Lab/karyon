@@ -42,7 +42,7 @@ whatever a track is laid along:
 ## Track { #track }
 
 <figure class="k-plate" markdown>
-![Four tracks over one ruler: a depth profile, a variant call, the reference sequence, and a pileup of reads coloured by strand with their mismatches painted](../assets/figures/example-pileup.svg){ width="920" height="472" loading="lazy" }
+![Four tracks over one ruler: a depth profile, a variant call, the reference sequence, and a pileup of reads coloured by strand with their mismatches painted](../assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }
 <figcaption>Four tracks and a ruler, each in its own band, all on one axis.</figcaption>
 </figure>
 

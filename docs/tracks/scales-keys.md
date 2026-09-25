@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader would type into a genome browser, in one unit for the whole ruler. `plot()` puts one at the bottom without being asked.
 
 <figure class="k-plate" markdown>
-![A ruler under sixty bases of rpoB with its ticks on round 1-based coordinates, beneath a depth profile, the reference letters and two variant calls](../assets/figures/example-zoom.svg){ width="900" height="221" loading="lazy" }
+![A ruler under sixty bases of rpoB with its ticks on round 1-based coordinates, beneath a depth profile, the reference letters and two variant calls](../assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
 </figure>
 
 | | |
@@ -68,7 +68,7 @@ A ruler marks boundaries, which is right while a base is a fraction of a pixel. 
 A ruler in codons, so a coding sequence can be read in protein coordinates: codons numbered, translated where there is room for a letter, and counted from the far end on the reverse strand.
 
 <figure class="k-plate" markdown>
-![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="169" loading="lazy" }
+![The rpoB resistance determining region drawn as numbered codons with their translated residues, two variant lollipops sitting over the codons they change, and a base ruler underneath](../assets/figures/example-codons.svg){ width="880" height="170" loading="lazy" }
 </figure>
 
 | | |
@@ -121,7 +121,7 @@ Translation is NCBI table 1, and table 11 gives the same residues, so bacteria, 
 A key to the colours as a band of its own: filled squares, dots, lines, washed areas, outlines or a continuous ramp, laid across the figure and wrapped onto more rows when they run out of width.
 
 <figure class="k-plate" markdown>
-![The ESX-1 locus in three genomes, with a key underneath naming the washed colour of the genes deleted in BCG, the identity ramp of the ribbons and the outline of genes with no match](../assets/figures/example-cluster.svg){ width="880" height="257" loading="lazy" }
+![The ESX-1 locus in three genomes, with a key underneath naming the washed colour of the genes deleted in BCG, the identity ramp of the ribbons and the outline of genes with no match](../assets/figures/example-cluster.svg){ width="880" height="258" loading="lazy" }
 </figure>
 
 | | |

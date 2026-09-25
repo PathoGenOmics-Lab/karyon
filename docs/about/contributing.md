@@ -119,6 +119,14 @@ too, or the job fails and names it. The run also turns every figure into a
 PNG and uploads them as the `visual-gallery` artifact, which shows a rendering
 change without checking out the branch.
 
+An example builds its figures in a file of its own under `examples/figures/`,
+one function per SVG named after the file, so `example-genomewide.svg` is
+`example_genomewide`, taking a theme, a width and a region. The example writes
+them, and the playground compiles the same file to draw them live on the site,
+so a new figure is listed in `playground/src/committed.rs` as well. A test
+there compares that list with `assets/` and names any figure one has and the
+other does not.
+
 A diff in `assets/` is not a problem in itself. It is the review: open the old
 and the new figure side by side, and check the change is the one you meant.
 
@@ -173,8 +181,8 @@ coordinate axis at all. A track that the crate itself ships then needs:
   others. A track that lays an array along the axis also gets an `_at` form.
 - **Tests**, including one that pins a known coordinate to a known pixel. Track
   arithmetic is where the silent errors live.
-- **A figure**: a panel in `examples/gallery.rs`, or an example of its own,
-  rendered into `assets/` and copied to `docs/assets/figures/`.
+- **A figure**: a panel in `examples/figures/gallery.rs`, or an example of its
+  own, rendered into `assets/` and copied to `docs/assets/figures/`.
 - **Documentation**: an entry on its family's page of the
   [track catalogue](../tracks/index.md), and a line in `CHANGELOG.md` that
   says why the track exists, not only that it was added.

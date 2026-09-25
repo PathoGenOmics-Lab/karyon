@@ -6,6 +6,12 @@ fn tree() -> Tree {
     Tree::parse_newick("((A:0.1,B:0.2)0.9:0.3,(C:0.15,D:0.05):0.2);").unwrap()
 }
 
+/// A colour of the light theme's palette, which is what a figure drawn with
+/// no theme set hands out.
+fn colour(index: usize) -> String {
+    Theme::light().color(index).to_string()
+}
+
 fn region() -> Region {
     Region::new("tree", 0, 1).unwrap()
 }
@@ -402,8 +408,8 @@ fn dnds_is_direct_diverging_and_projection_independent() {
             svg.contains("<title>B; dN/dS missing</title>"),
             "an ancestor's omega must not be copied onto B: {svg}"
         );
-        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
-        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(svg.contains(&format!("stroke=\"{}\"", colour(0))), "{svg}");
+        assert!(svg.contains(&format!("stroke=\"{}\"", colour(1))), "{svg}");
         assert!(svg.contains("stroke-width=\"2.22\""), "{svg}");
         assert!(svg.contains("stroke-dasharray=\"1.5 3\""), "{svg}");
         for label in ["purifying", "near neutral", "diversifying", "missing"] {
@@ -497,8 +503,8 @@ fn weighted_rate_classes_remain_visible_in_every_projection() {
             svg.contains("class 1 omega 0.7 weight 2; class 2 omega 1.4 weight 1"),
             "source weights must remain exact even when geometry is normalised: {svg}"
         );
-        assert!(svg.contains("stroke=\"#0072b2\""), "{svg}");
-        assert!(svg.contains("stroke=\"#d55e00\""), "{svg}");
+        assert!(svg.contains(&format!("stroke=\"{}\"", colour(0))), "{svg}");
+        assert!(svg.contains(&format!("stroke=\"{}\"", colour(1))), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
     }
 }
@@ -916,8 +922,8 @@ fn branch_annotations_drive_colour_and_accessible_text() {
         .to_svg();
     assert!(svg.contains("country Peru"), "{svg}");
     assert!(svg.contains("country Chile"), "{svg}");
-    assert!(svg.contains("#0072b2"), "first categorical colour: {svg}");
-    assert!(svg.contains("#d55e00"), "second categorical colour: {svg}");
+    assert!(svg.contains(&colour(0)), "first categorical colour: {svg}");
+    assert!(svg.contains(&colour(1)), "second categorical colour: {svg}");
 }
 
 #[test]
@@ -982,8 +988,11 @@ fn trait_columns_align_exact_metadata_with_terminal_taxa() {
     ] {
         assert!(svg.contains(&format!("<title>{title}</title>")), "{svg}");
     }
-    assert!(svg.contains("#4b5563"), "continuous minimum: {svg}");
-    assert!(svg.contains("#0072b2"), "continuous maximum: {svg}");
+    assert!(
+        svg.contains(&Theme::light().muted),
+        "continuous minimum: {svg}"
+    );
+    assert!(svg.contains(&colour(0)), "continuous maximum: {svg}");
     assert!(svg.contains(">\u{2014}</text>"), "missing value: {svg}");
 }
 
@@ -1023,14 +1032,14 @@ fn trait_categories_keep_branch_colours_after_ladderizing_and_collapsing() {
         .to_svg();
     let beta = svg.find("<title>C; kind beta</title>").unwrap();
     assert!(
-        svg[beta..(beta + 180).min(svg.len())].contains("fill=\"#d55e00\""),
+        svg[beta..(beta + 180).min(svg.len())].contains(&format!("fill=\"{}\"", colour(1))),
         "{svg}"
     );
     let alpha = svg
         .find("<title>alpha_clade (2 tips); kind alpha</title>")
         .unwrap();
     assert!(
-        svg[alpha..(alpha + 220).min(svg.len())].contains("fill=\"#0072b2\""),
+        svg[alpha..(alpha + 220).min(svg.len())].contains(&format!("fill=\"{}\"", colour(0))),
         "{svg}"
     );
 }
@@ -1260,12 +1269,12 @@ fn an_unrooted_tree_keeps_branches_labels_support_and_annotation_rings() {
     assert!(svg.contains(">country</text>"), "{svg}");
     let branch = svg.find("<title>country Peru</title>").unwrap();
     assert!(
-        svg[branch..(branch + 180).min(svg.len())].contains("stroke=\"#0072b2\""),
+        svg[branch..(branch + 180).min(svg.len())].contains(&format!("stroke=\"{}\"", colour(0))),
         "{svg}"
     );
     let ring = svg.find("<title>A; country Peru</title>").unwrap();
     assert!(
-        svg[ring..(ring + 260).min(svg.len())].contains("fill=\"#0072b2\""),
+        svg[ring..(ring + 260).min(svg.len())].contains(&format!("fill=\"{}\"", colour(0))),
         "branch and ring must share one category mapping: {svg}"
     );
 }
@@ -1808,7 +1817,7 @@ fn a_clade_whose_tips_agree_is_coloured_as_that_clade() {
         .collect();
     let coloured: Vec<&&str> = strokes
         .iter()
-        .filter(|stroke| **stroke != "#1b1f23" && **stroke != "#d7dce2")
+        .filter(|stroke| **stroke != Theme::light().foreground && **stroke != Theme::light().rule)
         .collect();
     assert!(
         coloured.len() >= 6,
@@ -1818,7 +1827,7 @@ fn a_clade_whose_tips_agree_is_coloured_as_that_clade() {
     assert_eq!(hues.len(), 2, "two groups, two colours: {svg}");
     // And the root, which holds both groups, is not either of them.
     assert!(
-        strokes.contains(&"#1b1f23"),
+        strokes.contains(&Theme::light().foreground.as_str()),
         "the branch above two groups stays plain: {svg}"
     );
 }

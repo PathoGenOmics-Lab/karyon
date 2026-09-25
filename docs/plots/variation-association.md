@@ -25,42 +25,42 @@ position.
 
 <div class="k-plots" markdown>
 
--   [![Variant lollipops coloured by consequence, below a depth profile with a dropout, a reference band and the rpoB gene model](../assets/figures/example.svg){ width="900" height="304" loading="lazy" }](../tracks/variation.md#varianttrack)
+-   [![Variant lollipops coloured by consequence, below a depth profile with a dropout, a reference band and the rpoB gene model](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }](../tracks/variation.md#varianttrack)
 
     **[Point variants](../tracks/variation.md#varianttrack)**
     Point events as lollipops whose height is a value, or as plain ticks when there are too many for heads, with categories coloured in the order they first appear.
 
--   [![Five structural calls as arcs between their breakpoints, a deletion, a duplication, an inversion, an insertion and a translocation leaving the view, above a depth profile that drops under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="287" loading="lazy" }](../tracks/variation.md#structuraltrack)
+-   [![Five structural calls as arcs between their breakpoints, a deletion, a duplication, an inversion, an insertion and a translocation leaving the view, above a depth profile that drops under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="288" loading="lazy" }](../tracks/variation.md#structuraltrack)
 
     **[Structural variants](../tracks/variation.md#structuraltrack)**
     Each call as an arc between its two breakpoints, heavier with more supporting reads; a coverage track beneath shows whether the depth agrees.
 
--   [![Copy number gains and losses across a cohort along one arm of chromosome 8, and beneath them one tumour's segments on a ladder of whole copies, with lost heterozygosity marked along the foot](../assets/figures/example-copy-number.svg){ width="900" height="340" loading="lazy" }](../tracks/variation.md#copynumbertrack)
+-   [![Copy number gains and losses across a cohort along one arm of chromosome 8, and beneath them one tumour's segments on a ladder of whole copies, with lost heterozygosity marked along the foot](../assets/figures/example-copy-number.svg){ width="900" height="341" loading="lazy" }](../tracks/variation.md#copynumbertrack)
 
     **[Copy number](../tracks/variation.md#copynumbertrack)**
     Fitted segments drawn at their level on a ladder of whole copies, loss of heterozygosity in a lane of its own, and balanced wherever you say it is.
 
--   [![A phylogeny of twelve isolates beside lineage, resistance and year strips and a panel of thirty-four variable sites, each column labelled with its position and each row ending in its count of differences](../assets/figures/example-snps.svg){ width="900" height="385" loading="lazy" }](../tracks/variation.md#snptrack)
+-   [![A phylogeny of twelve isolates beside lineage, resistance and year strips and a panel of thirty-four variable sites, each column labelled with its position and each row ending in its count of differences](../assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }](../tracks/variation.md#snptrack)
 
     **[Variable sites](../tracks/variation.md#snptrack)**
     Only the columns that vary, evenly spaced and each labelled with its position; a tree beside the rows lines a clade's shared changes up into a block.
 
--   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix showing which isolates carry the associated alleles](../assets/figures/example-association.svg){ width="940" height="347" loading="lazy" }](../tracks/variation.md#matrixtrack)
+-   [![An association scan over rpoB whose peak crosses the threshold line, the gene beneath it, and a genotype matrix showing which isolates carry the associated alleles](../assets/figures/example-association.svg){ width="940" height="348" loading="lazy" }](../tracks/variation.md#matrixtrack)
 
     **[Genotype matrix](../tracks/variation.md#matrixtrack)**
     One row per sample and one cell per site at its real coordinate, where a sample without the allele, a sample never typed and a stretch with no site all look different.
 
--   [![Presence and absence of twenty-six genes across nine Klebsiella isolates, the rows sorted by the phylogeny beside them so two accessory islands come out as solid blocks](../assets/figures/example-pangenome.svg){ width="940" height="263" loading="lazy" .k-wide }](../tracks/variation.md#matrixtrack)
+-   [![Presence and absence of twenty-six genes across nine Klebsiella isolates, the rows sorted by the phylogeny beside them so two accessory islands come out as solid blocks](../assets/figures/example-pangenome.svg){ width="940" height="264" loading="lazy" .k-wide }](../tracks/variation.md#matrixtrack)
 
     **[Presence and absence by descent](../tracks/variation.md#matrixtrack)**
     The same matrix sorted by a tree drawn beside it, which turns a speckle into blocks a clade carries.
 
--   [![An association scan and a depth profile across every contig of a draft assembly, with the contigs beneath as alternating named blocks](../assets/figures/example-genomewide.svg){ width="940" height="288" loading="lazy" }](../tracks/variation.md#manhattantrack)
+-   [![An association scan and a depth profile across every contig of a draft assembly, with the contigs beneath as alternating named blocks](../assets/figures/example-genomewide.svg){ width="940" height="289" loading="lazy" }](../tracks/variation.md#manhattantrack)
 
     **[Association scan](../tracks/variation.md#manhattantrack)**
     One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
 
--   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1506" height="1051" loading="lazy" }](../tracks/variation.md#selectiontrack)
+-   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }](../tracks/variation.md#selectiontrack)
 
     **[Site-wise selection](../tracks/variation.md#selectiontrack)**
     Evidence, as a p-value or a posterior, in one tier and the signed log2(ω) effect in another, so a significant purifying site still reads as purifying.
