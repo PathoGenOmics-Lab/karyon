@@ -7,24 +7,48 @@ then stack one track per file, in the order you want them drawn.
 ## The grammar
 
 ```text
-karyon <REGION> [TRACK...] [OPTIONS]
+karyon <PLACE> [FILE | TRACK FILE]... [OPTIONS]
 ```
 
 Four rules cover every command:
 
-1. **The region comes first.** It is a locus string, 1-based and inclusive as
-   samtools and IGV write it: a sequence name, a colon and a span. Commas and
-   underscores inside the numbers are ignored, so `NC_000962.3:761,000-762,999`
-   and `NC_000962.3:761000-762999` are the same 2,000 bases. A figure made only
-   of `--tree`, `--tanglegram` and `--snps` tracks takes no region, since none
-   of them is drawn in a window.
-2. **Each track flag starts a track** and takes the file after it. Tracks stack
-   from top to bottom in the order you write them.
-3. **The options after a track flag describe that track**, up to the next track
-   flag. Each is said once per track: a second `--label` for the same track is
-   refused, since it was almost always meant for the next one.
+1. **The place comes first.** A region, a gene or a whole sequence:
+    - a region is a locus string, 1-based and inclusive as samtools and IGV
+      write it, a sequence name, a colon and a span, with commas and
+      underscores in the numbers ignored, so `NC_000962.3:761,000-762,999` and
+      `NC_000962.3:761000-762999` are the same 2,000 bases;
+    - a gene is a name the figure's annotation gives, and the figure is that
+      gene with a tenth of its length either side, titled with its name;
+    - a sequence's name is the whole sequence.
+
+    A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
+    place, since none of them is drawn in a window.
+2. **Each file, or each track flag and its file, starts a track.** A file
+   named on its own is the kind of track its name says, as the table below
+   has it; a flag in front chooses the kind, as `--pileup reads.bam`. Tracks
+   stack from top to bottom in the order you write them.
+3. **The options after a track describe that track**, up to the next one. Each
+   is said once per track: a second `--label` for the same track is refused,
+   since it was almost always meant for the next one. A track given no
+   `--label` is called after its file.
 4. **Figure options** such as `--title` and `-o` belong to no track and can go
    anywhere on the line.
+
+| A file named | Is drawn as |
+|:--|:--|
+| `.bam`, `.cram` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
+| `.sam` | its reads (`--pileup`) |
+| `.vcf`, `.bcf` | its calls (`--variants`) |
+| `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
+| `.bedgraph`, `.bg`, `.bdg` | a signal (`--coverage`) |
+| `.fa`, `.fasta`, `.fna` | the reference (`--sequence`) |
+| `.aln`, `.afa` | an alignment (`--msa`) |
+| `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
+| `.paf` | synteny (`--synteny`) |
+| `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
+
+Any of these may end in `.gz`. A name that could be several things, `.tsv` or
+`.txt`, needs its track's flag.
 
 An option and its value may be written as two words or joined by `=`, as
 `--label depth` or `--label=depth`.
@@ -41,6 +65,14 @@ probably meant to be:
 ```text
 $ karyon chr1:1-10 --coverge depth.bedgraph
 karyon: unknown flag --coverge; did you mean --coverage?
+```
+
+A flag another tool spells, `--vcf`, `--region`, `--metadata` or `--legend`,
+is answered with how karyon says the same thing:
+
+```text
+$ karyon rpoB --vcf calls.vcf.gz
+karyon: unknown flag --vcf; variant calls are --variants FILE, or the VCF named on its own
 ```
 
 ### A worked example
@@ -119,7 +151,7 @@ reads nothing.
 
 | Flag | Draws | Reads | Track |
 |:--|:--|:--|:--|
-| `--coverage <FILE>` | per-base signal | [bedGraph](formats.md#bedgraph), [`samtools depth`](formats.md#samtools-depth) or [a bare column of values](formats.md#a-bare-column-of-values) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
+| `--coverage <FILE>` | per-base signal | [bedGraph](formats.md#bedgraph), [`samtools depth`](formats.md#samtools-depth), [a bare column of values](formats.md#a-bare-column-of-values) or [a BAM](#binary-formats), whose depth it counts | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
 | `--copy-number <FILE>` | segmented copy number | [a segment table](formats.md#the-segment-table): CNVkit `.cns`, ASCAT or `.seg` | [CopyNumberTrack](../tracks/variation.md#copynumbertrack) |
 | `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
@@ -133,7 +165,7 @@ reads nothing.
 | `--snps <FILE>` | the variable sites of an alignment | [aligned FASTA](formats.md#aligned-fasta) | [SnpTrack](../tracks/variation.md#snptrack) |
 | `--ideogram <FILE>` | cytogenetic bands | [a cytoBand table](formats.md#cytoband) | [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) |
 | `--matrix <FILE>` | a value per sample per site | [a matrix table](formats.md#the-matrix-table) | [MatrixTrack](../tracks/variation.md#matrixtrack) |
-| `--pileup <FILE>` | aligned reads | [SAM text](formats.md#sam) from `samtools view` | [PileupTrack](../tracks/reads-molecules.md#pileuptrack) |
+| `--pileup <FILE>` | aligned reads | [SAM text](formats.md#sam) from `samtools view`, or [a BAM](#binary-formats) | [PileupTrack](../tracks/reads-molecules.md#pileuptrack) |
 | `--synteny <FILE>` | alignment ribbons between two sequences | [PAF](formats.md#paf) from minimap2 | [SyntenyTrack](../tracks/comparison.md#syntenytrack) |
 | `--dotplot <FILE>` | the same alignments as a dot plot | [PAF](formats.md#paf) | [DotplotTrack](../tracks/comparison.md#dotplottrack) |
 | `--orfs <FILE>` | open reading frames in six frames | [FASTA](formats.md#fasta), the file `--sequence` takes | [OrfTrack](../tracks/annotation.md#orftrack) |
@@ -143,7 +175,7 @@ reads nothing.
 | `--loci <FILE>` | gene neighbourhoods from several genomes | [BED or GFF3 whose first column names the genome](formats.md#gene-neighbourhoods); `--links` names the homologies | [LocusTrack](../tracks/comparison.md#locustrack) |
 | `--methylation <FILE>` | modified bases per strand | [bedMethyl](formats.md#bedmethyl) from modkit | [MethylationTrack](../tracks/signal-sequence.md#methylationtrack) |
 | `--structural <FILE>` | structural calls as arcs between their breakpoints | [VCF with symbolic alleles or `SVTYPE`](formats.md#structural-vcf) | [StructuralTrack](../tracks/variation.md#structuraltrack) |
-| `--split-reads <FILE>` | molecules that aligned in pieces | [SAM carrying an `SA` tag](formats.md#sam-with-sa-tags) | [SplitReadTrack](../tracks/reads-molecules.md#splitreadtrack) |
+| `--split-reads <FILE>` | molecules that aligned in pieces | [SAM carrying an `SA` tag](formats.md#sam-with-sa-tags), or a BAM holding them | [SplitReadTrack](../tracks/reads-molecules.md#splitreadtrack) |
 | `--bisulfite <FILE>` | methylation one molecule at a time | [a Bismark methylation extractor file](formats.md#the-bismark-extractor-file) | [BisulfiteTrack](../tracks/reads-molecules.md#bisulfitetrack) |
 | `--domains <FILE>` | protein domains on an axis of residues | [an InterProScan table](formats.md#the-interproscan-table) | [DomainTrack](../tracks/comparison.md#domaintrack) |
 | `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
@@ -183,7 +215,7 @@ no use for it is refused by name rather than ignored, as in
 |:--|:--|:--|:--|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
-| `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup draws every read agreeing |
+| `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades` | required |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
@@ -235,7 +267,7 @@ second with an option, spelled by what the file is:
 | `--clades` | the blocks and the taxa carrying them | `--with-tree`, the phylogeny they are painted onto |
 | `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
-| `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against |
+| `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
 
 The first four are refused without their second file:
 
@@ -251,19 +283,19 @@ karyon: a tanglegram track is drawn from two files, and --against names the seco
     with no homologies outlines every gene as having no counterpart, which reads
     as a discovery.
 
-A pileup is the one that can do without. Given no reference it draws every read
-agreeing, since a mismatch is a base that differs from something. Give it one
-and it colours what disagrees:
+A pileup is the one that can do without. It colours the bases that disagree
+with a reference, and when `--with-sequence` gives it none it reads against the
+reference the figure draws:
 
 ```bash
-samtools view aln.bam NC_000962.3:761000-763000 \
-  | karyon NC_000962.3:761,000-763,000 \
-      --sequence H37Rv.fa --label reference \
-      --pileup - --with-sequence H37Rv.fa --label reads -o pileup.svg
+karyon NC_000962.3:761,000-763,000 \
+  --sequence H37Rv.fa --label reference \
+  --pileup aln.bam --label reads -o pileup.svg
 ```
 
-The same FASTA twice is not a mistake: the first draws the reference as a track
-of its own, the second gives the pileup the letters to compare against. A FASTA
+`--with-sequence` is for a pileup read against a reference the figure does not
+draw. With neither, every read is drawn agreeing, since a mismatch is a base
+that differs from something. A FASTA
 given to `--sequence`, `--orfs` or `--with-sequence` that holds one record is
 used whatever its header says; one that holds several is a genome, and the
 record named like the region's sequence is used, or the command is refused with
@@ -478,6 +510,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--theme <NAME>` | `light` or `dark` | `light` |
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
+| `--no-legend` | leaves out the key to the colours of a tree's branches and of `--traits` strips | drawn under the figure |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
@@ -540,19 +573,30 @@ The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not
 replaced.
 
-## Binary formats
+## Compressed and binary files { #binary-formats }
 
-BAM, CRAM and BCF are not read, and are not meant to be. samtools and bcftools
-already write the text these readers take, so a pipe does the parsing and the
-library keeps its zero dependencies.
+A file compressed with gzip or bgzip is read as the text inside it, by every
+track and from standard input, so a `.vcf.gz`, a `.gff3.gz` or a `.bed.gz` is
+given as it is.
 
-Hand a track a file that is not text and it says what the file is and what to
-write in place of its name. Compressed files, BAM, CRAM, BCF, bigWig, bigBed
-and 2bit are all recognised by their first bytes:
+A BAM is read by `--coverage`, which draws the depth of its reads, and by
+`--pileup` and `--split-reads`, which draw the reads. The `.bai` beside it,
+`reads.bam.bai` or `reads.bai`, says which blocks hold the reads over the
+region, so a figure of one gene reads that gene's blocks and no more; without
+one the file is read from its start. Depth is counted as `samtools depth -a`
+counts it: every base, with reads that are unmapped, secondary, failing
+quality checks or duplicates left out, and a deletion not counted as covered.
+
+```bash
+karyon NC_000962.3:761,000-763,000 --coverage aln.bam --pileup aln.bam -o rpoB.svg
+```
+
+CRAM, BCF and bigWig are not read. Hand a track one and it says what the file
+is and what to write in place of its name:
 
 ```text
-$ karyon chr1:1-5,000 --pileup reads.bam
-karyon: --pileup reads.bam: the file is BAM, and karyon reads text; write <(samtools view -h reads.bam chr1:1-5000) where its name is, or turn it into text first
+$ karyon chr1:1-5,000 --variants calls.bcf
+karyon: --variants calls.bcf: the file is BCF, and karyon reads text; write <(bcftools view calls.bcf) where its name is, or turn it into text first
 ```
 
 `<(command)` is the shell handing the command's output over as though it were
@@ -560,31 +604,9 @@ a file, in bash and zsh, so it works for any track and for a second file as
 well, where `-` can be given to only one:
 
 ```bash
-karyon chr1:1-5,000 --variants <(gzip -dc calls.vcf.gz) \
-  --pileup <(samtools view -h reads.bam chr1:1-5000) -o locus.svg
-```
-
-Coverage from an alignment:
-
-```bash
-samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
-  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
-```
-
-Reads from a CRAM, under the annotation they fall in:
-
-```bash
-samtools view -T ecoli.fa aln.cram NC_000913.3:3423000-3424000 \
-  | karyon NC_000913.3:3,423,000-3,424,000 \
-      --features genes.gff3 --label genes \
-      --pileup - --label reads -o reads.svg
-```
-
-Calls from a BCF, which bcftools turns into VCF text:
-
-```bash
-bcftools view -r Chr1:1000000-1001000 calls.bcf \
-  | karyon Chr1:1,000,000-1,001,000 --variants - --label calls -o calls.svg
+karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
+  --pileup <(samtools view -h -T ecoli.fa aln.cram NC_000913.3:3423000-3424000) \
+  --variants <(bcftools view calls.bcf) -o reads.svg
 ```
 
 !!! tip "Secondary and supplementary alignments"

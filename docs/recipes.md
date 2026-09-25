@@ -49,20 +49,17 @@ other input is described beside its code.
 
 ### Depth over one gene, straight from a BAM
 
-Plot read depth across one gene, taking its coordinates from the annotation.
+Plot read depth across one gene, with the gene found in the annotation.
 
 ```bash
-locus=$(awk -F'\t' '$3 == "gene" && /Name=katG/ { print $1 ":" $4 "-" $5 }' genes.gff3)
-
-samtools depth -a -r "$locus" aln.bam \
-  | karyon "$locus" --coverage - --label depth --title katG -o katG.svg
+karyon katG aln.bam genes.gff3 -o katG.svg
 ```
 
-GFF3 columns 4 and 5 are 1-based and inclusive, which is exactly what a locus
-string is, so the same string goes to `samtools` and to karyon with no
-arithmetic in between. `-a` makes `samtools` print the positions no read
-covered. The figure is the same without it, because a position the file never
-mentions is read as depth zero.
+`katG` is looked up in `genes.gff3`, and the figure is the gene with a tenth of
+its length either side, titled with its name. `aln.bam` is drawn as its depth,
+counted the way `samtools depth -a` counts it, and read through `aln.bam.bai`
+when it is there, so only the reads over the gene are read. Put `--pileup` in
+front of the BAM to draw the reads themselves.
 
 !!! note "One track per command can read standard input"
     Any track file can be `-`, but only one track can take it, since there is
@@ -280,18 +277,18 @@ the reference painted.
 === "Command line"
 
     ```bash
-    samtools view aln.bam chr7:140,753,000-140,754,000 \
-      | karyon chr7:140,753,000-140,754,000 \
-          --pileup - --label reads --with-sequence chr7.fa --fade-by-mapq \
-          -o reads.svg
+    karyon chr7:140,753,000-140,754,000 \
+      --pileup aln.bam --label reads --with-sequence chr7.fa --fade-by-mapq \
+      -o reads.svg
     ```
 
 - The reader walks each read's CIGAR, so an insertion upstream does not shift
   the bases after it, and keeps what the record carries: `SEQ`, the strand
   from flag bit 16, and `MAPQ`.
-- A mismatch needs a reference to differ from. Without `--with-sequence`
-  (`reference` in Rust) every read is drawn agreeing. Like `--sequence`, it
-  takes a whole-genome FASTA and picks the record the region names.
+- A mismatch needs a reference to differ from: `--with-sequence`
+  (`reference` in Rust), or the figure's `--sequence` when the pileup is given
+  none. With neither, every read is drawn agreeing. Like `--sequence`, it takes
+  a whole-genome FASTA and picks the record the region names.
 - `--fade-by-mapq` (`fade_by_quality` in Rust) draws a read fainter the lower
   its mapping quality, and leaves its mismatches at full strength. Colouring
   reads by strand is `ReadColoring::Strand`, in the library.
@@ -423,8 +420,11 @@ karyon chr1:1,000-2,000 \
 ```
 
 `scan.tsv` holds a position and a value on each line, optionally with a
-sequence name in front, and may start with a header naming its columns. The
-value is drawn as written, so write `-log10 p` rather than the p-value.
+sequence name in front, and may start with a header naming its columns. A
+column headed as p-values are, `P`, `pvalue` or `p_wald`, is drawn as `-log10`
+of itself, and any other value as written, a `-log10(p)` included. An
+association tool's own table, PLINK's or REGENIE's with all its columns, is
+read by its header as it is.
 `genotypes.tsv` has the site positions across its header and a sample name at
 the start of every row. Positions are 1-based in both, the way association
 tools write them.

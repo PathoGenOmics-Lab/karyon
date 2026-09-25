@@ -8,8 +8,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `karyon --help` fits on one screen: the grammar, every track grouped by what
-  it draws, the figure options, and where to ask for more. It printed the whole
+- `karyon --help` fits on one screen: three examples, the grammar, every track
+  grouped by what it draws, the figure options, and where to ask for more. It printed the whole
   of the help, some two hundred lines, which `karyon help all` still does, and
   `karyon` with nothing after it prints the short help rather than an error.
 
@@ -91,6 +91,66 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- A file named on its own is a track of the kind its name says, under any
+  `.gz`: BAM draws its depth, SAM its reads, VCF its calls, GFF3, GTF
+  and BED features, bedGraph a signal, FASTA the reference, Newick a tree, PAF
+  synteny, and a PLINK or REGENIE table a scan. Its options come after it, as
+  they do after a track flag, and a flag in front still chooses the kind. A
+  `.bed` that is modkit's bedMethyl is drawn as methylation, and one of four
+  columns ending in a number as a signal. A name that says nothing, `.tsv` or
+  `.txt`, is refused asking for the track's flag.
+- The place a figure is drawn over may be a word: a gene, found in the
+  figure's annotation by the names GFF3, GTF and BED give it and drawn with a
+  margin of a tenth of its length, titled with its name; or a sequence, drawn
+  whole, as long as a FASTA, a BAM header, a `##sequence-region` or a
+  `##contig` says, or as far as a file reaches on it. A gene at two places is
+  refused with both, and a name at none with the nearest names the annotation
+  has and the sequences each file names, in a header or on its rows, since the
+  name is most often one file's for what another calls otherwise, as PLINK
+  writes `1`. So `karyon rpoB reads.bam genes.gff3 calls.vcf.gz` is a whole
+  figure. One position, `chr1:18,350`, is answered with a span around it.
+- Every track given no `--label` is called after its file: `calls` for
+  `calls.vcf.gz`, `reads` for the reads of `data/reads.bam` and `reads depth`
+  for its depth. Standard input, a pipe the shell names and a tanglegram's two
+  trees get no name.
+- A flag another tool spells for something karyon says otherwise, `--vcf`,
+  `--region`, `--metadata`, `--legend` and some sixty more, is answered with
+  how karyon says it, and any other unknown flag says where the tracks and
+  their options are listed.
+- A key to the colours of a tree's branches and of every `--traits` strip is
+  drawn under the figure, each level once however many strips show it.
+  `--no-legend` leaves it out. The three simulated users each drew a tree
+  coloured by lineage and found no way to say which colour was which.
+- A pileup with no `--with-sequence` reads its reads against the reference the
+  figure's `--sequence` draws. It drew every read as agreeing, with the
+  reference right above it, which is how one simulated user nearly missed the
+  variant the figure was for.
+- `--manhattan` reads an association tool's own table by its header: PLINK,
+  PLINK 2, whose header is written behind a `#`, REGENIE, BOLT, GEMMA, SAIGE
+  and the GWAS Catalog's format, finding
+  the position and the p-value, or its logarithm, by their names, and leaving
+  out a test written as `NA`. It read two or three columns only, and PLINK's
+  ten had to be cut down first.
+
+- A file compressed with gzip or bgzip is read as the text inside it, by every
+  track and from standard input: a `.vcf.gz`, a `.gff3.gz` or a `.bed.gz` needs
+  no pipe. The decoder is the crate's own, `read::gzip`, so the crate still
+  brings in no dependency. It checks every member's CRC-32 and length, and a
+  damaged file is an error naming what was wrong. It was checked byte for byte
+  against `gzip -dc` on bgzip, `gzip -1` and `-9`, incompressible and
+  concatenated files, at 230 to 500 MB/s.
+- A BAM is read as it is by `--coverage`, `--pileup` and `--split-reads`,
+  through the `.bai` beside it when there is one, so a figure of one gene reads
+  the blocks that gene is in; without one the file is read from its start and
+  left once the reads pass the window. `read::bam` counts depth the way
+  `samtools depth -a` does by default and writes the reads as `samtools view`
+  prints them, and both were checked against samtools on 300,000 reads with
+  every CIGAR operation, flag and tag type, and a read of 70,000 CIGAR
+  operations kept in its CG tag. CRAM, BCF and bigWig still name the command
+  that reads them. `cli::stack::Files` is what the builder reads through, any
+  closure from a source to its text being one, and `cli::stack::Disk` is the
+  one the command line uses.
 
 - `karyon help <track>` prints one track's entry and only the options it takes,
   with a link to its page of the guide, and so does `--help` written after a

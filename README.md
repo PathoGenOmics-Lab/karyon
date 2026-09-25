@@ -56,12 +56,14 @@ From a shell, a figure like it is one command:
 
 ```bash
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
-karyon NC_000962.3:761,000-762,999 --coverage depth.bedgraph --label depth \
-  --sequence H37Rv.fa --features genes.gff3 --variants calls.vcf -o rpoB.svg
+karyon rpoB aln.bam H37Rv.fa genes.gff3 calls.vcf.gz -o rpoB.svg
 ```
 
-`karyon --help` fits on one screen, and `karyon help coverage` lists what one
-track takes. The [Playground](https://pathogenomics-lab.github.io/karyon/playground/)
+The first word says where: a gene the annotation names, a whole sequence, or a
+span such as `NC_000962.3:761,000-762,999`. Each file is drawn as what its name
+says it holds and labelled after itself, and a BAM or a file compressed with
+gzip is read as it is. `karyon --help` fits on one screen, and
+`karyon help coverage` lists what one track takes. The [Playground](https://pathogenomics-lab.github.io/karyon/playground/)
 runs the same program in your browser, with nothing to install.
 
 From Rust, that figure is this much code:

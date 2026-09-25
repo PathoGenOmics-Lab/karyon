@@ -29,15 +29,19 @@ in the numbers if you like, and it is held 0-based and half-open inside. It is
 never empty, so a start of 0 or an end before the start is an error rather
 than a blank figure.
 
-Nothing looks the name up. It is printed in the corner of the figure, and the
-file readers use it to keep the rows on that sequence. So a region can count
-whatever a track is laid along:
+Written as a span, the name is not looked up. It is printed in the corner of
+the figure, and the file readers use it to keep the rows on that sequence. So a
+region can count whatever a track is laid along:
 
 | Region | What the axis counts |
 |:--|:--|
 | `NC_000962.3:761,000-762,999` | Bases of a chromosome |
 | `alignment:1-320` | Columns of an alignment |
 | `read:1-2000` | Samples of a raw nanopore signal |
+
+The command line also takes a place by a word, and looks that one up in the
+figure's files: a gene the annotation names becomes the gene and a margin
+around it, and a sequence's name becomes the whole sequence.
 
 ## Track { #track }
 
@@ -182,10 +186,11 @@ does the same for a phylogeny. Every reader takes the text as a `&str`, never a
 path, so the library opens no files and the same code runs in a shell, in a
 test and in a web page. The command line uses the same readers.
 
-BAM, CRAM and BCF are not read directly. `samtools` and `bcftools` already
-write the text these readers take, so they come in through a pipe.
-[File formats](../guide/formats.md) lists every format, the columns read and
-the coordinate convention of each.
+A file compressed with gzip or bgzip is read as the text inside it, and a BAM
+is read a window at a time through its index, both with the crate's own
+decoders, so neither brings in a dependency. CRAM, BCF and bigWig come in
+through the tool that writes them as text. [File formats](../guide/formats.md)
+lists every format, the columns read and the coordinate convention of each.
 
 ## Coordinates in one paragraph { #coordinates }
 

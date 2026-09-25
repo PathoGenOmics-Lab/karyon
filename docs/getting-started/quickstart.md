@@ -1,8 +1,8 @@
 # Your first figure
 
-Draw a figure from the shell in two lines, stack several tracks on one axis,
-then build the same kind of figure from Rust. The steps make their own input
-files, so all you need is karyon itself.
+Point karyon at the files you have and a place, and it draws them on one axis.
+The first two steps use your own files; the ones after make their own, so all
+you need for them is karyon itself.
 { .k-lead }
 
 <div class="k-steps" markdown>
@@ -17,27 +17,74 @@ karyon --version
 This needs a Rust toolchain. [Installation](installation.md) covers getting
 one, and adding karyon to a Rust project instead.
 
-### Draw a figure in two lines
+### Draw the files you have
+
+Name a place, then the files, then where the figure goes:
+
+```bash
+karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
+```
+
+Open `rpoB.svg` in a browser: the depth of the reads, the genes and the calls,
+over the gene rpoB with a margin either side, and a ruler underneath.
+
+| Part | What it does |
+|:--|:--|
+| `rpoB` | The place, always first. A gene the annotation names, as here; a sequence's name, drawn whole; or a region such as `NC_000962.3:761,000-763,000`, 1-based and inclusive as `samtools` and IGV write it. |
+| `reads.bam` | A track for each file, of the kind its name says. A BAM is drawn as its depth, read through the `.bai` beside it, so only the reads over the place are read. |
+| `genes.gff3` | The genes, each drawn once and named. GTF and BED work the same way. |
+| `calls.vcf.gz` | The calls. A file compressed with gzip or bgzip is read as the file inside. |
+| `-o rpoB.svg` | The output file. Without it the SVG goes to standard output, ready for a pipe. |
+
+Each track is called after its file in the left margin, and the depth of a
+BAM after the file and `depth`, as `reads depth`. To choose the kind
+yourself, put its flag in front: `--pileup reads.bam` draws the reads rather
+than their depth. The options for a track go after it: `reads.bam --label depth
+--height 60`. `karyon help pileup` lists what one track takes, and `karyon
+--help` fits on one screen.
+
+A file whose name does not say what it holds, a `.tsv` or a `.txt`, needs its
+track's flag in front. When a place is not in any of the files, karyon says so
+and names what each file does hold.
+
+### Draw a scan or a tree
+
+An association tool's table, and a tree with a sheet of what is known about
+its samples, are drawn the same way:
+
+```bash
+karyon 1 gwas.assoc --threshold genome-wide -o scan.svg
+karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
+```
+
+- **A place is named as the files name it.** PLINK writes a chromosome as `1`
+  where a FASTA may call it `NC_000962.3`, so a PLINK table is placed on `1`.
+  A sequence no file gives the length of is drawn as far as the rows reach;
+  write the span, as `1:1-4,411,532`, to draw all of it.
+- **The table is read by its header.** PLINK, PLINK 2, REGENIE, BOLT-LMM,
+  GEMMA, SAIGE and the GWAS Catalog each name their columns, and a p-value is
+  drawn as -log10 of itself. `--threshold genome-wide` draws the line at
+  p = 5e-8, and `--threshold 1e-5` wherever you say.
+- **A figure of trees alone needs no place.** `--traits` puts the sheet's
+  columns beside the tips, every column unless `--columns` names the ones to
+  draw, and a key under the figure names each colour.
+- **One position is not a place.** Around a variant, write a span, as
+  `NC_000962.3:761,000-761,400`; given `NC_000962.3:761,200`, karyon answers
+  with that span.
+
+### Or make a figure from nothing
 
 The first line writes a small depth file, so there is nothing to download. The
 second draws it:
 
 ```bash
 seq 1 60 | awk '{print "chr1\t" $1 "\t" (20 + $1 % 7)}' > depth.txt
-karyon chr1:1-60 --coverage depth.txt --label depth -o first.svg
+karyon chr1:1-60 --coverage depth.txt -o first.svg
 ```
 
-Open `first.svg` in a browser: a depth profile over sixty bases, with a ruler
-underneath.
-
-| Part | What it does |
-|:--|:--|
-| `chr1:1-60` | The region, always first. 1-based and inclusive, the way `samtools` and IGV write it. |
-| `--coverage depth.txt` | Adds a coverage track and reads it from `depth.txt`, three columns as `samtools depth` writes them. |
-| `--label depth` | Names that track in the left margin. |
-| `-o first.svg` | The output file. Without it the SVG goes to standard output, ready for a pipe. |
-
-The ruler along the bottom is added for you; `--no-axis` leaves it out.
+`--coverage` says what `depth.txt` is, since a `.txt` could hold anything: three
+columns as `samtools depth` writes them. The track is called `depth`, after its
+file.
 
 ### Stack several tracks
 
@@ -50,17 +97,17 @@ printf '##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n' >
 printf 'chr1\t%s\t.\t%s\t%s\t.\tPASS\tAF=%s\n' 18 T C 0.95 31 G A 0.4 47 T TA 0.6 >> calls.vcf
 
 karyon chr1:1-60 \
-  --coverage depth.txt --label depth     --height 45 \
-  --sequence ref.fa    --label reference \
-  --variants calls.vcf --label variants  --height 40 \
+  --coverage depth.txt --height 45 \
+  ref.fa --label reference \
+  calls.vcf --height 40 \
   --title 'Three tracks over sixty bases' \
   -o stack.svg
 ```
 
-**The order of the flags is the order of the stack.** Each track flag, such as
-`--coverage` or `--variants`, starts a new track, and the options after it
-(`--label`, `--height`) describe that track until the next one starts. Move the
-`--variants` line above `--coverage` and the calls are drawn on top. Figure
+**The order of the words is the order of the stack.** Each file, or each
+track flag such as `--coverage`, starts a new track, and the options after it
+(`--label`, `--height`) describe that track until the next one starts. Move
+the `calls.vcf` line above `--coverage` and the calls are drawn on top. Figure
 options such as `--title` and `-o` belong to no track and can go anywhere.
 
 <figure class="k-plate" markdown>
@@ -78,6 +125,8 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
 - **Letters follow the zoom.** A base is printed as a letter while it is at
   least 7 pixels wide and as a coloured block down to 0.6 of a pixel. Below
   that the track prints a hint to zoom in rather than a smear.
+- **Reads are compared with the reference the figure draws.** A `--pileup`
+  under a `--sequence` paints every base that differs from it.
 
 !!! note "Give `--sequence` the whole reference, or a slice that says where it is"
     `--sequence` takes the only record of the FASTA, or the one named like the
@@ -88,14 +137,9 @@ options such as `--title` and `-o` belong to no track and can go anywhere.
     refused, saying which bases it holds. Here the two are the same, because
     the region starts at base 1.
 
-BAM, CRAM and BCF are not read directly. Let `samtools` or `bcftools` write the
-text and pipe it in; any track file can be `-`, for standard input. Hand a track
-one of those files by mistake and it says which command to use:
-
-```bash
-samtools depth -a -r NC_000962.3:761000-763000 aln.bam \
-  | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
-```
+CRAM, BCF and bigWig are not read directly: hand a track one and it says which
+`samtools`, `bcftools` or UCSC command writes what it reads, to put in place of
+the file's name.
 
 ### Draw the same kind of figure from Rust
 

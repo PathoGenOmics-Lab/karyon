@@ -85,6 +85,15 @@ pub enum ArgError {
     },
     /// The first argument was not a locus string.
     BadRegion(crate::Error),
+    /// A locus of one position, where a figure needs a span.
+    OnePosition {
+        /// The word as given.
+        given: String,
+        /// The sequence it names.
+        sequence: String,
+        /// The position, 1-based.
+        position: u64,
+    },
     /// A locus was given twice, or a positional argument came after one.
     ExtraRegion(String),
     /// No locus at all.
@@ -141,6 +150,8 @@ pub enum ArgError {
         /// The format its name promises, as it is usually spelt.
         format: &'static str,
     },
+    /// A file named on its own whose name does not say what it holds.
+    Unplaced(String),
     /// A modifier given a second value where it takes one.
     ///
     /// The last one used to win without a word, so a `--label` meant for the
@@ -189,9 +200,14 @@ impl fmt::Display for ArgError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ArgError::NoArguments => write!(f, "no arguments: try karyon --help"),
-            ArgError::UnknownFlag(flag) => match nearest_flag(flag) {
-                Some(meant) => write!(f, "unknown flag {flag}; did you mean {meant}?"),
-                None => write!(f, "unknown flag {flag}; karyon --help lists them"),
+            ArgError::UnknownFlag(flag) => match (spelled_elsewhere(flag), nearest_flag(flag)) {
+                (Some(answer), _) => write!(f, "unknown flag {flag}; {answer}"),
+                (None, Some(meant)) => write!(f, "unknown flag {flag}; did you mean {meant}?"),
+                (None, None) => write!(
+                    f,
+                    "unknown flag {flag}; karyon --help lists the tracks, and \
+                     karyon help <track> the options each one takes"
+                ),
             },
             ArgError::MissingValue(flag) => write!(f, "{flag} needs a value"),
             ArgError::BadValue {
@@ -207,6 +223,20 @@ impl fmt::Display for ArgError {
                 write!(f, "{flag} means nothing to {} {track} track", article(track))
             }
             ArgError::BadRegion(error) => write!(f, "{error}"),
+            ArgError::OnePosition {
+                given,
+                sequence,
+                position,
+            } => {
+                use crate::track::axis::group_thousands;
+                write!(
+                    f,
+                    "{given} is one position, and a figure is drawn over a span, such as \
+                     {sequence}:{}-{} around it",
+                    group_thousands(position.saturating_sub(AROUND).max(1)),
+                    group_thousands(position + AROUND)
+                )
+            }
             ArgError::ExtraRegion(extra) => {
                 write!(f, "one region per figure, and {extra:?} is a second one")
             }
@@ -236,6 +266,11 @@ impl fmt::Display for ArgError {
                 f,
                 "--mutations needs --carrying, which names the change to mark the carriers of"
             ),
+            ArgError::Unplaced(file) => write!(
+                f,
+                "{file}: its name does not say what it holds; put its track before it, as \
+                 --matrix {file} or --manhattan {file}, or give it to a track as --traits {file}"
+            ),
             ArgError::NotSvg { path, format } => write!(
                 f,
                 "{path} names a {format} file, and karyon writes SVG: write the figure to a \
@@ -260,7 +295,7 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// Where a track's data comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Source {
     /// A file on disk.
     Path(PathBuf),
@@ -628,6 +663,58 @@ impl Kind {
 
     fn takes_threshold(self) -> bool {
         matches!(self, Kind::Manhattan | Kind::Tree)
+    }
+
+    /// The track a file's name says it holds, for a file named on the
+    /// command line with no track flag in front of it.
+    ///
+    /// By the extension a tool writes, under any `.gz`: a BAM or CRAM is
+    /// drawn as its depth, and `--pileup` draws its reads; a SAM as its
+    /// reads; a VCF as its calls; GFF3, GTF and BED as features; bedGraph as
+    /// a signal; FASTA as the reference; a Newick file as a tree; PAF as
+    /// synteny; a PLINK or REGENIE association table as a scan. A name that
+    /// could be several things, `.tsv` or `.txt`, says nothing, and the file
+    /// has to be given its flag.
+    pub fn for_file(name: &str) -> Option<Kind> {
+        let lower = name.to_ascii_lowercase();
+        let lower = lower
+            .strip_suffix(".gz")
+            .or_else(|| lower.strip_suffix(".bgz"))
+            .unwrap_or(&lower);
+        let file = lower.rsplit(['/', '\\']).next().unwrap_or(lower);
+        if file.ends_with("sj.out.tab") {
+            return Some(Kind::Junctions);
+        }
+        if file.contains("cytoband") {
+            return Some(Kind::Ideogram);
+        }
+        for ending in [
+            ".assoc.linear",
+            ".assoc.logistic",
+            ".glm.linear",
+            ".glm.logistic",
+            ".glm.firth",
+        ] {
+            if file.ends_with(ending) {
+                return Some(Kind::Manhattan);
+            }
+        }
+        let (_, extension) = file.rsplit_once('.')?;
+        Some(match extension {
+            "bam" | "cram" | "bedgraph" | "bdg" | "bg" | "depth" | "bw" | "bigwig" => {
+                Kind::Coverage
+            }
+            "sam" => Kind::Pileup,
+            "vcf" | "bcf" => Kind::Variants,
+            "gff" | "gff3" | "gtf" | "bed" | "bb" | "bigbed" => Kind::Features,
+            "fa" | "fasta" | "fna" | "fas" | "ffn" | "frn" | "2bit" => Kind::Sequence,
+            "aln" | "afa" | "msa" => Kind::Msa,
+            "nwk" | "newick" | "tree" | "tre" | "treefile" | "nhx" => Kind::Tree,
+            "paf" => Kind::Synteny,
+            "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
+            "bedmethyl" => Kind::Methylation,
+            _ => return None,
+        })
     }
 
     /// Whether this track is drawn in the region, so a command line with it
@@ -1035,11 +1122,16 @@ pub struct TrackSpec {
     /// them in. `None` draws every column the sheet has, in the order its
     /// header named them.
     pub columns: Option<Vec<String>>,
+    /// Whether the kind was read off the file's name, the file having been
+    /// named on its own with no track flag in front of it. Such a track may
+    /// be told apart once its file is read: a `.bed` that is modkit's
+    /// bedMethyl is drawn as methylation.
+    pub guessed: bool,
 }
 
 impl TrackSpec {
     /// A track with nothing said about it yet.
-    fn new(kind: Kind, source: Option<Source>) -> Self {
+    pub(crate) fn new(kind: Kind, source: Option<Source>) -> Self {
         TrackSpec {
             kind,
             source,
@@ -1074,6 +1166,7 @@ impl TrackSpec {
             sample: None,
             traits: None,
             columns: None,
+            guessed: false,
         }
     }
 }
@@ -1137,6 +1230,15 @@ pub struct Invocation {
     pub region_label: bool,
     /// `-o`, or standard output when absent.
     pub output: Option<PathBuf>,
+    /// A place named by a word rather than by coordinates: a gene the
+    /// annotation names, or a sequence, drawn whole.
+    ///
+    /// The figure's files say where that is, so it is found when they are
+    /// read, and `region` is `None` until then.
+    pub named: Option<String>,
+    /// Cleared by `--no-legend`: the key to the colours of a phylogeny's
+    /// branches and of every strip of metadata.
+    pub legend: bool,
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1231,11 +1333,103 @@ pub const FLAGS: &[&str] = &[
     "--theme",
     "--no-axis",
     "--no-region-label",
+    "--no-legend",
     "-o",
     "--output",
     "--help",
     "--version",
 ];
+
+/// Flags other tools spell for what karyon says another way, each with how
+/// karyon says it.
+///
+/// Someone who types `--vcf` or `--metadata` knows what they want and lacks
+/// only the spelling, which is no typo for [`nearest_flag`] to find. A test
+/// holds every flag an answer names to [`FLAGS`], and every word here to not
+/// being a flag already.
+const ELSEWHERE: &[(&[&str], &str)] = &[
+    (
+        &[
+            "region", "locus", "loc", "r", "chr", "chrom", "contig", "gene", "interval",
+            "position", "pos",
+        ],
+        "the place is the first word and takes no flag: a gene, a sequence or a span, \
+         as in karyon rpoB reads.bam or karyon chr1:1-5,000 reads.bam",
+    ),
+    (
+        &["bam", "sam", "reads"],
+        "reads are --pileup FILE, from a BAM or SAM, and --coverage FILE draws their \
+         depth; a BAM named on its own is drawn as its depth",
+    ),
+    (
+        &["vcf", "calls"],
+        "variant calls are --variants FILE, or the VCF named on its own",
+    ),
+    (
+        &["gff", "gff3", "gtf", "bed", "genes"],
+        "genes and other features are --features FILE, or the GFF3, GTF or BED named \
+         on its own",
+    ),
+    (
+        &["fasta", "fa", "fna", "reference", "ref", "genome"],
+        "a reference is --sequence FILE, or the FASTA named on its own, and a --pileup \
+         reads its mismatches against it",
+    ),
+    (
+        &["newick", "nwk", "phylogeny", "phylo"],
+        "a phylogeny is --tree FILE, or the Newick named on its own",
+    ),
+    (
+        &["metadata", "meta", "samples", "sample-sheet", "samplesheet"],
+        "a sample sheet is --traits FILE, written after the track whose rows it \
+         describes, as in --tree tree.nwk --traits samples.tsv",
+    ),
+    (
+        &["legend", "key", "show-legend"],
+        "the key is drawn by itself for the colours --traits and --color-by deal, and \
+         --no-legend leaves it out",
+    ),
+    (
+        &["gwas", "assoc", "plink", "association"],
+        "an association scan is --manhattan FILE, or the table named on its own",
+    ),
+    (
+        &["depth", "bedgraph", "bigwig", "bw", "wig", "signal"],
+        "a signal along the sequence is --coverage FILE, from a bedGraph, samtools \
+         depth or a BAM",
+    ),
+    (
+        &["out", "outfile", "save", "svg"],
+        "the figure is written to the file -o names, as -o figure.svg",
+    ),
+    (
+        &["png", "pdf"],
+        "karyon writes SVG, to the file -o names; rsvg-convert, Inkscape or a browser \
+         converts it",
+    ),
+    (
+        &["dark", "light"],
+        "the theme is --theme dark or --theme light",
+    ),
+    (
+        &["flank", "padding", "pad", "margin", "extend"],
+        "a gene is drawn with a margin of a tenth of its length, and at least 100 \
+         bases, each side; for another margin write the span, as chr1:1,000-5,000",
+    ),
+];
+
+/// How karyon says what another tool's flag asks for, when it is a flag
+/// karyon knows another tool's name for.
+pub fn spelled_elsewhere(given: &str) -> Option<&'static str> {
+    let word = given
+        .trim_start_matches('-')
+        .to_ascii_lowercase()
+        .replace('_', "-");
+    ELSEWHERE
+        .iter()
+        .find(|(words, _)| words.contains(&word.as_str()))
+        .map(|(_, answer)| *answer)
+}
 
 /// The flag a mistyped one was most likely meant to be, if one is close.
 ///
@@ -1267,7 +1461,7 @@ pub fn nearest_flag(given: &str) -> Option<&'static str> {
 }
 
 /// Edits between two words, counting a swap of neighbouring letters as one.
-fn edits(a: &str, b: &str) -> usize {
+pub(crate) fn edits(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let mut table = vec![vec![0usize; b.len() + 1]; a.len() + 1];
@@ -1349,6 +1543,8 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
+    let mut named: Option<String> = None;
+    let mut legend = true;
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
     let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
@@ -2075,6 +2271,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
+            "--no-legend" => legend = false,
             "-o" | "--output" => {
                 figure_once(&mut given, "-o")?;
                 let path = PathBuf::from(value("-o")?);
@@ -2089,11 +2286,44 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(ArgError::UnknownFlag(flag.to_string()))
             }
-            locus => {
-                if region.is_some() {
-                    return Err(ArgError::ExtraRegion(locus.to_string()));
+            word => {
+                // A file named on its own is a track of the kind its name says,
+                // and the options after it describe it as they would after its
+                // flag.
+                if let Some(kind) = Kind::for_file(word) {
+                    let mut track = TrackSpec::new(kind, Some(Source::Path(PathBuf::from(word))));
+                    track.guessed = true;
+                    tracks.push(track);
+                    continue;
                 }
-                let parsed = Region::parse(locus).map_err(ArgError::BadRegion)?;
+                // Standard input has no name to go by, so it takes its flag.
+                if word == "-" || looks_like_a_file(word) {
+                    return Err(ArgError::Unplaced(word.to_string()));
+                }
+                if region.is_some() || named.is_some() {
+                    return Err(ArgError::ExtraRegion(word.to_string()));
+                }
+                let parsed = match Region::parse(word) {
+                    Ok(parsed) => parsed,
+                    // A word with coordinates in it is a locus written wrong,
+                    // and says so. Any other word names a place: a gene, or a
+                    // sequence drawn whole, found once the files are read.
+                    Err(error) => {
+                        if let Some((sequence, position)) = one_position(word) {
+                            return Err(ArgError::OnePosition {
+                                given: word.to_string(),
+                                sequence: sequence.to_string(),
+                                position,
+                            });
+                        }
+                        if written_as_a_locus(word) {
+                            return Err(ArgError::BadRegion(error));
+                        }
+                        named = Some(word.to_string());
+                        continue;
+                    }
+                };
+                let locus = word;
                 // A track that keeps one value per base of the window sizes its
                 // buffer from the span, so a span past every sequence anyone
                 // has is an allocation that fails rather than a figure.
@@ -2143,8 +2373,10 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 
     // A stack that no track is drawn in a window for needs none, and one that
     // holds a single track that is drawn in one needs it: a tree beside a
-    // coverage track is still measured against the coverage's window.
+    // coverage track is still measured against the coverage's window. A place
+    // named by a word is a window too, found once the files are read.
     if region.is_none()
+        && named.is_none()
         && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
     {
         return Err(ArgError::NoRegion);
@@ -2158,7 +2390,50 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
         axis,
         region_label,
         output,
+        named,
+        legend,
     })))
+}
+
+/// Whether a word is a file's name, going by an extension a tool would give
+/// one, though not one [`Kind::for_file`] can place.
+fn looks_like_a_file(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    let lower = lower.strip_suffix(".gz").unwrap_or(&lower);
+    matches!(
+        lower.rsplit_once('.').map(|(_, extension)| extension),
+        Some("tsv" | "txt" | "csv" | "tab" | "table" | "out" | "dat" | "json" | "xls" | "xlsx")
+    )
+}
+
+/// Whether a word is written the way a locus is, a name and a span, so that
+/// failing to read it as one is the error rather than a place to look up.
+/// How far either side of one position the span offered in its place
+/// reaches, which is room for a read or two each way at a legible zoom.
+const AROUND: u64 = 200;
+
+/// The sequence and position of a locus written as one position,
+/// `chr1:18,350`, which is where a reader looking at one variant starts.
+fn one_position(word: &str) -> Option<(&str, u64)> {
+    let (sequence, at) = word.rsplit_once(':')?;
+    let digits: String = at.chars().filter(|c| !matches!(c, ',' | '_')).collect();
+    if sequence.is_empty() || digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    digits
+        .parse::<u64>()
+        .ok()
+        .filter(|position| *position > 0)
+        .map(|position| (sequence, position))
+}
+
+fn written_as_a_locus(word: &str) -> bool {
+    word.rsplit_once(':').is_some_and(|(_, span)| {
+        !span.is_empty()
+            && span
+                .chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, ',' | '_' | '-'))
+    })
 }
 
 /// Whether standard input has already been spoken for.
@@ -3369,6 +3644,79 @@ mod tests {
         }
     }
 
+    /// One position is where someone looking at one variant starts, and it
+    /// was refused as a locus written wrong.
+    #[test]
+    fn one_position_is_answered_with_a_span_around_it() {
+        for (given, span) in [
+            ("NC_1:18350", "NC_1:18,150-18,550"),
+            ("NC_1:18,350", "NC_1:18,150-18,550"),
+            ("chr1:150", "chr1:1-350"),
+        ] {
+            let error = parse(&args(&format!("{given} x.bam"))).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "{given} is one position, and a figure is drawn over a span, such as \
+                     {span} around it"
+                )
+            );
+        }
+        // Position nought is no position, and is refused as a locus.
+        let error = parse(&args("chr1:0 x.bam")).unwrap_err();
+        assert!(matches!(error, ArgError::BadRegion(_)), "{error:?}");
+    }
+
+    #[test]
+    fn another_tool_s_flag_is_answered_with_how_karyon_says_it() {
+        for (typed, said) in [
+            ("--vcf", "--variants FILE"),
+            ("--metadata", "--traits FILE"),
+            ("--region", "the place is the first word"),
+            ("-r", "the place is the first word"),
+            ("--gene", "the place is the first word"),
+            ("--bam", "--pileup FILE"),
+            ("--GFF3", "--features FILE"),
+            ("--legend", "--no-legend"),
+            ("--sample_sheet", "--traits FILE"),
+            ("--png", "karyon writes SVG"),
+        ] {
+            let error = parse(&args(&format!("chr1:1-10 {typed} x"))).unwrap_err();
+            let error = error.to_string();
+            assert!(
+                error.starts_with(&format!("unknown flag {typed}; ")),
+                "{error}"
+            );
+            assert!(error.contains(said), "{typed}: {error}");
+        }
+        // A word no tool uses still says where the flags are listed.
+        let error = parse(&args("chr1:1-10 --nonsense x")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "unknown flag --nonsense; karyon --help lists the tracks, and karyon help \
+             <track> the options each one takes"
+        );
+    }
+
+    #[test]
+    fn every_answer_to_another_tool_s_flag_names_flags_that_exist() {
+        for (words, answer) in ELSEWHERE {
+            for word in *words {
+                let dashes = if word.len() == 1 { "-" } else { "--" };
+                let flag = format!("{dashes}{word}");
+                assert!(!FLAGS.contains(&flag.as_str()), "{flag} is karyon's own");
+                assert_eq!(spelled_elsewhere(&flag), Some(*answer), "{flag}");
+            }
+            let named: Vec<&str> = answer
+                .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+                .filter(|token| token.starts_with('-') && token.len() > 1)
+                .collect();
+            for flag in named {
+                assert!(FLAGS.contains(&flag), "{flag}, in: {answer}");
+            }
+        }
+    }
+
     #[test]
     fn a_flag_and_its_value_may_be_joined_by_an_equals_sign() {
         let it = draw("chr1:1-10 --coverage=d.bg --label=depth --height=80 --title=a=b");
@@ -3397,6 +3745,81 @@ mod tests {
             Request::HelpOn(topic) if topic == "tree"
         ));
         assert!(matches!(parse(&args("help")).unwrap(), Request::Help));
+    }
+
+    #[test]
+    fn a_file_named_on_its_own_is_the_track_its_name_says() {
+        let it = draw("rpoB reads.bam genes.gff3 calls.vcf.gz tree.nwk --label phylogeny");
+        let kinds: Vec<Kind> = it.tracks.iter().map(|track| track.kind).collect();
+        assert_eq!(
+            kinds,
+            [Kind::Coverage, Kind::Features, Kind::Variants, Kind::Tree]
+        );
+        assert!(it.tracks.iter().all(|track| track.guessed));
+        // An option after a file describes that file's track.
+        assert_eq!(it.tracks[3].label.as_deref(), Some("phylogeny"));
+        assert_eq!(it.named.as_deref(), Some("rpoB"));
+        assert!(it.region.is_none());
+
+        for (file, kind) in [
+            ("reads.sam", Kind::Pileup),
+            ("calls.bcf", Kind::Variants),
+            ("genes.GTF.gz", Kind::Features),
+            ("depth.bedgraph.gz", Kind::Coverage),
+            ("ref.fna", Kind::Sequence),
+            ("core.aln", Kind::Msa),
+            ("pair.paf", Kind::Synteny),
+            ("scan.assoc", Kind::Manhattan),
+            ("scan.PHENO1.glm.linear", Kind::Manhattan),
+            ("step1.regenie", Kind::Manhattan),
+            ("run/SJ.out.tab", Kind::Junctions),
+            ("hg38.cytoBand.txt", Kind::Ideogram),
+            ("calls.bedmethyl", Kind::Methylation),
+        ] {
+            assert_eq!(Kind::for_file(file), Some(kind), "{file}");
+        }
+        assert_eq!(Kind::for_file("samples.tsv"), None);
+
+        // A flag in front still chooses the kind, and the file keeps it.
+        let chosen = draw("chr1:1-100 --pileup reads.bam");
+        assert_eq!(chosen.tracks[0].kind, Kind::Pileup);
+        assert!(!chosen.tracks[0].guessed);
+    }
+
+    #[test]
+    fn a_file_whose_name_says_nothing_is_asked_for_its_track() {
+        for word in ["samples.tsv", "values.txt", "-"] {
+            let error = parse(&args(&format!("chr1:1-100 {word}"))).unwrap_err();
+            assert!(matches!(error, ArgError::Unplaced(_)), "{word}: {error:?}");
+            assert!(error.to_string().contains("--traits"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_word_is_a_locus_a_gene_or_a_sequence() {
+        assert!(draw("chr1:1-100 --coverage d.bg").region.is_some());
+        assert_eq!(
+            draw("NC_000962.3 reads.bam").named.as_deref(),
+            Some("NC_000962.3")
+        );
+        // Written as a locus and wrong, it is refused as one rather than
+        // looked up as a gene called that.
+        for bad in ["chr1:0-100", "chr1:200-100", "chr1:1-"] {
+            let error = parse(&args(&format!("{bad} --coverage d.bg"))).unwrap_err();
+            assert!(matches!(error, ArgError::BadRegion(_)), "{bad}: {error:?}");
+        }
+        // Two places are one too many, whichever way each is written.
+        let error = parse(&args("rpoB katG reads.bam")).unwrap_err();
+        assert!(matches!(error, ArgError::ExtraRegion(_)), "{error:?}");
+        // No place at all, and a track that is drawn in one.
+        let error = parse(&args("reads.bam genes.gff3")).unwrap_err();
+        assert!(matches!(error, ArgError::NoRegion), "{error:?}");
+    }
+
+    #[test]
+    fn the_key_is_drawn_unless_it_is_asked_not_to_be() {
+        assert!(draw("--tree t.nwk").legend);
+        assert!(!draw("--tree t.nwk --no-legend").legend);
     }
 
     #[test]

@@ -109,6 +109,25 @@ pub enum BuildError {
         /// The locus that was asked for.
         region: String,
     },
+    /// A place named by a word that no file of the figure names.
+    Nowhere {
+        /// The word.
+        name: String,
+        /// The files of the figure that name sequences, in a header or on
+        /// their rows, gathered by the sequences they name.
+        held: Vec<Naming>,
+        /// Genes named nearly the same, which may be what was meant.
+        near: Vec<String>,
+        /// Whether any file of the figure is an annotation to look genes up in.
+        annotated: bool,
+    },
+    /// A gene named at more than one place.
+    Several {
+        /// The name.
+        name: String,
+        /// Where each one is.
+        places: Vec<String>,
+    },
     /// A file that is not text, with the command that writes the text.
     NotText {
         /// Which track wanted it.
@@ -258,6 +277,53 @@ impl fmt::Display for BuildError {
                 }
                 Ok(())
             }
+            BuildError::Nowhere {
+                name,
+                held,
+                near,
+                annotated,
+            } => {
+                write!(f, "no gene and no sequence is called {name}")?;
+                match near.as_slice() {
+                    [] => write!(f, ".")?,
+                    [one] => write!(f, "; did you mean {one}?")?,
+                    [many @ .., last] => {
+                        write!(f, "; did you mean {} or {last}?", many.join(", "))?
+                    }
+                }
+                // What each file calls its sequences, since a name that is
+                // nowhere is most often one file's name for what another
+                // calls otherwise, as PLINK writes 1 for NC_000962.3.
+                for (files, sequences) in held {
+                    let files: Vec<(String, usize)> =
+                        files.iter().map(|file| (file.clone(), 0)).collect();
+                    let verb = if files.len() == 1 { "names" } else { "name" };
+                    let noun = if sequences.len() == 1 {
+                        "sequence"
+                    } else {
+                        "sequences"
+                    };
+                    write!(
+                        f,
+                        " {} {verb} the {noun} {}.",
+                        listed_as(&files, "files"),
+                        listed(sequences)
+                    )?;
+                }
+                if near.is_empty() && !annotated {
+                    write!(
+                        f,
+                        " To find a gene by name, add the annotation that names it, as --features genes.gff3."
+                    )?;
+                }
+                Ok(())
+            }
+            BuildError::Several { name, places } => write!(
+                f,
+                "{name} is named at {} places, {}; give the one you mean as a region",
+                places.len(),
+                places.join(" and ")
+            ),
             BuildError::NotText {
                 track,
                 path,
@@ -390,6 +456,20 @@ pub fn build(
 pub fn build_with(
     invocation: &Invocation,
     mut open: impl FnMut(&Source) -> io::Result<String>,
+    parsed: impl FnMut(&str, &str) -> Option<Tree>,
+) -> Result<String, BuildError> {
+    build_files(invocation, &mut open, parsed)
+}
+
+/// The same, reading through [`Files`], which may do more than hand over
+/// text: [`Disk`] reads a BAM a window at a time.
+///
+/// # Errors
+///
+/// The same as [`build`].
+pub fn build_files(
+    invocation: &Invocation,
+    files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
     // A figure of phylogenies and variable-site panels names no region, and
@@ -397,11 +477,37 @@ pub fn build_with(
     // one to lay its width out over, so it is given one that nothing prints:
     // a figure that shows no window draws no locus and no ruler.
     let unnamed = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
-    let region = invocation.region.as_ref().unwrap_or(&unnamed);
+    // A place named by a word is found in the figure's own files.
+    let placed = match (&invocation.region, &invocation.named) {
+        (None, Some(name)) => Some(place(name, invocation, files)?),
+        _ => None,
+    };
+    let known = invocation
+        .region
+        .as_ref()
+        .or(placed.as_ref().map(|placed| &placed.region));
+    let region = known.unwrap_or(&unnamed);
     let mut plot = Plot::over(region.clone());
-    if let Some(title) = &invocation.title {
+    // A figure placed by a gene's name is about that gene, and says so.
+    let gene = placed.as_ref().and_then(|placed| placed.gene.as_ref());
+    if let Some(title) = invocation.title.as_ref().or(gene) {
         plot = plot.title(title);
     }
+    let theme = match invocation.theme {
+        Palette::Dark => Theme::dark(),
+        Palette::Light => Theme::light(),
+    };
+    // The key to every colour a track paints by a category, gathered as the
+    // tracks are built and drawn under the ruler.
+    let mut legend = crate::track::legend::Legend::new();
+    // The reference the figure draws, which a pileup given none of its own
+    // reads its reads against: naming the same FASTA twice was the only way to
+    // see a mismatch, and a pileup without it drew every read as agreeing.
+    let reference = invocation
+        .tracks
+        .iter()
+        .find(|track| track.kind == Kind::Sequence)
+        .and_then(|track| track.source.clone());
     if let Some(width) = invocation.width {
         plot = plot.width(width);
     }
@@ -429,20 +535,337 @@ pub fn build_with(
             plot = axis.done();
             continue;
         }
-        let built = match track(spec, region, &mut open, &mut parsed) {
+        let context = Context {
+            region,
+            theme: &theme,
+            reference: reference.as_ref(),
+        };
+        let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
-            Err(error) => {
-                return Err(explained(
-                    error,
-                    spec,
-                    invocation.region.as_ref(),
-                    &mut open,
-                ))
-            }
+            Err(error) => return Err(explained(error, spec, known, files)),
         };
         plot = plot.add_boxed(built);
     }
-    Ok(plot.to_svg())
+    // After the ruler, which closing the plot puts in, so the key is not taken
+    // for a track measured against it.
+    let mut figure = plot.into_figure();
+    if invocation.legend && !legend.is_empty() {
+        figure = figure.push(crate::track::legend::LegendTrack::new(legend));
+    }
+    Ok(figure.to_svg())
+}
+
+/// Files that name the same sequences, and those sequences, each with how
+/// many rows the files give it.
+type Naming = (Vec<String>, Vec<(String, usize)>);
+
+/// Where a place named by a word is, and whether it was a gene.
+struct Placed {
+    region: Region,
+    /// The gene's name as its annotation spells it, where the place is a gene.
+    gene: Option<String>,
+}
+
+/// Finds a place named by a word in the figure's own files.
+///
+/// A sequence first: a word that names one is that sequence, whole, as long
+/// as a file says it is (a FASTA record, a BAM header, a GFF3's
+/// `##sequence-region`, a VCF's `##contig`), or as far as any file reaches on
+/// it. Then a gene, looked up in every annotation of the figure by the names
+/// GFF3, GTF and BED give it, and drawn with a margin of a tenth of its length
+/// either side, a hundred bases at least, so its ends are on the page. One
+/// gene written at several levels, gene, transcript and CDS, is one place; a
+/// name at two places is refused with both, and a name at none with the
+/// nearest names the annotation has.
+fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<Placed, BuildError> {
+    let mut lengths: Vec<(String, u64)> = Vec::new();
+    let mut spans: Vec<(String, u64, u64)> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    let mut furthest: Option<u64> = None;
+    let mut annotated = false;
+    let mut spelled: Option<String> = None;
+    let open_error = |spec: &TrackSpec, source: &Source, cause: io::Error| BuildError::Open {
+        track: spec.kind.flag(),
+        path: called(source),
+        cause,
+    };
+    for spec in &invocation.tracks {
+        let sources = [spec.source.as_ref(), spec.second.as_ref()];
+        for source in sources.into_iter().flatten() {
+            if let Some(held) = files
+                .sequences(source)
+                .map_err(|cause| open_error(spec, source, cause))?
+            {
+                lengths.extend(held);
+                continue;
+            }
+            // A file that will not open is its track's to report.
+            let Ok(text) = files.text(source) else {
+                continue;
+            };
+            lengths.extend(sequence_lengths(&text));
+            if matches!(spec.kind, Kind::Features | Kind::Loci)
+                && spec.source.as_ref() == Some(source)
+            {
+                annotated = true;
+                let found = read::interval::named(&text, name);
+                spelled = spelled.or(found.spelled);
+                spans.extend(found.spans);
+                names.extend(found.names);
+            }
+            let reach = if spec.kind == Kind::Manhattan {
+                read::point::association_table(
+                    &text,
+                    &Region::new(name, 0, 1 << 28)
+                        .unwrap_or_else(|_| Region::new("x", 0, 1).expect("a window")),
+                )
+                .ok()
+                .and_then(|table| table.points.iter().map(|point| point.pos + 1).max())
+            } else {
+                sequence_column(spec.kind).and_then(|column| reach_on(&text, &column, name))
+            };
+            furthest = furthest.max(reach);
+        }
+    }
+
+    if let Some((_, length)) = lengths.iter().find(|(sequence, _)| sequence == name) {
+        let region = Region::new(name, 0, (*length).max(1))
+            .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
+        return Ok(Placed { region, gene: None });
+    }
+
+    // One gene written at several levels overlaps itself: merged, it is one
+    // place. What is left over is as many places as the name has.
+    spans.sort();
+    let mut places: Vec<(String, u64, u64)> = Vec::new();
+    for (sequence, start, end) in spans {
+        match places.last_mut() {
+            Some(last) if last.0 == sequence && start <= last.2 => last.2 = last.2.max(end),
+            _ => places.push((sequence, start, end)),
+        }
+    }
+    match places.as_slice() {
+        [(sequence, start, end)] => {
+            let margin = ((end - start) / 10).max(100);
+            let length = lengths
+                .iter()
+                .find(|(named, _)| named == sequence)
+                .map(|(_, length)| *length);
+            let stop = (end + margin).min(length.unwrap_or(u64::MAX));
+            let region = Region::new(sequence, start.saturating_sub(margin), stop.max(start + 1))
+                .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
+            return Ok(Placed {
+                region,
+                gene: Some(spelled.unwrap_or_else(|| name.to_string())),
+            });
+        }
+        [] => {}
+        many => {
+            return Err(BuildError::Several {
+                name: name.to_string(),
+                places: many
+                    .iter()
+                    .map(|(sequence, start, end)| {
+                        Region::new(sequence, *start, *end)
+                            .map_or_else(|_| sequence.clone(), |region| region.to_string())
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    if let Some(end) = furthest {
+        if let Ok(region) = Region::new(name, 0, end.max(1)) {
+            return Ok(Placed { region, gene: None });
+        }
+    }
+    Err(nowhere(name, invocation, files, &names, annotated))
+}
+
+/// The refusal of a name no file of the figure has, with the genes named
+/// nearly the same and the sequences each file does name.
+fn nowhere(
+    name: &str,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    names: &[String],
+    annotated: bool,
+) -> BuildError {
+    // Read again, and only here, as the empty window's message is: a figure
+    // that finds its place has no need to know.
+    let mut held: Vec<Naming> = Vec::new();
+    for spec in &invocation.tracks {
+        let Some(source) = spec.source.as_ref() else {
+            continue;
+        };
+        let mut sequences: Vec<(String, usize)> = match files.sequences(source) {
+            Ok(Some(lengths)) => lengths.into_iter().map(|(name, _)| (name, 0)).collect(),
+            _ => match files.text(source) {
+                Ok(text) => {
+                    let mut sequences: Vec<(String, usize)> = sequence_lengths(&text)
+                        .into_iter()
+                        .map(|(name, _)| (name, 0))
+                        .collect();
+                    sequences.extend(rows_on(spec.kind, &text));
+                    sequences
+                }
+                Err(_) => continue,
+            },
+        };
+        let mut seen: Vec<String> = Vec::new();
+        sequences.retain(|(name, _)| {
+            let first = !seen.contains(name);
+            seen.push(name.clone());
+            first
+        });
+        if sequences.is_empty() {
+            continue;
+        }
+        let same = held.iter().position(|(_, known)| {
+            known.len() == sequences.len() && known.iter().zip(&sequences).all(|(a, b)| a.0 == b.0)
+        });
+        match same {
+            Some(at) => held[at].0.push(called(source)),
+            None if held.len() < 4 => held.push((vec![called(source)], sequences)),
+            None => {}
+        }
+    }
+    // Names within two edits, or the same letters in another case.
+    let mut near: Vec<(usize, &String)> = names
+        .iter()
+        .filter_map(|candidate| {
+            let distance = if candidate.eq_ignore_ascii_case(name) {
+                0
+            } else {
+                crate::cli::args::edits(&candidate.to_ascii_lowercase(), &name.to_ascii_lowercase())
+            };
+            (distance <= 2).then_some((distance, candidate))
+        })
+        .collect();
+    near.sort();
+    near.dedup_by(|a, b| a.1 == b.1);
+    BuildError::Nowhere {
+        name: name.to_string(),
+        held,
+        near: near
+            .into_iter()
+            .take(3)
+            .map(|(_, candidate)| candidate.clone())
+            .collect(),
+        annotated,
+    }
+}
+
+/// The sequences a text file says the lengths of: FASTA records, a SAM
+/// header's `@SQ` lines, a GFF3's `##sequence-region` and a VCF's `##contig`.
+fn sequence_lengths(text: &str) -> Vec<(String, u64)> {
+    let mut found = Vec::new();
+    if text.starts_with('>') {
+        if let Ok(records) = read::seq::fasta(text) {
+            for (name, bases) in records {
+                found.push((name, bases.len() as u64));
+            }
+        }
+        return found;
+    }
+    for line in text
+        .lines()
+        .take_while(|line| line.starts_with('#') || line.starts_with('@'))
+    {
+        if let Some(rest) = line.strip_prefix("##sequence-region") {
+            let fields: Vec<&str> = rest.split_whitespace().collect();
+            if let [name, _, end] = fields.as_slice() {
+                if let Ok(end) = end.parse() {
+                    found.push((name.to_string(), end));
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("##contig=<") {
+            let field = |key: &str| {
+                rest.trim_end_matches('>')
+                    .split(',')
+                    .find_map(|pair| pair.strip_prefix(key))
+                    .map(str::to_string)
+            };
+            if let (Some(name), Some(length)) = (field("ID="), field("length=")) {
+                if let Ok(length) = length.parse() {
+                    found.push((name, length));
+                }
+            }
+        } else if line.starts_with("@SQ") {
+            let field = |key: &str| line.split('\t').find_map(|pair| pair.strip_prefix(key));
+            if let (Some(name), Some(length)) = (field("SN:"), field("LN:")) {
+                if let Ok(length) = length.parse() {
+                    found.push((name.to_string(), length));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// How far a file's rows on `name` reach, by the largest number in the
+/// columns that hold positions.
+fn reach_on(text: &str, column: &SequenceColumn, name: &str) -> Option<u64> {
+    let mut furthest: Option<u64> = None;
+    for (_, line) in read::lines(text) {
+        let cols = read::columns(line);
+        if cols.len() < column.width || cols[column.name].trim() != name {
+            continue;
+        }
+        for at in column
+            .position
+            .iter()
+            .chain(std::iter::once(&(column.position[0] + 1)))
+        {
+            if let Some(value) = cols
+                .get(*at)
+                .and_then(|field| field.trim().parse::<u64>().ok())
+            {
+                furthest = furthest.max(Some(value));
+            }
+        }
+    }
+    furthest
+}
+
+/// What every track of one figure is built against.
+struct Context<'a> {
+    region: &'a Region,
+    theme: &'a Theme,
+    /// The FASTA a `--sequence` track reads, if the figure has one.
+    reference: Option<&'a Source>,
+}
+
+/// Adds a track's keys to the figure's, each once: a lineage coloured beside
+/// a tree and beside a matrix is one key, since it is one colour.
+fn gather(into: &mut crate::track::legend::Legend, from: &crate::track::legend::Legend) {
+    use crate::track::legend::LegendItem;
+    for item in from.items() {
+        if into.items().contains(item) {
+            continue;
+        }
+        let taken = std::mem::take(into);
+        *into = match item {
+            LegendItem::Key {
+                label,
+                color,
+                marker,
+            } => taken.marked(label.clone(), color.clone(), *marker),
+            LegendItem::Ramp {
+                label,
+                from,
+                to,
+                low,
+                high,
+            } => taken.ramp(
+                label.clone(),
+                from.clone(),
+                to.clone(),
+                low.clone(),
+                high.clone(),
+            ),
+        };
+    }
 }
 
 /// Asks the caller for a source's text, and names it for any error message.
@@ -456,13 +879,13 @@ pub fn build_with(
 /// Reads the sheet a track's `--traits` names, or nothing where it named none.
 fn sheet(
     spec: &TrackSpec,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<Option<(read::sheet::Sheet, String)>, BuildError> {
     let Some(source) = spec.traits.as_ref() else {
         return Ok(None);
     };
     let name = spec.kind.flag();
-    let (text, path) = fetch(name, source, open)?;
+    let (text, path) = fetch(name, source, files)?;
     let held = wrap(name, &path, read::sheet::sheet(&text))?;
     Ok(Some((held, path)))
 }
@@ -518,14 +941,45 @@ fn strip(
     Ok(Some(Traits::from_sheet(held).spread(wanted)))
 }
 
+/// A track's own file, what it was called, and whether it arrived converted
+/// from a binary alignment file rather than read as it is.
+///
+/// A track that draws reads, or the depth they add up to, asks the files for
+/// that first: a BAM on disk answers with the reads over the window, or their
+/// depth as bedGraph, and anything that cannot answer is read as text.
 fn slurp(
     spec: &TrackSpec,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
-) -> Result<(String, String), BuildError> {
+    region: &Region,
+    files: &mut dyn Files,
+) -> Result<(String, String, bool), BuildError> {
     let Some(source) = spec.source.as_ref() else {
-        return Ok((String::new(), String::new()));
+        return Ok((String::new(), String::new(), false));
     };
-    fetch(spec.kind.flag(), source, open)
+    let converted = match spec.kind {
+        Kind::Coverage => files.depth(source, region),
+        Kind::Pileup | Kind::SplitReads => files.reads(source, region),
+        _ => Ok(None),
+    }
+    .map_err(|cause| BuildError::Open {
+        track: spec.kind.flag(),
+        path: called(source),
+        cause,
+    })?;
+    match converted {
+        Some(text) => Ok((text, called(source), true)),
+        None => {
+            let (text, name) = fetch(spec.kind.flag(), source, files)?;
+            Ok((text, name, false))
+        }
+    }
+}
+
+/// What a source is called in a message.
+fn called(source: &Source) -> String {
+    match source {
+        Source::Path(path) => path.display().to_string(),
+        Source::Stdin => "standard input".to_string(),
+    }
 }
 
 /// Reads one source, and says what it was called.
@@ -536,13 +990,10 @@ fn slurp(
 fn fetch(
     track: &'static str,
     source: &Source,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<(String, String), BuildError> {
-    let name = match source {
-        Source::Path(path) => path.display().to_string(),
-        Source::Stdin => "standard input".to_string(),
-    };
-    let text = open(source).map_err(|cause| BuildError::Open {
+    let name = called(source);
+    let text = files.text(source).map_err(|cause| BuildError::Open {
         track,
         path: name.clone(),
         cause,
@@ -628,6 +1079,29 @@ pub fn open_from_disk(source: &Source) -> io::Result<String> {
             (bytes, None)
         }
     };
+    // Compressed text is text: a `.vcf.gz`, a `.bed.gz` or anything bgzip
+    // wrote is taken out of its wrapper here, so every reader takes it as it
+    // takes the plain file. BAM and BCF are compressed the same way and are
+    // not text inside, so they are named rather than unwrapped, by their name
+    // before any work is done and by their first bytes after.
+    let bytes = if read::gzip::is_gzip(&bytes) {
+        if let Some(binary @ (Binary::Bam | Binary::Bcf)) = Binary::of(&bytes, path) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
+        }
+        let inside = read::gzip::decompress(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        for (magic, binary) in [
+            (&b"BAM\x01"[..], Binary::Bam),
+            (&b"BCF\x02"[..], Binary::Bcf),
+        ] {
+            if inside.starts_with(magic) {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
+            }
+        }
+        inside
+    } else {
+        bytes
+    };
     String::from_utf8(bytes).map_err(|error| {
         // What a genomics file is when it is not text is nearly always one of
         // a few formats, and naming it is what turns "stream did not contain
@@ -637,6 +1111,155 @@ pub fn open_from_disk(source: &Source) -> io::Result<String> {
             None => io::Error::new(io::ErrorKind::InvalidData, error),
         }
     })
+}
+
+/// Where a figure's files come from.
+///
+/// Text is the one question every source answers: a shell reads a path, a
+/// page looks a name up among its buffers, a test hands over a literal, and
+/// any closure from a source to its text is a `Files`. The other questions
+/// are for sources that are not text, and a reader that cannot answer them
+/// says `None`, which sends the track to [`Files::text`] instead. [`Disk`]
+/// answers them for a BAM, reading only the reads over the window through
+/// its index.
+pub trait Files {
+    /// The text a source holds.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn text(&mut self, source: &Source) -> io::Result<String>;
+
+    /// The depth of the reads a binary alignment file holds over `region`, as
+    /// bedGraph, or `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn depth(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// The reads a binary alignment file holds over `region`, as SAM text, or
+    /// `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn reads(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// The sequences a binary file names, each with its length, or `None`
+    /// for a source that is not one this can read.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn sequences(&mut self, _source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        Ok(None)
+    }
+}
+
+impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        self(source)
+    }
+}
+
+/// The files a command line names, read from disk.
+///
+/// Text is read whole, and compressed text is taken out of its wrapper, by
+/// [`open_from_disk`]. A BAM is read a window at a time, through the `.bai`
+/// beside it where there is one, so a figure of one gene reads the blocks that
+/// gene is in. Every source is read once and kept, since placing a figure by a
+/// gene's name reads the annotation before the track does, and standard input
+/// cannot be read twice.
+#[derive(Debug, Default)]
+pub struct Disk {
+    kept: std::collections::HashMap<Source, String>,
+}
+
+impl Disk {
+    /// The header and the reads over `region`, for a source that is a BAM.
+    fn bam(
+        &mut self,
+        source: &Source,
+        region: &Region,
+    ) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let index = bam_index(path)?;
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::window(file, index.as_ref(), region)
+            .map(Some)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+}
+
+impl Files for Disk {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        if let Some(text) = self.kept.get(source) {
+            return Ok(text.clone());
+        }
+        let text = open_from_disk(source)?;
+        self.kept.insert(source.clone(), text.clone());
+        Ok(text)
+    }
+
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self.bam(source, region)?.map(|(_, records)| {
+            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
+        }))
+    }
+
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self
+            .bam(source, region)?
+            .map(|(header, records)| read::bam::sam(&header, &records)))
+    }
+
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::header_of(file)
+            .map(|header| Some(header.references))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+}
+
+/// Whether a file is a BAM: bgzip on the outside, and BAM's magic inside.
+fn is_bam(path: &Path) -> io::Result<bool> {
+    let mut first = [0u8; 3];
+    let mut file = fs::File::open(path)?;
+    if file.read(&mut first)? < first.len() || !read::gzip::is_gzip(&first) {
+        return Ok(false);
+    }
+    Ok(read::bam::header_of(io::BufReader::new(fs::File::open(path)?)).is_ok())
+}
+
+/// The `.bai` beside a BAM, as `reads.bam.bai` or `reads.bai`, if there is one.
+fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
+    let mut beside = path.as_os_str().to_owned();
+    beside.push(".bai");
+    for candidate in [std::path::PathBuf::from(beside), path.with_extension("bai")] {
+        if candidate.is_file() {
+            let bytes = fs::read(&candidate)?;
+            return read::bam::index(&bytes)
+                .map(Some)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 /// A file that is not text, by the format its first bytes say it is.
@@ -775,6 +1398,66 @@ impl fmt::Display for Binary {
 
 impl std::error::Error for Binary {}
 
+/// What a track is called when `--label` does not say: its file's name, less
+/// the folder, the compression and the format, as `reads` for
+/// `data/reads.bam` and `calls` for `calls.vcf.gz`.
+///
+/// A track in the gutter with no name is a band a reader has to work out, and
+/// the file's name is the name its owner gave it. Standard input and a pipe
+/// the shell names, `/dev/fd/63`, name nothing anyone chose, and a tanglegram
+/// is two files, so neither gets one.
+fn default_label(spec: &TrackSpec) -> Option<String> {
+    if matches!(spec.kind, Kind::Tanglegram | Kind::Axis) {
+        return None;
+    }
+    let Some(Source::Path(path)) = &spec.source else {
+        return None;
+    };
+    if path.starts_with("/dev") || path.starts_with("/proc") {
+        return None;
+    }
+    let file = path.file_name()?.to_str()?;
+    let file = file
+        .strip_suffix(".gz")
+        .or_else(|| file.strip_suffix(".bgz"))
+        .unwrap_or(file);
+    let (stem, extension) = file.rsplit_once('.').unwrap_or((file, ""));
+    if stem.is_empty() {
+        return None;
+    }
+    // A BAM drawn as a line is its depth, and a name that says reads would
+    // have the line read as a count of them.
+    if spec.kind == Kind::Coverage && extension.eq_ignore_ascii_case("bam") {
+        return Some(format!("{stem} depth"));
+    }
+    Some(stem.to_string())
+}
+
+/// The kind a file named on its own turns out to be once it is read, where
+/// that differs from what its name said.
+///
+/// Two cases, both `.bed` by name: modkit's bedMethyl, eighteen columns with
+/// a modification code in the fourth, is methylation; and four columns whose
+/// fourth is a number is a bedGraph, a signal.
+fn refine(kind: Kind, text: &str) -> Option<Kind> {
+    if kind != Kind::Features {
+        return None;
+    }
+    let (_, first) = read::lines(text).next()?;
+    let cols = read::columns(first);
+    let number = |at: usize| {
+        cols.get(at)
+            .is_some_and(|field| field.trim().parse::<f64>().is_ok())
+    };
+    if cols.len() >= 18 && cols[3].trim().len() <= 8 && number(9) && number(10) {
+        return Some(Kind::Methylation);
+    }
+    if cols.len() == 4 && number(1) && number(2) && number(3) {
+        return Some(Kind::Coverage);
+    }
+    None
+}
+
 /// A refusal made plainer where the program can see what went wrong.
 ///
 /// The two a first attempt meets most. A file that is not text failed with
@@ -787,7 +1470,7 @@ fn explained(
     error: BuildError,
     spec: &TrackSpec,
     region: Option<&Region>,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> BuildError {
     match error {
         BuildError::Open { track, path, cause } => {
@@ -817,9 +1500,10 @@ fn explained(
         } => {
             // Read again, and only here: a pipe cannot be, and a figure that
             // drew has no need to know.
-            let held = match (region, spec.source.as_ref(), sequence_column(spec.kind)) {
-                (Some(_), Some(source @ Source::Path(_)), Some(column)) => open(source)
-                    .map(|text| sequences_named(&text, column))
+            let held = match (region, spec.source.as_ref()) {
+                (Some(_), Some(source @ Source::Path(_))) => files
+                    .text(source)
+                    .map(|text| rows_on(spec.kind, &text))
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
@@ -883,6 +1567,18 @@ fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
     })
 }
 
+/// The sequences a track's file has rows on, each once with how many rows,
+/// in the order the file first names them.
+///
+/// An association table says in its header which column that is, and BOLT-LMM
+/// writes it second, behind each variant's own name.
+fn rows_on(kind: Kind, text: &str) -> Vec<(String, usize)> {
+    if kind == Kind::Manhattan {
+        return read::point::association_sequences(text);
+    }
+    sequence_column(kind).map_or_else(Vec::new, |column| sequences_named(text, column))
+}
+
 /// The sequences a file's rows are on, each once with how many rows it has,
 /// in the order the file first names them.
 fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
@@ -908,6 +1604,11 @@ fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
 /// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
 /// five, how many more.
 fn listed(held: &[(String, usize)]) -> String {
+    listed_as(held, "sequences")
+}
+
+/// [`listed`], for names of things other than sequences.
+fn listed_as(held: &[(String, usize)], things: &str) -> String {
     const SHOWN: usize = 5;
     let names: Vec<&str> = held
         .iter()
@@ -922,20 +1623,36 @@ fn listed(held: &[(String, usize)]) -> String {
             many[..many.len() - 1].join(", "),
             many[many.len() - 1]
         ),
-        (many, rest) => format!("{} and {rest} more sequences", many.join(", ")),
+        (many, rest) => format!("{} and {rest} more {things}", many.join(", ")),
     }
 }
 
 /// Builds one track from its flags and its file.
 fn track(
     spec: &TrackSpec,
-    region: &Region,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    context: &Context<'_>,
+    files: &mut dyn Files,
     parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
+    legend: &mut crate::track::legend::Legend,
 ) -> Result<Box<dyn Track>, BuildError> {
-    let (text, path) = slurp(spec, open)?;
+    let region = context.region;
+    let theme = context.theme;
+    let (text, path, converted) = slurp(spec, region, files)?;
+    // A file named on its own was placed by its name, and a few names hide
+    // another format: modkit writes its bedMethyl as `.bed`.
+    let refined;
+    let spec = match spec.guessed.then(|| refine(spec.kind, &text)).flatten() {
+        Some(kind) if kind != spec.kind => {
+            refined = TrackSpec {
+                kind,
+                ..spec.clone()
+            };
+            &refined
+        }
+        _ => spec,
+    };
     let name = spec.kind.flag();
-    let label = spec.label.clone();
+    let label = spec.label.clone().or_else(|| default_label(spec));
     let height = spec.height;
 
     let empty = |wanted: &'static str| BuildError::Empty {
@@ -946,7 +1663,7 @@ fn track(
     // Read before the match rather than inside the arms, because two arms
     // shadow `text` with a second file of their own and a sheet fetched after
     // that would be read out of the wrong one.
-    let sheet = sheet(spec, open)?;
+    let sheet = sheet(spec, files)?;
 
     let built: Box<dyn Track> = match spec.kind {
         Kind::Coverage => {
@@ -959,9 +1676,18 @@ fn track(
             let spans = wrap(
                 name,
                 &path,
-                read::signal::fold_spans(&text, region, spec.format, |start, end, value| {
-                    painted.paint(start, end, value)
-                }),
+                // Depth worked out from a BAM arrives as bedGraph, whatever
+                // `--format` said about a text file.
+                read::signal::fold_spans(
+                    &text,
+                    region,
+                    if converted {
+                        Some(crate::Format::BedGraph)
+                    } else {
+                        spec.format
+                    },
+                    |start, end, value| painted.paint(start, end, value),
+                ),
             )?;
             drop(text);
             if spans == 0 {
@@ -986,7 +1712,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let reference = second_sequence(name, source, region, open)?;
+            let reference = second_sequence(name, source, region, files)?;
 
             let found = wrap(name, &path, read::dynseq::scores(&text, region))?;
             if found.records == 0 {
@@ -1408,6 +2134,7 @@ fn track(
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }
+            gather(legend, &track.legend(theme));
             Box::new(named(track, label, TreeTrack::label))
         }
         // Two trees, and the grammar gives one path per flag, so the second
@@ -1421,7 +2148,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let (other, right_path) = fetch(name, source, open)?;
+            let (other, right_path) = fetch(name, source, files)?;
             let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
                 Some(tree) => Ok(tree),
                 None => {
@@ -1635,6 +2362,7 @@ fn track(
                 track = track.show_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(match label {
@@ -1651,7 +2379,7 @@ fn track(
             let Some(source) = spec.second.as_ref() else {
                 return Err(BuildError::MissingSecond { track: name });
             };
-            let (newick, tree_path) = fetch(name, source, open)?;
+            let (newick, tree_path) = fetch(name, source, files)?;
             let tree = match parsed(&tree_path, newick.trim()) {
                 Some(tree) => tree,
                 None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| {
@@ -1716,6 +2444,7 @@ fn track(
                 track = track.show_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(named(track, label, CladeTrack::label))
@@ -1743,7 +2472,7 @@ fn track(
                 });
             }
 
-            let (text, link_path) = fetch(name, source, open)?;
+            let (text, link_path) = fetch(name, source, files)?;
             let joined = wrap(
                 name,
                 &link_path,
@@ -1775,6 +2504,7 @@ fn track(
                 track = track.show_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(named(track, label, LocusTrack::label))
@@ -1865,6 +2595,7 @@ fn track(
                 track = track.show_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(named(track, label, MsaTrack::label))
@@ -1887,6 +2618,7 @@ fn track(
                 track = track.show_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(named(track, label, SnpTrack::label))
@@ -1974,6 +2706,7 @@ fn track(
                 track = track.show_row_names(false);
             }
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
             Box::new(named(track, label, MatrixTrack::label))
@@ -1996,8 +2729,8 @@ fn track(
             // window's, which is the same arrangement the sequence and dynseq
             // tracks use, so a read hanging over the left edge is compared
             // against nothing rather than against the wrong base.
-            if let Some(source) = spec.second.as_ref() {
-                let (from, bases) = second_sequence(name, source, region, open)?.clip(region)?;
+            if let Some(source) = spec.second.as_ref().or(context.reference) {
+                let (from, bases) = second_sequence(name, source, region, files)?.clip(region)?;
                 track = track.reference(from, bases);
             }
             if let Some(cap) = spec.max_rows {
@@ -2051,9 +2784,9 @@ fn second_sequence(
     track: &'static str,
     source: &Source,
     region: &Region,
-    open: &mut dyn FnMut(&Source) -> io::Result<String>,
+    files: &mut dyn Files,
 ) -> Result<Reference, BuildError> {
-    let (fasta, path) = fetch(track, source, open)?;
+    let (fasta, path) = fetch(track, source, files)?;
     sequence(track, &path, &fasta, region)
 }
 
@@ -2329,8 +3062,9 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         })
         .unwrap();
         // The reference is read off the window, so it anchors at the window.
+        // The track is called after its file, as every track given no label is.
         let from_library = Figure::new(region.clone())
-            .push(OrfTrack::new(100, bases[100..400].to_vec()))
+            .push(OrfTrack::new(100, bases[100..400].to_vec()).label("in"))
             .push(crate::AxisTrack::new())
             .to_svg();
         assert_eq!(from_cli, from_library, "an ORF track moved off its window");
@@ -2347,11 +3081,11 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         .unwrap();
         // A column of an alignment is its own coordinate, so it anchors at nought.
         let right = Figure::new(Region::parse("aln:1-10").unwrap())
-            .push(LogoTrack::from_sequences(0, &rows))
+            .push(LogoTrack::from_sequences(0, &rows).label("aln"))
             .push(crate::AxisTrack::new())
             .to_svg();
         let wrong = Figure::new(Region::parse("aln:1-10").unwrap())
-            .push(LogoTrack::from_sequences(1, &rows))
+            .push(LogoTrack::from_sequences(1, &rows).label("aln"))
             .push(crate::AxisTrack::new())
             .to_svg();
         assert_eq!(from_cli, right, "a logo moved off its columns");
@@ -2462,7 +3196,7 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
 
         let bases = |record: &[u8]| {
             Figure::new(region.clone())
-                .push(SequenceTrack::new(100, record[100..400].to_vec()))
+                .push(SequenceTrack::new(100, record[100..400].to_vec()).label("genome"))
                 .push(crate::AxisTrack::new())
                 .to_svg()
         };
@@ -2475,7 +3209,7 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
 
         let frames = |record: &[u8]| {
             Figure::new(region.clone())
-                .push(OrfTrack::new(100, record[100..400].to_vec()))
+                .push(OrfTrack::new(100, record[100..400].to_vec()).label("genome"))
                 .push(crate::AxisTrack::new())
                 .to_svg()
         };
@@ -3045,10 +3779,10 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         })
         .unwrap();
         let bare = Figure::new(region.clone())
-            .push(SnpTrack::from_alignment(0, &rows))
+            .push(SnpTrack::from_alignment(0, &rows).label("a"))
             .to_svg();
         let ruled = Figure::new(region)
-            .push(SnpTrack::from_alignment(0, &rows))
+            .push(SnpTrack::from_alignment(0, &rows).label("a"))
             .push(crate::AxisTrack::new())
             .to_svg();
         assert_ne!(bare, ruled, "the ruler cannot be told apart here");
@@ -3686,6 +4420,337 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             listed(&held(&["1", "2", "3", "4", "5", "6", "7"])),
             "1, 2, 3, 4, 5 and 2 more sequences"
         );
+    }
+
+    /// A directory of its own for a test that reads files from disk, emptied
+    /// when the test is done.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir = std::env::temp_dir().join(format!("karyon-{name}-{}", std::process::id()));
+            fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+
+        fn write(&self, name: &str, bytes: &[u8]) -> String {
+            let path = self.0.join(name);
+            fs::write(&path, bytes).unwrap();
+            path.display().to_string()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn drawn_from_disk(line: &str) -> Result<String, BuildError> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        build_files(&invocation, &mut Disk::default(), |_, _| None)
+    }
+
+    /// A BAM was refused, with the samtools command to pipe it through; it is
+    /// read as it is now, a window at a time through the index beside it.
+    #[test]
+    fn a_bam_on_disk_is_drawn_as_depth_and_as_reads() {
+        let dir = Scratch::new("bam");
+        let bam = dir.write("tiny.bam", &crate::read::bam::fixture::BAM);
+        dir.write("tiny.bam.bai", &crate::read::bam::fixture::BAI);
+        let svg = drawn_from_disk(&format!("chr1:10-35 --coverage {bam} --pileup {bam}")).unwrap();
+        // The pileup draws every mapped record over the window, a to f; g starts
+        // after it, and u is unmapped.
+        for read in ["10 to 19", "15 to 26", "18 to 25", "30 to 139"] {
+            assert!(
+                svg.contains(&format!("read, {read}")),
+                "no read {read}: {svg}"
+            );
+        }
+        // The depth tops out at three, which samtools depth says it does.
+        assert!(svg.contains(">3</text>"), "the depth's top is not 3");
+
+        // And without the index, from the start of the file.
+        fs::remove_file(dir.0.join("tiny.bam.bai")).unwrap();
+        let scanned =
+            drawn_from_disk(&format!("chr1:10-35 --coverage {bam} --pileup {bam}")).unwrap();
+        assert_eq!(scanned, svg);
+    }
+
+    /// A compressed file is text in a wrapper, and is read as the text.
+    #[test]
+    fn a_compressed_file_on_disk_is_read_as_the_text_inside() {
+        let dir = Scratch::new("gzip");
+        // "chr1 1 9 gene0 0 +" as a GFF3 row, compressed by gzip -9 -n.
+        let plain = "##gff-version 3\nchr1\t.\tgene\t10\t90\t.\t+\t.\tID=g1;Name=abcA\n";
+        let gz = dir.write("genes.gff3.gz", &gzip_of(plain.as_bytes()));
+        let svg = drawn_from_disk(&format!("chr1:1-100 --features {gz}")).unwrap();
+        assert!(svg.contains("abcA"), "{svg}");
+    }
+
+    /// A gzip member holding `data` in one stored block, which is all a test
+    /// needs: the reader takes any kind of block.
+    fn gzip_of(data: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
+        out.push(1);
+        let length = data.len() as u16;
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&(!length).to_le_bytes());
+        out.extend_from_slice(data);
+        let mut crc = !0u32;
+        for byte in data {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    0xedb8_8320 ^ (crc >> 1)
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        out.extend_from_slice(&(!crc).to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out
+    }
+
+    /// A command line of words, drawn from files held in memory by name.
+    fn drawn_from(line: &str, held: &[(&str, &str)]) -> Result<String, BuildError> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let held: Vec<(String, String)> = held
+            .iter()
+            .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+            .collect();
+        build(&invocation, |source| {
+            let Source::Path(path) = source else {
+                unreachable!("every source is a file")
+            };
+            let path = path.to_string_lossy();
+            held.iter()
+                .find(|(name, _)| *name == path)
+                .map(|(_, text)| text.clone())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_string()))
+        })
+    }
+
+    const GENES: &str = "\
+##gff-version 3
+##sequence-region chr1 1 50000
+chr1\t.\tregion\t1\t50000\t.\t+\t.\tID=chr1:1..50000;Name=ANONYMOUS
+chr1\t.\tgene\t10001\t12000\t.\t+\t.\tID=gene-A;Name=rpoB;locus_tag=SYN_1
+chr1\t.\tCDS\t10001\t11997\t.\t+\t0\tID=cds-A;Parent=gene-A;gene=rpoB
+chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
+";
+
+    fn locus_of(svg: &str) -> String {
+        svg.split("<title id=\"karyon-title\">")
+            .nth(1)
+            .and_then(|rest| rest.split('<').next())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// A gene is where its annotation says, with a tenth of its length either
+    /// side, and the figure is titled with its name. Its gene row and its CDS
+    /// are one place.
+    #[test]
+    fn a_figure_placed_by_a_gene_is_the_gene_and_a_margin_around_it() {
+        let svg = drawn_from("rpoB genes.gff3", &[("genes.gff3", GENES)]).unwrap();
+        assert_eq!(locus_of(&svg), "rpoB, chr1:9801-12200");
+        // Asked for in another case, it is titled the way the file spells it.
+        let svg = drawn_from("RPOB genes.gff3", &[("genes.gff3", GENES)]).unwrap();
+        assert!(locus_of(&svg).starts_with("rpoB,"), "{}", locus_of(&svg));
+        // By its locus tag, too.
+        let svg = drawn_from("SYN_1 genes.gff3", &[("genes.gff3", GENES)]).unwrap();
+        assert!(
+            locus_of(&svg).ends_with("chr1:9801-12200"),
+            "{}",
+            locus_of(&svg)
+        );
+        // And from a GTF or a BED.
+        let gtf = "chr1\t.\tgene\t10001\t12000\t.\t+\t.\tgene_id \"G1\"; gene_name \"rpoB\";\n";
+        let svg = drawn_from("rpoB genes.gtf", &[("genes.gtf", gtf)]).unwrap();
+        assert_eq!(locus_of(&svg), "rpoB, chr1:9801-12200");
+        let bed = "chr1\t10000\t12000\trpoB\t0\t+\n";
+        let svg = drawn_from("rpoB genes.bed", &[("genes.bed", bed)]).unwrap();
+        assert_eq!(locus_of(&svg), "rpoB, chr1:9801-12200");
+    }
+
+    #[test]
+    fn a_gene_at_two_places_or_at_none_is_refused_saying_so() {
+        let twice = format!("{GENES}chr2\t.\tgene\t5\t500\t.\t+\t.\tID=gene-C;Name=rpoB\n");
+        let error = drawn_from("rpoB genes.gff3", &[("genes.gff3", &twice)]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "rpoB is named at 2 places, chr1:10001-12000 and chr2:5-500; give the one you mean as a region"
+        );
+        let error = drawn_from("rpoC genes.gff3", &[("genes.gff3", GENES)]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no gene and no sequence is called rpoC; did you mean rpoB? genes.gff3 names the sequence chr1."
+        );
+    }
+
+    /// A name no file has is most often one file's name for what another
+    /// calls otherwise, as PLINK writes 1 for a chromosome a FASTA names in
+    /// full, so the refusal says what each file does call its sequences. It
+    /// said to add an annotation, and named only sequences a header gave.
+    #[test]
+    fn a_name_no_file_has_is_answered_with_what_each_file_calls_its_sequences() {
+        let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
+        let error = drawn_from("NC_1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. To find \
+             a gene by name, add the annotation that names it, as --features genes.gff3."
+        );
+        // Files that name the same sequences are named together.
+        let vcf = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t50\t.\tA\tG\t.\t.\t.\n";
+        let error = drawn_from(
+            "chrZ genes.gff3 calls.vcf gwas.assoc",
+            &[
+                ("genes.gff3", GENES),
+                ("calls.vcf", vcf),
+                ("gwas.assoc", scan),
+            ],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "no gene and no sequence is called chrZ. genes.gff3 and calls.vcf name the \
+             sequence chr1. gwas.assoc names the sequence 1."
+        );
+        // BOLT-LMM writes the chromosome second, behind the variant's name,
+        // which the empty window's message took for the sequence.
+        let bolt = "SNP\tCHR\tBP\tA1FREQ\tP_BOLT_LMM\nrs1\t1\t100\t0.1\t1e-3\n\
+                    rs2\t2\t300\t0.1\t0.5\n";
+        let error = drawn_from(
+            "chr9:1-1000 --manhattan bolt.stats",
+            &[("bolt.stats", bolt)],
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .ends_with("though the file holds 2 on 1 and 2"),
+            "{error}"
+        );
+    }
+
+    /// A sequence's name is the sequence, whole, as long as a file says it is,
+    /// or as far as any file reaches on it.
+    #[test]
+    fn a_figure_placed_by_a_sequence_is_the_whole_of_it() {
+        let svg = drawn_from("chr1 genes.gff3", &[("genes.gff3", GENES)]).unwrap();
+        assert_eq!(locus_of(&svg), "chr1:1-50000");
+        let fasta = format!(">ctg7 a contig\n{}\n", "ACGT".repeat(50));
+        let svg = drawn_from("ctg7 ref.fa", &[("ref.fa", &fasta)]).unwrap();
+        assert_eq!(locus_of(&svg), "ctg7:1-200");
+        let vcf = "##fileformat=VCFv4.2\n##contig=<ID=chrX,length=9000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchrX\t50\t.\tA\tG\t.\t.\t.\n";
+        let svg = drawn_from("chrX calls.vcf", &[("calls.vcf", vcf)]).unwrap();
+        assert_eq!(locus_of(&svg), "chrX:1-9000");
+        // Nothing says how long it is, so the scan says how far it reaches.
+        let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
+        let svg = drawn_from("1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap();
+        assert_eq!(locus_of(&svg), "1:1-4800");
+    }
+
+    /// The names in a figure's gutter, top to bottom.
+    fn labels_of(svg: &str) -> Vec<String> {
+        svg.split("font-weight=\"600\"")
+            .skip(1)
+            .filter_map(|piece| {
+                piece
+                    .split('>')
+                    .nth(1)?
+                    .split('<')
+                    .next()
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// Every track given no label is called after its file.
+    #[test]
+    fn a_track_is_called_after_its_file_unless_it_is_labelled() {
+        let svg = drawn_from(
+            "chr1:9,000-13,000 data/genes.gff3 --features genes.gff3 --label annotation",
+            &[("data/genes.gff3", GENES), ("genes.gff3", GENES)],
+        )
+        .unwrap();
+        let text = labels_of(&svg);
+        assert_eq!(text, ["genes", "annotation"]);
+        let unnamed = TrackSpec::new(Kind::Coverage, Some(Source::Path("/dev/fd/63".into())));
+        assert_eq!(default_label(&unnamed), None, "a pipe the shell named");
+        let piped = TrackSpec::new(Kind::Coverage, Some(Source::Stdin));
+        assert_eq!(default_label(&piped), None);
+        let compressed = TrackSpec::new(Kind::Variants, Some(Source::Path("calls.vcf.gz".into())));
+        assert_eq!(default_label(&compressed).as_deref(), Some("calls"));
+        // A BAM drawn as a line is its depth, which a name saying reads hid.
+        let depth = TrackSpec::new(Kind::Coverage, Some(Source::Path("reads.bam".into())));
+        assert_eq!(default_label(&depth).as_deref(), Some("reads depth"));
+        let reads = TrackSpec::new(Kind::Pileup, Some(Source::Path("reads.bam".into())));
+        assert_eq!(default_label(&reads).as_deref(), Some("reads"));
+    }
+
+    /// modkit writes bedMethyl as `.bed`, and a `.bed` of four columns whose
+    /// last is a number is a bedGraph.
+    #[test]
+    fn a_file_whose_name_hides_its_format_is_drawn_as_what_it_holds() {
+        let methyl =
+            "chr1\t100\t101\tm\t30\t+\t100\t101\t255,0,0\t30\t80.00\t24\t6\t0\t0\t0\t0\t0\n";
+        let svg = drawn_from("chr1:1-500 calls.bed", &[("calls.bed", methyl)]).unwrap();
+        assert!(svg.contains("methylation site"), "not drawn as methylation");
+        let signal = "chr1\t0\t100\t5\nchr1\t100\t200\t9\n";
+        assert_eq!(refine(Kind::Features, signal), Some(Kind::Coverage));
+        assert_eq!(refine(Kind::Features, "chr1\t0\t100\tgeneA\n"), None);
+    }
+
+    /// A pileup given no reference of its own reads against the one the
+    /// figure draws. It drew every read as agreeing, with the reference right
+    /// above it, and the variant nowhere.
+    #[test]
+    fn a_pileup_reads_against_the_reference_the_figure_draws() {
+        let reference = format!(">chr1\n{}\n", "ACGT".repeat(25));
+        let sam = "r1\t0\tchr1\t11\t60\t8M\t*\t0\t0\tACGTTCGT\tIIIIIIII\n";
+        let held = [("ref.fa", reference.as_str()), ("reads.sam", sam)];
+        let implied = drawn_from("chr1:1-40 --sequence ref.fa --pileup reads.sam", &held).unwrap();
+        let named = drawn_from(
+            "chr1:1-40 --sequence ref.fa --pileup reads.sam --with-sequence ref.fa",
+            &held,
+        )
+        .unwrap();
+        let without = drawn_from("chr1:1-40 --pileup reads.sam", &held).unwrap();
+        assert_eq!(implied, named);
+        assert_ne!(
+            implied.replace("ref</text>", ""),
+            without,
+            "no mismatch was painted"
+        );
+    }
+
+    /// The key to a tree's colours goes under the ruler, and is left out when
+    /// asked.
+    #[test]
+    fn the_key_to_the_colours_is_drawn_under_the_figure() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet = "sample\tlineage\na\tL4\nb\tL4\nc\tL2\nd\tL1\n";
+        let held = [("t.nwk", tree), ("s.tsv", sheet)];
+        let svg = drawn_from("--tree t.nwk --traits s.tsv", &held).unwrap();
+        for level in ["L4", "L2", "L1"] {
+            assert!(
+                svg.contains(&format!("lineage: {level}")),
+                "no key for {level}"
+            );
+        }
+        let bare = drawn_from("--tree t.nwk --traits s.tsv --no-legend", &held).unwrap();
+        assert!(!bare.contains("lineage: L4"));
     }
 
     /// A folded row is an internal node and carries nobody's metadata, so the

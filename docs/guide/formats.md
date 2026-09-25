@@ -21,9 +21,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The `karyon` command does the same, and the one thing it adds is opening the
-path. BAM, CRAM and BCF are not read at all: they come in through samtools and
-bcftools, as [Binary formats](cli.md#binary-formats) shows.
+The `karyon` command does the same, and adds opening the path. A file
+compressed with gzip or bgzip is read as the text inside it, and a BAM is read
+by `--coverage`, `--pileup` and `--split-reads` a window at a time through its
+`.bai`, as [Compressed and binary files](cli.md#binary-formats) shows. CRAM,
+BCF and bigWig come in through the tool that writes them as text.
 
 ## Formats at a glance
 
@@ -440,10 +442,10 @@ Pf3D7_07_v3   4150  0.40
 | | |
 |:--|:--|
 | Read by | `--manhattan`; `read::point::associations` |
-| Columns | two or three: an optional sequence name, then a position and a value |
+| Columns | two or three: an optional sequence name, then a position and a value; or an association tool's own table, read by its header |
 | Coordinates | 1-based: position 4100 is 0-based 4099 |
-| Skipped | a header on the first line; a two-column table names no sequence |
-| Refused | any other number of columns; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
+| Skipped | a header on the first line; a two-column table names no sequence; in a tool's table, a test written `NA` |
+| Refused | in a table of two or three columns, a line of any other number; a tool's table whose header names no position or no p-value; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
 
 A scan is drawn higher meaning stronger, and the header says what the value
 column holds:
@@ -462,6 +464,19 @@ between 0 and 1 it is refused, since that is how p-values look and drawn as
 written they put the strongest hit at the bottom; add a first line naming the
 column, `P` to have the values converted or what they are to have them drawn as
 written.
+
+An association tool's own table, wider than three columns, is given as it is
+and read by its header. The position is the column named `BP`, `POS`, `GENPOS`,
+`PS` or `base_pair_location`; the sequence, when there is one, `CHR`, `CHROM`,
+`#CHROM`, `chromosome`, `seqname` or `contig`; and the value the p-value column,
+or failing one the column naming its logarithm, as `LOG10P` does. That is what
+PLINK, PLINK 2, REGENIE, BOLT-LMM, GEMMA, SAIGE and the GWAS Catalog write. A
+test the tool could not run is written `NA` and left out, and a header that
+names no position or no p-value is refused with the names it does give:
+
+```bash
+karyon 7:1-159,345,973 --manhattan scan.assoc --threshold 5e-8 -o scan.svg
+```
 
 ### The matrix table { #the-matrix-table }
 
@@ -648,7 +663,8 @@ read1  0  NC_002516.2  4001  60  3S5M2I4M1D6M  *  0  0  AAAGGGGGTTCCCCTTTTTT  *
 | Refused | fewer than 11 columns; a POS of 0; a MAPQ above 255; a CIGAR that will not parse |
 
 `M`, `=` and `X` all arrive as matches: the track finds mismatches itself, by
-comparing SEQ with the reference `--with-sequence` gives it. `I`, `D`, `N`, `S`
+comparing SEQ with the reference `--with-sequence` gives it, or the figure's
+`--sequence` when there is no `--with-sequence`. `I`, `D`, `N`, `S`
 and `H` are read as themselves, and `P`, padding that moves along neither
 sequence, is dropped. Secondary and supplementary records are drawn like any
 other mapped record.
