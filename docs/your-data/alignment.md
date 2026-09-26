@@ -34,3 +34,4 @@ An alignment needs no place: it is drawn over all its columns.
 The example files: [aln.fasta](../data/aln.fasta), [tree.nwk](../data/tree.nwk)
 and [samples.tsv](../data/samples.tsv). Every option: `karyon help msa`, or
 the [command line reference](../guide/cli.md).
+In Rust, it is [a few lines](../guide/phylogenetics.md#put-an-alignment-in-the-order-of-the-tree).

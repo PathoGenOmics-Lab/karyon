@@ -114,6 +114,11 @@ draws the same stack over sixty bases, where every letter shows.
 
     Regions, tracks, the shared scale and what karyon refuses to draw.
 
+-   **[Phylogenetics](../guide/phylogenetics.md)**
+
+    A tree from your files, with its support, your samples beside it, a clade
+    folded, a circle, an alignment in its order or years under it.
+
 -   **[Gallery](../plots/index.md)**
 
     Every kind of figure, with the code that draws it.

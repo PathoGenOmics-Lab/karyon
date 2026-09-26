@@ -147,11 +147,17 @@ pub fn plot(locus: &str) -> Result<Plot, Error> {
 /// without either, and with no ruler under the trees either.
 ///
 /// ```
-/// use karyon::{plot_tree, Tree};
+/// use karyon::{plot_tree, SupportStyle, Tree};
 ///
-/// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
-/// let svg = plot_tree().add_tree(tree).add_key().to_svg();
+/// let tree = Tree::parse("((A:1,B:1)95:1,C:2);")?;
+/// let svg = plot_tree()
+///     .add_tree(tree)
+///     // Every setting of the tree is reached through `adjust`.
+///     .adjust(|track| track.support_style(SupportStyle::Labels))
+///     .add_key()
+///     .to_svg();
 /// assert!(!svg.contains("phylogeny:1"));
+/// assert!(svg.contains(">95</text>"));
 /// # Ok::<(), karyon::Error>(())
 /// ```
 pub fn plot_tree() -> Plot {

@@ -1,4 +1,6 @@
-//! SAM text, as `samtools view` writes it.
+//! SAM text, as `samtools view` writes it: reads aligned to a reference. An
+//! alignment of sequences to each other, as aligned FASTA, is read by
+//! [`crate::read::seq::alignment`].
 //!
 //! Column four is `POS`, 1-based, so a read starts at `POS - 1`, and a `POS` of
 //! zero is a record that was never placed rather than a coordinate to subtract

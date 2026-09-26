@@ -19,7 +19,10 @@ itself as it was.
 The eight steps most figures of a tree take, each a few lines. Every one starts
 from a tree read with `Tree::parse` and a plot started with `plot_tree()`,
 which names no place and draws no ruler, since a tree's x is a branch length
-and not a position.
+and not a position. Each goes in a `main` that returns
+`Result<(), Box<dyn std::error::Error>>`, so `?` works on every call, and each
+goes on from the one before it: the `tree` the first reads and the `sheet` the
+third reads are the ones the rest draw.
 
 ### Read the tree
 
@@ -75,10 +78,13 @@ A sheet is a tab-separated table with a header, the names in its first column
 and one column per thing known about them. `traits` joins it to the tips by
 name, draws each column you spread it into as a strip, and says under the tree
 which tips it has no row for; `.join()` on the track gives what matched and
-what was left out on both sides. Each column deals the palette a stretch of its
-own, so a lineage and a country are never one colour, and a column of more
-levels than colours is drawn as shapes. `add_key()` keys every strip at the
-foot of the figure, in the colours it drew.
+what was left out on both sides. Each column starts on a stretch of the palette
+of its own, in the order of the sheet, so a value added to one column later
+does not repaint another. The palette has six colours, and a column with more
+values than that is drawn as shapes, each value a colour and a shape of its
+own: its colours come round the palette again, so a country can share a colour
+with a lineage, and the shape and the key tell them apart. `add_key()` keys
+every strip at the foot of the figure, in the colours it drew.
 
 ### Colour the branches and fold a clade
 
@@ -89,7 +95,7 @@ plot_tree()
     .add_tree(tree)
     .adjust(|track| {
         track
-            .traits(Traits::from_sheet(&sheet).spread(["lineage"]))
+            .traits(Traits::from_sheet(&sheet))
             .color_by("lineage")
             .collapse(NodeRef::holding("lineage", "L4"))
     })
@@ -97,12 +103,17 @@ plot_tree()
     .save("folded.svg")?;
 ```
 
-`color_by` colours each branch by a column of the sheet or an annotation of the
-file, and a clade whose tips agree takes their colour too. A clade is named as
+A sheet joined with no column spread draws no strip, and still gives each tip
+its values, which is all `color_by` and the fold need; spread `lineage` too for
+a strip beside the colours. `color_by` colours each branch by a column of the
+sheet or an annotation of the file, and a clade whose tips agree takes their
+colour too. A clade is named as
 you would name it: `NodeRef::holding("lineage", "L4")` is the smallest clade
 holding every L4 tip, `NodeRef::mrca(["S01", "S07"])` the smallest holding two
 tips, and a name or an index works as it is. A clade that holds tips it was
-not named for is folded all the same, and the tips are said under the tree.
+not named for is folded all the same, and the tips are said under the tree. A
+folded clade is a wedge one row high, named by its first tip and how many more
+it holds, as `S26 +15 more`, and its tooltip lists them.
 
 ### Draw it as a circle
 
@@ -137,13 +148,18 @@ plot(&format!("alignment:1-{columns}"))?
     .remove_region_label()
     .add_msa(rows)
     .adjust(|track| track.tree(tree))
+    .add_key()
     .save("alignment.svg")?;
 ```
 
 An alignment is placed by its columns, so the plot is over them. `tree` sorts
 the rows by descent and draws the tree beside them, cut to the rows there are;
 a tip with no row is counted under the tree, and a row the tree does not name
-stays at the bottom.
+stays at the bottom. Only the bases that differ from the consensus are
+painted, which is what makes forty rows of a long alignment readable, and
+`add_key()` says which colour is which base; `.display(MsaDisplay::Bases)`
+paints every base. Forty rows are drawn at most, and `.max_rows(None)` draws
+them all.
 
 ### Put two trees face to face
 
