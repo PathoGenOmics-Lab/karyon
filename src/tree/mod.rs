@@ -49,9 +49,11 @@ struct TreeEdge {
 type EdgeAdjacency = Vec<Vec<TreeEdge>>;
 
 mod mutation;
+mod node_ref;
 mod parse;
 
 pub use mutation::{Mutation, Mutations};
+pub use node_ref::{Found, NodeRef};
 
 #[cfg(test)]
 mod tests;
@@ -184,6 +186,11 @@ pub struct TraitLevel {
     pub value: String,
     /// The colour, as the figure would draw it.
     pub color: String,
+    /// The shape the level is drawn as, where its column has more levels
+    /// than the palette has colours and is drawn as shapes: two levels that
+    /// share a colour are two shapes, and a canvas that drew only the
+    /// colours drew them as one. `None` for a column drawn as cells.
+    pub symbol: Option<crate::style::Symbol>,
 }
 
 /// One column of trait values, resolved the way a figure resolves them.

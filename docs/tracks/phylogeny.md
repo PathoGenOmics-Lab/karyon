@@ -15,35 +15,36 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 A phylogeny from Newick, drawn as a phylogram when the branch lengths mean something or a cladogram when they do not, in rectangular, circular or unrooted coordinates. Metadata, support, branch events and selection layers go on the same tree.
 
 <figure class="k-plate" markdown>
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" }
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="368" loading="lazy" }
 </figure>
 
 | | |
 |:--|:--|
-| Rust | `.add_tree(tree)` on `plot()`; `TreeTrack::new(tree)` |
+| Rust | `.add_tree(tree)` on `plot_tree()`, a plot that names no place, or on `plot()`; `TreeTrack::new(tree)` |
 | Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--support-style`, `--threshold`, `--no-scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
 | Reads | Newick with BEAST or NHX annotations (`Tree::parse_annotated_newick`); from Rust also plain Newick (`Tree::parse_newick`) and the first tree of a Nexus trees block (`Tree::parse_nexus`) |
 
 === "Rust"
 
     ```rust
-    use karyon::{plot, SupportStyle, Tree};
+    use karyon::{plot_tree, Sheet, SupportStyle, Traits, Tree};
 
     let tree = Tree::parse_annotated_newick(
-        "((A[&lineage=L4,host=human]:0.1,B[&lineage=L4,host=cattle]:0.2)95:0.3,\
-          (C[&lineage=L2,host=human]:0.2,D[&lineage=L2,host=human]:0.1)88:0.2);",
+        "((A:0.1,B:0.2)95:0.3,(C:0.2,D:0.1)88:0.2);",
     )?;
+    // sample, lineage and host, one row per tip, as the command line reads it
+    let sheet = Sheet::parse(&std::fs::read_to_string("samples.tsv")?)?;
 
-    plot("tree:1-1")?
-        .remove_region_label()
+    plot_tree()
         .add_tree(tree)
         .label("phylogeny")
         .adjust(|track| {
             track
+                .traits(Traits::from_sheet(&sheet).spread(["host"]))
                 .color_by("lineage")
                 .support_style(SupportStyle::Symbols)
-                .trait_categorical("host")
         })
+        .add_key()
         .save("tree.svg")?;
     ```
 
@@ -82,13 +83,13 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.unrooted_size(600.0)` | Requested height of an unrooted drawing, in pixels | 440, larger when the tips need it |
 | `.unrooted_start(0.0)` | Rotates the first equal-angle sector | `-90` |
 | `.max_rows(Some(200))` | Fits the tree in this many rows by collapsing the smallest clades (`--max-rows`) | `None`, no cap |
-| `.collapse(node)` | Folds one internal node into a triangle, leaving the tree itself unchanged | none |
+| `.collapse(NodeRef::holding("lineage", "L4"))` | Folds one clade into a triangle, leaving the tree itself unchanged: an index, a name, or a [`NodeRef`](#picking-a-clade) | none |
 
 **Rooting**
 
 | Method | What it does | Default |
 |:--|:--|:--|
-| `.reroot(node)` | Reroots on an internal node, given by index | the source root |
+| `.reroot(NodeRef::mrca(["C", "D"]))` | Reroots on an internal node: an index, a name, or a [`NodeRef`](#picking-a-clade) | the source root |
 | `.reroot_named("L4")` | Reroots on the internal node with this exact name | the source root |
 | `.reroot_outgroup(["B03", "B04"])` | Roots halfway along the edge to a monophyletic outgroup | the source root |
 | `.reroot_midpoint()` | Roots at the midpoint of the longest weighted tip-to-tip path | the source root |
@@ -105,7 +106,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.color_by("lineage")` | Colours each branch by an annotation, inherited down the tree (`--color-by`) | none |
 | `.time("date")` | Places the tree on a numeric annotation such as a decimal date | none |
 | `.time_direction(TimeDirection::Decreasing)` | Whether time grows or shrinks from root to tips | `Increasing` |
-| `.time_unit("years")` | Unit after the time axis values | none |
+| `.time_unit("year")` | What the time axis counts, written as its title: under the numbers of a phylogram, at the inner end of a circle's rings | none |
 | `.show_time_axis(false)` | Shows or hides the time axis that `time` adds | shown |
 
 **Support, labels and scale**
@@ -125,14 +126,15 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 
 | Method | What it does | Default |
 |:--|:--|:--|
-| `.trait_column(TraitColumn::continuous("depth"))` | Adds one metadata column beside the tips, or a ring around them (`--traits`, `--columns`) | none |
+| `.traits(Traits::from_sheet(&sheet).spread(["lineage"]))` | Joins a sample sheet onto the tips by name and draws its columns, widened to fit their headings; the tips it does not name are said under the tree, and `.join()` gives both sides (`--traits`, `--columns`) | none |
+| `.trait_column(TraitColumn::continuous("depth"))` | Adds one metadata column beside the tips, or a ring around them, read from the tree's own annotations | none |
 | `.trait_categorical("country")` | A categorical column, with a stretch of the palette of its own; one with more levels than colours is drawn as symbols | none |
 | `.trait_continuous("depth")` | A continuous column | none |
 | `.trait_bar("depth")` | A bar column, or radial bars | none |
 | `.trait_binary("resistant")` | A presence and absence column | none |
 | `.trait_symbol("host")` | A category shown by colour and shape | none |
 | `.node_glyph(NodeGlyph::pie(["human", "cattle"]))` | A bubble, pie, donut or stacked bar on annotated nodes | none |
-| `.clade_highlight(CladeHighlight::new(node))` | A translucent field behind one clade | none |
+| `.clade_highlight(CladeHighlight::new(NodeRef::mrca(["A", "B"])))` | A translucent field behind one clade, named as `collapse` names one | none |
 | `.highlight_named("L4")` | Highlights the clade with this exact name (`--highlight`) | none |
 
 **Evolutionary layers**
@@ -181,6 +183,9 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 <figure class="k-plate" markdown>
 ![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 </figure>
+
+**Picking a clade.** `collapse`, `reroot` and `CladeHighlight::new` take a `NodeRef`, and an index or a name is one already. `NodeRef::named("L4")` is the node with that name, `NodeRef::mrca(["S01", "S07"])` the smallest clade holding those tips, as ggtree's `MRCA` or iTOL's `S01|S07` names it, and `NodeRef::holding("lineage", "L4")` the smallest clade holding every tip whose `lineage` is `L4`, read from the sheet `traits` joined or from the tree's own annotations. A clade found that way that also holds tips it was not named for is still used, and the tips are said under the tree, since a fold over them would say otherwise.
+{ #picking-a-clade }
 
 **Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was and says why in a line under the tree, as `warnings()` does; use `Tree::reroot` directly when you need to handle that failure. A fold or a highlight asked for before a reroot follows its clade through it. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
 

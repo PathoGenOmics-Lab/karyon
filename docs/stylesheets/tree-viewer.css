@@ -414,6 +414,16 @@
   border: 1px solid var(--md-default-fg-color--lighter);
 }
 
+/* A level drawn as a shape is keyed by the shape, in its colour, with no
+   box round it. */
+.tv-key-column i.tv-key-shape {
+  border: 0;
+  font-style: normal;
+  font-size: 0.7rem;
+  line-height: 0.62rem;
+  text-align: center;
+}
+
 .tv-key-rest {
   font-style: italic;
 }

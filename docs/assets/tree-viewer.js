@@ -172,6 +172,8 @@
     el.key.innerHTML = "";
     el.key.hidden = !strips.length;
     if (!strips.length) return;
+    // The characters a shape is keyed with, one for each the crate draws.
+    var SHAPES = { circle: "\u25cf", square: "\u25a0", diamond: "\u25c6", triangle: "\u25b2" };
     var dark = K.dark();
     strips.forEach(function (strip) {
       var group = document.createElement("div");
@@ -185,7 +187,16 @@
       strip.levels.slice(0, 8).forEach(function (level) {
         var one = document.createElement("span");
         var swatch = document.createElement("i");
-        swatch.style.background = dark ? level.dark : level.light;
+        var ink = dark ? level.dark : level.light;
+        if (level.symbol) {
+          // Keyed by the shape it is drawn as, since two levels of a column
+          // with more levels than colours can share a colour.
+          swatch.className = "tv-key-shape";
+          swatch.textContent = SHAPES[level.symbol] || "";
+          swatch.style.color = ink;
+        } else {
+          swatch.style.background = ink;
+        }
         one.appendChild(swatch);
         one.appendChild(document.createTextNode(level.value));
         group.appendChild(one);

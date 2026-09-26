@@ -608,12 +608,14 @@ pub unsafe extern "C" fn layout(ptr: *const u8, len: usize) -> *mut u8 {
 }
 
 /// One column of traits, resolved to what a figure would draw: the key, the
-/// label, the levels as (value, light colour, dark colour), and one level index
-/// per node with `u32::MAX` where a node carries nothing.
+/// label, the levels as (value, light colour, dark colour, shape), and one
+/// level index per node with `u32::MAX` where a node carries nothing. The
+/// shape is empty for a column drawn as cells, and names the shape a level is
+/// drawn as where the column has more levels than colours.
 struct Strip {
     key: String,
     label: String,
-    levels: Vec<(String, String, String)>,
+    levels: Vec<(String, String, String, String)>,
     of: Vec<u32>,
 }
 
@@ -622,36 +624,28 @@ fn put_text(out: &mut Vec<u8>, text: &str) {
     out.extend_from_slice(text.as_bytes());
 }
 
-/// The sheet resolved against the tree the way the command line resolves it.
-///
-/// A tree reads its strips out of its own annotations, so the sheet is copied
-/// onto the tips it names first and the crate is then asked what it would draw.
+/// What a shape is called on the wire.
+fn shape_name(symbol: Option<karyon::Symbol>) -> &'static str {
+    match symbol {
+        None => "",
+        Some(karyon::Symbol::Circle) => "circle",
+        Some(karyon::Symbol::Square) => "square",
+        Some(karyon::Symbol::Diamond) => "diamond",
+        Some(karyon::Symbol::Triangle) => "triangle",
+    }
+}
+
+/// The sheet resolved against the tree the way the command line resolves it:
+/// joined onto the tips by [`karyon::TreeTrack::traits`], its levels dealt in
+/// the order the file gives them, and the crate asked what it would draw.
 /// Working the levels out here instead would be a second opinion about which
 /// blue is which, and the whole point of this page is that it is not one.
 fn resolve_strips(tree: &Tree, body: &str) -> Vec<Strip> {
-    let Ok(held) = karyon::read::sheet::sheet(body) else {
+    let Ok(held) = karyon::Sheet::parse(body) else {
         return Vec::new();
     };
-    let mut tree = tree.clone();
-    for name in tree.leaf_names() {
-        let (Some(values), Some(node)) = (held.rows.get(&name), tree.node_named(&name)) else {
-            continue;
-        };
-        let values: Vec<(String, karyon::AnnotationValue)> = values
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        if let Some(into) = tree.annotations_mut(node) {
-            for (key, value) in values {
-                into.insert(key, value);
-            }
-        }
-    }
-    let spread = karyon::track::traits::Traits::new(held.rows.clone()).spread(held.columns.clone());
-    let mut track = karyon::track::tree::TreeTrack::new(tree);
-    for column in spread.columns() {
-        track = track.trait_column(column.clone());
-    }
+    let spread = karyon::Traits::from_sheet(&held).spread(held.columns.clone());
+    let track = karyon::track::tree::TreeTrack::new(tree.clone()).traits(spread);
     let light = track.strips(&karyon::Theme::light());
     let dark = track.strips(&karyon::Theme::dark());
     light
@@ -664,7 +658,14 @@ fn resolve_strips(tree: &Tree, body: &str) -> Vec<Strip> {
                 .levels
                 .iter()
                 .zip(deep.levels.iter())
-                .map(|(one, other)| (one.value.clone(), one.color.clone(), other.color.clone()))
+                .map(|(one, other)| {
+                    (
+                        one.value.clone(),
+                        one.color.clone(),
+                        other.color.clone(),
+                        shape_name(one.symbol).to_string(),
+                    )
+                })
                 .collect(),
             of: pale
                 .of
@@ -784,6 +785,7 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
             put_text(&mut out, &level.0);
             put_text(&mut out, &level.1);
             put_text(&mut out, &level.2);
+            put_text(&mut out, &level.3);
         }
         for at in &strip.of {
             out.extend_from_slice(&at.to_le_bytes());
@@ -1375,6 +1377,8 @@ mod tests {
                 dark.starts_with('#'),
                 "a dark colour that is not one: {dark}"
             );
+            let shape = word(&mut at, &out);
+            assert_eq!(shape, "", "two places are drawn as cells, not shapes");
             named.push((value, light, dark));
         }
         let mut of = Vec::with_capacity(count);

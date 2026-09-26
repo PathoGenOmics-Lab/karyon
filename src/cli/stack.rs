@@ -2823,47 +2823,9 @@ fn track(
             // not have.
             let mut tree = tree;
             let leaves = tree.leaf_names();
-            let columns = match strip(spec, sheet.as_ref(), &leaves)? {
-                None => Vec::new(),
-                Some(held) => {
-                    // Every other track hands the sheet to the track and the
-                    // track draws from it. A tree reads its strips out of its
-                    // own annotations instead, walking up for a value a tip
-                    // does not carry, so the sheet is copied onto the tips it
-                    // names and the drawing needs no new path. A tip the sheet
-                    // says nothing about keeps whatever the file gave it.
-                    for name in &leaves {
-                        let (Some(values), Some(node)) = (held.values(name), tree.node_named(name))
-                        else {
-                            continue;
-                        };
-                        let values: Vec<(String, crate::AnnotationValue)> = values
-                            .iter()
-                            .map(|(key, value)| (key.clone(), value.clone()))
-                            .collect();
-                        if let Some(into) = tree.annotations_mut(node) {
-                            for (key, value) in values {
-                                into.insert(key, value);
-                            }
-                        }
-                    }
-                    // Widened to fit their own headings. `Traits::spread`
-                    // gives every column 14 px, which is right for the tracks
-                    // that write the heading up the side of the strip, and a
-                    // tree writes it across the top: at 14 px "lineage" came
-                    // out as "li…" and "country" as "c…". The heading is drawn
-                    // two points under the body size, and the widest a name is
-                    // allowed to make a column is capped so that a sheet with
-                    // a long column name cannot eat the tree it sits beside.
-                    held.columns()
-                        .iter()
-                        .map(|column| {
-                            let heading = crate::svg::text_width(column.heading(), 9.0) + 8.0;
-                            column.clone().width(heading.clamp(14.0, 72.0))
-                        })
-                        .collect()
-                }
-            };
+            // Joined onto the tips by `TreeTrack::traits`, as a library caller
+            // joins one, once the track is made.
+            let held = strip(spec, sheet.as_ref(), &leaves)?;
 
             // Mutations are branch data the file keeps under a key, and
             // asking who carries one is a question about the shape of the tree.
@@ -2947,8 +2909,8 @@ fn track(
                 }
                 track = track.highlight_named(wanted);
             }
-            for column in columns {
-                track = track.trait_column(column);
+            if let Some(held) = held {
+                track = track.traits(held);
             }
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);

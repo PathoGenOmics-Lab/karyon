@@ -23,7 +23,7 @@ plots are under [variation](variation-association.md) and
 
 <div class="k-plots" markdown>
 
--   [![A dated outbreak tree with branches coloured by country and aligned country and depth columns, beside the same tree with two named clades collapsed into triangles](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" .k-wide }](../tracks/phylogeny.md#treetrack)
+-   [![A dated outbreak tree with branches coloured by country and aligned country and depth columns, beside the same tree with two named clades collapsed into triangles](../assets/figures/example-phylogenetics.svg){ width="1540" height="368" loading="lazy" .k-wide }](../tracks/phylogeny.md#treetrack)
 
     **[Annotated tree](../tracks/phylogeny.md#treetrack)**
     A phylogram, cladogram or time tree with metadata aligned to its tips, branches coloured by a trait and clades collapsed without changing the tree.

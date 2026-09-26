@@ -929,20 +929,31 @@ fn a_time_tree_draws_calendar_values_on_its_axis() {
         .show_region_label(false)
         .push(TreeTrack::new(tree).time("date").time_unit("year"))
         .to_svg();
-    // Whole years, the unit written once on the latest, and the two at the
-    // ends of the axis pinned to them rather than hanging past.
-    for label in ["2021", "2022", "2023", "2024", "2025 year"] {
+    // Whole years, the two at the ends of the axis pinned to them rather than
+    // hanging past, and the unit as the axis's title, on a line of its own:
+    // written on the latest year, it read `2025 year`.
+    for label in ["2021", "2022", "2023", "2024", "2025", "year"] {
         assert!(svg.contains(&format!(">{label}</text>")), "{label}: {svg}");
     }
-    assert!(
-        !svg.contains(">2023 year</text>"),
-        "the unit is not repeated"
-    );
+    assert!(!svg.contains(" year</text>"), "the unit on a number: {svg}");
     assert!(svg.contains("text-anchor=\"start\">2021</text>"), "{svg}");
-    assert!(
-        svg.contains("text-anchor=\"end\">2025 year</text>"),
-        "{svg}"
-    );
+    assert!(svg.contains("text-anchor=\"end\">2025</text>"), "{svg}");
+    assert!(svg.contains("text-anchor=\"middle\">year</text>"), "{svg}");
+    // And the band makes room for that line, or the clip would take it.
+    let track = |unit: bool| {
+        let tree = Tree::parse_annotated_newick(
+            "((A[&date=2024]:1,B[&date=2025]:2)AB:1,C[&date=2023]:3);",
+        )
+        .unwrap();
+        let track = TreeTrack::new(tree).time("date");
+        if unit {
+            track.time_unit("year")
+        } else {
+            track
+        }
+    };
+    let scale = Scale::new(&region(), 0.0, 800.0);
+    assert!(track(true).height(&scale) > track(false).height(&scale));
 }
 
 #[test]
@@ -976,7 +987,7 @@ fn time_settings_count_the_same_written_before_time_or_after_it() {
             );
         }
         let before = drawn(track().time_unit("years").time("date"));
-        assert!(before.contains(" years</text>"), "{before}");
+        assert!(before.contains(">years</text>"), "{before}");
     }
 }
 
@@ -1183,7 +1194,7 @@ fn circular_time_guides_fall_on_whole_years() {
                 .show_tips(false),
         )
         .to_svg();
-    for label in ["2021", "2023", "2025 year"] {
+    for label in ["2021", "2023", "2025", "year"] {
         assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
     }
 }
@@ -3172,4 +3183,163 @@ fn a_time_axis_that_cannot_be_drawn_leaves_the_scale_bar_its_tree_needs() {
             .unwrap();
     let timed = drawn(TreeTrack::new(dated).time("date"));
     assert!(!timed.contains("<title>branch length scale "), "{timed}");
+}
+
+/// A clade is folded, highlighted or made the root by the tips or the value it
+/// holds as it is by its index, and one that holds tips it was not named for
+/// is folded and said to.
+#[test]
+fn a_clade_is_picked_by_the_tips_or_the_value_it_holds() {
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "(((A[&lineage=L4]:1,B[&lineage=L4]:1):1,C[&lineage=L2]:1):1,D[&lineage=L1]:2);",
+        )
+        .unwrap()
+    };
+    let index = {
+        let held = tree();
+        let tips = [held.node_named("A").unwrap(), held.node_named("B").unwrap()];
+        held.mrca(&tips).unwrap()
+    };
+    let by_index = drawn(TreeTrack::new(tree()).collapse(index));
+    let by_value = TreeTrack::new(tree()).collapse(crate::NodeRef::holding("lineage", "L4"));
+    assert!(by_value.warnings().is_empty(), "{:?}", by_value.warnings());
+    assert_eq!(drawn(by_value), by_index);
+    assert_eq!(
+        drawn(TreeTrack::new(tree()).collapse(crate::NodeRef::mrca(["A", "B"]))),
+        by_index
+    );
+    let wide = TreeTrack::new(tree()).collapse(crate::NodeRef::mrca(["A", "C"]));
+    assert_eq!(
+        wide.warnings(),
+        vec!["the clade of A and C also holds 1 tip: B".to_string()]
+    );
+    let missing = TreeTrack::new(tree()).collapse(crate::NodeRef::holding("lineage", "L9"));
+    assert_eq!(
+        missing.warnings(),
+        vec!["not collapsed: no tip has lineage L9".to_string()]
+    );
+    let tip = TreeTrack::new(tree()).reroot("C");
+    assert_eq!(tip.warnings(), vec!["not rerooted: C is a tip".to_string()]);
+    let highlighted = TreeTrack::new(tree())
+        .clade_highlight(CladeHighlight::new(crate::NodeRef::mrca(["A", "B"])));
+    assert!(highlighted.warnings().is_empty());
+    assert_eq!(
+        drawn(highlighted),
+        drawn(TreeTrack::new(tree()).clade_highlight(CladeHighlight::new(index)))
+    );
+}
+
+/// A sheet is joined onto the tips by name, its columns drawn with their
+/// headings whole, and what it left out on either side is said: the tips on
+/// the band, since their cells are drawn empty, and both in the join.
+#[test]
+fn a_sheet_is_joined_onto_the_tips_and_what_it_left_out_is_said() {
+    let sheet =
+        crate::Sheet::parse("sample\tlineage\tcountry\nA\tL1\tPeru\nB\tL2\tChile\nZ\tL3\tSpain\n")
+            .unwrap();
+    let tree = || Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
+    let traits = crate::Traits::from_sheet(&sheet).spread(["lineage", "country"]);
+    let track = TreeTrack::new(tree()).traits(traits.clone());
+    let join = track.join().unwrap();
+    assert_eq!(join.matched, ["A", "B"]);
+    assert_eq!(join.without_row, ["C"]);
+    assert_eq!(join.without_name, ["Z"]);
+    assert_eq!(
+        track.warnings(),
+        vec!["1 tip has no row in the sheet: C".to_string()]
+    );
+    let svg = drawn(track.clone());
+    assert!(
+        svg.contains(">lineage</text>") && svg.contains(">country</text>"),
+        "a heading cut short: {svg}"
+    );
+    // The values are the tips' annotations now, which colouring reads.
+    let coloured = track.color_by("lineage");
+    assert!(
+        !coloured
+            .warnings()
+            .iter()
+            .any(|warning| warning.contains("no node carries")),
+        "{:?}",
+        coloured.warnings()
+    );
+    // A sheet naming none of the tips draws no strip, and says so.
+    let other = crate::Sheet::parse("sample\tlineage\nX\tL1\n").unwrap();
+    let none = TreeTrack::new(tree()).traits(crate::Traits::from_sheet(&other).spread(["lineage"]));
+    assert_eq!(
+        none.warnings(),
+        vec!["no strips: the sheet names none of the tips".to_string()]
+    );
+    assert!(!drawn(none).contains(">lineage</text>"));
+}
+
+/// A node glyph takes the colours no strip was dealt before the ones that
+/// were, so a pie's first key is not drawn in the first lineage's colour.
+#[test]
+fn a_node_glyph_takes_the_colours_the_strips_left() {
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "((A[&lineage=L1]:1,B[&lineage=L2]:1)[&a=0.7,b=0.3]:1,C[&lineage=L1]:2)[&a=0.5,b=0.5];",
+        )
+        .unwrap()
+    };
+    let theme = Theme::light();
+    let fills = |svg: &str| -> std::collections::BTreeSet<String> {
+        svg.split("fill=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_string)
+            .collect()
+    };
+    let pies = TreeTrack::new(tree()).node_glyph(NodeGlyph::pie(["a", "b"]));
+    let alone = fills(&drawn(pies));
+    assert!(
+        alone.contains(theme.color(0)),
+        "a glyph alone starts the palette"
+    );
+    let both = TreeTrack::new(tree())
+        .trait_categorical("lineage")
+        .node_glyph(NodeGlyph::pie(["a", "b"]));
+    let svg = drawn(both);
+    // The strips are L1 and L2 in the first two colours, and the pie's keys
+    // in the next two, where they were the same two.
+    for colour in [
+        theme.color(0),
+        theme.color(1),
+        theme.color(2),
+        theme.color(3),
+    ] {
+        assert!(fills(&svg).contains(colour), "no {colour}: {svg}");
+    }
+    let pie_slices: Vec<&str> = svg
+        .split("<path d=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split("fill=\"").nth(1)?.split('"').next())
+        .collect();
+    assert!(
+        !pie_slices.contains(&theme.color(0)) && !pie_slices.contains(&theme.color(1)),
+        "a slice in a lineage's colour: {pie_slices:?}"
+    );
+}
+
+/// A column with more levels than colours is drawn as shapes, and the strips
+/// handed to a canvas say which shape each level is, where a column of cells
+/// says none.
+#[test]
+fn the_strips_say_the_shape_of_each_level_of_a_column_of_shapes() {
+    let tips: Vec<String> = (0..9)
+        .map(|at| format!("T{at}[&place=P{at},kind=k]:1"))
+        .collect();
+    let tree = Tree::parse_annotated_newick(&format!("({});", tips.join(","))).unwrap();
+    let track = TreeTrack::new(tree)
+        .trait_categorical("place")
+        .trait_categorical("kind");
+    let strips = track.strips(&Theme::light());
+    assert!(
+        strips[0].levels.iter().all(|level| level.symbol.is_some()),
+        "nine places and six colours: {:?}",
+        strips[0].levels
+    );
+    assert!(strips[1].levels.iter().all(|level| level.symbol.is_none()));
 }

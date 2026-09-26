@@ -39,9 +39,9 @@ use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
-use crate::track::traits::{binary_state, draw_column, Dealt, TraitDomain, TraitRow};
+use crate::track::traits::{binary_state, draw_column, Dealt, Join, TraitDomain, TraitRow, Traits};
 use crate::track::{DrawContext, Rect, Track};
-use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
+use crate::tree::{AnnotationValue, NodeRef, Placement, TimeDirection, Tree};
 
 // The metadata columns beside a phylogeny are the same columns a matrix or an
 // alignment puts beside its rows, so they live in one module and are named
@@ -570,6 +570,9 @@ impl NodeGlyph {
 /// A translucent field identifying one named or indexed clade.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CladeHighlight {
+    /// The clade as it was named, found in the tree when the highlight is
+    /// handed to a track.
+    wanted: NodeRef,
     node: usize,
     label: Option<String>,
     color: Option<String>,
@@ -577,9 +580,16 @@ pub struct CladeHighlight {
 }
 
 impl CladeHighlight {
-    /// Highlights the descendants of `node` without changing the tree.
-    pub fn new(node: usize) -> Self {
+    /// Highlights the descendants of a clade without changing the tree: an
+    /// index, a name, or a [`NodeRef`] picking it by its tips or by a value.
+    pub fn new(node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        let node = match wanted {
+            NodeRef::Index(node) => node,
+            _ => usize::MAX,
+        };
         CladeHighlight {
+            wanted,
             node,
             label: None,
             color: None,
@@ -953,6 +963,8 @@ pub struct TreeTrack {
     clade_highlights: Vec<CladeHighlight>,
     /// Requests a builder could not carry out, each said in a line.
     refused: Vec<String>,
+    /// What the sheet given to [`TreeTrack::traits`] matched and left out.
+    joined: Option<Join>,
 }
 
 #[derive(Debug, Clone)]
@@ -1070,6 +1082,7 @@ impl TreeTrack {
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
             refused: Vec::new(),
+            joined: None,
         }
     }
 
@@ -1191,40 +1204,49 @@ impl TreeTrack {
         self
     }
 
-    /// Reorients the owned tree around internal `node` and marks the new root.
+    /// Reorients the owned tree around an internal node and marks the new
+    /// root: an index, a name, or a [`NodeRef`] picking the clade by its tips
+    /// or by a value.
     ///
-    /// An invalid index or sampled tip leaves the tree unchanged, and the band
-    /// says so under the tree, as [`TreeTrack::warnings`] does. Use
-    /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
-    /// handled rather than reported.
-    pub fn reroot(mut self, node: usize) -> Self {
-        match self.tree.nodes().get(node) {
-            None => self.refuse(format!("not rerooted: the tree has no node {node}")),
-            Some(clade) if clade.is_leaf() => {
-                self.refuse(format!("not rerooted: node {node} is a tip"));
-            }
-            Some(_) => {
-                self.rerooted_with(|tree| tree.reroot(node));
-            }
+    /// A node the tree does not have, or a sampled tip, leaves the tree
+    /// unchanged, and the band says so under the tree, as
+    /// [`TreeTrack::warnings`] does. Use [`Tree::reroot`](crate::Tree::reroot)
+    /// directly when failure must be handled rather than reported.
+    pub fn reroot(mut self, node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        if let Some(node) = self.clade(&wanted, "not rerooted") {
+            self.rerooted_with(|tree| tree.reroot(node));
         }
         self
     }
 
-    /// Reorients the owned tree around an internal node with this exact name.
-    ///
-    /// A name no node has, or a tip's, leaves the tree unchanged and is said
-    /// under it.
-    pub fn reroot_named(mut self, name: &str) -> Self {
-        match self.tree.node_named(name) {
-            None => self.refuse(format!("not rerooted: no node is named {name}")),
-            Some(node) if self.tree.nodes()[node].is_leaf() => {
-                self.refuse(format!("not rerooted: {name} is a tip"));
+    /// Reorients the owned tree around an internal node with this exact name,
+    /// as [`TreeTrack::reroot`] does given the name.
+    pub fn reroot_named(self, name: &str) -> Self {
+        self.reroot(NodeRef::named(name))
+    }
+
+    /// The internal node `wanted` names, or `None` with the reason said under
+    /// the tree after `refused`: a node the tree does not have, or a tip. A
+    /// clade that holds tips it was not named for is found, and that is said
+    /// too.
+    fn clade(&mut self, wanted: &NodeRef, refused: &str) -> Option<usize> {
+        match wanted.find(&self.tree) {
+            Err(why) => {
+                self.refuse(format!("{refused}: {why}"));
+                None
             }
-            Some(node) => {
-                self.rerooted_with(|tree| tree.reroot(node));
+            Ok(found) if self.tree.nodes()[found.node].is_leaf() => {
+                self.refuse(format!("{refused}: {wanted} is a tip"));
+                None
+            }
+            Ok(found) => {
+                if let Some(also) = found.also {
+                    self.refuse(format!("{wanted} {also}"));
+                }
+                Some(found.node)
             }
         }
-        self
     }
 
     /// Roots halfway along the edge leading to a monophyletic named outgroup.
@@ -1405,7 +1427,9 @@ impl TreeTrack {
         self
     }
 
-    /// Adds a unit after temporal axis values.
+    /// Names what the time axis counts, as `year` or `years before present`,
+    /// written as the axis's title, under its numbers or at the inner end of
+    /// the rings, and not after the latest of them.
     pub fn time_unit(mut self, unit: impl Into<String>) -> Self {
         self.time_unit = Some(unit.into());
         self
@@ -1573,20 +1597,18 @@ impl TreeTrack {
         self
     }
 
-    /// Collapses one internal node visually while preserving the source tree.
+    /// Collapses one clade visually while preserving the source tree: an
+    /// index, a name, or a [`NodeRef`] picking it by its tips, as
+    /// `NodeRef::mrca(["S01", "S07"])`, or by a value, as
+    /// `NodeRef::holding("lineage", "L4")`.
     ///
-    /// An index the tree does not have, or a tip's, folds nothing and is said
-    /// under the tree.
-    pub fn collapse(mut self, node: usize) -> Self {
-        match self.tree.nodes().get(node) {
-            None => self.refuse(format!("not collapsed: the tree has no node {node}")),
-            Some(clade) if clade.is_leaf() => {
-                self.refuse(format!("not collapsed: node {node} is a tip"));
-            }
-            Some(_) => {
-                self.collapsed.insert(node);
-                self.folds = OnceLock::new();
-            }
+    /// A node the tree does not have, or a tip, folds nothing and is said
+    /// under the tree, and so is a clade that holds tips it was not named for.
+    pub fn collapse(mut self, node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        if let Some(node) = self.clade(&wanted, "not collapsed") {
+            self.collapsed.insert(node);
+            self.folds = OnceLock::new();
         }
         self
     }
@@ -1814,6 +1836,92 @@ impl TreeTrack {
         self
     }
 
+    /// Draws a sample sheet's columns beside the tips, joined to them by
+    /// name, as `--traits` does on the command line:
+    ///
+    /// ```
+    /// use karyon::{Sheet, Traits, Tree, TreeTrack};
+    ///
+    /// let sheet = Sheet::parse("sample\tlineage\nA\tL1\nB\tL2\nC\tL2\n")?;
+    /// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
+    /// let track = TreeTrack::new(tree).traits(Traits::from_sheet(&sheet).spread(["lineage"]));
+    /// assert_eq!(track.join().unwrap().matched.len(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Each tip the sheet names takes its values as annotations, so the
+    /// strips, [`TreeTrack::color_by`] and [`NodeRef::holding`] read them,
+    /// and each column the sheet was spread into is drawn, widened to fit its
+    /// heading, which a tree writes across the top of its strip: at the width
+    /// a matrix gives it, `lineage` came out as `li…`.
+    ///
+    /// A sheet that names none of the tips draws no strip, and a tip it does
+    /// not name is counted under the tree, since its cells are drawn empty.
+    /// [`TreeTrack::join`] says what was matched and what was left out on
+    /// both sides.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        let leaves = self.tree.leaf_names();
+        let join = traits.join(leaves.iter().map(String::as_str));
+        if join.matched.is_empty() {
+            self.refuse("no strips: the sheet names none of the tips".to_string());
+            self.joined = Some(join);
+            return self;
+        }
+        for name in &join.matched {
+            let (Some(values), Some(node)) = (traits.values(name), self.tree.node_named(name))
+            else {
+                continue;
+            };
+            let values: Vec<(String, AnnotationValue)> = values
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            if let Some(into) = self.tree.annotations_mut(node) {
+                for (key, value) in values {
+                    into.insert(key, value);
+                }
+            }
+        }
+        if !join.without_row.is_empty() {
+            let count = join.without_row.len();
+            let (tips, have) = if count == 1 {
+                ("tip", "has")
+            } else {
+                ("tips", "have")
+            };
+            let shown: Vec<&str> = join
+                .without_row
+                .iter()
+                .take(3)
+                .map(String::as_str)
+                .collect();
+            let more = if count > shown.len() {
+                format!(" and {} more", count - shown.len())
+            } else {
+                String::new()
+            };
+            self.refuse(format!(
+                "{count} {tips} {have} no row in the sheet: {}{more}",
+                shown.join(", ")
+            ));
+        }
+        for column in traits.columns() {
+            // The heading is drawn two points under the body size, and a
+            // long column name is capped so it cannot eat the tree beside it.
+            let heading = text_width(column.heading(), 9.0) + 8.0;
+            self.trait_columns
+                .push(column.clone().width(heading.clamp(14.0, 72.0)));
+        }
+        self.joined = Some(join);
+        self
+    }
+
+    /// What the sheet handed to [`TreeTrack::traits`] matched and what it left
+    /// out, where one was.
+    pub fn join(&self) -> Option<&Join> {
+        self.joined.as_ref()
+    }
+
     /// Adds a categorical metadata strip.
     pub fn trait_categorical(self, key: impl Into<String>) -> Self {
         self.trait_column(TraitColumn::categorical(key))
@@ -1851,14 +1959,16 @@ impl TreeTrack {
     ///
     /// An index the tree does not have highlights nothing and is said under
     /// the tree.
-    pub fn clade_highlight(mut self, highlight: CladeHighlight) -> Self {
-        if self.tree.nodes().get(highlight.node).is_some() {
-            self.clade_highlights.push(highlight);
-        } else {
-            self.refuse(format!(
-                "not highlighted: the tree has no node {}",
-                highlight.node
-            ));
+    pub fn clade_highlight(mut self, mut highlight: CladeHighlight) -> Self {
+        match highlight.wanted.find(&self.tree) {
+            Ok(found) => {
+                if let Some(also) = found.also {
+                    self.refuse(format!("{} {also}", highlight.wanted));
+                }
+                highlight.node = found.node;
+                self.clade_highlights.push(highlight);
+            }
+            Err(why) => self.refuse(format!("not highlighted: {why}")),
         }
         self
     }
@@ -1866,12 +1976,8 @@ impl TreeTrack {
     /// Highlights a clade by its exact internal or terminal name.
     ///
     /// A name no node has highlights nothing and is said under the tree.
-    pub fn highlight_named(mut self, name: &str) -> Self {
-        match self.tree.node_named(name) {
-            Some(node) => self.clade_highlights.push(CladeHighlight::new(node)),
-            None => self.refuse(format!("not highlighted: no node is named {name}")),
-        }
-        self
+    pub fn highlight_named(self, name: &str) -> Self {
+        self.clade_highlight(CladeHighlight::new(NodeRef::named(name)))
     }
 
     /// The tree.
@@ -1918,6 +2024,7 @@ impl TreeTrack {
                                     &theme.accent,
                                     band as f64 / (BANDS - 1) as f64,
                                 ),
+                                symbol: None,
                             });
                         }
                         for (node, value) in values.iter().enumerate() {
@@ -1929,10 +2036,12 @@ impl TreeTrack {
                         }
                     }
                     TraitScale::Categorical => {
+                        let shaped = column.drawn_style(&domain, theme) == TraitStyle::Symbol;
                         for (value, index) in domain.levels() {
                             levels.push(crate::TraitLevel {
                                 value: value.to_string(),
                                 color: theme.color(index).to_string(),
+                                symbol: shaped.then(|| theme.symbol(index)),
                             });
                         }
                         for (node, value) in values.iter().enumerate() {
@@ -2092,7 +2201,41 @@ impl TreeTrack {
             },
             None => Dealt::default(),
         };
-        Dealing { columns, branches }
+        // The node glyphs take the colours no strip and no branch was dealt
+        // first, and only then the ones they were. They took the palette from
+        // its start, so a pie's first key was the colour of the first lineage
+        // beside it, and a key saying `a` in the colour of `L1` reads as `L1`.
+        let glyphs = if self.node_glyphs.is_empty() {
+            Vec::new()
+        } else {
+            let palette = crate::track::traits::STRIP_LEVELS;
+            let mut used = BTreeSet::new();
+            for (column, dealt) in self.trait_columns.iter().zip(&columns) {
+                if worded(column) {
+                    for (_, index) in
+                        rectangular::tree_domain(&self.tree, &column.key, *dealt).keyed()
+                    {
+                        used.insert(index % palette);
+                    }
+                }
+            }
+            if let Some(key) = self.branch_key() {
+                if !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key)) {
+                    for (_, index) in rectangular::tree_domain(&self.tree, key, branches).keyed() {
+                        used.insert(index % palette);
+                    }
+                }
+            }
+            let mut order: Vec<usize> =
+                (0..palette).filter(|index| !used.contains(index)).collect();
+            order.extend((0..palette).filter(|index| used.contains(index)));
+            order
+        };
+        Dealing {
+            columns,
+            branches,
+            glyphs,
+        }
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
@@ -2139,11 +2282,21 @@ impl TreeTrack {
             + 6.0
     }
 
+    /// The line under a time axis its unit is written on, where it has one.
+    fn time_title_room(&self) -> f64 {
+        match self.time_unit.as_deref() {
+            Some(unit) if !unit.trim().is_empty() => 14.0,
+            _ => 0.0,
+        }
+    }
+
     fn axis_room(&self, theme: &Theme) -> f64 {
         let time = self
             .time_axis()
             .filter(|time| time.show_axis)
-            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0);
+            .map_or(0.0, |_| {
+                theme.font_size + theme.tokens.tick_length + 5.0 + self.time_title_room()
+            });
         let scale = self
             .branch_scale()
             .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 7.0);
@@ -2632,6 +2785,19 @@ struct Dealing<'a> {
     columns: Vec<Dealt<'a>>,
     /// The key the branches are coloured by.
     branches: Dealt<'a>,
+    /// The palette in the order the node glyphs take it: the colours nothing
+    /// else was dealt first. Empty where there are no glyphs.
+    glyphs: Vec<usize>,
+}
+
+impl Dealing<'_> {
+    /// The palette index the `index`th colour of the node glyphs is.
+    fn glyph(&self, index: usize) -> usize {
+        match self.glyphs.len() {
+            0 => index,
+            len => self.glyphs[index % len],
+        }
+    }
 }
 
 impl Track for TreeTrack {
@@ -2661,7 +2827,7 @@ impl Track for TreeTrack {
                 rows * self.row_height
                     + glyph_y * 2.0
                     + if self.time_axis().is_some_and(|time| time.show_axis) {
-                        22.0
+                        22.0 + self.time_title_room()
                     } else {
                         0.0
                     }

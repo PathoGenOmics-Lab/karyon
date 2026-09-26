@@ -139,6 +139,26 @@ pub fn plot(locus: &str) -> Result<Plot, Error> {
     Region::parse(locus).map(Plot::over)
 }
 
+/// Starts a plot of phylogenies, which names no place.
+///
+/// A tree's x is a branch length or a time, not a position, so a plot of one
+/// had to be handed a locus that meant nothing, as `plot("tree:1-1")`, and
+/// told to hide it with [`Plot::remove_region_label`]. This is that plot
+/// without either, and with no ruler under the trees either.
+///
+/// ```
+/// use karyon::{plot_tree, Tree};
+///
+/// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
+/// let svg = plot_tree().add_tree(tree).add_key().to_svg();
+/// assert!(!svg.contains("phylogeny:1"));
+/// # Ok::<(), karyon::Error>(())
+/// ```
+pub fn plot_tree() -> Plot {
+    let region = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
+    Plot::over(region).remove_region_label()
+}
+
 /// The empty slot at the head of a plot, with no track pending.
 ///
 /// It is the default of [`Plot`]'s type parameter, so it stands for a fresh
@@ -277,6 +297,8 @@ pub struct Plot<T = Empty> {
     pending: Option<T>,
     /// Whether an axis still needs to be appended at the end.
     wants_axis: bool,
+    /// Whether the figure's key is appended when the plot becomes a figure.
+    wants_key: bool,
 }
 
 impl<T> fmt::Debug for Plot<T> {
@@ -298,6 +320,7 @@ impl Plot<Empty> {
             figure: Figure::new(region),
             pending: None,
             wants_axis: true,
+            wants_key: false,
         }
     }
 
@@ -309,6 +332,7 @@ impl Plot<Empty> {
             figure,
             pending: None,
             wants_axis: false,
+            wants_key: false,
         }
     }
 
@@ -318,6 +342,7 @@ impl Plot<Empty> {
             figure: self.figure,
             pending: Some(track),
             wants_axis: self.wants_axis,
+            wants_key: self.wants_key,
         }
     }
 }
@@ -329,6 +354,7 @@ impl<T: Slot> Plot<T> {
             mut figure,
             pending,
             wants_axis,
+            wants_key,
         } = self;
         if let Some(track) = pending {
             figure = track.push_onto(figure);
@@ -337,6 +363,7 @@ impl<T: Slot> Plot<T> {
             figure,
             pending: None,
             wants_axis,
+            wants_key,
         }
     }
 
@@ -431,10 +458,21 @@ impl<T: Slot> Plot<T> {
         // tree or a tanglegram used to get a ruler along the bottom with a
         // single tick on it, measuring the window such a figure is handed
         // because every figure has one, not because the tree is anywhere in it.
-        if plot.wants_axis && plot.figure.measures_coordinates() {
+        let figure = if plot.wants_axis && plot.figure.measures_coordinates() {
             plot.figure.push_ruler(AxisTrack::new())
         } else {
             plot.figure
+        };
+        if !plot.wants_key {
+            return figure;
+        }
+        // Last, under the ruler, so the key is not taken for a track the
+        // ruler measures.
+        let key = figure.key();
+        if key.is_empty() {
+            figure
+        } else {
+            figure.push(LegendTrack::new(key))
         }
     }
 
@@ -511,6 +549,21 @@ impl<T: Slot> Plot<T> {
     pub fn add_boxed(self, track: Box<dyn Track>) -> Plot<Empty> {
         let mut plot = self.settle();
         plot.figure = plot.figure.push_boxed(track);
+        plot
+    }
+
+    /// Keys the colours and marks of every track at the foot of the figure,
+    /// once the plot becomes one: the strips and branches of a tree, the
+    /// shades of a matrix, the bases where they are too narrow for letters.
+    ///
+    /// A key built by hand had to be made from a track before the track went
+    /// into the plot, in the plot's theme, so a tree with strips could not
+    /// be added with [`Plot::add_tree`] and keyed at all. This asks each
+    /// track for its key in the theme the figure is drawn in, as the command
+    /// line does, and adds nothing where no track has one.
+    pub fn add_key(self) -> Plot<Empty> {
+        let mut plot = self.settle();
+        plot.wants_key = true;
         plot
     }
 
@@ -1450,6 +1503,45 @@ mod tests {
             svg.contains("drawn top to bottom: a coverage profile, a ruler and a phylogeny"),
             "{}",
             &svg[svg.find("<desc").unwrap_or(0)..][..300.min(svg.len())]
+        );
+    }
+
+    /// A plot of trees names no place, draws no ruler, and keys the strips its
+    /// tree is drawn with, where a plot of trees had to be given a locus and
+    /// a key built by hand before the tree went in.
+    #[test]
+    fn a_plot_of_trees_needs_no_place_and_keys_what_it_draws() {
+        let sheet = crate::Sheet::parse("sample\tlineage\nA\tL1\nB\tL2\nC\tL2\n").unwrap();
+        let tree = || Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
+        let figure = plot_tree()
+            .add_tree(tree())
+            .adjust(|track| track.traits(crate::Traits::from_sheet(&sheet).spread(["lineage"])))
+            .add_key()
+            .into_figure();
+        assert_eq!(
+            figure.track_count(),
+            2,
+            "the tree and its key, and no ruler"
+        );
+        let svg = figure.to_svg();
+        assert!(!svg.contains(">phylogeny"), "the place is not written");
+        // Not even over a ruler, which would have it printed at the top right.
+        assert!(!plot_tree()
+            .add_axis()
+            .to_svg()
+            .contains(">phylogeny:1-1</text>"));
+        assert!(
+            svg.contains(">lineage: L1</text>") && svg.contains(">lineage: L2</text>"),
+            "{svg}"
+        );
+        // Nothing to key, nothing added.
+        assert_eq!(
+            plot_tree()
+                .add_tree(tree())
+                .add_key()
+                .into_figure()
+                .track_count(),
+            1
         );
     }
 

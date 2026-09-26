@@ -487,7 +487,7 @@ pub(super) fn draw_radial_time_axis(
         return;
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);
-    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum);
     for (value, label) in &ticks {
         let radius = geometry.radius(scene, *value);
         if radius > 0.5 {
@@ -508,6 +508,24 @@ pub(super) fn draw_radial_time_axis(
             (x, y - 2.0),
             rotation,
             label,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Middle,
+        );
+    }
+    // The unit is the title of the ray the numbers stand on, written at its
+    // inner end, where the root leaves room, rather than glued to the
+    // outermost number among the tips' names.
+    if let (Some(unit), Some((first, _))) = (
+        time.unit.as_deref().filter(|unit| !unit.trim().is_empty()),
+        ticks.first(),
+    ) {
+        let inner = (geometry.radius(scene, *first) - 4.0 - size * 1.3).max(0.0);
+        let (x, y) = geometry.point(inner, geometry.start);
+        ctx.svg.text_rotated(
+            (x, y - 2.0),
+            upright_tangent(geometry.start),
+            unit,
             &ctx.theme.muted,
             size,
             crate::svg::Anchor::Middle,
