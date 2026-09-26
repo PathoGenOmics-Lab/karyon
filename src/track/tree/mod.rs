@@ -2000,20 +2000,58 @@ impl TreeTrack {
         }
     }
 
-    fn annotation_header_room(&self) -> f64 {
-        if self.trait_columns.is_empty()
-            && self.node_glyphs.is_empty()
-            && self.dnds.is_none()
-            && self.rate_mixtures.is_empty()
-            && self.homoplasy_layers.is_empty()
-            && self.branch_event_layers.is_empty()
-            && self.branch_interval_layers.is_empty()
-            && self.ancestral_state_layers.is_empty()
-        {
+    /// The room across the top of a band `width` pixels wide for the
+    /// headings of the columns or rings and the chips that key the layers.
+    ///
+    /// A rectangular tree's headings sit over its columns, at the right, and
+    /// the chips keep to the left of them, so the two share the room. Rings
+    /// have their headings in a row of their own across the top, with the
+    /// chips under it: drawn in one row, the first chip covered the first
+    /// ring's heading.
+    fn annotation_header_room(&self, width: f64, theme: &Theme) -> f64 {
+        let chips = match chip_rows(self, self.chip_room(width, theme), theme) {
+            0 => 0.0,
+            rows => rows as f64 * chip_pitch(theme) + 1.5,
+        };
+        let headings = if self.trait_columns.is_empty() {
             0.0
         } else {
             22.0
+        };
+        match self.projection {
+            TreeProjection::Rectangular => chips.max(headings),
+            TreeProjection::Circular | TreeProjection::Unrooted => chips + headings,
         }
+    }
+
+    /// Where the chips start below the top of the band.
+    fn chip_top(&self) -> f64 {
+        match self.projection {
+            TreeProjection::Rectangular => 1.0,
+            TreeProjection::Circular | TreeProjection::Unrooted => {
+                if self.trait_columns.is_empty() {
+                    1.0
+                } else {
+                    23.0
+                }
+            }
+        }
+    }
+
+    /// How much of a band `width` pixels wide the chips may take: a
+    /// rectangular tree's columns keep the right of it for their headings.
+    fn chip_room(&self, width: f64, theme: &Theme) -> f64 {
+        match self.projection {
+            TreeProjection::Rectangular => (width - self.trait_width(theme)).max(0.0),
+            TreeProjection::Circular | TreeProjection::Unrooted => width,
+        }
+    }
+
+    /// Draws the chips that key the layers where the header keeps them.
+    fn draw_layer_chips(&self, ctx: &mut DrawContext<'_>) {
+        let top = ctx.band.y + self.chip_top();
+        let room = self.chip_room(ctx.band.w, ctx.theme);
+        draw_annotation_legend(self, ctx, top, room);
     }
 
     /// How wide across the circular and unrooted projections are drawn.
@@ -2131,7 +2169,7 @@ impl TreeTrack {
         let tips = self.tip_width(ctx.theme, &scene);
         let axis_room = self.axis_room(ctx.theme);
         let traits = self.trait_width(ctx.theme);
-        let header_room = self.annotation_header_room();
+        let header_room = self.annotation_header_room(band.w, ctx.theme);
         let (glyph_x, glyph_y) = self.rectangular_glyph_padding();
         let area = Rect {
             x: band.x + glyph_x,
@@ -2231,7 +2269,7 @@ impl TreeTrack {
         if let Some(bar) = self.branch_scale() {
             draw_rectangular_scale_bar(ctx, &scene, area, bar);
         }
-        draw_annotation_legend(self, ctx);
+        self.draw_layer_chips(ctx);
     }
 }
 
@@ -2279,10 +2317,11 @@ impl Track for TreeTrack {
                     } else {
                         0.0
                     }
-                    + self.annotation_header_room()
+                    + self.annotation_header_room(scale.width(), &Theme::default())
             }
             TreeProjection::Circular | TreeProjection::Unrooted => {
-                self.radial_diameter(scale, &Theme::default()) + self.annotation_header_room()
+                self.radial_diameter(scale, &Theme::default())
+                    + self.annotation_header_room(scale.width(), &Theme::default())
             }
         }
     }

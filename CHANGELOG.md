@@ -591,6 +591,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- A tree keys every layer it draws. The chips across the top of its band,
+  for node glyphs, dN/dS, rate classes, branch events, intervals and
+  homoplasy, ran along one row and the ones past its end were dropped: at 500
+  pixels two of six glyph layers had no key and a third was cut to its first
+  letter. They now run onto as many rows as they need, and the band grows to
+  hold them. A layer of branch events or intervals on its own had its room
+  held and no chip drawn in it. The chips keep to the left of a rectangular
+  tree's column headings and under a circular tree's ring headings, where
+  the first chip covered the first heading.
 - The columns of words on a phylogeny each take a stretch of the palette, as
   a sheet's columns do. Two strips added with `trait_categorical` both started
   at the palette's first colour, so each lineage was also a country. A column

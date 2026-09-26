@@ -2725,3 +2725,173 @@ fn a_strip_with_more_levels_than_colours_is_drawn_as_symbols() {
         "a filled cell"
     );
 }
+
+/// A tree carrying the annotations six layers read.
+fn layered() -> (Tree, TreeTrack) {
+    let tree = Tree::parse_annotated_newick(
+        "(((A[&host=h1,a=1,b=2,c=3,d=0.5]:1,B[&host=h2,a=2,b=1,c=0,d=0.2]:1)[&a=3,b=3,c=1,d=0.9]:1,\
+         (C[&host=h3,a=1,b=1,c=1,d=0.1]:1,D[&host=h1,a=0,b=2,c=2,d=0.7]:1)[&a=1,b=2,c=3,d=0.4]:1)\
+         [&a=2,b=2,c=2,d=0.3]:1);",
+    )
+    .unwrap();
+    let track = TreeTrack::new(tree.clone())
+        .trait_categorical("host")
+        .node_glyph(NodeGlyph::pie(["a", "b", "c"]).label("composition one"))
+        .node_glyph(NodeGlyph::donut(["a", "b"]).label("composition two"))
+        .node_glyph(NodeGlyph::bubble("d").label("bubble three"))
+        .node_glyph(NodeGlyph::stacked_bar(["a", "c"]).label("bars four"))
+        .node_glyph(NodeGlyph::pie(["b", "c"]).label("composition five"))
+        .node_glyph(NodeGlyph::bubble("a").label("bubble six"));
+    (tree, track)
+}
+
+/// The chips across the top of a tree's band, as `(x, y, width, height)`.
+fn chips(svg: &str) -> Vec<(f64, f64, f64, f64)> {
+    let theme = Theme::light();
+    let fill = mix(theme.surface(), &theme.rule, 0.32);
+    svg.split("<rect")
+        .skip(1)
+        // The element alone, so an attribute is read off the rectangle and
+        // not off the text drawn after it.
+        .filter_map(|rest| rest.split("/>").next())
+        .filter(|rect| rect.contains(&format!("fill=\"{fill}\"")))
+        .filter_map(|rect| {
+            let number = |name: &str| -> Option<f64> {
+                rect.split(&format!(" {name}=\""))
+                    .nth(1)?
+                    .split('"')
+                    .next()?
+                    .parse()
+                    .ok()
+            };
+            Some((
+                number("x")?,
+                number("y")?,
+                number("width")?,
+                number("height")?,
+            ))
+        })
+        .collect()
+}
+
+/// Where a text reading `content` sits: its left edge, baseline, width and
+/// size.
+fn text_box(svg: &str, content: &str) -> Option<(f64, f64, f64, f64)> {
+    let piece = svg.split("<text ").skip(1).find(|piece| {
+        piece
+            .split('>')
+            .nth(1)
+            .is_some_and(|text| text.starts_with(&format!("{content}</text")))
+    })?;
+    let number = |name: &str| -> Option<f64> {
+        piece
+            .split(&format!("{name}=\""))
+            .nth(1)?
+            .split('"')
+            .next()?
+            .parse()
+            .ok()
+    };
+    let (x, y, size) = (number("x")?, number("y")?, number("font-size")?);
+    let width = crate::svg::text_width(content, size);
+    let left = if piece.contains("text-anchor=\"middle\"") {
+        x - width / 2.0
+    } else if piece.contains("text-anchor=\"end\"") {
+        x - width
+    } else {
+        x
+    };
+    Some((left, y, width, size))
+}
+
+#[test]
+fn every_layer_is_keyed_however_narrow_the_figure() {
+    // Chips ran along one row until it ended and the rest were dropped: at
+    // 500 pixels two of six layers had no key, and a third was cut to "b...".
+    let (_, track) = layered();
+    for (projected, rectangular) in [
+        (track.clone(), true),
+        (track.clone().circular(), false),
+        (track.unrooted(), false),
+    ] {
+        // Widths where the chips wrap, where one row of them would reach the
+        // column's heading, and where they all fit short of it.
+        for width in [500.0, 640.0, 700.0, 760.0, 900.0] {
+            let svg = Figure::new(region())
+                .width(width)
+                .show_region_label(false)
+                .push(projected.clone())
+                .to_svg();
+            for label in [
+                "composition one",
+                "composition two",
+                "bubble three",
+                "bars four",
+                "composition five",
+                "bubble six",
+            ] {
+                assert!(text_box(&svg, label).is_some(), "{label} at {width}: {svg}");
+            }
+            let placed = chips(&svg);
+            assert_eq!(placed.len(), 6, "{placed:?}");
+            for (index, a) in placed.iter().enumerate() {
+                assert!(a.0 + a.2 <= width, "a chip runs off the figure: {a:?}");
+                for b in &placed[index + 1..] {
+                    let apart = a.0 + a.2 <= b.0
+                        || b.0 + b.2 <= a.0
+                        || a.1 + a.3 <= b.1
+                        || b.1 + b.3 <= a.1;
+                    assert!(apart, "{a:?} over {b:?}");
+                }
+            }
+            // No chip reaches down to the tree: the first tip's name is under
+            // every one of them. A ring's names are turned, so the band is
+            // measured on the rows of a rectangular tree.
+            if rectangular {
+                let tip = text_box(&svg, "A").expect("a tip name");
+                let lowest = placed
+                    .iter()
+                    .map(|chip| chip.1 + chip.3)
+                    .fold(f64::MIN, f64::max);
+                assert!(
+                    lowest < tip.1 - tip.3,
+                    "chips down to {lowest}, tip at {tip:?}"
+                );
+            }
+            // And none covers the heading of the column or the ring.
+            let heading = text_box(&svg, "host").expect("a heading");
+            for chip in &placed {
+                let apart = chip.0 + chip.2 <= heading.0
+                    || heading.0 + heading.2 <= chip.0
+                    || chip.1 + chip.3 <= heading.1 - heading.3
+                    || heading.1 <= chip.1;
+                assert!(apart, "{chip:?} over the heading at {heading:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_layer_of_branch_events_on_its_own_is_keyed() {
+    // The room was held and the chip was never drawn, because the chips were
+    // only drawn when some other layer was there too.
+    let tree = Tree::parse_annotated_newick(
+        "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",
+    )
+    .unwrap();
+    for track in [
+        TreeTrack::new(tree.clone())
+            .branch_event_layer(BranchEventLayer::new("event").label("changes")),
+        TreeTrack::new(tree.clone())
+            .branch_interval(BranchIntervalLayer::new("rate", "low", "high").label("rates")),
+    ] {
+        let svg = drawn(track);
+        assert_eq!(chips(&svg).len(), 1, "{svg}");
+        assert!(
+            text_box(&svg, "changes")
+                .or_else(|| text_box(&svg, "rates"))
+                .is_some(),
+            "{svg}"
+        );
+    }
+}

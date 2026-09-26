@@ -154,7 +154,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     let time = track.time_axis();
     let dnds = track.dnds_layer();
     let scene = TreeScene::new(&track.tree, track.shape, time.as_ref(), track.folded());
-    let header_room = track.annotation_header_room();
+    let header_room = track.annotation_header_room(ctx.band.w, ctx.theme);
     let area = Rect {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
@@ -227,7 +227,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     if let Some(bar) = track.branch_scale() {
         draw_radial_scale_bar(ctx, &scene, &geometry, area, bar);
     }
-    draw_annotation_legend(track, ctx);
+    track.draw_layer_chips(ctx);
 }
 
 pub(super) fn draw_radial_padding(

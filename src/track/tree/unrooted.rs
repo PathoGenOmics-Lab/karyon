@@ -545,7 +545,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         track.folded(),
         track.radial.start_degrees,
     );
-    let header_room = track.annotation_header_room();
+    let header_room = track.annotation_header_room(ctx.band.w, ctx.theme);
     let area = Rect {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
@@ -755,7 +755,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     if let Some(bar) = track.branch_scale() {
         draw_unrooted_scale_bar(ctx, &scene, &geometry, area, bar);
     }
-    draw_annotation_legend(track, ctx);
+    track.draw_layer_chips(ctx);
 }
 
 pub(super) fn unrooted_branch_colors(
