@@ -556,7 +556,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     let colors = unrooted_branch_colors(
         &track.tree,
         &scene,
-        track.color_by.as_deref(),
+        track.branch_key(),
         track.color_levels(),
         ctx.theme,
         &color,
@@ -633,7 +633,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         let title = branch_title(
             &track.tree,
             owner,
-            track.color_by.as_deref(),
+            track.branch_key(),
             dnds.as_ref(),
             track.branch_labels.as_deref(),
             !track.show_tips && scene.terminals.contains(node),

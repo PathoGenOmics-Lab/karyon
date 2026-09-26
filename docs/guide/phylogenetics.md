@@ -447,8 +447,10 @@ dotted branch, not a zero.
 
 `dnds_significance(key, maximum)` thickens a branch whose own test value is at
 most `maximum`, so width carries the evidence and colour the effect size.
-`dnds` and `color_by` replace each other, and the other `dnds_` settings do
-nothing without `dnds` and count the same written before it or after it. The
+`dnds` and `color_by` both colour the branches, so where both are set the dN/dS
+colouring is drawn, whichever was written first, and the band says the other
+was not. The other `dnds_` settings do nothing without `dnds` and count the
+same written before it or after it. The
 estimates come from upstream: karyon computes no dN, dS,
 tests or corrections, and calls ω above the neutral band diversifying, not
 proof of positive selection.

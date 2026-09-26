@@ -600,6 +600,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backwards in time, branch colours shared by two values and support above
   100 each drew a figure like the one asked for, or like the plain tree, with
   nothing to say so.
+- A tree's settings draw one figure in either order. A radial start, sweep,
+  direction or inner radius turned a tree chosen as unrooted or rectangular
+  into a circle, `circular` undid a fan, a scale bar's length or unit brought
+  back a bar hidden with `show_scale_bar(false)`, `dnds` and `color_by` each
+  cleared the other so the last one won, and a tanglegram's `show_tips` put
+  the names back on both sides. A projection chosen by name is the one drawn,
+  a hidden bar stays hidden, and dN/dS colours the branches whichever came
+  first, with the band saying the other colouring was not drawn.
+- A tree whose time axis cannot be drawn keeps the scale bar its branch
+  lengths need; drawn by branch length, it had lost both.
 - A fold or a highlight asked for before a reroot follows its clade through
   it. Rerooting turns edges round and keeps every node where it was in the
   list, so the index named another clade: a fold of one lineage folded

@@ -107,6 +107,7 @@ pub struct TanglegramTrack {
     crossing_color: Option<String>,
     tie_style: TangleTieStyle,
     labels: TangleLabels,
+    show_tips: bool,
     label_width: f64,
     tie_width: f64,
     crossing_width: f64,
@@ -133,6 +134,7 @@ impl TanglegramTrack {
             crossing_color: None,
             tie_style: TangleTieStyle::Curved,
             labels: TangleLabels::Both,
+            show_tips: true,
             label_width: 72.0,
             tie_width: 0.9,
             crossing_width: 1.5,
@@ -265,13 +267,21 @@ impl TanglegramTrack {
     }
 
     /// Draws or hides the tip names down the middle.
+    ///
+    /// Shown, they are on the side [`TanglegramTrack::labels`] chose, before
+    /// this or after it; this used to put them back on both.
     pub fn show_tips(mut self, show: bool) -> Self {
-        self.labels = if show {
-            TangleLabels::Both
+        self.show_tips = show;
+        self
+    }
+
+    /// Which sides the names are drawn on.
+    fn named(&self) -> TangleLabels {
+        if self.show_tips {
+            self.labels
         } else {
             TangleLabels::None
-        };
-        self
+        }
     }
 
     /// The two trees.
@@ -551,8 +561,8 @@ impl Track for TanglegramTrack {
         let x1 = band.right() - side;
         let corridor = (x1 - x0).max(1.0);
         let label_room = self.label_width.min(corridor * 0.34);
-        let left_labels = matches!(self.labels, TangleLabels::Left | TangleLabels::Both);
-        let right_labels = matches!(self.labels, TangleLabels::Right | TangleLabels::Both);
+        let left_labels = matches!(self.named(), TangleLabels::Left | TangleLabels::Both);
+        let right_labels = matches!(self.named(), TangleLabels::Right | TangleLabels::Both);
         let tie_start = x0 + if left_labels { label_room } else { 0.0 };
         let tie_end = x1 - if right_labels { label_room } else { 0.0 };
 
@@ -751,7 +761,7 @@ impl Track for TanglegramTrack {
                     mirror,
                 },
                 matches!(
-                    (mirror, self.labels),
+                    (mirror, self.named()),
                     (_, TangleLabels::None)
                         | (false, TangleLabels::Right)
                         | (true, TangleLabels::Left)
@@ -1107,6 +1117,24 @@ mod tests {
         assert_eq!(figure.key().len(), 5);
         let plain = Figure::new(region()).push(disagreeing());
         assert!(plain.key().is_empty());
+    }
+
+    #[test]
+    fn names_on_one_side_stay_there_whether_shown_before_or_after() {
+        // Showing the tips put the names back on both sides, so the side
+        // chosen held only when it was written last.
+        let draw = |track: TanglegramTrack| {
+            Figure::new(region())
+                .show_region_label(false)
+                .push(track)
+                .to_svg()
+        };
+        let before = draw(disagreeing().show_tips(true).labels(TangleLabels::Left));
+        let after = draw(disagreeing().labels(TangleLabels::Left).show_tips(true));
+        assert_eq!(before, after);
+        assert_eq!(after.matches(">A</text>").count(), 1, "{after}");
+        let hidden = draw(disagreeing().labels(TangleLabels::Left).show_tips(false));
+        assert_eq!(hidden.matches(">A</text>").count(), 0, "{hidden}");
     }
 
     #[test]

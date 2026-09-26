@@ -484,17 +484,23 @@ fn dnds_is_direct_diverging_and_projection_independent() {
 }
 
 #[test]
-fn the_last_branch_colour_encoding_wins() {
-    let tree = Tree::parse_newick("(A:1,B:1);").unwrap();
-    let dnds = TreeTrack::new(tree.clone())
+fn a_dnds_colouring_takes_the_branches_whichever_came_first() {
+    // The last of the two won, so the same settings in another order drew
+    // another figure. Both colour the branches, one at a time, and the band
+    // says which was left out.
+    let tree =
+        Tree::parse_annotated_newick("(A[&omega=0.2,country=Peru]:1,B[&omega=3,country=Chile]:1);")
+            .unwrap();
+    let first = TreeTrack::new(tree.clone())
         .color_by("country")
         .dnds("omega");
-    assert!(dnds.color_by.is_none());
-    assert_eq!(dnds.dnds.as_deref(), Some("omega"));
-
-    let categorical = TreeTrack::new(tree).dnds("omega").color_by("country");
-    assert_eq!(categorical.color_by.as_deref(), Some("country"));
-    assert!(categorical.dnds.is_none());
+    let last = TreeTrack::new(tree).dnds("omega").color_by("country");
+    assert_eq!(first.branch_key(), None);
+    assert_eq!(drawn(first.clone()), drawn(last.clone()));
+    assert_eq!(
+        last.warnings(),
+        ["branches coloured by dN/dS (omega), not by country: one colouring at a time"]
+    );
 }
 
 #[test]
@@ -3081,4 +3087,89 @@ fn the_band_keeps_room_for_what_it_says() {
     let second = text_box(&svg, "no branch is coloured: no node carries lineage").expect("a line");
     assert!(ruler.1 < first.1 - first.3, "{ruler:?} {first:?}");
     assert!(first.1 < second.1 - second.3, "{first:?} {second:?}");
+}
+
+#[test]
+fn settings_that_used_to_undo_each_other_draw_one_figure_in_either_order() {
+    // Each pair drew two different figures written one way round and the
+    // other, although the builder's own docs say the order does not matter.
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "((A[&omega=0.2,k=x]:1,B[&omega=3,k=y]:2):1,(C[&omega=1,k=x]:1,D[&k=y]:1):2);",
+        )
+        .unwrap()
+    };
+    type Pair = (
+        &'static str,
+        fn(TreeTrack) -> TreeTrack,
+        fn(TreeTrack) -> TreeTrack,
+    );
+    let pairs: [Pair; 7] = [
+        (
+            "unrooted and a radial start",
+            |t| t.unrooted(),
+            |t| t.radial_start(0.0),
+        ),
+        (
+            "unrooted and a radial sweep",
+            |t| t.unrooted(),
+            |t| t.radial_sweep(200.0),
+        ),
+        (
+            "a rectangle and an inner radius",
+            |t| t.projection(TreeProjection::Rectangular),
+            |t| t.inner_radius(0.3),
+        ),
+        ("a fan and a circle", |t| t.fan(180.0), |t| t.circular()),
+        (
+            "a hidden bar and its unit",
+            |t| t.show_scale_bar(false),
+            |t| t.scale_bar_unit("subs/site"),
+        ),
+        (
+            "a hidden bar and its length",
+            |t| t.show_scale_bar(false),
+            |t| t.scale_bar_length(0.5),
+        ),
+        (
+            "dN/dS and a colour key",
+            |t| t.dnds("omega"),
+            |t| t.color_by("k"),
+        ),
+    ];
+    for (what, one, other) in pairs {
+        let forward = drawn(other(one(TreeTrack::new(tree()))));
+        let backward = drawn(one(other(TreeTrack::new(tree()))));
+        assert_eq!(forward, backward, "{what}");
+    }
+    // And what was chosen by name is what is drawn.
+    let unrooted = TreeTrack::new(tree()).unrooted().radial_start(-90.0);
+    assert_eq!(unrooted.projection, TreeProjection::Unrooted);
+    let alone = TreeTrack::new(tree()).radial_start(-90.0);
+    assert_eq!(alone.projection, TreeProjection::Circular);
+    let fan = TreeTrack::new(tree()).fan(180.0).circular();
+    assert_eq!(fan.radial.sweep_degrees, 180.0);
+    let hidden = drawn(
+        TreeTrack::new(tree())
+            .scale_bar_unit("subs/site")
+            .show_scale_bar(false),
+    );
+    assert!(!hidden.contains("subs/site"), "{hidden}");
+}
+
+#[test]
+fn a_time_axis_that_cannot_be_drawn_leaves_the_scale_bar_its_tree_needs() {
+    // Drawn by branch length because a tip has no date, the tree lost its
+    // time axis and its scale bar with it, so nothing measured its branches.
+    let undated =
+        Tree::parse_annotated_newick("((A[&date=2001]:2,B:4):1,C[&date=2002]:4);").unwrap();
+    let svg = drawn(TreeTrack::new(undated.clone()).time("date"));
+    assert!(svg.contains("drawn by branch length"), "{svg}");
+    assert!(svg.contains("<title>branch length scale "), "{svg}");
+    // A tree its dates do place has its time axis, and no bar.
+    let dated =
+        Tree::parse_annotated_newick("((A[&date=2001]:2,B[&date=2003]:4):1,C[&date=2002]:4);")
+            .unwrap();
+    let timed = drawn(TreeTrack::new(dated).time("date"));
+    assert!(!timed.contains("<title>branch length scale "), "{timed}");
 }

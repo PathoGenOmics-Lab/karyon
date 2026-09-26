@@ -906,6 +906,9 @@ pub struct TreeTrack {
     row_height: f64,
     shape: TreeShape,
     projection: TreeProjection,
+    /// Whether a projection was chosen by name, which a radial setting then
+    /// leaves as it is rather than turning the tree into a circle.
+    projection_chosen: bool,
     branch_geometry: BranchGeometry,
     radial: RadialLayout,
     color: Option<String>,
@@ -943,7 +946,8 @@ pub struct TreeTrack {
     support_threshold: f64,
     branch_labels: Option<String>,
     branch_label_size: f64,
-    scale_bar: Option<ScaleBar>,
+    scale_bar: ScaleBar,
+    show_scale_bar: bool,
     trait_columns: Vec<TraitColumn>,
     node_glyphs: Vec<NodeGlyph>,
     clade_highlights: Vec<CladeHighlight>,
@@ -1026,6 +1030,7 @@ impl TreeTrack {
             row_height: 15.0,
             shape: TreeShape::Phylogram,
             projection: TreeProjection::Rectangular,
+            projection_chosen: false,
             branch_geometry: BranchGeometry::Orthogonal,
             radial: RadialLayout::default(),
             color: None,
@@ -1059,7 +1064,8 @@ impl TreeTrack {
             // On by default: a phylogram's widths are its branch lengths, and
             // with no rule to read them against they measured nothing a
             // reader could name. A tree that is not a phylogram draws none.
-            scale_bar: Some(ScaleBar::default()),
+            scale_bar: ScaleBar::default(),
+            show_scale_bar: true,
             trait_columns: Vec::new(),
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
@@ -1086,9 +1092,22 @@ impl TreeTrack {
     }
 
     /// Chooses rectangular, circular or unrooted coordinates.
+    ///
+    /// A projection chosen here, or with [`TreeTrack::circular`],
+    /// [`TreeTrack::fan`] or [`TreeTrack::unrooted`], is the one drawn,
+    /// whatever radial setting comes before or after it. A radial setting on
+    /// its own draws a circle.
     pub fn projection(mut self, projection: TreeProjection) -> Self {
         self.projection = projection;
+        self.projection_chosen = true;
         self
+    }
+
+    /// The projection a radial setting implies, unless one was chosen.
+    fn imply(&mut self, projection: TreeProjection) {
+        if !self.projection_chosen {
+            self.projection = projection;
+        }
     }
 
     /// Chooses orthogonal, diagonal or curved rectangular branches.
@@ -1099,34 +1118,32 @@ impl TreeTrack {
         self
     }
 
-    /// Draws a complete circular tree radiating outwards by default.
-    pub fn circular(mut self) -> Self {
-        self.projection = TreeProjection::Circular;
-        self.radial.sweep_degrees = 360.0;
-        self
+    /// Draws a circular tree radiating outwards by default: a complete circle,
+    /// unless [`TreeTrack::fan`] or [`TreeTrack::radial_sweep`] asks for less,
+    /// before this or after it.
+    pub fn circular(self) -> Self {
+        self.projection(TreeProjection::Circular)
     }
 
     /// Draws an equal-angle tree around a topology-balanced central node.
     ///
     /// The source root is not used as the centre. Branch lengths are retained
     /// for a phylogram and topology alone is used for a cladogram.
-    pub fn unrooted(mut self) -> Self {
-        self.projection = TreeProjection::Unrooted;
-        self
+    pub fn unrooted(self) -> Self {
+        self.projection(TreeProjection::Unrooted)
     }
 
     /// Draws a circular fan covering `sweep_degrees` clockwise.
     pub fn fan(mut self, sweep_degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
         self.radial.sweep_degrees = finite_within(sweep_degrees, 10.0, 359.0, 240.0);
-        self
+        self.projection(TreeProjection::Circular)
     }
 
     /// Sets the angle where a circular tree begins, in clockwise degrees.
     ///
     /// Zero is three o'clock and -90 is twelve o'clock.
     pub fn radial_start(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         if degrees.is_finite() {
             self.radial.start_degrees = degrees;
         }
@@ -1135,21 +1152,21 @@ impl TreeTrack {
 
     /// Sets the clockwise angular span of a circular tree in degrees.
     pub fn radial_sweep(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.sweep_degrees = finite_within(degrees, 10.0, 360.0, 360.0);
         self
     }
 
     /// Chooses whether tips point away from or towards the centre.
     pub fn radial_direction(mut self, direction: RadialDirection) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.direction = direction;
         self
     }
 
     /// Sets the central gap as a fraction of the tree radius.
     pub fn inner_radius(mut self, fraction: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.inner_radius = finite_within(fraction, 0.0, 0.85, 0.08);
         self
     }
@@ -1167,7 +1184,7 @@ impl TreeTrack {
 
     /// Rotates the first equal-angle sector of an unrooted tree.
     pub fn unrooted_start(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Unrooted;
+        self.imply(TreeProjection::Unrooted);
         if degrees.is_finite() {
             self.radial.start_degrees = degrees;
         }
@@ -1411,10 +1428,19 @@ impl TreeTrack {
     }
 
     /// Colours each incoming branch by one node annotation.
+    ///
+    /// [`TreeTrack::dnds`] colours the branches too, and where both are set
+    /// the dN/dS colouring is drawn, whichever came first, and the band says
+    /// this one was not.
     pub fn color_by(mut self, key: impl Into<String>) -> Self {
         self.color_by = Some(key.into());
-        self.dnds = None;
         self
+    }
+
+    /// The key the branches are coloured by, where one is drawn: a dN/dS
+    /// colouring takes the branches over.
+    fn branch_key(&self) -> Option<&str> {
+        self.color_by.as_deref().filter(|_| self.dnds.is_none())
     }
 
     /// Colours incoming branches by a direct dN/dS (ω) annotation.
@@ -1427,7 +1453,6 @@ impl TreeTrack {
     /// proof of selection by itself.
     pub fn dnds(mut self, key: impl Into<String>) -> Self {
         self.dnds = Some(key.into());
-        self.color_by = None;
         self
     }
 
@@ -1753,19 +1778,17 @@ impl TreeTrack {
     /// Cladograms, explicitly time-scaled trees and trees with no branch
     /// lengths omit it, because their widths do not measure evolutionary
     /// branch length.
-    pub fn scale_bar(mut self) -> Self {
-        self.scale_bar.get_or_insert_with(ScaleBar::default);
-        self
+    pub fn scale_bar(self) -> Self {
+        self.show_scale_bar(true)
     }
 
     /// Draws or removes the branch-length scale bar, which a phylogram
     /// draws by default.
+    ///
+    /// Hidden, it stays hidden whatever length or unit is set for it before
+    /// or after; those used to bring it back.
     pub fn show_scale_bar(mut self, show: bool) -> Self {
-        if show {
-            self.scale_bar.get_or_insert_with(ScaleBar::default);
-        } else {
-            self.scale_bar = None;
-        }
+        self.show_scale_bar = show;
         self
     }
 
@@ -1774,16 +1797,14 @@ impl TreeTrack {
     /// Values longer than the visible tree span are clamped to that span.
     /// Invalid values fall back to automatic sizing.
     pub fn scale_bar_length(mut self, length: f64) -> Self {
-        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
-        bar.length = (length.is_finite() && length > 0.0).then_some(length);
+        self.scale_bar.length = (length.is_finite() && length > 0.0).then_some(length);
         self
     }
 
     /// Adds a unit such as `substitutions/site` to the scale-bar label.
     pub fn scale_bar_unit(mut self, unit: impl Into<String>) -> Self {
-        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
         let unit = unit.into();
-        bar.unit = (!unit.is_empty()).then_some(unit);
+        self.scale_bar.unit = (!unit.is_empty()).then_some(unit);
         self
     }
 
@@ -1957,7 +1978,7 @@ impl TreeTrack {
         let dealing = self.dealing();
         let mut legend = crate::track::legend::Legend::new();
         let mut keyed = Vec::new();
-        if let Some(key) = &self.color_by {
+        if let Some(key) = self.branch_key() {
             let values = rectangular::branch_values(&self.tree, key);
             let scale = if rectangular::is_continuous(&values) {
                 TraitScale::Continuous
@@ -2029,7 +2050,7 @@ impl TreeTrack {
                 .iter()
                 .position(|column| column.key == key && column.scale == TraitScale::Categorical)
         };
-        let branch_key = self.color_by.as_deref().filter(|key| {
+        let branch_key = self.branch_key().filter(|key| {
             covering(key).is_none()
                 && !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key))
         });
@@ -2061,7 +2082,7 @@ impl TreeTrack {
                 first: start(&column.key),
             })
             .collect();
-        let branches = match self.color_by.as_deref() {
+        let branches = match self.branch_key() {
             Some(key) => match covering(key) {
                 Some(index) => columns[index],
                 None => Dealt {
@@ -2082,9 +2103,13 @@ impl TreeTrack {
             .nodes()
             .iter()
             .any(|node| node.branch_length.is_some_and(|length| length > 0.0));
-        self.scale_bar
-            .as_ref()
-            .filter(|_| measured && self.shape == TreeShape::Phylogram && self.time.is_none())
+        // A time axis that cannot be drawn leaves the tree drawn by branch
+        // length, and that drawing is measured by the bar as any other is.
+        let timed = self
+            .time_axis()
+            .is_some_and(|time| self.tree.time_layout(&time.key, time.direction).is_some());
+        (self.show_scale_bar && measured && self.shape == TreeShape::Phylogram && !timed)
+            .then_some(&self.scale_bar)
     }
 
     /// Width the tip names need.
@@ -2158,7 +2183,12 @@ impl TreeTrack {
         let carried = |key: &str| {
             (0..self.tree.nodes().len()).any(|node| self.tree.annotation(node, key).is_some())
         };
-        if let Some(key) = &self.color_by {
+        if let (Some(key), Some(dnds)) = (&self.color_by, &self.dnds) {
+            said.push(format!(
+                "branches coloured by dN/dS ({dnds}), not by {key}: one colouring at a time"
+            ));
+        }
+        if let Some(key) = self.branch_key() {
             if !carried(key) {
                 said.push(format!("no branch is coloured: no node carries {key}"));
             } else {
@@ -2508,7 +2538,7 @@ impl TreeTrack {
             self.row_height,
             &color,
             self.line_width,
-            self.color_by.as_deref(),
+            self.branch_key(),
             self.color_levels(),
             self.dnds_layer().as_ref(),
             self.show_nodes,
