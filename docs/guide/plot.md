@@ -472,7 +472,7 @@ returns a `Result`, and rendering never fails.
 | `plot(locus)`, `Region::parse(locus)` | `Error::InvalidLocus`: no colon, no dash after it, an empty name, a coordinate that is not a whole number, a start of 0, or an end before the start |
 | `Region::new(seq, start, end)` | `Error::EmptyRegion` when `end <= start` |
 | `Genome::checked(sequences)` | `Error::DuplicateSequence` when two sequences share a name |
-| `Tree::parse_newick`, `Tree::parse_annotated_newick`, `Tree::parse_nexus` | `Error::InvalidNewick`, `Error::InvalidNexus` |
+| `Tree::parse`, `Tree::parse_all`, `Tree::parse_newick`, `Tree::parse_annotated_newick`, `Tree::parse_nexus` | `Error::InvalidNewick`, `Error::InvalidNexus` |
 | the readers in `karyon::read` | `ReadError`, with the line number and the reason: see [File formats](formats.md) |
 | `save`, `save_svg` | the `std::io::Error` of the write |
 

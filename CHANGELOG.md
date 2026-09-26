@@ -247,6 +247,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `plot_tree()` starts a plot of phylogenies with no made-up locus to hide and
   no ruler, and `Plot::add_key()` keys every track at the foot of the figure
   in the figure's theme, as the command line does.
+- The phylogenetics guide opens with eight recipes that go from the files a
+  phylogenetic study has to a figure: a tree read with `Tree::parse` and drawn
+  with its support, a sample sheet beside the tips, coloured branches and a
+  folded clade, a circle, an alignment in the order of the tree, two trees face
+  to face and a tree against the years. Each is a whole program that compiles
+  and runs, and the rest of the guide, the recipes and the phylogeny track page
+  use the same calls.
 - The tree viewer's canvas draws a column with more levels than colours as
   shapes, as a figure does, and keys each level by its shape.
 - `--recombination FILE` draws a recombination rate as a line in cM/Mb, from

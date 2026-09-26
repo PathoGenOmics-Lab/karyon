@@ -29,7 +29,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
     ```rust
     use karyon::{plot_tree, Sheet, SupportStyle, Traits, Tree};
 
-    let tree = Tree::parse_annotated_newick(
+    let tree = Tree::parse(
         "((A:0.1,B:0.2)95:0.3,(C:0.2,D:0.1)88:0.2);",
     )?;
     // sample, lineage and host, one row per tip, as the command line reads it
@@ -216,17 +216,17 @@ Two trees over the same taxa, drawn facing each other with every shared tip join
 |:--|:--|
 | Rust | `.add_tanglegram(left, right)` on `plot()`; `TanglegramTrack::new(left, right)` |
 | Command line | `--tanglegram FILE --against FILE`, with `--row-height` |
-| Reads | two Newick files, the left one and the right one (`Tree::parse_annotated_newick`) |
+| Reads | two Newick or NEXUS files, the left one and the right one (`Tree::parse`) |
 
 === "Rust"
 
     ```rust
-    use karyon::{plot, TanglegramTrack, Tree};
+    use karyon::{plot_tree, TanglegramTrack, Tree};
 
-    let core = Tree::parse_annotated_newick(
+    let core = Tree::parse(
         "((A[&ward=ICU]:0.1,B[&ward=ICU]:0.1):0.2,(C[&ward=Ward]:0.1,D[&ward=Ward]:0.1):0.2);",
     )?;
-    let accessory = Tree::parse_annotated_newick(
+    let accessory = Tree::parse(
         "((A[&ward=ICU]:0.1,C[&ward=Ward]:0.1):0.2,(B[&ward=ICU]:0.1,D[&ward=Ward]:0.1):0.2);",
     )?;
 
@@ -236,7 +236,7 @@ Two trees over the same taxa, drawn facing each other with every shared tip join
         .untangle();
     assert!(track.crossings() <= track.initial_crossings());
 
-    plot("taxa:1-4")?.remove_region_label().add_track(track).save("tanglegram.svg")?;
+    plot_tree().add_track(track).save("tanglegram.svg")?;
     ```
 
 === "Command line"
