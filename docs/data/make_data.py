@@ -319,7 +319,15 @@ def write_signal(rng):
     # from level to level as the strand ratchets through the pore, each step
     # a few samples to a few dozen long, with noise on top. Stored raw, and
     # put into picoamperes with each read's digitisation, offset and range.
+    #
+    # And the basecaller's record of each, as Dorado writes it with
+    # --emit-moves: a base for each step, its move table in strides of five
+    # samples with a 1 where a step starts. The bases come from a generator
+    # of their own, so the signals are what they were before there were any.
     digitisation, offset, span = 8192.0, 6.0, 1467.61
+    stride = 5
+    called = random.Random(5)
+    records = []
     with open(path("reads.slow5"), "w") as out:
         out.write("#slow5_version\t0.2.0\n#num_read_groups\t1\n")
         out.write("@run_id\texample\n")
@@ -328,15 +336,26 @@ def write_signal(rng):
                   "\tlen_raw_signal\traw_signal\n")
         for read, samples in (("read_1", 2400), ("read_2", 1800)):
             raw = []
+            starts = []
             level = rng.uniform(80, 100)
             while len(raw) < samples:
                 level = min(125.0, max(65.0, level + rng.gauss(0, 12)))
+                starts.append(len(raw))
                 for _ in range(rng.randint(4, 40)):
                     current = level + rng.gauss(0, 1.8)
                     raw.append(round(current * digitisation / span - offset))
             raw = raw[:samples]
             out.write(f"{read}\t0\t{digitisation:.0f}\t{offset:.0f}\t{span}\t4000"
                       f"\t{samples}\t{','.join(str(value) for value in raw)}\n")
+            begun = {start // stride for start in starts if start < samples}
+            moves = [1 if block in begun else 0 for block in range(samples // stride)]
+            moves[0] = 1
+            seq = "".join(called.choice("ACGT") for _ in range(sum(moves)))
+            records.append(f"{read}\t4\t*\t0\t0\t*\t*\t0\t0\t{seq}\t*\t"
+                           f"mv:B:c,{stride},{','.join(map(str, moves))}\tts:i:0\tns:i:{samples}\n")
+    with open(path("moves.sam"), "w") as out:
+        out.write("@HD\tVN:1.6\tSO:unknown\n@PG\tID:basecaller\tPN:dorado\n")
+        out.writelines(records)
 
 
 def write_depths(rng):
@@ -441,8 +460,8 @@ def write_zip():
              "calls.vcf.gz.tbi", "ref.fa", "gwas.assoc", "tree.nwk", "tree2.nwk",
              "samples.tsv", "aln.fasta", "assemblies.paf", "sampleA.bedgraph",
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
-             "reads.slow5", "depths.tsv", "linkage.ld", "epistasis.tsv", "lead.ld",
-             "genetic_map.txt"]
+             "reads.slow5", "moves.sam", "depths.tsv", "linkage.ld", "epistasis.tsv",
+             "lead.ld", "genetic_map.txt"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))

@@ -136,6 +136,8 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--with-sequence", "ref.fa"),
     ("--with-tree", "t.nwk"),
     ("--ld", "lead.ld"),
+    ("--with-recombination", "map.txt"),
+    ("--with-moves", "calls.sam"),
     ("--links", "l.tsv"),
     ("--identity", "percent"),
     ("--modification", "m"),
@@ -158,6 +160,9 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--focus", "a"),
     ("--compare-to", "r"),
     ("--min-reads", "2"),
+    ("--growth", "0.1"),
+    ("--center", "0"),
+    ("--min-total", "5"),
     ("--row-height", "10"),
     ("--max-rows", "10"),
     ("--aggregate", "max"),
@@ -253,6 +258,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          default, where the table holds posteriors only
 "
         }
+        (Kind::Frequencies, "--threshold") => {
+            "    --threshold <V>      flag a lineage once its frequency reaches this, as
+                         0.5: a triangle in its colour marks each time it does
+"
+        }
         (Kind::Pairs, "--threshold") => {
             "    --threshold <V>      the least value a pair is drawn with, as 0.2 for an r²
 "
@@ -341,8 +351,8 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     out.push_str(
-        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme, --no-axis,\n\
-         --no-region-label, --no-legend, --rename and -o.\n",
+        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme,\n\
+         --background, --no-axis, --no-region-label, --no-legend, --rename and -o.\n",
     );
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
@@ -360,20 +370,21 @@ USAGE
 
 The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
-file named on its own is a track of the kind its name says: BAM and CRAM draw
-their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
+file named on its own is a track of the kind its name says: BAM and CRAM
+draw their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
 bedGraph a signal, FASTA the reference, Newick a tree, PAF synteny, and a
 PLINK or REGENIE table a scan; a .gz is read as the file inside. Each track
 flag starts a track of its own kind, and the flags after a track describe
-that one, so the order of the words is the order of the stack. A coordinate ruler is added at the bottom
-unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
-in the figure is laid on the coordinates: a phylogeny is not, so a stack of
-trees gets no ruler measuring a window it is not drawn in, and a figure made
-only of --tree, --tanglegram and --snps tracks takes no region at all. An
-alignment, a table over time or over the sites of a gene, and a read's signal
-are their own place: named nowhere, the figure is laid over all of it, and
-its ruler counts columns, weeks, sites or samples rather than bases. Any
-track file may be - for standard input, and one track may take it.
+that one, so the order of the words is the order of the stack. A coordinate
+ruler is added under the last track laid on the coordinates unless --axis
+puts one elsewhere or --no-axis leaves it out, and unless nothing in the
+figure is laid on the coordinates: a phylogeny is not, so a stack of trees
+gets no ruler measuring a window it is not drawn in, and a figure made only
+of --tree, --tanglegram and --snps tracks takes no region at all. An
+alignment, a table over time or over the sites of a gene, and a read's
+signal are their own place: named nowhere, the figure is laid over all of
+it, and its ruler counts columns, weeks, sites or samples rather than bases.
+Any track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, samtools depth, values, or
@@ -466,8 +477,17 @@ TRACK OPTIONS, each describing the track before it, once
     --ld <FILE>          the linkage of each variant of a scan with its lead, a
                          PLINK .ld table of the lead against its neighbours:
                          each point is coloured by its r² with the lead, and
-                         the lead is a diamond with its position over it, as
-                         in LocusZoom
+                         the lead is a diamond with its name over it, from
+                         the scan or the table, or its position, as in
+                         LocusZoom
+    --with-recombination <FILE>
+                         a genetic map whose rate is laid over a scan as a
+                         line, read off a scale on the right in cM/Mb, as
+                         LocusZoom draws one
+    --with-moves <FILE>  the basecaller's record of a nanopore read, SAM or
+                         BAM as Dorado writes it with --emit-moves: its move
+                         table puts each base it called over the stretch of
+                         current it was called from
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names
     --identity <UNIT>    percent or fraction, for a homology file whose third
@@ -503,7 +523,9 @@ TRACK OPTIONS, each describing the track before it, once
                          over time it is a dashed reference line, as 1 for a
                          reproductive number; on a selection test, the p-value
                          (0.05 by default) or posterior (0.9) a site needs;
-                         on pairs, the least value a pair is drawn with
+                         on pairs, the least value a pair is drawn with; on
+                         a table of counts, the frequency a lineage is
+                         flagged at
     --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
                          A circle sizes itself so its tip labels clear each
                          other, up to the width of the figure, so a big tree
@@ -532,7 +554,7 @@ TRACK OPTIONS, each describing the track before it, once
                          is one step, which is the shape to read a topology by
     --no-scale-bar       leave out the rule in the tree's own branch-length
                          units, which a phylogram draws by default. It is not
-                         the ruler along the bottom: that one measures the
+                         the coordinate ruler: that one measures the
                          region, and is left out of a figure holding nothing
                          but phylogenies
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named
@@ -560,9 +582,20 @@ TRACK OPTIONS, each describing the track before it, once
                          arrowhead that says which way it ran, and its
                          mismatches stay at full strength
     --relative           read each sample of a heatmap against its own median,
-                         so 1× is its usual value: a sample sequenced deeper
-                         is no longer a darker row from end to end, and a
-                         deletion or a duplication is what stands out
+                         so 1× is its usual value, drawn pale, with a loss in
+                         one hue and a gain in the other: a sample sequenced
+                         deeper is no longer a darker row from end to end, and
+                         a deletion or a duplication is what stands out
+    --growth <RISE>      flag a lineage whose frequency rose by at least this
+                         since the time before, in points of frequency: 0.15
+                         is from 20% to 35%
+    --min-total <N>      the fewest samples a time of a table of counts needs
+                         to be drawn; a time with fewer is a gap in the line
+    --counts             draw a table of counts as counts of samples rather
+                         than as frequencies
+    --center <V>         read a heatmap either side of this value, a loss in
+                         one hue and a gain in the other, as 0 for a log
+                         ratio; --relative reads it either side of 1
     --row-height <PX>    how tall one row is, for the tracks that size
                          themselves by rows rather than by --height; each has
                          a minimum of its own and will not be drawn under it,
@@ -593,6 +626,8 @@ FIGURE OPTIONS
     --title <TEXT>
     --width <PX>         900 by default
     --theme <NAME>       light or dark
+    --background <HEX>   the colour under the figure, as in '#fbfaff', for a
+                         page or a slide of another colour than the theme's
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
     --no-legend          leave out the key to the colours a tree's branches and
@@ -756,13 +791,21 @@ mod tests {
         // `flag @ ("--against" | "--with-tree" | ...) =>`, which binds the
         // spelling for the one mechanism several flags share. Reading only the
         // first shape left the second and third out of this check, and so out
-        // of the list a mistyped flag is matched against.
+        // of the list a mistyped flag is matched against. The third is wrapped
+        // onto a second line, `| "--with-moves") =>`, once it is wider than a
+        // line, and the two lines are read as one.
         let mut flags: Vec<String> = Vec::new();
+        let mut pending = String::new();
         for line in PARSER.lines() {
             let Some(rest) = line.strip_prefix("            ") else {
+                pending.clear();
                 continue;
             };
-            let rest = rest.strip_prefix("flag @ (").unwrap_or(rest);
+            let rest = match rest.strip_prefix("| ") {
+                Some(more) if !pending.is_empty() => format!("{pending} | {more}"),
+                _ => rest.strip_prefix("flag @ (").unwrap_or(rest).to_string(),
+            };
+            pending.clear();
             if !rest.starts_with("\"-") {
                 continue;
             }
@@ -770,6 +813,8 @@ mod tests {
                 continue;
             };
             if arms.len() == rest.len() {
+                // A pattern that goes on on the next line.
+                pending = rest.clone();
                 continue;
             }
             for piece in arms.trim_end_matches(')').split(" | ") {
@@ -850,6 +895,7 @@ mod tests {
             ("--title", "a"),
             ("--width", "500"),
             ("--theme", "dark"),
+            ("--background", "#fbfaff"),
             ("-o", "a.svg"),
         ] {
             let line = format!("chr1:1-10 {flag} {value} {flag} {value}");

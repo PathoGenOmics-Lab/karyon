@@ -27,6 +27,9 @@ together are the dark triangles.
   `--ld-window-r2 0` keeps the weak pairs as well, which a complete triangle
   needs.
 - **Contacts or loops**: BEDPE, as `cooler dump --join` writes a contact map.
+  A `.cool` is drawn with `--pairs <(cooler dump --join -r REGION map.cool)`,
+  and a `.mcool` or a `.hic` named on its own is answered with the steps that
+  write it so.
 - **Anything else**: a table headed `pos1`, `pos2` and a value, its positions
   counted from 1.
 

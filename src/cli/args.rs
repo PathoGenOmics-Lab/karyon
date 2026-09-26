@@ -753,12 +753,18 @@ impl Kind {
 
     /// Whether `--threshold` means anything here: the line a scan is read
     /// against, the least support a phylogeny shows, the reference an
-    /// estimate is read against (a reproductive number of one), and the
-    /// evidence a site needs to count as selected.
+    /// estimate is read against (a reproductive number of one), the evidence
+    /// a site needs to count as selected, and the frequency a lineage is
+    /// flagged at.
     fn takes_threshold(self) -> bool {
         matches!(
             self,
-            Kind::Manhattan | Kind::Tree | Kind::Phylodynamics | Kind::Selection | Kind::Pairs
+            Kind::Manhattan
+                | Kind::Tree
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Pairs
+                | Kind::Frequencies
         )
     }
 
@@ -816,7 +822,10 @@ impl Kind {
             "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
             "bedmethyl" => Kind::Methylation,
             "slow5" => Kind::Squiggle,
-            "ld" | "bedpe" => Kind::Pairs,
+            // A contact map in cooler's or Juicer's own format is not text,
+            // and is named for the track so the answer says how to make it
+            // text for that track.
+            "ld" | "bedpe" | "cool" | "mcool" | "hic" => Kind::Pairs,
             _ => return None,
         })
     }
@@ -918,6 +927,7 @@ impl Kind {
         match self {
             Kind::Pileup => Some("--with-sequence"),
             Kind::Manhattan => Some("--ld"),
+            Kind::Squiggle => Some("--with-moves"),
             Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains => {
                 Some("--with-tree")
             }
@@ -1330,6 +1340,20 @@ pub struct TrackSpec {
     /// `--relative`, which reads each sample of a heatmap against its own
     /// median, so one is its usual value.
     pub relative: bool,
+    /// `--growth`, the rise in frequency from one time to the next that a
+    /// table of counts flags.
+    pub growth: Option<f64>,
+    /// `--min-total`, the fewest samples a time needs for its counts to be
+    /// drawn.
+    pub min_total: Option<u64>,
+    /// `--counts`, which draws a table of counts as counts rather than as
+    /// frequencies.
+    pub counts: bool,
+    /// `--center`, the value a heatmap is read either side of, in two hues.
+    pub center: Option<f64>,
+    /// `--with-recombination`, a genetic map whose rate is laid over a scan,
+    /// read off a scale on the right.
+    pub recombination: Option<Source>,
     /// `--row-height`, for the tracks whose height follows from their rows.
     ///
     /// The complement of [`TrackSpec::height`], and the two never both apply:
@@ -1386,12 +1410,30 @@ impl TrackSpec {
             min_reads: None,
             fade_by_mapq: false,
             relative: false,
+            growth: None,
+            min_total: None,
+            counts: false,
+            center: None,
+            recombination: None,
             ploidy: None,
             sample: None,
             traits: None,
             columns: None,
             guessed: false,
         }
+    }
+
+    /// Every source the track reads: its data, its other file, its sample
+    /// sheet and its recombination rates, where it names them.
+    pub fn sources(&self) -> impl Iterator<Item = &Source> + '_ {
+        [
+            self.source.as_ref(),
+            self.second.as_ref(),
+            self.traits.as_ref(),
+            self.recombination.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
     }
 }
 
@@ -1448,6 +1490,9 @@ pub struct Invocation {
     pub width: Option<f64>,
     /// `--theme`.
     pub theme: Palette,
+    /// `--background`: the colour under the figure, as `#rrggbb`, where the
+    /// theme's own is not the colour of the page or the slide it goes on.
+    pub background: Option<String>,
     /// Cleared by `--no-axis`.
     pub axis: bool,
     /// Cleared by `--no-region-label`.
@@ -1466,6 +1511,37 @@ pub struct Invocation {
     /// `--rename FROM=TO`: a sequence a file calls `FROM` is the figure's
     /// `TO`, as PLINK's `1` is the FASTA's `NC_000962.3`.
     pub renames: Vec<(String, String)>,
+}
+
+impl Invocation {
+    /// The files the command line names, each once, in the order it names
+    /// them: what a caller with no disk has to hold before it can draw.
+    ///
+    /// ```
+    /// use karyon::cli::args::{parse, Request};
+    ///
+    /// let argv = ["rpoB", "reads.bam", "genes.gff3", "--pileup", "reads.bam"].map(String::from);
+    /// let Request::Draw(invocation) = parse(&argv).unwrap() else {
+    ///     unreachable!("a command line that draws")
+    /// };
+    /// let files: Vec<String> = invocation
+    ///     .files()
+    ///     .iter()
+    ///     .map(|path| path.display().to_string())
+    ///     .collect();
+    /// assert_eq!(files, ["reads.bam", "genes.gff3"]);
+    /// ```
+    pub fn files(&self) -> Vec<&std::path::Path> {
+        let mut files: Vec<&std::path::Path> = Vec::new();
+        for source in self.tracks.iter().flat_map(TrackSpec::sources) {
+            if let Source::Path(path) = source {
+                if !files.contains(&path.as_path()) {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1548,6 +1624,10 @@ pub const FLAGS: &[&str] = &[
     "--min-reads",
     "--fade-by-mapq",
     "--relative",
+    "--growth",
+    "--min-total",
+    "--counts",
+    "--center",
     "--row-height",
     "--height",
     "--aggregate",
@@ -1559,6 +1639,8 @@ pub const FLAGS: &[&str] = &[
     "--links",
     "--with-sequence",
     "--ld",
+    "--with-recombination",
+    "--with-moves",
     "--modification",
     "--context",
     "--analysis",
@@ -1568,6 +1650,7 @@ pub const FLAGS: &[&str] = &[
     "--title",
     "--width",
     "--theme",
+    "--background",
     "--no-axis",
     "--no-region-label",
     "--no-legend",
@@ -1860,6 +1943,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut title = None;
     let mut width = None;
     let mut theme = Palette::Light;
+    let mut background = None;
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
@@ -2074,6 +2158,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                             }
                             Kind::Selection => "a p-value, as in 0.05, or a posterior, as in 0.9",
                             Kind::Pairs => "the least value a pair is drawn with, as in 0.2",
+                            Kind::Frequencies => "the frequency a lineage is flagged at, as in 0.5",
                             _ => "a support value on a phylogeny, as in 0.7",
                         },
                     });
@@ -2091,7 +2176,112 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                                    above nought and at most one",
                     });
                 }
+                // A frequency is a share of the samples, and an alert above
+                // one or at nought flags every lineage or none.
+                if track.kind == Kind::Frequencies
+                    && !matches!(value, Threshold::At(at) if at > 0.0 && at <= 1.0)
+                {
+                    return Err(ArgError::BadValue {
+                        flag: "--threshold",
+                        given: text.clone(),
+                        expected: "the frequency a lineage is flagged at, as in 0.5, \
+                                   above nought and at most one",
+                    });
+                }
                 track.threshold = Some(value);
+            }
+            "--growth" => {
+                let text = value("--growth")?;
+                let rise = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|rise| rise.is_finite() && *rise > 0.0 && *rise <= 1.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--growth",
+                        given: text.clone(),
+                        expected: "a rise in frequency from one time to the next, as in \
+                                   0.15, above nought and at most one",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--growth")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--growth",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.growth = Some(rise);
+            }
+            "--min-total" => {
+                let text = value("--min-total")?;
+                let floor = text
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|floor| *floor > 0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--min-total",
+                        given: text.clone(),
+                        expected: "a whole number of samples, 1 or more",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--min-total")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--min-total",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.min_total = Some(floor);
+            }
+            "--with-recombination" => {
+                let word = value("--with-recombination")?;
+                // Checked before the track is borrowed, as the other files a
+                // track names are: a pipe can be read once.
+                let stdin = word == "-";
+                if stdin && stdin_taken(&tracks) {
+                    return Err(ArgError::StdinTwice);
+                }
+                let source = if stdin {
+                    Source::Stdin
+                } else {
+                    Source::Path(PathBuf::from(word))
+                };
+                let track = once(&mut tracks, &mut given, "--with-recombination")?;
+                if track.kind != Kind::Manhattan {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--with-recombination",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.recombination = Some(source);
+            }
+            "--center" => {
+                let text = value("--center")?;
+                let center = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|center| center.is_finite())
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--center",
+                        given: text.clone(),
+                        expected: "the value read as neither side, as in 0 for a log ratio",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--center")?;
+                if track.kind != Kind::Heatmap {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--center",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.center = Some(center);
+            }
+            "--counts" => {
+                let track = last(&mut tracks, "--counts")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--counts",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.counts = true;
             }
             "--max-rows" => {
                 let text = value("--max-rows")?;
@@ -2499,7 +2689,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld"
+            | "--with-moves") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
@@ -2508,6 +2699,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     "--links" => "--links",
                     "--with-sequence" => "--with-sequence",
                     "--ld" => "--ld",
+                    "--with-moves" => "--with-moves",
                     _ => "--against",
                 };
                 let word = value(flag)?;
@@ -2675,6 +2867,23 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     }
                 };
             }
+            "--background" => {
+                figure_once(&mut given, "--background")?;
+                let text = value("--background")?;
+                // As `#rrggbb` and no other spelling, since the shades a
+                // figure mixes from its ground, as the pill behind the locus,
+                // are worked out from those six digits and would stay mixed
+                // from the theme's own under any other.
+                let hex = text.strip_prefix('#').unwrap_or_default();
+                if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(ArgError::BadValue {
+                        flag: "--background",
+                        given: text.clone(),
+                        expected: "a colour as #rrggbb, as in '#fbfaff'",
+                    });
+                }
+                background = Some(text.clone());
+            }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
@@ -2793,6 +3002,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         title,
         width,
         theme,
+        background,
         axis,
         region_label,
         output,
@@ -2850,8 +3060,8 @@ fn written_as_a_locus(word: &str) -> bool {
 fn stdin_taken(tracks: &[TrackSpec]) -> bool {
     tracks
         .iter()
-        .flat_map(|t| [t.source.as_ref(), t.second.as_ref(), t.traits.as_ref()])
-        .any(|source| matches!(source, Some(Source::Stdin)))
+        .flat_map(TrackSpec::sources)
+        .any(|source| matches!(source, Source::Stdin))
 }
 
 /// The format a file name promises when it is one karyon does not write.
@@ -2948,11 +3158,61 @@ mod tests {
         }
     }
 
+    /// Every file a command line names is one a caller with no disk has to
+    /// hold: a track's own, its second, its sheet and its rates, once each,
+    /// and standard input is not a file.
+    #[test]
+    fn a_command_line_lists_the_files_it_reads() {
+        let files = |line: &str| -> Vec<String> {
+            draw(line)
+                .files()
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect()
+        };
+        assert_eq!(
+            files("--msa aln.fa --with-tree t.nwk --traits s.tsv"),
+            ["aln.fa", "t.nwk", "s.tsv"]
+        );
+        assert_eq!(
+            files("1 gwas.assoc --ld lead.ld --with-recombination map.txt"),
+            ["gwas.assoc", "lead.ld", "map.txt"]
+        );
+        assert_eq!(
+            files("chr1:1-100 --coverage - --features genes.gff3 --variants genes.gff3"),
+            ["genes.gff3"]
+        );
+    }
+
     /// The options the new tracks take, each refused by name where it means
     /// nothing, and each value refused where the track cannot use it.
     #[test]
     fn the_new_tracks_take_their_own_options_and_no_others() {
         let refused = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        // A table of counts takes its alerts, its floor and its metric.
+        let counted =
+            draw("--frequencies f.tsv --threshold 0.5 --growth 0.15 --min-total 20 --counts");
+        let spec = &counted.tracks[0];
+        assert_eq!(spec.threshold, Some(Threshold::At(0.5)));
+        assert_eq!(
+            (spec.growth, spec.min_total, spec.counts),
+            (Some(0.15), Some(20), true)
+        );
+        assert!(refused("--frequencies f.tsv --threshold 2").contains("at most one"));
+        assert!(refused("--frequencies f.tsv --threshold genome-wide").contains("flagged at"));
+        assert!(refused("--frequencies f.tsv --growth 0").contains("above nought"));
+        assert!(refused("--frequencies f.tsv --min-total 0").contains("1 or more"));
+        assert_eq!(
+            draw("chr1:1-9 --heatmap d.tsv --center 0").tracks[0].center,
+            Some(0.0)
+        );
+        assert!(refused("chr1:1-9 --heatmap d.tsv --center nan").contains("neither side"));
+        for flag in ["--growth 0.1", "--min-total 5", "--counts", "--center 0"] {
+            assert!(
+                refused(&format!("chr1:1-9 --coverage d.bg {flag}")).contains("coverage track"),
+                "{flag}"
+            );
+        }
         // Their own place: no region needed.
         for flag in [
             "--frequencies",
@@ -2982,6 +3242,16 @@ mod tests {
         assert!(refused("chr1:1-9 --coverage d.bg --relative").contains("--relative"));
         assert!(draw("chr1:1-9 --heatmap d.tsv --relative").tracks[0].relative);
         assert!(refused("chr1:1-9 --coverage d.bg --ld l.ld").contains("--ld"));
+        assert!(
+            draw("chr1:1-9 --manhattan g.assoc --with-recombination m.txt").tracks[0]
+                .recombination
+                .is_some()
+        );
+        assert!(
+            refused("chr1:1-9 --coverage d.bg --with-recombination m.txt")
+                .contains("coverage track")
+        );
+        assert!(refused("chr1:1-9 --manhattan - --with-recombination -").contains("standard input"));
         assert!(draw("chr1:1-9 --manhattan g.assoc --ld l.ld").tracks[0]
             .second
             .is_some());
