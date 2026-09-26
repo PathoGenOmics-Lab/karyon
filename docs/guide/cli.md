@@ -251,7 +251,7 @@ takes.
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
 | `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--recombination`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
-| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair |
+| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn; `--frequencies`, as the frequency a lineage is flagged at | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair; no lineage flagged |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
@@ -266,6 +266,10 @@ takes.
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | 5 behind a methylation site; 1 across a junction |
 | `--fade-by-mapq` | nothing | `--pileup` | every read at full strength |
 | `--relative` | nothing | `--heatmap` | the values as they are |
+| `--center <V>` | a number, as in `0` for a log ratio | `--heatmap` | one hue from nought up; `1` with `--relative` |
+| `--growth <RISE>` | a rise in frequency from one time to the next, above 0 and at most 1, as in `0.15` | `--frequencies` | no rise flagged |
+| `--min-total <N>` | a whole number of samples from 1 | `--frequencies` | every time drawn |
+| `--counts` | nothing | `--frequencies` | frequencies |
 | `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four; no cap on a tree |
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
@@ -578,6 +582,11 @@ take it:
 $ karyon NC_000962.3:761,000-763,000 --coverage - --variants -
 karyon: only one track can read from standard input
 ```
+
+A pipe is read once and kept, so what comes through one is read as a file
+would be: an alignment, a table over time or over the sites of a gene, and a
+read's signal are their own place from standard input too, and a table whose
+times have fractions is read as a continuous time.
 
 The readers drop blank lines, `#` comment and header lines, and SAM `@`
 headers, so a tool's output pipes in as it comes, with nothing to strip first.

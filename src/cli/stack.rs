@@ -351,11 +351,14 @@ impl fmt::Display for BuildError {
                     "--{track} {path}: {binary}; write <({command}) where its name is, \
                      or turn it into text first"
                 ),
-                None => write!(
-                    f,
-                    "--{track} {path}: {binary}; pipe it through the tool that writes \
-                     it as text first"
-                ),
+                None => match binary.advice() {
+                    Some(advice) => write!(f, "--{track} {path}: {binary}; {advice}"),
+                    None => write!(
+                        f,
+                        "--{track} {path}: {binary}; pipe it through the tool that writes \
+                         it as text first"
+                    ),
+                },
             },
             BuildError::NotAPValue { track, path, given } => write!(
                 f,
@@ -488,6 +491,8 @@ pub fn build_files(
     files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
+    let mut kept = KeptStdin { files, stdin: None };
+    let files: &mut dyn Files = &mut kept;
     // A figure of phylogenies and variable-site panels names no region, and
     // none of its tracks asks the window anything. The figure still wants
     // one to lay its width out over, so it is given one that nothing prints:
@@ -1276,26 +1281,7 @@ fn own_place(
             continue;
         };
         // Read twice, here for its extent and then for its rows, which a
-        // pipe cannot be.
-        if matches!(source, Source::Stdin) {
-            let (what, example, needed) = match spec.kind {
-                Kind::Msa | Kind::Logo => ("an alignment", "aln:1-1,000", "its width"),
-                Kind::Selection => ("a table of sites", "site:1-300", "its first and last sites"),
-                Kind::Squiggle => ("a signal", "sample:1-4,000", "its length"),
-                _ => ("a table of times", "week:1-52", "its first and last times"),
-            };
-            return Err(BuildError::Open {
-                track: name,
-                path: called(source),
-                cause: io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "{what} read from standard input needs a place, as {example}, \
-                         since a pipe can be read only once and {needed} is needed first"
-                    ),
-                ),
-            });
-        }
+        // pipe can be only because `build_files` keeps what it gave.
         let (text, path) = fetch(name, source, files)?;
         let (unit, start, end) = match spec.kind {
             Kind::Msa | Kind::Logo => {
@@ -1430,10 +1416,7 @@ fn time_decimals(invocation: &Invocation, files: &mut dyn Files) -> u32 {
         .tracks
         .iter()
         .filter(|spec| matches!(spec.kind, Kind::Frequencies | Kind::Phylodynamics))
-        .filter_map(|spec| match &spec.source {
-            Some(source @ Source::Path(_)) => Some(source),
-            _ => None,
-        })
+        .filter_map(|spec| spec.source.as_ref())
         .any(|source| {
             files
                 .text(source)
@@ -1636,14 +1619,64 @@ impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
     }
 }
 
+/// The files a figure is drawn from, with what standard input held kept once
+/// it is read.
+///
+/// A figure reads some sources twice: an alignment, a table over time or a
+/// signal for its extent and then for its rows, and every table of times to
+/// see whether any of them has fractions. A pipe can be read once, so what it
+/// gave is kept here, whatever the files underneath keep, and a table piped in
+/// is its own place as it is from a file. It was refused, and a table with
+/// fractions piped into a figure of whole units was refused too.
+struct KeptStdin<'a> {
+    files: &'a mut dyn Files,
+    stdin: Option<String>,
+}
+
+impl Files for KeptStdin<'_> {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        if !matches!(source, Source::Stdin) {
+            return self.files.text(source);
+        }
+        if let Some(text) = &self.stdin {
+            return Ok(text.clone());
+        }
+        let text = self.files.text(source)?;
+        self.stdin = Some(text.clone());
+        Ok(text)
+    }
+
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        self.files.depth(source, region)
+    }
+
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        self.files.reads(source, region)
+    }
+
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        self.files.sequences(source)
+    }
+
+    fn note(&mut self, message: &str) {
+        self.files.note(message);
+    }
+}
+
 /// The files a command line names, read from disk.
 ///
 /// Text is read whole, and compressed text is taken out of its wrapper, by
 /// [`open_from_disk`]. A BAM is read a window at a time, through the `.bai`
 /// beside it where there is one, so a figure of one gene reads the blocks that
-/// gene is in. Every source is read once and kept, since placing a figure by a
-/// gene's name reads the annotation before the track does, and standard input
-/// cannot be read twice.
+/// gene is in.
+///
+/// A pipe the shell named, as `<(zcat genes.gff3.gz)`, cannot be read twice,
+/// so it is kept once read, since placing a figure by a gene's name reads the
+/// annotation before the track does. Standard input is read once and kept by
+/// [`build_files`], which every figure is drawn through. A file on disk is
+/// read again instead: kept, every file was held twice while its track was
+/// built, once here and once in the text handed out, and a depth file of
+/// 176 MB took 435 MB to draw where it now takes 259.
 #[derive(Debug, Default)]
 pub struct Disk {
     kept: std::collections::HashMap<Source, String>,
@@ -1682,7 +1715,11 @@ impl Files for Disk {
             return Ok(text.clone());
         }
         let text = open_from_disk(source)?;
-        self.kept.insert(source.clone(), text.clone());
+        if let Source::Path(path) = source {
+            if !fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
+                self.kept.insert(source.clone(), text.clone());
+            }
+        }
         Ok(text)
     }
 
@@ -1764,6 +1801,13 @@ pub enum Binary {
     BigBed,
     /// UCSC's 2bit.
     TwoBit,
+    /// HDF5, as cooler writes a contact map at one resolution, a `.cool`.
+    Cool,
+    /// HDF5, as cooler writes a contact map at several resolutions, a
+    /// `.mcool`, which is one by its bytes and the other by its name.
+    Mcool,
+    /// Juicer's `.hic`.
+    Hic,
 }
 
 impl Binary {
@@ -1804,8 +1848,33 @@ impl Binary {
             Binary::BigBed
         } else if either([0x43, 0x27, 0x41, 0x1a]) {
             Binary::TwoBit
+        } else if magic(b"\x89HDF\r\n\x1a\n") {
+            if named("mcool") {
+                Binary::Mcool
+            } else {
+                Binary::Cool
+            }
+        } else if magic(b"HIC\0") {
+            Binary::Hic
         } else {
             return None;
+        })
+    }
+
+    /// What to do with a file no single command turns into text, where there
+    /// is more to say than to pipe it through the tool that writes it.
+    fn advice(self) -> Option<&'static str> {
+        Some(match self {
+            Binary::Mcool => {
+                "cooler ls lists its resolutions, and cooler dump --join -r REGION \
+                 FILE::/resolutions/N writes one of them as the BEDPE --pairs reads"
+            }
+            Binary::Hic => {
+                "hic2cool convert FILE.hic FILE.cool -r N writes one resolution as a .cool, \
+                 and cooler dump --join -r REGION FILE.cool writes that as the BEDPE --pairs \
+                 reads"
+            }
+            _ => return None,
         })
     }
 
@@ -1822,12 +1891,16 @@ impl Binary {
             Binary::BigWig => "bigWig",
             Binary::BigBed => "bigBed",
             Binary::TwoBit => "2bit",
+            Binary::Cool => "a contact map in cooler's HDF5",
+            Binary::Mcool => "a contact map at several resolutions in cooler's HDF5",
+            Binary::Hic => "a contact map in Juicer's .hic",
         }
     }
 
     /// The command that writes the text a `kind` track reads out of `path`,
-    /// cut to the window where the tool can do that.
-    fn reader(self, kind: Kind, path: &str, region: Option<&Region>) -> String {
+    /// cut to the window where the tool can do that, or `None` for a format
+    /// no one command turns into text, which [`Binary::advice`] speaks for.
+    fn reader(self, kind: Kind, path: &str, region: Option<&Region>) -> Option<String> {
         let window = region.map(|region| region.to_string());
         let near = |region: &Region| {
             format!(
@@ -1837,7 +1910,7 @@ impl Binary {
                 region.end()
             )
         };
-        match self {
+        Some(match self {
             Binary::Gzip => format!("gzip -dc {path}"),
             Binary::Bzip2 => format!("bzip2 -dc {path}"),
             Binary::Xz => format!("xz -dc {path}"),
@@ -1861,7 +1934,12 @@ impl Binary {
                 Some(region) => format!("twoBitToFa -seq={} {path} /dev/stdout", region.seq()),
                 None => format!("twoBitToFa {path} /dev/stdout"),
             },
-        }
+            Binary::Cool => match window {
+                Some(window) => format!("cooler dump --join -r {window} {path}"),
+                None => format!("cooler dump --join {path}"),
+            },
+            Binary::Mcool | Binary::Hic => return None,
+        })
     }
 }
 
@@ -1959,7 +2037,8 @@ fn explained(
                 Some(binary) => {
                     // A pipe has no name to write a command in place of.
                     let instead = matches!(spec.source, Some(Source::Path(_)))
-                        .then(|| binary.reader(spec.kind, &path, region));
+                        .then(|| binary.reader(spec.kind, &path, region))
+                        .flatten();
                     BuildError::NotText {
                         track,
                         path,
@@ -3368,6 +3447,15 @@ fn track(
             if spec.relative {
                 track = track.unit("×");
             }
+            // A depth read against its sample's usual one is read either side
+            // of one: a loss in one hue and a gain in the other, and the usual
+            // depth pale, where one hue made a deletion as pale as the page.
+            if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
+                track = track.scale(crate::CellScale::Diverging {
+                    center,
+                    spread: None,
+                });
+            }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }
@@ -3411,11 +3499,22 @@ fn track(
             Box::new(named(track, label, PileupTrack::label))
         }
         Kind::Frequencies => {
-            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
             let (counts, _) = wrap(name, &path, read::series::counts(&text, context.decimals))?;
             let mut track = SurveillanceTrack::new(counts).time_decimals(context.decimals);
             if let Some(style) = spec.style.and_then(Style::frequencies) {
                 track = track.style(style);
+            }
+            if spec.counts {
+                track = track.metric(crate::SurveillanceMetric::Count);
+            }
+            if let Some(floor) = spec.min_total {
+                track = track.minimum_total(floor);
+            }
+            if let Some(alert) = spec.threshold.map(Threshold::drawn) {
+                track = track.frequency_alert(alert);
+            }
+            if let Some(rise) = spec.growth {
+                track = track.growth_alert(rise);
             }
             if let Some(height) = height {
                 track = track.height(height);
@@ -3423,7 +3522,6 @@ fn track(
             Box::new(named(track, label, SurveillanceTrack::label))
         }
         Kind::Phylodynamics => {
-            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
             let (points, _) = wrap(
                 name,
                 &path,
@@ -3541,33 +3639,6 @@ fn lead_linkage(
         .collect();
     linkage.push((lead, 1.0));
     Some((lead, linkage))
-}
-
-/// Refuses a table on standard input whose times have fractions in a figure
-/// of whole units: the figure settles its units by looking at every table's
-/// times before it draws any, and a pipe is not looked at twice.
-fn refuse_unseen_fractions(
-    spec: &TrackSpec,
-    name: &'static str,
-    path: &str,
-    text: &str,
-    decimals: u32,
-) -> Result<(), BuildError> {
-    if decimals == 0
-        && matches!(spec.source, Some(Source::Stdin))
-        && read::series::fractional_times(text)
-    {
-        return Err(BuildError::Parse {
-            track: name,
-            path: path.to_string(),
-            cause: read::ReadError::whole(
-                "times with fractions of a unit are read from a file, not from standard \
-                 input: the figure looks at every table's times before it draws any, and \
-                 a pipe is read once",
-            ),
-        });
-    }
-    Ok(())
 }
 
 /// Wraps a reader error with the flag and the file that produced it.
@@ -3938,6 +4009,22 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
         fs::write(&path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// A file on disk is read again rather than kept, so it is not held twice
+    /// while its track is built. What cannot be read again, a pipe or a
+    /// device, is kept once read.
+    #[test]
+    fn a_file_on_disk_is_read_again_and_a_pipe_is_kept() {
+        let path = written("again.bed", "chr1\t0\t10\n");
+        let mut disk = Disk::default();
+        let file = Source::Path(path.clone().into());
+        assert_eq!(disk.text(&file).unwrap(), "chr1\t0\t10\n");
+        assert!(disk.kept.is_empty(), "a file on disk was kept");
+        fs::remove_file(&path).unwrap();
+        let device = Source::Path("/dev/null".into());
+        assert_eq!(disk.text(&device).unwrap(), "");
+        assert!(disk.kept.contains_key(&device), "a device was not kept");
     }
 
     /// A dynseq draws letters from a reference, and the reference has to be the
@@ -5147,6 +5234,11 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             of(&[0x43, 0x27, 0x41, 0x1a], "g.2bit"),
             Some(Binary::TwoBit)
         );
+        // cooler's HDF5, one resolution or several by the name, and Juicer's.
+        let hdf5 = b"\x89HDF\r\n\x1a\n\0\0";
+        assert_eq!(of(hdf5, "contacts.cool"), Some(Binary::Cool));
+        assert_eq!(of(hdf5, "contacts.mcool"), Some(Binary::Mcool));
+        assert_eq!(of(b"HIC\0\x08\0\0\0", "contacts.hic"), Some(Binary::Hic));
         // Text that is not UTF-8 is not a format.
         assert_eq!(of(&[b'c', b'h', b'r', 0xff], "a.bed"), None);
     }
@@ -5187,6 +5279,22 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 "chr1:1-5000 --coverage depth.bw",
                 Binary::BigWig,
                 "<(bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout)",
+            ),
+            (
+                "chr1:1-5000 contacts.cool",
+                Binary::Cool,
+                "<(cooler dump --join -r chr1:1-5000 contacts.cool)",
+            ),
+            // No one command: the resolution has to be picked first.
+            (
+                "chr1:1-5000 contacts.mcool",
+                Binary::Mcool,
+                "cooler ls lists its resolutions",
+            ),
+            (
+                "chr1:1-5000 --pairs contacts.hic",
+                Binary::Hic,
+                "hic2cool convert FILE.hic FILE.cool -r N",
             ),
         ] {
             let error = build(&line(command), |_| {
@@ -5434,6 +5542,48 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         })
     }
 
+    /// Standard input as a pipe gives it: once, and nothing the second time.
+    struct Piped {
+        text: Option<String>,
+        files: Vec<(String, String)>,
+    }
+
+    impl Files for Piped {
+        fn text(&mut self, source: &Source) -> io::Result<String> {
+            match source {
+                Source::Stdin => self
+                    .text
+                    .take()
+                    .ok_or_else(|| io::Error::other("standard input was read twice")),
+                Source::Path(path) => {
+                    let path = path.to_string_lossy();
+                    self.files
+                        .iter()
+                        .find(|(name, _)| *name == path)
+                        .map(|(_, text)| text.clone())
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_string()))
+                }
+            }
+        }
+    }
+
+    /// The figure `line` draws with `piped` on standard input and `held` as
+    /// its files.
+    fn drawn_piped(line: &str, piped: &str, held: &[(&str, &str)]) -> Result<String, BuildError> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let mut files = Piped {
+            text: Some(piped.to_string()),
+            files: held
+                .iter()
+                .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+                .collect(),
+        };
+        build_files(&invocation, &mut files, |_, _| None)
+    }
+
     /// Files held in memory, and what the figure told whoever drew it.
     struct Held {
         files: Vec<(String, String)>,
@@ -5559,21 +5709,41 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         // The same as naming the columns by hand.
         let (named, _) = drawn_noting("aln.fa:1-8 --msa aln.fa", &held);
         assert_eq!(svg, named.unwrap());
-        // A pipe can be read once, and the width is needed before the rows.
-        let args: Vec<String> = "--msa -".split_whitespace().map(String::from).collect();
-        let Request::Draw(invocation) = parse(&args).unwrap() else {
-            unreachable!("a figure")
-        };
-        let mut files = Held {
-            files: Vec::new(),
-            notes: Vec::new(),
-        };
-        let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
-        assert!(error.to_string().contains("needs a place"), "{error}");
+        // A pipe is read once, and its width is needed before its rows, so
+        // the figure keeps what it read.
+        let piped = drawn_piped("--msa -", ALIGNMENT, &[]).unwrap();
+        assert_eq!(rows_drawn(&piped), ["one", "two", "three", "four"]);
+        assert!(piped.contains(":1-8"), "the columns as the place");
     }
 
     const COUNTS: &str = "week\tlineage\tcount\ttotal\n1\tA\t9\t10\n1\tB\t1\t10\n\
                           2\tA\t6\t10\n2\tB\t4\t10\n3\tA\t2\t12\n3\tB\t10\t12\n";
+
+    /// A table of counts takes its alerts, its sampling floor and its metric
+    /// from the command line.
+    #[test]
+    fn a_table_of_counts_takes_its_alerts_floor_and_metric() {
+        let held = [("f.tsv", COUNTS)];
+        let (svg, _) = drawn_noting(
+            "--frequencies f.tsv --style line --threshold 0.8 --growth 0.3",
+            &held,
+        );
+        let svg = svg.unwrap();
+        assert!(svg.contains(">≥ 80% or up 30 points</text>"), "{svg}");
+        assert!(svg.contains("frequency alert &gt;= 0.8"), "{svg}");
+        let (counted, _) = drawn_noting("--frequencies f.tsv --counts", &held);
+        let counted = counted.unwrap();
+        assert!(!counted.contains(">100%</text>"), "{counted}");
+        assert!(
+            counted.contains(">12</text>"),
+            "a ceiling of twelve samples"
+        );
+        // Weeks one and two had ten samples each and week three twelve.
+        let (floored, _) = drawn_noting("--frequencies f.tsv --min-total 11", &held);
+        let floored = floored.unwrap();
+        assert!(!floored.contains("A | time 1 |"), "{floored}");
+        assert!(floored.contains("A | time 3 |"), "{floored}");
+    }
 
     /// A table over time is its own place, as an alignment is, and the ruler
     /// under it counts its weeks: week 1 is printed 1, not 0 and not `1 bp`.
@@ -5622,26 +5792,23 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(!mixed.unwrap().contains(">week</text>"));
     }
 
-    /// Each of the four reads a table from standard input only where a place
-    /// is named, since its extent is needed before its rows.
+    /// A table of its own place read from a pipe is drawn over its own extent,
+    /// as it is from a file, though that extent is read before its rows: the
+    /// figure is the same one.
     #[test]
-    fn a_table_of_its_own_place_from_a_pipe_needs_a_place() {
-        for (flag, example) in [
-            ("--frequencies", "week:1-52"),
-            ("--phylodynamics", "week:1-52"),
-            ("--selection", "site:1-300"),
-            ("--squiggle", "sample:1-4,000"),
+    fn a_table_of_its_own_place_from_a_pipe_is_its_own_place() {
+        let skyline = "week\tmean\tlower\tupper\n2\t1.2\t0.9\t1.5\n5\t0.8\t0.6\t1.1\n";
+        let fel = "site,alpha,beta,p-value\n1,1.0,0.2,0.8\n2,0.5,3.0,0.01\n";
+        let signal = "90\n95\n120\n118\n101\n";
+        for (flag, table) in [
+            ("--frequencies", COUNTS),
+            ("--phylodynamics", skyline),
+            ("--selection", fel),
+            ("--squiggle", signal),
         ] {
-            let args = vec![flag.to_string(), "-".to_string()];
-            let Request::Draw(invocation) = parse(&args).unwrap() else {
-                unreachable!("a figure")
-            };
-            let mut files = Held {
-                files: Vec::new(),
-                notes: Vec::new(),
-            };
-            let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
-            assert!(error.to_string().contains(example), "{flag}: {error}");
+            let piped = drawn_piped(&format!("{flag} - --label x"), table, &[]).unwrap();
+            let (named, _) = drawn_noting(&format!("{flag} t.tsv --label x"), &[("t.tsv", table)]);
+            assert_eq!(piped, named.unwrap(), "{flag}");
         }
     }
 
@@ -5729,24 +5896,15 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         );
     }
 
-    /// A table with fractions on standard input, in a figure that settled on
-    /// whole units without seeing it, says why rather than reading its
-    /// fractions away.
+    /// A table with fractions on standard input is a continuous time as it is
+    /// from a file: the figure reads every table's times before it draws any,
+    /// and keeps what the pipe gave.
     #[test]
-    fn fractions_on_standard_input_are_refused_with_the_reason() {
-        let piped = TrackSpec::new(Kind::Phylodynamics, Some(Source::Stdin));
-        let table = "year\tmean\n2010.5\t3\n";
-        let error = refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 0).unwrap_err();
-        assert!(error.to_string().contains("from a file"), "{error}");
-        // Whole units, a file, or a figure already reading fractions: no
-        // refusal.
-        assert!(
-            refuse_unseen_fractions(&piped, "phylodynamics", "-", "year\tmean\n2010\t3\n", 0)
-                .is_ok()
-        );
-        assert!(refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 3).is_ok());
-        let named = TrackSpec::new(Kind::Phylodynamics, Some(Source::Path("t.tsv".into())));
-        assert!(refuse_unseen_fractions(&named, "phylodynamics", "t.tsv", table, 0).is_ok());
+    fn fractions_on_standard_input_are_a_continuous_time() {
+        let skyline = "year\tmedian\tlower\tupper\n2010.25\t100\t50\t200\n\
+                       2012.5\t400\t300\t600\n2015.75\t900\t700\t1200\n";
+        let piped = drawn_piped("--phylodynamics -", skyline, &[]).unwrap();
+        assert!(piped.contains("<title>time 2010.25 |"), "{piped}");
     }
 
     /// A genetic map is drawn as a line of its rates, named on its own by the
@@ -5785,9 +5943,29 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let (relative, _) = drawn_noting("c1:1-300 --heatmap d.tsv --relative", &held);
         let relative = relative.unwrap();
         // deep: 100, 100, 200 over a median of 100; shallow: 20, 0, 20 over 20.
+        // Read either side of its usual depth: the loss in one hue, the gain
+        // in the other, and the key writes the middle between them.
         assert!(
-            relative.contains(">2×</text>") && relative.contains(">0×</text>"),
+            relative.contains(">2×</text>")
+                && relative.contains(">1×</text>")
+                && relative.contains(">0×</text>"),
             "{relative}"
+        );
+        let theme = Theme::light();
+        for hue in [theme.color(0), theme.color(1)] {
+            assert!(
+                relative.contains(&format!("fill=\"{hue}\"")),
+                "no cell in {hue}"
+            );
+        }
+        // A centre of its own, as for a log ratio, and a long table.
+        let ratios = "c1\t0\t100\tS1\t-1\nc1\t100\t200\tS1\t0\nc1\t200\t300\tS1\t2\n";
+        let (centred, _) =
+            drawn_noting("c1:1-300 --heatmap r.tsv --center 0", &[("r.tsv", ratios)]);
+        let centred = centred.unwrap();
+        assert!(
+            centred.contains(">-1</text>") && centred.contains(">2</text>"),
+            "{centred}"
         );
     }
 

@@ -276,8 +276,8 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | | |
 |:--|:--|
 | Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)`, and `MatrixTrack::windows(windows, rows)` for a column per window |
-| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` after `--heatmap` |
-| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample (`read::table::windows`). An empty cell, `.` or `NA` is missing |
+| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` and `--center` after `--heatmap` |
+| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample, or in the long form, a sample and its value to a row (`read::table::windows`). An empty cell, `.` or `NA` is missing |
 
 === "Rust"
 
@@ -317,7 +317,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.label("genotypes")` | Names the track in the left gutter (`--label`) | none |
 | `.row_height(14.0)` | Height of one row (`--row-height`) | `11` |
 | `.row_gap(2.0)` | Gap between rows, in the page colour | `1` |
-| `.scale(CellScale::Categorical)` | How a value becomes a colour: a one-hue `Sequential` ramp, or `Categorical` palette indices | `Sequential { max: None, hue: None }` |
+| `.scale(CellScale::Categorical)` | How a value becomes a colour: a one-hue `Sequential` ramp, `Categorical` palette indices, or `Diverging { center, spread }`, two hues either side of a centre (`--center`, and `--relative` about 1) | `Sequential { max: None, hue: None }` |
 | `.missing_color("#bdbdbd")` | Colour of a missing cell | from the theme |
 | `.min_cell_width(4.0)` | Narrowest a cell is drawn, in pixels | `3` |
 | `.show_row_names(false)` | Shows or hides sample names (`--no-names`) | shown |
@@ -334,6 +334,8 @@ Three things must look different: a sample that does not carry the allele, a sam
 A cell's width is a floor, `min_cell_width`, so it says nothing about how much sequence it covers. A matrix of windows is the other kind: `MatrixTrack::windows` takes a 0-based, half-open span for each column, and each cell covers exactly its window, as the depth of forty samples in windows of 100 kb does on the command line with `--heatmap`. There `--relative` divides each sample by its own median first, so 1× is its usual value and a sample sequenced deeper is not a darker row from end to end.
 
 A sequential ramp is keyed under the figure, from nought to the value it saturates at, which is how a reader learns how deep a dark cell is.
+
+A quantity with a middle that means something is `Diverging`: the centre is drawn pale, in neither hue, a value below it in the theme's first colour and one above it in the second, as a [CopyNumberTrack](#copynumbertrack) draws a loss and a gain. With no `spread`, each side is at full strength at its own furthest value, so depths from nothing to three times the usual run from a full loss at 0× to a full gain at 3×, and the key writes the centre between the two halves of its strip, since the ends are not the same distance from it. `--relative` reads the depths this way about 1×, where one hue drew a lost stretch nearly as pale as the page.
 
 `tree` sorts the rows by descent, which is what turns a speckle into rectangles; rows the tree does not name stay at the bottom. Cells never merge, and that is the refusal: six carriers drawn as six cells are six observations, and one rectangle covering a clade is a different claim, made by a [CladeTrack](phylogeny.md#cladetrack).
 

@@ -48,6 +48,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and gains a twenty-third panel for `PairTrack`, which had none: linkage
   between variants as a triangle under their gene.
 
+- `--relative` draws a heatmap either side of 1×, a loss in the theme's first
+  colour and a gain in its second, with the usual depth pale, where one hue
+  drew a lost stretch nearly as pale as the page. The page figures of the
+  heatmap change.
+- A surveillance alert is a triangle in its lineage's colour, and a chip
+  after the lineages' own says what the triangles flag, as `≥ 50% or up 15
+  points`. Every alert was drawn in the second lineage's colour, with nothing
+  to say what it was. `example-evolutionary-surveillance.svg` changes.
+- A file on disk is read again when a figure needs it twice, rather than kept:
+  kept, every file was held twice while its track was built, and a 176 MB
+  depth file took 435 MB to draw where it now takes 259. A pipe the shell
+  names is kept, as it cannot be read again.
+- `LegendItem::Ramp` has a `through` field, the colour and the number a scale
+  with a middle passes through; a match on it by its fields needs `..`.
+
 - The playground's controls sit under the figure rather than at the foot of
   its pane, where a short figure left them a pane's height below what they
   change. The command box wraps and grows with the command, since a control
@@ -229,6 +244,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--frequencies` takes `--threshold` as the frequency a lineage is flagged
+  at, `--growth` for a rise in points of frequency from one time to the next,
+  `--min-total` for the fewest samples a time needs, and `--counts` to draw
+  counts of samples rather than frequencies.
+- `CellScale::Diverging` draws a matrix either side of a centre, each side at
+  full strength at its own furthest value unless a spread is given, and
+  `--center` sets the centre of a heatmap, as 0 for a log ratio.
+  `Legend::diverging` keys it, with the centre written between two halves.
+- A table of windows in the long form, a sequence, a start, an end, a sample
+  and its value to a row, is read by `--heatmap` as the wide one is
+  (`read::table::long_windows`).
+- A table of its own place, an alignment, a table over time or over the sites
+  of a gene, or a signal, is drawn from standard input without a region, and
+  a table with fractional times from standard input is read as a continuous
+  time: the figure keeps what the pipe gave, whatever `Files` it is drawn
+  through. Both were refused.
+- A contact map as cooler or Juicer writes it, a `.cool`, `.mcool` or `.hic`,
+  is recognised and answered with how to write it as the BEDPE `--pairs`
+  reads: the `cooler dump` command for a `.cool`, and the steps that pick a
+  resolution first for the other two.
 - `--recombination FILE` draws a recombination rate as a line in cM/Mb, from
   a genetic map as HapMap or the imputation panels write one, or from a
   bedGraph of rates; a file whose name holds `genetic_map` is one when named

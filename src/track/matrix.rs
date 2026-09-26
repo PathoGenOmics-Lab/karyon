@@ -39,6 +39,25 @@ use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, Tre
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
+/// How far below and above what it is read against a matrix's values reach:
+/// nought and a ceiling for a sequential ramp, and either side of the centre
+/// for a diverging one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Extent {
+    below: f64,
+    above: f64,
+}
+
+impl Extent {
+    /// A sequential ramp from nought to `ceiling`.
+    fn up_to(ceiling: f64) -> Self {
+        Extent {
+            below: 0.0,
+            above: ceiling,
+        }
+    }
+}
+
 /// How far off the page the bottom of a sequential ramp sits.
 ///
 /// Enough to see a cell, not enough to read it as a value.
@@ -65,6 +84,22 @@ pub enum CellScale {
     /// For genotypes and other labels, where the numbers name things rather
     /// than measure them and a ramp would imply an order they do not have.
     Categorical,
+    /// Two hues either side of a centre, which is drawn in neither.
+    ///
+    /// For a quantity with a middle that means something: a depth read
+    /// against a sample's usual one, around one, or a log ratio around
+    /// nought. Below the centre is the first colour of the theme and above it
+    /// the second, as a copy number track draws a loss and a gain, so the two
+    /// directions are told apart by hue and not only by shade.
+    Diverging {
+        /// The value drawn pale, which is neither side.
+        center: f64,
+        /// How far from the centre a cell is at full strength, the same on
+        /// both sides. `None` saturates each side at its own furthest value,
+        /// so a table of depths from nothing to three times the usual one
+        /// runs from a full loss at nought to a full gain at three.
+        spread: Option<f64>,
+    },
 }
 
 impl Default for CellScale {
@@ -344,10 +379,59 @@ impl MatrixTrack {
             })
     }
 
+    /// How far below and above its centre a diverging scale reaches, each
+    /// side at least a little, so a side nothing reaches draws nothing at
+    /// full strength.
+    fn reach(&self, center: f64, spread: Option<f64>) -> (f64, f64) {
+        if let Some(spread) = spread.filter(|spread| spread.is_finite() && *spread > 0.0) {
+            return (spread, spread);
+        }
+        let values = self
+            .rows
+            .iter()
+            .flat_map(|row| row.values.iter())
+            .copied()
+            .filter(|v| v.is_finite());
+        let (low, high) = values.fold((0.0f64, 0.0f64), |(low, high), value| {
+            (low.max(center - value), high.max(value - center))
+        });
+        let floor = f64::EPSILON * center.abs().max(1.0);
+        (low.max(floor), high.max(floor))
+    }
+
+    /// The colour a diverging scale draws its centre in: off the page, as
+    /// the foot of a sequential ramp is, and in neither hue.
+    fn centre_color(theme: &Theme) -> String {
+        mix(theme.surface(), &theme.rule, ZERO_TINT * 2.0)
+    }
+
+    /// What a cell's value is measured against, worked out once for the
+    /// whole matrix rather than once a cell: the top of a sequential ramp,
+    /// or how far a diverging scale reaches below and above its centre.
+    fn extent(&self) -> Extent {
+        match &self.scale {
+            CellScale::Sequential { max: Some(max), .. } => Extent::up_to(*max),
+            CellScale::Diverging { center, spread } => {
+                let (below, above) = self.reach(*center, *spread);
+                Extent { below, above }
+            }
+            _ => Extent::up_to(self.value_ceiling().unwrap_or(1.0)),
+        }
+    }
+
     /// Colour of one cell.
-    fn cell_color(&self, value: f64, ceiling: f64, theme: &Theme) -> String {
+    fn cell_color(&self, value: f64, extent: Extent, theme: &Theme) -> String {
+        let ceiling = extent.above;
         match &self.scale {
             CellScale::Categorical => theme.color(value.max(0.0).round() as usize).to_string(),
+            CellScale::Diverging { center, .. } => {
+                let (hue, fraction) = if value < *center {
+                    (theme.color(0), (*center - value) / extent.below)
+                } else {
+                    (theme.color(1), (value - *center) / extent.above)
+                };
+                mix(&Self::centre_color(theme), hue, fraction.clamp(0.0, 1.0))
+            }
             CellScale::Sequential { hue, .. } => {
                 let hue = hue.clone().unwrap_or_else(|| theme.accent.clone());
                 let fraction = if ceiling > 0.0 {
@@ -395,6 +479,19 @@ impl Track for MatrixTrack {
         _px_per_bp: f64,
         theme: &Theme,
     ) -> Option<crate::track::legend::Legend> {
+        if let CellScale::Diverging { center, spread } = &self.scale {
+            let (below, above) = self.reach(*center, *spread);
+            let written = |value: f64| format!("{}{}", text_rounded(value, 2), self.unit);
+            return Some(crate::track::legend::Legend::new().diverging(
+                self.label.clone().unwrap_or_else(|| "value".to_string()),
+                theme.color(0),
+                Self::centre_color(theme),
+                theme.color(1),
+                written(center - below),
+                written(*center),
+                written(center + above),
+            ));
+        }
         let CellScale::Sequential { max, hue } = &self.scale else {
             return None;
         };
@@ -435,10 +532,7 @@ impl Track for MatrixTrack {
         // stepped over scaled would put the last row past the bottom of it.
         let head = ctx.px(self.traits.heading_height());
         let strip = self.traits.strip_width();
-        let ceiling = match &self.scale {
-            CellScale::Sequential { max: Some(max), .. } => *max,
-            _ => self.value_ceiling().unwrap_or(1.0),
-        };
+        let extent = self.extent();
         let missing = self
             .missing_color
             .clone()
@@ -514,7 +608,7 @@ impl Track for MatrixTrack {
                     }
                 };
                 let color = match row.value(column) {
-                    Some(value) => self.cell_color(value, ceiling, ctx.theme),
+                    Some(value) => self.cell_color(value, extent, ctx.theme),
                     None => missing.clone(),
                 };
                 ctx.svg.rect(x, top, width, cell_height, &color);
@@ -707,29 +801,97 @@ mod tests {
             max: Some(1.0),
             hue: Some("#000000".to_string()),
         });
-        assert_eq!(track.cell_color(1.0, 1.0, &theme), "#000000");
+        assert_eq!(track.cell_color(1.0, Extent::up_to(1.0), &theme), "#000000");
         // A zero cell is visible as a cell: "does not have it" must not look
         // like "was not typed", which in turn must not look like blank page.
-        let zero = track.cell_color(0.0, 1.0, &theme);
+        let zero = track.cell_color(0.0, Extent::up_to(1.0), &theme);
         assert_ne!(zero, theme.background);
         // But it is still nearly the page, not a value in its own right.
         assert_eq!(zero, "#e6e6e6");
         // Halfway is halfway, not one end or the other.
-        let middle = track.cell_color(0.5, 1.0, &theme);
+        let middle = track.cell_color(0.5, Extent::up_to(1.0), &theme);
         assert_ne!(middle, zero);
         assert_ne!(middle, "#000000");
+    }
+
+    /// A diverging scale draws its centre in neither hue, a value below it in
+    /// the first colour of the theme and one above it in the second, each
+    /// side at full strength at its own furthest value.
+    #[test]
+    fn a_diverging_scale_has_two_hues_and_a_pale_centre() {
+        let theme = Theme::light();
+        let track = MatrixTrack::new(
+            vec![100u64, 200, 300],
+            vec![MatrixRow::new("S1", vec![0.0, 1.0, 3.0])],
+        )
+        .unit("×")
+        .scale(CellScale::Diverging {
+            center: 1.0,
+            spread: None,
+        });
+        let extent = track.extent();
+        assert_eq!((extent.below, extent.above), (1.0, 2.0), "two slopes");
+        assert_eq!(track.cell_color(0.0, extent, &theme), theme.color(0));
+        assert_eq!(track.cell_color(3.0, extent, &theme), theme.color(1));
+        let centre = MatrixTrack::centre_color(&theme);
+        assert_eq!(track.cell_color(1.0, extent, &theme), centre);
+        assert_ne!(
+            centre,
+            theme.surface(),
+            "the centre is a cell, not the page"
+        );
+        // Halfway up is halfway to the second hue, and not the first.
+        let half = track.cell_color(2.0, extent, &theme);
+        assert_eq!(half, mix(&centre, theme.color(1), 0.5));
+        // The key says where the middle is, since the two ends are not the
+        // same distance from it.
+        let key = track
+            .key(&Region::new("chr1", 0, 400).unwrap(), 1.0, &theme)
+            .unwrap();
+        let [crate::track::legend::LegendItem::Ramp {
+            low, high, through, ..
+        }] = key.items()
+        else {
+            panic!("one ramp: {:?}", key.items());
+        };
+        assert_eq!((low.as_str(), high.as_str()), ("0×", "3×"));
+        assert_eq!(through.as_ref().map(|(_, at)| at.as_str()), Some("1×"));
+        // A spread given is the same on both sides.
+        let even = track.clone().scale(CellScale::Diverging {
+            center: 1.0,
+            spread: Some(4.0),
+        });
+        assert_eq!(
+            even.extent(),
+            Extent {
+                below: 4.0,
+                above: 4.0
+            }
+        );
     }
 
     #[test]
     fn a_categorical_scale_indexes_the_palette() {
         let theme = Theme::light();
         let track = matrix().scale(CellScale::Categorical);
-        assert_eq!(track.cell_color(0.0, 1.0, &theme), theme.color(0));
-        assert_eq!(track.cell_color(2.0, 1.0, &theme), theme.color(2));
+        assert_eq!(
+            track.cell_color(0.0, Extent::up_to(1.0), &theme),
+            theme.color(0)
+        );
+        assert_eq!(
+            track.cell_color(2.0, Extent::up_to(1.0), &theme),
+            theme.color(2)
+        );
         // A value between two categories rounds to one of them.
-        assert_eq!(track.cell_color(1.9, 1.0, &theme), theme.color(2));
+        assert_eq!(
+            track.cell_color(1.9, Extent::up_to(1.0), &theme),
+            theme.color(2)
+        );
         // And a negative one cannot index out of the palette.
-        assert_eq!(track.cell_color(-5.0, 1.0, &theme), theme.color(0));
+        assert_eq!(
+            track.cell_color(-5.0, Extent::up_to(1.0), &theme),
+            theme.color(0)
+        );
     }
 
     #[test]

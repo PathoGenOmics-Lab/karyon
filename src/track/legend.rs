@@ -92,6 +92,10 @@ pub enum LegendItem {
         low: String,
         /// Number under the high end.
         high: String,
+        /// A colour the scale passes through on its way, and the number
+        /// written there, for a scale with a middle: two hues either side of
+        /// a centre that is neither. `None` for a scale of one hue.
+        through: Option<(String, String)>,
     },
 }
 
@@ -202,6 +206,35 @@ impl Legend {
             to: to.into(),
             low: low.into(),
             high: high.into(),
+            through: None,
+        });
+        self
+    }
+
+    /// Adds a scale with a middle: `from` at the low end, `middle` at the
+    /// centre, which is written between the two halves of the strip, and
+    /// `to` at the high end.
+    ///
+    /// For a quantity read either side of a value that is neither, as a
+    /// depth against a sample's usual one or a log ratio against nought.
+    #[allow(clippy::too_many_arguments)]
+    pub fn diverging(
+        mut self,
+        label: impl Into<String>,
+        from: impl Into<String>,
+        middle: impl Into<String>,
+        to: impl Into<String>,
+        low: impl Into<String>,
+        centre: impl Into<String>,
+        high: impl Into<String>,
+    ) -> Self {
+        self.items.push(LegendItem::Ramp {
+            label: label.into(),
+            from: from.into(),
+            to: to.into(),
+            low: low.into(),
+            high: high.into(),
+            through: Some((middle.into(), centre.into())),
         });
         self
     }
@@ -249,13 +282,21 @@ impl Legend {
         match item {
             LegendItem::Key { label, .. } => self.swatch + 5.0 + text_width(label, font),
             LegendItem::Ramp {
-                label, low, high, ..
+                label,
+                low,
+                high,
+                through,
+                ..
             } => {
+                let middle = through
+                    .as_ref()
+                    .map_or(0.0, |(_, centre)| text_width(centre, font) + 6.0);
                 text_width(label, font)
                     + 5.0
                     + text_width(low, font)
                     + 3.0
                     + RAMP_WIDTH
+                    + middle
                     + 3.0
                     + text_width(high, font)
             }
@@ -394,26 +435,40 @@ impl Legend {
                         to,
                         low,
                         high,
+                        through,
                     } => {
                         let mut cursor = at;
                         svg.text(cursor, baseline, label, &theme.muted, font, Anchor::Start);
                         cursor += text_width(label, font) + 5.0;
                         svg.text(cursor, baseline, low, &theme.muted, font, Anchor::Start);
                         cursor += text_width(low, font) + 3.0;
-                        // Steps rather than a gradient, so the output stays to
-                        // elements every renderer draws the same way.
-                        let step = RAMP_WIDTH / RAMP_STEPS as f64;
-                        for index in 0..RAMP_STEPS {
-                            let t = index as f64 / (RAMP_STEPS - 1) as f64;
-                            svg.rect(
-                                cursor + index as f64 * step,
-                                middle - self.swatch / 2.0,
-                                step + 0.5,
-                                self.swatch,
-                                &mix(from, to, t),
-                            );
+                        let top = middle - self.swatch / 2.0;
+                        match through {
+                            // Two halves with the centre written between them,
+                            // so a scale whose ends are not the same distance
+                            // from its middle says where the middle is.
+                            Some((colour, centre)) => {
+                                let half = (RAMP_WIDTH / 2.0, self.swatch);
+                                strip(svg, (cursor, top), half, RAMP_STEPS / 2, from, colour);
+                                cursor += RAMP_WIDTH / 2.0 + 3.0;
+                                svg.text(
+                                    cursor,
+                                    baseline,
+                                    centre,
+                                    &theme.muted,
+                                    font,
+                                    Anchor::Start,
+                                );
+                                cursor += text_width(centre, font) + 3.0;
+                                strip(svg, (cursor, top), half, RAMP_STEPS / 2, colour, to);
+                                cursor += RAMP_WIDTH / 2.0 + 3.0;
+                            }
+                            None => {
+                                let whole = (RAMP_WIDTH, self.swatch);
+                                strip(svg, (cursor, top), whole, RAMP_STEPS, from, to);
+                                cursor += RAMP_WIDTH + 3.0;
+                            }
                         }
-                        cursor += RAMP_WIDTH + 3.0;
                         svg.text(cursor, baseline, high, &theme.muted, font, Anchor::Start);
                     }
                 }
@@ -446,6 +501,32 @@ fn item_title(item: &LegendItem) -> String {
             }
         }
         LegendItem::Ramp { .. } => String::new(),
+    }
+}
+
+/// The coloured strip of a ramp, from `from` to `to` in `steps` steps across
+/// `size`, with its top left at `at`.
+///
+/// Steps rather than a gradient, so the output stays to elements every
+/// renderer draws the same way.
+fn strip(
+    svg: &mut SvgWriter,
+    at: (f64, f64),
+    size: (f64, f64),
+    steps: usize,
+    from: &str,
+    to: &str,
+) {
+    let step = size.0 / steps as f64;
+    for index in 0..steps {
+        let t = index as f64 / (steps - 1).max(1) as f64;
+        svg.rect(
+            at.0 + index as f64 * step,
+            at.1,
+            step + 0.5,
+            size.1,
+            &mix(from, to, t),
+        );
     }
 }
 
@@ -537,6 +618,33 @@ mod tests {
             .key("resistant", "#d55e00")
             .dot("susceptible", "#0072b2")
             .line("mean depth", "#009e73")
+    }
+
+    /// A scale with a middle is drawn as two halves with the centre written
+    /// between them, and one without as a single strip, as it was.
+    #[test]
+    fn a_diverging_ramp_writes_its_centre_between_two_halves() {
+        let draw = |legend: Legend| {
+            Figure::new(region())
+                .show_region_label(false)
+                .push(LegendTrack::new(legend))
+                .to_svg()
+        };
+        let plain = draw(Legend::new().ramp("depth", "#ffffff", "#000000", "0", "9"));
+        let middle = draw(
+            Legend::new().diverging("depth", "#0000ff", "#eeeeee", "#ff0000", "0×", "1×", "3×"),
+        );
+        let steps = |svg: &str| svg.matches("<rect").count();
+        assert_eq!(
+            steps(&middle),
+            steps(&plain),
+            "two halves of half the steps"
+        );
+        assert!(middle.contains(">1×</text>"), "{middle}");
+        assert!(
+            middle.contains("fill=\"#eeeeee\""),
+            "through the centre colour"
+        );
     }
 
     #[test]
