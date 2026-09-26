@@ -208,15 +208,17 @@ A few things about track flags are worth knowing before they surprise you:
 
 Each option describes the track before it. An option given to a track that has
 no use for it is refused by name rather than ignored, as in
-`--aggregate means nothing to a features track`. The one exception is
-`--label`, which every track takes.
+`--aggregate means nothing to a features track`, and where an earlier file
+takes it, the refusal names that file: `it is an option of reads.bam, so write
+it right after reads.bam`. The one exception is `--label`, which every track
+takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
-| `--with-tree <FILE>` | a Newick file, or `-` | `--clades` | required |
+| `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
 | `--modification <CODE>` | `m`, `h`, `a` or another modkit code | `--methylation` | the one code in the file; refused when it holds several |
@@ -639,7 +641,7 @@ The command line is checked before any file is opened:
 
 ```text
 $ karyon --coverage depth.bedgraph
-karyon: the first argument is the region, as in NC_000962.3:761,000-763,000; only a figure of --tree, --tanglegram and --snps tracks goes without one
+karyon: the first argument is the region, as in NC_000962.3:761,000-763,000; only a figure of --tree, --tanglegram, --snps, --msa and --logo tracks goes without one
 
 $ karyon NC_000962.3:0-1000 --coverage depth.bedgraph
 karyon: invalid locus "NC_000962.3:0-1000": 1-based coordinates start at 1, not 0
@@ -664,6 +666,9 @@ karyon: --style does not take "steps", only area, line or bars for a coverage tr
 
 $ karyon NC_000962.3:761,000-763,000 --features genes.gff3 --aggregate min
 karyon: --aggregate means nothing to a features track
+
+$ karyon NC_000962.3:761,000-763,000 depth.bedgraph genes.gff3 --aggregate min
+karyon: --aggregate means nothing to a features track; it is an option of depth.bedgraph, so write it right after depth.bedgraph
 
 $ karyon chr8:1-1000 --copy-number segments.cns
 karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
