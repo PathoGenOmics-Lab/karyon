@@ -103,12 +103,13 @@ self.karyon = self.karyon || (function () {
 
   var LOCUS = /^(.+):([\d,]+)-([\d,]+)$/;
 
-  // The four flags that stand on their own. Every other flag takes the word
+  // The flags that stand on their own. Every other flag takes the word
   // after it, and that word is not the region however much it looks like one:
   // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
   // drag then rewrote the label and left the figure where it was.
   var ALONE = ["--axis", "--fade-by-mapq", "--log", "--no-axis", "--no-counts",
-               "--no-names", "--no-region-label"];
+               "--no-legend", "--no-names", "--no-region-label", "--no-scale-bar",
+               "--relative"];
 
   // The flags that open a track. Everything between one of these and the next
   // describes that track, which is what makes a command a stack rather than a
@@ -130,7 +131,8 @@ self.karyon = self.karyon || (function () {
   // way the help text and `Kind::ALL` are already held together.
   var TRACKS = [
     "--coverage", "--copy-number", "--dynseq", "--junctions", "--sequence",
-    "--features", "--variants", "--windows", "--manhattan", "--tree",
+    "--features", "--variants", "--windows", "--manhattan", "--recombination",
+    "--tree",
     "--msa", "--snps", "--ideogram", "--matrix", "--heatmap", "--pileup",
     "--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram",
     "--clades", "--loci", "--methylation", "--structural", "--pairs",

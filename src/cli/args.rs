@@ -27,7 +27,7 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Twenty-eight of the crate's thirty-six track types are what the command
+//! Thirty-three of the crate's thirty-seven track types are what the command
 //! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -363,6 +363,9 @@ pub enum Kind {
     Windows,
     /// Association statistics from a table.
     Manhattan,
+    /// Recombination rates along a chromosome, from a genetic map or a
+    /// bedGraph of rates.
+    Recombination,
     /// A phylogeny from Newick.
     Tree,
     /// An alignment from aligned FASTA.
@@ -429,7 +432,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 34] = [
+    pub const ALL: [Kind; 35] = [
         Kind::Coverage,
         Kind::CopyNumber,
         Kind::Dynseq,
@@ -439,6 +442,7 @@ impl Kind {
         Kind::Variants,
         Kind::Windows,
         Kind::Manhattan,
+        Kind::Recombination,
         Kind::Tree,
         Kind::Msa,
         Kind::Snps,
@@ -478,6 +482,7 @@ impl Kind {
             Kind::Variants => "variants",
             Kind::Windows => "windows",
             Kind::Manhattan => "manhattan",
+            Kind::Recombination => "recombination",
             Kind::Tree => "tree",
             Kind::Msa => "msa",
             Kind::Snps => "snps",
@@ -524,6 +529,7 @@ impl Kind {
             Kind::Variants => "--variants",
             Kind::Windows => "--windows",
             Kind::Manhattan => "--manhattan",
+            Kind::Recombination => "--recombination",
             Kind::Tree => "--tree",
             Kind::Msa => "--msa",
             Kind::Snps => "--snps",
@@ -779,6 +785,11 @@ impl Kind {
         if file.contains("cytoband") {
             return Some(Kind::Ideogram);
         }
+        // The maps HapMap and the imputation panels ship are named for what
+        // they are, and end in .txt, which says nothing.
+        if file.contains("genetic_map") {
+            return Some(Kind::Recombination);
+        }
         for ending in [
             ".assoc.linear",
             ".assoc.logistic",
@@ -857,6 +868,7 @@ impl Kind {
                 | Kind::Variants
                 | Kind::Windows
                 | Kind::Manhattan
+                | Kind::Recombination
                 | Kind::Ideogram
                 | Kind::Synteny
                 | Kind::Dotplot
@@ -933,6 +945,7 @@ impl Kind {
             | Kind::Variants
             | Kind::Windows
             | Kind::Manhattan
+            | Kind::Recombination
             | Kind::Tree
             | Kind::Msa
             | Kind::Snps
@@ -984,6 +997,7 @@ impl Kind {
             | Kind::Variants
             | Kind::Windows
             | Kind::Manhattan
+            | Kind::Recombination
             | Kind::Tree
             | Kind::Msa
             | Kind::Snps
@@ -1486,6 +1500,7 @@ pub const FLAGS: &[&str] = &[
     "--variants",
     "--windows",
     "--manhattan",
+    "--recombination",
     "--tree",
     "--msa",
     "--snps",
@@ -1870,6 +1885,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--variants" => Some((Kind::Variants, true)),
             "--windows" => Some((Kind::Windows, true)),
             "--manhattan" => Some((Kind::Manhattan, true)),
+            "--recombination" => Some((Kind::Recombination, true)),
             "--tree" => Some((Kind::Tree, true)),
             "--msa" => Some((Kind::Msa, true)),
             "--snps" => Some((Kind::Snps, true)),
@@ -2474,6 +2490,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         | Kind::Phylodynamics
                         | Kind::Squiggle
                         | Kind::Pairs
+                        | Kind::Recombination
                 ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--color",

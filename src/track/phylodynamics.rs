@@ -79,6 +79,7 @@ pub struct PhylodynamicTrack {
     reference: Option<(f64, String)>,
     show_points: bool,
     show_interval: bool,
+    time_decimals: u32,
 }
 
 impl PhylodynamicTrack {
@@ -94,7 +95,19 @@ impl PhylodynamicTrack {
             reference: None,
             show_points: true,
             show_interval: true,
+            time_decimals: 0,
         }
+    }
+
+    /// Writes each time in the tooltips as a continuous time kept to
+    /// `decimals` places, as a ruler told [`AxisTrack::decimals`] writes it:
+    /// a skyline in decimal years says 2015.25. At nought, which is where it
+    /// starts, a time is a whole unit counted from one.
+    ///
+    /// [`AxisTrack::decimals`]: crate::AxisTrack::decimals
+    pub fn time_decimals(mut self, decimals: u32) -> Self {
+        self.time_decimals = decimals.min(9);
+        self
     }
 
     /// Sets the text shown in the left gutter.
@@ -493,7 +506,8 @@ impl Track for PhylodynamicTrack {
         for (point, estimate) in points {
             let x = ctx.scale.x_center(point.time);
             let y = y_of(estimate);
-            ctx.svg.begin_titled(&point_title(point, &self.unit));
+            ctx.svg
+                .begin_titled(&point_title(point, &self.unit, self.time_decimals));
             if self.show_points {
                 ctx.svg.circle_ringed(
                     x,
@@ -620,7 +634,7 @@ fn widened(bound: f64, padding: f64) -> f64 {
     }
 }
 
-fn point_title(point: &PhylodynamicPoint, unit: &str) -> String {
+fn point_title(point: &PhylodynamicPoint, unit: &str, decimals: u32) -> String {
     let suffix = if unit.is_empty() {
         String::new()
     } else {
@@ -628,7 +642,10 @@ fn point_title(point: &PhylodynamicPoint, unit: &str) -> String {
     };
     let mut parts = vec![
         // As the ruler under it writes it, as a surveillance panel does.
-        format!("time {}", point.time.saturating_add(1)),
+        format!(
+            "time {}",
+            crate::track::axis::time_text(point.time, decimals)
+        ),
         format!("estimate {}{}", text_rounded(point.estimate, 6), suffix),
     ];
     if let Some((lower, upper)) = point.bounds() {

@@ -400,9 +400,10 @@ def write_epistasis():
 
 def write_lead_linkage(rng):
     # The linkage of every marker within 100 kb of the scan's strongest with
-    # it, as PLINK's --r2 --ld-snp writes it, and a recombination map of the
-    # same stretch in windows of 5 kb. A marker is linked in proportion to how
-    # much of the signal it carries, as markers in partial linkage are.
+    # it, as PLINK's --r2 --ld-snp writes it, and a genetic map of the same
+    # stretch every 5 kb, as HapMap writes one. A marker is linked in
+    # proportion to how much of the signal it carries, as markers in partial
+    # linkage are.
     import math
     rows = []
     with open(path("gwas.assoc")) as held:
@@ -420,12 +421,16 @@ def write_lead_linkage(rng):
             carried = min(1.0, max(0.0, -math.log10(p) / top))
             r2 = carried ** 0.7 * rng.uniform(0.85, 1.0)
             out.write(f"     1 {lead:>12} {lead_name:>12}      1 {bp:>12} {name:>12} {r2:>12.4f} \n")
-    with open(path("recombination.bedgraph"), "w") as out:
+    with open(path("genetic_map.txt"), "w") as out:
+        out.write("Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n")
+        distance = 0.0
         for start in range(lead - 150_000, lead + 150_000, 5_000):
             rate = 0.4 + rng.uniform(0, 0.6)
             for hotspot, height in ((lead - 62_000, 38.0), (lead + 47_000, 55.0)):
                 rate += height * math.exp(-((start - hotspot) / 6_000) ** 2)
-            out.write(f"1\t{start}\t{start + 5_000}\t{rate:.2f}\n")
+            rate = round(rate, 2)
+            out.write(f"1\t{start + 1}\t{rate:.2f}\t{distance:.6f}\n")
+            distance += rate * 5_000 / 1e6
 
 
 def write_zip():
@@ -437,7 +442,7 @@ def write_zip():
              "samples.tsv", "aln.fasta", "assemblies.paf", "sampleA.bedgraph",
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
              "reads.slow5", "depths.tsv", "linkage.ld", "epistasis.tsv", "lead.ld",
-             "recombination.bedgraph"]
+             "genetic_map.txt"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))

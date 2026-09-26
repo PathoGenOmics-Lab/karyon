@@ -104,6 +104,7 @@ pub struct SurveillanceTrack {
     frequency_alert: Option<f64>,
     growth_alert: Option<f64>,
     show_points: bool,
+    time_decimals: u32,
 }
 
 impl SurveillanceTrack {
@@ -119,7 +120,19 @@ impl SurveillanceTrack {
             frequency_alert: None,
             growth_alert: None,
             show_points: true,
+            time_decimals: 0,
         }
+    }
+
+    /// Writes each time in the tooltips as a continuous time kept to
+    /// `decimals` places, as a ruler told [`AxisTrack::decimals`] writes it:
+    /// time 2,015,250 at three is 2015.25. At nought, which is where it
+    /// starts, a time is a whole unit counted from one.
+    ///
+    /// [`AxisTrack::decimals`]: crate::AxisTrack::decimals
+    pub fn time_decimals(mut self, decimals: u32) -> Self {
+        self.time_decimals = decimals.min(9);
+        self
     }
 
     /// Sets the text shown in the left gutter.
@@ -277,7 +290,7 @@ impl Track for SurveillanceTrack {
             } else {
                 "a count above its total is not a frequency"
             };
-            name_undrawn(ctx, reason, observation, top, 0);
+            name_undrawn(ctx, reason, observation, top, 0, self.time_decimals);
         }
 
         let observations = self.valid_observations(ctx);
@@ -474,7 +487,14 @@ impl Track for SurveillanceTrack {
                     } else {
                         "incomplete lineage composition is not stacked"
                     };
-                    name_undrawn(ctx, reason, observation, top, lineage_index);
+                    name_undrawn(
+                        ctx,
+                        reason,
+                        observation,
+                        top,
+                        lineage_index,
+                        self.time_decimals,
+                    );
                     continue;
                 }
                 let plotted = match self.style {
@@ -511,6 +531,7 @@ impl Track for SurveillanceTrack {
                     .is_some_and(|(threshold, value)| value >= threshold);
                 let title = observation_title(
                     observation,
+                    self.time_decimals,
                     growth,
                     frequency_alert.then_some(self.frequency_alert.unwrap_or_default()),
                     growth_alert.then_some(self.growth_alert.unwrap_or_default()),
@@ -570,13 +591,14 @@ fn name_undrawn(
     observation: &SurveillanceObservation,
     top: f64,
     step: usize,
+    decimals: u32,
 ) {
     let radius = ctx.px(NOTICE_RADIUS);
     let ring = ctx.px(NOTICE_RING);
     let row = (top + ctx.px(5.0 + step as f64 * 1.7)).min(ctx.band.bottom() - radius - ring);
     ctx.svg.begin_titled(&format!(
         "{reason} | {}",
-        observation_title(observation, None, None, None)
+        observation_title(observation, decimals, None, None, None)
     ));
     ctx.svg.symbol_ringed(
         ctx.scale.x_center(observation.time),
@@ -668,6 +690,7 @@ fn fit_lineage(text: &str, available: f64, size: f64) -> String {
 
 fn observation_title(
     observation: &SurveillanceObservation,
+    decimals: u32,
     growth: Option<f64>,
     frequency_threshold: Option<f64>,
     growth_threshold: Option<f64>,
@@ -676,7 +699,10 @@ fn observation_title(
         observation.lineage.clone(),
         // As the ruler under it writes it: coordinate 0 is time 1, as base 0
         // is base 1, so week 12 is not called week 11 on hover.
-        format!("time {}", observation.time.saturating_add(1)),
+        format!(
+            "time {}",
+            crate::track::axis::time_text(observation.time, decimals)
+        ),
         format!("count {} of {}", observation.count, observation.total),
     ];
     if let Some(frequency) = observation.frequency() {

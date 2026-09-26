@@ -57,6 +57,7 @@ TRACKS, by what they draw
     annotation            --features --orfs
     variation             --variants --structural --copy-number --snps
                           --matrix --heatmap --manhattan --pairs
+                          --recombination
     reads and molecules   --pileup --split-reads --bisulfite --junctions
     comparison            --msa --domains --dotplot --synteny --loci
     phylogeny             --tree --tanglegram --clades
@@ -95,6 +96,7 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Matrix => "tracks/variation/#matrixtrack",
         Kind::Heatmap => "tracks/variation/#matrixtrack",
         Kind::Manhattan => "tracks/variation/#manhattantrack",
+        Kind::Recombination => "tracks/signal-sequence/#coveragetrack",
         Kind::Pileup => "tracks/reads-molecules/#pileuptrack",
         Kind::SplitReads => "tracks/reads-molecules/#splitreadtrack",
         Kind::Bisulfite => "tracks/reads-molecules/#bisulfitetrack",
@@ -390,6 +392,10 @@ TRACKS
     --windows <FILE>     a statistic in windows, bedGraph
     --manhattan <FILE>   association statistics, a table of position and value;
                          a column headed P, pvalue or p_wald is drawn as -log10
+    --recombination <FILE>
+                         recombination rates along a chromosome, drawn as a line
+                         in cM/Mb: a genetic map as HapMap or IMPUTE writes one,
+                         or a bedGraph of rates
     --tree <FILE>        a phylogeny, Newick
     --msa <FILE>         a multiple sequence alignment, aligned FASTA
     --snps <FILE>        the variable sites of an alignment, aligned FASTA

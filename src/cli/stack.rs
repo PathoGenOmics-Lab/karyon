@@ -507,12 +507,31 @@ pub fn build_files(
     // and the one to make up was the name of one of its rows. A table of
     // counts over time, of estimates, of sites and a read's signal are their
     // own places the same way.
+    let decimals = time_decimals(invocation, files);
     let columns = match known {
-        None => own_place(invocation, files)?,
+        None => own_place(invocation, files, decimals)?,
         Some(_) => None,
     };
-    let region = known.or(columns.as_ref()).unwrap_or(&unnamed);
-    let counting = counted(invocation, region);
+    // A place written for a continuous time names it in its own units, as
+    // `year:2010-2016`, and the tables are read to a thousandth of one.
+    let rescaled = match (&invocation.region, decimals) {
+        (Some(written), 1..) if all_times(invocation) => {
+            let scale = 10u64.pow(decimals);
+            Region::new(
+                written.seq(),
+                (written.start() + 1).saturating_mul(scale),
+                written.end().saturating_mul(scale).saturating_add(1),
+            )
+            .ok()
+        }
+        _ => None,
+    };
+    let region = rescaled
+        .as_ref()
+        .or(known)
+        .or(columns.as_ref())
+        .unwrap_or(&unnamed);
+    let counting = counted(invocation, region, decimals);
     // A sequence no file gives the length of ends where its rows do, which
     // is a figure worth drawing and an end worth saying where it came from:
     // three simulated users read it as the end of the chromosome.
@@ -582,8 +601,9 @@ pub fn build_files(
         if spec.kind == Kind::Axis {
             let mut axis = plot.add_axis();
             if let Some(counting) = &counting {
+                let places = counting.decimals;
                 axis = axis
-                    .adjust(crate::AxisTrack::counting)
+                    .adjust(|axis| axis.counting().decimals(places))
                     .label(&counting.unit);
             }
             if let Some(label) = &spec.label {
@@ -599,6 +619,7 @@ pub fn build_files(
             region,
             theme: &theme,
             reference: reference.as_ref(),
+            decimals,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -614,6 +635,7 @@ pub fn build_files(
                         region: &renamed,
                         theme: &theme,
                         reference: reference.as_ref(),
+                        decimals,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -629,7 +651,12 @@ pub fn build_files(
         plot = plot.add_boxed(built);
     }
     if let Some(counting) = counting.as_ref().filter(|_| invocation.axis) {
-        plot = plot.add_track(crate::AxisTrack::new().counting().label(&counting.unit));
+        plot = plot.add_track(
+            crate::AxisTrack::new()
+                .counting()
+                .decimals(counting.decimals)
+                .label(&counting.unit),
+        );
     }
     // After the ruler, which closing the plot puts in, so the key is not taken
     // for a track measured against it.
@@ -1057,6 +1084,9 @@ struct Context<'a> {
     theme: &'a Theme,
     /// The FASTA a `--sequence` track reads, if the figure has one.
     reference: Option<&'a Source>,
+    /// The places the figure's times are read to: nought for whole units,
+    /// or `read::series::DECIMALS` where a table has fractions of one.
+    decimals: u32,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -1230,7 +1260,11 @@ fn row_tree(
 /// and the samples of a read, `sample`. Every such file is read for its
 /// extent and the place is all of them together, so a skyline and the counts
 /// it was estimated from share one axis.
-fn own_place(invocation: &Invocation, files: &mut dyn Files) -> Result<Option<Region>, BuildError> {
+fn own_place(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    decimals: u32,
+) -> Result<Option<Region>, BuildError> {
     let mut place: Option<(String, u64, u64)> = None;
     for spec in invocation
         .tracks
@@ -1280,13 +1314,13 @@ fn own_place(invocation: &Invocation, files: &mut dyn Files) -> Result<Option<Re
                 (file, 0, width as u64)
             }
             Kind::Frequencies => {
-                let (rows, unit) = wrap(name, &path, read::series::counts(&text))?;
+                let (rows, unit) = wrap(name, &path, read::series::counts(&text, decimals))?;
                 let times = rows.iter().map(|row| row.time);
                 let (first, last) = (times.clone().min(), times.max());
                 (unit, first.unwrap_or(0), last.map_or(1, |last| last + 1))
             }
             Kind::Phylodynamics => {
-                let (points, unit) = wrap(name, &path, read::series::estimates(&text))?;
+                let (points, unit) = wrap(name, &path, read::series::estimates(&text, decimals))?;
                 let times = points.iter().map(|point| point.time);
                 let (first, last) = (times.clone().min(), times.max());
                 (unit, first.unwrap_or(0), last.map_or(1, |last| last + 1))
@@ -1336,6 +1370,8 @@ struct Counting {
     /// names the alignment's file and stays; a week, a site or a sample
     /// names nothing the ruler does not.
     columns: bool,
+    /// The places a continuous time is kept to, or nought for whole units.
+    decimals: u32,
 }
 
 /// What the ruler counts, where every track measured against it has a place
@@ -1344,7 +1380,7 @@ struct Counting {
 /// An alignment counts columns. Anything else is counted in the unit its
 /// place is named for, which is the unit its header gave or the word a
 /// region named it by, as `week:10-30`.
-fn counted(invocation: &Invocation, region: &Region) -> Option<Counting> {
+fn counted(invocation: &Invocation, region: &Region, decimals: u32) -> Option<Counting> {
     let first = invocation
         .tracks
         .iter()
@@ -1370,7 +1406,44 @@ fn counted(invocation: &Invocation, region: &Region) -> Option<Counting> {
             region.seq().to_string()
         },
         columns,
+        decimals: if all_times(invocation) { decimals } else { 0 },
     })
+}
+
+/// Whether every track with a place of its own is a table over time, so the
+/// place is a time and may be a continuous one.
+fn all_times(invocation: &Invocation) -> bool {
+    invocation
+        .tracks
+        .iter()
+        .filter(|spec| spec.kind.own_place())
+        .all(|spec| matches!(spec.kind, Kind::Frequencies | Kind::Phylodynamics))
+}
+
+/// The places the figure's times are read to: `read::series::DECIMALS` where a
+/// table of counts or of estimates named as a file has a fraction of its unit
+/// in it, and nought, whole units counted from one, where none has. A table on
+/// standard input is not looked at, since not every way of reading one can
+/// read it twice; it says so if it turns out to have fractions.
+fn time_decimals(invocation: &Invocation, files: &mut dyn Files) -> u32 {
+    let fractional = invocation
+        .tracks
+        .iter()
+        .filter(|spec| matches!(spec.kind, Kind::Frequencies | Kind::Phylodynamics))
+        .filter_map(|spec| match &spec.source {
+            Some(source @ Source::Path(_)) => Some(source),
+            _ => None,
+        })
+        .any(|source| {
+            files
+                .text(source)
+                .is_ok_and(|text| read::series::fractional_times(&text))
+        });
+    if fractional {
+        read::series::DECIMALS
+    } else {
+        0
+    }
 }
 
 /// Reads one source, and says what it was called.
@@ -1962,6 +2035,7 @@ fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
         | Kind::Ideogram
         | Kind::CopyNumber => at(0, &[1], 2),
         Kind::Heatmap => at(0, &[1], 4),
+        Kind::Recombination => at(0, &[1], 3),
         Kind::Pairs => at(0, &[1], 3),
         // BED puts the start in column two and GFF3 in column four.
         Kind::Features => at(0, &[1, 3], 3),
@@ -3204,6 +3278,26 @@ fn track(
             }
             Box::new(named(track, label, MatrixTrack::label))
         }
+        Kind::Recombination => {
+            let rates = wrap(name, &path, read::recombination::rates(&text, region))?;
+            if rates.is_empty() {
+                return Err(empty("rates"));
+            }
+            // A line, since a rate is read for where it rises rather than for
+            // the area under it, and the highest rate in a pixel, so a hotspot
+            // narrower than a pixel is still drawn.
+            let mut track = CoverageTrack::from_spans(region, rates)
+                .aggregate(Aggregate::Max)
+                .style(crate::CoverageStyle::Line)
+                .axis_title("cM/Mb");
+            if let Some(color) = &spec.color {
+                track = track.color(color);
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, CoverageTrack::label))
+        }
         Kind::Pairs => {
             let (pairs, measured) = wrap(name, &path, read::pairs::pairs(&text, region))?;
             if pairs.is_empty() {
@@ -3317,8 +3411,9 @@ fn track(
             Box::new(named(track, label, PileupTrack::label))
         }
         Kind::Frequencies => {
-            let (counts, _) = wrap(name, &path, read::series::counts(&text))?;
-            let mut track = SurveillanceTrack::new(counts);
+            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
+            let (counts, _) = wrap(name, &path, read::series::counts(&text, context.decimals))?;
+            let mut track = SurveillanceTrack::new(counts).time_decimals(context.decimals);
             if let Some(style) = spec.style.and_then(Style::frequencies) {
                 track = track.style(style);
             }
@@ -3328,8 +3423,13 @@ fn track(
             Box::new(named(track, label, SurveillanceTrack::label))
         }
         Kind::Phylodynamics => {
-            let (points, _) = wrap(name, &path, read::series::estimates(&text))?;
-            let mut track = PhylodynamicTrack::new(points);
+            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
+            let (points, _) = wrap(
+                name,
+                &path,
+                read::series::estimates(&text, context.decimals),
+            )?;
+            let mut track = PhylodynamicTrack::new(points).time_decimals(context.decimals);
             if spec.log {
                 track = track.scale(PhylodynamicScale::Log10);
             }
@@ -3441,6 +3541,33 @@ fn lead_linkage(
         .collect();
     linkage.push((lead, 1.0));
     Some((lead, linkage))
+}
+
+/// Refuses a table on standard input whose times have fractions in a figure
+/// of whole units: the figure settles its units by looking at every table's
+/// times before it draws any, and a pipe is not looked at twice.
+fn refuse_unseen_fractions(
+    spec: &TrackSpec,
+    name: &'static str,
+    path: &str,
+    text: &str,
+    decimals: u32,
+) -> Result<(), BuildError> {
+    if decimals == 0
+        && matches!(spec.source, Some(Source::Stdin))
+        && read::series::fractional_times(text)
+    {
+        return Err(BuildError::Parse {
+            track: name,
+            path: path.to_string(),
+            cause: read::ReadError::whole(
+                "times with fractions of a unit are read from a file, not from standard \
+                 input: the figure looks at every table's times before it draws any, and \
+                 a pipe is read once",
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Wraps a reader error with the flag and the file that produced it.
@@ -5551,6 +5678,78 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let (missing, _) = drawn_noting("reads.slow5 --read r9", &held);
         let error = missing.unwrap_err().to_string();
         assert!(error.contains("r1, r2"), "{error}");
+    }
+
+    /// A skyline in decimal years is a continuous time: its ruler writes the
+    /// years it spans, its tooltips the times as written, and a place written
+    /// in years is read in years.
+    #[test]
+    fn times_with_fractions_are_a_continuous_time() {
+        let skyline = "year\tmedian\tlower\tupper\n2010.25\t100\t50\t200\n\
+                       2012.5\t400\t300\t600\n2015.75\t900\t700\t1200\n";
+        let held = [("sky.tsv", skyline)];
+        let (svg, _) = drawn_noting("--phylodynamics sky.tsv", &held);
+        let svg = svg.unwrap();
+        assert!(svg.contains("<title>time 2010.25 |"), "{svg}");
+        assert!(
+            svg.contains(">2012</text>") || svg.contains(">2013</text>"),
+            "{svg}"
+        );
+        assert!(!svg.contains("2,01"), "a year is not grouped: {svg}");
+        // Counts in whole weeks beside it are read to the same thousandths.
+        let (both, _) = drawn_noting(
+            "--frequencies f.tsv --phylodynamics sky.tsv",
+            &[
+                ("f.tsv", "year\tlineage\tcount\ttotal\n2011\tA\t3\t9\n"),
+                ("sky.tsv", skyline),
+            ],
+        );
+        assert!(both.unwrap().contains("A | time 2011 |"));
+        // A place is written in years.
+        let (placed, _) = drawn_noting("year:2012-2013 --phylodynamics sky.tsv", &held);
+        let placed = placed.unwrap();
+        assert!(
+            placed.contains("time 2012.5") && !placed.contains("time 2010.25"),
+            "{placed}"
+        );
+    }
+
+    /// A table with fractions on standard input, in a figure that settled on
+    /// whole units without seeing it, says why rather than reading its
+    /// fractions away.
+    #[test]
+    fn fractions_on_standard_input_are_refused_with_the_reason() {
+        let piped = TrackSpec::new(Kind::Phylodynamics, Some(Source::Stdin));
+        let table = "year\tmean\n2010.5\t3\n";
+        let error = refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 0).unwrap_err();
+        assert!(error.to_string().contains("from a file"), "{error}");
+        // Whole units, a file, or a figure already reading fractions: no
+        // refusal.
+        assert!(
+            refuse_unseen_fractions(&piped, "phylodynamics", "-", "year\tmean\n2010\t3\n", 0)
+                .is_ok()
+        );
+        assert!(refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 3).is_ok());
+        let named = TrackSpec::new(Kind::Phylodynamics, Some(Source::Path("t.tsv".into())));
+        assert!(refuse_unseen_fractions(&named, "phylodynamics", "t.tsv", table, 0).is_ok());
+    }
+
+    /// A genetic map is drawn as a line of its rates, named on its own by the
+    /// name the panels give their maps.
+    #[test]
+    fn a_genetic_map_is_a_line_of_rates() {
+        let map = "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n\
+                   1\t101\t2.5\t0\n1\t501\t40\t0.001\n1\t901\t0.5\t0.017\n";
+        let held = [("genetic_map_chr1.txt", map)];
+        let (svg, _) = drawn_noting("1:1-1000 genetic_map_chr1.txt", &held);
+        let svg = svg.unwrap();
+        assert!(
+            svg.contains(">cM/Mb</text>"),
+            "the axis says what it measures: {svg}"
+        );
+        assert!(svg.contains("<polyline") || svg.contains("<path"), "{svg}");
+        let (flag, _) = drawn_noting("1:1-1000 --recombination genetic_map_chr1.txt", &held);
+        assert_eq!(svg, flag.unwrap());
     }
 
     /// A table of windows is a heatmap of its samples, and read against each

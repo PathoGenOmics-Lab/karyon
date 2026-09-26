@@ -57,6 +57,7 @@ pub struct AxisTrack {
     label: Option<String>,
     center_on_bases: bool,
     counting: bool,
+    decimals: u32,
 }
 
 impl AxisTrack {
@@ -69,6 +70,7 @@ impl AxisTrack {
             label: None,
             center_on_bases: false,
             counting: false,
+            decimals: 0,
         }
     }
 
@@ -82,6 +84,16 @@ impl AxisTrack {
     pub fn counting(mut self) -> Self {
         self.counting = true;
         self.center_on_bases = true;
+        self
+    }
+
+    /// A counting ruler of a continuous quantity kept to `decimals` places:
+    /// each coordinate is a `10^-decimals` of the unit, counted from nought,
+    /// so at three coordinate 2,015,250 is 2015.25. A skyline in decimal
+    /// years is drawn over one. At nought, which is where a ruler starts, the
+    /// units are whole and counted from one.
+    pub fn decimals(mut self, decimals: u32) -> Self {
+        self.decimals = decimals.min(9);
         self
     }
 
@@ -157,6 +169,13 @@ impl Track for AxisTrack {
             ctx.theme.tokens.stroke,
         );
 
+        // A continuous quantity is ticked where its own value is round, from
+        // nought, and written as that value: there is no base one to count
+        // from.
+        if self.counting && self.decimals > 0 {
+            self.draw_continuous(ctx, rule_y, tick_length, label_y, &tick_ink);
+            return;
+        }
         let ticks = self.ticks(ctx.region.display_start(), ctx.region.display_end(), band.w);
         // One unit for the whole ruler: an axis that switches from kb to Mb
         // half way across is unreadable.
@@ -214,6 +233,95 @@ impl Track for AxisTrack {
 struct Ticks {
     positions: Vec<u64>,
     step: u64,
+}
+
+/// A time as the ruler under it writes it: a whole unit counted from one, so
+/// time 0 is `1`, or, kept to `decimals` places, a continuous time from nought.
+pub(crate) fn time_text(time: u64, decimals: u32) -> String {
+    if decimals == 0 {
+        time.saturating_add(1).to_string()
+    } else {
+        decimal_text(time, decimals)
+    }
+}
+
+/// A coordinate kept to `decimals` places, written as the value it stands
+/// for: 2,015,250 at three is `2015.25`, with no zeros after the last digit
+/// that says something, and the whole part grouped from ten thousand as a
+/// counting ruler groups it.
+pub(crate) fn decimal_text(coordinate: u64, decimals: u32) -> String {
+    let scale = 10u64.pow(decimals.min(9));
+    let whole = coordinate / scale;
+    let whole_text = if whole < 10_000 {
+        whole.to_string()
+    } else {
+        group_thousands(whole)
+    };
+    let fraction = coordinate % scale;
+    if decimals == 0 || fraction == 0 {
+        return whole_text;
+    }
+    let digits = format!("{fraction:0width$}", width = decimals as usize);
+    format!("{whole_text}.{}", digits.trim_end_matches('0'))
+}
+
+impl AxisTrack {
+    /// The ticks of a continuous quantity: at round values of it, from nought,
+    /// each written as its value.
+    fn draw_continuous(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        rule_y: f64,
+        tick_length: f64,
+        label_y: f64,
+        tick_ink: &str,
+    ) {
+        let (first, last) = (ctx.region.start(), ctx.region.end());
+        let font = ctx.theme.font_size;
+        let target = (ctx.band.w / self.target_spacing).max(2.0);
+        let step = nice_step(last.saturating_sub(first) as f64, target);
+        let style = TextStyle {
+            family: Some(&ctx.theme.mono_family),
+            ..TextStyle::default()
+        };
+        let mut last_right = f64::NEG_INFINITY;
+        let mut at = first.div_ceil(step) * step;
+        let mut drawn = 0;
+        while at < last && drawn < 512 {
+            let x = if self.center_on_bases {
+                ctx.scale.x_center(at)
+            } else {
+                ctx.scale.x(at)
+            };
+            ctx.svg.line(
+                x,
+                rule_y,
+                x,
+                rule_y + tick_length,
+                tick_ink,
+                ctx.theme.tokens.stroke,
+            );
+            let text = decimal_text(at, self.decimals);
+            let half = mono_width(&text, font) / 2.0;
+            let (anchor, tx, left) = if x - half < ctx.band.x {
+                (Anchor::Start, ctx.band.x, ctx.band.x)
+            } else if x + half > ctx.band.right() {
+                (Anchor::End, ctx.band.right(), ctx.band.right() - half * 2.0)
+            } else {
+                (Anchor::Middle, x, x - half)
+            };
+            if left >= last_right + font * 0.5 {
+                last_right = left + half * 2.0;
+                ctx.svg
+                    .text_styled(tx, label_y, &text, &ctx.theme.muted, font, anchor, style);
+            }
+            drawn += 1;
+            at = match at.checked_add(step) {
+                Some(next) => next,
+                None => break,
+            };
+        }
+    }
 }
 
 impl AxisTrack {

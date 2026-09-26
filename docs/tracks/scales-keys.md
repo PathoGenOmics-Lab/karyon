@@ -55,6 +55,7 @@ The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader w
 | `.tick_spacing(80.0)` | Target distance between ticks, in pixels | `110` |
 | `.center_on_bases(true)` | Puts each tick in the middle of its base rather than on its left edge | off |
 | `.counting()` | A ruler of whole units that are not bases, weeks, sites, samples or columns: ticks in the middle of each unit and plain numbers, `2015` rather than `2,015` and `1500` rather than `1.5 kb` | off |
+| `.decimals(3)` | With `counting`, a continuous quantity kept to that many places: coordinate 2,015,250 is written `2015.25`, counted from nought, and the ticks fall where the value is round | `0`, whole units counted from one |
 
 #### Notes
 
