@@ -45,3 +45,12 @@
 *[InterProScan]: the tool that annotates protein domains, whose table karyon reads
 *[WebAssembly]: a compilation target that runs in a browser, which is how the playground runs the real program on the page
 *[MSRV]: minimum supported Rust version: the oldest compiler the crate is tested against
+*[BEDPE]: a BED file of pairs: two stretches of the genome on one line, each a chromosome, a start and an end, 0-based and half-open, then a name or a value. Contact maps and loop callers write it
+*[SLOW5]: the text form of a file of raw nanopore signal, one read per line with the values that turn its samples into picoamperes; BLOW5 is the same in binary
+*[BLOW5]: the binary form of SLOW5, which slow5tools view writes out as text
+*[HyPhy]: a program for testing selection on codon alignments; FEL and MEME are two of its tests
+*[FEL]: Fixed Effects Likelihood, HyPhy's test of pervasive selection at each site of a gene
+*[MEME]: Mixed Effects Model of Evolution, HyPhy's test of selection at a site on some branches only
+*[EpiEstim]: an R package that estimates a reproductive number over time from case counts
+*[LocusZoom]: a plot of one peak of an association scan with each marker coloured by its linkage with the strongest
+*[Hi-C]: a method that counts how often two stretches of a genome touch, which gives a contact map

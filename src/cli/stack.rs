@@ -26,9 +26,11 @@ use std::path::Path;
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
     DotplotTrack, DynseqTrack, FeatureTrack, IdeogramTrack, JunctionTrack, LocusTrack, LogoTrack,
-    ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PileupTrack,
-    Plot, Region, SequenceTrack, SnpTrack, SplitReadTrack, StructuralTrack, SyntenyTrack,
-    TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PairStyle,
+    PairTrack, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Plot, Region, SelectionEvidence,
+    SelectionTrack, SequenceTrack, SnpTrack, SplitReadTrack, SquiggleTrack, StructuralTrack,
+    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack,
+    WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{
@@ -502,12 +504,15 @@ pub fn build_files(
         .or(placed.as_ref().map(|placed| &placed.region));
     // An alignment is its own place: a figure of one, named nowhere, is laid
     // over all its columns. It was refused until a region was made up for it,
-    // and the one to make up was the name of one of its rows.
+    // and the one to make up was the name of one of its rows. A table of
+    // counts over time, of estimates, of sites and a read's signal are their
+    // own places the same way.
     let columns = match known {
-        None => alignment_columns(invocation, files)?,
+        None => own_place(invocation, files)?,
         Some(_) => None,
     };
     let region = known.or(columns.as_ref()).unwrap_or(&unnamed);
+    let counting = counted(invocation, region);
     // A sequence no file gives the length of ends where its rows do, which
     // is a figure worth drawing and an end worth saying where it came from:
     // three simulated users read it as the end of the chromosome.
@@ -559,10 +564,15 @@ pub fn build_files(
     if invocation.theme == Palette::Dark {
         plot = plot.theme(Theme::dark());
     }
-    if !invocation.region_label {
+    // A week, a site or a sample says no more at the top right than the
+    // ruler says under it.
+    if !invocation.region_label || counting.as_ref().is_some_and(|counting| !counting.columns) {
         plot = plot.remove_region_label();
     }
-    if !invocation.axis {
+    // A ruler of bases would print a year as 2,015 and a count of samples in
+    // kilobases, so a figure whose ruler counts something else puts in its
+    // own, once the tracks are in.
+    if !invocation.axis || counting.is_some() {
         plot = plot.remove_axis();
     }
 
@@ -571,6 +581,11 @@ pub fn build_files(
         // has to be told about so it does not append a second.
         if spec.kind == Kind::Axis {
             let mut axis = plot.add_axis();
+            if let Some(counting) = &counting {
+                axis = axis
+                    .adjust(crate::AxisTrack::counting)
+                    .label(&counting.unit);
+            }
             if let Some(label) = &spec.label {
                 axis = axis.label(label);
             }
@@ -612,6 +627,9 @@ pub fn build_files(
             }
         };
         plot = plot.add_boxed(built);
+    }
+    if let Some(counting) = counting.as_ref().filter(|_| invocation.axis) {
+        plot = plot.add_track(crate::AxisTrack::new().counting().label(&counting.unit));
     }
     // After the ruler, which closing the plot puts in, so the key is not taken
     // for a track measured against it.
@@ -1203,57 +1221,156 @@ fn row_tree(
     Ok(Some(tree))
 }
 
-/// The columns of the alignment a figure that names no region is drawn over,
-/// as a region called after its file, or `None` where no track is drawn over
-/// an alignment's columns.
-fn alignment_columns(
-    invocation: &Invocation,
-    files: &mut dyn Files,
-) -> Result<Option<Region>, BuildError> {
-    let Some(spec) = invocation
+/// The place a figure that names no region is drawn over, where its tracks
+/// have one of their own, or `None` where none has.
+///
+/// The columns of an alignment, named after its file. The times of a table of
+/// counts or of estimates, from the first to the last, named for the unit its
+/// header counts them in: `week`, `year`. The sites of a gene, named `site`,
+/// and the samples of a read, `sample`. Every such file is read for its
+/// extent and the place is all of them together, so a skyline and the counts
+/// it was estimated from share one axis.
+fn own_place(invocation: &Invocation, files: &mut dyn Files) -> Result<Option<Region>, BuildError> {
+    let mut place: Option<(String, u64, u64)> = None;
+    for spec in invocation
         .tracks
         .iter()
-        .find(|spec| spec.kind.over_columns())
-    else {
-        return Ok(None);
-    };
-    let name = spec.kind.flag();
-    let Some(source) = spec.source.as_ref() else {
-        return Ok(None);
-    };
-    // Read twice, here for its width and then for its rows, which a pipe
-    // cannot be.
-    if matches!(source, Source::Stdin) {
-        return Err(BuildError::Open {
-            track: name,
-            path: called(source),
-            cause: io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "an alignment read from standard input needs a place, as aln:1-1,000, \
-                 since a pipe can be read only once and its width is needed first",
-            ),
+        .filter(|spec| spec.kind.own_place())
+    {
+        let name = spec.kind.flag();
+        let Some(source) = spec.source.as_ref() else {
+            continue;
+        };
+        // Read twice, here for its extent and then for its rows, which a
+        // pipe cannot be.
+        if matches!(source, Source::Stdin) {
+            let (what, example, needed) = match spec.kind {
+                Kind::Msa | Kind::Logo => ("an alignment", "aln:1-1,000", "its width"),
+                Kind::Selection => ("a table of sites", "site:1-300", "its first and last sites"),
+                Kind::Squiggle => ("a signal", "sample:1-4,000", "its length"),
+                _ => ("a table of times", "week:1-52", "its first and last times"),
+            };
+            return Err(BuildError::Open {
+                track: name,
+                path: called(source),
+                cause: io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "{what} read from standard input needs a place, as {example}, \
+                         since a pipe can be read only once and {needed} is needed first"
+                    ),
+                ),
+            });
+        }
+        let (text, path) = fetch(name, source, files)?;
+        let (unit, start, end) = match spec.kind {
+            Kind::Msa | Kind::Logo => {
+                let rows = wrap(name, &path, read::seq::alignment(&text))?;
+                let width = rows.iter().map(|(_, row)| row.len()).max().unwrap_or(0);
+                if width == 0 {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path,
+                        wanted: "sequences",
+                    });
+                }
+                let file = Path::new(&path)
+                    .file_name()
+                    .map_or(path.clone(), |file| file.to_string_lossy().to_string());
+                (file, 0, width as u64)
+            }
+            Kind::Frequencies => {
+                let (rows, unit) = wrap(name, &path, read::series::counts(&text))?;
+                let times = rows.iter().map(|row| row.time);
+                let (first, last) = (times.clone().min(), times.max());
+                (unit, first.unwrap_or(0), last.map_or(1, |last| last + 1))
+            }
+            Kind::Phylodynamics => {
+                let (points, unit) = wrap(name, &path, read::series::estimates(&text))?;
+                let times = points.iter().map(|point| point.time);
+                let (first, last) = (times.clone().min(), times.max());
+                (unit, first.unwrap_or(0), last.map_or(1, |last| last + 1))
+            }
+            Kind::Selection => {
+                let sites = wrap(name, &path, read::series::selection(&text))?;
+                let at = sites.iter().map(|site| site.pos);
+                let (first, last) = (at.clone().min(), at.max());
+                (
+                    "site".to_string(),
+                    first.unwrap_or(0),
+                    last.map_or(1, |last| last + 1),
+                )
+            }
+            Kind::Squiggle => {
+                let signal = wrap(
+                    name,
+                    &path,
+                    read::series::squiggle(&text, spec.selects.as_deref()),
+                )?;
+                ("sample".to_string(), 0, signal.samples.len() as u64)
+            }
+            _ => continue,
+        };
+        place = Some(match place {
+            None => (unit, start, end),
+            Some((first, from, to)) => (first, from.min(start), to.max(end)),
         });
     }
-    let (text, path) = fetch(name, source, files)?;
-    let rows = wrap(name, &path, read::seq::alignment(&text))?;
-    let width = rows.iter().map(|(_, row)| row.len()).max().unwrap_or(0);
-    if width == 0 {
-        return Err(BuildError::Empty {
-            track: name,
-            path,
-            wanted: "sequences",
-        });
-    }
-    let called = std::path::Path::new(&path)
-        .file_name()
-        .map_or(path.clone(), |file| file.to_string_lossy().to_string());
-    Region::new(called, 0, width as u64)
+    let Some((unit, start, end)) = place else {
+        return Ok(None);
+    };
+    Region::new(unit, start, end)
         .map(Some)
         .map_err(|error| BuildError::Open {
-            track: name,
-            path,
+            track: "figure",
+            path: String::new(),
             cause: io::Error::new(io::ErrorKind::InvalidData, error.to_string()),
         })
+}
+
+/// A ruler that counts something other than bases.
+struct Counting {
+    /// What it counts, which it says in its margin: `column`, `week`, `site`.
+    unit: String,
+    /// Whether it counts an alignment's columns. The locus at the top right
+    /// names the alignment's file and stays; a week, a site or a sample
+    /// names nothing the ruler does not.
+    columns: bool,
+}
+
+/// What the ruler counts, where every track measured against it has a place
+/// of its own, or `None` for a ruler of bases.
+///
+/// An alignment counts columns. Anything else is counted in the unit its
+/// place is named for, which is the unit its header gave or the word a
+/// region named it by, as `week:10-30`.
+fn counted(invocation: &Invocation, region: &Region) -> Option<Counting> {
+    let first = invocation
+        .tracks
+        .iter()
+        .find(|spec| spec.kind.own_place())?;
+    let measured = |kind: Kind| {
+        !matches!(
+            kind,
+            Kind::Tree | Kind::Tanglegram | Kind::Snps | Kind::Axis
+        )
+    };
+    if invocation
+        .tracks
+        .iter()
+        .any(|spec| measured(spec.kind) && !spec.kind.own_place())
+    {
+        return None;
+    }
+    let columns = first.kind.over_columns();
+    Some(Counting {
+        unit: if columns {
+            "column".to_string()
+        } else {
+            region.seq().to_string()
+        },
+        columns,
+    })
 }
 
 /// Reads one source, and says what it was called.
@@ -1844,6 +1961,8 @@ fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
         | Kind::Structural
         | Kind::Ideogram
         | Kind::CopyNumber => at(0, &[1], 2),
+        Kind::Heatmap => at(0, &[1], 4),
+        Kind::Pairs => at(0, &[1], 3),
         // BED puts the start in column two and GFF3 in column four.
         Kind::Features => at(0, &[1, 3], 3),
         Kind::Clades => at(0, &[3], 4),
@@ -2186,7 +2305,27 @@ fn track(
             if table.points.is_empty() {
                 return Err(empty("association statistics"));
             }
+            let points = table.points.clone();
             let mut track = ManhattanTrack::new(table.points);
+            if let Some(source) = spec.second.as_ref() {
+                let (text, ld_path) = fetch(name, source, files)?;
+                let (pairs, _) = wrap(name, &ld_path, read::pairs::pairs(&text, region))?;
+                let Some((lead, linkage)) = lead_linkage(&pairs, &points) else {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path: ld_path,
+                        wanted: "pairs with a tested variant",
+                    });
+                };
+                if !points.iter().any(|point| point.pos == lead) {
+                    files.note(&format!(
+                        "the lead variant in {ld_path}, {}, is not one {path} tested, so \
+                         no diamond marks it",
+                        crate::track::axis::group_thousands(lead + 1)
+                    ));
+                }
+                track = track.linkage(lead, linkage);
+            }
             // Drawn as -log10, and the axis says so, since the file said p.
             if table.p_values {
                 track = track.axis_title("-log10 p");
@@ -3065,6 +3204,91 @@ fn track(
             }
             Box::new(named(track, label, MatrixTrack::label))
         }
+        Kind::Pairs => {
+            let (pairs, measured) = wrap(name, &path, read::pairs::pairs(&text, region))?;
+            if pairs.is_empty() {
+                return Err(empty("pairs"));
+            }
+            // A triangle where most of the pairs the places could make were
+            // measured, as linkage and contacts are, and arcs where a few were.
+            // Linkage is a triangle however PLINK's window filtered it.
+            let correlation = measured.as_deref().is_some_and(read::pairs::is_correlation);
+            let style = spec.style.and_then(Style::pairs).unwrap_or_else(|| {
+                if correlation {
+                    PairStyle::Triangle
+                } else {
+                    PairStyle::for_pairs(&pairs)
+                }
+            });
+            let mut track = PairTrack::new(pairs).style(style);
+            // An r² of 0.4 is weak linkage whatever else is in the window, so
+            // a correlation is read against one rather than its own largest.
+            if correlation {
+                track = track.ceiling(1.0);
+            }
+            if let Some(line) = spec.threshold.map(Threshold::drawn) {
+                track = track.threshold(line);
+            }
+            if spec.log {
+                track = track.log_scale(true);
+            }
+            if let Some(color) = &spec.color {
+                track = track.color(color);
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, PairTrack::label))
+        }
+        Kind::Heatmap => {
+            let (windows, mut rows) = wrap(name, &path, read::table::windows(&text, region))?;
+            if rows.is_empty() || windows.is_empty() {
+                return Err(empty("windows"));
+            }
+            // Each sample against its own usual value, so a sample sequenced
+            // deeper is not a darker row from end to end and what stands out
+            // is what changed along it. Its median over the windows drawn, as
+            // the stretches it lost do not move a median the way they move a
+            // mean; a sample with no usual value above nought keeps its own.
+            if spec.relative {
+                for row in &mut rows {
+                    let mut drawn: Vec<f64> = row
+                        .values
+                        .iter()
+                        .copied()
+                        .filter(|v| v.is_finite())
+                        .collect();
+                    drawn.sort_by(f64::total_cmp);
+                    let median = match drawn.len() {
+                        0 => continue,
+                        n if n % 2 == 1 => drawn[n / 2],
+                        n => (drawn[n / 2 - 1] + drawn[n / 2]) / 2.0,
+                    };
+                    if median > 0.0 {
+                        row.values.iter_mut().for_each(|value| *value /= median);
+                    }
+                }
+            }
+            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+            let mut track = MatrixTrack::windows(windows, rows);
+            if spec.relative {
+                track = track.unit("×");
+            }
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
+            if spec.no_names {
+                track = track.show_row_names(false);
+            }
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
+                track = track.traits(traits);
+            }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
+            }
+            Box::new(named(track, label, MatrixTrack::label))
+        }
         Kind::Pileup => {
             let reads = wrap(name, &path, read::align::sam(&text, region))?;
             if reads.is_empty() {
@@ -3092,9 +3316,131 @@ fn track(
             }
             Box::new(named(track, label, PileupTrack::label))
         }
+        Kind::Frequencies => {
+            let (counts, _) = wrap(name, &path, read::series::counts(&text))?;
+            let mut track = SurveillanceTrack::new(counts);
+            if let Some(style) = spec.style.and_then(Style::frequencies) {
+                track = track.style(style);
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, SurveillanceTrack::label))
+        }
+        Kind::Phylodynamics => {
+            let (points, _) = wrap(name, &path, read::series::estimates(&text))?;
+            let mut track = PhylodynamicTrack::new(points);
+            if spec.log {
+                track = track.scale(PhylodynamicScale::Log10);
+            }
+            if let Some(line) = spec.threshold.map(Threshold::drawn) {
+                track = track.reference(line, crate::svg::text_rounded(line, 5));
+            }
+            if let Some(color) = &spec.color {
+                track = track.color(color);
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, PhylodynamicTrack::label))
+        }
+        Kind::Selection => {
+            let sites = wrap(name, &path, read::series::selection(&text))?;
+            // A p-value where the table has them, as FEL and MEME write, and
+            // a posterior where it has only those, as a Bayes empirical
+            // Bayes table or FUBAR does.
+            let evidence = if sites.iter().all(|site| site.p().is_none())
+                && sites.iter().any(|site| site.probability().is_some())
+            {
+                SelectionEvidence::Posterior
+            } else {
+                SelectionEvidence::PValue
+            };
+            let mut track = SelectionTrack::new(sites).evidence(evidence);
+            if let Some(line) = spec.threshold.map(Threshold::drawn) {
+                track = match evidence {
+                    SelectionEvidence::PValue => track.p_threshold(line),
+                    SelectionEvidence::Posterior => track.posterior_threshold(line),
+                };
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, SelectionTrack::label))
+        }
+        Kind::Squiggle => {
+            let signal = wrap(
+                name,
+                &path,
+                read::series::squiggle(&text, spec.selects.as_deref()),
+            )?;
+            if signal.reads > 1 && spec.selects.is_none() {
+                files.note(&format!(
+                    "{path} holds {} reads, and this is the first, {}; --read NAME draws \
+                     another",
+                    signal.reads, signal.read
+                ));
+            }
+            // Named for its read, which is what tells two squiggles apart.
+            let label = spec.label.clone().or(Some(signal.read));
+            let mut track = SquiggleTrack::new(0, signal.samples);
+            if let Some(color) = &spec.color {
+                track = track.color(color);
+            }
+            if let Some(height) = height {
+                track = track.height(height);
+            }
+            Box::new(named(track, label, SquiggleTrack::label))
+        }
         Kind::Axis => unreachable!("the ruler is added by build"),
     };
     Ok(built)
+}
+
+/// The lead variant of a table of linkage, and the r² of every other variant
+/// with it.
+///
+/// PLINK's `--ld-snp` writes the lead into every row, so a variant in every
+/// pair is the lead. A table of every pair names none, and the lead is then the
+/// strongest tested variant the table has pairs for. `None` where no pair
+/// names a variant.
+fn lead_linkage(
+    pairs: &[crate::Pair],
+    points: &[crate::Association],
+) -> Option<(u64, Vec<(u64, f64)>)> {
+    let place = |span: (u64, u64)| span.0;
+    let first = pairs.first()?;
+    let shared = [place(first.first), place(first.second)]
+        .into_iter()
+        .find(|candidate| {
+            pairs
+                .iter()
+                .all(|pair| place(pair.first) == *candidate || place(pair.second) == *candidate)
+        });
+    let lead = shared.or_else(|| {
+        let paired: std::collections::BTreeSet<u64> = pairs
+            .iter()
+            .flat_map(|pair| [place(pair.first), place(pair.second)])
+            .collect();
+        points
+            .iter()
+            .filter(|point| paired.contains(&point.pos) && point.value.is_finite())
+            .max_by(|a, b| a.value.total_cmp(&b.value))
+            .map(|point| point.pos)
+    })?;
+    let mut linkage: Vec<(u64, f64)> = pairs
+        .iter()
+        .filter_map(|pair| {
+            let (a, b) = (place(pair.first), place(pair.second));
+            match (a == lead, b == lead) {
+                (true, false) => Some((b, pair.value)),
+                (false, true) => Some((a, pair.value)),
+                _ => None,
+            }
+        })
+        .collect();
+    linkage.push((lead, 1.0));
+    Some((lead, linkage))
 }
 
 /// Wraps a reader error with the flag and the file that produced it.
@@ -3433,14 +3779,16 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
             Ok(aligned.clone())
         })
         .unwrap();
-        // A column of an alignment is its own coordinate, so it anchors at nought.
+        // A column of an alignment is its own coordinate, so it anchors at
+        // nought, and the ruler under it counts columns rather than bases.
+        let columns = || crate::AxisTrack::new().counting().label("column");
         let right = Figure::new(Region::parse("aln:1-10").unwrap())
             .push(LogoTrack::from_sequences(0, &rows).label("aln"))
-            .push(crate::AxisTrack::new())
+            .push(columns())
             .to_svg();
         let wrong = Figure::new(Region::parse("aln:1-10").unwrap())
             .push(LogoTrack::from_sequences(1, &rows).label("aln"))
-            .push(crate::AxisTrack::new())
+            .push(columns())
             .to_svg();
         assert_eq!(from_cli, right, "a logo moved off its columns");
         assert_ne!(right, wrong, "the two anchors are indistinguishable here");
@@ -5080,6 +5428,218 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         };
         let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
         assert!(error.to_string().contains("needs a place"), "{error}");
+    }
+
+    const COUNTS: &str = "week\tlineage\tcount\ttotal\n1\tA\t9\t10\n1\tB\t1\t10\n\
+                          2\tA\t6\t10\n2\tB\t4\t10\n3\tA\t2\t12\n3\tB\t10\t12\n";
+
+    /// A table over time is its own place, as an alignment is, and the ruler
+    /// under it counts its weeks: week 1 is printed 1, not 0 and not `1 bp`.
+    #[test]
+    fn counts_over_time_are_drawn_over_their_own_weeks() {
+        let held = [("f.tsv", COUNTS)];
+        let (svg, notes) = drawn_noting("--frequencies f.tsv", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(
+            svg.contains(">week</text>"),
+            "the ruler says what it counts"
+        );
+        for week in ["1", "2", "3"] {
+            assert!(
+                svg.contains(&format!(">{week}</text>")),
+                "week {week}: {svg}"
+            );
+        }
+        // No bases, and no locus at the top right saying what the ruler says.
+        assert!(
+            !svg.contains(" bp<") && !svg.contains(">week:1-3</text>"),
+            "{svg}"
+        );
+        // A tooltip calls a week what the ruler under it calls it.
+        assert!(svg.contains("A | time 1 | count 9 of 10"), "{svg}");
+        // The same as naming the weeks by hand.
+        let (named, _) = drawn_noting("week:1-3 --frequencies f.tsv", &held);
+        assert_eq!(svg, named.unwrap());
+        // An estimate beside the counts widens the place to both of them.
+        let held = [
+            ("f.tsv", COUNTS),
+            (
+                "r.tsv",
+                "week\tmean\tlower\tupper\n2\t1.2\t0.9\t1.5\n5\t0.8\t0.6\t1.1\n",
+            ),
+        ];
+        let (both, _) = drawn_noting("--frequencies f.tsv --phylodynamics r.tsv", &held);
+        assert!(
+            both.unwrap().contains(">5</text>"),
+            "week 5 is on the ruler"
+        );
+        // A track measured in bases puts the ruler back in bases.
+        let held = [("f.tsv", COUNTS), ("d.bg", "chr1\t0\t10\t5\n")];
+        let (mixed, _) = drawn_noting("chr1:1-10 --coverage d.bg --frequencies f.tsv", &held);
+        assert!(!mixed.unwrap().contains(">week</text>"));
+    }
+
+    /// Each of the four reads a table from standard input only where a place
+    /// is named, since its extent is needed before its rows.
+    #[test]
+    fn a_table_of_its_own_place_from_a_pipe_needs_a_place() {
+        for (flag, example) in [
+            ("--frequencies", "week:1-52"),
+            ("--phylodynamics", "week:1-52"),
+            ("--selection", "site:1-300"),
+            ("--squiggle", "sample:1-4,000"),
+        ] {
+            let args = vec![flag.to_string(), "-".to_string()];
+            let Request::Draw(invocation) = parse(&args).unwrap() else {
+                unreachable!("a figure")
+            };
+            let mut files = Held {
+                files: Vec::new(),
+                notes: Vec::new(),
+            };
+            let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
+            assert!(error.to_string().contains(example), "{flag}: {error}");
+        }
+    }
+
+    /// FEL writes p-values and a Bayes empirical Bayes table posteriors, and
+    /// the threshold is read in whichever the table holds.
+    #[test]
+    fn a_selection_table_is_read_by_the_evidence_it_holds() {
+        let held = [(
+            "fel.csv",
+            "site,alpha,beta,p-value\n1,1.0,0.2,0.8\n2,0.5,3.0,0.01\n",
+        )];
+        let (svg, _) = drawn_noting("--selection fel.csv", &held);
+        let svg = svg.unwrap();
+        assert!(
+            svg.contains(">site</text>") && svg.contains("p ≤ 0.05"),
+            "{svg}"
+        );
+        let (svg, _) = drawn_noting("--selection fel.csv --threshold 0.001", &held);
+        assert!(svg.unwrap().contains("p ≤ 0.001"));
+        let held = [("b.csv", "site,omega,posterior\n1,0.3,0.1\n2,4.0,0.97\n")];
+        let (svg, _) = drawn_noting("--selection b.csv --threshold 0.95", &held);
+        assert!(svg.unwrap().contains("PP ≥ 0.95"));
+    }
+
+    /// A SLOW5 holds many reads and the figure draws one, named for it, and
+    /// says which when it had to choose.
+    #[test]
+    fn a_read_s_signal_is_drawn_over_its_samples_and_named_for_its_read() {
+        let slow5 = "#slow5_version\t0.2.0\n\
+                     #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\t\
+                     len_raw_signal\traw_signal\n\
+                     r1\t0\t2048\t0\t2048\t4000\t4\t80,90,85,95\n\
+                     r2\t0\t2048\t0\t2048\t4000\t3\t70,75,72\n";
+        let held = [("reads.slow5", slow5)];
+        // Named on its own, a SLOW5 is a squiggle.
+        let (svg, notes) = drawn_noting("reads.slow5", &held);
+        let svg = svg.unwrap();
+        assert!(
+            svg.contains(">r1</text>") && svg.contains(">sample</text>"),
+            "{svg}"
+        );
+        assert!(
+            notes.len() == 1 && notes[0].contains("--read NAME"),
+            "{notes:?}"
+        );
+        let (second, notes) = drawn_noting("reads.slow5 --read r2", &held);
+        assert!(second.unwrap().contains(">r2</text>"));
+        assert!(notes.is_empty(), "{notes:?}");
+        let (missing, _) = drawn_noting("reads.slow5 --read r9", &held);
+        let error = missing.unwrap_err().to_string();
+        assert!(error.contains("r1, r2"), "{error}");
+    }
+
+    /// A table of windows is a heatmap of its samples, and read against each
+    /// sample's own median it shows what changed rather than who was
+    /// sequenced deeper.
+    #[test]
+    fn a_heatmap_draws_every_sample_in_its_windows_and_keys_its_ramp() {
+        let depths = "chrom\tstart\tend\tdeep\tshallow\n\
+                      c1\t0\t100\t100\t20\nc1\t100\t200\t100\t0\nc1\t200\t300\t200\t20\n";
+        let held = [("d.tsv", depths)];
+        let (svg, _) = drawn_noting("c1:1-300 --heatmap d.tsv", &held);
+        let svg = svg.unwrap();
+        assert!(svg.contains("deep, 3 of 3 windows called"), "{svg}");
+        assert!(
+            svg.contains(">200</text>"),
+            "the key tops out at the largest value"
+        );
+        let (relative, _) = drawn_noting("c1:1-300 --heatmap d.tsv --relative", &held);
+        let relative = relative.unwrap();
+        // deep: 100, 100, 200 over a median of 100; shallow: 20, 0, 20 over 20.
+        assert!(
+            relative.contains(">2×</text>") && relative.contains(">0×</text>"),
+            "{relative}"
+        );
+    }
+
+    /// Linkage is a triangle and a few pairs are arcs, unless told; an r² is
+    /// read against one.
+    #[test]
+    fn pairs_are_a_triangle_where_most_were_measured_and_arcs_where_few_were() {
+        let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
+                  c1 101 a c1 201 b 0.9\nc1 101 a c1 301 c 0.2\nc1 201 b c1 301 c 0.3\n";
+        let few = "pos1\tpos2\tscore\n101\t901\t5\n301\t601\t2\n";
+        let held = [("v.ld", ld), ("few.tsv", few)];
+        let (triangle, _) = drawn_noting("c1:1-1000 v.ld", &held);
+        let triangle = triangle.unwrap();
+        assert_eq!(triangle.matches("<polygon").count(), 3, "{triangle}");
+        assert!(
+            triangle.contains(">1</text>"),
+            "an r² is keyed to one: {triangle}"
+        );
+        let (arcs, _) = drawn_noting("c1:1-1000 --pairs few.tsv", &held);
+        let arcs = arcs.unwrap();
+        assert_eq!(arcs.matches("<polygon").count(), 0);
+        assert!(
+            arcs.contains("101 and 901: 5") && arcs.contains(">5</text>"),
+            "{arcs}"
+        );
+        let (told, _) = drawn_noting(
+            "c1:1-1000 --pairs v.ld --style arcs --threshold 0.25",
+            &held,
+        );
+        let told = told.unwrap();
+        assert!(
+            !told.contains("<polygon") && !told.contains("101 and 301"),
+            "{told}"
+        );
+    }
+
+    /// A scan with the linkage of its lead is coloured by it, as LocusZoom
+    /// draws one, and says so when the lead is not a variant it tested.
+    #[test]
+    fn a_scan_is_coloured_by_linkage_with_its_lead() {
+        let scan = "CHR\tBP\tP\n1\t100\t1e-9\n1\t200\t1e-5\n1\t300\t0.2\n";
+        // As PLINK's --ld-snp writes it: the lead in every row.
+        let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
+                  1 100 lead 1 200 b 0.8\n1 100 lead 1 300 c 0.05\n";
+        let held = [("g.assoc", scan), ("lead.ld", ld)];
+        let (svg, notes) = drawn_noting("1:1-400 g.assoc --ld lead.ld", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(
+            svg.contains("lead variant 100") && svg.contains("r² with 100"),
+            "{svg}"
+        );
+        // A lead the scan did not test has no diamond, and the figure says so.
+        let held = [
+            ("g.assoc", scan),
+            (
+                "lead.ld",
+                "CHR_A BP_A CHR_B BP_B R2\n1 150 1 200 0.8\n1 150 1 300 0.1\n",
+            ),
+        ];
+        let (svg, notes) = drawn_noting("1:1-400 g.assoc --ld lead.ld", &held);
+        assert!(
+            !svg.unwrap().contains("lead variant"),
+            "no diamond, and none keyed"
+        );
+        assert!(notes.iter().any(|note| note.contains("150")), "{notes:?}");
     }
 
     /// The library ordered an alignment's rows by a tree and drew the tree

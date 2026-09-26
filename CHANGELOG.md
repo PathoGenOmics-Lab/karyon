@@ -8,6 +8,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A time is written as the ruler writes it: a surveillance panel's and a
+  phylodynamic trajectory's tooltips call time 0 `time 1`, as a base 0 is base
+  1, where they called week 12 week 11 over a ruler that said 12.
+- A phylodynamic trajectory keys what it draws, `estimate`, `interval` where
+  there is a ribbon and `log scale` where the scale is one, in place of
+  `trajectory · linear`. The words on its reference line sit at the left, over
+  the line and over the points, as a scan's threshold does: at the right they
+  sat on the latest estimate.
+- A selection track keys its colours as `ω < 1`, `ω ≈ 1`, `ω > 1` and
+  `p ≤ 0.05`, where it wrote `omega<1` and `p<=0.05` under a title reading
+  `selection atlas` over every figure of one. Its axis says `ω 8` and `ω 1`.
+- The committed figures `example-selection-atlas.svg` and
+  `example-evolutionary-surveillance.svg` change with these, and the page
+  figure of an alignment gains a ruler of columns.
+
 - `Tree::reroot`, `reroot_outgroup`, `reroot_midpoint`, `rotate` and
   `collapse` are `#[must_use]`: each leaves the tree as it was when it cannot
   do what it was asked, and its result is the one thing that says so. A call
@@ -160,6 +175,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- Four tracks the command line could not draw now read the tables their
+  tools write, each its own place, so none needs a region:
+  `--frequencies` draws counts of each group over time out of a total, as a
+  surveillance programme or an evolution experiment writes them;
+  `--phylodynamics` an estimate over time with its interval, EpiEstim's table
+  included; `--selection` a test at each site of a gene, HyPhy's FEL and MEME
+  as they are; and `--squiggle` the current of a nanopore read from SLOW5,
+  which a `.slow5` named on its own is too, with `--read` naming which read.
+  A table's columns are found by their headers, tabs, commas or spaces apart.
+  `read::series` holds the four readers.
+- `--heatmap FILE` draws a value per sample per window, as `bedtools
+  unionbedg` writes it, and `--relative` reads each sample against its own
+  median, so a sample sequenced deeper is not a darker row and a deletion is
+  what stands out. `MatrixTrack::windows` gives a matrix a column per window,
+  each cell as wide as its window, and `read::table::windows` reads the table.
+- `--pairs FILE` draws a value between two places, PLINK's `.ld`, BEDPE or a
+  table headed `pos1` and `pos2`, as a triangle hung under the axis where most
+  places were measured against their neighbours, as linkage and contact maps
+  are, and as arcs where a few pairs join places far apart. `--style` chooses,
+  `--threshold` leaves out the weak pairs and `--log` colours a contact map.
+  `PairTrack`, `Pair`, `PairStyle`, `Plot::add_pairs` and `read::pairs` are
+  the library side, and a `.ld` or `.bedpe` named on its own is one.
+- `--ld FILE` after `--manhattan` colours each point by its r² with the lead
+  variant, and draws the lead as a diamond with its position over it, as
+  LocusZoom does, keyed under the figure. `ManhattanTrack::linkage` is the
+  library side.
+- `AxisTrack::counting` is a ruler of whole units that are not bases, with
+  plain numbers in the middle of each unit: under an alignment, a table over
+  time, the sites of a gene and a read's samples the command line draws one
+  and names its unit, `column`, `week`, `site` or `sample`. A ruler of bases
+  wrote a year as `2,015`, and two thousand samples as `2 kb`.
+- A sequential matrix keys its ramp under the figure, from nought to the
+  value it saturates at, with `MatrixTrack::unit` after both numbers.
+- Five pages under Your data, each with its command, its figure and its
+  example files: many samples in windows, pairs of positions, counts over
+  time, selection along a gene and a nanopore signal; and a peak coloured by
+  linkage on the page of an association scan.
 
 - A comparison is placed on its query by name: `karyon asm1_chr1
   assemblies.paf` reads the length the PAF writes for `asm1_chr1`, where the

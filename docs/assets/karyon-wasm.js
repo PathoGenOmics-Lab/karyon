@@ -131,10 +131,12 @@ self.karyon = self.karyon || (function () {
   var TRACKS = [
     "--coverage", "--copy-number", "--dynseq", "--junctions", "--sequence",
     "--features", "--variants", "--windows", "--manhattan", "--tree",
-    "--msa", "--snps", "--ideogram", "--matrix", "--pileup",
+    "--msa", "--snps", "--ideogram", "--matrix", "--heatmap", "--pileup",
     "--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram",
-    "--clades", "--loci", "--methylation", "--structural", "--split-reads",
-    "--bisulfite", "--domains", "--axis",
+    "--clades", "--loci", "--methylation", "--structural", "--pairs",
+    "--split-reads",
+    "--bisulfite", "--domains", "--frequencies", "--phylodynamics",
+    "--selection", "--squiggle", "--axis",
   ];
 
   /// Where the words describing one track begin and end.

@@ -12,7 +12,7 @@ collapsed into depth, a call or an average per site.
 | Did one molecule align to several places, and in what order? | [Split reads](../tracks/reads-molecules.md#splitreadtrack) | `SplitReadTrack`, `--split-reads` |
 | Are the methylated sites on the same molecules, or scattered across them? | [Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack) | `BisulfiteTrack`, `--bisulfite` |
 | How many reads crossed each intron? | [Splice junctions](../tracks/reads-molecules.md#junctiontrack) | `JunctionTrack`, `--junctions` |
-| What did the current look like before basecalling? | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack) | `SquiggleTrack`, Rust only |
+| What did the current look like before basecalling? | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack) | `SquiggleTrack`, `--squiggle` |
 
 ## Plots
 

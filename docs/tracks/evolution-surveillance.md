@@ -17,7 +17,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 Both tracks put time on the figure's shared integer axis, so an inferred trajectory, the observed lineage composition and a ruler share exact time points without pretending to be the same kind of evidence. A time point is an integer: months since sampling began, days since an epoch, or any other whole unit, used consistently across the figure.
 
 !!! tip "Count time from nought and name the unit"
-    A time point sits in the middle of its unit, and the ruler prints positions 1-based, as it does for bases: point `0` is labelled `1`, and a calendar year used as a point would be labelled a year late, with a thousands separator. Count from nought, centre the ruler's ticks and say what the unit is, as the last panel above does; with `plot()` that is `.add_axis().label("month").adjust(|axis| axis.center_on_bases(true))`.
+    A time point sits in the middle of its unit, and the ruler prints positions 1-based, as it does for bases: point `0` is labelled `1`. Store week 1 as `0` and year 2015 as `2014`, and ask for a ruler that counts whole units, which writes a year as 2015 rather than `2,015` and names its unit: with `plot()` that is `.add_axis().label("month").adjust(|axis| axis.counting())`. The tooltips count the same way. The command line does all of this from a table's own times.
 
 ## PhylodynamicTrack { #phylodynamictrack }
 
@@ -26,8 +26,8 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 | | |
 |:--|:--|
 | Rust | `.add_phylodynamics(points)` on `plot()`; `PhylodynamicTrack::new(points)` |
-| Command line | none: library only, as fitted trajectories have no single standard table to read |
-| Reads | nothing from a file; build `PhylodynamicPoint` values |
+| Command line | `--phylodynamics FILE`, with `--log`, `--threshold`, `--color`, `--height` |
+| Reads | a table of a time, an estimate and, where there is one, its interval, its columns found by their headers: `week` or `year`, `mean` or `median`, `lower` and `upper` (`read::series::estimates`) |
 
 === "Rust"
 
@@ -46,9 +46,19 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
         .adjust(|track| track.unit("Ne").scale(PhylodynamicScale::Log10))
         .add_axis()
         .label("month")
-        .adjust(|axis| axis.center_on_bases(true))
+        .adjust(|axis| axis.counting())
         .save("skyline.svg")?;
     ```
+
+=== "Command line"
+
+    ```bash
+    karyon --phylodynamics skyline.tsv --log --label 'effective population size' -o skyline.svg
+    ```
+
+    The table is its own place, so no region is named, and the ruler counts
+    its times from the first to the last. `--threshold 1` draws the dashed
+    reference a reproductive number is read against.
 
 #### Options
 
@@ -67,6 +77,8 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 
 The track renders an inference someone else made. It does not fit a clock, a skyline, a coalescent or a birth-death model, and it draws the points in time order whatever order they arrive in.
 
+A time is a coordinate, as a base is, and counts from nought: time 0 is the first, which a ruler made with `AxisTrack::counting` and the tooltips both call 1. The command line reads a table's times as they are written, so week 1 is week 1 on the ruler and on hover.
+
 Log mode leaves out an estimate of nought or below rather than inventing a small positive value to draw. `PhylodynamicPoint::interval(lower, upper)` keeps only finite bounds in order, so a reversed, missing or non-finite interval draws no ribbon, while every accepted estimate and bound stays exact in its tooltip.
 
 ## SurveillanceTrack { #surveillancetrack }
@@ -76,8 +88,8 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 | | |
 |:--|:--|
 | Rust | `.add_surveillance(observations)` on `plot()`; `SurveillanceTrack::new(observations)` |
-| Command line | none: library only, as surveillance counts have no single standard table to read |
-| Reads | nothing from a file; build `SurveillanceObservation` values from counts and totals |
+| Command line | `--frequencies FILE`, with `--style stacked` or `--style line`, `--height` |
+| Reads | a table of a time, a group, a count and a total, its columns found by their headers: `week`, `lineage` or `mutation`, `count`, `total` (`read::series::counts`) |
 
 === "Rust"
 
@@ -103,9 +115,18 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
         })
         .add_axis()
         .label("month")
-        .adjust(|axis| axis.center_on_bases(true))
+        .adjust(|axis| axis.counting())
         .save("surveillance.svg")?;
     ```
+
+=== "Command line"
+
+    ```bash
+    karyon --frequencies lineages.tsv --label 'lineage frequency' -o surveillance.svg
+    ```
+
+    The table is its own place, so no region is named. `--style line` draws
+    one line per lineage in place of the stacked composition.
 
 #### Options
 
@@ -121,6 +142,8 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 | `.show_points(false)` | Shows or hides the observation markers | shown |
 
 #### Notes
+
+A time counts from nought, as a base does, and a ruler made with `AxisTrack::counting` and the tooltips both call time 0 the first, 1. The command line reads a table's times as they are written.
 
 `Frequency` divides each count by the total supplied with it, and `minimum_total` is a visible sampling floor rather than a pseudocount. An alert is a small symbol with its exact reason in the tooltip; it never replaces the count and the total.
 

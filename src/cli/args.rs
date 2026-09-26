@@ -53,7 +53,7 @@ use std::path::PathBuf;
 
 use crate::read::locus::Identity;
 use crate::track::tree::TreeProjection;
-use crate::track::MsaDisplay;
+use crate::track::{MsaDisplay, PairStyle, SurveillanceStyle};
 use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle};
 
 /// What went wrong before anything was read.
@@ -373,6 +373,9 @@ pub enum Kind {
     Ideogram,
     /// A value per sample per site, from a table.
     Matrix,
+    /// A value per sample per window, from a table of windows with a column
+    /// per sample: depth, copy number or methylation along a genome.
+    Heatmap,
     /// Aligned reads from SAM text.
     Pileup,
     /// Alignment ribbons between two sequences, from PAF.
@@ -394,12 +397,26 @@ pub enum Kind {
     Methylation,
     /// Structural calls as arcs between their breakpoints, from a VCF.
     Structural,
+    /// Pairs of places and a value between them, as a triangle or as arcs:
+    /// linkage from PLINK, contacts or loops from BEDPE, or a table.
+    Pairs,
     /// Molecules that aligned in pieces, from SAM and its SA tag.
     SplitReads,
     /// Methylation one molecule at a time, from a Bismark extractor file.
     Bisulfite,
     /// Protein domains, from an InterProScan table.
     Domains,
+    /// How many of each group were seen at each time, out of how many: the
+    /// lineages of a surveillance programme, or the mutations of an evolving
+    /// population, as frequencies over time.
+    Frequencies,
+    /// An estimate over time with its interval: a skyline, an effective
+    /// population size, a reproductive number.
+    Phylodynamics,
+    /// A test of selection at each site of a gene, from HyPhy or a table.
+    Selection,
+    /// The current of one nanopore read, from SLOW5 or a column of numbers.
+    Squiggle,
     /// The coordinate ruler, which reads nothing.
     Axis,
 }
@@ -412,7 +429,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 28] = [
+    pub const ALL: [Kind; 34] = [
         Kind::Coverage,
         Kind::CopyNumber,
         Kind::Dynseq,
@@ -427,6 +444,7 @@ impl Kind {
         Kind::Snps,
         Kind::Ideogram,
         Kind::Matrix,
+        Kind::Heatmap,
         Kind::Pileup,
         Kind::Synteny,
         Kind::Dotplot,
@@ -437,9 +455,14 @@ impl Kind {
         Kind::Loci,
         Kind::Methylation,
         Kind::Structural,
+        Kind::Pairs,
         Kind::SplitReads,
         Kind::Bisulfite,
         Kind::Domains,
+        Kind::Frequencies,
+        Kind::Phylodynamics,
+        Kind::Selection,
+        Kind::Squiggle,
         Kind::Axis,
     ];
 
@@ -460,6 +483,7 @@ impl Kind {
             Kind::Snps => "snps",
             Kind::Ideogram => "ideogram",
             Kind::Matrix => "matrix",
+            Kind::Heatmap => "heatmap",
             Kind::Pileup => "pileup",
             Kind::Synteny => "synteny",
             Kind::Dotplot => "dotplot",
@@ -470,9 +494,14 @@ impl Kind {
             Kind::Loci => "loci",
             Kind::Methylation => "methylation",
             Kind::Structural => "structural",
+            Kind::Pairs => "pairs",
             Kind::SplitReads => "split-reads",
             Kind::Bisulfite => "bisulfite",
             Kind::Domains => "domains",
+            Kind::Frequencies => "frequencies",
+            Kind::Phylodynamics => "phylodynamics",
+            Kind::Selection => "selection",
+            Kind::Squiggle => "squiggle",
             Kind::Axis => "axis",
         }
     }
@@ -500,6 +529,7 @@ impl Kind {
             Kind::Snps => "--snps",
             Kind::Ideogram => "--ideogram",
             Kind::Matrix => "--matrix",
+            Kind::Heatmap => "--heatmap",
             Kind::Pileup => "--pileup",
             Kind::Synteny => "--synteny",
             Kind::Dotplot => "--dotplot",
@@ -510,16 +540,28 @@ impl Kind {
             Kind::Loci => "--loci",
             Kind::Methylation => "--methylation",
             Kind::Structural => "--structural",
+            Kind::Pairs => "--pairs",
             Kind::SplitReads => "--split-reads",
             Kind::Bisulfite => "--bisulfite",
             Kind::Domains => "--domains",
+            Kind::Frequencies => "--frequencies",
+            Kind::Phylodynamics => "--phylodynamics",
+            Kind::Selection => "--selection",
+            Kind::Squiggle => "--squiggle",
             Kind::Axis => "--axis",
         }
     }
 
-    /// Whether `--aggregate` and `--log` mean anything here.
+    /// Whether `--aggregate` means anything here.
     fn takes_aggregate(self) -> bool {
         matches!(self, Kind::Coverage)
+    }
+
+    /// Whether `--log` means anything here: a signal whose peaks flatten
+    /// the rest, an estimate that grows by orders of magnitude, as a
+    /// population does, and contacts that fall by them with distance.
+    fn takes_log(self) -> bool {
+        matches!(self, Kind::Coverage | Kind::Phylodynamics | Kind::Pairs)
     }
 
     /// Whether a sheet of metadata means anything to this track.
@@ -539,6 +581,7 @@ impl Kind {
         matches!(
             self,
             Kind::Matrix
+                | Kind::Heatmap
                 | Kind::Msa
                 | Kind::Snps
                 | Kind::Clades
@@ -594,6 +637,7 @@ impl Kind {
                 | Kind::Msa
                 | Kind::Snps
                 | Kind::Matrix
+                | Kind::Heatmap
                 | Kind::SplitReads
                 | Kind::Structural
                 | Kind::Bisulfite
@@ -689,6 +733,7 @@ impl Kind {
                 | Kind::Msa
                 | Kind::Snps
                 | Kind::Matrix
+                | Kind::Heatmap
                 | Kind::Pileup
                 | Kind::Orfs
                 | Kind::Tree
@@ -700,8 +745,15 @@ impl Kind {
         )
     }
 
+    /// Whether `--threshold` means anything here: the line a scan is read
+    /// against, the least support a phylogeny shows, the reference an
+    /// estimate is read against (a reproductive number of one), and the
+    /// evidence a site needs to count as selected.
     fn takes_threshold(self) -> bool {
-        matches!(self, Kind::Manhattan | Kind::Tree)
+        matches!(
+            self,
+            Kind::Manhattan | Kind::Tree | Kind::Phylodynamics | Kind::Selection | Kind::Pairs
+        )
     }
 
     /// The track a file's name says it holds, for a file named on the
@@ -752,6 +804,8 @@ impl Kind {
             "paf" => Kind::Synteny,
             "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
             "bedmethyl" => Kind::Methylation,
+            "slow5" => Kind::Squiggle,
+            "ld" | "bedpe" => Kind::Pairs,
             _ => return None,
         })
     }
@@ -767,16 +821,30 @@ impl Kind {
     /// region. Everything else does, the ruler included, since measuring a
     /// window is all it does.
     pub fn needs_region(self) -> bool {
-        !matches!(
-            self,
-            Kind::Tree | Kind::Tanglegram | Kind::Snps | Kind::Msa | Kind::Logo
-        )
+        !matches!(self, Kind::Tree | Kind::Tanglegram | Kind::Snps) && !self.own_place()
     }
 
     /// Whether this track is drawn over the columns of an alignment, which a
     /// figure that names no region is laid over.
     pub fn over_columns(self) -> bool {
         matches!(self, Kind::Msa | Kind::Logo)
+    }
+
+    /// Whether this track's file is its own place: the columns of an
+    /// alignment, the times of a table of counts or of estimates, the sites
+    /// of a gene, the samples of a read. A figure that names no region is
+    /// laid over all of it, and its ruler counts those units rather than
+    /// bases.
+    pub fn own_place(self) -> bool {
+        matches!(
+            self,
+            Kind::Msa
+                | Kind::Logo
+                | Kind::Frequencies
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Squiggle
+        )
     }
 
     fn takes_height(self) -> bool {
@@ -794,7 +862,12 @@ impl Kind {
                 | Kind::Dotplot
                 | Kind::Methylation
                 | Kind::Structural
+                | Kind::Pairs
                 | Kind::Junctions
+                | Kind::Frequencies
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Squiggle
                 | Kind::Axis
         )
     }
@@ -832,7 +905,10 @@ impl Kind {
     pub fn optional_second(self) -> Option<&'static str> {
         match self {
             Kind::Pileup => Some("--with-sequence"),
-            Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Domains => Some("--with-tree"),
+            Kind::Manhattan => Some("--ld"),
+            Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains => {
+                Some("--with-tree")
+            }
             _ => None,
         }
     }
@@ -862,6 +938,7 @@ impl Kind {
             | Kind::Snps
             | Kind::Ideogram
             | Kind::Matrix
+            | Kind::Heatmap
             | Kind::Pileup
             | Kind::Synteny
             | Kind::Dotplot
@@ -869,9 +946,14 @@ impl Kind {
             | Kind::Logo
             | Kind::Methylation
             | Kind::Structural
+            | Kind::Pairs
             | Kind::SplitReads
             | Kind::Bisulfite
             | Kind::Domains
+            | Kind::Frequencies
+            | Kind::Phylodynamics
+            | Kind::Selection
+            | Kind::Squiggle
             | Kind::Axis => None,
         }
     }
@@ -892,6 +974,7 @@ impl Kind {
             Kind::Methylation => Some("--modification"),
             Kind::Bisulfite => Some("--context"),
             Kind::Domains => Some("--analysis"),
+            Kind::Squiggle => Some("--read"),
             Kind::Coverage
             | Kind::CopyNumber
             | Kind::Dynseq
@@ -906,6 +989,7 @@ impl Kind {
             | Kind::Snps
             | Kind::Ideogram
             | Kind::Matrix
+            | Kind::Heatmap
             | Kind::Pileup
             | Kind::Synteny
             | Kind::Dotplot
@@ -915,7 +999,11 @@ impl Kind {
             | Kind::Clades
             | Kind::Loci
             | Kind::Structural
+            | Kind::Pairs
             | Kind::SplitReads
+            | Kind::Frequencies
+            | Kind::Phylodynamics
+            | Kind::Selection
             | Kind::Axis => None,
         }
     }
@@ -947,6 +1035,15 @@ pub enum Style {
     Differences,
     /// Every cell of an alignment, agreements included.
     All,
+    /// Each time's groups stacked into one band that fills to the whole,
+    /// which only a frequencies track draws, and its default.
+    Stacked,
+    /// Every pair a cell of a triangle hung under the axis, which only a
+    /// pairs track draws.
+    Triangle,
+    /// Every pair an arc from one place to the other, which only a pairs
+    /// track draws.
+    Arcs,
 }
 
 impl Style {
@@ -954,7 +1051,7 @@ impl Style {
     ///
     /// Here rather than in the help text, so a style wired up and left out of
     /// the help is a failing test instead of a value nobody can find.
-    pub const ALL: [(Style, &'static str); 8] = [
+    pub const ALL: [(Style, &'static str); 11] = [
         (Style::Area, "area"),
         (Style::Line, "line"),
         (Style::Bars, "bars"),
@@ -963,6 +1060,9 @@ impl Style {
         (Style::Lollipop, "lollipop"),
         (Style::Differences, "differences"),
         (Style::All, "all"),
+        (Style::Stacked, "stacked"),
+        (Style::Triangle, "triangle"),
+        (Style::Arcs, "arcs"),
     ];
 
     /// The coverage spelling, or `None` for a style coverage does not have.
@@ -971,9 +1071,14 @@ impl Style {
             Style::Area => CoverageStyle::Area,
             Style::Line => CoverageStyle::Line,
             Style::Bars => CoverageStyle::Bars,
-            Style::Steps | Style::Tick | Style::Lollipop | Style::Differences | Style::All => {
-                return None
-            }
+            Style::Steps
+            | Style::Tick
+            | Style::Lollipop
+            | Style::Differences
+            | Style::All
+            | Style::Stacked
+            | Style::Triangle
+            | Style::Arcs => return None,
         })
     }
 
@@ -987,7 +1092,10 @@ impl Style {
             | Style::Tick
             | Style::Lollipop
             | Style::Differences
-            | Style::All => return None,
+            | Style::All
+            | Style::Stacked
+            | Style::Triangle
+            | Style::Arcs => return None,
         })
     }
 
@@ -1001,7 +1109,10 @@ impl Style {
             | Style::Bars
             | Style::Steps
             | Style::Differences
-            | Style::All => return None,
+            | Style::All
+            | Style::Stacked
+            | Style::Triangle
+            | Style::Arcs => return None,
         })
     }
 
@@ -1020,7 +1131,46 @@ impl Style {
             | Style::Bars
             | Style::Steps
             | Style::Tick
-            | Style::Lollipop => return None,
+            | Style::Lollipop
+            | Style::Stacked
+            | Style::Triangle
+            | Style::Arcs => return None,
+        })
+    }
+
+    /// The frequencies spelling, or `None` for a style a frequencies track
+    /// has not got: stacked into one band, or a line per group, each read
+    /// against the whole on its own.
+    pub fn frequencies(self) -> Option<SurveillanceStyle> {
+        Some(match self {
+            Style::Stacked => SurveillanceStyle::Stacked,
+            Style::Line => SurveillanceStyle::Lines,
+            Style::Area
+            | Style::Bars
+            | Style::Steps
+            | Style::Tick
+            | Style::Lollipop
+            | Style::Differences
+            | Style::All
+            | Style::Triangle
+            | Style::Arcs => return None,
+        })
+    }
+
+    /// The pairs spelling, or `None` for a style a pairs track has not got.
+    pub fn pairs(self) -> Option<PairStyle> {
+        Some(match self {
+            Style::Triangle => PairStyle::Triangle,
+            Style::Arcs => PairStyle::Arcs,
+            Style::Area
+            | Style::Line
+            | Style::Bars
+            | Style::Steps
+            | Style::Tick
+            | Style::Lollipop
+            | Style::Differences
+            | Style::All
+            | Style::Stacked => return None,
         })
     }
 }
@@ -1163,6 +1313,9 @@ pub struct TrackSpec {
     /// `--fade-by-mapq`, which draws a read at less than full strength the
     /// lower its mapping quality.
     pub fade_by_mapq: bool,
+    /// `--relative`, which reads each sample of a heatmap against its own
+    /// median, so one is its usual value.
+    pub relative: bool,
     /// `--row-height`, for the tracks whose height follows from their rows.
     ///
     /// The complement of [`TrackSpec::height`], and the two never both apply:
@@ -1218,6 +1371,7 @@ impl TrackSpec {
             no_counts: false,
             min_reads: None,
             fade_by_mapq: false,
+            relative: false,
             ploidy: None,
             sample: None,
             traits: None,
@@ -1337,6 +1491,7 @@ pub const FLAGS: &[&str] = &[
     "--snps",
     "--ideogram",
     "--matrix",
+    "--heatmap",
     "--pileup",
     "--synteny",
     "--dotplot",
@@ -1347,9 +1502,14 @@ pub const FLAGS: &[&str] = &[
     "--loci",
     "--methylation",
     "--structural",
+    "--pairs",
     "--split-reads",
     "--bisulfite",
     "--domains",
+    "--frequencies",
+    "--phylodynamics",
+    "--selection",
+    "--squiggle",
     "--axis",
     "--label",
     "--ploidy",
@@ -1372,6 +1532,7 @@ pub const FLAGS: &[&str] = &[
     "--no-counts",
     "--min-reads",
     "--fade-by-mapq",
+    "--relative",
     "--row-height",
     "--height",
     "--aggregate",
@@ -1382,9 +1543,11 @@ pub const FLAGS: &[&str] = &[
     "--with-tree",
     "--links",
     "--with-sequence",
+    "--ld",
     "--modification",
     "--context",
     "--analysis",
+    "--read",
     "--identity",
     "--format",
     "--title",
@@ -1712,6 +1875,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--snps" => Some((Kind::Snps, true)),
             "--ideogram" => Some((Kind::Ideogram, true)),
             "--matrix" => Some((Kind::Matrix, true)),
+            "--heatmap" => Some((Kind::Heatmap, true)),
             "--pileup" => Some((Kind::Pileup, true)),
             "--synteny" => Some((Kind::Synteny, true)),
             "--dotplot" => Some((Kind::Dotplot, true)),
@@ -1722,9 +1886,14 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--loci" => Some((Kind::Loci, true)),
             "--methylation" => Some((Kind::Methylation, true)),
             "--structural" => Some((Kind::Structural, true)),
+            "--pairs" => Some((Kind::Pairs, true)),
             "--split-reads" => Some((Kind::SplitReads, true)),
             "--bisulfite" => Some((Kind::Bisulfite, true)),
             "--domains" => Some((Kind::Domains, true)),
+            "--frequencies" => Some((Kind::Frequencies, true)),
+            "--phylodynamics" => Some((Kind::Phylodynamics, true)),
+            "--selection" => Some((Kind::Selection, true)),
+            "--squiggle" => Some((Kind::Squiggle, true)),
             "--axis" => Some((Kind::Axis, false)),
             _ => None,
         };
@@ -1882,7 +2051,28 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     return Err(ArgError::BadValue {
                         flag: "--threshold",
                         given: text.clone(),
-                        expected: "a support value on a phylogeny, as in 0.7",
+                        expected: match track.kind {
+                            Kind::Phylodynamics => {
+                                "a value on the estimate's own scale, as in 1 for a \
+                                 reproductive number"
+                            }
+                            Kind::Selection => "a p-value, as in 0.05, or a posterior, as in 0.9",
+                            Kind::Pairs => "the least value a pair is drawn with, as in 0.2",
+                            _ => "a support value on a phylogeny, as in 0.7",
+                        },
+                    });
+                }
+                // A p-value and a posterior both run from nought to one, and
+                // a site is selected where its evidence passes the line: a
+                // line outside that range selects every site or none.
+                if track.kind == Kind::Selection
+                    && !matches!(value, Threshold::At(at) if at > 0.0 && at <= 1.0)
+                {
+                    return Err(ArgError::BadValue {
+                        flag: "--threshold",
+                        given: text.clone(),
+                        expected: "a p-value, as in 0.05, or a posterior, as in 0.9, \
+                                   above nought and at most one",
                     });
                 }
                 track.threshold = Some(value);
@@ -2106,6 +2296,16 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.fade_by_mapq = true;
             }
+            "--relative" => {
+                let track = last(&mut tracks, "--relative")?;
+                if track.kind != Kind::Heatmap {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--relative",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.relative = true;
+            }
             "--row-height" => {
                 let text = value("--row-height")?;
                 let px = text
@@ -2190,7 +2390,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         return Err(ArgError::BadValue {
                             flag: "--style",
                             given: text.clone(),
-                            expected: "area, line, bars, steps, tick, lollipop, differences or all",
+                            expected: "area, line, bars, steps, tick, lollipop, differences, all, \
+                                       stacked, triangle or arcs",
                         })
                     }
                 };
@@ -2202,7 +2403,12 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 // this track has no style`, which is not a sentence.
                 if !matches!(
                     track.kind,
-                    Kind::Coverage | Kind::Windows | Kind::Variants | Kind::Msa
+                    Kind::Coverage
+                        | Kind::Windows
+                        | Kind::Variants
+                        | Kind::Msa
+                        | Kind::Frequencies
+                        | Kind::Pairs
                 ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--style",
@@ -2215,6 +2421,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     Kind::Windows => style.window().is_some(),
                     Kind::Variants => style.variant().is_some(),
                     Kind::Msa => style.msa().is_some(),
+                    Kind::Frequencies => style.frequencies().is_some(),
+                    Kind::Pairs => style.pairs().is_some(),
                     _ => unreachable!("every styled track is named above"),
                 };
                 if !fits {
@@ -2226,6 +2434,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                             Kind::Windows => "steps or line for a window track",
                             Kind::Variants => "tick or lollipop for a variant track",
                             Kind::Msa => "differences or all for an alignment track",
+                            Kind::Frequencies => "stacked or line for a frequencies track",
+                            Kind::Pairs => "triangle or arcs for a pairs track",
                             _ => unreachable!("every styled track is named above"),
                         },
                     });
@@ -2234,7 +2444,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             }
             "--log" => {
                 let track = last(&mut tracks, "--log")?;
-                if !track.kind.takes_aggregate() {
+                if !track.kind.takes_log() {
                     return Err(ArgError::WrongTrack {
                         flag: "--log",
                         track: track.kind.flag(),
@@ -2258,7 +2468,12 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 let track = once(&mut tracks, &mut given, "--color")?;
                 if !matches!(
                     track.kind,
-                    Kind::Coverage | Kind::Features | Kind::Junctions
+                    Kind::Coverage
+                        | Kind::Features
+                        | Kind::Junctions
+                        | Kind::Phylodynamics
+                        | Kind::Squiggle
+                        | Kind::Pairs
                 ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--color",
@@ -2267,7 +2482,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
@@ -2275,6 +2490,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     "--with-tree" => "--with-tree",
                     "--links" => "--links",
                     "--with-sequence" => "--with-sequence",
+                    "--ld" => "--ld",
                     _ => "--against",
                 };
                 let word = value(flag)?;
@@ -2301,10 +2517,11 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.second = Some(source);
             }
-            flag @ ("--modification" | "--context" | "--analysis") => {
+            flag @ ("--modification" | "--context" | "--analysis" | "--read") => {
                 let flag: &'static str = match flag {
                     "--context" => "--context",
                     "--analysis" => "--analysis",
+                    "--read" => "--read",
                     _ => "--modification",
                 };
                 let chosen = value(flag)?.clone();
@@ -2712,6 +2929,56 @@ mod tests {
             Request::Draw(invocation) => *invocation,
             other => panic!("expected a figure, got {other:?}"),
         }
+    }
+
+    /// The options the new tracks take, each refused by name where it means
+    /// nothing, and each value refused where the track cannot use it.
+    #[test]
+    fn the_new_tracks_take_their_own_options_and_no_others() {
+        let refused = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        // Their own place: no region needed.
+        for flag in [
+            "--frequencies",
+            "--phylodynamics",
+            "--selection",
+            "--squiggle",
+        ] {
+            assert!(draw(&format!("{flag} t.tsv")).region.is_none(), "{flag}");
+        }
+        assert!(
+            parse(&args("--heatmap d.tsv")).is_err(),
+            "a heatmap is drawn over a place"
+        );
+        // Styles are a track's own words.
+        assert_eq!(
+            draw("--frequencies f.tsv --style line").tracks[0].style,
+            Some(Style::Line)
+        );
+        assert!(refused("--frequencies f.tsv --style arcs").contains("stacked or line"));
+        assert!(refused("chr1:1-9 --pairs p.tsv --style stacked").contains("triangle or arcs"));
+        // A selection threshold is a p-value or a posterior, and a scan's
+        // convention is a scan's.
+        assert!(refused("--selection s.csv --threshold 2").contains("at most one"));
+        assert!(refused("--phylodynamics r.tsv --threshold genome-wide").contains("reproductive"));
+        assert!(draw("chr1:1-9 --pairs p.tsv --threshold 0.2 --log").tracks[0].log);
+        // One track each.
+        assert!(refused("chr1:1-9 --coverage d.bg --relative").contains("--relative"));
+        assert!(draw("chr1:1-9 --heatmap d.tsv --relative").tracks[0].relative);
+        assert!(refused("chr1:1-9 --coverage d.bg --ld l.ld").contains("--ld"));
+        assert!(draw("chr1:1-9 --manhattan g.assoc --ld l.ld").tracks[0]
+            .second
+            .is_some());
+        assert!(refused("--frequencies f.tsv --read r1").contains("--read"));
+        assert_eq!(
+            draw("--squiggle r.slow5 --read r1").tracks[0]
+                .selects
+                .as_deref(),
+            Some("r1")
+        );
+        // Named on their own, by the files their tools write.
+        assert_eq!(draw("r.slow5").tracks[0].kind, Kind::Squiggle);
+        assert_eq!(draw("chr1:1-9 plink.ld").tracks[0].kind, Kind::Pairs);
+        assert_eq!(draw("chr1:1-9 loops.bedpe").tracks[0].kind, Kind::Pairs);
     }
 
     #[test]

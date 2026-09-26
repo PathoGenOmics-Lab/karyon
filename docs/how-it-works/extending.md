@@ -1,6 +1,6 @@
 # Writing a track
 
-Add a track type the crate does not have. The thirty-six that ship are
+Add a track type the crate does not have. The thirty-seven that ship are
 implementations of one small trait with no privileged access to the figure, so
 yours is one more file in your project, not a fork of karyon.
 { .k-lead }
@@ -27,7 +27,7 @@ which is why karyon draws no accumulation curve and no clustered frequency
 heatmap. A rarefaction over a presence matrix is a statistic to compute, not a
 plot type, and it needs no `Track`.
 
-Thirty-one of the thirty-six shipped tracks draw through `ctx.scale`. The five
+Thirty-two of the thirty-seven shipped tracks draw through `ctx.scale`. The five
 that do not each answer for it in their own module documentation:
 
 - [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) draws the whole
@@ -423,7 +423,7 @@ and render yourself with the ids you are given.
 
 -   **[Track catalogue](../tracks/index.md)**
 
-    The thirty-six tracks already written to this trait.
+    The thirty-seven tracks already written to this trait.
 
 -   **[Scale](scale.md)**
 
