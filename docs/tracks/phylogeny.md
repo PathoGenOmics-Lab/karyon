@@ -15,7 +15,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 A phylogeny from Newick, drawn as a phylogram when the branch lengths mean something or a cladogram when they do not, in rectangular, circular or unrooted coordinates. Metadata, support, branch events and selection layers go on the same tree.
 
 <figure class="k-plate" markdown>
-![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" }
+![A synthetic dated outbreak phylogeny with branches coloured by country, aligned country and sequencing-depth columns, and a second view with named clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="368" loading="lazy" }
 </figure>
 
 | | |

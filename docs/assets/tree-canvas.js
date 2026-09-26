@@ -922,11 +922,37 @@ window.karyonCanvas = (function () {
       return many ? many * (STRIP_WIDE + STRIP_GAP) + STRIP_GAP : 0;
     }
 
-    function stripInk(strip, node, dark) {
+    function stripLevel(strip, node) {
       var at = strip.of[node];
       if (at === 0xffffffff || at >= strip.levels.length) return null;
-      var level = strip.levels[at];
-      return dark ? level.dark : level.light;
+      return strip.levels[at];
+    }
+
+    // A column with more levels than the palette has colours is drawn as
+    // shapes, as the crate draws it: two levels that share a colour are two
+    // shapes. Drawn as cells here, they were one colour and one level.
+    function paintShape(ctx, shape, ink, cx, cy, r) {
+      ctx.fillStyle = ink;
+      ctx.beginPath();
+      if (shape === "circle") {
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      } else if (shape === "square") {
+        ctx.moveTo(cx - r, cy - r);
+        ctx.lineTo(cx + r, cy - r);
+        ctx.lineTo(cx + r, cy + r);
+        ctx.lineTo(cx - r, cy + r);
+      } else if (shape === "diamond") {
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+      } else {
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r * 0.95, cy + r * 0.75);
+        ctx.lineTo(cx - r * 0.95, cy + r * 0.75);
+      }
+      ctx.closePath();
+      ctx.fill();
     }
 
     // Beside the rows: one cell per column, at the row of every tip on screen.
@@ -943,10 +969,16 @@ window.karyonCanvas = (function () {
         for (var at = from; at < to; at++) {
           var node = view.byRow[at];
           if (!view.length[node]) continue;
-          var ink = stripInk(strip, node, theme.dark);
-          if (!ink) continue;
-          ctx.fillStyle = ink;
-          ctx.fillRect(left, atY(view.y[node]) - tall / 2, STRIP_WIDE, tall);
+          var level = stripLevel(strip, node);
+          if (!level) continue;
+          var ink = theme.dark ? level.dark : level.light;
+          if (level.symbol) {
+            var r = Math.max(1.4, Math.min(STRIP_WIDE, tall) * 0.3);
+            paintShape(ctx, level.symbol, ink, left + STRIP_WIDE / 2, atY(view.y[node]), r);
+          } else {
+            ctx.fillStyle = ink;
+            ctx.fillRect(left, atY(view.y[node]) - tall / 2, STRIP_WIDE, tall);
+          }
           drawn += 1;
         }
       }
@@ -970,15 +1002,23 @@ window.karyonCanvas = (function () {
           for (var at = runs[run][0]; at < runs[run][1]; at++) {
             var node = view.byRow[at];
             if (!view.length[node]) continue;
-            var ink = stripInk(strip, node, theme.dark);
-            if (!ink) continue;
+            var level = stripLevel(strip, node);
+            if (!level) continue;
+            var ink = theme.dark ? level.dark : level.light;
             var turn = angleOf(view.y[node]);
-            ctx.fillStyle = ink;
-            ctx.beginPath();
-            ctx.arc(midX, midY, outer, turn - step / 2, turn + step / 2);
-            ctx.arc(midX, midY, inner, turn + step / 2, turn - step / 2, true);
-            ctx.closePath();
-            ctx.fill();
+            if (level.symbol) {
+              var middle = (inner + outer) / 2;
+              var r = Math.max(1.4, Math.min(outer - inner, middle * step) * 0.35);
+              paintShape(ctx, level.symbol, ink, midX + Math.cos(turn) * middle,
+                midY + Math.sin(turn) * middle, r);
+            } else {
+              ctx.fillStyle = ink;
+              ctx.beginPath();
+              ctx.arc(midX, midY, outer, turn - step / 2, turn + step / 2);
+              ctx.arc(midX, midY, inner, turn + step / 2, turn - step / 2, true);
+              ctx.closePath();
+              ctx.fill();
+            }
             drawn += 1;
           }
         }

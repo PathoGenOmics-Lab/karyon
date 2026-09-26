@@ -15,8 +15,10 @@ function fakeCanvas(wide, tall) {
   const rects = [];
   const texts = [];
   const arcs = [];
+  const fills = [];
   const ctx = {
-    setTransform() {}, clearRect() {}, beginPath() {}, stroke() {},
+    setTransform() {}, clearRect() {}, beginPath() {}, stroke() {}, closePath() {},
+    fill() { fills.push(ctx.fillStyle); },
     moveTo(x, y) { strokes.push(["move", x, y, ctx.strokeStyle]); },
     lineTo(x, y) { strokes.push(["line", x, y, ctx.strokeStyle]); },
     fillRect(x, y, w, h) { rects.push({ kind: "fill", x, y, w, h, paint: ctx.fillStyle }); },
@@ -34,6 +36,7 @@ function fakeCanvas(wide, tall) {
     rects,
     texts,
     arcs,
+    fills,
   };
 }
 
@@ -745,6 +748,22 @@ check("a column of traits is drawn beside the rows, in the colours it arrived wi
   for (const cell of cells) {
     assert.ok(allowed.has(cell.paint), `a cell was painted ${cell.paint}, which came from nowhere`);
   }
+});
+
+check("a column drawn as shapes is drawn as shapes, not cells", () => {
+  const placed = striped(3);
+  const shapes = ["circle", "diamond", "triangle"];
+  placed.strips[0].levels.forEach((level, at) => { level.symbol = shapes[at]; });
+  const canvas = fakeCanvas(WIDE, 800);
+  const painter = canvasModule.make(canvas);
+  painter.load(placed);
+  const report = painter.paint(theme);
+  assert.ok(report.cells > 0, "no trait marks were drawn");
+  const inks = new Set(placed.strips[0].levels.map((l) => l.light));
+  const cells = canvas.rects.filter((r) => r.kind === "fill" && inks.has(r.paint));
+  assert.strictEqual(cells.length, 0, "a level with a shape was drawn as a cell");
+  const filled = canvas.fills.filter((paint) => inks.has(paint));
+  assert.strictEqual(filled.length, report.cells, "a shape for every mark");
 });
 
 check("and the check bites: a tree with no columns draws no cells", () => {

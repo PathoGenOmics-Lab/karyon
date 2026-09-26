@@ -80,7 +80,7 @@ the carriers, and refuses a change the tree does not carry.
 ## Draw time, branches and sample traits together
 
 <figure class="k-plate" markdown>
-![A dated outbreak tree on a calendar axis, branches coloured by country, with country and depth columns beside the tips, and the same tree with two clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="354" loading="lazy" }
+![A dated outbreak tree on a calendar axis, branches coloured by country, with country and depth columns beside the tips, and the same tree with two clades collapsed](../assets/figures/example-phylogenetics.svg){ width="1540" height="368" loading="lazy" }
 </figure>
 
 === "Rust"

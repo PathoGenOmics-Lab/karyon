@@ -2024,6 +2024,7 @@ impl TreeTrack {
                                     &theme.accent,
                                     band as f64 / (BANDS - 1) as f64,
                                 ),
+                                symbol: None,
                             });
                         }
                         for (node, value) in values.iter().enumerate() {
@@ -2035,10 +2036,12 @@ impl TreeTrack {
                         }
                     }
                     TraitScale::Categorical => {
+                        let shaped = column.drawn_style(&domain, theme) == TraitStyle::Symbol;
                         for (value, index) in domain.levels() {
                             levels.push(crate::TraitLevel {
                                 value: value.to_string(),
                                 color: theme.color(index).to_string(),
+                                symbol: shaped.then(|| theme.symbol(index)),
                             });
                         }
                         for (node, value) in values.iter().enumerate() {

@@ -558,7 +558,7 @@ self.karyon = self.karyon || (function () {
       walk += 4;
       var levels = [];
       for (var level = 0; level < many; level++) {
-        levels.push({ value: word(), light: word(), dark: word() });
+        levels.push({ value: word(), light: word(), dark: word(), symbol: word() });
       }
       var of = new Uint32Array(wasm.memory.buffer.slice(walk, walk + count * 4));
       walk += count * 4;
