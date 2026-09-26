@@ -116,8 +116,15 @@ pub type WindowMatrix = (Vec<(u64, u64)>, Vec<MatrixRow>);
 ///
 /// Returns the windows that reach into the region, and one row per sample
 /// with a value per window, in the order of the file.
+///
+/// A table in the long form, a window and a sample to a row, as `chrom start
+/// end sample value`, is read too, as [`long_windows`] reads it: told by a
+/// fourth column that names a sample rather than holding a value.
 pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    if is_long(text) {
+        return long_windows(text, region);
+    }
     let mut names: Option<Vec<String>> = None;
     let mut spans = Vec::new();
     let mut values: Vec<Vec<f64>> = Vec::new();
@@ -200,6 +207,132 @@ pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
     Ok((spans, rows))
 }
 
+/// The names a column of samples goes by in the header of a long table.
+const SAMPLE: &[&str] = &[
+    "sample",
+    "samples",
+    "name",
+    "id",
+    "sample_id",
+    "sample_name",
+];
+
+/// Whether a table of windows is in the long form, a window and a sample to a
+/// row: its header calls the fourth column a sample, or its first window
+/// holds a word there, where a wide table holds a value.
+fn is_long(text: &str) -> bool {
+    for raw in text.lines() {
+        let raw = raw.trim_end_matches('\r');
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let fields = columns(raw.trim_start_matches('#'));
+        let is_data = fields.len() >= 3
+            && !raw.starts_with('#')
+            && fields[1].trim().parse::<u64>().is_ok()
+            && fields[2].trim().parse::<u64>().is_ok();
+        if !is_data {
+            if fields.len() == 5 {
+                let named = fields[3].trim().trim_matches(|c| c == '\'' || c == '"');
+                if SAMPLE.iter().any(|name| named.eq_ignore_ascii_case(name)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        let fourth = fields.get(3).map(|field| field.trim()).unwrap_or_default();
+        return fields.len() == 5
+            && !fourth.is_empty()
+            && fourth != "."
+            && fourth != "NA"
+            && fourth.parse::<f64>().is_err();
+    }
+    false
+}
+
+/// Reads a value per sample per window from a table in the long form: a
+/// sequence, a start and an end, 0-based and half-open as BED is, then the
+/// sample and its value, one sample of one window to a row.
+///
+/// The windows are every span a row names, in order along the sequence, and
+/// the samples every name, in the order the file first gives them. A sample
+/// the file gives no row for in a window is missing there rather than nought,
+/// and two rows for one sample in one window, or two windows that overlap
+/// without being the same window, stop the read: a heatmap has one cell for
+/// each sample in each window, and neither has one answer.
+pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
+    let mut samples: Vec<String> = Vec::new();
+    let mut cells: Vec<((u64, u64), usize, f64, usize)> = Vec::new();
+    for (line, raw) in lines(text) {
+        let fields = columns(raw.trim_start_matches('#'));
+        let is_data = fields.len() >= 3
+            && !raw.starts_with('#')
+            && fields[1].trim().parse::<u64>().is_ok()
+            && fields[2].trim().parse::<u64>().is_ok();
+        if !is_data {
+            continue;
+        }
+        if fields.len() != 5 {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "{} columns: a long table is a sequence, a start, an end, a sample and \
+                     its value",
+                    fields.len()
+                ),
+            ));
+        }
+        if fields[0].trim() != region.seq() {
+            continue;
+        }
+        let start: u64 = number(fields[1].trim(), "the start", line)?;
+        let end: u64 = number(fields[2].trim(), "the end", line)?;
+        if end <= start || start >= region.end() || end <= region.start() {
+            continue;
+        }
+        let name = fields[3].trim();
+        let sample = match samples.iter().position(|seen| seen == name) {
+            Some(at) => at,
+            None => {
+                samples.push(name.to_string());
+                samples.len() - 1
+            }
+        };
+        cells.push(((start, end), sample, cell(fields[4], 5, line)?, line));
+    }
+    let mut spans: Vec<(u64, u64)> = cells.iter().map(|(span, ..)| *span).collect();
+    spans.sort_unstable();
+    spans.dedup();
+    if let Some(pair) = spans.windows(2).find(|pair| pair[0].1 > pair[1].0) {
+        return Err(ReadError::whole(format!(
+            "two windows overlap, {}-{} and {}-{}: a heatmap has one cell for each sample \
+             in each window",
+            pair[0].0, pair[0].1, pair[1].0, pair[1].1
+        )));
+    }
+    let mut values = vec![vec![f64::NAN; spans.len()]; samples.len()];
+    let mut given = vec![vec![false; spans.len()]; samples.len()];
+    for (span, sample, value, line) in cells {
+        let column = spans.binary_search(&span).expect("every span is listed");
+        if std::mem::replace(&mut given[sample][column], true) {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "a second value for {} in the window {}-{}",
+                    samples[sample], span.0, span.1
+                ),
+            ));
+        }
+        values[sample][column] = value;
+    }
+    let rows = samples
+        .into_iter()
+        .zip(values)
+        .map(|(name, cells)| MatrixRow::new(name, cells))
+        .collect();
+    Ok((spans, rows))
+}
+
 /// Where the positions start in the header row.
 ///
 /// The corner of the table is either empty or a word such as `sample`, so a
@@ -261,6 +394,43 @@ mod tests {
             "{}",
             error.reason
         );
+    }
+
+    /// A long table, a window and a sample to a row, reads as the wide table
+    /// with the same values does, and a window a sample has no row in is
+    /// missing there.
+    #[test]
+    fn a_long_table_reads_as_the_wide_one() {
+        let wide = "chrom\tstart\tend\tS1\tS2\nchr1\t0\t100\t5\tNA\n\
+                    chr1\t100\t200\t0\t7.5\n";
+        let long = "chrom\tstart\tend\tsample\tdepth\nchr1\t100\t200\tS1\t0\n\
+                    chr1\t0\t100\tS1\t5\nchr1\t100\t200\tS2\t7.5\nchr2\t0\t100\tS3\t1\n";
+        let (wide_spans, wide_rows) = windows(wide, &region("chr1:1-200")).unwrap();
+        let (long_spans, long_rows) = windows(long, &region("chr1:1-200")).unwrap();
+        assert_eq!(long_spans, wide_spans);
+        assert_eq!(long_rows.len(), 2, "S3 is on another sequence");
+        for (long, wide) in long_rows.iter().zip(&wide_rows) {
+            assert_eq!(long.name, wide.name);
+            assert_eq!(
+                (long.value(0), long.value(1)),
+                (wide.value(0), wide.value(1))
+            );
+        }
+        // Without a header, a word in the fourth column names a sample.
+        let bare = "chr1\t0\t100\tS1\t3\nchr1\t0\t100\tS2\t4\n";
+        let (_, rows) = windows(bare, &region("chr1:1-100")).unwrap();
+        assert_eq!(rows[1].name, "S2");
+        // Two answers for one cell, or windows that overlap, are refused.
+        let twice = "chr1\t0\t100\tS1\t3\nchr1\t0\t100\tS1\t4\n";
+        let error = windows(twice, &region("chr1:1-100")).unwrap_err();
+        assert!(
+            error.reason.contains("a second value for S1"),
+            "{}",
+            error.reason
+        );
+        let overlap = "chr1\t0\t100\tS1\t3\nchr1\t50\t150\tS1\t4\n";
+        let error = windows(overlap, &region("chr1:1-200")).unwrap_err();
+        assert!(error.reason.contains("overlap"), "{}", error.reason);
     }
 
     #[test]

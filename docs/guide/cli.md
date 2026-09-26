@@ -105,7 +105,7 @@ Read the command one flag at a time:
 - `--sequence`, `--features` and `--variants` open the next three bands, each
   named by the `--label` that follows it.
 - `--title` and `-o` describe the figure, so where they sit does not matter.
-- A coordinate ruler is added along the bottom without being asked for.
+- A coordinate ruler is added under the tracks without being asked for.
 
 Every reader skips rows on another sequence and rows outside the window, so you
 can hand over a genome-wide file and only the window is drawn. The
@@ -241,6 +241,8 @@ takes.
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--ld <FILE>` | [PLINK's `.ld`](formats.md#pairs-of-positions) of the lead against its neighbours, or `-` | `--manhattan` | every point in one colour |
+| `--with-recombination <FILE>` | a [genetic map](formats.md#a-recombination-map), or `-` | `--manhattan` | no rate laid over the scan |
+| `--with-moves <FILE>` | SAM or BAM as Dorado writes it with `--emit-moves`, or `-` | `--squiggle` | the current alone, with no bases over it |
 | `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
 | `--modification <CODE>` | `m`, `h`, `a` or another modkit code | `--methylation` | the one code in the file; refused when it holds several |
 | `--context <NAME>` | `CpG`, `CHG` or `CHH` | `--bisulfite` | the one context in the file; refused when it holds several |
@@ -251,7 +253,7 @@ takes.
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
 | `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--recombination`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
-| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair |
+| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn; `--frequencies`, as the frequency a lineage is flagged at | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair; no lineage flagged |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
@@ -267,6 +269,10 @@ takes.
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | 5 behind a methylation site; 1 across a junction |
 | `--fade-by-mapq` | nothing | `--pileup` | every read at full strength |
 | `--relative` | nothing | `--heatmap` | the values as they are |
+| `--center <V>` | a number, as in `0` for a log ratio | `--heatmap` | one hue from nought up; `1` with `--relative` |
+| `--growth <RISE>` | a rise in frequency from one time to the next, above 0 and at most 1, as in `0.15` | `--frequencies` | no rise flagged |
+| `--min-total <N>` | a whole number of samples from 1 | `--frequencies` | every time drawn |
+| `--counts` | nothing | `--frequencies` | frequencies |
 | `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four; no cap on a tree |
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
@@ -294,8 +300,9 @@ second with an option, spelled by what the file is:
 | `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
-| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does |
+| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
 | `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
+| `--squiggle` | the read's current | `--with-moves`, optional: the basecaller's record of the read, whose move table puts each base over its stretch of current |
 
 The first four are refused without their second file:
 
@@ -460,7 +467,7 @@ karyon --tree big.nwk --max-rows 60 \
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
-  `--no-scale-bar` leaves it out. It is not the ruler at the bottom, which
+  `--no-scale-bar` leaves it out. It is not the coordinate ruler, which
   measures the region, and a cladogram or a tree with no branch lengths draws
   none.
 - `--focus` draws one clade and nothing else, named by its own label, by a tip
@@ -540,7 +547,8 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--title <TEXT>` | a title above the stack | no title |
 | `--width <PX>` | the width of the figure, at most 100,000 pixels | 900 |
 | `--theme <NAME>` | `light` or `dark` | `light` |
-| `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
+| `--background <HEX>` | the colour under the figure, as `#rrggbb`, for a page or a slide of another colour; the shades mixed from it follow | the theme's |
+| `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler under the tracks |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
@@ -579,6 +587,11 @@ take it:
 $ karyon NC_000962.3:761,000-763,000 --coverage - --variants -
 karyon: only one track can read from standard input
 ```
+
+A pipe is read once and kept, so what comes through one is read as a file
+would be: an alignment, a table over time or over the sites of a gene, and a
+read's signal are their own place from standard input too, and a table whose
+times have fractions is read as a continuous time.
 
 The readers drop blank lines, `#` comment and header lines, and SAM `@`
 headers, so a tool's output pipes in as it comes, with nothing to strip first.

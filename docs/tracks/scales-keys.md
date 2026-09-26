@@ -12,7 +12,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 
 ## AxisTrack { #axistrack }
 
-The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader would type into a genome browser, in one unit for the whole ruler. `plot()` puts one at the bottom without being asked.
+The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader would type into a genome browser, in one unit for the whole ruler. `plot()` puts one under the tracks without being asked.
 
 <figure class="k-plate" markdown>
 ![A ruler under sixty bases of rpoB with its ticks on round 1-based coordinates, beneath a depth profile, the reference letters and two variant calls](../assets/figures/example-zoom.svg){ width="900" height="222" loading="lazy" }
@@ -20,7 +20,7 @@ The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader w
 
 | | |
 |:--|:--|
-| Rust | `.add_axis()` on `plot()`, which puts the ruler where the call sits instead of at the bottom; `AxisTrack::new()` |
+| Rust | `.add_axis()` on `plot()`, which puts the ruler where the call sits instead of under the tracks; `AxisTrack::new()` |
 | Command line | `--axis`, with `--label`, `--height`; `--no-axis` leaves the ruler out |
 | Reads | nothing |
 
@@ -63,7 +63,7 @@ Coordinates are 0-based everywhere in the crate except where a reader looks, and
 
 A ruler marks boundaries, which is right while a base is a fraction of a pixel. Once a base is a column you can see, as in a logo, a short motif or a figure of time points, `center_on_bases` puts each number under the column it counts. `counting` does that too and writes plain numbers, for an axis whose unit is not a base: the command line uses it under an alignment, a table over time, the sites of a gene and a read's samples, and names the unit in the margin.
 
-`plot()` appends a ruler at the bottom when anything in the figure is laid on the coordinates, so a figure of trees alone gets none. `.add_axis()` puts it where the call sits and is not doubled at the bottom, `.remove_axis()` leaves it out, and calling `.add_axis()` twice gives a tall figure a ruler at the top and at the bottom. An `AxisTrack` passed to `add_track` is drawn as well as the automatic one, which makes two. On the command line `--axis` does the same as `add_axis`, and `--no-axis` the same as `remove_axis`.
+`plot()` puts a ruler under the last track laid on the coordinates, so a figure of trees alone gets none, and a tree or a panel of sites stacked under a coverage profile sits below the ruler rather than above it. `.add_axis()` puts it where the call sits and is not doubled, `.remove_axis()` leaves it out, and calling `.add_axis()` twice gives a tall figure a ruler at the top and at the bottom. An `AxisTrack` passed to `add_track` is drawn as well as the automatic one, which makes two. On the command line `--axis` does the same as `add_axis`, and `--no-axis` the same as `remove_axis`.
 
 ## CodonTrack { #codontrack }
 

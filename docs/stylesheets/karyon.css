@@ -1345,6 +1345,23 @@ body {
   background: #ffffff;
 }
 
+/* A figure drawn in advance on the page's own light and on its dark, under
+   the command a page prints for it: until the program draws it, and if it
+   never does, the one for the page's mode, as it stands, since it is already
+   on the page's colour. */
+.k-fig--pair .k-fig__stage > img.k-dark,
+[data-md-color-scheme="slate"] .k-fig--pair .k-fig__stage > img.k-light {
+  display: none;
+}
+[data-md-color-scheme="slate"] .k-fig--pair .k-fig__stage > img.k-dark {
+  display: block;
+}
+.k-fig--pair[data-state="static"] .k-fig__stage > img {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+}
+
 .k-fig--moves .k-fig__stage,
 .k-fig--moved .k-fig__stage {
   cursor: grab;
@@ -1492,9 +1509,9 @@ body {
 }
 
 /* A figure drawn twice, on the light page and on the dark one, of which the
-   page shows the one drawn on its own colour. For the figures of the short
-   path, which the command line draws from files the program in the page
-   cannot read. */
+   page shows the one drawn on its own colour: the figures of the short path,
+   until the program in the page draws them from their commands, and a figure
+   shown without its command. */
 .md-typeset .k-dark,
 .md-typeset .k-plots > ul > li > p:first-child img.k-dark {
   display: none;
@@ -1509,7 +1526,11 @@ body {
 [data-md-color-scheme="slate"] .md-typeset .k-plots > ul > li > p:first-child img.k-dark {
   display: block;
 }
+/* The width of the column, which is what the program draws the figure at
+   once it arrives: a figure's own width is the width of what is in it, and
+   what is in it is a hundred per cent of the figure. */
 .md-typeset figure.k-start {
+  width: 100%;
   margin: 1.2em 0;
 }
 .md-typeset figure.k-start img {

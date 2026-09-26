@@ -283,7 +283,7 @@ chr1        609401        0.63         0.004200
 
 | | |
 |:--|:--|
-| Read by | `--recombination`, or a file whose name holds `genetic_map`; `read::recombination::rates` |
+| Read by | `--recombination`, or a file whose name holds `genetic_map`, as a track of its own; `--with-recombination` after `--manhattan`, laid over the scan; `read::recombination::rates` |
 | Columns | found by name in any case: a position (`Position(bp)`, `position`), a rate (`Rate(cM/Mb)`, `COMBINED_rate(cM/Mb)`) and, where there is one, a chromosome; with no header, a bedGraph of rates |
 | Coordinates | positions 1-based; a bedGraph 0-based, half-open |
 | Skipped | rows on another sequence; a rate that is empty or `NA`, which leaves its stretch out rather than at nought |
@@ -561,7 +561,24 @@ header of its own, `#'chr' 'start' 'end' 'S01.bam'`, which is read with its hash
 and quotes taken off. A table with no header names its samples by their column,
 `column 4` onwards. An empty cell, `.` and `NA` are missing, as in the matrix
 table. `--relative` divides each sample by its own median over the windows
-drawn, so 1× is its usual value.
+drawn, so 1× is its usual value, and reads it either side of 1×, a loss in one
+hue and a gain in the other; `--center` reads the values either side of a
+value of its own, as `--center 0` for a log ratio.
+
+The long form, one sample of one window to a row, is read too: a sequence, a
+start and an end, then the sample and its value.
+
+```text
+chrom        start   end     sample  depth
+NC_000962.3  0       100000  S01     68.1
+NC_000962.3  0       100000  S02     103.2
+```
+
+It is told from the wide table by its fourth column, which names a sample:
+the header calls it `sample`, `name` or `id`, or the first window holds a word
+there. A sample with no row in a window is missing there. Two values for one
+sample in one window, and two windows that overlap without being the same
+window, are refused.
 
 ### Pairs of positions { #pairs-of-positions }
 
@@ -602,6 +619,14 @@ Tabs, commas or runs of spaces separate the columns. An empty value, `.`, `NA`
 or `nan` is a pair with no answer, kept and not drawn. A value named as a
 correlation, `R2`, `r²`, `R` or `D'`, is keyed from 0 to 1 whatever the
 strongest pair in the window, and drawn as a triangle.
+
+A contact map in its own binary format is not read, and is answered with how
+to write it as the BEDPE above. A `.cool` is one command, `--pairs
+<(cooler dump --join -r REGION contacts.cool)`. A `.mcool` holds several
+resolutions, which `cooler ls` lists, and one is written as
+`contacts.mcool::/resolutions/10000`. A `.hic` from Juicer is turned into a
+`.cool` first, as `hic2cool convert contacts.hic contacts.cool -r 10000`
+does.
 
 ### Selection by site { #selection-by-site }
 
@@ -979,6 +1004,23 @@ read_1	0	8192	6	1467.61	4000	2400	432,434,436,450,433
 
 A file of plain numbers, one sample after another, is read too, as picoamperes
 already. POD5 and FAST5 are binary and are converted to SLOW5 first.
+
+The bases the basecaller called come from its own record of the read, SAM or
+BAM as Dorado writes it with `--emit-moves`, named by `--with-moves`:
+
+```text
+read_1  4  *  0  0  *  *  0  0  GGATCA  *  mv:B:c,5,1,0,0,0,0,1  ts:i:0
+```
+
+The move table, `mv:B:c`, is the stride and then a flag for each stride of
+samples, 1 where a new base begins, and `ts:i` is how many samples were
+trimmed from the start of the signal first. The record read is the one named
+as the signal's read, or one Dorado split out of it, which names it in `pi:Z`
+and says where it starts in `sp:i`; a record on the reverse strand is turned
+back into the order of the signal. Secondary and supplementary records are
+skipped, and a hard clipped record, a table that starts more or fewer bases
+than the read holds, or a record with no table are refused. A BAM is read
+from end to end, as a basecaller writes one neither sorted nor indexed.
 
 ## Comparisons
 

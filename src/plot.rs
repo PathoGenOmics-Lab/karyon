@@ -436,7 +436,8 @@ impl<T: Slot> Plot<T> {
         self
     }
 
-    /// Leaves out the axis this plot would otherwise append at the bottom.
+    /// Leaves out the axis this plot would otherwise put under the last track
+    /// measured against the coordinates.
     ///
     /// A tanglegram or a bare tree has no coordinate to put ticks on. It
     /// suppresses the automatic axis only: an axis put somewhere with
@@ -464,7 +465,7 @@ impl<T: Slot> Plot<T> {
         // single tick on it, measuring the window such a figure is handed
         // because every figure has one, not because the tree is anywhere in it.
         let figure = if plot.wants_axis && plot.figure.measures_coordinates() {
-            plot.figure.push(AxisTrack::new())
+            plot.figure.push_ruler(AxisTrack::new())
         } else {
             plot.figure
         };
@@ -542,8 +543,8 @@ impl<T: Slot> Plot<T> {
     /// and [`Plot::adjust`] do not reach it.
     ///
     /// It is not the way to add the coordinate ruler. An [`AxisTrack`] pushed
-    /// through here is in addition to the one appended at the bottom, which
-    /// draws two. [`Plot::add_axis`] is the one that knows.
+    /// through here is in addition to the one the plot puts in, which draws
+    /// two. [`Plot::add_axis`] is the one that knows.
     pub fn add_track(self, track: impl Track + 'static) -> Plot<Empty> {
         let mut plot = self.settle();
         plot.figure = plot.figure.push(track);
@@ -574,8 +575,10 @@ impl<T: Slot> Plot<T> {
 
     /// Coordinate ticks and their labels.
     ///
-    /// Adding one explicitly is how it goes anywhere other than the bottom; the
-    /// axis is not appended a second time.
+    /// Left alone, a plot puts one under the last track measured against the
+    /// coordinates, so a tree or a panel of sites below them is not taken for
+    /// something it measures. Adding one explicitly is how it goes anywhere
+    /// else; the axis is not put in a second time.
     pub fn add_axis(self) -> Plot<AxisTrack> {
         let mut plot = self.settle();
         plot.wants_axis = false;
@@ -1450,7 +1453,7 @@ mod tests {
             .to_svg();
         assert_eq!(shifted, shifted_by_hand);
     }
-    /// The ruler along the bottom measures the window every track is laid on.
+    /// The plot's ruler measures the window every track is laid on.
     /// A phylogeny is not laid on it: its x is a branch length, and the window
     /// it is handed exists because a figure needs one. So a plot holding
     /// nothing but trees gets no ruler, and one holding anything that is on the
@@ -1490,6 +1493,23 @@ mod tests {
         // An empty plot is a window with nothing in it, and a window is worth
         // showing.
         assert_eq!(plot("chr1:1-1000").unwrap().into_figure().track_count(), 1);
+    }
+
+    /// The ruler goes under the last track measured against it, and not under
+    /// a tree below that track, where it read as the scale of the tree.
+    #[test]
+    fn the_axis_goes_under_the_last_track_it_measures() {
+        let tree = Tree::parse_newick("((a:0.1,b:0.1):0.1,c:0.1);").unwrap();
+        let svg = plot("chr1:1-1000")
+            .unwrap()
+            .add_coverage(vec![30.0; 1000])
+            .add_tree(tree)
+            .to_svg();
+        assert!(
+            svg.contains("drawn top to bottom: a coverage profile, a ruler and a phylogeny"),
+            "{}",
+            &svg[svg.find("<desc").unwrap_or(0)..][..300.min(svg.len())]
+        );
     }
 
     /// A plot of trees names no place, draws no ruler, and keys the strips its
