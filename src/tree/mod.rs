@@ -49,9 +49,11 @@ struct TreeEdge {
 type EdgeAdjacency = Vec<Vec<TreeEdge>>;
 
 mod mutation;
+mod node_ref;
 mod parse;
 
 pub use mutation::{Mutation, Mutations};
+pub use node_ref::{Found, NodeRef};
 
 #[cfg(test)]
 mod tests;

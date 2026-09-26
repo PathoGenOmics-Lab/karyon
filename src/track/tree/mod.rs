@@ -41,7 +41,7 @@ use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::traits::{binary_state, draw_column, Dealt, TraitDomain, TraitRow};
 use crate::track::{DrawContext, Rect, Track};
-use crate::tree::{AnnotationValue, Placement, TimeDirection, Tree};
+use crate::tree::{AnnotationValue, NodeRef, Placement, TimeDirection, Tree};
 
 // The metadata columns beside a phylogeny are the same columns a matrix or an
 // alignment puts beside its rows, so they live in one module and are named
@@ -570,6 +570,9 @@ impl NodeGlyph {
 /// A translucent field identifying one named or indexed clade.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CladeHighlight {
+    /// The clade as it was named, found in the tree when the highlight is
+    /// handed to a track.
+    wanted: NodeRef,
     node: usize,
     label: Option<String>,
     color: Option<String>,
@@ -577,9 +580,16 @@ pub struct CladeHighlight {
 }
 
 impl CladeHighlight {
-    /// Highlights the descendants of `node` without changing the tree.
-    pub fn new(node: usize) -> Self {
+    /// Highlights the descendants of a clade without changing the tree: an
+    /// index, a name, or a [`NodeRef`] picking it by its tips or by a value.
+    pub fn new(node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        let node = match wanted {
+            NodeRef::Index(node) => node,
+            _ => usize::MAX,
+        };
         CladeHighlight {
+            wanted,
             node,
             label: None,
             color: None,
@@ -1191,40 +1201,49 @@ impl TreeTrack {
         self
     }
 
-    /// Reorients the owned tree around internal `node` and marks the new root.
+    /// Reorients the owned tree around an internal node and marks the new
+    /// root: an index, a name, or a [`NodeRef`] picking the clade by its tips
+    /// or by a value.
     ///
-    /// An invalid index or sampled tip leaves the tree unchanged, and the band
-    /// says so under the tree, as [`TreeTrack::warnings`] does. Use
-    /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
-    /// handled rather than reported.
-    pub fn reroot(mut self, node: usize) -> Self {
-        match self.tree.nodes().get(node) {
-            None => self.refuse(format!("not rerooted: the tree has no node {node}")),
-            Some(clade) if clade.is_leaf() => {
-                self.refuse(format!("not rerooted: node {node} is a tip"));
-            }
-            Some(_) => {
-                self.rerooted_with(|tree| tree.reroot(node));
-            }
+    /// A node the tree does not have, or a sampled tip, leaves the tree
+    /// unchanged, and the band says so under the tree, as
+    /// [`TreeTrack::warnings`] does. Use [`Tree::reroot`](crate::Tree::reroot)
+    /// directly when failure must be handled rather than reported.
+    pub fn reroot(mut self, node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        if let Some(node) = self.clade(&wanted, "not rerooted") {
+            self.rerooted_with(|tree| tree.reroot(node));
         }
         self
     }
 
-    /// Reorients the owned tree around an internal node with this exact name.
-    ///
-    /// A name no node has, or a tip's, leaves the tree unchanged and is said
-    /// under it.
-    pub fn reroot_named(mut self, name: &str) -> Self {
-        match self.tree.node_named(name) {
-            None => self.refuse(format!("not rerooted: no node is named {name}")),
-            Some(node) if self.tree.nodes()[node].is_leaf() => {
-                self.refuse(format!("not rerooted: {name} is a tip"));
+    /// Reorients the owned tree around an internal node with this exact name,
+    /// as [`TreeTrack::reroot`] does given the name.
+    pub fn reroot_named(self, name: &str) -> Self {
+        self.reroot(NodeRef::named(name))
+    }
+
+    /// The internal node `wanted` names, or `None` with the reason said under
+    /// the tree after `refused`: a node the tree does not have, or a tip. A
+    /// clade that holds tips it was not named for is found, and that is said
+    /// too.
+    fn clade(&mut self, wanted: &NodeRef, refused: &str) -> Option<usize> {
+        match wanted.find(&self.tree) {
+            Err(why) => {
+                self.refuse(format!("{refused}: {why}"));
+                None
             }
-            Some(node) => {
-                self.rerooted_with(|tree| tree.reroot(node));
+            Ok(found) if self.tree.nodes()[found.node].is_leaf() => {
+                self.refuse(format!("{refused}: {wanted} is a tip"));
+                None
+            }
+            Ok(found) => {
+                if let Some(also) = found.also {
+                    self.refuse(format!("{wanted} {also}"));
+                }
+                Some(found.node)
             }
         }
-        self
     }
 
     /// Roots halfway along the edge leading to a monophyletic named outgroup.
@@ -1575,20 +1594,18 @@ impl TreeTrack {
         self
     }
 
-    /// Collapses one internal node visually while preserving the source tree.
+    /// Collapses one clade visually while preserving the source tree: an
+    /// index, a name, or a [`NodeRef`] picking it by its tips, as
+    /// `NodeRef::mrca(["S01", "S07"])`, or by a value, as
+    /// `NodeRef::holding("lineage", "L4")`.
     ///
-    /// An index the tree does not have, or a tip's, folds nothing and is said
-    /// under the tree.
-    pub fn collapse(mut self, node: usize) -> Self {
-        match self.tree.nodes().get(node) {
-            None => self.refuse(format!("not collapsed: the tree has no node {node}")),
-            Some(clade) if clade.is_leaf() => {
-                self.refuse(format!("not collapsed: node {node} is a tip"));
-            }
-            Some(_) => {
-                self.collapsed.insert(node);
-                self.folds = OnceLock::new();
-            }
+    /// A node the tree does not have, or a tip, folds nothing and is said
+    /// under the tree, and so is a clade that holds tips it was not named for.
+    pub fn collapse(mut self, node: impl Into<NodeRef>) -> Self {
+        let wanted = node.into();
+        if let Some(node) = self.clade(&wanted, "not collapsed") {
+            self.collapsed.insert(node);
+            self.folds = OnceLock::new();
         }
         self
     }
@@ -1853,14 +1870,16 @@ impl TreeTrack {
     ///
     /// An index the tree does not have highlights nothing and is said under
     /// the tree.
-    pub fn clade_highlight(mut self, highlight: CladeHighlight) -> Self {
-        if self.tree.nodes().get(highlight.node).is_some() {
-            self.clade_highlights.push(highlight);
-        } else {
-            self.refuse(format!(
-                "not highlighted: the tree has no node {}",
-                highlight.node
-            ));
+    pub fn clade_highlight(mut self, mut highlight: CladeHighlight) -> Self {
+        match highlight.wanted.find(&self.tree) {
+            Ok(found) => {
+                if let Some(also) = found.also {
+                    self.refuse(format!("{} {also}", highlight.wanted));
+                }
+                highlight.node = found.node;
+                self.clade_highlights.push(highlight);
+            }
+            Err(why) => self.refuse(format!("not highlighted: {why}")),
         }
         self
     }
@@ -1868,12 +1887,8 @@ impl TreeTrack {
     /// Highlights a clade by its exact internal or terminal name.
     ///
     /// A name no node has highlights nothing and is said under the tree.
-    pub fn highlight_named(mut self, name: &str) -> Self {
-        match self.tree.node_named(name) {
-            Some(node) => self.clade_highlights.push(CladeHighlight::new(node)),
-            None => self.refuse(format!("not highlighted: no node is named {name}")),
-        }
-        self
+    pub fn highlight_named(self, name: &str) -> Self {
+        self.clade_highlight(CladeHighlight::new(NodeRef::named(name)))
     }
 
     /// The tree.

@@ -3169,3 +3169,48 @@ fn a_time_axis_that_cannot_be_drawn_leaves_the_scale_bar_its_tree_needs() {
     let timed = drawn(TreeTrack::new(dated).time("date"));
     assert!(!timed.contains("<title>branch length scale "), "{timed}");
 }
+
+/// A clade is folded, highlighted or made the root by the tips or the value it
+/// holds as it is by its index, and one that holds tips it was not named for
+/// is folded and said to.
+#[test]
+fn a_clade_is_picked_by_the_tips_or_the_value_it_holds() {
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "(((A[&lineage=L4]:1,B[&lineage=L4]:1):1,C[&lineage=L2]:1):1,D[&lineage=L1]:2);",
+        )
+        .unwrap()
+    };
+    let index = {
+        let held = tree();
+        let tips = [held.node_named("A").unwrap(), held.node_named("B").unwrap()];
+        held.mrca(&tips).unwrap()
+    };
+    let by_index = drawn(TreeTrack::new(tree()).collapse(index));
+    let by_value = TreeTrack::new(tree()).collapse(crate::NodeRef::holding("lineage", "L4"));
+    assert!(by_value.warnings().is_empty(), "{:?}", by_value.warnings());
+    assert_eq!(drawn(by_value), by_index);
+    assert_eq!(
+        drawn(TreeTrack::new(tree()).collapse(crate::NodeRef::mrca(["A", "B"]))),
+        by_index
+    );
+    let wide = TreeTrack::new(tree()).collapse(crate::NodeRef::mrca(["A", "C"]));
+    assert_eq!(
+        wide.warnings(),
+        vec!["the clade of A and C also holds 1 tip: B".to_string()]
+    );
+    let missing = TreeTrack::new(tree()).collapse(crate::NodeRef::holding("lineage", "L9"));
+    assert_eq!(
+        missing.warnings(),
+        vec!["not collapsed: no tip has lineage L9".to_string()]
+    );
+    let tip = TreeTrack::new(tree()).reroot("C");
+    assert_eq!(tip.warnings(), vec!["not rerooted: C is a tip".to_string()]);
+    let highlighted = TreeTrack::new(tree())
+        .clade_highlight(CladeHighlight::new(crate::NodeRef::mrca(["A", "B"])));
+    assert!(highlighted.warnings().is_empty());
+    assert_eq!(
+        drawn(highlighted),
+        drawn(TreeTrack::new(tree()).clade_highlight(CladeHighlight::new(index)))
+    );
+}
