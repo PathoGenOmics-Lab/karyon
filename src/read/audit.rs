@@ -166,7 +166,7 @@ fn audit_bisulfite_one_base() {
     let text = "r1\t+\tchr1\t100\tZ\n";
     let found = bisulfite::molecules(text, &region("chr1:1-200"), "CpG").unwrap();
     assert_eq!(found.sites, vec![TARGET]);
-    assert_eq!(found.molecules[0].calls, vec![Some(true)]);
+    assert_eq!(found.molecules[0].call(0), Some(true));
 
     let pileup = "chr1\t99\t100\tm\t40\t+\t99\t100\t0,0,0\t40\t95.00\t38\t2\t0\t0\t0\t0\t0\n";
     assert_eq!(

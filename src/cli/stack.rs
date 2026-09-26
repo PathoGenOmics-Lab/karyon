@@ -2183,7 +2183,7 @@ fn track(
             // ten million base window cost 231 MB of spans standing beside the
             // 152 MB of text they were read from and the 76 MB track they were
             // about to become.
-            let mut painted = CoverageTrack::new(region.start(), vec![0.0; region.len() as usize]);
+            let mut painted = CoverageTrack::from_spans(region, std::iter::empty());
             let spans = wrap(
                 name,
                 &path,

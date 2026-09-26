@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A panel of variable sites whose columns would be narrower than a pixel and
+  a half is drawn a pixel at a time: each pixel of a row is shaded by the
+  share of the sites under it that differ from the reference, in eight steps,
+  and the key says so. A pixel with any difference in it takes at least the
+  first step. A cell per site made thirty thousand sites of forty samples an
+  SVG of 124 MB, which no viewer opens, and it is now 1.2 MB. A panel with
+  room for its cells is drawn as it was.
+- A panel whose columns are too narrow for their position labels holds no
+  strip for them under it: it held a hundred pixels of nothing under a panel
+  of thirty thousand sites. A note on rows left out keeps a line of its own.
+- `Molecule` keeps only the sites a molecule covered. `Molecule::covering`
+  builds one from those alone, `call(site)` reads one back, `calls()` walks
+  them in order and `uncover(site)` leaves one out; `calls` is no longer a
+  public field. Twenty thousand long reads over thirty thousand sites peaked
+  at 707 MB and take 56, with the same figure.
+- `CoverageTrack` keeps its values as runs of bases holding one value, where
+  it kept one per base. A bedGraph of windows over 200 Mb took 1.6 GB and
+  1.9 seconds and takes 4 MB and a few milliseconds, with the same figure. A
+  per-base depth file costs what it did.
+
 - A Manhattan plot draws its hits after every miss, and every hit's ring
   before any hit: a tower of hits is one solid shape in the hit colour with
   one ring round it, where each ring cut into the hit beneath it and a dense
