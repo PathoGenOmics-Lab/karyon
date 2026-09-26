@@ -732,38 +732,19 @@ pub fn draw_tree(
 /// A ramp is labelled with the two ends of the range it runs over, and a
 /// continuous annotation with no number anywhere has no range and is left
 /// out rather than keyed from the placeholder the empty count starts at.
+#[allow(clippy::too_many_arguments)]
 fn key_of(
     legend: crate::track::legend::Legend,
     label: &str,
     scale: TraitScale,
+    style: TraitStyle,
     tree: &Tree,
     key: &str,
     levels: Dealt<'_>,
     theme: &Theme,
 ) -> crate::track::legend::Legend {
     let domain = rectangular::tree_domain(tree, key, levels);
-    match scale {
-        TraitScale::Continuous => {
-            if domain.minimum > domain.maximum {
-                return legend;
-            }
-            legend.ramp(
-                label,
-                theme.muted.clone(),
-                theme.accent.clone(),
-                text_rounded(domain.minimum, 3),
-                text_rounded(domain.maximum, 3),
-            )
-        }
-        TraitScale::Categorical => {
-            domain
-                .keyed()
-                .into_iter()
-                .fold(legend, |legend, (level, index)| {
-                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
-                })
-        }
-    }
+    crate::track::traits::key_entries(legend, label, scale, style, &domain, theme)
 }
 
 /// The same drawing, with the branches named.
@@ -1839,13 +1820,22 @@ impl TreeTrack {
     /// different order: a figure of two countries printed each one's colour
     /// beside the other's name.
     ///
-    /// A column that repeats the branch key with the same scale is not keyed
-    /// twice. Nothing calls this on its own, since whether a figure wants a
-    /// key and where it goes is the caller's decision, as it is for
-    /// [`Traits::legend`](crate::track::traits::Traits::legend).
+    /// Each level is keyed with the mark its column draws: a box for a strip,
+    /// its own shape for a symbol column, and the two dots of a binary one.
+    /// A column over the branch key keys the branch colours too, under its
+    /// own heading, and a colour is not keyed twice.
+    /// [`Figure::key`](crate::Figure::key) gathers this key in the figure's
+    /// own theme; where it goes, and whether the figure needs it, is the
+    /// caller's decision.
     pub fn legend(&self, theme: &Theme) -> crate::track::legend::Legend {
+        // What a column's colours are dealt from and how it marks them: two
+        // columns alike in both key the same entries, and a binary column
+        // marks its values with two dots of its own whatever it shares.
+        let marks = |key: &'_ str, scale: TraitScale, style: TraitStyle| {
+            (key.to_string(), scale, style == TraitStyle::Binary)
+        };
         let mut legend = crate::track::legend::Legend::new();
-        let mut keyed: Vec<(&str, TraitScale)> = Vec::new();
+        let mut keyed = Vec::new();
         if let Some(key) = &self.color_by {
             let values = rectangular::branch_values(&self.tree, key);
             let scale = if rectangular::is_continuous(&values) {
@@ -1853,24 +1843,43 @@ impl TreeTrack {
             } else {
                 TraitScale::Categorical
             };
-            let levels = self.color_levels();
-            legend = key_of(legend, key, scale, &self.tree, key, levels, theme);
-            keyed.push((key, scale));
+            // A column over the same key keys these colours itself, in its
+            // own marks and under its own heading. Keyed here as boxes, a
+            // column of symbols beside them went unkeyed as a repeat.
+            let covered = self.trait_columns.iter().any(|column| {
+                marks(&column.key, column.scale, column.style)
+                    == marks(key, scale, TraitStyle::Strip)
+            });
+            if !covered {
+                legend = key_of(
+                    legend,
+                    key,
+                    scale,
+                    TraitStyle::Strip,
+                    &self.tree,
+                    key,
+                    self.color_levels(),
+                    theme,
+                );
+                keyed.push(marks(key, scale, TraitStyle::Strip));
+            }
         }
         for column in &self.trait_columns {
-            if keyed.contains(&(column.key.as_str(), column.scale)) {
+            let these = marks(&column.key, column.scale, column.style);
+            if keyed.contains(&these) {
                 continue;
             }
             legend = key_of(
                 legend,
                 &column.label,
                 column.scale,
+                column.style,
                 &self.tree,
                 &column.key,
                 column.dealt(),
                 theme,
             );
-            keyed.push((&column.key, column.scale));
+            keyed.push(these);
         }
         legend
     }
@@ -2190,6 +2199,20 @@ impl TreeTrack {
 impl Track for TreeTrack {
     fn noun(&self) -> &str {
         "a phylogeny"
+    }
+
+    /// The key [`TreeTrack::legend`] builds, in the figure's own theme, so
+    /// [`Figure::key`](crate::Figure::key) names every colour the tree
+    /// paints. Built by hand from a theme the caller passed, the key of a
+    /// dark figure named each level in the light palette's colour.
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        let legend = self.legend(theme);
+        (!legend.is_empty()).then_some(legend)
     }
 
     fn height(&self, scale: &Scale) -> f64 {

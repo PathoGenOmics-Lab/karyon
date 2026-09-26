@@ -778,10 +778,14 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
         if visible != column.label {
             ctx.svg.begin_titled(&column.label);
         }
+        // The chip says what kind of mark the ring is, in the ink of the text
+        // beside it. In a colour of the palette it read as a key: the heading
+        // of a ring of lineages was a blue square, the colour of L1.
+        let ink = &ctx.theme.muted;
         match column.style {
             TraitStyle::Strip => {
                 ctx.svg
-                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, &ctx.theme.accent)
+                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, ink)
             }
             TraitStyle::Bar => {
                 ctx.svg.rect_outline(
@@ -792,14 +796,13 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
                     &ctx.theme.rule,
                     ctx.theme.tokens.hairline,
                 );
-                ctx.svg
-                    .rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, &ctx.theme.accent);
+                ctx.svg.rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, ink);
             }
             TraitStyle::Binary => ctx.svg.circle_ringed(
                 x + 7.0,
                 ctx.band.y + 7.0,
                 3.6,
-                &ctx.theme.accent,
+                ink,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             ),
@@ -807,8 +810,8 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
                 x + 7.0,
                 ctx.band.y + 7.0,
                 3.8,
-                ctx.theme.symbol(index),
-                ctx.theme.color(index),
+                crate::style::Symbol::Diamond,
+                ink,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             ),

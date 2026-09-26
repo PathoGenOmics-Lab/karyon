@@ -2389,3 +2389,229 @@ fn the_tree_beside_rows_is_cut_to_the_rows_drawn() {
     assert!(matches!(whole, Some(std::borrow::Cow::Borrowed(_))));
     assert_eq!(none, 0);
 }
+
+/// The marks drawn under a title, each as the shape it is and its fill, in
+/// the order drawn: a ring under a symbol comes first, the symbol after it.
+fn marks_under(svg: &str, title: &str) -> Vec<(crate::style::Symbol, String)> {
+    use crate::style::Symbol;
+    let Some(piece) = svg
+        .split("<title>")
+        .skip(1)
+        .find(|piece| piece.starts_with(&format!("{title}</title>")))
+    else {
+        return Vec::new();
+    };
+    let group = piece.split("</g>").next().unwrap_or_default();
+    group
+        .split('<')
+        .skip(1)
+        .filter_map(|element| {
+            let fill = element
+                .split("fill=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .to_string();
+            let shape = if element.starts_with("circle") {
+                Symbol::Circle
+            } else if element.starts_with("rect") {
+                Symbol::Square
+            } else if element.starts_with("polygon") {
+                let points = element.split("points=\"").nth(1)?.split('"').next()?;
+                match points.split_whitespace().count() {
+                    4 => Symbol::Diamond,
+                    3 => Symbol::Triangle,
+                    _ => return None,
+                }
+            } else {
+                return None;
+            };
+            Some((shape, fill))
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_draws_each_level_the_way_its_column_draws_it() {
+    use crate::track::legend::{LegendItem, Marker};
+    // Seven hosts on seven tips: the seventh comes round to the first colour,
+    // and only its shape tells it from the first. Keyed as boxes, the two
+    // were one entry twice. The flag is keyed with the two dots it is drawn
+    // with; it was keyed as two palette colours neither dot was drawn in.
+    let tree = Tree::parse_annotated_newick(
+        "(((A[&host=h1,flag=true]:1,B[&host=h2,flag=false]:1):1,\
+         (C[&host=h3,flag=true]:1,D[&host=h4,flag=true]:1):1):1,\
+         ((E[&host=h5,flag=false]:1,F[&host=h6,flag=true]:1):1,G[&host=h7,flag=true]:1):1);",
+    )
+    .unwrap();
+    let theme = Theme::light();
+    for track in [
+        TreeTrack::new(tree.clone()),
+        TreeTrack::new(tree.clone()).circular(),
+        TreeTrack::new(tree.clone()).unrooted(),
+    ] {
+        let track = track.trait_symbol("host").trait_binary("flag");
+        let legend = track.legend(&theme);
+        let svg = drawn(track);
+        let mut hosts = Vec::new();
+        for item in legend.items() {
+            let LegendItem::Key {
+                label,
+                color,
+                marker,
+            } = item
+            else {
+                panic!("no ramp here: {item:?}");
+            };
+            if let Some(level) = label.strip_prefix("host: ") {
+                let Marker::Symbol(symbol) = marker else {
+                    panic!("{label} keyed as {marker:?}");
+                };
+                let tip =
+                    ["A", "B", "C", "D", "E", "F", "G"][level[1..].parse::<usize>().unwrap() - 1];
+                let drawn = marks_under(&svg, &format!("{tip}; host {level}"));
+                assert_eq!(
+                    drawn.last(),
+                    Some(&(*symbol, color.clone())),
+                    "{label} against the mark on {tip}: {drawn:?}"
+                );
+                hosts.push((color.clone(), *symbol));
+            }
+        }
+        hosts.sort_by_key(|(color, symbol)| (color.clone(), format!("{symbol:?}")));
+        hosts.dedup();
+        assert_eq!(hosts.len(), 7, "seven hosts, seven marks: {hosts:?}");
+
+        let dots: Vec<(&str, &str, Marker)> = legend
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                LegendItem::Key {
+                    label,
+                    color,
+                    marker,
+                } if label.starts_with("flag") => Some((label.as_str(), color.as_str(), *marker)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            dots,
+            [
+                ("flag: present", theme.accent.as_str(), Marker::Dot),
+                ("flag: absent", theme.rule.as_str(), Marker::Dot),
+            ]
+        );
+        assert_eq!(
+            marks_under(&svg, "A; flag true")
+                .last()
+                .map(|(_, fill)| fill.as_str()),
+            Some(theme.accent.as_str())
+        );
+        assert_eq!(
+            marks_under(&svg, "B; flag false")
+                .last()
+                .map(|(_, fill)| fill.as_str()),
+            Some(theme.rule.as_str())
+        );
+    }
+}
+
+#[test]
+fn a_dark_figure_keys_its_tree_in_the_colours_it_drew() {
+    // The key was built from a theme the caller passed, and the one to hand
+    // was the default: a dark figure's strip was drawn in the dark palette
+    // and keyed in the light one.
+    for profile in [crate::RenderProfile::Dark, crate::RenderProfile::Manuscript] {
+        let figure = Figure::new(region())
+            .width(640.0)
+            .show_region_label(false)
+            .profile(profile)
+            .push(TreeTrack::new(countries()).trait_categorical("country"));
+        let key = figure.key();
+        let svg = figure.to_svg();
+        assert_eq!(key.len(), 3, "{:?}", key.items());
+        for item in key.items() {
+            let crate::track::legend::LegendItem::Key { label, color, .. } = item else {
+                panic!("no ramp here: {item:?}");
+            };
+            let level = label.strip_prefix("country: ").unwrap();
+            let tip = match level {
+                "Spain" => "Zed",
+                "Portugal" => "Abe",
+                _ => "Bo",
+            };
+            assert_eq!(
+                painted_under(&svg, &format!("{tip}; country {level}")),
+                std::slice::from_ref(color),
+                "{profile:?}"
+            );
+        }
+    }
+    let plain = Figure::new(region()).push(TreeTrack::new(countries()));
+    assert!(plain.key().is_empty(), "{:?}", plain.key().items());
+}
+
+#[test]
+fn a_column_over_the_branch_key_keys_it_in_its_own_marks() {
+    use crate::track::legend::{LegendItem, Marker};
+    // The branch key was keyed as boxes and the column of symbols over the
+    // same key was left out as a repeat, so the shapes had no key at all.
+    let legend = TreeTrack::new(countries())
+        .color_by("country")
+        .trait_symbol("country")
+        .legend(&Theme::light());
+    assert_eq!(legend.len(), 3, "{:?}", legend.items());
+    assert!(legend.items().iter().all(|item| matches!(
+        item,
+        LegendItem::Key {
+            marker: Marker::Symbol(_),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn a_ring_heading_is_not_drawn_in_a_colour_of_the_key() {
+    // A ring's heading chip was a square of the palette's first colour, which
+    // is the colour of the first level: it read as a key saying L1.
+    let theme = Theme::light();
+    for track in [
+        TreeTrack::new(countries()).circular(),
+        TreeTrack::new(countries()).unrooted(),
+    ] {
+        for column in [
+            TraitColumn::categorical("country"),
+            TraitColumn::symbol("country"),
+            TraitColumn::binary("country"),
+            TraitColumn::bar("country"),
+        ] {
+            let svg = drawn(track.clone().trait_column(column.clone()));
+            let heading = svg
+                .split("<text")
+                .position(|piece| piece.contains(">country</text>"))
+                .expect("a heading");
+            // The chip is the last mark drawn before the heading's text.
+            let before: String = svg
+                .split("<text")
+                .take(heading)
+                .collect::<Vec<_>>()
+                .join("<text");
+            let chip = before
+                .rsplit('<')
+                .find(|element| element.contains("fill=\""))
+                .unwrap();
+            let fill = chip
+                .split("fill=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            assert!(
+                !theme.palette.iter().any(|color| color == fill) && fill != theme.accent,
+                "{:?} heading chip in {fill}: {chip}",
+                column.trait_style()
+            );
+        }
+    }
+}

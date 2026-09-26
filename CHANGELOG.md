@@ -591,6 +591,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- A key draws each level the way its column draws it. A symbol column was
+  keyed as boxes, so two levels sharing a colour were two entries nobody could
+  tell apart, and a binary column was keyed in two palette colours neither of
+  its dots was drawn in; it is now keyed `present` and `absent` with the two
+  dots. A column over the key the branches are coloured by keys them under its
+  own heading and in its own marks, where the column went unkeyed as a repeat.
+- A symbol column tells as many levels apart as it says. `Theme::symbol`
+  wrapped with the colour every twelve levels of the six-colour palette, so the
+  thirteenth level was drawn exactly as the first; with `Theme::color` of the
+  same index it now tells four times the palette's length apart, from whichever
+  colour a column starts at.
+- `Figure::key` names a phylogeny's colours, in the figure's own theme.
+  `TreeTrack` did not implement `Track::key`, so a figure's key left the tree
+  out, and a key built by hand from the default theme named each level of a
+  dark figure in the light palette's colour.
+- The heading of a ring around a circular or unrooted tree is marked in the
+  ink of its text. It was a chip in the palette's first colour, which is the
+  colour of the first level, and read as a key to it.
 - A tree's support is read out of a hundred or out of one once for the whole
   tree, out of a hundred when any value runs above one. It was read value by
   value, so a clade at 1 on a bootstrap tree was drawn as full support, at

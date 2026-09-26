@@ -123,7 +123,10 @@ order the tree meets them, counted over the whole tree, so folding a clade does
 not repaint the rest. A column that came from a sample sheet carries the
 sheet's order instead (`TraitColumn::levels`), so a lineage is the colour here
 that it is beside every other track the sheet is drawn with. `legend(&theme)`
-hands back a key read off the same count as the branches and the strips. A
+hands back a key read off the same count as the branches and the strips, and
+`Figure::key()` gathers it in the figure's own theme, so a dark figure is keyed
+in the colours it drew. Each entry copies its mark: a symbol column is keyed
+with its shapes and a binary one with the two dots it draws. A
 missing value is an empty outline whose tooltip says missing, never a zero, and
 `show_values(false)` drops the text inside the cells.
 

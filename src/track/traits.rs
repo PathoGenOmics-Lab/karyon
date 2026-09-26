@@ -278,6 +278,10 @@ pub(crate) struct TraitDomain {
     met: BTreeSet<String>,
     pub(crate) minimum: f64,
     pub(crate) maximum: f64,
+    /// Whether some value was on and whether some was off, the two things a
+    /// binary column's key names.
+    on: bool,
+    off: bool,
 }
 
 impl TraitDomain {
@@ -299,7 +303,13 @@ impl TraitDomain {
             categories.entry(level.clone()).or_insert(next);
         }
         let mut met = BTreeSet::new();
+        let (mut on, mut off) = (false, false);
         for value in &values {
+            match binary_state(Some(value)) {
+                Some(true) => on = true,
+                Some(false) => off = true,
+                None => {}
+            }
             let value = value.to_string();
             let next = first + categories.len();
             categories.entry(value.clone()).or_insert(next);
@@ -315,6 +325,8 @@ impl TraitDomain {
             met,
             minimum: numeric.iter().copied().fold(f64::MAX, f64::min),
             maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
+            on,
+            off,
         }
     }
 
@@ -417,6 +429,72 @@ pub(crate) fn natural(a: &str, b: &str) -> std::cmp::Ordering {
             }
             x.next();
             y.next();
+        }
+    }
+}
+
+/// One column's entries in a key, each drawn the way the column draws it.
+///
+/// A key is a copy of the mark. Keyed as boxes, the levels of a symbol column
+/// that share a colour were two entries nobody could tell apart, and a binary
+/// column keyed as palette levels named `false` in a colour none of its dots
+/// was drawn in. A ramp is labelled with the two ends of the range, and a
+/// continuous column with no number in it has no range and is left out
+/// rather than keyed from the placeholders the count starts at.
+pub(crate) fn key_entries(
+    legend: Legend,
+    label: &str,
+    scale: TraitScale,
+    style: TraitStyle,
+    domain: &TraitDomain,
+    theme: &Theme,
+) -> Legend {
+    match (scale, style) {
+        (_, TraitStyle::Binary) => {
+            let mut legend = legend;
+            if domain.on {
+                legend = legend.dot(format!("{label}: present"), theme.accent.clone());
+            }
+            if domain.off {
+                legend = legend.dot(format!("{label}: absent"), theme.rule.clone());
+            }
+            legend
+        }
+        (TraitScale::Continuous, _) => {
+            if domain.minimum > domain.maximum {
+                return legend;
+            }
+            // The colours first and the values after, which is the order
+            // `Legend::ramp` takes them in. They were the other way round
+            // once, so the ramp was painted with `fill="2015.17"` and
+            // labelled with two colour codes.
+            legend.ramp(
+                label,
+                theme.muted.clone(),
+                theme.accent.clone(),
+                crate::svg::text_rounded(domain.minimum, 3),
+                crate::svg::text_rounded(domain.maximum, 3),
+            )
+        }
+        (TraitScale::Categorical, TraitStyle::Symbol) => {
+            domain
+                .keyed()
+                .into_iter()
+                .fold(legend, |legend, (level, index)| {
+                    legend.symbol(
+                        format!("{label}: {level}"),
+                        theme.color(index).to_string(),
+                        theme.symbol(index),
+                    )
+                })
+        }
+        (TraitScale::Categorical, _) => {
+            domain
+                .keyed()
+                .into_iter()
+                .fold(legend, |legend, (level, index)| {
+                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
+                })
         }
     }
 }
@@ -853,7 +931,9 @@ impl Traits {
         self.heading_room
     }
 
-    /// A key naming every level and every ramp the columns drew.
+    /// A key naming every level and every ramp the columns drew, each level
+    /// with the mark its column draws: a box for a strip, its own shape for a
+    /// symbol column, and the two dots of a binary one.
     ///
     /// Nothing calls this on its own. A legend is a judgement about a figure
     /// rather than about a column, so the caller decides whether the figure
@@ -866,40 +946,16 @@ impl Traits {
     /// so its key is [`TreeTrack::legend`](crate::track::tree::TreeTrack::legend)
     /// and not this, which would name each colour beside another level.
     pub fn legend(&self, theme: &Theme) -> Legend {
-        let mut legend = Legend::new();
-        for column in &self.columns {
-            let domain = self.domain(column);
-            match column.scale {
-                TraitScale::Continuous => {
-                    // A column with no number in it has no range to show, and
-                    // its ends would be the placeholders the count starts at.
-                    if domain.minimum > domain.maximum {
-                        continue;
-                    }
-                    let (low, high) = self.ramp_ends(column);
-                    // The colours first and the values after, which is the
-                    // order `Legend::ramp` takes them in. They were the other
-                    // way round, so the ramp was painted with `fill="2015.17"`
-                    // and labelled with two colour codes.
-                    legend = legend.ramp(
-                        column.label.clone(),
-                        theme.muted.clone(),
-                        theme.accent.clone(),
-                        low,
-                        high,
-                    );
-                }
-                TraitScale::Categorical => {
-                    for (level, index) in domain.keyed() {
-                        legend = legend.key(
-                            format!("{}: {level}", column.label),
-                            theme.color(index).to_string(),
-                        );
-                    }
-                }
-            }
-        }
-        legend
+        self.columns.iter().fold(Legend::new(), |legend, column| {
+            key_entries(
+                legend,
+                &column.label,
+                column.scale,
+                column.style,
+                &self.domain(column),
+                theme,
+            )
+        })
     }
 
     /// The two numbers a continuous column's ramp runs between, as written.
