@@ -19,6 +19,7 @@ pub(super) struct BranchStyle {
 pub(super) fn draw_tree_scene(
     ctx: &mut DrawContext<'_>,
     tree: &Tree,
+    fold_names: &BTreeMap<usize, String>,
     scene: &TreeScene,
     area: Rect,
     row_pitch: f64,
@@ -241,9 +242,11 @@ pub(super) fn draw_tree_scene(
                 num(far.max(start + 2.0)),
                 num(y + half)
             );
-            let title = collapsed_title(tree, *node);
+            let title = collapsed_title(tree, *node, fold_names);
+            let color = &styles.get(*node).color;
             ctx.svg.begin_titled(&title);
-            ctx.svg.path(&d, &styles.get(*node).color, 0.28);
+            ctx.svg.path(&d, color, FOLD_FILL);
+            ctx.svg.path_stroked(&d, color, ctx.theme.tokens.hairline);
             ctx.svg.end_group();
         }
     }
@@ -460,11 +463,7 @@ pub(super) fn branch_colors(
         return colors;
     };
     let values = branch_values(tree, key);
-    let domain = TraitDomain::ordered(
-        levels.first,
-        levels.levels,
-        values.iter().flatten().copied(),
-    );
+    let domain = TraitDomain::dealt(levels, values.iter().flatten().copied());
     let continuous = is_continuous(&values);
     for node in scene
         .placements
@@ -479,7 +478,7 @@ pub(super) fn branch_colors(
         } else {
             domain
                 .category(values[node])
-                .map(|index| theme.color(index).to_string())
+                .map(|index| domain.paint(index, theme))
         };
         if let Some(color) = color {
             colors.set(node, color);
@@ -517,11 +516,7 @@ pub(super) fn is_continuous(values: &[Option<&AnnotationValue>]) -> bool {
 /// palette first, so a level is the colour here that it is in every other strip
 /// the sheet is drawn in. Empty, the tree deals the palette in its own order.
 pub(super) fn tree_domain(tree: &Tree, key: &str, levels: Dealt<'_>) -> TraitDomain {
-    TraitDomain::ordered(
-        levels.first,
-        levels.levels,
-        branch_values(tree, key).into_iter().flatten(),
-    )
+    TraitDomain::dealt(levels, branch_values(tree, key).into_iter().flatten())
 }
 
 pub(super) fn inherited_annotation<'a>(
@@ -709,6 +704,7 @@ pub(super) fn draw_trait_columns(
     tree: &Tree,
     scene: &TreeScene,
     collapsed: &BTreeSet<usize>,
+    fold_names: &BTreeMap<usize, String>,
     area: Rect,
     tip_width: f64,
     columns: &[TraitColumn],
@@ -722,7 +718,7 @@ pub(super) fn draw_trait_columns(
     let names: Vec<String> = scene
         .terminals
         .iter()
-        .map(|node| terminal_label(tree, *node, collapsed))
+        .map(|node| terminal_label(tree, *node, collapsed, fold_names))
         .collect();
 
     for (column, dealt) in columns.iter().zip(dealing) {

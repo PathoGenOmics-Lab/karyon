@@ -22,7 +22,7 @@ it is drawn over one.
     **[An association scan](scan.md)**
     A table from PLINK, REGENIE, SAIGE or another association tool.
 
--   [![A tree and its samples](../assets/start/tree.svg){ .k-light width="720" height="717" loading="lazy" }![A tree and its samples](../assets/start/tree-dark.svg){ .k-dark width="720" height="717" loading="lazy" }](tree.md)
+-   [![A tree and its samples](../assets/start/tree.svg){ .k-light width="720" height="738" loading="lazy" }![A tree and its samples](../assets/start/tree-dark.svg){ .k-dark width="720" height="738" loading="lazy" }](tree.md)
 
     **[A tree and its samples](tree.md)**
     A Newick tree and a sheet of what you know about each sample.

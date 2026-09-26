@@ -39,7 +39,9 @@ use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
-use crate::track::traits::{binary_state, draw_column, Dealt, Join, TraitDomain, TraitRow, Traits};
+use crate::track::traits::{
+    binary_state, draw_column, Dealt, Join, Stretch, TraitDomain, TraitRow, Traits,
+};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, NodeRef, Placement, TimeDirection, Tree};
 
@@ -941,6 +943,8 @@ pub struct TreeTrack {
     ancestral_state_layers: Vec<AncestralStateLayer>,
     /// The clades folded by hand, with [`TreeTrack::collapse`].
     collapsed: BTreeSet<usize>,
+    /// What a clade folded as the clade of a value is called: the value.
+    fold_names: BTreeMap<usize, String>,
     max_rows: Option<usize>,
     /// Every clade drawn folded: the ones folded by hand and the ones the row
     /// cap folds on top of them. Worked out the first time the tree is drawn,
@@ -965,6 +969,9 @@ pub struct TreeTrack {
     refused: Vec<String>,
     /// What the sheet given to [`TreeTrack::traits`] matched and left out.
     joined: Option<Join>,
+    /// How a strip of each key of the joined sheet would deal the palette,
+    /// which the branches take for that key with or without the strip.
+    sheet_dealing: BTreeMap<String, (Vec<String>, Stretch)>,
 }
 
 #[derive(Debug, Clone)]
@@ -1033,6 +1040,11 @@ struct TimeAxis {
 /// suddenly shrinks reads as a bug even when the labels still fit.
 const RADIAL_DIAMETER: f64 = 440.0;
 
+/// How strongly a folded clade's wedge is filled with the colour of its
+/// branches. At 0.28 a pale L4 wedge read as a sliver of nothing, and two
+/// readers asked what it was.
+const FOLD_FILL: f64 = 0.5;
+
 impl TreeTrack {
     /// A track drawing `tree`.
     pub fn new(tree: Tree) -> Self {
@@ -1064,6 +1076,7 @@ impl TreeTrack {
             branch_interval_layers: Vec::new(),
             ancestral_state_layers: Vec::new(),
             collapsed: BTreeSet::new(),
+            fold_names: BTreeMap::new(),
             max_rows: None,
             folds: OnceLock::new(),
             show_nodes: false,
@@ -1083,6 +1096,7 @@ impl TreeTrack {
             clade_highlights: Vec::new(),
             refused: Vec::new(),
             joined: None,
+            sheet_dealing: BTreeMap::new(),
         }
     }
 
@@ -1337,6 +1351,7 @@ impl TreeTrack {
             .iter()
             .map(|node| (*node, tips(&self.tree, *node)))
             .collect();
+        let named = std::mem::take(&mut self.fold_names);
         let fields: Vec<BTreeSet<usize>> = self
             .clade_highlights
             .iter()
@@ -1357,6 +1372,9 @@ impl TreeTrack {
             match found(&self.tree, &held) {
                 Some(clade) => {
                     self.collapsed.insert(clade);
+                    if let Some(name) = named.get(&node) {
+                        self.fold_names.insert(clade, name.clone());
+                    }
                 }
                 None => self.refuse(format!(
                     "not collapsed: the new root splits the clade of node {node}"
@@ -1609,6 +1627,14 @@ impl TreeTrack {
         if let Some(node) = self.clade(&wanted, "not collapsed") {
             self.collapsed.insert(node);
             self.folds = OnceLock::new();
+            // Folded as the clade of a value, it is named by the value where
+            // it has no name of its own: `L4 (16 tips)`, where it read
+            // `S26 +15 more`, a sample named for a lineage.
+            if let NodeRef::Holding { value, .. } = &wanted {
+                if self.tree.nodes()[node].name.is_none() {
+                    self.fold_names.insert(node, value.clone());
+                }
+            }
         }
         self
     }
@@ -1858,7 +1884,7 @@ impl TreeTrack {
     ///
     /// let sheet = Sheet::parse("sample\tlineage\nA\tL1\nB\tL2\nC\tL2\n")?;
     /// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
-    /// let track = TreeTrack::new(tree).traits(Traits::from_sheet(&sheet).spread(["lineage"]));
+    /// let track = TreeTrack::new(tree).traits(Traits::from_sheet(&sheet).strips(["lineage"]));
     /// assert_eq!(track.join().unwrap().matched.len(), 3);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1921,6 +1947,11 @@ impl TreeTrack {
                 "{count} {tips} {have} no row in the sheet: {}{more}",
                 shown.join(", ")
             ));
+        }
+        for key in traits.sheet_keys() {
+            if let Some(dealing) = traits.dealing_of(key) {
+                self.sheet_dealing.insert(key.clone(), dealing);
+            }
         }
         for column in traits.columns() {
             // The heading is drawn two points under the body size, and a
@@ -2017,7 +2048,7 @@ impl TreeTrack {
     pub fn strips(&self, theme: &Theme) -> Vec<crate::TraitStrip> {
         const BANDS: usize = 16;
         let nodes = self.tree.nodes().len();
-        let dealing = self.dealing();
+        let dealing = self.dealing(theme.palette.len());
         self.trait_columns
             .iter()
             .zip(dealing.columns)
@@ -2057,7 +2088,7 @@ impl TreeTrack {
                         for (value, index) in domain.levels() {
                             levels.push(crate::TraitLevel {
                                 value: value.to_string(),
-                                color: theme.color(index).to_string(),
+                                color: domain.paint(index, theme),
                                 symbol: shaped.then(|| theme.symbol(index)),
                             });
                         }
@@ -2101,7 +2132,7 @@ impl TreeTrack {
         let marks = |key: &'_ str, scale: TraitScale, style: TraitStyle| {
             (key.to_string(), scale, style == TraitStyle::Binary)
         };
-        let dealing = self.dealing();
+        let dealing = self.dealing(theme.palette.len());
         let mut legend = crate::track::legend::Legend::new();
         let mut keyed = Vec::new();
         if let Some(key) = self.branch_key() {
@@ -2154,7 +2185,7 @@ impl TreeTrack {
     /// the same key does, so the branches and the strip beside them agree,
     /// and otherwise from a stretch of its own.
     fn color_levels(&self) -> Dealt<'_> {
-        self.dealing().branches
+        self.dealing(crate::track::traits::STRIP_LEVELS).branches
     }
 
     /// How each trait column deals the palette, in the order of the columns,
@@ -2167,7 +2198,8 @@ impl TreeTrack {
     /// both started at the palette's first colour, so each lineage was also a
     /// country. A key some column chose a start for starts there in every
     /// column over it.
-    fn dealing(&self) -> Dealing<'_> {
+    fn dealing(&self, colors: usize) -> Dealing<'_> {
+        let colors = colors.max(1);
         let worded = |column: &TraitColumn| {
             column.scale == TraitScale::Categorical && column.style != TraitStyle::Binary
         };
@@ -2186,12 +2218,24 @@ impl TreeTrack {
                 order.push(&column.key);
             }
         }
-        let stride = (crate::track::traits::STRIP_LEVELS / order.len().max(1)).max(1);
+        let stride = (colors / order.len().max(1)).max(1);
+        // A start a column chose or was dealt from its sheet, then the one a
+        // strip of the joined sheet would take, then a stretch of this tree's
+        // own among the keys it colours.
         let start = |key: &str| {
             self.trait_columns
                 .iter()
                 .filter(|column| column.key == key)
-                .find_map(|column| column.first)
+                .find_map(|column| {
+                    column
+                        .first
+                        .or_else(|| column.stretch.map(|stretch| stretch.start(colors)))
+                })
+                .or_else(|| {
+                    self.sheet_dealing
+                        .get(key)
+                        .map(|(_, stretch)| stretch.start(colors))
+                })
                 .or_else(|| {
                     order
                         .iter()
@@ -2206,14 +2250,24 @@ impl TreeTrack {
             .map(|column| Dealt {
                 levels: &column.levels,
                 first: start(&column.key),
+                colors: &column.colors,
             })
             .collect();
+        // Branches coloured by a key of the sheet with no strip of it deal the
+        // palette as that strip would, in the order the sheet gives the
+        // levels, so a lineage is one colour whether its strip is drawn or
+        // not. They took the order the tree meets the levels in, and L1 was
+        // blue in one figure of a set and ochre in the next.
         let branches = match self.branch_key() {
             Some(key) => match covering(key) {
                 Some(index) => columns[index],
                 None => Dealt {
-                    levels: &[],
+                    levels: self
+                        .sheet_dealing
+                        .get(key)
+                        .map_or(&[][..], |(levels, _)| levels.as_slice()),
                     first: start(key),
+                    colors: &[],
                 },
             },
             None => Dealt::default(),
@@ -2225,7 +2279,7 @@ impl TreeTrack {
         let glyphs = if self.node_glyphs.is_empty() {
             Vec::new()
         } else {
-            let palette = crate::track::traits::STRIP_LEVELS;
+            let palette = colors;
             let mut used = BTreeSet::new();
             for (column, dealt) in self.trait_columns.iter().zip(&columns) {
                 if worded(column) {
@@ -2294,7 +2348,12 @@ impl TreeTrack {
         scene
             .terminals
             .iter()
-            .map(|node| text_width(&terminal_label(&self.tree, *node, self.folded()), size))
+            .map(|node| {
+                text_width(
+                    &terminal_label(&self.tree, *node, self.folded(), &self.fold_names),
+                    size,
+                )
+            })
             .fold(0.0f64, f64::max)
             + 6.0
     }
@@ -2405,8 +2464,12 @@ impl TreeTrack {
             } else {
                 let values = rectangular::branch_values(&self.tree, key);
                 if !rectangular::is_continuous(&values) {
-                    let domain = rectangular::tree_domain(&self.tree, key, self.dealing().branches);
-                    if domain.colors_repeat(theme.palette.len()) {
+                    let domain = rectangular::tree_domain(
+                        &self.tree,
+                        key,
+                        self.dealing(theme.palette.len()).branches,
+                    );
+                    if domain.colors_repeat(theme) {
                         said.push(format!(
                             "{key} has {} values and the palette {} colours, so some branches of two values share one",
                             domain.keyed().len(),
@@ -2439,17 +2502,50 @@ impl TreeTrack {
         if let Some(time) = self.time_axis() {
             said.extend(self.time_warning(&time));
         }
-        let dealing = self.dealing();
-        let most = theme.palette.len().max(1) * 4;
+        let dealing = self.dealing(theme.palette.len());
+        let colors = theme.palette.len().max(1);
+        let most = colors * 4;
+        // Each colour a filled strip paints, with the column and the level it
+        // paints, to find two strips that paint two things one colour.
+        let mut painted: Vec<(String, &str, String)> = Vec::new();
+        let mut shared: Vec<String> = Vec::new();
         for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
             let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
             let levels = domain.keyed().len();
-            if column.drawn_style(&domain, theme) == TraitStyle::Symbol && levels > most {
+            let style = column.drawn_style(&domain, theme);
+            if style == TraitStyle::Symbol && levels > most {
                 said.push(format!(
                     "{}: {levels} values, and shapes and colours tell {most} apart",
                     column.label
                 ));
+            } else if style == TraitStyle::Symbol && column.style == TraitStyle::Strip {
+                // Asked for a strip and drawn as shapes, which the figure
+                // should say rather than the reader find out.
+                said.push(format!(
+                    "{}: {levels} values for {colors} colours, so each is a shape as well",
+                    column.label
+                ));
             }
+            if style != TraitStyle::Strip || column.scale != TraitScale::Categorical {
+                continue;
+            }
+            for (level, color) in domain.painted(theme) {
+                let other = painted
+                    .iter()
+                    .find(|(_, named, had)| *had == color && *named != column.label.as_str());
+                if let Some((was, named, _)) = other {
+                    shared.push(format!("{named} {was} and {} {level}", column.label));
+                }
+                painted.push((level, &column.label, color));
+            }
+        }
+        if let Some(first) = shared.first() {
+            let others = match shared.len() {
+                1 => String::new(),
+                2 => ", and 1 other pair is too".to_string(),
+                more => format!(", and {} other pairs are too", more - 1),
+            };
+            said.push(format!("{first} are one colour{others}"));
         }
         said
     }
@@ -2581,8 +2677,20 @@ impl TreeTrack {
         };
         match self.projection {
             TreeProjection::Rectangular => chips.max(headings),
-            TreeProjection::Circular | TreeProjection::Unrooted => chips + headings,
+            TreeProjection::Circular | TreeProjection::Unrooted if self.ring_headings() => {
+                chips + headings
+            }
+            TreeProjection::Circular | TreeProjection::Unrooted => chips,
         }
+    }
+
+    /// Whether the rings of a circle or a cloud are named across the top.
+    ///
+    /// Only where there are two or more to tell apart. One ring was named by
+    /// a swatch in the corner, which two readers took for a key to a colour
+    /// drawn nowhere, and the key under the figure names its levels already.
+    fn ring_headings(&self) -> bool {
+        self.trait_columns.len() > 1
     }
 
     /// Where the chips start below the top of the band.
@@ -2590,10 +2698,10 @@ impl TreeTrack {
         match self.projection {
             TreeProjection::Rectangular => 1.0,
             TreeProjection::Circular | TreeProjection::Unrooted => {
-                if self.trait_columns.is_empty() {
-                    1.0
-                } else {
+                if self.ring_headings() {
                     23.0
+                } else {
+                    1.0
                 }
             }
         }
@@ -2651,7 +2759,12 @@ impl TreeTrack {
         let extent = if self.show_tips {
             terminals
                 .iter()
-                .map(|node| text_width(&terminal_label(&self.tree, *node, self.folded()), size))
+                .map(|node| {
+                    text_width(
+                        &terminal_label(&self.tree, *node, self.folded(), &self.fold_names),
+                        size,
+                    )
+                })
                 .fold(0.0f64, f64::max)
                 + 6.0
         } else {
@@ -2744,6 +2857,7 @@ impl TreeTrack {
         draw_tree_scene(
             ctx,
             &self.tree,
+            &self.fold_names,
             &scene,
             area,
             self.row_height,
@@ -2803,7 +2917,7 @@ impl TreeTrack {
                         );
                     }
                 }
-                let name = terminal_label(&self.tree, *node, self.folded());
+                let name = terminal_label(&self.tree, *node, self.folded(), &self.fold_names);
                 ctx.svg.text(
                     names_at,
                     middle + size * 0.35,
@@ -2819,10 +2933,11 @@ impl TreeTrack {
             &self.tree,
             &scene,
             self.folded(),
+            &self.fold_names,
             area,
             tips + glyph_x,
             &self.trait_columns,
-            &self.dealing().columns,
+            &self.dealing(ctx.theme.palette.len()).columns,
             self.row_height,
         );
         if let Some(time) = time.as_ref().filter(|time| time.show_axis) {

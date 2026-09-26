@@ -157,7 +157,7 @@ pub use crate::map::{
     GeoFlow, GeoLocation, GeoPosition, GeoProjection, Map, PhyloConnector, PhyloMap,
 };
 pub use crate::panels::Panels;
-pub use crate::plot::{plot, plot_tree, Plot};
+pub use crate::plot::{plot, plot_alignment, plot_tree, Plot};
 pub use crate::read::sheet::Sheet;
 pub use crate::read::{Format, ReadError};
 pub use crate::region::Region;

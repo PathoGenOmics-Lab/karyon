@@ -40,7 +40,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
         .label("phylogeny")
         .adjust(|track| {
             track
-                .traits(Traits::from_sheet(&sheet).spread(["host"]))
+                .traits(Traits::from_sheet(&sheet).strips(["host"]))
                 .color_by("lineage")
                 .support_style(SupportStyle::Symbols)
         })
@@ -83,7 +83,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.unrooted_size(600.0)` | Requested height of an unrooted drawing, in pixels | 440, larger when the tips need it |
 | `.unrooted_start(0.0)` | Rotates the first equal-angle sector | `-90` |
 | `.max_rows(Some(200))` | Fits the tree in this many rows by collapsing the smallest clades (`--max-rows`) | `None`, no cap |
-| `.collapse(NodeRef::holding("lineage", "L4"))` | Folds one clade into a triangle, leaving the tree itself unchanged: an index, a name, or a [`NodeRef`](#picking-a-clade) | none |
+| `.collapse(NodeRef::holding("lineage", "L4"))` | Folds one clade into a wedge in the colour of its branches, leaving the tree itself unchanged: an index, a name, or a [`NodeRef`](#picking-a-clade); a clade folded by a value is named by it, as `L4 (16 tips)` | none |
 
 **Rooting**
 
@@ -127,7 +127,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 
 | Method | What it does | Default |
 |:--|:--|:--|
-| `.traits(Traits::from_sheet(&sheet).spread(["lineage"]))` | Joins a sample sheet onto the tips by name and draws its columns, widened to fit their headings; the tips it does not name are said under the tree, and `.join()` gives both sides (`--traits`, `--columns`) | none |
+| `.traits(Traits::from_sheet(&sheet).strips(["lineage"]))` | Joins a sample sheet onto the tips by name and draws its columns, widened to fit their headings; the tips it does not name are said under the tree, and `.join()` gives both sides (`--traits`, `--columns`); a column of more values than the palette has colours is drawn as shapes and said to be, and `.colors("lineage", [("L1", "#b78a2c")])` on the sheet gives values colours of their own | none |
 | `.trait_column(TraitColumn::continuous("depth"))` | Adds one metadata column beside the tips, or a ring around them, read from the tree's own annotations | none |
 | `.trait_categorical("country")` | A categorical column, with a stretch of the palette of its own; one with more levels than colours is drawn as symbols | none |
 | `.trait_continuous("depth")` | A continuous column | none |

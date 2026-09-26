@@ -13,13 +13,13 @@ karyon tree.nwk --traits samples.tsv --columns lineage,country -o tree.svg
 ```
 
 <figure class="k-start" markdown>
-![A tree of forty samples with a strip of lineage colours and a column of country symbols beside the tips, and a key underneath](../assets/start/tree.svg){ .k-light width="720" height="717" }
-![The same figure on the dark page](../assets/start/tree-dark.svg){ .k-dark width="720" height="717" }
+![A tree of forty samples with a strip of lineage colours and a column of country symbols beside the tips, and a key underneath](../assets/start/tree.svg){ .k-light width="720" height="738" }
+![The same figure on the dark page](../assets/start/tree-dark.svg){ .k-dark width="720" height="738" }
 </figure>
 
 Each column you name is drawn beside the tips, and the key underneath says
 which colour is which. A column with more values than colours uses shapes as
-well. A tree needs no place.
+well, and the figure says so under the tree. A tree needs no place.
 
 In Rust, the same figure and the others a tree takes, its support, coloured
 branches, a folded clade, a circle, an alignment beside it and a time axis,

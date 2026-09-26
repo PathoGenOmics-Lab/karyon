@@ -188,8 +188,12 @@ fn last_tip(tree: &Tree, node: usize) -> Option<&str> {
 /// last of them pick out one clade and no other. A reader gets to see which
 /// part of the tree the triangle stands for, and anything driving the program
 /// gets an address it can hand back as `--focus first,last` to open it.
-pub(super) fn collapsed_title(tree: &Tree, node: usize) -> String {
-    let name = tree.nodes()[node].name.as_deref().unwrap_or("clade");
+pub(super) fn collapsed_title(tree: &Tree, node: usize, names: &BTreeMap<usize, String>) -> String {
+    let name = names
+        .get(&node)
+        .map(String::as_str)
+        .or(tree.nodes()[node].name.as_deref())
+        .unwrap_or("clade");
     let held = format!("{} ({})", name, tip_count(tree.clade_size(node)));
     match (first_tip(tree, node), last_tip(tree, node)) {
         (Some(first), Some(last)) if first != last => format!("{held}, {first} to {last}"),
@@ -197,7 +201,12 @@ pub(super) fn collapsed_title(tree: &Tree, node: usize) -> String {
     }
 }
 
-pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usize>) -> String {
+pub(super) fn terminal_label(
+    tree: &Tree,
+    node: usize,
+    collapsed: &BTreeSet<usize>,
+    names: &BTreeMap<usize, String>,
+) -> String {
     if !collapsed.contains(&node) {
         return tree.nodes()[node]
             .name
@@ -214,8 +223,14 @@ pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usiz
     //
     // So an unnamed clade is named after a tip it holds, the topmost one, and
     // says how many others came with it. That is a member a reader can look
-    // up, and it claims nothing about the rest of them.
-    match tree.nodes()[node].name.as_deref() {
+    // up, and it claims nothing about the rest of them. A clade folded as the
+    // clade of a value is named by the value, `L4 (16 tips)`, which is what
+    // the reader folded it as.
+    match names
+        .get(&node)
+        .map(String::as_str)
+        .or(tree.nodes()[node].name.as_deref())
+    {
         Some(name) => format!("{} ({})", name, tip_count(held)),
         None => match first_tip(tree, node) {
             Some(tip) if held > 1 => {

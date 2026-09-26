@@ -165,6 +165,41 @@ pub fn plot_tree() -> Plot {
     Plot::over(region).remove_region_label()
 }
 
+/// Starts a plot of a multiple sequence alignment, over its columns, and
+/// draws it.
+///
+/// An alignment's x is a column, not a position on a genome, so a plot of
+/// one had to be handed a locus as long as its longest row, as
+/// `plot("alignment:1-300")`, worked out by hand and told to hide it with
+/// [`Plot::remove_region_label`]. This is that plot without either, with the
+/// ruler under it counting columns, as the command line's does.
+///
+/// ```
+/// use karyon::{plot_alignment, MsaSequence};
+///
+/// let rows = vec![
+///     MsaSequence::new("one", *b"ACGTACGT"),
+///     MsaSequence::new("two", *b"ACGTACGA"),
+/// ];
+/// let svg = plot_alignment(rows).add_key().to_svg();
+/// assert!(!svg.contains(">alignment:1-8</text>"), "no locus is written");
+/// assert!(svg.contains(">column</text>"));
+/// ```
+pub fn plot_alignment(sequences: impl Into<Vec<MsaSequence>>) -> Plot<MsaTrack> {
+    let sequences: Vec<MsaSequence> = sequences.into();
+    let columns = sequences
+        .iter()
+        .map(MsaSequence::len)
+        .max()
+        .unwrap_or(0)
+        .max(1) as u64;
+    let region =
+        Region::new("alignment", 0, columns).expect("an alignment of a column or more is a window");
+    let mut plot = Plot::over(region).remove_region_label();
+    plot.counts = Some("column");
+    plot.add_msa(sequences)
+}
+
 /// The empty slot at the head of a plot, with no track pending.
 ///
 /// It is the default of [`Plot`]'s type parameter, so it stands for a fresh
@@ -305,6 +340,9 @@ pub struct Plot<T = Empty> {
     wants_axis: bool,
     /// Whether the figure's key is appended when the plot becomes a figure.
     wants_key: bool,
+    /// What the ruler put in counts where the x is not a position on a
+    /// genome, as the columns of an alignment; `None` for bases.
+    counts: Option<&'static str>,
 }
 
 impl<T> fmt::Debug for Plot<T> {
@@ -327,6 +365,7 @@ impl Plot<Empty> {
             pending: None,
             wants_axis: true,
             wants_key: false,
+            counts: None,
         }
     }
 
@@ -339,6 +378,7 @@ impl Plot<Empty> {
             pending: None,
             wants_axis: false,
             wants_key: false,
+            counts: None,
         }
     }
 
@@ -349,6 +389,7 @@ impl Plot<Empty> {
             pending: Some(track),
             wants_axis: self.wants_axis,
             wants_key: self.wants_key,
+            counts: self.counts,
         }
     }
 }
@@ -361,6 +402,7 @@ impl<T: Slot> Plot<T> {
             pending,
             wants_axis,
             wants_key,
+            counts,
         } = self;
         if let Some(track) = pending {
             figure = track.push_onto(figure);
@@ -370,6 +412,7 @@ impl<T: Slot> Plot<T> {
             pending: None,
             wants_axis,
             wants_key,
+            counts,
         }
     }
 
@@ -465,7 +508,11 @@ impl<T: Slot> Plot<T> {
         // single tick on it, measuring the window such a figure is handed
         // because every figure has one, not because the tree is anywhere in it.
         let figure = if plot.wants_axis && plot.figure.measures_coordinates() {
-            plot.figure.push_ruler(AxisTrack::new())
+            let ruler = match plot.counts {
+                Some(unit) => AxisTrack::new().counting().label(unit),
+                None => AxisTrack::new(),
+            };
+            plot.figure.push_ruler(ruler)
         } else {
             plot.figure
         };
@@ -1512,6 +1559,31 @@ mod tests {
         );
     }
 
+    /// An alignment is plotted over its columns, as long as its longest row,
+    /// with no locus to work out and hide, and the ruler under it counts
+    /// columns as the command line's does.
+    #[test]
+    fn an_alignment_is_plotted_over_its_columns() {
+        let rows = || {
+            vec![
+                MsaSequence::new("one", *b"ACGTACGTAC"),
+                MsaSequence::new("two", *b"ACGTA"),
+            ]
+        };
+        let by_hand = Plot::over(Region::new("alignment", 0, 10).unwrap())
+            .remove_region_label()
+            .add_msa(rows())
+            .add_axis()
+            .adjust(|axis| axis.counting())
+            .label("column");
+        assert_eq!(plot_alignment(rows()).to_svg(), by_hand.to_svg());
+        let svg = plot_alignment(rows()).to_svg();
+        assert!(
+            svg.contains(">10</text>") && !svg.contains(">11</text>"),
+            "{svg}"
+        );
+    }
+
     /// A plot of trees names no place, draws no ruler, and keys the strips its
     /// tree is drawn with, where a plot of trees had to be given a locus and
     /// a key built by hand before the tree went in.
@@ -1521,7 +1593,7 @@ mod tests {
         let tree = || Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
         let figure = plot_tree()
             .add_tree(tree())
-            .adjust(|track| track.traits(crate::Traits::from_sheet(&sheet).spread(["lineage"])))
+            .adjust(|track| track.traits(crate::Traits::from_sheet(&sheet).strips(["lineage"])))
             .add_key()
             .into_figure();
         assert_eq!(

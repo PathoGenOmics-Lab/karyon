@@ -8,6 +8,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Traits::spread` is `Traits::strips`, which says what it draws; to an R
+  user `spread` read as tidyr's pivot.
+- A column's stretch of the palette, and whether it is drawn as shapes, are
+  decided in the theme it is drawn in: a theme of more colours keeps a column
+  of seven values a strip, where `spread` chose shapes against the six colours
+  the crate ships whatever theme came after, and an explicit
+  `TraitStyle::Strip` was overridden the same way.
+- Branches coloured by a column of the joined sheet take the colours a strip
+  of it takes, drawn or not. With no strip they dealt the palette in the order
+  the tree meets the values, so L1 was blue in one figure of a set and ochre
+  in the next.
+- A clade folded by a value is named by it, as `L4 (16 tips)`, where it read
+  `S26 +15 more`, a sample named for a lineage, and its wedge is filled at half
+  strength in the colour of its branches and edged in it: at 0.28 with no edge
+  a pale wedge read as nothing. The wedges of `example-phylogenetics.svg` and
+  `example-phylo-layouts.svg` change.
+- One ring around a circle or a cloud is named by the key rather than by a
+  swatch across the top, which read as a key to a colour drawn nowhere; two or
+  more are still named. `example-evolutionary-surveillance.svg` is 22 pixels
+  shorter, and one panel of `example-phylo-layouts.svg` loses its swatch.
+
 - A panel of variable sites whose columns would be narrower than a pixel and
   a half is drawn a pixel at a time: each pixel of a row is shaded by the
   share of the sites under it that differ from the reference, in eight steps,
@@ -282,6 +303,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `plot_alignment(rows)` plots a multiple sequence alignment over its columns,
+  as many as its longest row, with the ruler counting them and no locus to
+  work out and hide.
+- `TraitColumn::colors` and `Traits::colors` give levels colours of their
+  own, which the strip, its key and the branches coloured by the same values
+  all take.
+- A phylogeny says under the tree when a strip of more values than colours is
+  drawn as shapes, and when two strips paint two values one colour, and the
+  command line prints it. The tree of the Your data pages says it of its seven
+  countries, and is a line taller.
 - The figures of Start here and of the Your data pages are drawn by the
   program in the page, from the command printed above each one and the
   example files the site publishes: in the page's light or dark, at the width

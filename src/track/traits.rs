@@ -38,12 +38,14 @@
 //! would recolour half a figure when a sample whose name sorts early is added,
 //! and a figure that recolours itself cannot go in a paper.
 //!
-//! The palette has six colours. A column with more levels than that reuses one,
-//! and two levels sharing a swatch is a figure that states something false, so
-//! a strip whose levels come round the palette is drawn as
-//! [`TraitStyle::Symbol`], which carries the level in a shape as well as a hue
-//! and separates twenty-four. [`Traits::spread`] makes such a column one from
-//! the start, and gives it the narrower cell a shape needs.
+//! The palette has six colours, or as many as the theme it is drawn in has. A
+//! column with more levels than that reuses one, and two levels sharing a
+//! swatch is a figure that states something false, so a strip whose levels
+//! come round the palette is drawn as [`TraitStyle::Symbol`], which carries the
+//! level in a shape as well as a hue and separates twenty-four, and a phylogeny
+//! says so under the tree. The mark is chosen when the column is drawn, in the
+//! theme it is drawn in, so a theme of more colours keeps it a strip, and
+//! [`TraitColumn::colors`] gives levels colours of their own.
 //!
 //! # A missing value is drawn as missing
 //!
@@ -101,6 +103,26 @@ pub struct TraitColumn {
     /// The palette colour the first level takes, where one was chosen. A
     /// phylogeny gives a column without one a stretch of its own.
     pub(crate) first: Option<usize>,
+    /// The column's place among the columns of words of its sheet, which
+    /// deals it a stretch of whatever palette it is drawn in.
+    pub(crate) stretch: Option<Stretch>,
+    /// Colours chosen for levels by name, which the palette does not deal.
+    pub(crate) colors: Vec<(String, String)>,
+}
+
+/// A column's place among `of` columns of words, each of which takes a
+/// stretch of the palette: two columns half of it each, three a third.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stretch {
+    pub(crate) place: usize,
+    pub(crate) of: usize,
+}
+
+impl Stretch {
+    /// The palette colour the stretch starts at, in a palette of `colors`.
+    pub(crate) fn start(self, colors: usize) -> usize {
+        self.place * (colors / self.of.max(1)).max(1)
+    }
 }
 
 impl TraitColumn {
@@ -117,6 +139,8 @@ impl TraitColumn {
             show_values: true,
             levels: Vec::new(),
             first: None,
+            stretch: None,
+            colors: Vec::new(),
         }
     }
 
@@ -124,7 +148,7 @@ impl TraitColumn {
     /// named takes the palette's first colour, and a level met that is not
     /// named here takes the next one free.
     ///
-    /// A column made by [`Traits::spread`] or added with [`Traits::column`]
+    /// A column made by [`Traits::strips`] or added with [`Traits::column`]
     /// already carries the order its sheet lists the levels in. Handing that
     /// column to a phylogeny as well, with
     /// [`TreeTrack::trait_column`](crate::track::tree::TreeTrack::trait_column),
@@ -143,7 +167,7 @@ impl TraitColumn {
 
     /// Deals the levels the palette from its colour `index` on, rather than
     /// from its first, so two columns side by side do not paint two different
-    /// things one colour. [`Traits::spread`] gives each column of a sheet its
+    /// things one colour. [`Traits::strips`] gives each column of a sheet its
     /// own stretch of the palette this way, and a phylogeny does the same for
     /// the columns it is handed without one.
     pub fn first_color(mut self, index: usize) -> Self {
@@ -151,11 +175,56 @@ impl TraitColumn {
         self
     }
 
-    /// The palette colour the first level is dealt: the one
-    /// [`TraitColumn::first_color`] chose, or the palette's first. A
-    /// phylogeny deals a column that chose none a stretch of its own.
+    /// The palette colour the first level is dealt in the palette the crate
+    /// ships: the one [`TraitColumn::first_color`] chose, the start of the
+    /// stretch [`Traits::strips`] dealt the column, or the palette's first. A
+    /// phylogeny deals a column that has neither a stretch of its own.
     pub fn first_color_index(&self) -> usize {
-        self.first.unwrap_or(0)
+        self.first_in(STRIP_LEVELS)
+    }
+
+    /// The same, in a palette of `colors`.
+    pub(crate) fn first_in(&self, colors: usize) -> usize {
+        self.first
+            .or_else(|| self.stretch.map(|stretch| stretch.start(colors)))
+            .unwrap_or(0)
+    }
+
+    /// Paints levels in colours of their own, as `("L1", "#b78a2c")`, where
+    /// the palette would deal them one: the colours a field already knows its
+    /// lineages by, or a strip of more levels than the palette has colours. A
+    /// level not named is dealt the palette as before, and the strip, its key
+    /// and the branches a phylogeny colours by the same values all take the
+    /// colours given.
+    ///
+    /// ```
+    /// use karyon::{plot_tree, Sheet, TraitColumn, Traits, Tree};
+    ///
+    /// let sheet = Sheet::parse("sample\tcountry\nA\tPeru\nB\tKenya\nC\tKenya\n")?;
+    /// let tree = Tree::parse("((A:1,B:1):1,C:2);")?;
+    /// let country = TraitColumn::categorical("country")
+    ///     .colors([("Peru", "#d55e00"), ("Kenya", "#0072b2")]);
+    /// let svg = plot_tree()
+    ///     .add_tree(tree)
+    ///     .adjust(|track| track.traits(Traits::from_sheet(&sheet).column(country)))
+    ///     .to_svg();
+    /// assert!(svg.contains("#d55e00") && svg.contains("#0072b2"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn colors(
+        mut self,
+        colors: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.colors = colors
+            .into_iter()
+            .map(|(level, color)| (level.into(), color.into()))
+            .collect();
+        self
+    }
+
+    /// The colours [`TraitColumn::colors`] chose, by level.
+    pub fn chosen_colors(&self) -> &[(String, String)] {
+        &self.colors
     }
 
     /// Builds a continuous column from numeric annotation `key`.
@@ -264,6 +333,8 @@ impl TraitColumn {
 pub(crate) struct Dealt<'a> {
     pub(crate) levels: &'a [String],
     pub(crate) first: usize,
+    /// Colours chosen for levels by name, over the palette's.
+    pub(crate) colors: &'a [(String, String)],
 }
 
 impl TraitColumn {
@@ -273,10 +344,13 @@ impl TraitColumn {
     /// round again is drawn as symbols, whose shape keeps apart two levels
     /// the colour no longer does. Drawn as asked, a column of seven
     /// countries painted two of them one colour, in the strip and in its key.
+    /// Decided here, in the theme the column is drawn in, so a palette of more
+    /// colours, or colours chosen with [`TraitColumn::colors`], keeps it a
+    /// strip.
     pub(crate) fn drawn_style(&self, domain: &TraitDomain, theme: &Theme) -> TraitStyle {
         let repeats = self.scale == TraitScale::Categorical
             && self.style == TraitStyle::Strip
-            && domain.colors_repeat(theme.palette.len());
+            && domain.colors_repeat(theme);
         if repeats {
             TraitStyle::Symbol
         } else {
@@ -302,13 +376,12 @@ pub(crate) struct TraitDomain {
     /// binary column's key names.
     on: bool,
     off: bool,
+    /// The colours chosen for levels by name, by the place each level was
+    /// dealt.
+    chosen: BTreeMap<usize, String>,
 }
 
 impl TraitDomain {
-    pub(crate) fn new<'a>(values: impl IntoIterator<Item = &'a AnnotationValue>) -> Self {
-        Self::ordered(0, &[], values)
-    }
-
     /// The same, with `levels` dealt the palette first, in that order, from
     /// its colour `first` on.
     pub(crate) fn ordered<'a>(
@@ -347,7 +420,32 @@ impl TraitDomain {
             maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
             on,
             off,
+            chosen: BTreeMap::new(),
         }
+    }
+
+    /// The same as [`TraitDomain::ordered`], with the colours `dealt` chose
+    /// for levels by name painted over the palette's.
+    pub(crate) fn dealt<'a>(
+        dealt: Dealt<'_>,
+        values: impl IntoIterator<Item = &'a AnnotationValue>,
+    ) -> Self {
+        let mut domain = Self::ordered(dealt.first, dealt.levels, values);
+        for (level, color) in dealt.colors {
+            if let Some(index) = domain.categories.get(level) {
+                domain.chosen.insert(*index, color.clone());
+            }
+        }
+        domain
+    }
+
+    /// The colour a level dealt `index` is painted: the one chosen for it, or
+    /// the palette's.
+    pub(crate) fn paint(&self, index: usize, theme: &Theme) -> String {
+        self.chosen
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| theme.color(index).to_string())
     }
 
     pub(crate) fn fraction(&self, value: Option<&AnnotationValue>) -> Option<f64> {
@@ -373,9 +471,7 @@ impl TraitDomain {
         theme: &Theme,
     ) -> Option<String> {
         match column.scale {
-            TraitScale::Categorical => self
-                .category(value)
-                .map(|index| theme.color(index).to_string()),
+            TraitScale::Categorical => self.category(value).map(|index| self.paint(index, theme)),
             TraitScale::Continuous => self
                 .fraction(value)
                 .map(|fraction| mix(&theme.muted, &theme.accent, fraction)),
@@ -398,15 +494,23 @@ impl TraitDomain {
         levels
     }
 
-    /// Whether two levels some value held were dealt one colour of a palette
-    /// of `colors`, which a filled strip then draws alike.
-    pub(crate) fn colors_repeat(&self, colors: usize) -> bool {
-        let colors = colors.max(1);
+    /// Whether two levels some value held are painted one colour in `theme`,
+    /// which a filled strip then draws alike.
+    pub(crate) fn colors_repeat(&self, theme: &Theme) -> bool {
         let mut seen = BTreeSet::new();
         self.categories
             .iter()
             .filter(|(level, _)| self.met.contains(*level))
-            .any(|(_, index)| !seen.insert(index % colors))
+            .any(|(_, index)| !seen.insert(self.paint(*index, theme)))
+    }
+
+    /// The levels some value held, each with the colour it is painted in
+    /// `theme`, in the order a key lists them.
+    pub(crate) fn painted(&self, theme: &Theme) -> Vec<(String, String)> {
+        self.keyed()
+            .into_iter()
+            .map(|(level, index)| (level.to_string(), self.paint(index, theme)))
+            .collect()
     }
 
     /// The levels a key names: the ones some value held, in the order a
@@ -514,7 +618,7 @@ pub(crate) fn key_entries(
                 .fold(legend, |legend, (level, index)| {
                     legend.symbol(
                         format!("{label}: {level}"),
-                        theme.color(index).to_string(),
+                        domain.paint(index, theme),
                         theme.symbol(index),
                     )
                 })
@@ -524,7 +628,7 @@ pub(crate) fn key_entries(
                 .keyed()
                 .into_iter()
                 .fold(legend, |legend, (level, index)| {
-                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
+                    legend.key(format!("{label}: {level}"), domain.paint(index, theme))
                 })
         }
     }
@@ -704,13 +808,13 @@ pub(crate) fn draw_column(
     }
 }
 
-/// The number of levels beyond which a filled strip stops separating them.
+/// The number of colours in the palette the crate ships.
 ///
-/// The shipped palette has six colours. A theme may carry more, and a column
-/// of seven levels then has seven distinct swatches, but the choice of mark is
-/// made once when the columns are built and a theme arrives later, so it is
-/// made against the palette the crate ships rather than against one it might
-/// be handed.
+/// Only for what is asked with no theme at hand, as
+/// [`TraitColumn::first_color_index`]: a column's stretch of the palette and
+/// its mark are worked out when it is drawn, in the palette of the theme it is
+/// drawn in, since a theme may carry more colours and a column of seven
+/// levels then has seven distinct swatches.
 pub(crate) const STRIP_LEVELS: usize = 6;
 
 /// What a join of a sheet's rows to the names a track draws matched and what
@@ -744,7 +848,7 @@ pub struct Join {
 ///      S3\tL4\t\t48.2\n",
 /// )?;
 /// let columns = sheet.columns.clone();
-/// let traits = Traits::new(sheet.rows).spread(columns);
+/// let traits = Traits::new(sheet.rows).strips(columns);
 ///
 /// let rows = vec![
 ///     MatrixRow::new("S1", vec![1.0, 0.0]),
@@ -822,7 +926,7 @@ impl Traits {
             return column;
         }
         let met = self
-            .domain(&column)
+            .domain(&column, STRIP_LEVELS)
             .levels()
             .into_iter()
             .map(|(level, _)| level.to_string())
@@ -838,21 +942,24 @@ impl Traits {
             .filter_map(move |held| held.get(key))
     }
 
-    /// Adds a strip for each key, taking the mark from what the values are.
+    /// Draws each key as a strip, taking the mark from what the values are.
     ///
     /// A key whose every stated value is a number gets a ramp, because numbers
-    /// with a ramp read as an order and numbers with a palette do not. Anything
-    /// else gets a palette, and a palette of more than
-    #[doc = concat!(stringify!(6), " levels")]
-    /// gets [`TraitStyle::Symbol`] instead of a filled cell, so that the shape
-    /// keeps two levels apart where the hue has run out and come round again.
+    /// with a ramp read as an order and numbers with a palette do not.
+    /// Anything else gets a stretch of the palette of its own, and a column
+    /// with more levels than the palette has colours is drawn as
+    /// [`TraitStyle::Symbol`] instead of a filled cell, so that the shape keeps
+    /// two levels apart where the hue has run out and come round again. That is
+    /// decided when the column is drawn, in the theme it is drawn in: a theme
+    /// of more colours, or colours chosen with [`TraitColumn::colors`] on a
+    /// column added with [`Traits::column`], keeps it a strip.
     ///
     /// Keys are drawn in the order given, and a key no row mentions still gets
     /// a column: an attribute nobody in this figure has is a fact about the
     /// figure, and a column of empty outlines states it.
-    pub fn spread(mut self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    pub fn strips(mut self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
-        let firsts = self.stretches(&keys);
+        let stretches = self.stretches(&keys);
         for key in keys {
             let stated: Vec<&AnnotationValue> = self.stated(&key).collect();
             let numeric =
@@ -861,20 +968,44 @@ impl Traits {
             let column = if numeric {
                 TraitColumn::continuous(key)
             } else {
-                let levels = TraitDomain::new(stated).categories.len();
-                let first = firsts
+                let mut column = TraitColumn::categorical(key.clone());
+                column.stretch = stretches
                     .iter()
                     .find(|(named, _)| *named == key)
-                    .map_or(0, |(_, first)| *first);
-                let column = TraitColumn::categorical(key).first_color(first);
-                if levels > STRIP_LEVELS {
-                    column.style(TraitStyle::Symbol)
-                } else {
-                    column
-                }
+                    .map(|(_, stretch)| *stretch);
+                column
             };
             let column = self.ordered(column.width(14.0).show_values(false));
             self.columns.push(column);
+        }
+        self
+    }
+
+    /// Paints the levels of the column of `key` in colours of their own, as
+    /// [`TraitColumn::colors`] does for a column built by hand: a level not
+    /// named is dealt the palette as before.
+    ///
+    /// ```
+    /// use karyon::{Sheet, Traits};
+    ///
+    /// let sheet = Sheet::parse("sample\tlineage\nA\tL1\nB\tL2\n")?;
+    /// let traits = Traits::from_sheet(&sheet)
+    ///     .strips(["lineage"])
+    ///     .colors("lineage", [("L1", "#b78a2c"), ("L2", "#1634c2")]);
+    /// assert_eq!(traits.columns()[0].chosen_colors().len(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn colors(
+        mut self,
+        key: &str,
+        colors: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        let colors: Vec<(String, String)> = colors
+            .into_iter()
+            .map(|(level, color)| (level.into(), color.into()))
+            .collect();
+        for column in self.columns.iter_mut().filter(|column| column.key == key) {
+            column.colors.clone_from(&colors);
         }
         self
     }
@@ -887,9 +1018,11 @@ impl Traits {
     /// columns before it hold, so a sample that brings a new lineage does not
     /// repaint every column after it, and among every column of the sheet
     /// rather than the ones drawn, so a colour does not change with
-    /// `--columns`. The palette has six colours: two columns take three each,
-    /// three take two, and more than a column's share wraps into the next.
-    fn stretches(&self, keys: &[String]) -> Vec<(String, usize)> {
+    /// `--columns`. Of whatever palette the column is drawn in: in the six
+    /// colours the crate ships, two columns take three each, three take two,
+    /// and more than a column's share runs into the next, which a phylogeny
+    /// says under the tree where two strips then share a colour.
+    fn stretches(&self, keys: &[String]) -> Vec<(String, Stretch)> {
         let mut order: Vec<&String> = self.keys.iter().collect();
         for key in keys {
             if !order.contains(&key) {
@@ -900,12 +1033,34 @@ impl Traits {
             .into_iter()
             .filter(|key| self.stated(key).any(|value| value.as_number().is_none()))
             .collect();
-        let stride = (STRIP_LEVELS / worded.len().max(1)).max(1);
+        let of = worded.len();
         worded
             .into_iter()
             .enumerate()
-            .map(|(place, key)| (key.clone(), place * stride))
+            .map(|(place, key)| (key.clone(), Stretch { place, of }))
             .collect()
+    }
+
+    /// The sheet's columns in its order, drawn or not.
+    pub(crate) fn sheet_keys(&self) -> &[String] {
+        &self.keys
+    }
+
+    /// How a strip of `key` would deal the palette: its levels in the order
+    /// the rows meet them, and its stretch among the sheet's columns of words.
+    /// `None` for a key with no word in it.
+    ///
+    /// A phylogeny coloured by a key of its sheet deals its branches this way
+    /// with or without a strip beside them, so a lineage is one colour in
+    /// every figure drawn from the sheet.
+    pub(crate) fn dealing_of(&self, key: &str) -> Option<(Vec<String>, Stretch)> {
+        let stretch = self
+            .stretches(&[key.to_string()])
+            .into_iter()
+            .find(|(named, _)| named == key)?
+            .1;
+        let levels = self.ordered(TraitColumn::categorical(key)).levels;
+        Some((levels, stretch))
     }
 
     /// Sets the air between one column and the next, in pixels.
@@ -1016,7 +1171,7 @@ impl Traits {
     /// and not this, which would name each colour beside another level.
     pub fn legend(&self, theme: &Theme) -> Legend {
         self.columns.iter().fold(Legend::new(), |legend, column| {
-            let domain = self.domain(column);
+            let domain = self.domain(column, theme.palette.len());
             key_entries(
                 legend,
                 &column.label,
@@ -1033,7 +1188,7 @@ impl Traits {
     /// Taken from the column rather than written down beside it, so a legend
     /// cannot go on saying what the ramp used to be.
     pub fn ramp_ends(&self, column: &TraitColumn) -> (String, String) {
-        let domain = self.domain(column);
+        let domain = self.domain(column, STRIP_LEVELS);
         if domain.maximum <= domain.minimum {
             let one = crate::svg::text_rounded(domain.minimum, 3);
             return (one.clone(), one);
@@ -1045,11 +1200,14 @@ impl Traits {
     }
 
     /// The levels and the range one column covers over every row named here,
-    /// dealt the palette in the column's own order where it has one.
-    fn domain(&self, column: &TraitColumn) -> TraitDomain {
-        TraitDomain::ordered(
-            column.first_color_index(),
-            &column.levels,
+    /// dealt a palette of `colors` in the column's own order where it has one.
+    fn domain(&self, column: &TraitColumn, colors: usize) -> TraitDomain {
+        TraitDomain::dealt(
+            Dealt {
+                levels: &column.levels,
+                first: column.first_in(colors),
+                colors: &column.colors,
+            },
             self.stated(&column.key),
         )
     }
@@ -1069,7 +1227,7 @@ impl Traits {
         let mut x = area.x + 4.0;
 
         for column in &self.columns {
-            let domain = self.domain(column);
+            let domain = self.domain(column, ctx.theme.palette.len());
             if room > 0.0 {
                 // Turned on end because a column is narrower than its name and
                 // will stay that way: a strip wide enough to caption flat is a
@@ -1141,7 +1299,7 @@ mod tests {
         // names them L1, L2, L4, each still in its own colour.
         let text = "sample\tlineage\nS1\tL4\nS2\tL2\nS3\tL1\n";
         let held = sheet(text).unwrap();
-        let traits = Traits::from_sheet(&held).spread(held.columns.clone());
+        let traits = Traits::from_sheet(&held).strips(held.columns.clone());
         let theme = Theme::light();
         let key = keyed_colours(&traits.legend(&theme));
         assert_eq!(
@@ -1181,7 +1339,7 @@ mod tests {
                 .map(|column| (column.key().to_string(), column.first_color_index()))
                 .collect()
         };
-        let all = Traits::from_sheet(&held).spread(held.columns.clone());
+        let all = Traits::from_sheet(&held).strips(held.columns.clone());
         assert_eq!(
             firsts(&all),
             [
@@ -1206,15 +1364,15 @@ mod tests {
             );
         }
         // Where a column starts does not hang on which others are drawn.
-        let alone = Traits::from_sheet(&held).spread(["country"]);
+        let alone = Traits::from_sheet(&held).strips(["country"]);
         assert_eq!(firsts(&alone), [("country".to_string(), 3)]);
         // Nor on a sample appended to the file with a lineage nobody had.
         let grown = sheet(&format!("{text}S4\tL3\tChile\t2021\n")).unwrap();
-        let grown = Traits::from_sheet(&grown).spread(held.columns.clone());
+        let grown = Traits::from_sheet(&grown).strips(held.columns.clone());
         assert_eq!(firsts(&grown)[1], ("country".to_string(), 3));
         // Three columns of words take two colours each.
         let three = sheet("sample\ta\tb\tc\nS1\tx\ty\tz\n").unwrap();
-        let three = Traits::from_sheet(&three).spread(three.columns.clone());
+        let three = Traits::from_sheet(&three).strips(three.columns.clone());
         let starts: Vec<usize> = firsts(&three).into_iter().map(|(_, first)| first).collect();
         assert_eq!(starts, [0, 2, 4]);
     }
@@ -1230,7 +1388,7 @@ D\tL1\thuman\t95
     fn traits() -> Traits {
         let held = sheet(SHEET).expect("a sheet");
         let columns = held.columns.clone();
-        Traits::new(held.rows).spread(columns)
+        Traits::new(held.rows).strips(columns)
     }
 
     fn matrix() -> MatrixTrack {
@@ -1274,12 +1432,12 @@ D\tL1\thuman\t95
         let first = traits();
         let more = sheet(&format!("{SHEET}E\tL2\tbovine\t50\n")).expect("a sheet");
         let columns = more.columns.clone();
-        let second = Traits::new(more.rows).spread(columns);
+        let second = Traits::new(more.rows).strips(columns);
 
         let theme = Theme::light();
         for name in ["A", "B", "C", "D"] {
-            let one = first.domain(&first.columns()[0]);
-            let two = second.domain(&second.columns()[0]);
+            let one = first.domain(&first.columns()[0], STRIP_LEVELS);
+            let two = second.domain(&second.columns()[0], STRIP_LEVELS);
             let value = first.values(name).and_then(|held| held.get("lineage"));
             assert_eq!(
                 one.color(&first.columns()[0], value, &theme),
@@ -1347,10 +1505,10 @@ D\tL1\thuman\t95
         // lists them, an appended row only ever adds a colour.
         let dealt = |text: &str| {
             let held = sheet(text).expect("a sheet");
-            let traits = Traits::from_sheet(&held).spread(["lineage"]);
+            let traits = Traits::from_sheet(&held).strips(["lineage"]);
             let theme = Theme::light();
             let column = &traits.columns()[0];
-            let domain = traits.domain(column);
+            let domain = traits.domain(column, STRIP_LEVELS);
             ["A", "B", "D"].map(|name| {
                 let value = traits.values(name).and_then(|held| held.get("lineage"));
                 domain.color(column, value, &theme)
@@ -1364,7 +1522,7 @@ D\tL1\thuman\t95
     fn a_column_carries_the_order_its_sheet_lists_the_levels_in() {
         // What a phylogeny is handed, so it deals the palette the same way.
         let held = sheet(SHEET).expect("a sheet");
-        let traits = Traits::from_sheet(&held).spread(["lineage", "depth"]);
+        let traits = Traits::from_sheet(&held).strips(["lineage", "depth"]);
         assert_eq!(traits.columns()[0].level_order(), ["L4", "L2", "L1"]);
         assert!(
             traits.columns()[1].level_order().is_empty(),
@@ -1406,17 +1564,39 @@ D\tL1\thuman\t95
     #[test]
     fn more_levels_than_the_palette_carries_get_a_shape_as_well_as_a_hue() {
         // Six colours go round, and two countries sharing a swatch is a figure
-        // stating something untrue. A symbol separates twenty-four.
+        // stating something untrue. A symbol separates twenty-four. Decided in
+        // the theme the column is drawn in, so a palette of more colours, or
+        // colours chosen by level, keeps the strip: spread used to decide it
+        // against the six the crate ships, whatever theme came after.
         let many = (0..9).map(|i| format!("S{i}\tC{i}\n")).collect::<String>();
         let held = sheet(&format!("sample\tcountry\n{many}")).expect("a sheet");
         let columns = held.columns.clone();
-        let traits = Traits::new(held.rows).spread(columns);
-        assert_eq!(traits.columns()[0].trait_style(), TraitStyle::Symbol);
+        let traits = Traits::new(held.rows).strips(columns);
+        let drawn = |column: &TraitColumn, theme: &Theme| {
+            column.drawn_style(&traits.domain(column, theme.palette.len()), theme)
+        };
+        let column = &traits.columns()[0];
+        assert_eq!(column.trait_style(), TraitStyle::Strip, "a strip was asked");
+        let light = Theme::light();
+        assert_eq!(drawn(column, &light), TraitStyle::Symbol);
+        let mut wide = Theme::light();
+        wide.palette = (0..12)
+            .map(|i| format!("#{:02x}64{:02x}", i * 20, 200 - i * 10))
+            .collect();
+        assert_eq!(drawn(column, &wide), TraitStyle::Strip);
+        let chosen = column
+            .clone()
+            .colors((0..9).map(|i| (format!("C{i}"), format!("#{i}{i}{i}{i}{i}{i}"))));
+        assert_eq!(drawn(&chosen, &light), TraitStyle::Strip);
 
         let held = sheet("sample\tcountry\nS0\tES\nS1\tFR\n").expect("a sheet");
         let columns = held.columns.clone();
-        let few = Traits::new(held.rows).spread(columns);
-        assert_eq!(few.columns()[0].trait_style(), TraitStyle::Strip);
+        let few = Traits::new(held.rows).strips(columns);
+        let domain = few.domain(&few.columns()[0], light.palette.len());
+        assert_eq!(
+            few.columns()[0].drawn_style(&domain, &light),
+            TraitStyle::Strip
+        );
     }
 
     #[test]
@@ -1487,7 +1667,7 @@ D\tL1\thuman\t95
         // level, so the caller who did not check can still see it.
         let held = sheet("sample\tx\nZZ\ta\n").expect("a sheet");
         let columns = held.columns.clone();
-        let traits = Traits::new(held.rows).spread(columns);
+        let traits = Traits::new(held.rows).strips(columns);
         assert_eq!(traits.covers(["A", "B", "C", "D"]), 0);
         let svg = drawn(matrix().traits(traits));
         assert_eq!(svg.matches("; x missing").count(), 4);
@@ -1518,7 +1698,7 @@ D\tL1\thuman\t95
     fn a_column_of_one_number_has_no_gradient_and_says_so_at_both_ends() {
         let held = sheet("sample\tdepth\nA\t30\nB\t30\n").expect("a sheet");
         let columns = held.columns.clone();
-        let traits = Traits::new(held.rows).spread(columns);
+        let traits = Traits::new(held.rows).strips(columns);
         assert_eq!(
             traits.ramp_ends(&traits.columns()[0]),
             ("30".into(), "30".into())
@@ -1528,7 +1708,7 @@ D\tL1\thuman\t95
     #[test]
     fn the_columns_asked_for_are_the_columns_drawn_in_the_order_asked() {
         let held = sheet(SHEET).expect("a sheet");
-        let traits = Traits::new(held.rows).spread(["host", "lineage"]);
+        let traits = Traits::new(held.rows).strips(["host", "lineage"]);
         let names: Vec<&str> = traits.columns().iter().map(|c| c.key()).collect();
         assert_eq!(names, ["host", "lineage"]);
     }
@@ -1539,7 +1719,7 @@ D\tL1\thuman\t95
         // and a column of outlines states it. Dropping it would leave the
         // command that asked for it looking as though it had worked.
         let held = sheet(SHEET).expect("a sheet");
-        let traits = Traits::new(held.rows).spread(["ward"]);
+        let traits = Traits::new(held.rows).strips(["ward"]);
         assert_eq!(traits.columns().len(), 1);
         let svg = drawn(matrix().traits(traits));
         assert_eq!(svg.matches("; ward missing").count(), 4);

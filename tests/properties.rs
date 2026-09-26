@@ -196,7 +196,7 @@ fn traits(rng: &mut Lcg, names: &[String]) -> Traits {
         .filter(|_| !rng.chance(3))
         .map(|key| key.to_string())
         .collect();
-    let traits = Traits::new(rows).spread(wanted);
+    let traits = Traits::new(rows).strips(wanted);
     if rng.chance(3) {
         traits.heading_room(0.0)
     } else {

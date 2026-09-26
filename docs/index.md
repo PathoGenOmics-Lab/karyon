@@ -55,7 +55,7 @@ karyon NC_000962.3:761,000-762,999 \
     **[An association scan](your-data/scan.md)**
     A table from PLINK, REGENIE, SAIGE or another association tool.
 
--   [![A tree and its samples](assets/start/tree.svg){ .k-light width="720" height="717" loading="lazy" }![A tree and its samples](assets/start/tree-dark.svg){ .k-dark width="720" height="717" loading="lazy" }](your-data/tree.md)
+-   [![A tree and its samples](assets/start/tree.svg){ .k-light width="720" height="738" loading="lazy" }![A tree and its samples](assets/start/tree-dark.svg){ .k-dark width="720" height="738" loading="lazy" }](your-data/tree.md)
 
     **[A tree and its samples](your-data/tree.md)**
     A Newick tree and a sheet of what you know about each sample.

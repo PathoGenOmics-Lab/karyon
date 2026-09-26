@@ -1021,7 +1021,13 @@ fn visual_collapse_keeps_the_source_tree_and_names_the_triangle() {
         .push(track)
         .to_svg();
     assert!(svg.contains("outbreak (2 tips)"), "{svg}");
-    assert!(svg.contains("fill-opacity=\"0.28\""), "{svg}");
+    // Filled in the colour of its branches where a reader can see it, and
+    // edged in it, which at 0.28 and with no edge read as a sliver of nothing.
+    assert!(svg.contains("fill-opacity=\"0.5\""), "{svg}");
+    assert!(
+        svg.contains("Z\" fill=\"none\" stroke=\"#1a1233\""),
+        "{svg}"
+    );
 }
 
 #[test]
@@ -1289,7 +1295,11 @@ fn circular_collapse_is_a_non_destructive_wedge() {
         svg.contains("<title>outbreak (2 tips), A to B</title>"),
         "{svg}"
     );
-    assert!(svg.contains("fill-opacity=\"0.28\""), "{svg}");
+    assert!(svg.contains("fill-opacity=\"0.5\""), "{svg}");
+    assert!(
+        svg.contains("Z\" fill=\"none\" stroke=\"#1a1233\""),
+        "{svg}"
+    );
 }
 
 #[test]
@@ -1355,7 +1365,8 @@ fn an_unrooted_tree_keeps_branches_labels_support_and_annotation_rings() {
     }
     assert!(svg.contains("clade support 0.9"), "{svg}");
     assert!(svg.contains("<title>A; country Peru</title>"), "{svg}");
-    assert!(svg.contains(">country</text>"), "{svg}");
+    // One ring, named by the key rather than by a heading of its own.
+    assert!(!svg.contains(">country</text>"), "{svg}");
     let branch = svg.find("<title>country Peru</title>").unwrap();
     assert!(
         svg[branch..(branch + 180).min(svg.len())].contains(&format!("stroke=\"{}\"", colour(0))),
@@ -2313,7 +2324,7 @@ fn a_panel_beside_a_tree_with_a_tip_it_lacks_keeps_every_row_on_its_tip() {
     // Headings over the rows, which the matrix left out of its tree's start.
     let traits = || {
         let held = sheet("sample\tgroup\ntipA\tx\ntipC\ty\ntipD\tx\n").unwrap();
-        Traits::from_sheet(&held).spread(held.columns.clone())
+        Traits::from_sheet(&held).strips(held.columns.clone())
     };
     let check = |panel: &str, svg: String| {
         let (rows, tips) = rows_and_tips(&svg, &names);
@@ -2604,7 +2615,17 @@ fn a_ring_heading_is_not_drawn_in_a_colour_of_the_key() {
             TraitColumn::binary("country"),
             TraitColumn::bar("country"),
         ] {
-            let svg = drawn(track.clone().trait_column(column.clone()));
+            // One ring is named by the key under the figure, and not by a
+            // heading of its own, which read as a key to a colour drawn
+            // nowhere.
+            let alone = drawn(track.clone().trait_column(column.clone()));
+            assert!(!alone.contains(">country</text>"), "{alone}");
+            let svg = drawn(
+                track
+                    .clone()
+                    .trait_column(column.clone())
+                    .trait_column(TraitColumn::categorical("country").label("again")),
+            );
             let heading = svg
                 .split("<text")
                 .position(|piece| piece.contains(">country</text>"))
@@ -2753,8 +2774,10 @@ fn layered() -> (Tree, TreeTrack) {
          [&a=2,b=2,c=2,d=0.3]:1);",
     )
     .unwrap();
+    // Two columns, so a circle names its rings across the top as well.
     let track = TreeTrack::new(tree.clone())
         .trait_categorical("host")
+        .trait_column(TraitColumn::continuous("d").label("dose"))
         .node_glyph(NodeGlyph::pie(["a", "b", "c"]).label("composition one"))
         .node_glyph(NodeGlyph::donut(["a", "b"]).label("composition two"))
         .node_glyph(NodeGlyph::bubble("d").label("bubble three"))
@@ -3203,10 +3226,25 @@ fn a_clade_is_picked_by_the_tips_or_the_value_it_holds() {
         let tips = [held.node_named("A").unwrap(), held.node_named("B").unwrap()];
         held.mrca(&tips).unwrap()
     };
-    let by_index = drawn(TreeTrack::new(tree()).collapse(index));
+    let by_index = TreeTrack::new(tree()).collapse(index);
     let by_value = TreeTrack::new(tree()).collapse(crate::NodeRef::holding("lineage", "L4"));
     assert!(by_value.warnings().is_empty(), "{:?}", by_value.warnings());
-    assert_eq!(drawn(by_value), by_index);
+    assert_eq!(by_value.folded(), by_index.folded());
+    // Folded as the clade of a value, it is named by the value, where it was
+    // named for its first tip: `A +1 more` said a sample, not a lineage.
+    let svg = drawn(by_value);
+    assert!(
+        svg.contains(">L4 (2 tips)</text>") && svg.contains("<title>L4 (2 tips), A to B</title>"),
+        "{svg}"
+    );
+    assert!(drawn(by_index.clone()).contains(">A +1 more</text>"));
+    // A reroot finds the fold again by its tips, and its name with it.
+    let rerooted = TreeTrack::new(tree())
+        .collapse(crate::NodeRef::holding("lineage", "L4"))
+        .reroot(crate::NodeRef::mrca(["A", "B", "C"]));
+    assert!(rerooted.warnings().is_empty(), "{:?}", rerooted.warnings());
+    assert!(drawn(rerooted).contains(">L4 (2 tips)</text>"));
+    let by_index = drawn(by_index);
     assert_eq!(
         drawn(TreeTrack::new(tree()).collapse(crate::NodeRef::mrca(["A", "B"]))),
         by_index
@@ -3241,7 +3279,7 @@ fn a_sheet_is_joined_onto_the_tips_and_what_it_left_out_is_said() {
         crate::Sheet::parse("sample\tlineage\tcountry\nA\tL1\tPeru\nB\tL2\tChile\nZ\tL3\tSpain\n")
             .unwrap();
     let tree = || Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
-    let traits = crate::Traits::from_sheet(&sheet).spread(["lineage", "country"]);
+    let traits = crate::Traits::from_sheet(&sheet).strips(["lineage", "country"]);
     let track = TreeTrack::new(tree()).traits(traits.clone());
     let join = track.join().unwrap();
     assert_eq!(join.matched, ["A", "B"]);
@@ -3268,12 +3306,154 @@ fn a_sheet_is_joined_onto_the_tips_and_what_it_left_out_is_said() {
     );
     // A sheet naming none of the tips draws no strip, and says so.
     let other = crate::Sheet::parse("sample\tlineage\nX\tL1\n").unwrap();
-    let none = TreeTrack::new(tree()).traits(crate::Traits::from_sheet(&other).spread(["lineage"]));
+    let none = TreeTrack::new(tree()).traits(crate::Traits::from_sheet(&other).strips(["lineage"]));
     assert_eq!(
         none.warnings(),
         vec!["no strips: the sheet names none of the tips".to_string()]
     );
     assert!(!drawn(none).contains(">lineage</text>"));
+}
+
+/// The entries of a key, as `(label, colour)`.
+fn keyed(legend: &crate::track::legend::Legend) -> Vec<(String, String)> {
+    legend
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            crate::track::legend::LegendItem::Key { label, color, .. } => {
+                Some((label.clone(), color.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A palette of twelve colours, for a theme that has more than six.
+fn twelve() -> Theme {
+    let mut theme = Theme::light();
+    theme.palette = (0..12)
+        .map(|i| format!("#{:02x}64{:02x}", i * 20, 200 - i * 10))
+        .collect();
+    theme
+}
+
+/// A strip with more values than the palette has colours is drawn as shapes,
+/// and the figure says so under the tree rather than the reader finding out;
+/// in a theme of more colours it stays a strip, as it does with colours
+/// chosen for its values.
+#[test]
+fn a_strip_drawn_as_shapes_is_said_and_more_colours_keep_it_a_strip() {
+    let names: Vec<String> = (0..8).map(|i| format!("T{i}")).collect();
+    let newick = format!(
+        "({});",
+        names
+            .iter()
+            .map(|name| format!("{name}:1"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let rows: String = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| format!("{name}\tC{i}\n"))
+        .collect();
+    let sheet = crate::Sheet::parse(&format!("sample\tcountry\n{rows}")).unwrap();
+    let track =
+        |traits: crate::Traits| TreeTrack::new(Tree::parse_newick(&newick).unwrap()).traits(traits);
+    let spread = || crate::Traits::from_sheet(&sheet).strips(["country"]);
+    assert_eq!(
+        track(spread()).warnings(),
+        ["country: 8 values for 6 colours, so each is a shape as well"]
+    );
+    let wide = twelve();
+    assert!(track(spread()).warnings_in(&wide).is_empty());
+    let svg = Figure::new(region())
+        .theme(wide.clone())
+        .push(track(spread()))
+        .to_svg();
+    for colour in &wide.palette[..8] {
+        assert!(
+            svg.contains(&format!("fill=\"{colour}\"")),
+            "{colour} is not a cell"
+        );
+    }
+    let chosen = crate::TraitColumn::categorical("country")
+        .colors((0..8).map(|i| (format!("C{i}"), format!("#{i}{i}{i}{i}{i}{i}"))));
+    let chosen = track(crate::Traits::from_sheet(&sheet).column(chosen));
+    assert!(chosen.warnings().is_empty(), "{:?}", chosen.warnings());
+    let key = keyed(&chosen.legend(&Theme::light()));
+    assert_eq!(key[3], ("country: C3".to_string(), "#333333".to_string()));
+}
+
+/// Two strips side by side that paint two values one colour are said to,
+/// under the tree: four lineages run past their three colours into the
+/// countries' stretch. Colours chosen for one column part them.
+#[test]
+fn two_strips_that_paint_two_values_one_colour_are_said_to() {
+    let sheet = crate::Sheet::parse(
+        "sample\tlineage\tcountry\nA\tL1\tPeru\nB\tL2\tChile\nC\tL3\tSpain\nD\tL4\tKenya\n",
+    )
+    .unwrap();
+    let tree = || Tree::parse_newick("((A:1,B:1):1,(C:1,D:1):1);").unwrap();
+    let both = TreeTrack::new(tree())
+        .traits(crate::Traits::from_sheet(&sheet).strips(["lineage", "country"]));
+    assert_eq!(
+        both.warnings(),
+        ["lineage L1 and country Kenya are one colour, and 1 other pair is too"]
+    );
+    // In twelve colours each column's stretch is six long, and they part.
+    assert!(
+        both.warnings_in(&twelve()).is_empty(),
+        "{:?}",
+        both.warnings_in(&twelve())
+    );
+    let country = crate::TraitColumn::categorical("country").colors([
+        ("Peru", "#aa0000"),
+        ("Chile", "#00aa00"),
+        ("Spain", "#0000aa"),
+        ("Kenya", "#aaaa00"),
+    ]);
+    let parted = TreeTrack::new(tree()).traits(
+        crate::Traits::from_sheet(&sheet)
+            .strips(["lineage"])
+            .column(country),
+    );
+    assert!(parted.warnings().is_empty(), "{:?}", parted.warnings());
+    assert!(keyed(&parted.legend(&Theme::light()))
+        .contains(&("country: Kenya".to_string(), "#aaaa00".to_string())));
+}
+
+/// Branches coloured by a column of the sheet take the colours a strip of it
+/// takes, with the strip or without it. They took the order the tree meets
+/// the levels in, so a lineage was blue in one figure of a set and ochre in
+/// the next.
+#[test]
+fn branches_coloured_by_the_sheet_take_its_strips_colours_with_or_without_it() {
+    // The sheet meets L2 first, and the tree meets L3 first.
+    let sheet = crate::Sheet::parse(
+        "sample\tlineage\thost\nA\tL2\thuman\nB\tL1\tcattle\nC\tL3\thuman\nD\tL1\tgoat\n",
+    )
+    .unwrap();
+    let tree = || Tree::parse_newick("((C:1,D:1):1,(A:1,B:1):1);").unwrap();
+    let theme = Theme::light();
+    let bare = TreeTrack::new(tree())
+        .traits(crate::Traits::from_sheet(&sheet))
+        .color_by("lineage");
+    let striped = TreeTrack::new(tree())
+        .traits(crate::Traits::from_sheet(&sheet).strips(["lineage"]))
+        .color_by("lineage");
+    let bare_key = keyed(&bare.legend(&theme));
+    assert_eq!(bare_key, keyed(&striped.legend(&theme)));
+    assert_eq!(
+        bare_key[1],
+        ("lineage: L2".to_string(), colour(0)),
+        "{bare_key:?}"
+    );
+    // And the branches are painted those colours.
+    let svg = drawn(bare);
+    for (_, colour) in &bare_key {
+        assert!(svg.contains(&format!("stroke=\"{colour}\"")), "{colour}");
+    }
 }
 
 /// A node glyph takes the colours no strip was dealt before the ones that

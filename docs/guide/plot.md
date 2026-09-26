@@ -360,6 +360,9 @@ The ruler counts whatever the region counts, and a region is a coordinate
 system, not a claim about a genome. An alignment is indexed by column and a raw
 signal by sample, so a plot of one wants a region in that unit, such as
 `plot("alignment:1-320")`, and the ruler then counts columns.
+`plot_alignment(rows)` is that plot of an alignment without the arithmetic: as
+many columns as its longest row, no locus printed, the alignment drawn, and a
+ruler that counts columns.
 
 <figure class="k-plate" markdown>
 ![A conservation logo above an alignment of twelve isolates in which only the disagreements are painted, over a ruler that counts alignment columns from 1 to 120](../assets/figures/example-msa.svg){ width="940" height="326" loading="lazy" }

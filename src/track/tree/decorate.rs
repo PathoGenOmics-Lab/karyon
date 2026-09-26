@@ -493,7 +493,7 @@ pub(super) fn draw_rectangular_node_glyphs(
         .flatten()
         .map(|placement| placement.node)
         .collect();
-    let dealing = track.dealing();
+    let dealing = track.dealing(ctx.theme.palette.len());
     let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &visible, glyph);
@@ -528,7 +528,7 @@ pub(super) fn draw_radial_node_glyphs(
         .flatten()
         .map(|placement| placement.node)
         .collect();
-    let dealing = track.dealing();
+    let dealing = track.dealing(ctx.theme.palette.len());
     let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &visible, glyph);
@@ -558,7 +558,7 @@ pub(super) fn draw_unrooted_node_glyphs(
     scene: &UnrootedScene,
     geometry: &UnrootedGeometry,
 ) {
-    let dealing = track.dealing();
+    let dealing = track.dealing(ctx.theme.palette.len());
     let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &scene.visible, glyph);
@@ -735,7 +735,7 @@ pub(super) fn draw_annotation_legend(
                 draw_homoplasy_legend(ctx, layer, x, top, height, size, &chip);
             }
             LayerChip::Glyph(glyph_index, glyph) => {
-                let dealing = track.dealing();
+                let dealing = track.dealing(ctx.theme.palette.len());
                 let palette = |index: usize| dealing.glyph(index);
                 draw_glyph_legend(
                     ctx,
