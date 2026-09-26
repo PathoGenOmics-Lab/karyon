@@ -1017,6 +1017,52 @@ impl Tree {
             .collect()
     }
 
+    /// A node's time under `key`: a number, or a date written as text, as
+    /// `2020-03-15`, read as a decimal year, which is a point in time a time
+    /// axis can place as well as a year can. `None` for a node with neither.
+    pub fn time_value(&self, node: usize, key: &str) -> Option<f64> {
+        self.annotation(node, key).and_then(|value| match value {
+            AnnotationValue::Text(text) => crate::read::date::decimal_year(text),
+            other => other.as_number(),
+        })
+    }
+
+    /// Writes each node's date, `most_recent` less its height under `height`,
+    /// as the annotation `into`, and says how many nodes it wrote.
+    ///
+    /// BEAST writes a node's age as its `height`, the time back from the most
+    /// recent tip, which a time axis draws as 0, 2, 4 and not as years. Given
+    /// the date of the most recent tip, as ggtree's `mrsd`, every height
+    /// becomes a calendar date, and [`TreeTrack::time`](crate::TreeTrack::time)
+    /// draws the tree against the years.
+    ///
+    /// ```
+    /// use karyon::Tree;
+    ///
+    /// let mut tree = Tree::parse("((A[&height=0]:1,B[&height=1]:0)[&height=1]:2,C[&height=0.5]:2.5)[&height=3];")?;
+    /// assert_eq!(tree.date_from_height("height", 2021.5, "date"), 5);
+    /// let root = tree.root();
+    /// assert_eq!(tree.time_value(root, "date"), Some(2018.5));
+    /// # Ok::<(), karyon::Error>(())
+    /// ```
+    pub fn date_from_height(&mut self, height: &str, most_recent: f64, into: &str) -> usize {
+        let mut written = 0;
+        for node in 0..self.nodes.len() {
+            let Some(age) = self
+                .annotation(node, height)
+                .and_then(AnnotationValue::as_number)
+                .filter(|age| age.is_finite())
+            else {
+                continue;
+            };
+            if let Some(annotations) = self.annotations.get_mut(node) {
+                annotations.insert(into.to_string(), AnnotationValue::Number(most_recent - age));
+                written += 1;
+            }
+        }
+        written
+    }
+
     /// Places nodes by a numeric annotation such as `date` or `height`.
     ///
     /// Every tip must carry `key`. An unannotated internal node is inferred
@@ -1026,10 +1072,7 @@ impl Tree {
     pub fn time_layout(&self, key: &str, direction: TimeDirection) -> Option<Vec<Placement>> {
         let rows = self.layout(false);
         let mut values: Vec<Option<f64>> = (0..self.nodes.len())
-            .map(|node| {
-                self.annotation(node, key)
-                    .and_then(AnnotationValue::as_number)
-            })
+            .map(|node| self.time_value(node, key))
             .collect();
         if self
             .leaves()

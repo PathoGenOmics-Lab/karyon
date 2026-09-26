@@ -60,6 +60,7 @@ mod audit;
 pub mod bam;
 pub mod bisulfite;
 pub mod clade;
+pub mod date;
 pub mod domain;
 pub mod dynseq;
 pub mod gzip;

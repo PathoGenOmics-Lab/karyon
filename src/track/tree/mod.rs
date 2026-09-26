@@ -2403,14 +2403,13 @@ impl TreeTrack {
             .iter()
             .filter(|tip| {
                 self.tree
-                    .annotation(**tip, &time.key)
-                    .and_then(AnnotationValue::as_number)
+                    .time_value(**tip, &time.key)
                     .map_or(true, |value| !value.is_finite())
             })
             .count();
         if undated > 0 {
             return Some(format!(
-                "drawn by branch length: {undated} of {} tips have no number under {}",
+                "drawn by branch length: {undated} of {} tips have no number or date under {}",
                 tips.len(),
                 time.key
             ));
