@@ -15,8 +15,18 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
     if text.is_empty() {
         return Err(Error::InvalidNewick {
             reason: "empty tree",
+            at: 0,
         });
     }
+    // Where in the input a fault is, counted in characters from 1, so a
+    // message can point at it: a tree of ten thousand tips said only that a
+    // branch length was not a number, somewhere.
+    let lead = input.len() - input.trim_start().len();
+    let place = |byte: usize| input[..lead + byte].chars().count() + 1;
+    let fault = |reason: &'static str, byte: usize| Error::InvalidNewick {
+        reason,
+        at: place(byte),
+    };
 
     let mut nodes: Vec<Clade> = Vec::new();
     let mut annotations: Vec<Annotations> = Vec::new();
@@ -24,7 +34,7 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
     let mut rooted = None;
     let mut stack: Vec<usize> = Vec::new();
     let mut current: Option<usize> = None;
-    let mut chars = text.chars().peekable();
+    let mut chars = text.char_indices().peekable();
     // One buffer each for the pieces that are read and thrown away, rather
     // than one per node. A million tip tree is two million nodes, so a `String`
     // per branch length and per bracket is two million allocations that live
@@ -32,14 +42,12 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
     let mut number = String::new();
     let mut comment = String::new();
 
-    while let Some(c) = chars.next() {
+    while let Some((byte, c)) = chars.next() {
         match c {
             '(' => {
                 let parent = stack.last().copied();
                 if parent.is_none() && !nodes.is_empty() {
-                    return Err(Error::InvalidNewick {
-                        reason: "more than one root",
-                    });
+                    return Err(fault("more than one root", byte));
                 }
                 let index = add_node(&mut nodes, &mut annotations, parent);
                 stack.push(index);
@@ -49,16 +57,14 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
                 if let (None, Some(parent)) = (current, stack.last().copied()) {
                     add_node(&mut nodes, &mut annotations, Some(parent));
                 }
-                let closed = stack.pop().ok_or(Error::InvalidNewick {
-                    reason: "unbalanced parentheses",
-                })?;
+                let closed = stack
+                    .pop()
+                    .ok_or_else(|| fault("unbalanced parentheses", byte))?;
                 current = Some(closed);
             }
             ',' => {
                 if stack.is_empty() {
-                    return Err(Error::InvalidNewick {
-                        reason: "comma outside any clade",
-                    });
+                    return Err(fault("comma outside any clade", byte));
                 }
                 if current.is_none() {
                     add_node(&mut nodes, &mut annotations, stack.last().copied());
@@ -67,7 +73,7 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
             }
             ':' => {
                 number.clear();
-                while let Some(next) = chars.peek() {
+                while let Some((_, next)) = chars.peek() {
                     if next.is_ascii_digit() || matches!(next, '.' | '-' | '+' | 'e' | 'E') {
                         number.push(*next);
                         chars.next();
@@ -75,14 +81,14 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
                         break;
                     }
                 }
-                let length = number.parse::<f64>().map_err(|_| Error::InvalidNewick {
-                    reason: "branch length is not a number",
-                })?;
+                let length = number
+                    .parse::<f64>()
+                    .map_err(|_| fault("branch length is not a number", byte + 1))?;
                 let target = match current {
                     Some(index) => index,
                     None => {
-                        let parent = stack.last().copied().ok_or(Error::InvalidNewick {
-                            reason: "branch length with nothing to attach to",
+                        let parent = stack.last().copied().ok_or_else(|| {
+                            fault("branch length with nothing to attach to", byte)
                         })?;
                         let index = add_node(&mut nodes, &mut annotations, Some(parent));
                         current = Some(index);
@@ -93,7 +99,7 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
             }
             '[' => {
                 comment.clear();
-                for next in chars.by_ref() {
+                for (_, next) in chars.by_ref() {
                     if next == ']' {
                         break;
                     }
@@ -119,39 +125,56 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
                     name.push(c);
                 }
                 let quote = c;
-                while let Some(next) = chars.peek() {
+                while let Some(&(_, next)) = chars.peek() {
                     if quoted {
-                        if *next == quote {
+                        if next == quote {
                             chars.next();
-                            if chars.peek() == Some(&quote) {
+                            if chars.peek().map(|(_, after)| *after) == Some(quote) {
                                 name.push(quote);
                                 chars.next();
                                 continue;
                             }
                             break;
                         }
-                        name.push(*next);
+                        name.push(next);
                         chars.next();
-                    } else if matches!(*next, '(' | ')' | ',' | ':' | ';' | '[') {
+                    } else if matches!(next, '(' | ')' | ',' | ':' | ';' | '[') {
                         break;
                     } else {
-                        name.push(*next);
+                        name.push(next);
                         chars.next();
                     }
                 }
                 let name = name.trim().to_string();
 
                 match current {
-                    Some(index) if !nodes[index].is_leaf() => match name.parse::<f64>() {
-                        Ok(support) => nodes[index].support = Some(support),
-                        Err(_) => nodes[index].name = Some(name),
+                    // A label written in quotes is a name, whatever it reads
+                    // as: `'100'` is a clade someone called 100.
+                    Some(index) if !nodes[index].is_leaf() && quoted => {
+                        nodes[index].name = Some(name);
+                    }
+                    Some(index) if !nodes[index].is_leaf() => match supports(&name) {
+                        Some(values) => {
+                            // IQ-TREE writes two values, SH-aLRT then the
+                            // ultrafast bootstrap, as `95.3/88`, and a third
+                            // with aBayes. The last is the support drawn, and
+                            // each is kept, so another can be drawn instead.
+                            if values.len() > 1 {
+                                for (place, value) in values.iter().enumerate() {
+                                    annotations[index].insert(
+                                        format!("support_{}", place + 1),
+                                        AnnotationValue::Number(*value),
+                                    );
+                                }
+                            }
+                            nodes[index].support = values.last().copied();
+                        }
+                        None => nodes[index].name = Some(name),
                     },
                     _ => {
                         let parent = stack.last().copied();
                         if parent.is_none() && !nodes.is_empty() {
-                            return Err(Error::InvalidNewick {
-                                reason: "more than one root",
-                            });
+                            return Err(fault("more than one root", byte));
                         }
                         let index = add_node(&mut nodes, &mut annotations, parent);
                         nodes[index].name = Some(name);
@@ -165,11 +188,13 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
     if !stack.is_empty() {
         return Err(Error::InvalidNewick {
             reason: "unbalanced parentheses",
+            at: 0,
         });
     }
     if nodes.is_empty() {
         return Err(Error::InvalidNewick {
             reason: "empty tree",
+            at: 0,
         });
     }
     Ok(Tree {
@@ -179,6 +204,17 @@ pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Resu
         tree_annotations,
         rooted,
     })
+}
+
+/// The values an internal label gives, where it is support: one number, or
+/// several parted by `/` as IQ-TREE writes them. `None` for a label that is a
+/// name.
+fn supports(label: &str) -> Option<Vec<f64>> {
+    label
+        .split('/')
+        .map(|part| part.trim().parse::<f64>().ok())
+        .collect::<Option<Vec<f64>>>()
+        .filter(|values| !values.is_empty())
 }
 
 pub(super) fn add_node(
@@ -311,10 +347,59 @@ pub(super) fn split_delimited(input: &str, delimiter: char) -> Vec<String> {
     fields
 }
 
+/// Whether a text is NEXUS, which says so on its first line.
+pub(super) fn is_nexus(input: &str) -> bool {
+    input
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .get(..6)
+        .is_some_and(|head| head.eq_ignore_ascii_case("#nexus"))
+}
+
+/// Every tree a text holds: the tree statements of a NEXUS file, or the
+/// Newick trees of a file of several, each ended by its semicolon.
+pub(super) fn parse_all(input: &str) -> Result<Vec<Tree>, Error> {
+    if is_nexus(input) {
+        return parse_nexus_trees(input, false);
+    }
+    let trees: Vec<Tree> = nexus_statements(input)
+        .iter()
+        .map(|statement| Tree::parse_annotated_newick(statement))
+        .collect::<Result<_, _>>()?;
+    if trees.is_empty() {
+        return Err(Error::InvalidNewick {
+            reason: "empty tree",
+            at: 0,
+        });
+    }
+    Ok(trees)
+}
+
+/// How many trees a text holds, counted without reading them.
+pub(super) fn count_trees(input: &str) -> usize {
+    if is_nexus(input) {
+        nexus_statements(input)
+            .iter()
+            .filter(|statement| {
+                let lower = statement.trim_start().to_ascii_lowercase();
+                lower.starts_with("tree ") || lower.starts_with("utree ")
+            })
+            .count()
+    } else {
+        nexus_statements(input).len()
+    }
+}
+
 pub(super) fn parse_nexus(input: &str) -> Result<Tree, Error> {
+    parse_nexus_trees(input, true).map(|mut trees| trees.remove(0))
+}
+
+/// The trees of a NEXUS trees block, each with the `translate` table put back
+/// into its tip names; only the first where `first` is set.
+fn parse_nexus_trees(input: &str, first: bool) -> Result<Vec<Tree>, Error> {
     let statements = nexus_statements(input);
     let mut translation = BTreeMap::new();
-    let mut expression = None;
+    let mut expressions = Vec::new();
 
     for statement in &statements {
         let trimmed = statement.trim();
@@ -335,31 +420,38 @@ pub(super) fn parse_nexus(input: &str) -> Result<Tree, Error> {
                 translation.insert(key.to_string(), name);
             }
         } else if lower.starts_with("tree ") || lower.starts_with("utree ") {
-            expression = trimmed
+            let expression = trimmed
                 .split_once('=')
-                .map(|(_, tree)| tree.trim().to_string());
-            if expression.is_none() {
-                return Err(Error::InvalidNexus {
+                .map(|(_, tree)| tree.trim().to_string())
+                .ok_or(Error::InvalidNexus {
                     reason: "a tree statement has no equals sign",
-                });
+                })?;
+            expressions.push(expression);
+            if first {
+                break;
             }
-            break;
         }
     }
 
-    let expression = expression.ok_or(Error::InvalidNexus {
-        reason: "no tree statement",
-    })?;
-    let mut tree = Tree::parse_annotated_newick(&expression)?;
-    for leaf in tree.leaves() {
-        let Some(name) = tree.nodes[leaf].name.as_deref() else {
-            continue;
-        };
-        if let Some(translated) = translation.get(name) {
-            tree.nodes[leaf].name = Some(translated.clone());
-        }
+    if expressions.is_empty() {
+        return Err(Error::InvalidNexus {
+            reason: "no tree statement",
+        });
     }
-    Ok(tree)
+    let mut trees = Vec::with_capacity(expressions.len());
+    for expression in &expressions {
+        let mut tree = Tree::parse_annotated_newick(expression)?;
+        for leaf in tree.leaves() {
+            let Some(name) = tree.nodes[leaf].name.as_deref() else {
+                continue;
+            };
+            if let Some(translated) = translation.get(name) {
+                tree.nodes[leaf].name = Some(translated.clone());
+            }
+        }
+        trees.push(tree);
+    }
+    Ok(trees)
 }
 
 pub(super) fn nexus_statements(input: &str) -> Vec<String> {

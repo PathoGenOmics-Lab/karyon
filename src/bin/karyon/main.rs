@@ -152,6 +152,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--threshold", "7"),
     ("--projection", "circular"),
     ("--color-by", "lineage"),
+    ("--support-from", "posterior"),
     ("--support-style", "both"),
     ("--mutations", "muts"),
     ("--highlight", "a"),
@@ -407,7 +408,7 @@ TRACKS
                          recombination rates along a chromosome, drawn as a line
                          in cM/Mb: a genetic map as HapMap or IMPUTE writes one,
                          or a bedGraph of rates
-    --tree <FILE>        a phylogeny, Newick
+    --tree <FILE>        a phylogeny, Newick or NEXUS
     --msa <FILE>         a multiple sequence alignment, aligned FASTA
     --snps <FILE>        the variable sites of an alignment, aligned FASTA
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
@@ -531,15 +532,16 @@ TRACK OPTIONS, each describing the track before it, once
                          other, up to the width of the figure, so a big tree
                          wants a wider one or fewer rows
     --color-by <KEY>     colour each branch of a phylogeny by one column of its
-                         --traits sheet, or by an annotation the file already
-                         carries. A clade whose tips all agree takes that
-                         colour too, so a lineage is a coloured clade and not
-                         only a fringe of coloured tips. A key the tree does
-                         not carry is refused with the keys it does
+                         --traits sheet, or by an annotation the file carries.
+                         A clade whose tips all agree takes that colour too, so
+                         a lineage is a coloured clade; a key the tree does not
+                         carry is refused with the keys it does
     --support-style <HOW>
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips
                          and this is what makes it readable without hovering
+    --support-from <KEY> the annotation a clade's support is kept under, as
+                         posterior in a BEAST tree or prob in a MrBayes one
     --mutations <KEY>    the annotation each branch of a phylogeny keeps its
                          changes under, as an annotated Newick writes them:
                          A123T, S:D614G, or either with an nt: or aa: in front;

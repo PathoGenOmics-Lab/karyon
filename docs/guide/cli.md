@@ -165,7 +165,7 @@ reads nothing.
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
 | `--recombination <FILE>` | recombination rates, as a line in cM/Mb | [a genetic map, or a bedGraph of rates](formats.md#a-recombination-map) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
-| `--tree <FILE>` | a phylogeny | [Newick](formats.md#newick) | [TreeTrack](../tracks/phylogeny.md#treetrack) |
+| `--tree <FILE>` | a phylogeny | [Newick or NEXUS](formats.md#newick) | [TreeTrack](../tracks/phylogeny.md#treetrack) |
 | `--msa <FILE>` | a multiple sequence alignment | [aligned FASTA](formats.md#aligned-fasta) | [MsaTrack](../tracks/comparison.md#msatrack) |
 | `--snps <FILE>` | the variable sites of an alignment | [aligned FASTA](formats.md#aligned-fasta) | [SnpTrack](../tracks/variation.md#snptrack) |
 | `--ideogram <FILE>` | cytogenetic bands | [a cytoBand table](formats.md#cytoband) | [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) |
@@ -257,6 +257,7 @@ takes.
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
+| `--support-from <KEY>` | an annotation of numbers on the clades, as `posterior` in a BEAST tree or `prob` in a MrBayes one | `--tree` | the internal labels, as a bootstrap writes them |
 | `--mutations <KEY>` | the annotation the changes are kept under; needs `--carrying` | `--tree` | no changes read |
 | `--highlight <NAMES>` | clade names, comma separated | `--tree` | nothing highlighted |
 | `--carrying <CHANGE>` | a change, as the file spells it; needs `--mutations` | `--tree` | nothing marked |

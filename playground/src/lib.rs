@@ -689,9 +689,7 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
 
     let tree = match remembered(&name, body.trim()) {
         Some(tree) => tree,
-        None => {
-            Tree::parse_newick(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?
-        }
+        None => Tree::parse(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?,
     };
     let nodes = tree.nodes();
     let count = nodes.len();
@@ -850,7 +848,10 @@ fn remembered(name: &str, text: &str) -> Option<Tree> {
             kept.insert(0, entry);
             return Some(tree);
         }
-        let tree = Tree::parse_newick(text).ok()?;
+        // As the command line reads a tree: NEXUS or Newick, annotations kept.
+        // The Newick reader this used dropped them, so a tree drawn here lost
+        // the dates and the states the same command drew in a terminal.
+        let tree = Tree::parse(text).ok()?;
         let answer = tree.clone();
         kept.insert(0, (name.to_string(), text.to_string(), tree));
         kept.truncate(KEPT);

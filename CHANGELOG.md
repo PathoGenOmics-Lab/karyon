@@ -69,6 +69,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `LegendItem::Ramp` has a `through` field, the colour and the number a scale
   with a middle passes through; a match on it by its fields needs `..`.
 
+- The command line and the playground read every tree with `Tree::parse`, so a
+  NEXUS file from BEAST, MrBayes or FigTree is drawn where it was refused as
+  Newick with `more than one root`, and the playground keeps a tree's
+  annotations, which it dropped. A file of several trees draws its first and
+  says so. A file ending `.nex`, `.nexus`, `.nxs` or `.trees` named on its own
+  is a tree.
+- An internal label in quotes is a name, as `'100'`, where it was read as
+  support, and one of several numbers parted by `/`, as IQ-TREE writes
+  `95.3/88`, is support, the last drawn and each kept as `support_1`,
+  `support_2` and so on, where it was read as a name.
+- `Error::InvalidNewick` has an `at` field, the character a tree breaks at,
+  and says it: `invalid Newick tree at character 1204: branch length is not
+  a number`. A match on it by its fields needs `..`.
+- A tree's time axis reads a date written as text, as `2020-03-15`, where it
+  drew the tree by branch length, and the warning for a tip with no time says
+  `no number or date`.
+
 - A tree's `time_unit` is the time axis's title, on a line under the numbers
   of a phylogram and at the inner end of a circle's rings, where it was
   written on the latest number: `2005 year` read a calendar year as a
@@ -320,6 +337,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is recognised and answered with how to write it as the BEDPE `--pairs`
   reads: the `cooler dump` command for a `.cool`, and the steps that pick a
   resolution first for the other two.
+
+- `Tree::parse` reads Newick or NEXUS, whichever the text is, with its
+  annotations, and `Tree::parse_all` and `Tree::count_trees` read and count a
+  file of several.
+- `Tree::support_from` and `TreeTrack::support_from`, and `--support-from` on
+  the command line, read a clade's support from an annotation, as BEAST keeps
+  it in `posterior` and MrBayes in `prob`; the command line refuses a key no
+  clade carries, with the ones they do.
+- `read::date::decimal_year` reads a calendar date as a decimal year,
+  `Tree::time_value` is the time a node is placed at, and
+  `Tree::date_from_height` turns BEAST heights into calendar dates from the
+  most recent tip's date.
+- Two tips of one name, and branches of a negative length, are said under the
+  tree.
 
 - `NodeRef` names a clade by index, by name, as the smallest clade holding
   some tips (`NodeRef::mrca`), or as the clade of the tips carrying a value

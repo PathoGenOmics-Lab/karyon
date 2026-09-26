@@ -327,6 +327,60 @@ impl Tree {
         parse_newick_impl(input, true)
     }
 
+    /// Reads a tree from Newick or NEXUS, whichever the text is, keeping the
+    /// BEAST, NHX and IQ-TREE annotations either carries.
+    ///
+    /// The reader to reach for. A file out of BEAST, MrBayes or FigTree is
+    /// NEXUS and one out of IQ-TREE or RAxML is Newick, and the two ways a
+    /// first try went wrong were reading NEXUS with the Newick reader, which
+    /// answered `more than one root`, and reading annotations with
+    /// [`Tree::parse_newick`], which drops them. A text of several trees gives
+    /// its first, [`Tree::count_trees`] says how many there are, and
+    /// [`Tree::parse_all`] reads every one.
+    ///
+    /// ```
+    /// use karyon::Tree;
+    ///
+    /// let nexus = "#NEXUS\nbegin trees;\n translate 1 A, 2 B, 3 C;\n\
+    ///              tree one = ((1:1,2:1)[&posterior=0.97]:1,3:2);\nend;";
+    /// let tree = Tree::parse(nexus)?;
+    /// assert_eq!(tree.leaf_names(), ["A", "B", "C"]);
+    /// let newick = Tree::parse("((A:1,B:1)95.3/88:1,C:2);")?;
+    /// assert_eq!(newick.nodes()[1].support, Some(88.0));
+    /// # Ok::<(), karyon::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As [`Tree::parse_annotated_newick`] for Newick, and
+    /// [`Error::InvalidNexus`] for a NEXUS text with no tree in it.
+    pub fn parse(input: &str) -> Result<Self, Error> {
+        if is_nexus(input) {
+            return parse_nexus(input);
+        }
+        match nexus_statements(input).first() {
+            Some(first) => Self::parse_annotated_newick(first),
+            None => Self::parse_annotated_newick(input),
+        }
+    }
+
+    /// Every tree a text holds, NEXUS or Newick: a posterior sample, a set of
+    /// bootstrap trees, or one tree.
+    ///
+    /// # Errors
+    ///
+    /// As [`Tree::parse`], for the first tree that cannot be read.
+    pub fn parse_all(input: &str) -> Result<Vec<Self>, Error> {
+        parse_all(input)
+    }
+
+    /// How many trees a text holds, counted without reading them: the tree
+    /// statements of a NEXUS file, or the trees of a Newick file, each ended
+    /// by its semicolon.
+    pub fn count_trees(input: &str) -> usize {
+        count_trees(input)
+    }
+
     /// Reads the first tree from a Nexus `trees` block.
     ///
     /// A `translate` table is applied to leaf labels and annotations on the
@@ -963,6 +1017,79 @@ impl Tree {
             .collect()
     }
 
+    /// Reads each internal node's support from its numeric annotation `key`,
+    /// as `posterior` in a BEAST tree or `prob` in a MrBayes one, and says how
+    /// many nodes it set.
+    ///
+    /// A tree out of BEAST keeps its clade support in an annotation and not
+    /// in the label a bootstrap value takes, so a support style drew nothing
+    /// at all on it. A node without the annotation keeps what it had, and a
+    /// tip is left alone, since support is a clade's.
+    pub fn support_from(&mut self, key: &str) -> usize {
+        let mut set = 0;
+        for node in 0..self.nodes.len() {
+            if self.nodes[node].is_leaf() {
+                continue;
+            }
+            let Some(value) = self
+                .annotation(node, key)
+                .and_then(AnnotationValue::as_number)
+                .filter(|value| value.is_finite())
+            else {
+                continue;
+            };
+            self.nodes[node].support = Some(value);
+            set += 1;
+        }
+        set
+    }
+
+    /// A node's time under `key`: a number, or a date written as text, as
+    /// `2020-03-15`, read as a decimal year, which is a point in time a time
+    /// axis can place as well as a year can. `None` for a node with neither.
+    pub fn time_value(&self, node: usize, key: &str) -> Option<f64> {
+        self.annotation(node, key).and_then(|value| match value {
+            AnnotationValue::Text(text) => crate::read::date::decimal_year(text),
+            other => other.as_number(),
+        })
+    }
+
+    /// Writes each node's date, `most_recent` less its height under `height`,
+    /// as the annotation `into`, and says how many nodes it wrote.
+    ///
+    /// BEAST writes a node's age as its `height`, the time back from the most
+    /// recent tip, which a time axis draws as 0, 2, 4 and not as years. Given
+    /// the date of the most recent tip, as ggtree's `mrsd`, every height
+    /// becomes a calendar date, and [`TreeTrack::time`](crate::TreeTrack::time)
+    /// draws the tree against the years.
+    ///
+    /// ```
+    /// use karyon::Tree;
+    ///
+    /// let mut tree = Tree::parse("((A[&height=0]:1,B[&height=1]:0)[&height=1]:2,C[&height=0.5]:2.5)[&height=3];")?;
+    /// assert_eq!(tree.date_from_height("height", 2021.5, "date"), 5);
+    /// let root = tree.root();
+    /// assert_eq!(tree.time_value(root, "date"), Some(2018.5));
+    /// # Ok::<(), karyon::Error>(())
+    /// ```
+    pub fn date_from_height(&mut self, height: &str, most_recent: f64, into: &str) -> usize {
+        let mut written = 0;
+        for node in 0..self.nodes.len() {
+            let Some(age) = self
+                .annotation(node, height)
+                .and_then(AnnotationValue::as_number)
+                .filter(|age| age.is_finite())
+            else {
+                continue;
+            };
+            if let Some(annotations) = self.annotations.get_mut(node) {
+                annotations.insert(into.to_string(), AnnotationValue::Number(most_recent - age));
+                written += 1;
+            }
+        }
+        written
+    }
+
     /// Places nodes by a numeric annotation such as `date` or `height`.
     ///
     /// Every tip must carry `key`. An unannotated internal node is inferred
@@ -972,10 +1099,7 @@ impl Tree {
     pub fn time_layout(&self, key: &str, direction: TimeDirection) -> Option<Vec<Placement>> {
         let rows = self.layout(false);
         let mut values: Vec<Option<f64>> = (0..self.nodes.len())
-            .map(|node| {
-                self.annotation(node, key)
-                    .and_then(AnnotationValue::as_number)
-            })
+            .map(|node| self.time_value(node, key))
             .collect();
         if self
             .leaves()

@@ -205,6 +205,83 @@ fn nexus_without_a_tree_says_what_is_missing() {
     ));
 }
 
+/// One reader for either format, keeping the annotations, and a text of
+/// several trees read as its first, or all of them.
+#[test]
+fn a_tree_is_read_from_newick_or_nexus_by_what_the_text_is() {
+    let nexus = "#NEXUS\nBegin trees;\nTranslate 1 A, 2 B;\n\
+                 Tree first = (1[&country=Peru]:0.1,2:0.2);\n\
+                 Tree second = (2:0.3,1:0.4);\nEnd;";
+    let tree = Tree::parse(nexus).unwrap();
+    assert_eq!(tree.leaf_names(), ["A", "B"]);
+    let a = tree.node_named("A").unwrap();
+    assert_eq!(tree.annotation(a, "country").unwrap().to_string(), "Peru");
+    assert_eq!(Tree::count_trees(nexus), 2);
+    let all = Tree::parse_all(nexus).unwrap();
+    assert_eq!(all[1].leaf_names(), ["B", "A"]);
+    // A file of Newick trees, as a bootstrap run writes one.
+    let many = "(A:1,B:1);\n(B:1,A:1);\n(A:2,B:2);\n";
+    assert_eq!(Tree::count_trees(many), 3);
+    assert_eq!(Tree::parse(many).unwrap().leaf_names(), ["A", "B"]);
+    assert_eq!(Tree::parse_all(many).unwrap().len(), 3);
+    // And a plain Newick keeps its annotations.
+    let annotated = Tree::parse("(A[&date=2020]:1,B:1);").unwrap();
+    assert!(annotated
+        .annotation(annotated.node_named("A").unwrap(), "date")
+        .is_some());
+}
+
+/// A label in quotes is a name whatever it reads as, and a label of
+/// several numbers parted by `/`, as IQ-TREE writes one, is support: the last
+/// drawn, and each kept.
+#[test]
+fn an_internal_label_is_support_a_name_or_several_supports() {
+    let tree = Tree::parse("((A,B)'100',(C,D)95.3/88/0.99,(E,F)91);").unwrap();
+    let nodes = tree.nodes();
+    let quoted = tree.node_named("100").expect("a clade called 100");
+    assert_eq!(nodes[quoted].support, None);
+    let split = tree
+        .nodes()
+        .iter()
+        .position(|clade| clade.support == Some(0.99))
+        .expect("the last of three");
+    assert_eq!(
+        tree.annotation(split, "support_1").unwrap().to_string(),
+        "95.3"
+    );
+    assert_eq!(
+        tree.annotation(split, "support_2").unwrap().to_string(),
+        "88"
+    );
+    let plain = nodes
+        .iter()
+        .position(|clade| clade.support == Some(91.0))
+        .unwrap();
+    assert!(
+        tree.annotation(plain, "support_1").is_none(),
+        "one value keeps no copy"
+    );
+}
+
+/// A fault says where it is, counted in characters from the start of the text.
+#[test]
+fn a_malformed_tree_says_where() {
+    let error = Tree::parse_newick("  ((A:1,B:x):1,C:2);").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "invalid Newick tree at character 11: branch length is not a number"
+    );
+    let error = Tree::parse_newick("(A,B));").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "invalid Newick tree at character 6: unbalanced parentheses"
+    );
+    assert_eq!(
+        Tree::parse_newick("((A,B)").unwrap_err().to_string(),
+        "invalid Newick tree: unbalanced parentheses"
+    );
+}
+
 #[test]
 fn a_semicolon_is_optional_and_whitespace_is_ignored() {
     let with = Tree::parse_newick("(A:0.1,B:0.2);").unwrap();

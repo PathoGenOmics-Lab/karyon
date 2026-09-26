@@ -62,6 +62,10 @@ pub enum Error {
     InvalidNewick {
         /// Why it failed.
         reason: &'static str,
+        /// The character it failed at, counted from 1, where one says where;
+        /// nought where the fault is the whole string's, as an empty tree or
+        /// a parenthesis left open at its end.
+        at: usize,
     },
     /// A Nexus document that does not contain a readable tree block.
     InvalidNexus {
@@ -83,7 +87,10 @@ impl fmt::Display for Error {
             Error::InvalidLocus { input, reason } => {
                 write!(f, "invalid locus {input:?}: {reason}")
             }
-            Error::InvalidNewick { reason } => write!(f, "invalid Newick tree: {reason}"),
+            Error::InvalidNewick { reason, at: 0 } => write!(f, "invalid Newick tree: {reason}"),
+            Error::InvalidNewick { reason, at } => {
+                write!(f, "invalid Newick tree at character {at}: {reason}")
+            }
             Error::InvalidNexus { reason } => write!(f, "invalid Nexus tree: {reason}"),
         }
     }
