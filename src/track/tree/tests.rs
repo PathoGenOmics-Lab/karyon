@@ -939,6 +939,21 @@ fn a_time_tree_draws_calendar_values_on_its_axis() {
     assert!(svg.contains("text-anchor=\"start\">2021</text>"), "{svg}");
     assert!(svg.contains("text-anchor=\"end\">2025</text>"), "{svg}");
     assert!(svg.contains("text-anchor=\"middle\">year</text>"), "{svg}");
+    // And the band makes room for that line, or the clip would take it.
+    let track = |unit: bool| {
+        let tree = Tree::parse_annotated_newick(
+            "((A[&date=2024]:1,B[&date=2025]:2)AB:1,C[&date=2023]:3);",
+        )
+        .unwrap();
+        let track = TreeTrack::new(tree).time("date");
+        if unit {
+            track.time_unit("year")
+        } else {
+            track
+        }
+    };
+    let scale = Scale::new(&region(), 0.0, 800.0);
+    assert!(track(true).height(&scale) > track(false).height(&scale));
 }
 
 #[test]
@@ -3306,4 +3321,25 @@ fn a_node_glyph_takes_the_colours_the_strips_left() {
         !pie_slices.contains(&theme.color(0)) && !pie_slices.contains(&theme.color(1)),
         "a slice in a lineage's colour: {pie_slices:?}"
     );
+}
+
+/// A column with more levels than colours is drawn as shapes, and the strips
+/// handed to a canvas say which shape each level is, where a column of cells
+/// says none.
+#[test]
+fn the_strips_say_the_shape_of_each_level_of_a_column_of_shapes() {
+    let tips: Vec<String> = (0..9)
+        .map(|at| format!("T{at}[&place=P{at},kind=k]:1"))
+        .collect();
+    let tree = Tree::parse_annotated_newick(&format!("({});", tips.join(","))).unwrap();
+    let track = TreeTrack::new(tree)
+        .trait_categorical("place")
+        .trait_categorical("kind");
+    let strips = track.strips(&Theme::light());
+    assert!(
+        strips[0].levels.iter().all(|level| level.symbol.is_some()),
+        "nine places and six colours: {:?}",
+        strips[0].levels
+    );
+    assert!(strips[1].levels.iter().all(|level| level.symbol.is_none()));
 }

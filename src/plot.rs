@@ -1505,6 +1505,11 @@ mod tests {
         );
         let svg = figure.to_svg();
         assert!(!svg.contains(">phylogeny"), "the place is not written");
+        // Not even over a ruler, which would have it printed at the top right.
+        assert!(!plot_tree()
+            .add_axis()
+            .to_svg()
+            .contains(">phylogeny:1-1</text>"));
         assert!(
             svg.contains(">lineage: L1</text>") && svg.contains(">lineage: L2</text>"),
             "{svg}"

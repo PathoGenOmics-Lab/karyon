@@ -8,6 +8,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A tree's `time_unit` is the time axis's title, on a line under the numbers
+  of a phylogram and at the inner end of a circle's rings, where it was
+  written on the latest number: `2005 year` read a calendar year as a
+  quantity of years. `example-phylogenetics.svg` grows a line, and the time
+  guides of `example-phylo-layouts.svg` and `example-phylo-map.svg` move
+  their unit.
+- A node glyph, a pie, a donut or a bubble, takes the colours no strip and
+  no branch was dealt before the ones they were: it took the palette from its
+  start, so a pie's first key was drawn in the first lineage's colour beside
+  it. A tree with glyphs alone is drawn as it was.
+- `collapse`, `reroot` and `CladeHighlight::new` take a `NodeRef`, and an
+  index or a name is one, so every call that compiled still does.
+- `TraitLevel` has a `symbol` field, the shape a level of a column drawn as
+  shapes takes; a struct literal of one needs it.
+
 - The playground's controls sit under the figure rather than at the foot of
   its pane, where a short figure left them a pane's height below what they
   change. The command box wraps and grows with the command, since a control
@@ -189,6 +204,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `NodeRef` names a clade by index, by name, as the smallest clade holding
+  some tips (`NodeRef::mrca`), or as the clade of the tips carrying a value
+  (`NodeRef::holding("lineage", "L4")`). A clade found that holds tips it was
+  not named for is used, and the tips are said under the tree.
+- `TreeTrack::traits` joins a sample sheet onto the tips by name and draws its
+  columns with their headings whole; the tips it does not name are said under
+  the tree, and `TreeTrack::join` returns what matched and what was left out
+  on both sides (`Traits::join`, `Join`). The command line and the playground
+  join their sheets through it. `Traits`, `Join` and `Sheet` are exported
+  from the crate root, and `Sheet::parse` reads one.
+- `plot_tree()` starts a plot of phylogenies with no made-up locus to hide and
+  no ruler, and `Plot::add_key()` keys every track at the foot of the figure
+  in the figure's theme, as the command line does.
+- The tree viewer's canvas draws a column with more levels than colours as
+  shapes, as a figure does, and keys each level by its shape.
 - `--recombination FILE` draws a recombination rate as a line in cM/Mb, from
   a genetic map as HapMap or the imputation panels write one, or from a
   bedGraph of rates; a file whose name holds `genetic_map` is one when named

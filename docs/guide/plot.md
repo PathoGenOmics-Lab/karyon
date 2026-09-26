@@ -91,6 +91,16 @@ let region = Region::new("NC_000962.3", 761_000, 763_000)?;
 let figure = Plot::over(region);
 ```
 
+`plot_tree()` starts a plot of phylogenies, which names no place: a tree's x
+is a branch length or a time, so it takes no locus, writes none at the top
+right and draws no ruler.
+
+```rust
+use karyon::{plot_tree, Tree};
+
+let figure = plot_tree().add_tree(Tree::parse_newick("((A:1,B:1):1,C:2);")?);
+```
+
 ### One call per track
 
 Each `add_` method builds one track and puts it under the tracks already added,
@@ -114,6 +124,7 @@ array, and two that take a track you built yourself.
 | `add_genome(genome)` | [`GenomeTrack`](../tracks/whole-genome.md#genometrack) | `Genome` |
 | `add_ideogram(length, bands)` | [`IdeogramTrack`](../tracks/whole-genome.md#ideogramtrack) | `u64`, `Vec<Band>` |
 | `add_junctions(junctions)` | [`JunctionTrack`](../tracks/reads-molecules.md#junctiontrack) | `Vec<Junction>` |
+| `add_key()` | [`LegendTrack`](../tracks/scales-keys.md#legendtrack) | nothing: the key every track gives, in the figure's theme, at the foot of the figure |
 | `add_legend(legend)` | [`LegendTrack`](../tracks/scales-keys.md#legendtrack) | `Legend` |
 | `add_loci(loci)` | [`LocusTrack`](../tracks/comparison.md#locustrack) | `Vec<Locus>` |
 | `add_logo(columns)` | [`LogoTrack`](../tracks/signal-sequence.md#logotrack) | `Vec<LogoColumn>`, from the left edge of the region |
