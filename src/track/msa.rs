@@ -278,7 +278,8 @@ impl MsaTrack {
         self
     }
 
-    /// Caps how many rows are drawn, or removes the cap with `None`.
+    /// Caps how many rows are drawn, forty by default, or removes the cap with
+    /// `None`.
     pub fn max_rows(mut self, rows: Option<usize>) -> Self {
         self.max_rows = rows.map(|r| r.max(1));
         self

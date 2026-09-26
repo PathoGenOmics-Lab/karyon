@@ -118,7 +118,7 @@ pub enum RadialDirection {
 /// marks or text when the values need to be readable without hovering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SupportStyle {
-    /// Keep support in tooltips only.
+    /// Keep support in tooltips only: the default.
     #[default]
     None,
     /// Scale an internal-node marker by support.
@@ -1868,6 +1868,9 @@ impl TreeTrack {
     /// and each column the sheet was spread into is drawn, widened to fit its
     /// heading, which a tree writes across the top of its strip: at the width
     /// a matrix gives it, `lineage` came out as `li…`.
+    ///
+    /// A sheet with no column spread draws nothing, and still gives the tips
+    /// their values, for [`TreeTrack::color_by`] or a fold by value.
     ///
     /// A sheet that names none of the tips draws no strip, and a tip it does
     /// not name is counted under the tree, since its cells are drawn empty.

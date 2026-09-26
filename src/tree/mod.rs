@@ -262,7 +262,8 @@ pub struct Placement {
 /// Direction in which calendar or height values run from root to tips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeDirection {
-    /// Dates increase towards the tips, as decimal calendar years do.
+    /// Dates increase towards the tips, as decimal calendar years do: the
+    /// default.
     #[default]
     Increasing,
     /// Values decrease towards the tips, as heights before present do.
@@ -306,7 +307,9 @@ impl Tree {
     /// Square bracket comments are skipped wherever they appear, which is what
     /// lets a file straight out of RAxML or BEAST be read: those write a `[&R]`
     /// rootedness marker before the tree and `[&support=...]` annotations
-    /// inside it. Nothing in a comment is kept, including NHX annotations.
+    /// inside it. Nothing in a comment is kept, including NHX annotations: to
+    /// keep them, as the dates of a tree out of BEAST or TreeTime, read it with
+    /// [`Tree::parse`], which reads NEXUS as well.
     ///
     /// # Errors
     ///

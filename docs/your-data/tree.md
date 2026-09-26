@@ -21,6 +21,10 @@ Each column you name is drawn beside the tips, and the key underneath says
 which colour is which. A column with more values than colours uses shapes as
 well. A tree needs no place.
 
+In Rust, the same figure and the others a tree takes, its support, coloured
+branches, a folded clade, a circle, an alignment beside it and a time axis,
+are a few lines each in [Phylogenetics](../guide/phylogenetics.md#from-your-files-to-a-figure).
+
 ## Change it
 
 | To | Write |

@@ -510,7 +510,7 @@ on one tree.
 use karyon::{Figure, Region, SupportStyle, Tree, TreeTrack};
 
 // Support after each clade, and each node's own annotations in [&...].
-let tree = Tree::parse_annotated_newick(
+let tree = Tree::parse(
     "((A01[&lineage=L1,event=rpoB-S450L]:0.18,A02[&lineage=L1]:0.14)\
      0.98[&lineage=L1,event=katG-S315T]:0.22,\
      (B01[&lineage=L2,event=gyrA-D94G]:0.21,B02[&lineage=L2]:0.16)\
@@ -559,14 +559,13 @@ disagreement is a crossing you can point at.
 === "Rust"
 
     ```rust
-    use karyon::{plot, Tree};
+    use karyon::{plot_tree, Tree};
 
-    let core = Tree::parse_annotated_newick(&std::fs::read_to_string("core.nwk")?)?;
-    let accessory = Tree::parse_annotated_newick(&std::fs::read_to_string("accessory.nwk")?)?;
+    let core = Tree::parse(&std::fs::read_to_string("core.nwk")?)?;
+    let accessory = Tree::parse(&std::fs::read_to_string("accessory.nwk")?)?;
 
-    plot("taxa:1-8")?
+    plot_tree()
         .title("Core and accessory genome trees over one collection")
-        .remove_region_label()
         .add_tanglegram(core, accessory)
         .label("8 isolates")
         .adjust(|track| {

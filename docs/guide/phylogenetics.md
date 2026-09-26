@@ -7,19 +7,204 @@ itself as it was.
 { .k-lead }
 
 !!! note "Command line or library"
-    `--tree` reads annotated Newick and reaches metadata strips (`--traits`),
+    `--tree` reads Newick or NEXUS and reaches metadata strips (`--traits`),
     branch colour (`--color-by`), `--projection`, `--support-style`,
-    `--no-scale-bar`, `--shape`, folding (`--max-rows`), `--focus`, `--mutations`
-    and `--highlight`; every flag is in [Command line](cli.md). Calendar time,
-    rerooting, branch geometry, dN/dS, node glyphs and the ancestral and
-    selection layers are library only.
+    `--support-from`, `--no-scale-bar`, `--shape`, folding (`--max-rows`),
+    `--focus`, `--mutations` and `--highlight`; every flag is in
+    [Command line](cli.md). Calendar time, rerooting, branch geometry, dN/dS,
+    node glyphs and the ancestral and selection layers are library only.
+
+## From your files to a figure
+
+The eight steps most figures of a tree take, each a few lines. Every one starts
+from a tree read with `Tree::parse` and a plot started with `plot_tree()`,
+which names no place and draws no ruler, since a tree's x is a branch length
+and not a position. Each goes in a `main` that returns
+`Result<(), Box<dyn std::error::Error>>`, so `?` works on every call, and each
+goes on from the one before it: the `tree` the first reads and the `sheet` the
+third reads are the ones the rest draw.
+
+### Read the tree
+
+```rust
+use karyon::Tree;
+
+let tree = Tree::parse(&std::fs::read_to_string("tree.nwk")?)?;
+```
+
+`Tree::parse` reads Newick, as IQ-TREE and RAxML write it, and NEXUS, as BEAST,
+MrBayes and FigTree do, whichever the file is, and keeps the BEAST, NHX and
+IQ-TREE annotations on it. A file of several trees gives its first, and
+`Tree::parse_all` gives every one. A tree that does not parse says at which
+character it broke.
+
+### Draw it, with its support
+
+```rust
+use karyon::{plot_tree, SupportStyle};
+
+plot_tree()
+    .add_tree(tree)
+    .adjust(|track| {
+        track
+            .support_style(SupportStyle::Labels)
+            .support_threshold(70.0)
+    })
+    .save("tree.svg")?;
+```
+
+A phylogram with branch lengths draws its scale bar by itself. Support is read
+once for the whole tree, so `70.0` and `0.7` are the same threshold, and a
+threshold hides only what a support style would have drawn. A tree out of BEAST
+or MrBayes keeps its support in an annotation, which `.support_from("posterior")`
+or `.support_from("prob")` reads; IQ-TREE's `95.3/88` is read as two values,
+the last drawn.
+
+### Put what you know about the samples beside the tips
+
+```rust
+use karyon::{plot_tree, Sheet, Traits};
+
+let sheet = Sheet::parse(&std::fs::read_to_string("samples.tsv")?)?;
+
+plot_tree()
+    .add_tree(tree)
+    .adjust(|track| track.traits(Traits::from_sheet(&sheet).spread(["lineage", "country"])))
+    .add_key()
+    .save("strips.svg")?;
+```
+
+A sheet is a tab-separated table with a header, the names in its first column
+and one column per thing known about them. `traits` joins it to the tips by
+name, draws each column you spread it into as a strip, and says under the tree
+which tips it has no row for; `.join()` on the track gives what matched and
+what was left out on both sides. Each column starts on a stretch of the palette
+of its own, in the order of the sheet, so a value added to one column later
+does not repaint another. The palette has six colours, and a column with more
+values than that is drawn as shapes, each value a colour and a shape of its
+own: its colours come round the palette again, so a country can share a colour
+with a lineage, and the shape and the key tell them apart. `add_key()` keys
+every strip at the foot of the figure, in the colours it drew.
+
+### Colour the branches and fold a clade
+
+```rust
+use karyon::{plot_tree, NodeRef, Traits};
+
+plot_tree()
+    .add_tree(tree)
+    .adjust(|track| {
+        track
+            .traits(Traits::from_sheet(&sheet))
+            .color_by("lineage")
+            .collapse(NodeRef::holding("lineage", "L4"))
+    })
+    .add_key()
+    .save("folded.svg")?;
+```
+
+A sheet joined with no column spread draws no strip, and still gives each tip
+its values, which is all `color_by` and the fold need; spread `lineage` too for
+a strip beside the colours. `color_by` colours each branch by a column of the
+sheet or an annotation of the file, and a clade whose tips agree takes their
+colour too. A clade is named as
+you would name it: `NodeRef::holding("lineage", "L4")` is the smallest clade
+holding every L4 tip, `NodeRef::mrca(["S01", "S07"])` the smallest holding two
+tips, and a name or an index works as it is. A clade that holds tips it was
+not named for is folded all the same, and the tips are said under the tree. A
+folded clade is a wedge one row high, named by its first tip and how many more
+it holds, as `S26 +15 more`, and its tooltip lists them.
+
+### Draw it as a circle
+
+```rust
+plot_tree()
+    .add_tree(tree)
+    .adjust(|track| {
+        track
+            .traits(Traits::from_sheet(&sheet).spread(["lineage"]))
+            .circular()
+    })
+    .add_key()
+    .save("circle.svg")?;
+```
+
+The strips become rings around the tips, keyed the same way. [Change the
+projection, not the tree](#change-the-projection-not-the-tree) has the fans,
+the inward trees and the unrooted drawing.
+
+### Put an alignment in the order of the tree
+
+```rust
+use karyon::{plot, read, MsaSequence};
+
+let rows: Vec<MsaSequence> = read::seq::alignment(&std::fs::read_to_string("aln.fasta")?)?
+    .into_iter()
+    .map(|(name, bases)| MsaSequence::new(name, bases))
+    .collect();
+let columns = rows.iter().map(|row| row.residues.len()).max().unwrap_or(0);
+
+plot(&format!("alignment:1-{columns}"))?
+    .remove_region_label()
+    .add_msa(rows)
+    .adjust(|track| track.tree(tree))
+    .add_key()
+    .save("alignment.svg")?;
+```
+
+An alignment is placed by its columns, so the plot is over them. `tree` sorts
+the rows by descent and draws the tree beside them, cut to the rows there are;
+a tip with no row is counted under the tree, and a row the tree does not name
+stays at the bottom. Only the bases that differ from the consensus are
+painted, which is what makes forty rows of a long alignment readable, and
+`add_key()` says which colour is which base; `.display(MsaDisplay::Bases)`
+paints every base. Forty rows are drawn at most, and `.max_rows(None)` draws
+them all.
+
+### Put two trees face to face
+
+```rust
+use karyon::plot_tree;
+
+let right = Tree::parse(&std::fs::read_to_string("tree2.nwk")?)?;
+
+plot_tree()
+    .add_tanglegram(tree, right)
+    .adjust(|track| track.names("tree", "tree2").untangle())
+    .save("tanglegram.svg")?;
+```
+
+Each tip is joined to its twin, so a disagreement is a crossing, and `untangle`
+turns clades to lower the count without changing either tree.
+
+### Draw it against the years
+
+```rust
+plot_tree()
+    .add_tree(tree)
+    .adjust(|track| track.time("date").time_unit("year"))
+    .save("dated.svg")?;
+```
+
+`time` places every node on a date each tip carries, a decimal year or a date
+written as `2020-03-15`, with the years along an axis and `year` as its title.
+A tree dated in BEAST heights, each node's age back from the most recent tip,
+is turned into dates first, given that tip's date:
+
+```rust
+let mut tree = Tree::parse(&std::fs::read_to_string("mcc.tree")?)?;
+tree.date_from_height("height", 2021.5, "date");
+```
+
+A tip with no date draws the tree by branch length and says why under it, as
+every request a tree cannot carry out does.
 
 ## Read annotations instead of flattening them
 
 ```rust
 use karyon::{AnnotationValue, Tree};
 
-let tree = Tree::parse_annotated_newick(
+let tree = Tree::parse(
     "[&R] (sample_A[&date=2024.25,country=Peru,selected=true]:0.2,\
             sample_B[&date=2024.50,country=Spain]:0.3);",
 )?;
@@ -38,12 +223,16 @@ become `AnnotationValue::Number`, `Text`, `Boolean` and `List`, read back with
 
 | Reader | Reads | Annotations |
 |:--|:--|:--|
-| `Tree::parse_newick` | Newick | discarded |
+| `Tree::parse` | Newick or NEXUS, whichever the text is; the first tree of several | kept |
+| `Tree::parse_all` | every tree of a Newick or NEXUS text | kept |
 | `Tree::parse_annotated_newick` | Newick with BEAST `[&key=value]` or NHX `[&&NHX:key=value]` comments | kept and typed, on the node written before them; `[&R]` and `[&U]` set `rooted()` |
 | `Tree::parse_nexus` | the first tree of a Nexus `trees` block | kept; the `translate` table renames the tips |
+| `Tree::parse_newick` | Newick | discarded |
 
 An internal label that reads as a number is taken as support, anything else as
-a name. `annotations_mut` adds metadata from Rust. Node indices survive
+a name, and so is a label in quotes, as `'100'`. Several numbers parted by `/`,
+as IQ-TREE writes `95.3/88`, are support: the last is drawn and each is kept as
+`support_1`, `support_2`, which `support_from` can draw instead. `annotations_mut` adds metadata from Rust. Node indices survive
 rotating, ladderising and rerooting; `subtree` and `Tree::collapse` renumber
 them, since each leaves a compact tree.
 
@@ -54,7 +243,7 @@ them, since each leaves a compact tree.
     ```rust
     use karyon::{Mutations, Tree};
 
-    let tree = Tree::parse_annotated_newick(
+    let tree = Tree::parse(
         r#"((a[&muts="A123T,S:D614G"]:0.1,b:0.2)[&muts="C241T"]:0.3,c:0.4);"#,
     )?;
     let changes = Mutations::read(&tree, "muts");
@@ -86,7 +275,7 @@ the carriers, and refuses a change the tree does not carry.
 === "Rust"
 
     ```rust
-    use karyon::{plot, TraitColumn, TreeTrack};
+    use karyon::{plot_tree, TraitColumn, TreeTrack};
 
     let track = TreeTrack::new(tree)
         .time("date")
@@ -96,10 +285,7 @@ the carriers, and refuses a change the tree does not carry.
         .trait_column(TraitColumn::categorical("country").label("Country"))
         .trait_column(TraitColumn::continuous("depth").label("Depth"));
 
-    plot("phylogeny:1-1")?
-        .remove_region_label()
-        .add_track(track)
-        .save("outbreak.svg")?;
+    plot_tree().add_track(track).save("outbreak.svg")?;
     ```
 
 === "Command line"
@@ -109,9 +295,9 @@ the carriers, and refuses a change the tree does not carry.
       --color-by country --no-region-label -o outbreak.svg
     ```
 
-`time(key)` places every node on a numeric annotation, here a decimal year,
-with a calendar axis underneath. The command line has no time axis and draws
-branch length instead.
+`time(key)` places every node on an annotation, here a decimal year, or a date
+written as `2020-03-15`, with a calendar axis underneath and `time_unit` as its
+title. The command line has no time axis and draws branch length instead.
 
 `color_by(key)` uses a ramp when every value in the tree is a number and the
 categorical palette otherwise. A branch with no value takes its nearest
@@ -146,9 +332,11 @@ missing value is an empty outline whose tooltip says missing, never a zero, and
 
     `time_direction`, `time_unit` and `show_time_axis` do nothing without
     `time`, and count the same written before it or after it. If a tip has no
-    value the track falls back to its ordinary layout, without a time axis.
-    Where a missing date must be an error instead, check `Tree::time_layout`
-    first: it returns `None`.
+    value the track falls back to its ordinary layout, without a time axis, and
+    says why under the tree. Where a missing date must be an error instead,
+    check `Tree::time_layout` first: it returns `None`. Heights can be turned
+    into calendar dates instead, given the most recent tip's date, with
+    `Tree::date_from_height("height", 2021.5, "date")`.
 
 ## Change the projection, not the tree
 
@@ -393,7 +581,7 @@ and circular coordinates.
 
 | Builder | Accepts | Roots at |
 |:--|:--|:--|
-| `reroot(node)` | an internal node index | that node |
+| `reroot(node)` | an internal node: its index, its name, or a `NodeRef` picking it by its tips or a value | that node |
 | `reroot_named(name)` | an internal node's exact name | that node |
 | `reroot_outgroup(names)` | existing, distinct tip names forming exactly one clade | halfway along the branch above that clade |
 | `reroot_midpoint()` | a tree whose every branch has a finite, non-negative length | halfway along the longest tip-to-tip path |
@@ -509,7 +697,6 @@ looks like a positive-selection hit.
     ```rust
     use karyon::{CladeHighlight, NodeGlyph, NodeGlyphTarget, TreeTrack};
 
-    let outbreak = tree.node_named("outbreak").unwrap();
     let track = TreeTrack::new(tree)
         .node_glyph(
             NodeGlyph::bubble("isolates")
@@ -522,7 +709,7 @@ looks like a positive-selection hit.
                 .target(NodeGlyphTarget::Internal),
         )
         .clade_highlight(
-            CladeHighlight::new(outbreak)
+            CladeHighlight::new("outbreak")
                 .label("Transmission cluster")
                 .opacity(0.12),
         );
@@ -535,7 +722,8 @@ looks like a positive-selection hit.
     ```
 
 `CladeHighlight` shades a clade in any projection and gives its tip count in
-the tooltip; `highlight_named` and `--highlight` do it by name. `NodeGlyph`
+the tooltip. It takes the clade as `collapse` does, by index, by name, or as a
+`NodeRef` picking it by its tips or a value; `--highlight` does it by name. `NodeGlyph`
 draws numeric node annotations as small plots:
 
 | Constructor | Needs | Draws |
@@ -552,16 +740,21 @@ means something, and a node missing a key gets no glyph rather than a zero.
 ### Collapse a clade
 
 ```rust
-use karyon::TreeTrack;
+use karyon::{NodeRef, TreeTrack};
 
-let outbreak = tree.node_named("PER_outbreak").unwrap();
-let track = TreeTrack::new(tree).collapse(outbreak);
+let by_name = TreeTrack::new(tree.clone()).collapse("PER_outbreak");
+let by_tips = TreeTrack::new(tree.clone()).collapse(NodeRef::mrca(["PER_001", "PER_004"]));
+let by_value = TreeTrack::new(tree).collapse(NodeRef::holding("country", "Peru"));
 
-assert_eq!(track.tree().clade_size(outbreak), 4);
+assert!(by_value.warnings().is_empty());
 ```
 
 `TreeTrack::collapse` folds a clade into a triangle and leaves the tree
-untouched; `Tree::collapse` removes the descendants from the data. A folded
+untouched; `Tree::collapse` removes the descendants from the data. The clade is
+named as a reader names one: by its name, as the smallest clade holding some
+tips, as ggtree's `MRCA` does, or as the clade of every tip carrying a value. A
+clade found that way that also holds tips it was not named for is folded all
+the same, and the tips are said under the tree. A folded
 row shows a metadata value only when every tip inside agrees on it: tips that
 differ, or one tip with nothing recorded, leave the cell empty.
 
@@ -686,10 +879,12 @@ Nothing you open is uploaded.
 
 karyon draws what an analysis produced. Tree inference, clocks, population
 models, ancestral reconstruction, selection tests and transmission calls belong
-upstream; the figure keeps what they produced and states its encodings. Nexus
-support is the portable subset, the first tree and its `translate` table, and
-[Maps](maps.md#put-a-phylogeny-around-the-map) places tips at coordinates you
-supply without inferring any movement between them.
+upstream; the figure keeps what they produced and states its encodings. Of a
+NEXUS file it reads the trees block, every tree statement and the `translate`
+table, and a posterior sample is drawn one tree at a time: TreeAnnotator writes
+the summary tree worth drawing. [Maps](maps.md#put-a-phylogeny-around-the-map)
+places tips at coordinates you supply without inferring any movement between
+them.
 
 ## Where next
 

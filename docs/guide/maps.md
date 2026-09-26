@@ -95,7 +95,7 @@ they were given; only the path geometry is rounded.
 ```rust
 use karyon::{GeoLocation, GeoProjection, PhyloMap, Tree};
 
-let tree = Tree::parse_annotated_newick(
+let tree = Tree::parse(
     "((A[&date=2023.1,country=Peru]:0.2,\
        B[&date=2023.4,country=Peru]:0.3):0.4,\
       C[&date=2023.8,country=Spain]:0.7);",
