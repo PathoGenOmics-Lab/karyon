@@ -3258,3 +3258,52 @@ fn a_sheet_is_joined_onto_the_tips_and_what_it_left_out_is_said() {
     );
     assert!(!drawn(none).contains(">lineage</text>"));
 }
+
+/// A node glyph takes the colours no strip was dealt before the ones that
+/// were, so a pie's first key is not drawn in the first lineage's colour.
+#[test]
+fn a_node_glyph_takes_the_colours_the_strips_left() {
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "((A[&lineage=L1]:1,B[&lineage=L2]:1)[&a=0.7,b=0.3]:1,C[&lineage=L1]:2)[&a=0.5,b=0.5];",
+        )
+        .unwrap()
+    };
+    let theme = Theme::light();
+    let fills = |svg: &str| -> std::collections::BTreeSet<String> {
+        svg.split("fill=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_string)
+            .collect()
+    };
+    let pies = TreeTrack::new(tree()).node_glyph(NodeGlyph::pie(["a", "b"]));
+    let alone = fills(&drawn(pies));
+    assert!(
+        alone.contains(theme.color(0)),
+        "a glyph alone starts the palette"
+    );
+    let both = TreeTrack::new(tree())
+        .trait_categorical("lineage")
+        .node_glyph(NodeGlyph::pie(["a", "b"]));
+    let svg = drawn(both);
+    // The strips are L1 and L2 in the first two colours, and the pie's keys
+    // in the next two, where they were the same two.
+    for colour in [
+        theme.color(0),
+        theme.color(1),
+        theme.color(2),
+        theme.color(3),
+    ] {
+        assert!(fills(&svg).contains(colour), "no {colour}: {svg}");
+    }
+    let pie_slices: Vec<&str> = svg
+        .split("<path d=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split("fill=\"").nth(1)?.split('"').next())
+        .collect();
+    assert!(
+        !pie_slices.contains(&theme.color(0)) && !pie_slices.contains(&theme.color(1)),
+        "a slice in a lineage's colour: {pie_slices:?}"
+    );
+}

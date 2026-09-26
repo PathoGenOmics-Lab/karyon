@@ -350,6 +350,7 @@ pub(super) fn bubble_max<'a>(
         .fold(0.0f64, f64::max)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_node_glyph(
     ctx: &mut DrawContext<'_>,
     tree: &Tree,
@@ -358,6 +359,7 @@ pub(super) fn draw_node_glyph(
     glyph_index: usize,
     at: (f64, f64),
     maximum: f64,
+    palette: &dyn Fn(usize) -> usize,
 ) {
     if !glyph_matches(tree, node, glyph.target) {
         return;
@@ -383,7 +385,7 @@ pub(super) fn draw_node_glyph(
                 at.0,
                 at.1,
                 radius,
-                ctx.theme.color(glyph_index),
+                ctx.theme.color(palette(glyph_index)),
                 ctx.theme.surface(),
                 ctx.theme.tokens.stroke.max(1.1),
             );
@@ -398,7 +400,7 @@ pub(super) fn draw_node_glyph(
                     at.0,
                     at.1,
                     glyph.size,
-                    ctx.theme.color(index),
+                    ctx.theme.color(palette(index)),
                     ctx.theme.surface(),
                     0.7,
                 );
@@ -410,7 +412,7 @@ pub(super) fn draw_node_glyph(
                     }
                     let end = start + std::f64::consts::TAU * *value / total;
                     let path = pie_slice_path(at.0, at.1, glyph.size, start, end);
-                    ctx.svg.path(&path, ctx.theme.color(index), 1.0);
+                    ctx.svg.path(&path, ctx.theme.color(palette(index)), 1.0);
                     ctx.svg.path_stroked(&path, ctx.theme.surface(), 0.7);
                     start = end;
                 }
@@ -437,8 +439,13 @@ pub(super) fn draw_node_glyph(
             for (index, value) in values.iter().enumerate() {
                 let segment = width * *value / total;
                 if segment > 0.0 {
-                    ctx.svg
-                        .rect(cursor, top, segment, height, ctx.theme.color(index));
+                    ctx.svg.rect(
+                        cursor,
+                        top,
+                        segment,
+                        height,
+                        ctx.theme.color(palette(index)),
+                    );
                 }
                 cursor += segment;
                 if cursor < left + width - 0.5 {
@@ -486,6 +493,8 @@ pub(super) fn draw_rectangular_node_glyphs(
         .flatten()
         .map(|placement| placement.node)
         .collect();
+    let dealing = track.dealing();
+    let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &visible, glyph);
         for node in &visible {
@@ -501,6 +510,7 @@ pub(super) fn draw_rectangular_node_glyphs(
                     area.y + track.row_height / 2.0 + placement.row * track.row_height,
                 ),
                 maximum,
+                &palette,
             );
         }
     }
@@ -518,6 +528,8 @@ pub(super) fn draw_radial_node_glyphs(
         .flatten()
         .map(|placement| placement.node)
         .collect();
+    let dealing = track.dealing();
+    let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &visible, glyph);
         for node in &visible {
@@ -526,7 +538,16 @@ pub(super) fn draw_radial_node_glyphs(
                 geometry.radius(scene, placement.depth),
                 geometry.angle(placement.row),
             );
-            draw_node_glyph(ctx, &track.tree, *node, glyph, glyph_index, at, maximum);
+            draw_node_glyph(
+                ctx,
+                &track.tree,
+                *node,
+                glyph,
+                glyph_index,
+                at,
+                maximum,
+                &palette,
+            );
         }
     }
 }
@@ -537,6 +558,8 @@ pub(super) fn draw_unrooted_node_glyphs(
     scene: &UnrootedScene,
     geometry: &UnrootedGeometry,
 ) {
+    let dealing = track.dealing();
+    let palette = |index: usize| dealing.glyph(index);
     for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
         let maximum = bubble_max(&track.tree, &scene.visible, glyph);
         for node in &scene.visible {
@@ -551,6 +574,7 @@ pub(super) fn draw_unrooted_node_glyphs(
                 glyph_index,
                 geometry.node(point),
                 maximum,
+                &palette,
             );
         }
     }
@@ -711,7 +735,16 @@ pub(super) fn draw_annotation_legend(
                 draw_homoplasy_legend(ctx, layer, x, top, height, size, &chip);
             }
             LayerChip::Glyph(glyph_index, glyph) => {
-                draw_glyph_legend(ctx, *glyph_index, glyph, x, top, y, height, size, &chip);
+                let dealing = track.dealing();
+                let palette = |index: usize| dealing.glyph(index);
+                draw_glyph_legend(
+                    ctx,
+                    *glyph_index,
+                    glyph,
+                    (x, top, y, height, size),
+                    &chip,
+                    &palette,
+                );
             }
         }
     }
@@ -737,17 +770,13 @@ fn glyph_marks(glyph: &NodeGlyph, size: f64) -> f64 {
         .sum::<f64>()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_glyph_legend(
     ctx: &mut DrawContext<'_>,
     glyph_index: usize,
     glyph: &NodeGlyph,
-    x: f64,
-    top: f64,
-    y: f64,
-    height: f64,
-    size: f64,
+    (x, top, y, height, size): (f64, f64, f64, f64, f64),
     chip: &str,
+    palette: &dyn Fn(usize) -> usize,
 ) {
     match glyph.style {
         NodeGlyphStyle::Bubble => {
@@ -760,7 +789,7 @@ fn draw_glyph_legend(
                 x + 9.0,
                 top + height / 2.0,
                 3.0,
-                ctx.theme.color(glyph_index),
+                ctx.theme.color(palette(glyph_index)),
                 ctx.theme.surface(),
                 0.7,
             );
@@ -811,7 +840,7 @@ fn draw_glyph_legend(
                     cursor + 3.0,
                     top + height / 2.0,
                     3.0,
-                    ctx.theme.color(key_index),
+                    ctx.theme.color(palette(key_index)),
                 );
                 cursor += 9.0;
                 let key = fit_text(key, (x + width - cursor - 5.0).max(0.0), size);

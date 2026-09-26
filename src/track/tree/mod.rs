@@ -2198,7 +2198,41 @@ impl TreeTrack {
             },
             None => Dealt::default(),
         };
-        Dealing { columns, branches }
+        // The node glyphs take the colours no strip and no branch was dealt
+        // first, and only then the ones they were. They took the palette from
+        // its start, so a pie's first key was the colour of the first lineage
+        // beside it, and a key saying `a` in the colour of `L1` reads as `L1`.
+        let glyphs = if self.node_glyphs.is_empty() {
+            Vec::new()
+        } else {
+            let palette = crate::track::traits::STRIP_LEVELS;
+            let mut used = BTreeSet::new();
+            for (column, dealt) in self.trait_columns.iter().zip(&columns) {
+                if worded(column) {
+                    for (_, index) in
+                        rectangular::tree_domain(&self.tree, &column.key, *dealt).keyed()
+                    {
+                        used.insert(index % palette);
+                    }
+                }
+            }
+            if let Some(key) = self.branch_key() {
+                if !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key)) {
+                    for (_, index) in rectangular::tree_domain(&self.tree, key, branches).keyed() {
+                        used.insert(index % palette);
+                    }
+                }
+            }
+            let mut order: Vec<usize> =
+                (0..palette).filter(|index| !used.contains(index)).collect();
+            order.extend((0..palette).filter(|index| used.contains(index)));
+            order
+        };
+        Dealing {
+            columns,
+            branches,
+            glyphs,
+        }
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
@@ -2748,6 +2782,19 @@ struct Dealing<'a> {
     columns: Vec<Dealt<'a>>,
     /// The key the branches are coloured by.
     branches: Dealt<'a>,
+    /// The palette in the order the node glyphs take it: the colours nothing
+    /// else was dealt first. Empty where there are no glyphs.
+    glyphs: Vec<usize>,
+}
+
+impl Dealing<'_> {
+    /// The palette index the `index`th colour of the node glyphs is.
+    fn glyph(&self, index: usize) -> usize {
+        match self.glyphs.len() {
+            0 => index,
+            len => self.glyphs[index % len],
+        }
+    }
 }
 
 impl Track for TreeTrack {
