@@ -1582,9 +1582,11 @@ fn an_unrooted_tree_is_centred_on_its_own_drawing_and_stays_inside_the_band() {
     // from the middle of the chain: the starting node is picked by how many
     // tips lie each way, which a long branch does not change, so the origin
     // and the middle of the picture are in different places.
+    // Each tip named apart, since two tips of one name are said under the
+    // tree, and a line of text there would move the drawing it measures.
     let caterpillar = Tree::parse_newick(&format!(
         "{}t24:40.0{};",
-        "(t0:0.4,".repeat(24),
+        (0..24).map(|at| format!("(t{at}:0.4,")).collect::<String>(),
         ")".repeat(24)
     ))
     .unwrap();
@@ -3367,4 +3369,45 @@ fn a_tree_dated_in_calendar_dates_or_heights_is_drawn_against_the_years() {
     let track = TreeTrack::new(beast).time("date");
     assert!(track.warnings().is_empty(), "{:?}", track.warnings());
     assert!(drawn(track).contains(">2020</text>"));
+}
+
+/// A BEAST tree keeps its support in an annotation, which is read as support
+/// when asked, and a key no clade carries is said.
+#[test]
+fn support_is_read_from_an_annotation_where_the_file_keeps_it_there() {
+    let tree =
+        || Tree::parse("((A:1,B:1)[&posterior=0.97]:1,(C:1,D:1)[&posterior=0.42]:1);").unwrap();
+    let plain = TreeTrack::new(tree()).support_style(SupportStyle::Labels);
+    assert!(!drawn(plain).contains(">0.97</text>"));
+    let read = TreeTrack::new(tree())
+        .support_from("posterior")
+        .support_style(SupportStyle::Labels);
+    assert!(read.warnings().is_empty(), "{:?}", read.warnings());
+    let svg = drawn(read);
+    assert!(svg.contains("0.97") && svg.contains("0.42"), "{svg}");
+    let missing = TreeTrack::new(tree()).support_from("prob");
+    assert_eq!(
+        missing.warnings(),
+        vec!["no support read: no clade carries prob".to_string()]
+    );
+}
+
+/// Two tips of one name, and a branch of a negative length, are the file's,
+/// and said under the tree.
+#[test]
+fn repeated_tip_names_and_negative_lengths_are_said() {
+    let tree = Tree::parse("((A:1,A:-0.5):1,(B:1,B:1):-2,C:1);").unwrap();
+    let warnings = TreeTrack::new(tree).warnings();
+    assert!(
+        warnings.contains(
+            &"2 tips are called A, and 1 other name is repeated: a sheet or a clade picked by name reaches the first".to_string()
+        ),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings.contains(
+            &"2 branches have a negative length, and they are drawn as nought".to_string()
+        ),
+        "{warnings:?}"
+    );
 }

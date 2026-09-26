@@ -1759,6 +1759,20 @@ impl TreeTrack {
         self
     }
 
+    /// Reads each clade's support from its numeric annotation `key`, as
+    /// `posterior` in a BEAST tree or `prob` in a MrBayes one, or
+    /// `support_1` for the first of IQ-TREE's values, as
+    /// [`Tree::support_from`](crate::Tree::support_from) does.
+    ///
+    /// A key no internal node carries sets nothing and is said under the
+    /// tree.
+    pub fn support_from(mut self, key: &str) -> Self {
+        if self.tree.support_from(key) == 0 {
+            self.refuse(format!("no support read: no clade carries {key}"));
+        }
+        self
+    }
+
     /// Hides visible support below `minimum`.
     ///
     /// `0.8` and `80.0` both mean eighty percent. Non-finite values reset the
@@ -2333,6 +2347,47 @@ impl TreeTrack {
 
     fn warnings_in(&self, theme: &Theme) -> Vec<String> {
         let mut said = self.refused.clone();
+        // Two tips of one name are one tip to everything that finds a tip by
+        // its name: a sheet joined by name, a row of an alignment, a clade
+        // picked by its tips. The file is taken as it is, and said to be.
+        let mut seen = std::collections::BTreeMap::<&str, usize>::new();
+        for node in self.tree.leaves() {
+            if let Some(name) = self.tree.nodes()[node]
+                .name
+                .as_deref()
+                .filter(|name| !name.is_empty())
+            {
+                *seen.entry(name).or_default() += 1;
+            }
+        }
+        let repeated: Vec<(&str, usize)> =
+            seen.into_iter().filter(|(_, count)| *count > 1).collect();
+        if let Some((name, count)) = repeated.first() {
+            let others = match repeated.len() {
+                1 => String::new(),
+                2 => ", and 1 other name is repeated".to_string(),
+                more => format!(", and {} other names are repeated", more - 1),
+            };
+            said.push(format!(
+                "{count} tips are called {name}{others}: a sheet or a clade picked by name reaches the first"
+            ));
+        }
+        let negative = self
+            .tree
+            .nodes()
+            .iter()
+            .filter(|clade| clade.branch_length.is_some_and(|length| length < 0.0))
+            .count();
+        if negative > 0 {
+            let (branches, have) = if negative == 1 {
+                ("branch has", "it is")
+            } else {
+                ("branches have", "they are")
+            };
+            said.push(format!(
+                "{negative} {branches} a negative length, and {have} drawn as nought"
+            ));
+        }
         let carried = |key: &str| {
             (0..self.tree.nodes().len()).any(|node| self.tree.annotation(node, key).is_some())
         };

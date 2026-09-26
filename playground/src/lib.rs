@@ -497,9 +497,7 @@ fn positions(mut input: &[u8]) -> Result<Vec<u8>, String> {
 
     let tree = match remembered(&name, body.trim()) {
         Some(tree) => tree,
-        None => {
-            Tree::parse(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?
-        }
+        None => Tree::parse(body.trim()).map_err(|cause| format!("--tree {name}: {cause}"))?,
     };
     let nodes = tree.nodes();
     let count = nodes.len();

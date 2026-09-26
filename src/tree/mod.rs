@@ -1017,6 +1017,33 @@ impl Tree {
             .collect()
     }
 
+    /// Reads each internal node's support from its numeric annotation `key`,
+    /// as `posterior` in a BEAST tree or `prob` in a MrBayes one, and says how
+    /// many nodes it set.
+    ///
+    /// A tree out of BEAST keeps its clade support in an annotation and not
+    /// in the label a bootstrap value takes, so a support style drew nothing
+    /// at all on it. A node without the annotation keeps what it had, and a
+    /// tip is left alone, since support is a clade's.
+    pub fn support_from(&mut self, key: &str) -> usize {
+        let mut set = 0;
+        for node in 0..self.nodes.len() {
+            if self.nodes[node].is_leaf() {
+                continue;
+            }
+            let Some(value) = self
+                .annotation(node, key)
+                .and_then(AnnotationValue::as_number)
+                .filter(|value| value.is_finite())
+            else {
+                continue;
+            };
+            self.nodes[node].support = Some(value);
+            set += 1;
+        }
+        set
+    }
+
     /// A node's time under `key`: a number, or a date written as text, as
     /// `2020-03-15`, read as a decimal year, which is a point in time a time
     /// axis can place as well as a year can. `None` for a node with neither.

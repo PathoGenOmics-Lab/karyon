@@ -779,9 +779,10 @@ length is named with the difference:
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
 ```
 
-### Newick { #newick }
+### Newick and NEXUS { #newick }
 
-A phylogeny, read whole as one tree.
+A phylogeny, in Newick as IQ-TREE and RAxML write one, or in NEXUS as BEAST,
+MrBayes and FigTree do. Which of the two a file is, its first line says.
 
 ```text
 ((ERR01:0.01,ERR02:0.012)0.98:0.04,ERR03:0.06);
@@ -789,15 +790,22 @@ A phylogeny, read whole as one tree.
 
 | | |
 |:--|:--|
-| Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse_annotated_newick` |
-| What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations |
+| Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse`, and `Tree::parse_all` for every tree of a file |
+| What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations; from NEXUS, the `translate` table and every tree statement |
 | Coordinates | none: a figure of trees takes no region, and one given is not compared with anything; a tree named with `--with-tree` orders the rows of an alignment, a matrix, a panel of variable sites or a domain panel by its tips |
 | Refused | an empty file; unbalanced parentheses; a comma outside any clade; more than one root; a branch length that is not a number or has nothing to attach to |
 
 - The trailing `;` is optional and whitespace is ignored, so a tree written
   over several lines reads as one.
 - An internal label is a support value when it parses as a number, and a clade
-  name when it does not.
+  name when it does not, or when it is written in quotes, as `'100'`. Several
+  numbers parted by `/`, as IQ-TREE writes `95.3/88` for SH-aLRT and the
+  ultrafast bootstrap, are support: the last is drawn, and each is kept as
+  `support_1`, `support_2` and so on, which `--support-from` can draw instead.
+- A clade's support kept in an annotation, as `posterior` in a BEAST tree or
+  `prob` in a MrBayes one, is drawn with `--support-from posterior`.
+- A date written as text, as `2020-03-15` or `2020-03`, is read as a decimal
+  year where a time axis is drawn from it, a month alone at its middle.
 - Names may be quoted with `'` or `"`, and a doubled quote inside is a literal
   one, so `'O''Brien'` is one tip.
 - Bracketed comments become annotations on the node before them: BEAST's
@@ -805,14 +813,17 @@ A phylogeny, read whole as one tree.
   the tree rooted or unrooted, and any other comment is kept as `comment`.
   These annotations are what `--color-by` and `--mutations` read.
 
-A tree is not read line by line, so its errors carry no line number:
+A tree is not read line by line, so its errors say at which character of the
+file it broke, where one does:
 
 ```text
-karyon: --tree tree.nwk: invalid Newick tree: unbalanced parentheses
+karyon: --tree tree.nwk: invalid Newick tree at character 1204: branch length is not a number
 ```
 
-The command reads Newick only; the library also reads a NEXUS trees block, with
-`Tree::parse_nexus`.
+A file of several trees, a posterior sample or a set of bootstrap trees, draws
+its first and says so; TreeAnnotator writes the one summary tree worth drawing
+from a BEAST run. A file ending `.nex`, `.nexus`, `.nxs` or `.trees` named on
+its own is a tree, as `.nwk` and `.tree` are.
 
 ## Reads and molecules
 

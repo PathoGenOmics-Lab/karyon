@@ -2629,6 +2629,38 @@ fn track(
                 }
                 track = track.color_by(key);
             }
+            // Refused rather than said under the tree, as a colour key is: a
+            // support style drawing nothing on a tree whose support the file
+            // keeps under another name is the figure this is asked to avoid.
+            if let Some(key) = &spec.support_from {
+                let tree = track.tree();
+                let carried = (0..tree.nodes().len()).any(|node| {
+                    !tree.nodes()[node].is_leaf()
+                        && tree
+                            .annotation(node, key)
+                            .and_then(crate::AnnotationValue::as_number)
+                            .is_some()
+                });
+                if !carried {
+                    let keys: std::collections::BTreeSet<&str> = (0..tree.nodes().len())
+                        .filter(|node| !tree.nodes()[*node].is_leaf())
+                        .filter_map(|node| tree.annotations(node))
+                        .flat_map(|held| {
+                            held.iter()
+                                .filter(|(_, value)| value.as_number().is_some())
+                                .map(|(key, _)| key.as_str())
+                        })
+                        .collect();
+                    return Err(BuildError::Unnamed {
+                        track: "tree",
+                        path: path.clone(),
+                        what: "annotation of numbers on a clade",
+                        wanted: key.clone(),
+                        held: keys.iter().take(24).map(|key| key.to_string()).collect(),
+                    });
+                }
+                track = track.support_from(key);
+            }
             if let Some(style) = spec.support_style {
                 track = track.support_style(match style {
                     TreeSupport::None => crate::SupportStyle::None,
@@ -5469,8 +5501,32 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             notes,
             ["--tree run.trees holds 2 trees, and the first is drawn"]
         );
-        let (alone, _) = drawn_noting("mcc.nex", &[("mcc.nex", nexus)]);
-        assert_eq!(alone.unwrap(), svg);
+        for alone in ["mcc.nex", "run.trees", "run.nexus", "run.nxs"] {
+            let (drawn, _) = drawn_noting(alone, &[(alone, nexus)]);
+            assert_eq!(drawn.unwrap(), svg, "{alone} named on its own");
+        }
+    }
+
+    /// A BEAST tree's support, kept as its posterior, is drawn when asked
+    /// for by that name, and a name no clade carries is refused with the ones
+    /// that are.
+    #[test]
+    fn support_is_drawn_from_the_annotation_the_command_names() {
+        let held = [(
+            "mcc.tree",
+            "((A:1,B:1)[&posterior=0.97,height=2]:1,(C:1,D:1)[&posterior=0.42]:1);",
+        )];
+        let (svg, _) = drawn_noting(
+            "--tree mcc.tree --support-from posterior --support-style labels",
+            &held,
+        );
+        assert!(svg.unwrap().contains("0.97"));
+        let (refused, _) = drawn_noting("--tree mcc.tree --support-from prob", &held);
+        let error = refused.unwrap_err().to_string();
+        assert!(
+            error.contains("prob") && error.contains("posterior") && error.contains("height"),
+            "{error}"
+        );
     }
 
     /// Four rows of eight columns, and a tree of the same four samples in

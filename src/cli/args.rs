@@ -1307,6 +1307,8 @@ pub struct TrackSpec {
     pub focus: Option<Vec<String>>,
     /// `--color-by`, the annotation each branch takes its colour from.
     pub color_by: Option<String>,
+    /// `--support-from`, the annotation each clade's support is read from.
+    pub support_from: Option<String>,
     /// `--support-style`, how a node's support value is shown.
     pub support_style: Option<TreeSupport>,
     /// `--no-scale-bar`: no rule in the tree's own branch-length units,
@@ -1377,6 +1379,7 @@ impl TrackSpec {
             projection: None,
             focus: None,
             color_by: None,
+            support_from: None,
             support_style: None,
             no_scale_bar: false,
             cladogram: false,
@@ -1537,6 +1540,7 @@ pub const FLAGS: &[&str] = &[
     "--max-rows",
     "--projection",
     "--color-by",
+    "--support-from",
     "--support-style",
     "--highlight",
     "--mutations",
@@ -2143,6 +2147,17 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.color_by = Some(key);
+            }
+            "--support-from" => {
+                let key = value("--support-from")?.clone();
+                let track = once(&mut tracks, &mut given, "--support-from")?;
+                if track.kind != Kind::Tree {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--support-from",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.support_from = Some(key);
             }
             "--support-style" => {
                 let text = value("--support-style")?;

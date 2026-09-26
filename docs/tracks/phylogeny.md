@@ -22,7 +22,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 |:--|:--|
 | Rust | `.add_tree(tree)` on `plot_tree()`, a plot that names no place, or on `plot()`; `TreeTrack::new(tree)` |
 | Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--support-style`, `--threshold`, `--no-scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
-| Reads | Newick with BEAST or NHX annotations (`Tree::parse_annotated_newick`); from Rust also plain Newick (`Tree::parse_newick`) and the first tree of a Nexus trees block (`Tree::parse_nexus`) |
+| Reads | Newick or NEXUS with BEAST, NHX or IQ-TREE annotations, the first tree of a file of several (`Tree::parse`; `Tree::parse_all` for every one) |
 
 === "Rust"
 
@@ -107,6 +107,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.time("date")` | Places the tree on a numeric annotation such as a decimal date | none |
 | `.time_direction(TimeDirection::Decreasing)` | Whether time grows or shrinks from root to tips | `Increasing` |
 | `.time_unit("year")` | What the time axis counts, written as its title: under the numbers of a phylogram, at the inner end of a circle's rings | none |
+| `.support_from("posterior")` | Reads each clade's support from a numeric annotation, as BEAST writes `posterior` and MrBayes `prob` (`--support-from`) | the internal labels |
 | `.show_time_axis(false)` | Shows or hides the time axis that `time` adds | shown |
 
 **Support, labels and scale**
@@ -186,6 +187,8 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 
 **Picking a clade.** `collapse`, `reroot` and `CladeHighlight::new` take a `NodeRef`, and an index or a name is one already. `NodeRef::named("L4")` is the node with that name, `NodeRef::mrca(["S01", "S07"])` the smallest clade holding those tips, as ggtree's `MRCA` or iTOL's `S01|S07` names it, and `NodeRef::holding("lineage", "L4")` the smallest clade holding every tip whose `lineage` is `L4`, read from the sheet `traits` joined or from the tree's own annotations. A clade found that way that also holds tips it was not named for is still used, and the tips are said under the tree, since a fold over them would say otherwise.
 { #picking-a-clade }
+
+**Dates.** `time` reads a number, or a date written as text, as `2020-03-15` or `2020-03`, as a decimal year, a month alone at its middle; `Tree::time_value` gives the value a node is placed at. A BEAST tree gives each node's `height`, its age back from the most recent tip, and `Tree::date_from_height("height", 2021.5, "date")` writes each node's calendar date from the most recent tip's, as ggtree's `mrsd` does, so `time("date")` draws it against the years. Two tips of one name and a branch of negative length are the file's, drawn as they are and said under the tree.
 
 **Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was and says why in a line under the tree, as `warnings()` does; use `Tree::reroot` directly when you need to handle that failure. A fold or a highlight asked for before a reroot follows its clade through it. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
 
