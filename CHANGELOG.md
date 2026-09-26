@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Tree::reroot`, `reroot_outgroup`, `reroot_midpoint`, `rotate` and
+  `collapse` are `#[must_use]`: each leaves the tree as it was when it cannot
+  do what it was asked, and its result is the one thing that says so. A call
+  that throws the result away now gets a compiler warning.
 - A figure's description names every track it counts, each by its label or,
   where it has none, by what it is: `with 4 tracks, drawn top to bottom: reads
   depth, genes, calls and a ruler`. It counted the ruler and the key and named

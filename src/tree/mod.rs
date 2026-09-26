@@ -471,6 +471,7 @@ impl Tree {
     /// Reverses the child order of one internal node.
     ///
     /// A rotation changes how a tree is drawn but not the clades it contains.
+    #[must_use = "a node with fewer than two children is left as it was, and this says whether it turned"]
     pub fn rotate(&mut self, node: usize) -> bool {
         let Some(clade) = self.nodes.get_mut(node) else {
             return false;
@@ -518,6 +519,7 @@ impl Tree {
     /// changes. The new root has neither, because it has no incoming branch. A
     /// leaf is refused because turning a sampled tip into an internal root
     /// would silently remove it from the tip set.
+    #[must_use = "a tip or a node the tree lacks leaves the root where it was, and this says whether it moved"]
     pub fn reroot(&mut self, node: usize) -> bool {
         let Some(target) = self.nodes.get(node) else {
             return false;
@@ -538,6 +540,7 @@ impl Tree {
     /// node. Returns its stable index, or `None` without changing the tree when
     /// the selection is empty, invalid, non-monophyletic or already spans the
     /// whole tree.
+    #[must_use = "an outgroup that is not one clade leaves the root where it was, and this is None then"]
     pub fn reroot_outgroup(&mut self, outgroup: &[usize]) -> Option<usize> {
         let selected: BTreeSet<usize> = outgroup.iter().copied().collect();
         if selected.is_empty()
@@ -573,6 +576,7 @@ impl Tree {
     /// an edge creates one degree-two root and splits that edge exactly; a
     /// midpoint already on an internal node reuses it. Returns the root index,
     /// or `None` without mutation when the required distances are unavailable.
+    #[must_use = "a tree without every branch length keeps its root, and this is None then"]
     pub fn reroot_midpoint(&mut self) -> Option<usize> {
         let leaves = self.leaves();
         if leaves.len() < 2 {
@@ -867,6 +871,7 @@ impl Tree {
     /// The selected node keeps its name, annotations and incoming branch.
     /// This is a data operation; [`TreeTrack`](crate::TreeTrack) also supports
     /// non-destructive visual collapsing.
+    #[must_use = "a tip or a node the tree lacks collapses nothing, and this says whether it did"]
     pub fn collapse(&mut self, node: usize) -> bool {
         let Some(clade) = self.nodes.get_mut(node) else {
             return false;

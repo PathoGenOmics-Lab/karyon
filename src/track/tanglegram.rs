@@ -491,7 +491,10 @@ fn improve_rotations(candidate: &mut Tree, fixed: &Tree, candidate_is_left: bool
         } else {
             count_crossings(fixed, candidate)
         };
-        candidate.rotate(node);
+        // Every node here has two children or more, so each one turns.
+        if !candidate.rotate(node) {
+            continue;
+        }
         let after = if candidate_is_left {
             count_crossings(candidate, fixed)
         } else {
@@ -500,7 +503,8 @@ fn improve_rotations(candidate: &mut Tree, fixed: &Tree, candidate_is_left: bool
         if after < before {
             improved = true;
         } else {
-            candidate.rotate(node);
+            // Back as it was: it turned once, so it turns again.
+            let _ = candidate.rotate(node);
         }
     }
     improved
