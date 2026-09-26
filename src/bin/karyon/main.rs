@@ -159,6 +159,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--compare-to", "r"),
     ("--min-reads", "2"),
     ("--growth", "0.1"),
+    ("--center", "0"),
     ("--min-total", "5"),
     ("--row-height", "10"),
     ("--max-rows", "10"),
@@ -569,9 +570,10 @@ TRACK OPTIONS, each describing the track before it, once
                          arrowhead that says which way it ran, and its
                          mismatches stay at full strength
     --relative           read each sample of a heatmap against its own median,
-                         so 1× is its usual value: a sample sequenced deeper
-                         is no longer a darker row from end to end, and a
-                         deletion or a duplication is what stands out
+                         so 1× is its usual value, drawn pale, with a loss in
+                         one hue and a gain in the other: a sample sequenced
+                         deeper is no longer a darker row from end to end, and
+                         a deletion or a duplication is what stands out
     --growth <RISE>      flag a lineage whose frequency rose by at least this
                          since the time before, in points of frequency: 0.15
                          is from 20% to 35%
@@ -579,6 +581,9 @@ TRACK OPTIONS, each describing the track before it, once
                          to be drawn; a time with fewer is a gap in the line
     --counts             draw a table of counts as counts of samples rather
                          than as frequencies
+    --center <V>         read a heatmap either side of this value, a loss in
+                         one hue and a gain in the other, as 0 for a log
+                         ratio; --relative reads it either side of 1
     --row-height <PX>    how tall one row is, for the tracks that size
                          themselves by rows rather than by --height; each has
                          a minimum of its own and will not be drawn under it,

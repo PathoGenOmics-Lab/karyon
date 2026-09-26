@@ -266,6 +266,7 @@ takes.
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | 5 behind a methylation site; 1 across a junction |
 | `--fade-by-mapq` | nothing | `--pileup` | every read at full strength |
 | `--relative` | nothing | `--heatmap` | the values as they are |
+| `--center <V>` | a number, as in `0` for a log ratio | `--heatmap` | one hue from nought up; `1` with `--relative` |
 | `--growth <RISE>` | a rise in frequency from one time to the next, above 0 and at most 1, as in `0.15` | `--frequencies` | no rise flagged |
 | `--min-total <N>` | a whole number of samples from 1 | `--frequencies` | every time drawn |
 | `--counts` | nothing | `--frequencies` | frequencies |

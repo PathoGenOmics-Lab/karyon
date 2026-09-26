@@ -1345,6 +1345,8 @@ pub struct TrackSpec {
     /// `--counts`, which draws a table of counts as counts rather than as
     /// frequencies.
     pub counts: bool,
+    /// `--center`, the value a heatmap is read either side of, in two hues.
+    pub center: Option<f64>,
     /// `--row-height`, for the tracks whose height follows from their rows.
     ///
     /// The complement of [`TrackSpec::height`], and the two never both apply:
@@ -1404,6 +1406,7 @@ impl TrackSpec {
             growth: None,
             min_total: None,
             counts: false,
+            center: None,
             ploidy: None,
             sample: None,
             traits: None,
@@ -1569,6 +1572,7 @@ pub const FLAGS: &[&str] = &[
     "--growth",
     "--min-total",
     "--counts",
+    "--center",
     "--row-height",
     "--height",
     "--aggregate",
@@ -2167,6 +2171,26 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.min_total = Some(floor);
+            }
+            "--center" => {
+                let text = value("--center")?;
+                let center = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|center| center.is_finite())
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--center",
+                        given: text.clone(),
+                        expected: "the value read as neither side, as in 0 for a log ratio",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--center")?;
+                if track.kind != Kind::Heatmap {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--center",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.center = Some(center);
             }
             "--counts" => {
                 let track = last(&mut tracks, "--counts")?;
@@ -3051,7 +3075,12 @@ mod tests {
         assert!(refused("--frequencies f.tsv --threshold genome-wide").contains("flagged at"));
         assert!(refused("--frequencies f.tsv --growth 0").contains("above nought"));
         assert!(refused("--frequencies f.tsv --min-total 0").contains("1 or more"));
-        for flag in ["--growth 0.1", "--min-total 5", "--counts"] {
+        assert_eq!(
+            draw("chr1:1-9 --heatmap d.tsv --center 0").tracks[0].center,
+            Some(0.0)
+        );
+        assert!(refused("chr1:1-9 --heatmap d.tsv --center nan").contains("neither side"));
+        for flag in ["--growth 0.1", "--min-total 5", "--counts", "--center 0"] {
             assert!(
                 refused(&format!("chr1:1-9 --coverage d.bg {flag}")).contains("coverage track"),
                 "{flag}"

@@ -561,7 +561,24 @@ header of its own, `#'chr' 'start' 'end' 'S01.bam'`, which is read with its hash
 and quotes taken off. A table with no header names its samples by their column,
 `column 4` onwards. An empty cell, `.` and `NA` are missing, as in the matrix
 table. `--relative` divides each sample by its own median over the windows
-drawn, so 1× is its usual value.
+drawn, so 1× is its usual value, and reads it either side of 1×, a loss in one
+hue and a gain in the other; `--center` reads the values either side of a
+value of its own, as `--center 0` for a log ratio.
+
+The long form, one sample of one window to a row, is read too: a sequence, a
+start and an end, then the sample and its value.
+
+```text
+chrom        start   end     sample  depth
+NC_000962.3  0       100000  S01     68.1
+NC_000962.3  0       100000  S02     103.2
+```
+
+It is told from the wide table by its fourth column, which names a sample:
+the header calls it `sample`, `name` or `id`, or the first window holds a word
+there. A sample with no row in a window is missing there. Two values for one
+sample in one window, and two windows that overlap without being the same
+window, are refused.
 
 ### Pairs of positions { #pairs-of-positions }
 

@@ -3402,6 +3402,15 @@ fn track(
             if spec.relative {
                 track = track.unit("×");
             }
+            // A depth read against its sample's usual one is read either side
+            // of one: a loss in one hue and a gain in the other, and the usual
+            // depth pale, where one hue made a deletion as pale as the page.
+            if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
+                track = track.scale(crate::CellScale::Diverging {
+                    center,
+                    spread: None,
+                });
+            }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }
@@ -5853,9 +5862,29 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let (relative, _) = drawn_noting("c1:1-300 --heatmap d.tsv --relative", &held);
         let relative = relative.unwrap();
         // deep: 100, 100, 200 over a median of 100; shallow: 20, 0, 20 over 20.
+        // Read either side of its usual depth: the loss in one hue, the gain
+        // in the other, and the key writes the middle between them.
         assert!(
-            relative.contains(">2×</text>") && relative.contains(">0×</text>"),
+            relative.contains(">2×</text>")
+                && relative.contains(">1×</text>")
+                && relative.contains(">0×</text>"),
             "{relative}"
+        );
+        let theme = Theme::light();
+        for hue in [theme.color(0), theme.color(1)] {
+            assert!(
+                relative.contains(&format!("fill=\"{hue}\"")),
+                "no cell in {hue}"
+            );
+        }
+        // A centre of its own, as for a log ratio, and a long table.
+        let ratios = "c1\t0\t100\tS1\t-1\nc1\t100\t200\tS1\t0\nc1\t200\t300\tS1\t2\n";
+        let (centred, _) =
+            drawn_noting("c1:1-300 --heatmap r.tsv --center 0", &[("r.tsv", ratios)]);
+        let centred = centred.unwrap();
+        assert!(
+            centred.contains(">-1</text>") && centred.contains(">2</text>"),
+            "{centred}"
         );
     }
 
