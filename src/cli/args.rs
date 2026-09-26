@@ -822,7 +822,10 @@ impl Kind {
             "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
             "bedmethyl" => Kind::Methylation,
             "slow5" => Kind::Squiggle,
-            "ld" | "bedpe" => Kind::Pairs,
+            // A contact map in cooler's or Juicer's own format is not text,
+            // and is named for the track so the answer says how to make it
+            // text for that track.
+            "ld" | "bedpe" | "cool" | "mcool" | "hic" => Kind::Pairs,
             _ => return None,
         })
     }

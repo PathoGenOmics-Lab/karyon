@@ -351,11 +351,14 @@ impl fmt::Display for BuildError {
                     "--{track} {path}: {binary}; write <({command}) where its name is, \
                      or turn it into text first"
                 ),
-                None => write!(
-                    f,
-                    "--{track} {path}: {binary}; pipe it through the tool that writes \
-                     it as text first"
-                ),
+                None => match binary.advice() {
+                    Some(advice) => write!(f, "--{track} {path}: {binary}; {advice}"),
+                    None => write!(
+                        f,
+                        "--{track} {path}: {binary}; pipe it through the tool that writes \
+                         it as text first"
+                    ),
+                },
             },
             BuildError::NotAPValue { track, path, given } => write!(
                 f,
@@ -1798,6 +1801,13 @@ pub enum Binary {
     BigBed,
     /// UCSC's 2bit.
     TwoBit,
+    /// HDF5, as cooler writes a contact map at one resolution, a `.cool`.
+    Cool,
+    /// HDF5, as cooler writes a contact map at several resolutions, a
+    /// `.mcool`, which is one by its bytes and the other by its name.
+    Mcool,
+    /// Juicer's `.hic`.
+    Hic,
 }
 
 impl Binary {
@@ -1838,8 +1848,33 @@ impl Binary {
             Binary::BigBed
         } else if either([0x43, 0x27, 0x41, 0x1a]) {
             Binary::TwoBit
+        } else if magic(b"\x89HDF\r\n\x1a\n") {
+            if named("mcool") {
+                Binary::Mcool
+            } else {
+                Binary::Cool
+            }
+        } else if magic(b"HIC\0") {
+            Binary::Hic
         } else {
             return None;
+        })
+    }
+
+    /// What to do with a file no single command turns into text, where there
+    /// is more to say than to pipe it through the tool that writes it.
+    fn advice(self) -> Option<&'static str> {
+        Some(match self {
+            Binary::Mcool => {
+                "cooler ls lists its resolutions, and cooler dump --join -r REGION \
+                 FILE::/resolutions/N writes one of them as the BEDPE --pairs reads"
+            }
+            Binary::Hic => {
+                "hic2cool convert FILE.hic FILE.cool -r N writes one resolution as a .cool, \
+                 and cooler dump --join -r REGION FILE.cool writes that as the BEDPE --pairs \
+                 reads"
+            }
+            _ => return None,
         })
     }
 
@@ -1856,12 +1891,16 @@ impl Binary {
             Binary::BigWig => "bigWig",
             Binary::BigBed => "bigBed",
             Binary::TwoBit => "2bit",
+            Binary::Cool => "a contact map in cooler's HDF5",
+            Binary::Mcool => "a contact map at several resolutions in cooler's HDF5",
+            Binary::Hic => "a contact map in Juicer's .hic",
         }
     }
 
     /// The command that writes the text a `kind` track reads out of `path`,
-    /// cut to the window where the tool can do that.
-    fn reader(self, kind: Kind, path: &str, region: Option<&Region>) -> String {
+    /// cut to the window where the tool can do that, or `None` for a format
+    /// no one command turns into text, which [`Binary::advice`] speaks for.
+    fn reader(self, kind: Kind, path: &str, region: Option<&Region>) -> Option<String> {
         let window = region.map(|region| region.to_string());
         let near = |region: &Region| {
             format!(
@@ -1871,7 +1910,7 @@ impl Binary {
                 region.end()
             )
         };
-        match self {
+        Some(match self {
             Binary::Gzip => format!("gzip -dc {path}"),
             Binary::Bzip2 => format!("bzip2 -dc {path}"),
             Binary::Xz => format!("xz -dc {path}"),
@@ -1895,7 +1934,12 @@ impl Binary {
                 Some(region) => format!("twoBitToFa -seq={} {path} /dev/stdout", region.seq()),
                 None => format!("twoBitToFa {path} /dev/stdout"),
             },
-        }
+            Binary::Cool => match window {
+                Some(window) => format!("cooler dump --join -r {window} {path}"),
+                None => format!("cooler dump --join {path}"),
+            },
+            Binary::Mcool | Binary::Hic => return None,
+        })
     }
 }
 
@@ -1993,7 +2037,8 @@ fn explained(
                 Some(binary) => {
                     // A pipe has no name to write a command in place of.
                     let instead = matches!(spec.source, Some(Source::Path(_)))
-                        .then(|| binary.reader(spec.kind, &path, region));
+                        .then(|| binary.reader(spec.kind, &path, region))
+                        .flatten();
                     BuildError::NotText {
                         track,
                         path,
@@ -5189,6 +5234,11 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             of(&[0x43, 0x27, 0x41, 0x1a], "g.2bit"),
             Some(Binary::TwoBit)
         );
+        // cooler's HDF5, one resolution or several by the name, and Juicer's.
+        let hdf5 = b"\x89HDF\r\n\x1a\n\0\0";
+        assert_eq!(of(hdf5, "contacts.cool"), Some(Binary::Cool));
+        assert_eq!(of(hdf5, "contacts.mcool"), Some(Binary::Mcool));
+        assert_eq!(of(b"HIC\0\x08\0\0\0", "contacts.hic"), Some(Binary::Hic));
         // Text that is not UTF-8 is not a format.
         assert_eq!(of(&[b'c', b'h', b'r', 0xff], "a.bed"), None);
     }
@@ -5229,6 +5279,22 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 "chr1:1-5000 --coverage depth.bw",
                 Binary::BigWig,
                 "<(bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout)",
+            ),
+            (
+                "chr1:1-5000 contacts.cool",
+                Binary::Cool,
+                "<(cooler dump --join -r chr1:1-5000 contacts.cool)",
+            ),
+            // No one command: the resolution has to be picked first.
+            (
+                "chr1:1-5000 contacts.mcool",
+                Binary::Mcool,
+                "cooler ls lists its resolutions",
+            ),
+            (
+                "chr1:1-5000 --pairs contacts.hic",
+                Binary::Hic,
+                "hic2cool convert FILE.hic FILE.cool -r N",
             ),
         ] {
             let error = build(&line(command), |_| {

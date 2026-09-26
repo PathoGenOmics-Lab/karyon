@@ -620,6 +620,14 @@ or `nan` is a pair with no answer, kept and not drawn. A value named as a
 correlation, `R2`, `r²`, `R` or `D'`, is keyed from 0 to 1 whatever the
 strongest pair in the window, and drawn as a triangle.
 
+A contact map in its own binary format is not read, and is answered with how
+to write it as the BEDPE above. A `.cool` is one command, `--pairs
+<(cooler dump --join -r REGION contacts.cool)`. A `.mcool` holds several
+resolutions, which `cooler ls` lists, and one is written as
+`contacts.mcool::/resolutions/10000`. A `.hic` from Juicer is turned into a
+`.cool` first, as `hic2cool convert contacts.hic contacts.cool -r 10000`
+does.
+
 ### Selection by site { #selection-by-site }
 
 A test of selection at each codon of a gene, as HyPhy's FEL writes it:
