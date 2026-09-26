@@ -811,7 +811,8 @@ impl Kind {
             "gff" | "gff3" | "gtf" | "bed" | "bb" | "bigbed" => Kind::Features,
             "fa" | "fasta" | "fna" | "fas" | "ffn" | "frn" | "2bit" => Kind::Sequence,
             "aln" | "afa" | "msa" => Kind::Msa,
-            "nwk" | "newick" | "tree" | "tre" | "treefile" | "nhx" => Kind::Tree,
+            "nwk" | "newick" | "tree" | "tre" | "treefile" | "nhx" | "nex" | "nexus" | "nxs"
+            | "trees" => Kind::Tree,
             "paf" => Kind::Synteny,
             "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
             "bedmethyl" => Kind::Methylation,

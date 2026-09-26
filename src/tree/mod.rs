@@ -327,6 +327,60 @@ impl Tree {
         parse_newick_impl(input, true)
     }
 
+    /// Reads a tree from Newick or NEXUS, whichever the text is, keeping the
+    /// BEAST, NHX and IQ-TREE annotations either carries.
+    ///
+    /// The reader to reach for. A file out of BEAST, MrBayes or FigTree is
+    /// NEXUS and one out of IQ-TREE or RAxML is Newick, and the two ways a
+    /// first try went wrong were reading NEXUS with the Newick reader, which
+    /// answered `more than one root`, and reading annotations with
+    /// [`Tree::parse_newick`], which drops them. A text of several trees gives
+    /// its first, [`Tree::count_trees`] says how many there are, and
+    /// [`Tree::parse_all`] reads every one.
+    ///
+    /// ```
+    /// use karyon::Tree;
+    ///
+    /// let nexus = "#NEXUS\nbegin trees;\n translate 1 A, 2 B, 3 C;\n\
+    ///              tree one = ((1:1,2:1)[&posterior=0.97]:1,3:2);\nend;";
+    /// let tree = Tree::parse(nexus)?;
+    /// assert_eq!(tree.leaf_names(), ["A", "B", "C"]);
+    /// let newick = Tree::parse("((A:1,B:1)95.3/88:1,C:2);")?;
+    /// assert_eq!(newick.nodes()[1].support, Some(88.0));
+    /// # Ok::<(), karyon::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As [`Tree::parse_annotated_newick`] for Newick, and
+    /// [`Error::InvalidNexus`] for a NEXUS text with no tree in it.
+    pub fn parse(input: &str) -> Result<Self, Error> {
+        if is_nexus(input) {
+            return parse_nexus(input);
+        }
+        match nexus_statements(input).first() {
+            Some(first) => Self::parse_annotated_newick(first),
+            None => Self::parse_annotated_newick(input),
+        }
+    }
+
+    /// Every tree a text holds, NEXUS or Newick: a posterior sample, a set of
+    /// bootstrap trees, or one tree.
+    ///
+    /// # Errors
+    ///
+    /// As [`Tree::parse`], for the first tree that cannot be read.
+    pub fn parse_all(input: &str) -> Result<Vec<Self>, Error> {
+        parse_all(input)
+    }
+
+    /// How many trees a text holds, counted without reading them: the tree
+    /// statements of a NEXUS file, or the trees of a Newick file, each ended
+    /// by its semicolon.
+    pub fn count_trees(input: &str) -> usize {
+        count_trees(input)
+    }
+
     /// Reads the first tree from a Nexus `trees` block.
     ///
     /// A `translate` table is applied to leaf labels and annotations on the

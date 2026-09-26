@@ -1201,6 +1201,36 @@ fn slurp(
     }
 }
 
+/// The tree a file holds, Newick or NEXUS, read once and kept by `parsed`
+/// where the caller keeps trees, and the first of several, which is said.
+///
+/// NEXUS, as BEAST, MrBayes and FigTree write it, was refused with `more than
+/// one root`, since it was read as Newick.
+fn read_tree(
+    flag: &'static str,
+    path: &str,
+    text: &str,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
+    files: &mut dyn Files,
+) -> Result<Tree, BuildError> {
+    let tree = match parsed(path, text.trim()) {
+        Some(tree) => tree,
+        None => Tree::parse(text.trim()).map_err(|cause| BuildError::Tree {
+            flag,
+            path: path.to_string(),
+            cause,
+        })?,
+    };
+    let held = Tree::count_trees(text);
+    if held > 1 {
+        files.note(&format!(
+            "{flag} {path} holds {} trees, and the first is drawn",
+            crate::track::axis::group_thousands(held as u64)
+        ));
+    }
+    Ok(tree)
+}
+
 /// What a source is called in a message.
 fn called(source: &Source) -> String {
     match source {
@@ -1226,14 +1256,7 @@ fn row_tree(
     };
     let name = spec.kind.flag();
     let (newick, path) = fetch(name, source, files)?;
-    let tree = match parsed(&path, newick.trim()) {
-        Some(tree) => tree,
-        None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| BuildError::Tree {
-            flag: "--with-tree",
-            path: path.clone(),
-            cause,
-        })?,
-    };
+    let tree = read_tree("--with-tree", &path, &newick, parsed, files)?;
     let tips = tree.leaf_names();
     if !names.iter().any(|row| tips.contains(row)) {
         return Err(BuildError::Unjoined {
@@ -2428,16 +2451,7 @@ fn track(
             Box::new(named(track, label, ManhattanTrack::label))
         }
         Kind::Tree => {
-            let tree = match parsed(&path, text.trim()) {
-                Some(tree) => tree,
-                None => {
-                    Tree::parse_annotated_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                        flag: "--tree",
-                        path: path.clone(),
-                        cause,
-                    })?
-                }
-            };
+            let tree = read_tree("--tree", &path, &text, parsed, files)?;
             let tree = match &spec.focus {
                 None => tree,
                 Some(names) => {
@@ -2658,18 +2672,8 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (other, right_path) = fetch(name, source, files)?;
-            let mut parse = |text: &str, flag, path: &str| match parsed(path, text.trim()) {
-                Some(tree) => Ok(tree),
-                None => {
-                    Tree::parse_annotated_newick(text.trim()).map_err(|cause| BuildError::Tree {
-                        flag,
-                        path: path.to_string(),
-                        cause,
-                    })
-                }
-            };
-            let left = parse(&text, "--tanglegram", &path)?;
-            let right = parse(&other, "--against", &right_path)?;
+            let left = read_tree("--tanglegram", &path, &text, parsed, files)?;
+            let right = read_tree("--against", &right_path, &other, parsed, files)?;
             // Named, because two phylogenies side by side with nothing over
             // them do not say which is which, and which is which is the whole
             // of what a tanglegram is read for.
@@ -2897,16 +2901,7 @@ fn track(
                 return Err(BuildError::MissingSecond { track: name });
             };
             let (newick, tree_path) = fetch(name, source, files)?;
-            let tree = match parsed(&tree_path, newick.trim()) {
-                Some(tree) => tree,
-                None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| {
-                    BuildError::Tree {
-                        flag: "--with-tree",
-                        path: tree_path,
-                        cause,
-                    }
-                })?,
-            };
+            let tree = read_tree("--with-tree", &tree_path, &newick, parsed, files)?;
 
             let found = wrap(name, &path, read::clade::blocks(&text, region))?;
             if found.records == 0 {
@@ -5454,6 +5449,28 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.contains("no support is drawn"), "{svg}");
         let (_, notes) = drawn_noting("--tree t.nwk --threshold 0.7 --support-style labels", &held);
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// A NEXUS file, as BEAST, MrBayes and FigTree write one, is read as a
+    /// tree, named on its own too, and a file of several trees draws its
+    /// first and says so. It was read as Newick and refused.
+    #[test]
+    fn a_nexus_tree_is_drawn_and_a_file_of_several_says_which() {
+        let nexus = "#NEXUS\nbegin trees;\n translate 1 A, 2 B, 3 C;\n\
+                     tree first = ((1:1,2:1)[&posterior=0.97]:1,3:2);\n\
+                     tree second = ((1:1,3:1):1,2:2);\nend;";
+        let (svg, notes) = drawn_noting("--tree run.trees", &[("run.trees", nexus)]);
+        let svg = svg.unwrap();
+        assert!(
+            svg.contains(">A</text>") && svg.contains(">C</text>"),
+            "{svg}"
+        );
+        assert_eq!(
+            notes,
+            ["--tree run.trees holds 2 trees, and the first is drawn"]
+        );
+        let (alone, _) = drawn_noting("mcc.nex", &[("mcc.nex", nexus)]);
+        assert_eq!(alone.unwrap(), svg);
     }
 
     /// Four rows of eight columns, and a tree of the same four samples in
