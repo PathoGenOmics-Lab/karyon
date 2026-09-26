@@ -269,7 +269,7 @@ never one colour while each fits its stretch.
 ## Choose a tree geometry
 
 <figure class="k-plate" markdown>
-![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }
+![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2115" loading="lazy" }
 <figcaption>A to C: the three rectangular geometries. D and E: circular and unrooted.</figcaption>
 </figure>
 
@@ -422,7 +422,7 @@ let track = TreeTrack::new(tree).show_root(true);
 ## Show dN/dS around the neutral point
 
 <figure class="k-plate" markdown>
-![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1390" loading="lazy" }
+![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1434" loading="lazy" }
 </figure>
 
 ```rust
@@ -458,7 +458,7 @@ proof of positive selection.
 ## Keep rate classes and site evidence apart
 
 <figure class="k-plate" markdown>
-![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
+![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }
 </figure>
 
 A branch-site model fits several ω classes to one branch, and a single mean

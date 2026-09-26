@@ -106,7 +106,7 @@ are asking of your data.
     **[Signal and sequence](plots/signal-sequence.md)**
     Coverage, logos, methylation.
 
--   [![Branch rate mixtures, recurrence links and genomic site-wise selection evidence](assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }](plots/evolution-surveillance.md)
+-   [![Branch rate mixtures, recurrence links and genomic site-wise selection evidence](assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }](plots/evolution-surveillance.md)
 
     **[Evolution and surveillance](plots/evolution-surveillance.md)**
     Selection, lineages over time.

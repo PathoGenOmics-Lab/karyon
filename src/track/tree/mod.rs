@@ -2325,7 +2325,7 @@ impl TreeTrack {
         if lines.is_empty() {
             0.0
         } else {
-            lines.len() as f64 * (size + 4.0) + 6.0
+            (lines.len() as f64 * (size + 4.0) + 6.0).ceil()
         }
     }
 
@@ -2335,7 +2335,7 @@ impl TreeTrack {
         if lines.is_empty() {
             return;
         }
-        let room = lines.len() as f64 * (size + 4.0) + 6.0;
+        let room = (lines.len() as f64 * (size + 4.0) + 6.0).ceil();
         let mut y = ctx.band.bottom() - room + 4.0;
         for line in &lines {
             y += size + 4.0;
@@ -2361,7 +2361,8 @@ impl TreeTrack {
     fn annotation_header_room(&self, width: f64, theme: &Theme) -> f64 {
         let chips = match chip_rows(self, self.chip_room(width, theme), theme) {
             0 => 0.0,
-            rows => rows as f64 * chip_pitch(theme) + 1.5,
+            // Whole pixels, so a figure is as many pixels tall as it says.
+            rows => (rows as f64 * chip_pitch(theme) + 1.5).ceil(),
         };
         let headings = if self.trait_columns.is_empty() {
             0.0
