@@ -137,6 +137,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--with-tree", "t.nwk"),
     ("--ld", "lead.ld"),
     ("--with-recombination", "map.txt"),
+    ("--with-moves", "calls.sam"),
     ("--links", "l.tsv"),
     ("--identity", "percent"),
     ("--modification", "m"),
@@ -482,6 +483,10 @@ TRACK OPTIONS, each describing the track before it, once
                          a genetic map whose rate is laid over a scan as a
                          line, read off a scale on the right in cM/Mb, as
                          LocusZoom draws one
+    --with-moves <FILE>  the basecaller's record of a nanopore read, SAM or
+                         BAM as Dorado writes it with --emit-moves: its move
+                         table puts each base it called over the stretch of
+                         current it was called from
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names
     --identity <UNIT>    percent or fraction, for a homology file whose third
@@ -783,13 +788,21 @@ mod tests {
         // `flag @ ("--against" | "--with-tree" | ...) =>`, which binds the
         // spelling for the one mechanism several flags share. Reading only the
         // first shape left the second and third out of this check, and so out
-        // of the list a mistyped flag is matched against.
+        // of the list a mistyped flag is matched against. The third is wrapped
+        // onto a second line, `| "--with-moves") =>`, once it is wider than a
+        // line, and the two lines are read as one.
         let mut flags: Vec<String> = Vec::new();
+        let mut pending = String::new();
         for line in PARSER.lines() {
             let Some(rest) = line.strip_prefix("            ") else {
+                pending.clear();
                 continue;
             };
-            let rest = rest.strip_prefix("flag @ (").unwrap_or(rest);
+            let rest = match rest.strip_prefix("| ") {
+                Some(more) if !pending.is_empty() => format!("{pending} | {more}"),
+                _ => rest.strip_prefix("flag @ (").unwrap_or(rest).to_string(),
+            };
+            pending.clear();
             if !rest.starts_with("\"-") {
                 continue;
             }
@@ -797,6 +810,8 @@ mod tests {
                 continue;
             };
             if arms.len() == rest.len() {
+                // A pattern that goes on on the next line.
+                pending = rest.clone();
                 continue;
             }
             for piece in arms.trim_end_matches(')').split(" | ") {

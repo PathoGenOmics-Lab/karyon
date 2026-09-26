@@ -920,10 +920,31 @@ mod tests {
             "{:?}",
             key.items()
         );
-        // The band ends where the scale on the right begins, for every track.
-        let (with, _) = Figure::new(region()).push(overlaid).dimensions();
+        // The band ends where the scale on the right begins, for every track,
+        // and the scale is inside the image, which keeps its width.
+        let (with, _) = Figure::new(region()).push(overlaid.clone()).dimensions();
         let (without, _) = Figure::new(region()).push(plain).dimensions();
         assert_eq!(with, without, "the image keeps its width");
+        let size = theme.font_size - 1.0;
+        let label = svg
+            .split("<text ")
+            .find(|text| text.contains(">40 cM/Mb</text>"))
+            .unwrap();
+        let x: f64 = label
+            .split("x=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .and_then(|x| x.parse().ok())
+            .unwrap();
+        assert!(
+            x + crate::svg::text_width("40 cM/Mb", size) <= with,
+            "the scale runs off the image at {x}"
+        );
+        let stacked = Figure::new(region())
+            .push(overlaid)
+            .push(crate::track::CoverageTrack::new(0, vec![1.0; 10_000]))
+            .to_svg();
+        assert!(stacked.contains(">40 cM/Mb</text>"));
     }
 
     /// A lead with a name is called by it, over its diamond, in its tooltip

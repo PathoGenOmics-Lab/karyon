@@ -242,6 +242,7 @@ takes.
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--ld <FILE>` | [PLINK's `.ld`](formats.md#pairs-of-positions) of the lead against its neighbours, or `-` | `--manhattan` | every point in one colour |
 | `--with-recombination <FILE>` | a [genetic map](formats.md#a-recombination-map), or `-` | `--manhattan` | no rate laid over the scan |
+| `--with-moves <FILE>` | SAM or BAM as Dorado writes it with `--emit-moves`, or `-` | `--squiggle` | the current alone, with no bases over it |
 | `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
 | `--modification <CODE>` | `m`, `h`, `a` or another modkit code | `--methylation` | the one code in the file; refused when it holds several |
 | `--context <NAME>` | `CpG`, `CHG` or `CHH` | `--bisulfite` | the one context in the file; refused when it holds several |
@@ -300,6 +301,7 @@ second with an option, spelled by what the file is:
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
 | `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
 | `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
+| `--squiggle` | the read's current | `--with-moves`, optional: the basecaller's record of the read, whose move table puts each base over its stretch of current |
 
 The first four are refused without their second file:
 

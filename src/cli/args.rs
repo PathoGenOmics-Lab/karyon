@@ -927,6 +927,7 @@ impl Kind {
         match self {
             Kind::Pileup => Some("--with-sequence"),
             Kind::Manhattan => Some("--ld"),
+            Kind::Squiggle => Some("--with-moves"),
             Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains => {
                 Some("--with-tree")
             }
@@ -1592,6 +1593,7 @@ pub const FLAGS: &[&str] = &[
     "--with-sequence",
     "--ld",
     "--with-recombination",
+    "--with-moves",
     "--modification",
     "--context",
     "--analysis",
@@ -2638,7 +2640,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld"
+            | "--with-moves") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
@@ -2647,6 +2650,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     "--links" => "--links",
                     "--with-sequence" => "--with-sequence",
                     "--ld" => "--ld",
+                    "--with-moves" => "--with-moves",
                     _ => "--against",
                 };
                 let word = value(flag)?;

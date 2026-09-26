@@ -1607,6 +1607,16 @@ pub trait Files {
         Ok(None)
     }
 
+    /// The records of one read in a binary alignment file, by its name, as
+    /// SAM text, or `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn named_read(&mut self, _source: &Source, _name: &str) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Something about a figure drawn anyway that whoever asked for it should
     /// know, such as where the end of a sequence was taken from. The default
     /// keeps it, as a page with nowhere to print it does.
@@ -1656,6 +1666,10 @@ impl Files for KeptStdin<'_> {
 
     fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
         self.files.sequences(source)
+    }
+
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        self.files.named_read(source, name)
     }
 
     fn note(&mut self, message: &str) {
@@ -1733,6 +1747,19 @@ impl Files for Disk {
         Ok(self
             .bam(source, region)?
             .map(|(header, records)| read::bam::sam(&header, &records)))
+    }
+
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::named(file, name)
+            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
     }
 
     fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
@@ -3602,9 +3629,32 @@ fn track(
                     signal.reads, signal.read
                 ));
             }
+            // The bases the basecaller called, each where its stretch of
+            // current starts, from the move table of the read's record.
+            let moves = match spec.second.as_ref() {
+                Some(source) => {
+                    let wanted = signal.named.then_some(signal.read.as_str());
+                    let from_bam = files.named_read(source, &signal.read).map_err(|cause| {
+                        BuildError::Open {
+                            track: name,
+                            path: called(source),
+                            cause,
+                        }
+                    })?;
+                    let (text, moves_path) = match from_bam {
+                        Some(text) => (text, called(source)),
+                        None => fetch(name, source, files)?,
+                    };
+                    Some(wrap(name, &moves_path, read::series::moves(&text, wanted))?)
+                }
+                None => None,
+            };
             // Named for its read, which is what tells two squiggles apart.
             let label = spec.label.clone().or(Some(signal.read));
             let mut track = SquiggleTrack::new(0, signal.samples);
+            if let Some(moves) = moves {
+                track = track.moves(moves);
+            }
             if let Some(color) = &spec.color {
                 track = track.color(color);
             }
@@ -5839,6 +5889,39 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let held = [("b.csv", "site,omega,posterior\n1,0.3,0.1\n2,4.0,0.97\n")];
         let (svg, _) = drawn_noting("--selection b.csv --threshold 0.95", &held);
         assert!(svg.unwrap().contains("PP ≥ 0.95"));
+    }
+
+    /// The basecaller's record of the read drawn puts each base it called
+    /// over the stretch of current it was called from, the record of that
+    /// read and not of another.
+    #[test]
+    fn a_move_table_puts_the_bases_over_the_signal_of_the_read_drawn() {
+        let slow5 = "#slow5_version\t0.2.0\n\
+                     #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\t\
+                     len_raw_signal\traw_signal\n\
+                     r1\t0\t2048\t0\t2048\t4000\t20\t80,81,80,79,95,96,94,95,70,71,70,69,70,90,91,90,89,90,91,90\n\
+                     r2\t0\t2048\t0\t2048\t4000\t4\t70,75,72,71\n";
+        let sam = "r2\t4\t*\t0\t0\t*\t*\t0\t0\tG\t*\tmv:B:c,4,1\n\
+                   r1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\t*\tmv:B:c,4,1,1,1,0,1\n";
+        let held = [("reads.slow5", slow5), ("calls.sam", sam)];
+        let (svg, _) = drawn_noting("reads.slow5 --with-moves calls.sam", &held);
+        let svg = svg.unwrap();
+        for base in ["A", "C", "G", "T"] {
+            assert!(svg.contains(&format!(">{base}</text>")), "no {base}: {svg}");
+        }
+        // A record for another read is not taken for this one.
+        let (other, _) = drawn_noting(
+            "reads.slow5 --with-moves calls.sam",
+            &[
+                ("reads.slow5", slow5),
+                (
+                    "calls.sam",
+                    "r2\t4\t*\t0\t0\t*\t*\t0\t0\tG\t*\tmv:B:c,4,1\n",
+                ),
+            ],
+        );
+        let error = other.unwrap_err().to_string();
+        assert!(error.contains("no read called r1; it holds r2"), "{error}");
     }
 
     /// A SLOW5 holds many reads and the figure draws one, named for it, and

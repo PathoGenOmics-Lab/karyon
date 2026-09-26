@@ -204,6 +204,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--with-recombination FILE` after `--manhattan` lays a genetic map's rate
+  behind the scan's points, read off a scale of its own on the right with
+  `cM/Mb` after its highest number, as LocusZoom draws one, and keys it.
+  `ManhattanTrack::recombination` does it in Rust, and `Track::right_axis_width`
+  lets any track ask for a strip right of its band, which the figure takes
+  from every plotting area as it does on the left. The LocusZoom page figure
+  lays the map over the scan where it drew it as a track under it.
+- The lead variant of a scan coloured by linkage is called by its name, from
+  the scan's `SNP` or `ID` column or from PLINK's `.ld`, over its diamond, in
+  its tooltip and in the key, where its position was written
+  (`ManhattanTrack::lead_name`, `Associations::names`, `read::pairs::names`).
+- `--with-moves FILE` after `--squiggle` puts the bases the basecaller called
+  over the current, from the move table Dorado writes with `--emit-moves`, in
+  SAM or in BAM, which is read from end to end as a basecaller writes one
+  unsorted. A read Dorado split out of a longer one is placed by `pi:Z` and
+  `sp:i` (`read::series::moves`, `read::bam::named`, `Files::named_read`).
+  The page data gains `moves.sam`.
 - `--frequencies` takes `--threshold` as the frequency a lineage is flagged
   at, `--growth` for a rise in points of frequency from one time to the next,
   `--min-total` for the fewest samples a time needs, and `--counts` to draw
