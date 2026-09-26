@@ -406,6 +406,13 @@ fn commanded(mut input: &[u8]) -> Result<String, String> {
     if let Some(ground) = &invocation.background {
         theme.background = ground.clone();
     }
+    // Several places are a sheet of panels, drawn whole: none of them is a
+    // window a page could move.
+    if !invocation.more.is_empty() {
+        let sheet = stack::build_sheet(&invocation, &mut files, remembered, theme)
+            .map_err(|error| error.to_string())?;
+        return Ok(sheet.to_svg_with_id_prefix(&look.prefix));
+    }
     let built = stack::build_figure(
         &invocation,
         &mut files,
@@ -467,6 +474,9 @@ fn placed(mut input: &[u8]) -> Result<Vec<u8>, String> {
     let argv = strings(&mut input).ok_or("the command line is not in the shape this expects")?;
     let mut files = page_files(&mut input)?;
     let invocation = invocation(&argv)?;
+    if !invocation.more.is_empty() {
+        return Ok(entry(None));
+    }
     let built = stack::build_figure(&invocation, &mut files, remembered, Theme::light(), None)
         .map_err(|error| error.to_string())?;
     Ok(entry(built.along.as_ref()))
@@ -1089,7 +1099,29 @@ mod tests {
                 drawn += 1;
             }
         }
-        assert!(drawn >= 13, "only {drawn} figures were found");
+        assert!(drawn >= 14, "only {drawn} figures were found");
+    }
+
+    /// Several places are a sheet of panels, drawn whole with ids of the
+    /// page's own, and a sheet is no window a page could move along.
+    #[test]
+    fn several_places_are_drawn_here_as_a_sheet() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/data");
+        let names = ["reads.bam", "genes.gff3"];
+        let files: Vec<(&str, Vec<u8>)> = names
+            .iter()
+            .map(|name| (*name, std::fs::read(docs.join(name)).unwrap()))
+            .collect();
+        let argv = ["rpoB", "rpoC", "reads.bam", "genes.gff3"];
+        let svg = commanded_on(&argv, &files, "light", "", 720, "", "k7-").unwrap();
+        assert!(
+            svg.matches("<svg").count() >= 3,
+            "a sheet of two panels: {svg}"
+        );
+        assert!(svg.contains(">rpoB</text>") && svg.contains(">rpoC</text>"));
+        assert!(svg.contains("id=\"k7-"), "no ids of its own");
+        assert!(!svg.contains("id=\"karyon-"), "an id without the prefix");
+        assert_eq!(placed(&packed_bytes(&argv, &files)).unwrap()[0], 0);
     }
 
     /// The files a command names are the ones a page fetches, each once.

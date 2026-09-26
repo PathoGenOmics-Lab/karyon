@@ -166,16 +166,114 @@ pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, Rea
 /// hit at the bottom of the figure and exited nought, while nothing in the
 /// file can say whether it was one.
 pub fn association_table(text: &str, region: &Region) -> Result<Associations, ReadError> {
+    let read = association_rows(text, Rows::In(region))?;
+    Ok(Associations {
+        points: read.points.into_iter().map(|(_, point)| point).collect(),
+        p_values: read.p_values,
+        names: read.names,
+    })
+}
+
+/// Every row of an association table, on every sequence it names, as a scan
+/// drawn across a whole genome reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenomeAssociations {
+    /// Each sequence the table names, in the order it first names them, with
+    /// its points, 0-based on that sequence.
+    pub sequences: Vec<(String, Vec<Association>)>,
+    /// Whether the value column held p-values, converted on the way in.
+    pub p_values: bool,
+}
+
+/// Reads every row of an association table, on every sequence, for a scan
+/// drawn across a whole genome rather than over one window of it.
+///
+/// The table is read as [`association_table`] reads it, header, p-values and
+/// all; only no row is left out for being somewhere else.
+///
+/// # Errors
+///
+/// What [`association_table`] refuses, and a table that names no sequence,
+/// since a position on no sequence has no place on a genome.
+///
+/// ```
+/// use karyon::read::point::genome_associations;
+///
+/// let table = "CHR BP P\n2 150 0.5\n1 300 1e-9\n1 900 0.01\n";
+/// let read = genome_associations(table)?;
+/// let names: Vec<&str> = read.sequences.iter().map(|(name, _)| name.as_str()).collect();
+/// assert_eq!(names, ["2", "1"]);
+/// assert_eq!(read.sequences[1].1.len(), 2);
+/// assert!(read.p_values);
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn genome_associations(text: &str) -> Result<GenomeAssociations, ReadError> {
+    let read = association_rows(text, Rows::All)?;
+    let mut sequences: Vec<(String, Vec<Association>)> = Vec::new();
+    for (sequence, point) in read.points {
+        let Some(sequence) = sequence else {
+            return Err(ReadError::whole(
+                "the table names no sequence, and a scan is drawn across a genome by the \
+                 sequence each row is on; give it a column of them, or name the sequence \
+                 as the place",
+            ));
+        };
+        match sequences.iter_mut().find(|(named, _)| named == sequence) {
+            Some((_, points)) => points.push(point),
+            None => sequences.push((sequence.to_string(), vec![point])),
+        }
+    }
+    Ok(GenomeAssociations {
+        sequences,
+        p_values: read.p_values,
+    })
+}
+
+/// Which rows of a table are read: the ones in one window of one sequence, or
+/// every one, on whatever sequence it names.
+#[derive(Debug, Clone, Copy)]
+enum Rows<'a> {
+    In(&'a Region),
+    All,
+}
+
+impl Rows<'_> {
+    /// Whether a row on `sequence`, where it names one, is read at all.
+    fn on(self, sequence: Option<&str>) -> bool {
+        match self {
+            Rows::In(region) => sequence.map_or(true, |name| name == region.seq()),
+            Rows::All => true,
+        }
+    }
+
+    /// Whether a row at `pos` on a sequence it is read on is kept.
+    fn at(self, pos: u64) -> bool {
+        match self {
+            Rows::In(region) => region.contains(pos),
+            Rows::All => true,
+        }
+    }
+}
+
+/// What a table held, each point with the sequence its row names.
+struct Read<'t> {
+    points: Vec<(Option<&'t str>, Association)>,
+    p_values: bool,
+    names: Vec<(u64, String)>,
+}
+
+/// Reads the rows `rows` asks for out of an association table.
+fn association_rows<'t>(text: &'t str, rows: Rows<'_>) -> Result<Read<'t>, ReadError> {
     // A table of more columns, as association tools write them, is read by
     // the names its header gives the columns.
     if let Some((line, wide)) = hashed_header(text) {
-        return wide.read(text, region, line);
+        return wide.read(text, rows, line);
     }
     if let Some((line, head)) = lines(text).next() {
         let names = columns(head);
         if names.len() > 3 {
             return match Wide::of(&names) {
-                Some(wide) => wide.read(text, region, line),
+                Some(wide) => wide.read(text, rows, line),
                 None => Err(ReadError::at(
                     line,
                     format!(
@@ -193,7 +291,7 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
             };
         }
     }
-    let mut points: Vec<(u64, f64, usize)> = Vec::new();
+    let mut points: Vec<(Option<&str>, u64, f64, usize)> = Vec::new();
     let mut first = true;
     let mut named: Option<&str> = None;
     // Whether every value in the file, read or not, lies between nought and
@@ -239,16 +337,15 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
             }
         }
 
-        if let Some(sequence) = sequence {
-            if sequence != region.seq() {
-                continue;
-            }
-        }
-        let pos = position(at, "position", line)?;
-        if !region.contains(pos) {
+        let sequence = sequence.map(str::trim);
+        if !rows.on(sequence) {
             continue;
         }
-        points.push((pos, number::<f64>(value, "value", line)?, line));
+        let pos = position(at, "position", line)?;
+        if !rows.at(pos) {
+            continue;
+        }
+        points.push((sequence, pos, number::<f64>(value, "value", line)?, line));
     }
 
     let p_values = match named {
@@ -265,9 +362,9 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
     };
 
     let mut converted = Vec::with_capacity(points.len());
-    for (pos, value, line) in points {
+    for (sequence, pos, value, line) in points {
         if !p_values {
-            converted.push(Association::new(pos, value));
+            converted.push((sequence, Association::new(pos, value)));
             continue;
         }
         if !(0.0..=1.0).contains(&value) {
@@ -280,9 +377,9 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
                 ),
             ));
         }
-        converted.push(Association::from_p_value(pos, value));
+        converted.push((sequence, Association::from_p_value(pos, value)));
     }
-    Ok(Associations {
+    Ok(Read {
         points: converted,
         p_values,
         names: Vec::new(),
@@ -429,7 +526,12 @@ impl Wide {
     }
 
     /// The rows after the header, which is on line `header`.
-    fn read(&self, text: &str, region: &Region, header: usize) -> Result<Associations, ReadError> {
+    fn read<'t>(
+        &self,
+        text: &'t str,
+        rows: Rows<'_>,
+        header: usize,
+    ) -> Result<Read<'t>, ReadError> {
         let widest = self
             .position
             .max(self.value)
@@ -448,13 +550,12 @@ impl Wide {
                     ),
                 ));
             }
-            if let Some(at) = self.sequence {
-                if fields[at].trim() != region.seq() {
-                    continue;
-                }
+            let sequence = self.sequence.map(|at| fields[at].trim());
+            if !rows.on(sequence) {
+                continue;
             }
             let pos = position(fields[self.position].trim(), "position", line)?;
-            if !region.contains(pos) {
+            if !rows.at(pos) {
                 continue;
             }
             // A test the tool could not run is written as NA, and has nothing
@@ -468,7 +569,7 @@ impl Wide {
                 names.push((pos, name.trim().to_string()));
             }
             if !self.p_values {
-                points.push(Association::new(pos, value));
+                points.push((sequence, Association::new(pos, value)));
                 continue;
             }
             if !(0.0..=1.0).contains(&value) {
@@ -477,9 +578,9 @@ impl Wide {
                     format!("a p-value lies between 0 and 1, not {value}"),
                 ));
             }
-            points.push(Association::from_p_value(pos, value));
+            points.push((sequence, Association::from_p_value(pos, value)));
         }
-        Ok(Associations {
+        Ok(Read {
             points,
             p_values: self.p_values,
             names,

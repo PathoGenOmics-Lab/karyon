@@ -106,7 +106,6 @@ pub enum ArgError {
         position: u64,
     },
     /// A locus was given twice, or a positional argument came after one.
-    ExtraRegion(String),
     /// No locus at all.
     NoRegion,
     /// One sequence renamed to two names.
@@ -267,15 +266,25 @@ impl fmt::Display for ArgError {
                     group_thousands(position + AROUND)
                 )
             }
-            ArgError::ExtraRegion(extra) => {
-                write!(f, "one region per figure, and {extra:?} is a second one")
+            ArgError::NoRegion => {
+                // Worked out from the tracks rather than written down, so a
+                // track that stops needing a place is named here as it does:
+                // this listed five, and four more had long gone without one.
+                let alone: Vec<&str> = Kind::ALL
+                    .iter()
+                    .filter(|kind| !kind.needs_region())
+                    .map(|kind| kind.dashed())
+                    .collect();
+                let (last, rest) = alone.split_last().expect("some tracks need no place");
+                write!(
+                    f,
+                    "the first argument is the place, as in NC_000962.3:761,000-763,000, or \
+                     a gene or a sequence drawn whole; --manhattan tables alone are drawn \
+                     across the whole genome, and a figure of {} or {last} tracks goes \
+                     without one",
+                    rest.join(", ")
+                )
             }
-            ArgError::NoRegion => write!(
-                f,
-                "the first argument is the region, as in NC_000962.3:761,000-763,000; \
-                 only a figure of --tree, --tanglegram, --snps, --msa and --logo tracks \
-                 goes without one"
-            ),
             ArgError::RenamedTwice {
                 from,
                 first,
@@ -1475,8 +1484,17 @@ pub enum Palette {
     Dark,
 }
 
+/// A place a figure is drawn over, as the command line writes it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Place {
+    /// Coordinates, as `NC_000962.3:761,000-763,000`.
+    Locus(Region),
+    /// A word the files are asked about: a gene, or a sequence drawn whole.
+    Named(String),
+}
+
 /// A whole command line, parsed and not yet acted on.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Invocation {
     /// The region every track is drawn over.
     ///
@@ -1515,9 +1533,28 @@ pub struct Invocation {
     /// `--rename FROM=TO`: a sequence a file calls `FROM` is the figure's
     /// `TO`, as PLINK's `1` is the FASTA's `NC_000962.3`.
     pub renames: Vec<(String, String)>,
+    /// The places written after the first, as `karyon rpoB katG inhA ...`:
+    /// each is drawn as a panel of its own under the one before, with the
+    /// same tracks, and the key once under them all.
+    pub more: Vec<Place>,
 }
 
 impl Invocation {
+    /// Whether the figure is a scan across a whole genome: no place written,
+    /// and every track a `--manhattan` table read on its own, which is then
+    /// laid over every sequence the tables name, end to end.
+    pub fn genome_wide(&self) -> bool {
+        self.region.is_none()
+            && self.named.is_none()
+            && self.more.is_empty()
+            && !self.tracks.is_empty()
+            && self.tracks.iter().all(|track| {
+                track.kind == Kind::Manhattan
+                    && track.second.is_none()
+                    && track.recombination.is_none()
+            })
+    }
+
     /// The files the command line names, each once, in the order it names
     /// them: what a caller with no disk has to hold before it can draw.
     ///
@@ -1953,6 +1990,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut region_label = true;
     let mut output = None;
     let mut named: Option<String> = None;
+    let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
     let mut renames: Vec<(String, String)> = Vec::new();
     // Every value-taking flag given so far, with the track it went to, or
@@ -2931,9 +2969,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 if word == "-" || looks_like_a_file(word) {
                     return Err(ArgError::Unplaced(word.to_string()));
                 }
-                if region.is_some() || named.is_some() {
-                    return Err(ArgError::ExtraRegion(word.to_string()));
-                }
+                // A place after the first is a panel of its own.
+                let first = region.is_none() && named.is_none();
                 let parsed = match Region::parse(word) {
                     Ok(parsed) => parsed,
                     // A word with coordinates in it is a locus written wrong,
@@ -2950,7 +2987,11 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         if written_as_a_locus(word) {
                             return Err(ArgError::BadRegion(error));
                         }
-                        named = Some(word.to_string());
+                        if first {
+                            named = Some(word.to_string());
+                        } else {
+                            more.push(Place::Named(word.to_string()));
+                        }
                         continue;
                     }
                 };
@@ -2964,7 +3005,11 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         span: parsed.len(),
                     });
                 }
-                region = Some(parsed);
+                if first {
+                    region = Some(parsed);
+                } else {
+                    more.push(Place::Locus(parsed));
+                }
             }
         }
     }
@@ -3006,8 +3051,14 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     // holds a single track that is drawn in one needs it: a tree beside a
     // coverage track is still measured against the coverage's window. A place
     // named by a word is a window too, found once the files are read.
+    // A scan read on its own is a place too: every sequence it names.
+    let genome_wide = !tracks.is_empty()
+        && tracks.iter().all(|track| {
+            track.kind == Kind::Manhattan && track.second.is_none() && track.recombination.is_none()
+        });
     if region.is_none()
         && named.is_none()
+        && !genome_wide
         && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
     {
         return Err(ArgError::NoRegion);
@@ -3025,6 +3076,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         named,
         legend,
         renames,
+        more,
     })))
 }
 
@@ -3803,11 +3855,66 @@ mod tests {
     }
 
     #[test]
-    fn the_region_can_sit_anywhere_but_only_once() {
+    fn the_region_can_sit_anywhere_and_a_second_one_is_a_panel() {
         let it = draw("--coverage d.bg chr1:1-1000");
         assert_eq!(it.region.as_ref().unwrap().seq(), "chr1");
-        let err = parse(&args("chr1:1-1000 chr2:1-1000")).unwrap_err();
-        assert!(matches!(err, ArgError::ExtraRegion(_)));
+        let two = draw("chr1:1-1000 --coverage d.bg chr2:1-1000");
+        assert_eq!(two.region.as_ref().unwrap().seq(), "chr1");
+        assert_eq!(
+            two.more,
+            [Place::Locus(Region::parse("chr2:1-1000").unwrap())]
+        );
+    }
+
+    /// Several places are one panel each, in the order written, whichever
+    /// way each is written; a place written wrong is refused as the first
+    /// one is.
+    #[test]
+    fn several_places_are_kept_in_the_order_they_are_written() {
+        let three = draw("rpoB katG chr1:1-100 reads.bam genes.gff3");
+        assert_eq!(three.named.as_deref(), Some("rpoB"));
+        assert_eq!(
+            three.more,
+            [
+                Place::Named("katG".to_string()),
+                Place::Locus(Region::parse("chr1:1-100").unwrap())
+            ]
+        );
+        assert_eq!(three.tracks.len(), 2);
+        let error = parse(&args("rpoB chr1:0-100 reads.bam")).unwrap_err();
+        assert!(matches!(error, ArgError::BadRegion(_)), "{error:?}");
+        let error = parse(&args("rpoB chr1:5000 reads.bam")).unwrap_err();
+        assert!(matches!(error, ArgError::OnePosition { .. }), "{error:?}");
+    }
+
+    /// A scan read on its own is drawn across the whole genome, and needs no
+    /// place; one read against linkage or a recombination map is read over a
+    /// region, and does. What goes without a place is said from the tracks.
+    #[test]
+    fn a_scan_alone_is_drawn_across_the_genome() {
+        let scan = draw("gwas.assoc");
+        assert!(scan.genome_wide(), "{scan:?}");
+        let two = draw("--manhattan a.assoc --manhattan b.assoc --threshold genome-wide");
+        assert!(two.genome_wide());
+        assert!(!draw("1 gwas.assoc").genome_wide());
+        for line in [
+            "gwas.assoc --ld lead.ld",
+            "gwas.assoc --with-recombination map.txt",
+            "gwas.assoc d.bg",
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(matches!(error, ArgError::NoRegion), "{line}: {error:?}");
+            let said = error.to_string();
+            for alone in [
+                "--tree",
+                "--msa",
+                "--frequencies",
+                "--squiggle",
+                "whole genome",
+            ] {
+                assert!(said.contains(alone), "{alone} not in: {said}");
+            }
+        }
     }
 
     /// The grammar gives one path per flag, and a tanglegram is two trees. The
@@ -4650,9 +4757,9 @@ mod tests {
             let error = parse(&args(&format!("{bad} --coverage d.bg"))).unwrap_err();
             assert!(matches!(error, ArgError::BadRegion(_)), "{bad}: {error:?}");
         }
-        // Two places are one too many, whichever way each is written.
-        let error = parse(&args("rpoB katG reads.bam")).unwrap_err();
-        assert!(matches!(error, ArgError::ExtraRegion(_)), "{error:?}");
+        // Two places are two panels, whichever way each is written.
+        let two = draw("rpoB katG reads.bam");
+        assert_eq!(two.more, [Place::Named("katG".to_string())]);
         // No place at all, and a track that is drawn in one.
         let error = parse(&args("reads.bam genes.gff3")).unwrap_err();
         assert!(matches!(error, ArgError::NoRegion), "{error:?}");
@@ -4667,7 +4774,7 @@ mod tests {
     #[test]
     fn a_missing_region_is_its_own_message() {
         let err = parse(&args("--coverage d.bg")).unwrap_err();
-        assert!(err.to_string().contains("the first argument is the region"));
+        assert!(err.to_string().contains("the first argument is the place"));
     }
 
     /// A tree is not drawn in a window, and a command line of trees was made

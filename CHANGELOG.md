@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A second place on the command line is a panel of its own, where it was
+  refused as "one region per figure"; `ArgError::ExtraRegion` is gone.
+- The message for a figure with no place names every track that goes
+  without one, worked out from the tracks: it named five, and four more had
+  gone without one since the tables over time and over sites came in.
+
 - `Traits::spread` is `Traits::strips`, which says what it draws; to an R
   user `spread` read as tidyr's pivot.
 - A column's stretch of the palette, and whether it is drawn as shapes, are
@@ -303,6 +309,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A scan with no place is drawn across the whole genome: `karyon trait.assoc`
+  lays every sequence the `--manhattan` tables name end to end, in the order
+  chromosomes are counted (the numbered ones, X, Y, the mitochondrion, then
+  the rest), each as long as its furthest marker, in the alternating shades a
+  genome-wide plot is read by and named under the scan. It was refused for
+  having no region. `read::point::genome_associations` reads every row of a
+  table in one pass, and `Invocation::genome_wide` says when a command line
+  is one.
+- Several places draw one panel each: `karyon rpoB katG inhA reads.bam
+  genes.gff3` draws the same tracks over each, one under the other with their
+  plotting areas aligned, the title over the whole figure and the key once
+  under it. A track with nothing in one place says so there, as `no variants
+  here`, rather than refusing the figure; a figure of that place alone is
+  still refused. `Invocation::more` and `Place` carry the places after the
+  first, `stack::build_sheet` builds the sheet, and the site and the
+  playground draw such a command whole.
+- The Your data scan page draws every chromosome of a twelve-chromosome
+  example, `trait.assoc`, which `examples.zip` holds too, and the reads page
+  says how to draw two genes at once.
 - `plot_alignment(rows)` plots a multiple sequence alignment over its columns,
   as many as its longest row, with the ruler counting them and no locus to
   work out and hide.

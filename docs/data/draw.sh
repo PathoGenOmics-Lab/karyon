@@ -21,6 +21,7 @@ draw() {
 }
 draw reads rpoB reads.bam genes.gff3 calls.vcf.gz
 draw scan 1 gwas.assoc --threshold genome-wide
+draw genome-scan trait.assoc --threshold genome-wide
 draw tree tree.nwk --traits samples.tsv --columns lineage,country
 draw alignment --msa aln.fasta --with-tree tree.nwk
 draw assemblies asm1_chr1 assemblies.paf
