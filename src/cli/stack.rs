@@ -650,17 +650,17 @@ pub fn build_files(
         };
         plot = plot.add_boxed(built);
     }
+    // After the ruler, which closing the plot puts in, so the key is not taken
+    // for a track measured against it.
+    let mut figure = plot.into_figure();
     if let Some(counting) = counting.as_ref().filter(|_| invocation.axis) {
-        plot = plot.add_track(
+        figure = figure.push_ruler(
             crate::AxisTrack::new()
                 .counting()
                 .decimals(counting.decimals)
                 .label(&counting.unit),
         );
     }
-    // After the ruler, which closing the plot puts in, so the key is not taken
-    // for a track measured against it.
-    let mut figure = plot.into_figure();
     // What the tracks need explained at the zoom the figure is drawn at, as
     // the colours of bases too narrow for their letters.
     let key = figure.key();
@@ -5492,6 +5492,21 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.contains("no support is drawn"), "{svg}");
         let (_, notes) = drawn_noting("--tree t.nwk --threshold 0.7 --support-style labels", &held);
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// The ruler of columns an alignment is read against goes under it, and a
+    /// tree below the alignment stays below the ruler, which does not measure
+    /// it.
+    #[test]
+    fn the_ruler_of_columns_goes_under_the_alignment_and_not_under_a_tree() {
+        let held = [("aln.fa", ALIGNMENT), ("t.nwk", ROWS_TREE)];
+        let (svg, _) = drawn_noting("--msa aln.fa --tree t.nwk", &held);
+        let svg = svg.unwrap();
+        assert!(
+            svg.contains("drawn top to bottom: aln, column and a phylogeny"),
+            "{}",
+            &svg[svg.find("<desc").unwrap_or(0)..][..200]
+        );
     }
 
     /// Four rows of eight columns, and a tree of the same four samples in
