@@ -38,39 +38,84 @@ use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
-/// One sequenced molecule and what it said at each site.
+/// One sequenced molecule and what it said at each site it covered.
+///
+/// Only the sites it covered are kept, each by its index in the track's list
+/// of sites. A read covers a few dozen sites of a window of tens of thousands,
+/// and a call kept for every site of the window, covered or not, made a
+/// figure of twenty thousand molecules over thirty thousand sites peak at
+/// 707 MB, where it takes 56.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Molecule {
     /// Read or clone name, drawn beside the row.
     pub name: String,
-    /// One call per site, in the same order as the sites. `None` is a site the
-    /// molecule did not cover, which is not the same as an unmethylated call.
-    pub calls: Vec<Option<bool>>,
+    /// The sites it covered, by index, each with its call, in order of index.
+    /// A site with no entry is one it did not cover, which is not the same as
+    /// an unmethylated call.
+    calls: Vec<(u32, bool)>,
 }
 
 impl Molecule {
-    /// A molecule named `name`.
+    /// A molecule named `name`, from one call per site in the order of the
+    /// sites, where `None` is a site it did not cover.
     pub fn new(name: impl Into<String>, calls: impl Into<Vec<Option<bool>>>) -> Self {
+        Molecule::covering(
+            name,
+            calls
+                .into()
+                .into_iter()
+                .enumerate()
+                .filter_map(|(site, call)| Some((site, call?))),
+        )
+    }
+
+    /// A molecule from only the sites it covered, each by its index in the
+    /// track's list of sites. Given twice, a site keeps its last call.
+    pub fn covering(
+        name: impl Into<String>,
+        calls: impl IntoIterator<Item = (usize, bool)>,
+    ) -> Self {
+        let mut calls: Vec<(u32, bool)> = calls
+            .into_iter()
+            .filter_map(|(site, call)| Some((u32::try_from(site).ok()?, call)))
+            .collect();
+        // Stable, so of two calls at one site the one given last comes last
+        // and is the one kept.
+        calls.sort_by_key(|(site, _)| *site);
+        calls.reverse();
+        calls.dedup_by_key(|(site, _)| *site);
+        calls.reverse();
         Molecule {
             name: name.into(),
-            calls: calls.into(),
+            calls,
         }
     }
 
-    /// What this molecule said at one site.
+    /// What this molecule said at one site, or `None` where it did not cover it.
     pub fn call(&self, site: usize) -> Option<bool> {
-        self.calls.get(site).copied().flatten()
+        let site = u32::try_from(site).ok()?;
+        self.calls
+            .binary_search_by_key(&site, |(at, _)| *at)
+            .ok()
+            .map(|at| self.calls[at].1)
+    }
+
+    /// The sites it covered, by index, each with its call, in order.
+    pub fn calls(&self) -> impl Iterator<Item = (usize, bool)> + '_ {
+        self.calls
+            .iter()
+            .map(|(site, call)| (*site as usize, *call))
+    }
+
+    /// Leaves out the call at `site`, as a site two mates disagree on is.
+    pub fn uncover(&mut self, site: usize) {
+        self.calls.retain(|(at, _)| *at as usize != site);
     }
 
     /// How many sites it covered, and how many of those were modified.
     pub fn covered(&self) -> (usize, usize) {
-        let covered = self.calls.iter().filter(|call| call.is_some()).count();
-        let modified = self
-            .calls
-            .iter()
-            .filter(|call| **call == Some(true))
-            .count();
-        (covered, modified)
+        let modified = self.calls.iter().filter(|(_, call)| *call).count();
+        (self.calls.len(), modified)
     }
 
     /// The share of its covered sites that were modified.
@@ -447,6 +492,22 @@ mod tests {
         assert_eq!(molecule.fraction(), Some(0.5));
     }
 
+    /// Built from the sites it covered alone, in any order, a molecule holds
+    /// them in order, and a site given twice keeps the call given last.
+    #[test]
+    fn a_molecule_from_its_covered_sites_keeps_the_last_call_at_each() {
+        let molecule = Molecule::covering("r", [(7, true), (2, false), (7, false), (4, true)]);
+        assert_eq!(
+            molecule.calls().collect::<Vec<_>>(),
+            vec![(2, false), (4, true), (7, false)]
+        );
+        assert_eq!(molecule.call(7), Some(false));
+        assert_eq!(molecule.call(3), None, "not covered");
+        let mut uncovered = molecule.clone();
+        uncovered.uncover(4);
+        assert_eq!(uncovered.covered(), (2, 0));
+    }
+
     #[test]
     fn a_molecule_covering_nothing_has_no_fraction() {
         // Nothing over nothing is not zero.
@@ -509,7 +570,7 @@ mod tests {
         let gapped: Vec<Molecule> = stripes()
             .into_iter()
             .map(|mut molecule| {
-                molecule.calls[1] = None;
+                molecule.uncover(1);
                 molecule
             })
             .collect();
@@ -597,7 +658,7 @@ mod tests {
         let gapped: Vec<Molecule> = stripes()
             .into_iter()
             .map(|mut molecule| {
-                molecule.calls[1] = None;
+                molecule.uncover(1);
                 molecule
             })
             .collect();

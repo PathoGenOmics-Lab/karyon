@@ -67,7 +67,9 @@ When a pixel covers many bases, the aggregate is a claim about what you are look
 
 The ceiling moves with the view unless it is pinned, so pin `max` whenever two samples sit side by side, or the eye reads two scales as one. `log_scale` is the other way to fit a thousandfold range into one band.
 
-`CoverageTrack::new` draws only the values it holds: bases outside them are not drawn, and non-finite values are missing, so a gap in the input stays a gap. `from_spans` and `from_pairs` fill a buffer that spans the region, not the genome, and leave every base they are not given at nought, which is what a bedGraph means by leaving it out. The command line reads the same way.
+`CoverageTrack::new` draws only the values it holds: bases outside them are not drawn, and non-finite values are missing, so a gap in the input stays a gap. `from_spans` and `from_pairs` span the region, not the genome, and leave every base they are not given at nought, which is what a bedGraph means by leaving it out. The command line reads the same way.
+
+A profile is kept as runs of bases holding one value, so what it costs follows how often the value changes, not how long the region is. A bedGraph of windows over 200 Mb is a few thousand runs: a value per base made it 1.6 GB, and it now takes 4 MB. A per-base depth file changes value at almost every base and costs what it did.
 
 The profile rises from the floor of the band, which says that zero is the bottom. That is true of read depth and false of a signed or centred statistic: a number that can fall below its baseline belongs in a [WindowTrack](#windowtrack).
 
