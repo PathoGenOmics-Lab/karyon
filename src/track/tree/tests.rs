@@ -2615,3 +2615,113 @@ fn a_ring_heading_is_not_drawn_in_a_colour_of_the_key() {
         }
     }
 }
+
+/// Six tips, each with a lineage, a country and a host of its own.
+fn sampled() -> Tree {
+    Tree::parse_annotated_newick(
+        "(((A[&lineage=L1,country=India,host=cow]:1,B[&lineage=L2,country=Peru,host=pig]:1):1,\
+         (C[&lineage=L3,country=Chile,host=cat]:1,D[&lineage=L1,country=India,host=cow]:1):1):1,\
+         (E[&lineage=L2,country=Peru,host=pig]:1,F[&lineage=L3,country=Chile,host=cat]:1):1);",
+    )
+    .unwrap()
+}
+
+#[test]
+fn two_columns_of_words_on_a_tree_do_not_share_a_colour() {
+    // Both columns started at the palette's first colour, so L1 was India,
+    // L2 was Peru and L3 was Chile, in the strips and in the key.
+    let tips = ["A", "B", "C", "D", "E", "F"];
+    let cells = |svg: &str, key: &str| -> BTreeSet<String> {
+        let tree = sampled();
+        tips.iter()
+            .map(|tip| {
+                let node = tree.node_named(tip).unwrap();
+                let value = tree.annotation(node, key).unwrap().to_string();
+                painted_under(svg, &format!("{tip}; {key} {value}"))[0].clone()
+            })
+            .collect()
+    };
+    for track in [
+        TreeTrack::new(sampled()),
+        TreeTrack::new(sampled()).circular(),
+        TreeTrack::new(sampled()).unrooted(),
+    ] {
+        let svg = drawn(
+            track
+                .clone()
+                .trait_categorical("lineage")
+                .trait_categorical("country"),
+        );
+        let (lineage, country) = (cells(&svg, "lineage"), cells(&svg, "country"));
+        assert_eq!((lineage.len(), country.len()), (3, 3));
+        assert!(lineage.is_disjoint(&country), "{lineage:?} {country:?}");
+        assert!(lineage.contains(&colour(0)) && country.contains(&colour(3)));
+
+        // Branches coloured by a key no column shows take a stretch too.
+        let svg = drawn(track.color_by("host").trait_categorical("lineage"));
+        let branches: BTreeSet<String> = ["host cow", "host pig", "host cat"]
+            .iter()
+            .flat_map(|title| painted_under(&svg, title))
+            .collect();
+        let lineage = cells(&svg, "lineage");
+        assert!(branches.is_disjoint(&lineage), "{branches:?} {lineage:?}");
+    }
+    // A column that chose where it starts keeps it, as a sheet's does.
+    let svg = drawn(
+        TreeTrack::new(sampled())
+            .trait_categorical("lineage")
+            .trait_column(TraitColumn::categorical("country").first_color(0)),
+    );
+    assert!(cells(&svg, "country").contains(&colour(0)));
+}
+
+#[test]
+fn a_strip_with_more_levels_than_colours_is_drawn_as_symbols() {
+    use crate::track::legend::{LegendItem, Marker};
+    // Eight countries and six colours: the seventh and eighth were painted as
+    // the first and second, in the strip and in its key.
+    let tree = Tree::parse_annotated_newick(
+        "((((T1[&c=a]:1,T2[&c=b]:1):1,(T3[&c=c]:1,T4[&c=d]:1):1):1,\
+         ((T5[&c=e]:1,T6[&c=f]:1):1,(T7[&c=g]:1,T8[&c=h]:1):1):1):1);",
+    )
+    .unwrap();
+    for track in [
+        TreeTrack::new(tree.clone()),
+        TreeTrack::new(tree.clone()).circular(),
+        TreeTrack::new(tree.clone()).unrooted(),
+    ] {
+        let track = track.trait_categorical("c");
+        let legend = track.legend(&Theme::light());
+        let svg = drawn(track);
+        let mut marks = BTreeSet::new();
+        for (tip, level) in ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
+            .iter()
+            .zip(["a", "b", "c", "d", "e", "f", "g", "h"])
+        {
+            let (shape, fill) = marks_under(&svg, &format!("{tip}; c {level}"))
+                .pop()
+                .expect("a mark");
+            marks.insert((format!("{shape:?}"), fill));
+        }
+        assert_eq!(marks.len(), 8, "{marks:?}");
+        assert_eq!(legend.len(), 8);
+        assert!(legend.items().iter().all(|item| matches!(
+            item,
+            LegendItem::Key {
+                marker: Marker::Symbol(_),
+                ..
+            }
+        )));
+    }
+    // Six fit the palette, and stay a strip.
+    let six = Tree::parse_annotated_newick(
+        "(((T1[&c=a]:1,T2[&c=b]:1):1,(T3[&c=c]:1,T4[&c=d]:1):1):1,(T5[&c=e]:1,T6[&c=f]:1):1);",
+    )
+    .unwrap();
+    let svg = drawn(TreeTrack::new(six).trait_categorical("c"));
+    assert_eq!(
+        marks_under(&svg, "T6; c f").pop().map(|(shape, _)| shape),
+        Some(crate::style::Symbol::Square),
+        "a filled cell"
+    );
+}

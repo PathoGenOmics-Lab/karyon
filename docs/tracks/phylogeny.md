@@ -126,7 +126,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | Method | What it does | Default |
 |:--|:--|:--|
 | `.trait_column(TraitColumn::continuous("depth"))` | Adds one metadata column beside the tips, or a ring around them (`--traits`, `--columns`) | none |
-| `.trait_categorical("country")` | A categorical column | none |
+| `.trait_categorical("country")` | A categorical column, with a stretch of the palette of its own; one with more levels than colours is drawn as symbols | none |
 | `.trait_continuous("depth")` | A continuous column | none |
 | `.trait_bar("depth")` | A bar column, or radial bars | none |
 | `.trait_binary("resistant")` | A presence and absence column | none |

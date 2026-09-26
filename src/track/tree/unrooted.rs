@@ -809,7 +809,8 @@ pub(super) fn draw_unrooted_trait_rings(
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.branch_radius + gap;
     let step = std::f64::consts::TAU / scene.terminals.len() as f64;
-    for column in &track.trait_columns {
+    let dealing = track.dealing();
+    for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
@@ -818,7 +819,7 @@ pub(super) fn draw_unrooted_trait_rings(
             .collect();
         // The whole tree's count, the one every colour of this key comes
         // from. See `tree_domain`.
-        let domain = tree_domain(&track.tree, &column.key, column.dealt());
+        let domain = tree_domain(&track.tree, &column.key, *dealt);
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]
                 .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);

@@ -727,26 +727,6 @@ pub fn draw_tree(
     );
 }
 
-/// One annotation's entries in a tree's key, from the whole tree's count.
-///
-/// A ramp is labelled with the two ends of the range it runs over, and a
-/// continuous annotation with no number anywhere has no range and is left
-/// out rather than keyed from the placeholder the empty count starts at.
-#[allow(clippy::too_many_arguments)]
-fn key_of(
-    legend: crate::track::legend::Legend,
-    label: &str,
-    scale: TraitScale,
-    style: TraitStyle,
-    tree: &Tree,
-    key: &str,
-    levels: Dealt<'_>,
-    theme: &Theme,
-) -> crate::track::legend::Legend {
-    let domain = rectangular::tree_domain(tree, key, levels);
-    crate::track::traits::key_entries(legend, label, scale, style, &domain, theme)
-}
-
 /// The same drawing, with the branches named.
 ///
 /// An internal node's riser always carries its support, since there is nothing
@@ -1755,11 +1735,13 @@ impl TreeTrack {
     pub fn strips(&self, theme: &Theme) -> Vec<crate::TraitStrip> {
         const BANDS: usize = 16;
         let nodes = self.tree.nodes().len();
+        let dealing = self.dealing();
         self.trait_columns
             .iter()
-            .map(|column| {
+            .zip(dealing.columns)
+            .map(|(column, dealt)| {
                 let values = rectangular::branch_values(&self.tree, &column.key);
-                let domain = rectangular::tree_domain(&self.tree, &column.key, column.dealt());
+                let domain = rectangular::tree_domain(&self.tree, &column.key, dealt);
                 let mut levels: Vec<crate::TraitLevel> = Vec::new();
                 let mut of: Vec<Option<usize>> = vec![None; nodes];
                 match column.scale {
@@ -1834,6 +1816,7 @@ impl TreeTrack {
         let marks = |key: &'_ str, scale: TraitScale, style: TraitStyle| {
             (key.to_string(), scale, style == TraitStyle::Binary)
         };
+        let dealing = self.dealing();
         let mut legend = crate::track::legend::Legend::new();
         let mut keyed = Vec::new();
         if let Some(key) = &self.color_by {
@@ -1851,32 +1834,30 @@ impl TreeTrack {
                     == marks(key, scale, TraitStyle::Strip)
             });
             if !covered {
-                legend = key_of(
+                let domain = rectangular::tree_domain(&self.tree, key, dealing.branches);
+                legend = crate::track::traits::key_entries(
                     legend,
                     key,
                     scale,
                     TraitStyle::Strip,
-                    &self.tree,
-                    key,
-                    self.color_levels(),
+                    &domain,
                     theme,
                 );
                 keyed.push(marks(key, scale, TraitStyle::Strip));
             }
         }
-        for column in &self.trait_columns {
+        for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
             let these = marks(&column.key, column.scale, column.style);
             if keyed.contains(&these) {
                 continue;
             }
-            legend = key_of(
+            let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
+            legend = crate::track::traits::key_entries(
                 legend,
                 &column.label,
                 column.scale,
-                column.style,
-                &self.tree,
-                &column.key,
-                column.dealt(),
+                column.drawn_style(&domain, theme),
+                &domain,
                 theme,
             );
             keyed.push(these);
@@ -1884,18 +1865,75 @@ impl TreeTrack {
         legend
     }
 
-    /// The order the branch colour key's levels are dealt the palette in: the
-    /// one a trait column over the same key carries from its sheet, so the
-    /// branches and the strip beside them agree, and otherwise none.
+    /// How the branch colour key deals the palette: as a trait column over
+    /// the same key does, so the branches and the strip beside them agree,
+    /// and otherwise from a stretch of its own.
     fn color_levels(&self) -> Dealt<'_> {
-        self.color_by
-            .as_deref()
-            .and_then(|key| {
-                self.trait_columns
-                    .iter()
-                    .find(|column| column.key == key && column.scale == TraitScale::Categorical)
+        self.dealing().branches
+    }
+
+    /// How each trait column deals the palette, in the order of the columns,
+    /// and how the branch key does.
+    ///
+    /// A column given a start of its own keeps it, as every column from a
+    /// sample sheet does. The others, and the branch key where no column
+    /// covers it, take one stretch of the palette each, in the order they
+    /// were asked for, the way a sheet deals its columns: two strips of words
+    /// both started at the palette's first colour, so each lineage was also a
+    /// country. A key some column chose a start for starts there in every
+    /// column over it.
+    fn dealing(&self) -> Dealing<'_> {
+        let worded = |column: &TraitColumn| {
+            column.scale == TraitScale::Categorical && column.style != TraitStyle::Binary
+        };
+        let covering = |key: &str| {
+            self.trait_columns
+                .iter()
+                .position(|column| column.key == key && column.scale == TraitScale::Categorical)
+        };
+        let branch_key = self.color_by.as_deref().filter(|key| {
+            covering(key).is_none()
+                && !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key))
+        });
+        let mut order: Vec<&str> = branch_key.into_iter().collect();
+        for column in self.trait_columns.iter().filter(|column| worded(column)) {
+            if !order.contains(&column.key.as_str()) {
+                order.push(&column.key);
+            }
+        }
+        let stride = (crate::track::traits::STRIP_LEVELS / order.len().max(1)).max(1);
+        let start = |key: &str| {
+            self.trait_columns
+                .iter()
+                .filter(|column| column.key == key)
+                .find_map(|column| column.first)
+                .or_else(|| {
+                    order
+                        .iter()
+                        .position(|named| *named == key)
+                        .map(|place| place * stride)
+                })
+                .unwrap_or(0)
+        };
+        let columns: Vec<Dealt<'_>> = self
+            .trait_columns
+            .iter()
+            .map(|column| Dealt {
+                levels: &column.levels,
+                first: start(&column.key),
             })
-            .map_or(Dealt::default(), TraitColumn::dealt)
+            .collect();
+        let branches = match self.color_by.as_deref() {
+            Some(key) => match covering(key) {
+                Some(index) => columns[index],
+                None => Dealt {
+                    levels: &[],
+                    first: start(key),
+                },
+            },
+            None => Dealt::default(),
+        };
+        Dealing { columns, branches }
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
@@ -2184,6 +2222,7 @@ impl TreeTrack {
             area,
             tips + glyph_x,
             &self.trait_columns,
+            &self.dealing().columns,
             self.row_height,
         );
         if let Some(time) = time.as_ref().filter(|time| time.show_axis) {
@@ -2194,6 +2233,14 @@ impl TreeTrack {
         }
         draw_annotation_legend(self, ctx);
     }
+}
+
+/// How a tree's colour keys deal the palette, worked out once a drawing.
+struct Dealing<'a> {
+    /// One for each trait column, in their order.
+    columns: Vec<Dealt<'a>>,
+    /// The key the branches are coloured by.
+    branches: Dealt<'a>,
 }
 
 impl Track for TreeTrack {

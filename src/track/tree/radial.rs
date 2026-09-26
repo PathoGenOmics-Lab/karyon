@@ -588,8 +588,9 @@ pub(super) fn draw_trait_sector(
     let thickness = (outer - inner).max(0.0);
     let arc_room = middle_radius * (end - start).abs();
     let marker_radius = (thickness.min(arc_room) * 0.28).clamp(1.4, 5.5);
+    let style = column.drawn_style(domain, ctx.theme);
     ctx.svg.begin_titled(title);
-    match column.style {
+    match style {
         TraitStyle::Strip => {
             if let Some(fill) = &fill {
                 ctx.svg.path(&path, fill, 1.0);
@@ -648,7 +649,7 @@ pub(super) fn draw_trait_sector(
             }
         }
     }
-    if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+    if column.show_values && matches!(style, TraitStyle::Strip | TraitStyle::Bar) {
         let text = value
             .map(ToString::to_string)
             .unwrap_or_else(|| crate::tree::ABSENT.to_string());
@@ -682,7 +683,8 @@ pub(super) fn draw_trait_rings(
     }
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.tree_outer + gap;
-    for column in &track.trait_columns {
+    let dealing = track.dealing();
+    for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
@@ -691,7 +693,7 @@ pub(super) fn draw_trait_rings(
             .collect();
         // The whole tree's count, the one every colour of this key comes
         // from. See `tree_domain`.
-        let domain = tree_domain(&track.tree, &column.key, column.dealt());
+        let domain = tree_domain(&track.tree, &column.key, *dealt);
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };

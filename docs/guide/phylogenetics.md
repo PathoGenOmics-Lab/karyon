@@ -261,7 +261,10 @@ stays an outline in every mark. `width` sizes a column and `ring_width` a ring,
 2 to 24 pixels; `trait_categorical`, `trait_bar` and their siblings on
 `TreeTrack` add columns with their defaults. `--traits` picks the mark from the
 values: numbers get a ramp, more than six levels get symbols, anything else a
-colour strip.
+colour strip. A strip whose levels outnumber the palette's colours is drawn as
+symbols however it was built, and each column of words on a tree takes its own
+stretch of the palette, as a sheet's columns do, so a lineage and a country are
+never one colour while each fits its stretch.
 
 ## Choose a tree geometry
 

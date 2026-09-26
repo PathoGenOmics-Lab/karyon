@@ -591,6 +591,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- The columns of words on a phylogeny each take a stretch of the palette, as
+  a sheet's columns do. Two strips added with `trait_categorical` both started
+  at the palette's first colour, so each lineage was also a country. A column
+  that chose its start with `first_color`, as every column from a sheet does,
+  keeps it, and branches coloured by a key no column shows take a stretch of
+  their own.
+- A strip of words with more levels than the palette has colours is drawn as
+  symbols, beside a tree or any other track, and keyed with them. Drawn as
+  asked, a column of seven countries painted two of them one colour; only
+  `Traits::spread` chose symbols for such a column.
 - A key draws each level the way its column draws it. A symbol column was
   keyed as boxes, so two levels sharing a colour were two entries nobody could
   tell apart, and a binary column was keyed in two palette colours neither of
