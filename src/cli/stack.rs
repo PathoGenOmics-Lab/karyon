@@ -488,6 +488,8 @@ pub fn build_files(
     files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
+    let mut kept = KeptStdin { files, stdin: None };
+    let files: &mut dyn Files = &mut kept;
     // A figure of phylogenies and variable-site panels names no region, and
     // none of its tracks asks the window anything. The figure still wants
     // one to lay its width out over, so it is given one that nothing prints:
@@ -1276,26 +1278,7 @@ fn own_place(
             continue;
         };
         // Read twice, here for its extent and then for its rows, which a
-        // pipe cannot be.
-        if matches!(source, Source::Stdin) {
-            let (what, example, needed) = match spec.kind {
-                Kind::Msa | Kind::Logo => ("an alignment", "aln:1-1,000", "its width"),
-                Kind::Selection => ("a table of sites", "site:1-300", "its first and last sites"),
-                Kind::Squiggle => ("a signal", "sample:1-4,000", "its length"),
-                _ => ("a table of times", "week:1-52", "its first and last times"),
-            };
-            return Err(BuildError::Open {
-                track: name,
-                path: called(source),
-                cause: io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "{what} read from standard input needs a place, as {example}, \
-                         since a pipe can be read only once and {needed} is needed first"
-                    ),
-                ),
-            });
-        }
+        // pipe can be only because `build_files` keeps what it gave.
         let (text, path) = fetch(name, source, files)?;
         let (unit, start, end) = match spec.kind {
             Kind::Msa | Kind::Logo => {
@@ -1430,10 +1413,7 @@ fn time_decimals(invocation: &Invocation, files: &mut dyn Files) -> u32 {
         .tracks
         .iter()
         .filter(|spec| matches!(spec.kind, Kind::Frequencies | Kind::Phylodynamics))
-        .filter_map(|spec| match &spec.source {
-            Some(source @ Source::Path(_)) => Some(source),
-            _ => None,
-        })
+        .filter_map(|spec| spec.source.as_ref())
         .any(|source| {
             files
                 .text(source)
@@ -1636,14 +1616,64 @@ impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
     }
 }
 
+/// The files a figure is drawn from, with what standard input held kept once
+/// it is read.
+///
+/// A figure reads some sources twice: an alignment, a table over time or a
+/// signal for its extent and then for its rows, and every table of times to
+/// see whether any of them has fractions. A pipe can be read once, so what it
+/// gave is kept here, whatever the files underneath keep, and a table piped in
+/// is its own place as it is from a file. It was refused, and a table with
+/// fractions piped into a figure of whole units was refused too.
+struct KeptStdin<'a> {
+    files: &'a mut dyn Files,
+    stdin: Option<String>,
+}
+
+impl Files for KeptStdin<'_> {
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        if !matches!(source, Source::Stdin) {
+            return self.files.text(source);
+        }
+        if let Some(text) = &self.stdin {
+            return Ok(text.clone());
+        }
+        let text = self.files.text(source)?;
+        self.stdin = Some(text.clone());
+        Ok(text)
+    }
+
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        self.files.depth(source, region)
+    }
+
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        self.files.reads(source, region)
+    }
+
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        self.files.sequences(source)
+    }
+
+    fn note(&mut self, message: &str) {
+        self.files.note(message);
+    }
+}
+
 /// The files a command line names, read from disk.
 ///
 /// Text is read whole, and compressed text is taken out of its wrapper, by
 /// [`open_from_disk`]. A BAM is read a window at a time, through the `.bai`
 /// beside it where there is one, so a figure of one gene reads the blocks that
-/// gene is in. Every source is read once and kept, since placing a figure by a
-/// gene's name reads the annotation before the track does, and standard input
-/// cannot be read twice.
+/// gene is in.
+///
+/// A pipe the shell named, as `<(zcat genes.gff3.gz)`, cannot be read twice,
+/// so it is kept once read, since placing a figure by a gene's name reads the
+/// annotation before the track does. Standard input is read once and kept by
+/// [`build_files`], which every figure is drawn through. A file on disk is
+/// read again instead: kept, every file was held twice while its track was
+/// built, once here and once in the text handed out, and a depth file of
+/// 176 MB took 435 MB to draw where it now takes 259.
 #[derive(Debug, Default)]
 pub struct Disk {
     kept: std::collections::HashMap<Source, String>,
@@ -1682,7 +1712,11 @@ impl Files for Disk {
             return Ok(text.clone());
         }
         let text = open_from_disk(source)?;
-        self.kept.insert(source.clone(), text.clone());
+        if let Source::Path(path) = source {
+            if !fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
+                self.kept.insert(source.clone(), text.clone());
+            }
+        }
         Ok(text)
     }
 
@@ -3411,7 +3445,6 @@ fn track(
             Box::new(named(track, label, PileupTrack::label))
         }
         Kind::Frequencies => {
-            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
             let (counts, _) = wrap(name, &path, read::series::counts(&text, context.decimals))?;
             let mut track = SurveillanceTrack::new(counts).time_decimals(context.decimals);
             if let Some(style) = spec.style.and_then(Style::frequencies) {
@@ -3423,7 +3456,6 @@ fn track(
             Box::new(named(track, label, SurveillanceTrack::label))
         }
         Kind::Phylodynamics => {
-            refuse_unseen_fractions(spec, name, &path, &text, context.decimals)?;
             let (points, _) = wrap(
                 name,
                 &path,
@@ -3541,33 +3573,6 @@ fn lead_linkage(
         .collect();
     linkage.push((lead, 1.0));
     Some((lead, linkage))
-}
-
-/// Refuses a table on standard input whose times have fractions in a figure
-/// of whole units: the figure settles its units by looking at every table's
-/// times before it draws any, and a pipe is not looked at twice.
-fn refuse_unseen_fractions(
-    spec: &TrackSpec,
-    name: &'static str,
-    path: &str,
-    text: &str,
-    decimals: u32,
-) -> Result<(), BuildError> {
-    if decimals == 0
-        && matches!(spec.source, Some(Source::Stdin))
-        && read::series::fractional_times(text)
-    {
-        return Err(BuildError::Parse {
-            track: name,
-            path: path.to_string(),
-            cause: read::ReadError::whole(
-                "times with fractions of a unit are read from a file, not from standard \
-                 input: the figure looks at every table's times before it draws any, and \
-                 a pipe is read once",
-            ),
-        });
-    }
-    Ok(())
 }
 
 /// Wraps a reader error with the flag and the file that produced it.
@@ -3938,6 +3943,22 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let path = std::env::temp_dir().join(format!("karyon-{}-{}", std::process::id(), name));
         fs::write(&path, text).unwrap();
         path.display().to_string()
+    }
+
+    /// A file on disk is read again rather than kept, so it is not held twice
+    /// while its track is built. What cannot be read again, a pipe or a
+    /// device, is kept once read.
+    #[test]
+    fn a_file_on_disk_is_read_again_and_a_pipe_is_kept() {
+        let path = written("again.bed", "chr1\t0\t10\n");
+        let mut disk = Disk::default();
+        let file = Source::Path(path.clone().into());
+        assert_eq!(disk.text(&file).unwrap(), "chr1\t0\t10\n");
+        assert!(disk.kept.is_empty(), "a file on disk was kept");
+        fs::remove_file(&path).unwrap();
+        let device = Source::Path("/dev/null".into());
+        assert_eq!(disk.text(&device).unwrap(), "");
+        assert!(disk.kept.contains_key(&device), "a device was not kept");
     }
 
     /// A dynseq draws letters from a reference, and the reference has to be the
@@ -5434,6 +5455,48 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         })
     }
 
+    /// Standard input as a pipe gives it: once, and nothing the second time.
+    struct Piped {
+        text: Option<String>,
+        files: Vec<(String, String)>,
+    }
+
+    impl Files for Piped {
+        fn text(&mut self, source: &Source) -> io::Result<String> {
+            match source {
+                Source::Stdin => self
+                    .text
+                    .take()
+                    .ok_or_else(|| io::Error::other("standard input was read twice")),
+                Source::Path(path) => {
+                    let path = path.to_string_lossy();
+                    self.files
+                        .iter()
+                        .find(|(name, _)| *name == path)
+                        .map(|(_, text)| text.clone())
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_string()))
+                }
+            }
+        }
+    }
+
+    /// The figure `line` draws with `piped` on standard input and `held` as
+    /// its files.
+    fn drawn_piped(line: &str, piped: &str, held: &[(&str, &str)]) -> Result<String, BuildError> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let mut files = Piped {
+            text: Some(piped.to_string()),
+            files: held
+                .iter()
+                .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+                .collect(),
+        };
+        build_files(&invocation, &mut files, |_, _| None)
+    }
+
     /// Files held in memory, and what the figure told whoever drew it.
     struct Held {
         files: Vec<(String, String)>,
@@ -5544,17 +5607,11 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         // The same as naming the columns by hand.
         let (named, _) = drawn_noting("aln.fa:1-8 --msa aln.fa", &held);
         assert_eq!(svg, named.unwrap());
-        // A pipe can be read once, and the width is needed before the rows.
-        let args: Vec<String> = "--msa -".split_whitespace().map(String::from).collect();
-        let Request::Draw(invocation) = parse(&args).unwrap() else {
-            unreachable!("a figure")
-        };
-        let mut files = Held {
-            files: Vec::new(),
-            notes: Vec::new(),
-        };
-        let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
-        assert!(error.to_string().contains("needs a place"), "{error}");
+        // A pipe is read once, and its width is needed before its rows, so
+        // the figure keeps what it read.
+        let piped = drawn_piped("--msa -", ALIGNMENT, &[]).unwrap();
+        assert_eq!(rows_drawn(&piped), ["one", "two", "three", "four"]);
+        assert!(piped.contains(":1-8"), "the columns as the place");
     }
 
     const COUNTS: &str = "week\tlineage\tcount\ttotal\n1\tA\t9\t10\n1\tB\t1\t10\n\
@@ -5607,26 +5664,23 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(!mixed.unwrap().contains(">week</text>"));
     }
 
-    /// Each of the four reads a table from standard input only where a place
-    /// is named, since its extent is needed before its rows.
+    /// A table of its own place read from a pipe is drawn over its own extent,
+    /// as it is from a file, though that extent is read before its rows: the
+    /// figure is the same one.
     #[test]
-    fn a_table_of_its_own_place_from_a_pipe_needs_a_place() {
-        for (flag, example) in [
-            ("--frequencies", "week:1-52"),
-            ("--phylodynamics", "week:1-52"),
-            ("--selection", "site:1-300"),
-            ("--squiggle", "sample:1-4,000"),
+    fn a_table_of_its_own_place_from_a_pipe_is_its_own_place() {
+        let skyline = "week\tmean\tlower\tupper\n2\t1.2\t0.9\t1.5\n5\t0.8\t0.6\t1.1\n";
+        let fel = "site,alpha,beta,p-value\n1,1.0,0.2,0.8\n2,0.5,3.0,0.01\n";
+        let signal = "90\n95\n120\n118\n101\n";
+        for (flag, table) in [
+            ("--frequencies", COUNTS),
+            ("--phylodynamics", skyline),
+            ("--selection", fel),
+            ("--squiggle", signal),
         ] {
-            let args = vec![flag.to_string(), "-".to_string()];
-            let Request::Draw(invocation) = parse(&args).unwrap() else {
-                unreachable!("a figure")
-            };
-            let mut files = Held {
-                files: Vec::new(),
-                notes: Vec::new(),
-            };
-            let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
-            assert!(error.to_string().contains(example), "{flag}: {error}");
+            let piped = drawn_piped(&format!("{flag} - --label x"), table, &[]).unwrap();
+            let (named, _) = drawn_noting(&format!("{flag} t.tsv --label x"), &[("t.tsv", table)]);
+            assert_eq!(piped, named.unwrap(), "{flag}");
         }
     }
 
@@ -5714,24 +5768,15 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         );
     }
 
-    /// A table with fractions on standard input, in a figure that settled on
-    /// whole units without seeing it, says why rather than reading its
-    /// fractions away.
+    /// A table with fractions on standard input is a continuous time as it is
+    /// from a file: the figure reads every table's times before it draws any,
+    /// and keeps what the pipe gave.
     #[test]
-    fn fractions_on_standard_input_are_refused_with_the_reason() {
-        let piped = TrackSpec::new(Kind::Phylodynamics, Some(Source::Stdin));
-        let table = "year\tmean\n2010.5\t3\n";
-        let error = refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 0).unwrap_err();
-        assert!(error.to_string().contains("from a file"), "{error}");
-        // Whole units, a file, or a figure already reading fractions: no
-        // refusal.
-        assert!(
-            refuse_unseen_fractions(&piped, "phylodynamics", "-", "year\tmean\n2010\t3\n", 0)
-                .is_ok()
-        );
-        assert!(refuse_unseen_fractions(&piped, "phylodynamics", "-", table, 3).is_ok());
-        let named = TrackSpec::new(Kind::Phylodynamics, Some(Source::Path("t.tsv".into())));
-        assert!(refuse_unseen_fractions(&named, "phylodynamics", "t.tsv", table, 0).is_ok());
+    fn fractions_on_standard_input_are_a_continuous_time() {
+        let skyline = "year\tmedian\tlower\tupper\n2010.25\t100\t50\t200\n\
+                       2012.5\t400\t300\t600\n2015.75\t900\t700\t1200\n";
+        let piped = drawn_piped("--phylodynamics -", skyline, &[]).unwrap();
+        assert!(piped.contains("<title>time 2010.25 |"), "{piped}");
     }
 
     /// A genetic map is drawn as a line of its rates, named on its own by the

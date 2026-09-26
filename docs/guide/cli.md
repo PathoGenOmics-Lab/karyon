@@ -579,6 +579,11 @@ $ karyon NC_000962.3:761,000-763,000 --coverage - --variants -
 karyon: only one track can read from standard input
 ```
 
+A pipe is read once and kept, so what comes through one is read as a file
+would be: an alignment, a table over time or over the sites of a gene, and a
+read's signal are their own place from standard input too, and a table whose
+times have fractions is read as a continuous time.
+
 The readers drop blank lines, `#` comment and header lines, and SAM `@`
 headers, so a tool's output pipes in as it comes, with nothing to strip first.
 Tab and space separated files both read, with the exceptions listed in
