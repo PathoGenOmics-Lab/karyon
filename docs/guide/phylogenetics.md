@@ -399,8 +399,16 @@ and circular coordinates.
 | `reroot_midpoint()` | a tree whose every branch has a finite, non-negative length | halfway along the longest tip-to-tip path |
 | `show_root(false)` | | hides the diamond, keeps the root |
 
-A request the tree cannot meet leaves the builder's tree unchanged. Where that
-must be an error, call the operation on the `Tree` and check its result:
+A request the tree cannot meet leaves the builder's tree unchanged, and the
+band says so in a line under the tree: `not rerooted: no tip is named B3`. The
+same goes for a fold or a highlight that names a node the tree does not have,
+a key no node carries, a time axis some tip has no date for and a support
+threshold with no support style, and `TreeTrack::warnings()` hands the same
+lines to a caller that would rather stop; the command line prints them. A fold
+or a highlight asked for before a reroot follows its clade through it, by its
+tips, and one the new root splits is said rather than drawn. Where a failed
+reroot must be an error, call the operation on the `Tree` and check its
+result:
 
 ```rust
 use karyon::TreeTrack;

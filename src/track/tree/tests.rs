@@ -2895,3 +2895,190 @@ fn a_layer_of_branch_events_on_its_own_is_keyed() {
         );
     }
 }
+
+#[test]
+fn every_request_the_tree_cannot_carry_out_is_said_under_it() {
+    // Each of these drew a figure byte for byte like the plain tree, with
+    // nothing to say the request had been dropped.
+    let a = tree().node_named("A").unwrap();
+    let tip = format!("node {a} is a tip");
+    let cases: Vec<(TreeTrack, String)> = vec![
+        (
+            TreeTrack::new(tree()).reroot_named("L4"),
+            "not rerooted: no node is named L4".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot(a),
+            format!("not rerooted: {tip}"),
+        ),
+        (
+            TreeTrack::new(tree()).reroot(99),
+            "not rerooted: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot_outgroup(["A", "Z"]),
+            "not rerooted: no tip is named Z".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot_outgroup(["A", "C"]),
+            "not rerooted: A, C are not one clade of the tree".to_string(),
+        ),
+        (
+            TreeTrack::new(Tree::parse_newick("((A,B),(C,D));").unwrap()).reroot_midpoint(),
+            "not rerooted at the midpoint: a branch has no length, or a negative one".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).collapse(a),
+            format!("not collapsed: {tip}"),
+        ),
+        (
+            TreeTrack::new(tree()).collapse(99),
+            "not collapsed: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).clade_highlight(CladeHighlight::new(99)),
+            "not highlighted: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).highlight_named("L4"),
+            "not highlighted: no node is named L4".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).color_by("lineage"),
+            "no branch is coloured: no node carries lineage".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).dnds("omega"),
+            "no branch is coloured by dN/dS: no node carries omega".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).support_threshold(70.0),
+            "no support is drawn: a threshold was set and no support style".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).dnds_significance("q", -1.0),
+            "no dN/dS significance drawn: -1 is no threshold a test can pass".to_string(),
+        ),
+    ];
+    let plain = drawn(TreeTrack::new(tree()));
+    assert!(TreeTrack::new(tree()).warnings().is_empty());
+    for (track, said) in cases {
+        let warnings = track.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0], said);
+        let svg = drawn(track);
+        assert_ne!(svg, plain, "{said}");
+        assert!(svg.contains(&format!(">{}</text>", warnings[0])), "{svg}");
+    }
+}
+
+#[test]
+fn a_time_axis_says_why_it_was_not_drawn_or_runs_backwards() {
+    let dated = |text: &str| Tree::parse_annotated_newick(text).unwrap();
+    let whole = "((A[&date=2001]:2,B[&date=2003]:4):1,C[&date=2002]:4);";
+    assert!(TreeTrack::new(dated(whole))
+        .time("date")
+        .warnings()
+        .is_empty());
+    // Dates the parser threw away, and one tip without a date.
+    assert_eq!(
+        TreeTrack::new(tree()).time("date").warnings(),
+        ["drawn by branch length: 4 of 4 tips have no number under date"]
+    );
+    assert_eq!(
+        TreeTrack::new(dated("((A[&date=2001]:2,B:4):1,C[&date=2002]:4);"))
+            .time("date")
+            .warnings(),
+        ["drawn by branch length: 1 of 3 tips have no number under date"]
+    );
+    // Heights before the present, read as dates: every branch runs back.
+    let heights =
+        dated("((A[&height=0]:2,B[&height=0]:2)[&height=2]:1,C[&height=0]:3)[&height=3];");
+    assert!(TreeTrack::new(heights.clone())
+        .time("height")
+        .time_direction(TimeDirection::Decreasing)
+        .warnings()
+        .is_empty());
+    assert_eq!(
+        TreeTrack::new(heights).time("height").warnings(),
+        ["4 of 4 branches run backwards in height"]
+    );
+}
+
+#[test]
+fn a_fold_and_a_highlight_follow_their_clade_through_a_reroot() {
+    // Rerooting turns edges round and keeps each node where it was in the
+    // list, so an index chosen before it named another clade after it.
+    let tree =
+        Tree::parse_newick("(((A:1,B:1)ab:1,(C:1,D:1)cd:1):1,((E:1,F:1)ef:1,G:1):1);").unwrap();
+    let ab = tree.node_named("ab").unwrap();
+    let folded = |track: TreeTrack| -> Vec<String> {
+        drawn(track)
+            .split("<title>")
+            .skip(1)
+            .map(|title| title.split("</title>").next().unwrap().to_string())
+            .filter(|title| title.contains("(2 tips)"))
+            .collect()
+    };
+    let before = folded(TreeTrack::new(tree.clone()).collapse(ab));
+    // A root outside the clade leaves it whole, and the same two tips fold.
+    let track = TreeTrack::new(tree.clone())
+        .collapse(ab)
+        .clade_highlight(CladeHighlight::new(ab).label("ab field"))
+        .reroot_outgroup(["G"]);
+    assert!(track.warnings().is_empty(), "{:?}", track.warnings());
+    assert_eq!(folded(track.clone()), before);
+    assert!(drawn(track).contains("ab field"));
+    // A root inside it splits it, and that is said rather than drawn.
+    let split = TreeTrack::new(tree)
+        .collapse(ab)
+        .clade_highlight(CladeHighlight::new(ab))
+        .reroot_outgroup(["A"]);
+    assert_eq!(
+        split.warnings(),
+        [
+            format!("not collapsed: the new root splits the clade of node {ab}"),
+            format!("not highlighted: the new root splits the clade of node {ab}"),
+        ]
+    );
+}
+
+#[test]
+fn a_colour_key_with_more_values_than_colours_and_support_past_a_hundred_are_said() {
+    let seven = Tree::parse_annotated_newick(
+        "(((A[&k=a]:1,B[&k=b]:1):1,(C[&k=c]:1,D[&k=d]:1):1):1,((E[&k=e]:1,F[&k=f]:1):1,G[&k=g]:1):1);",
+    )
+    .unwrap();
+    assert_eq!(
+        TreeTrack::new(seven.clone()).color_by("k").warnings(),
+        ["k has 7 values and the palette 6 colours, so some branches of two values share one"]
+    );
+    let counts = Tree::parse_newick("((A:1,B:1)950:1,(C:1,D:1)40:1);").unwrap();
+    assert_eq!(
+        TreeTrack::new(counts.clone())
+            .support_style(SupportStyle::Labels)
+            .warnings(),
+        ["support above 100 is drawn as full support"]
+    );
+    assert!(TreeTrack::new(counts).warnings().is_empty());
+}
+
+#[test]
+fn the_band_keeps_room_for_what_it_says() {
+    // The lines are under the tree and its ruler, not over them: what a
+    // builder refused first, then what the tree says nothing about.
+    let track = TreeTrack::new(tree())
+        .color_by("lineage")
+        .highlight_named("L4");
+    let plain = Figure::new(region())
+        .width(640.0)
+        .push(TreeTrack::new(tree()));
+    let said = Figure::new(region()).width(640.0).push(track);
+    assert!(said.dimensions().1 > plain.dimensions().1);
+    let svg = said.to_svg();
+    let ruler = text_box(&svg, "0.1").expect("the scale bar");
+    let first = text_box(&svg, "not highlighted: no node is named L4").expect("a line");
+    let second = text_box(&svg, "no branch is coloured: no node carries lineage").expect("a line");
+    assert!(ruler.1 < first.1 - first.3, "{ruler:?} {first:?}");
+    assert!(first.1 < second.1 - second.3, "{first:?} {second:?}");
+}

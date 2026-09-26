@@ -159,7 +159,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
         w: ctx.band.w,
-        h: (ctx.band.h - header_room).max(1.0),
+        h: (ctx.band.h - header_room - track.warning_room(ctx.band.w, ctx.theme)).max(1.0),
     };
     let geometry = RadialGeometry::new(track, ctx.theme, &scene, area);
     let colors = branch_colors(
@@ -228,6 +228,7 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
         draw_radial_scale_bar(ctx, &scene, &geometry, area, bar);
     }
     track.draw_layer_chips(ctx);
+    track.draw_warnings(ctx);
 }
 
 pub(super) fn draw_radial_padding(

@@ -182,7 +182,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 ![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 </figure>
 
-**Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was; use `Tree::reroot` directly when you need to handle that failure. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
+**Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was and says why in a line under the tree, as `warnings()` does; use `Tree::reroot` directly when you need to handle that failure. A fold or a highlight asked for before a reroot follows its clade through it. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
 
 <figure class="k-plate" markdown>
 ![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](../assets/figures/example-phylo-reroot.svg){ width="1739" height="360" loading="lazy" }

@@ -591,6 +591,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- A tree says what it was asked for and does not draw, in lines under it, and
+  `TreeTrack::warnings` hands them to a caller; the command line prints them.
+  A reroot, fold or highlight naming a node the tree does not have, or a tip,
+  an outgroup that is not one clade, a midpoint on a tree without lengths, a
+  key no node carries, a support threshold with no support style, a negative
+  dN/dS significance, a time axis some tip has no date for, branches that run
+  backwards in time, branch colours shared by two values and support above
+  100 each drew a figure like the one asked for, or like the plain tree, with
+  nothing to say so.
+- A fold or a highlight asked for before a reroot follows its clade through
+  it. Rerooting turns edges round and keeps every node where it was in the
+  list, so the index named another clade: a fold of one lineage folded
+  twenty-eight tips of three. A clade the new root splits is said instead.
 - A tanglegram coloured by an annotation deals its colours in the order the
   left tree meets the values, as the tree coloured by the same key does; it
   dealt them in the order the values sort, so a tanglegram and the tree

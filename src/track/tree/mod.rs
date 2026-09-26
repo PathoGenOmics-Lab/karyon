@@ -860,6 +860,14 @@ fn draw(
     }
 }
 
+/// Names as a sentence lists them: the first three, and how many more.
+fn listed(names: &[String]) -> String {
+    match names.len() {
+        0..=3 => names.join(", "),
+        n => format!("{} and {} more", names[..3].join(", "), n - 3),
+    }
+}
+
 /// The levels of `key` over `tree`, each with the palette colour a
 /// [`TreeTrack`] colouring its branches by `key` deals it: in the order the
 /// tree meets them, from the palette's first colour.
@@ -939,6 +947,8 @@ pub struct TreeTrack {
     trait_columns: Vec<TraitColumn>,
     node_glyphs: Vec<NodeGlyph>,
     clade_highlights: Vec<CladeHighlight>,
+    /// Requests a builder could not carry out, each said in a line.
+    refused: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1053,6 +1063,7 @@ impl TreeTrack {
             trait_columns: Vec::new(),
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
+            refused: Vec::new(),
         }
     }
 
@@ -1165,21 +1176,35 @@ impl TreeTrack {
 
     /// Reorients the owned tree around internal `node` and marks the new root.
     ///
-    /// An invalid index or sampled tip leaves the tree unchanged. Use
+    /// An invalid index or sampled tip leaves the tree unchanged, and the band
+    /// says so under the tree, as [`TreeTrack::warnings`] does. Use
     /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
-    /// handled rather than represented as an unchanged builder.
+    /// handled rather than reported.
     pub fn reroot(mut self, node: usize) -> Self {
-        if self.tree.reroot(node) {
-            self.after_reroot();
+        match self.tree.nodes().get(node) {
+            None => self.refuse(format!("not rerooted: the tree has no node {node}")),
+            Some(clade) if clade.is_leaf() => {
+                self.refuse(format!("not rerooted: node {node} is a tip"));
+            }
+            Some(_) => {
+                self.rerooted_with(|tree| tree.reroot(node));
+            }
         }
         self
     }
 
     /// Reorients the owned tree around an internal node with this exact name.
+    ///
+    /// A name no node has, or a tip's, leaves the tree unchanged and is said
+    /// under it.
     pub fn reroot_named(mut self, name: &str) -> Self {
-        if let Some(node) = self.tree.node_named(name) {
-            if self.tree.reroot(node) {
-                self.after_reroot();
+        match self.tree.node_named(name) {
+            None => self.refuse(format!("not rerooted: no node is named {name}")),
+            Some(node) if self.tree.nodes()[node].is_leaf() => {
+                self.refuse(format!("not rerooted: {name} is a tip"));
+            }
+            Some(node) => {
+                self.rerooted_with(|tree| tree.reroot(node));
             }
         }
         self
@@ -1188,45 +1213,131 @@ impl TreeTrack {
     /// Roots halfway along the edge leading to a monophyletic named outgroup.
     ///
     /// Missing, duplicate, internal or non-monophyletic names leave the tree
-    /// unchanged. The new root is inserted without converting an outgroup tip
-    /// into an internal node.
+    /// unchanged, and the band says which under the tree. The new root is
+    /// inserted without converting an outgroup tip into an internal node.
     pub fn reroot_outgroup<I, S>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let names: Vec<String> = names
+            .into_iter()
+            .map(|name| name.as_ref().to_string())
+            .collect();
         let mut nodes = Vec::new();
-        for name in names {
-            let Some(node) = self.tree.node_named(name.as_ref()) else {
-                return self;
-            };
-            nodes.push(node);
+        for name in &names {
+            match self.tree.node_named(name) {
+                None => {
+                    self.refuse(format!("not rerooted: no tip is named {name}"));
+                    return self;
+                }
+                Some(node) if !self.tree.nodes()[node].is_leaf() => {
+                    self.refuse(format!("not rerooted: {name} is not a tip"));
+                    return self;
+                }
+                Some(node) => nodes.push(node),
+            }
         }
-        if self.tree.reroot_outgroup(&nodes).is_some() {
-            self.after_reroot();
+        if !self.rerooted_with(|tree| tree.reroot_outgroup(&nodes).is_some()) {
+            self.refuse(format!(
+                "not rerooted: {} {} not one clade of the tree",
+                listed(&names),
+                if names.len() == 1 { "is" } else { "are" }
+            ));
         }
         self
     }
 
     /// Roots the owned phylogram at the midpoint of its weighted tip diameter.
     ///
-    /// Missing, negative or non-finite branch lengths leave the tree unchanged.
+    /// Missing, negative or non-finite branch lengths leave the tree
+    /// unchanged, and the band says so under it.
     pub fn reroot_midpoint(mut self) -> Self {
-        if self.tree.reroot_midpoint().is_some() {
-            self.after_reroot();
+        if !self.rerooted_with(|tree| tree.reroot_midpoint().is_some()) {
+            let why = if self.tree.leaves().len() < 2 {
+                "not rerooted at the midpoint: the tree has one tip"
+            } else {
+                "not rerooted at the midpoint: a branch has no length, or a negative one"
+            };
+            self.refuse(why.to_string());
         }
         self
     }
 
-    /// What every reroot that worked leaves behind.
+    /// Records a request this track was given and cannot carry out.
+    fn refuse(&mut self, why: String) {
+        if !self.refused.contains(&why) {
+            self.refused.push(why);
+        }
+    }
+
+    /// Reroots with `reroot`, and carries every fold and highlight asked for
+    /// before it to the same clade after it. Whether it rerooted.
     ///
-    /// The root it chose is marked, unless [`TreeTrack::show_root`] says
-    /// otherwise before the reroot or after it, and the folds are emptied to
-    /// be worked out again: rerooting moves the tips about, and a fold worked
-    /// out against the old shape would collapse the wrong clades.
-    fn after_reroot(&mut self) {
+    /// A clade is its tips. Rerooting keeps each node where it was in the
+    /// list and turns edges round, so an index names another clade after it:
+    /// a fold of one lineage asked for before a reroot folded twenty-eight
+    /// tips of three lineages after it. Each is found again by its tips, and
+    /// one the new root splits is said under the tree rather than drawn.
+    ///
+    /// The root chosen is marked, unless [`TreeTrack::show_root`] says
+    /// otherwise before the reroot or after it, and the folds a row cap made
+    /// are emptied to be worked out against the new shape.
+    fn rerooted_with(&mut self, reroot: impl FnOnce(&mut Tree) -> bool) -> bool {
+        let tips = |tree: &Tree, node: usize| -> BTreeSet<usize> {
+            if tree.nodes()[node].is_leaf() {
+                return [node].into_iter().collect();
+            }
+            tree.descendants(node)
+                .into_iter()
+                .filter(|below| tree.nodes()[*below].is_leaf())
+                .collect()
+        };
+        let folds: Vec<(usize, BTreeSet<usize>)> = self
+            .collapsed
+            .iter()
+            .map(|node| (*node, tips(&self.tree, *node)))
+            .collect();
+        let fields: Vec<BTreeSet<usize>> = self
+            .clade_highlights
+            .iter()
+            .map(|highlight| tips(&self.tree, highlight.node))
+            .collect();
+        if !reroot(&mut self.tree) {
+            return false;
+        }
         self.rerooted = true;
         self.folds = OnceLock::new();
+        let found = |tree: &Tree, held: &BTreeSet<usize>| {
+            let nodes: Vec<usize> = held.iter().copied().collect();
+            tree.mrca(&nodes)
+                .filter(|clade| tips(tree, *clade) == *held)
+        };
+        self.collapsed = BTreeSet::new();
+        for (node, held) in folds {
+            match found(&self.tree, &held) {
+                Some(clade) => {
+                    self.collapsed.insert(clade);
+                }
+                None => self.refuse(format!(
+                    "not collapsed: the new root splits the clade of node {node}"
+                )),
+            }
+        }
+        let highlights = std::mem::take(&mut self.clade_highlights);
+        for (mut highlight, held) in highlights.into_iter().zip(fields) {
+            match found(&self.tree, &held) {
+                Some(clade) => {
+                    highlight.node = clade;
+                    self.clade_highlights.push(highlight);
+                }
+                None => self.refuse(format!(
+                    "not highlighted: the new root splits the clade of node {}",
+                    highlight.node
+                )),
+            }
+        }
+        true
     }
 
     /// Draws or hides the selected root marker in rooted projections.
@@ -1362,6 +1473,11 @@ impl TreeTrack {
                 key: key.into(),
                 maximum,
             });
+        } else {
+            self.refuse(format!(
+                "no dN/dS significance drawn: {} is no threshold a test can pass",
+                text_rounded(maximum, 3)
+            ));
         }
         self
     }
@@ -1433,15 +1549,19 @@ impl TreeTrack {
     }
 
     /// Collapses one internal node visually while preserving the source tree.
+    ///
+    /// An index the tree does not have, or a tip's, folds nothing and is said
+    /// under the tree.
     pub fn collapse(mut self, node: usize) -> Self {
-        if self
-            .tree
-            .nodes()
-            .get(node)
-            .is_some_and(|clade| !clade.is_leaf())
-        {
-            self.collapsed.insert(node);
-            self.folds = OnceLock::new();
+        match self.tree.nodes().get(node) {
+            None => self.refuse(format!("not collapsed: the tree has no node {node}")),
+            Some(clade) if clade.is_leaf() => {
+                self.refuse(format!("not collapsed: node {node} is a tip"));
+            }
+            Some(_) => {
+                self.collapsed.insert(node);
+                self.folds = OnceLock::new();
+            }
         }
         self
     }
@@ -1707,17 +1827,28 @@ impl TreeTrack {
     }
 
     /// Adds a translucent clade field behind branches and node graphics.
+    ///
+    /// An index the tree does not have highlights nothing and is said under
+    /// the tree.
     pub fn clade_highlight(mut self, highlight: CladeHighlight) -> Self {
         if self.tree.nodes().get(highlight.node).is_some() {
             self.clade_highlights.push(highlight);
+        } else {
+            self.refuse(format!(
+                "not highlighted: the tree has no node {}",
+                highlight.node
+            ));
         }
         self
     }
 
     /// Highlights a clade by its exact internal or terminal name.
+    ///
+    /// A name no node has highlights nothing and is said under the tree.
     pub fn highlight_named(mut self, name: &str) -> Self {
-        if let Some(node) = self.tree.node_named(name) {
-            self.clade_highlights.push(CladeHighlight::new(node));
+        match self.tree.node_named(name) {
+            Some(node) => self.clade_highlights.push(CladeHighlight::new(node)),
+            None => self.refuse(format!("not highlighted: no node is named {name}")),
         }
         self
     }
@@ -2007,6 +2138,188 @@ impl TreeTrack {
         }
     }
 
+    /// What this track was asked for and does not draw, a line each.
+    ///
+    /// A builder that cannot do what it was asked leaves the tree as it was,
+    /// so a chain of settings never fails halfway: a reroot, a fold or a
+    /// highlight naming a node the tree does not have, an outgroup that is not
+    /// one clade. A setting can also say nothing about this tree: a key no
+    /// node carries, a time axis some tip has no date for, a support
+    /// threshold with no support drawn. Each of these used to leave a figure
+    /// that looked finished and was not what was asked for. The band says
+    /// every one of them under the tree, in these words, and this hands them
+    /// to a caller that would rather stop.
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings_in(&Theme::default())
+    }
+
+    fn warnings_in(&self, theme: &Theme) -> Vec<String> {
+        let mut said = self.refused.clone();
+        let carried = |key: &str| {
+            (0..self.tree.nodes().len()).any(|node| self.tree.annotation(node, key).is_some())
+        };
+        if let Some(key) = &self.color_by {
+            if !carried(key) {
+                said.push(format!("no branch is coloured: no node carries {key}"));
+            } else {
+                let values = rectangular::branch_values(&self.tree, key);
+                if !rectangular::is_continuous(&values) {
+                    let domain = rectangular::tree_domain(&self.tree, key, self.dealing().branches);
+                    if domain.colors_repeat(theme.palette.len()) {
+                        said.push(format!(
+                            "{key} has {} values and the palette {} colours, so some branches of two values share one",
+                            domain.keyed().len(),
+                            theme.palette.len()
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(key) = &self.dnds {
+            if !carried(key) {
+                said.push(format!(
+                    "no branch is coloured by dN/dS: no node carries {key}"
+                ));
+            }
+        }
+        if self.support_style == SupportStyle::None && self.support_threshold > 0.0 {
+            said.push("no support is drawn: a threshold was set and no support style".to_string());
+        }
+        if self.support_style != SupportStyle::None
+            && self
+                .tree
+                .nodes()
+                .iter()
+                .filter_map(|node| node.support)
+                .any(|value| value > 100.0)
+        {
+            said.push("support above 100 is drawn as full support".to_string());
+        }
+        if let Some(time) = self.time_axis() {
+            said.extend(self.time_warning(&time));
+        }
+        let dealing = self.dealing();
+        let most = theme.palette.len().max(1) * 4;
+        for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
+            let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
+            let levels = domain.keyed().len();
+            if column.drawn_style(&domain, theme) == TraitStyle::Symbol && levels > most {
+                said.push(format!(
+                    "{}: {levels} values, and shapes and colours tell {most} apart",
+                    column.label
+                ));
+            }
+        }
+        said
+    }
+
+    /// What is wrong with the time axis asked for, if anything.
+    fn time_warning(&self, time: &TimeAxis) -> Option<String> {
+        let tips = self.tree.leaves();
+        let undated = tips
+            .iter()
+            .filter(|tip| {
+                self.tree
+                    .annotation(**tip, &time.key)
+                    .and_then(AnnotationValue::as_number)
+                    .map_or(true, |value| !value.is_finite())
+            })
+            .count();
+        if undated > 0 {
+            return Some(format!(
+                "drawn by branch length: {undated} of {} tips have no number under {}",
+                tips.len(),
+                time.key
+            ));
+        }
+        let Some(placed) = self.tree.time_layout(&time.key, time.direction) else {
+            return Some(format!(
+                "drawn by branch length: the tree cannot be placed on {}",
+                time.key
+            ));
+        };
+        let branches = self
+            .tree
+            .nodes()
+            .iter()
+            .enumerate()
+            .filter_map(|(node, clade)| Some((node, clade.parent?)))
+            .collect::<Vec<_>>();
+        let backwards = branches
+            .iter()
+            .filter(|(node, parent)| {
+                let (at, from) = (placed[*node].depth, placed[*parent].depth);
+                let slack = 1e-9 * (at.abs() + from.abs()).max(1.0);
+                match time.direction {
+                    TimeDirection::Increasing => at < from - slack,
+                    TimeDirection::Decreasing => at > from + slack,
+                }
+            })
+            .count();
+        (backwards > 0).then(|| {
+            format!(
+                "{backwards} of {} branches run backwards in {}",
+                branches.len(),
+                time.key
+            )
+        })
+    }
+
+    /// The lines [`TreeTrack::warnings`] takes across a band `width` pixels
+    /// wide, and the size they are set at.
+    fn warning_lines(&self, width: f64, theme: &Theme) -> (Vec<String>, f64) {
+        let size = (theme.font_size - 1.0).max(6.0);
+        let mut lines = Vec::new();
+        for warning in self.warnings_in(theme) {
+            let mut line = String::new();
+            for word in warning.split(' ') {
+                let longer = if line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{line} {word}")
+                };
+                if !line.is_empty() && text_width(&longer, size) > width - 8.0 {
+                    lines.push(std::mem::replace(&mut line, word.to_string()));
+                } else {
+                    line = longer;
+                }
+            }
+            lines.push(line);
+        }
+        (lines, size)
+    }
+
+    /// The room under the tree for its warnings.
+    fn warning_room(&self, width: f64, theme: &Theme) -> f64 {
+        let (lines, size) = self.warning_lines(width, theme);
+        if lines.is_empty() {
+            0.0
+        } else {
+            lines.len() as f64 * (size + 4.0) + 6.0
+        }
+    }
+
+    /// Writes the warnings in the room kept for them at the foot of the band.
+    fn draw_warnings(&self, ctx: &mut DrawContext<'_>) {
+        let (lines, size) = self.warning_lines(ctx.band.w, ctx.theme);
+        if lines.is_empty() {
+            return;
+        }
+        let room = lines.len() as f64 * (size + 4.0) + 6.0;
+        let mut y = ctx.band.bottom() - room + 4.0;
+        for line in &lines {
+            y += size + 4.0;
+            ctx.svg.text(
+                ctx.band.x + 4.0,
+                y - 4.0,
+                line,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Start,
+            );
+        }
+    }
+
     /// The room across the top of a band `width` pixels wide for the
     /// headings of the columns or rings and the chips that key the layers.
     ///
@@ -2177,12 +2490,13 @@ impl TreeTrack {
         let axis_room = self.axis_room(ctx.theme);
         let traits = self.trait_width(ctx.theme);
         let header_room = self.annotation_header_room(band.w, ctx.theme);
+        let warning_room = self.warning_room(band.w, ctx.theme);
         let (glyph_x, glyph_y) = self.rectangular_glyph_padding();
         let area = Rect {
             x: band.x + glyph_x,
             y: band.y + header_room + glyph_y,
             w: (band.w - tips - traits - glyph_x * 2.0).max(1.0),
-            h: (band.h - axis_room - header_room - glyph_y * 2.0).max(1.0),
+            h: (band.h - axis_room - header_room - glyph_y * 2.0 - warning_room).max(1.0),
         };
 
         draw_rectangular_clade_highlights(self, ctx, &scene, area);
@@ -2277,6 +2591,7 @@ impl TreeTrack {
             draw_rectangular_scale_bar(ctx, &scene, area, bar);
         }
         self.draw_layer_chips(ctx);
+        self.draw_warnings(ctx);
     }
 }
 
@@ -2325,10 +2640,12 @@ impl Track for TreeTrack {
                         0.0
                     }
                     + self.annotation_header_room(scale.width(), &Theme::default())
+                    + self.warning_room(scale.width(), &Theme::default())
             }
             TreeProjection::Circular | TreeProjection::Unrooted => {
                 self.radial_diameter(scale, &Theme::default())
                     + self.annotation_header_room(scale.width(), &Theme::default())
+                    + self.warning_room(scale.width(), &Theme::default())
             }
         }
     }
