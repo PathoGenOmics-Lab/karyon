@@ -38,7 +38,7 @@ as LocusZoom draws one, with the recombination rate under it:
 
 ```bash
 karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
-  --coverage recombination.bedgraph --style line --label cM/Mb -o locus.svg
+  genetic_map.txt --label recombination -o locus.svg
 ```
 
 <figure class="k-start" markdown>
@@ -48,8 +48,10 @@ karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
 
 `lead.ld` is PLINK's linkage of the lead with its neighbours, as
 `plink --r2 --ld-snp snp00342 --ld-window-kb 100 --ld-window 99999
---ld-window-r2 0` writes it. The recombination rate is any bedGraph.
+--ld-window-r2 0` writes it. `genetic_map.txt` is a genetic map as HapMap
+writes one, drawn by its name alone as the recombination rate; any other name
+takes `--recombination` in front.
 
 The example files: [gwas.assoc](../data/gwas.assoc), [lead.ld](../data/lead.ld)
-and [recombination.bedgraph](../data/recombination.bedgraph). Every option:
+and [genetic_map.txt](../data/genetic_map.txt). Every option:
 `karyon help manhattan`, or the [command line reference](../guide/cli.md).

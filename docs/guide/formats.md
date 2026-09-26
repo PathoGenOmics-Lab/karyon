@@ -34,6 +34,7 @@ BCF and bigWig come in through the tool that writes them as text.
 | [bedGraph](#bedgraph) | a value over each interval | `--coverage`, `--windows`, `--dynseq` | 0-based, half-open | `CoverageTrack`, `WindowTrack`, `DynseqTrack` |
 | [samtools depth](#samtools-depth) | read depth at each position | `--coverage` | 1-based | `CoverageTrack` |
 | [A bare column of values](#a-bare-column-of-values) | one value per base | `--coverage` | none: starts at the region's first base | `CoverageTrack` |
+| [A recombination map](#a-recombination-map) | a rate in cM/Mb from each position to the next | `--recombination` | 1-based; a bedGraph of rates 0-based | `CoverageTrack` |
 | [BED](#bed) | intervals with a name and a strand | `--features` | 0-based, half-open | `FeatureTrack` |
 | [GFF3](#gff3) | annotation in nine columns | `--features` | 1-based, inclusive | `FeatureTrack` |
 | [cytoBand](#cytoband) | chromosome bands and their stains | `--ideogram` | 0-based, half-open | `IdeogramTrack` |
@@ -268,6 +269,31 @@ One number per line, for anything already computed base by base.
 The file carries no position, so it belongs to one window: drawn over
 `chr4:501-600` and over `chr4:1-100`, the same file puts its values in two
 different places. If it runs out before the region does, the rest stays at 0.
+
+### A recombination map { #a-recombination-map }
+
+The rate of recombination along a chromosome, as HapMap writes a genetic map:
+a rate in centimorgans per megabase at each position, holding to the next.
+
+```text
+Chromosome  Position(bp)  Rate(cM/Mb)  Map(cM)
+chr1        604401        0.84         0.000000
+chr1        609401        0.63         0.004200
+```
+
+| | |
+|:--|:--|
+| Read by | `--recombination`, or a file whose name holds `genetic_map`; `read::recombination::rates` |
+| Columns | found by name in any case: a position (`Position(bp)`, `position`), a rate (`Rate(cM/Mb)`, `COMBINED_rate(cM/Mb)`) and, where there is one, a chromosome; with no header, a bedGraph of rates |
+| Coordinates | positions 1-based; a bedGraph 0-based, half-open |
+| Skipped | rows on another sequence; a rate that is empty or `NA`, which leaves its stretch out rather than at nought |
+| Refused | a position of 0; a negative rate |
+
+The maps that come with IMPUTE2 and SHAPEIT are one chromosome to a file, with
+no chromosome column, `position COMBINED_rate(cM/Mb) Genetic_Map(cM)`, and read
+the same. The rows are put in order first, and the last position's rate covers
+that one base. The track is a line in cM/Mb, the highest rate in each pixel,
+so a hotspot narrower than a pixel is still drawn.
 
 ## Intervals
 
@@ -653,13 +679,16 @@ week  lineage  count  total
 |:--|:--|
 | Read by | `--frequencies`; `read::series::counts` |
 | Columns | found by name in any case: a time (`week`, `day`, `month`, `year`, `time`, `passage`, `generation`), a group (`lineage`, `mutation`, `variant`, `clade`, `genotype`), a `count` and a `total` |
-| Coordinates | whole units, drawn as written: week 1 under 1, year 2015 under 2015 |
-| Refused | a missing column; a time of 0, or a fraction of a unit; a date; a count or a total that is not a whole number; a count above its total |
+| Coordinates | whole units, drawn as written: week 1 under 1, year 2015 under 2015; with fractions, a continuous time to a thousandth |
+| Refused | a missing column; a whole-unit time of 0; a negative time; a date; a count or a total that is not a whole number; a count above its total |
 
-A time is a whole number because the ruler counts whole units: a skyline in
-decimal years would be drawn rounded without a word, so it is refused with the
-way round it, which is a smaller unit. A date is refused the same way; count
-dates from a start, as days since the first sample. Where a group was looked for
+A time in whole units is counted from 1, as the file writes it. A table whose
+times have fractions, as a skyline in decimal years or in years before the
+present has, is read as a continuous time instead, from nought and to a
+thousandth of the unit, and every table of the figure with it; the ruler and
+the tooltips then write each time as the file does, 2015.25 as 2015.25. A date
+is refused with the way round it: count dates from a start, as days since the
+first sample. Where a group was looked for
 and not found, write a count of 0: a missing row is not a 0.
 
 ### Estimates over time { #estimates-over-time }
@@ -677,7 +706,7 @@ week  mean   lower  upper
 |:--|:--|
 | Read by | `--phylodynamics`; `read::series::estimates` |
 | Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
-| Coordinates | whole units, drawn as written |
+| Coordinates | whole units, drawn as written; with fractions, a continuous time to a thousandth |
 | Refused | a missing time or estimate; a time as for counts |
 
 EpiEstim's table is read as R's `write.csv` writes it, drawn at the end of each

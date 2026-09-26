@@ -37,7 +37,9 @@ The columns are found by their names: the time as `week`, `day`, `month`,
 `year` or `time`, the group as `lineage`, `mutation` or `variant`, then `count`
 and `total`. The estimate is a time, a `mean`, `median` or `estimate`, and
 `lower` and `upper` where there is an interval. Tabs, commas or spaces separate
-the columns, and a time is a whole number, as week 12 or year 2015.
+the columns. A time is a number of weeks, days, months or years, as week 12 or
+year 2015; a skyline in decimal years, as BEAST writes one, is drawn as the
+continuous time it is, to a thousandth of a year.
 
 ## Change it
 

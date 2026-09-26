@@ -69,6 +69,7 @@ pub mod locus;
 pub mod methyl;
 pub mod pairs;
 pub mod point;
+pub mod recombination;
 pub mod segments;
 pub mod seq;
 pub mod series;

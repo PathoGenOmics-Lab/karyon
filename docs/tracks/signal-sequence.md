@@ -21,8 +21,8 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | | |
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
-| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--color`, `--height`, `--format` |
-| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`) |
+| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb |
+| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a genetic map as HapMap writes one (`read::recombination::rates`) |
 
 === "Rust"
 
@@ -53,6 +53,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | `.height(70.0)` | Band height in pixels (`--height`) | `60` |
 | `.aggregate(Aggregate::Min)` | How a pixel column covering many bases is reduced: `Max`, `Mean` or `Min` (`--aggregate`) | `Max` |
 | `.style(CoverageStyle::Line)` | `Area`, `Line` or `Bars` (`--style area`, `line` or `bars`) | `Area` |
+| `.axis_title("cM/Mb")` | What the value axis measures, under the track's name | none; `cM/Mb` from `--recombination` |
 | `.max(120.0)` | Pins the top of the axis, taken literally | the largest value on screen, plus six per cent |
 | `.log_scale(true)` | Plots `log10(1 + value)`, still labelled in the original units (`--log`) | off |
 | `.color("#0072b2")` | Colour of the profile (`--color`) | theme accent |

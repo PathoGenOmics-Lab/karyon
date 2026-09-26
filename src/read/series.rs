@@ -6,7 +6,9 @@
 //! from one, and a figure of one of these is drawn over the units the file
 //! holds rather than over a region of a genome. Every reader here gives each
 //! row the coordinate one less than the number it is written as, so the ruler,
-//! which numbers from one, prints the number the file wrote.
+//! which numbers from one, prints the number the file wrote. A time with a
+//! fraction, as a skyline in decimal years has, is the one exception: such a
+//! table is a continuous time from nought, read to a thousandth of its unit.
 //!
 //! # Read by their headers
 //!
@@ -63,41 +65,74 @@ fn needed(line: usize, header: &[&str], what: &str, names: &[&str]) -> Result<us
     })
 }
 
-/// A whole unit of time, counted from one or from any later number.
+/// The decimals a time with a fraction of its unit is read to: a thousandth.
 ///
-/// A week, a day, a month or a year: a fraction of one is refused with the
-/// way round it, since the axis counts whole units and a skyline in decimal
-/// years would be drawn rounded without a word.
-fn time(value: &str, line: usize) -> Result<u64, ReadError> {
-    if let Ok(whole) = value.parse::<u64>() {
-        if whole == 0 {
-            return Err(ReadError::at(
-                line,
-                "a time of 0: times are counted from 1, as week 1, day 1 or a year",
-            ));
-        }
-        return Ok(whole - 1);
-    }
-    match value.parse::<f64>() {
-        Ok(number) if number.is_finite() => Err(ReadError::at(
+/// A table of whole weeks or years is read as whole units counted from one,
+/// and a table whose times have fractions, as a skyline in decimal years does,
+/// is read as a continuous time to a thousandth of its unit.
+pub const DECIMALS: u32 = 3;
+
+/// Whether any time in a table of counts or of estimates has a fraction, so
+/// the table is read to [`DECIMALS`] rather than in whole units.
+///
+/// A table whose header names no time, or whose times do not read as numbers,
+/// has none; reading it says what is wrong with it.
+pub fn fractional_times(text: &str) -> bool {
+    let mut rows = lines(text);
+    let Some((_, head)) = rows.next() else {
+        return false;
+    };
+    let Some(at) = column(&fields(head), TIME) else {
+        return false;
+    };
+    rows.any(|(_, row)| {
+        fields(row)
+            .get(at)
+            .and_then(|field| field.parse::<f64>().ok())
+            .is_some_and(|time| time.is_finite() && time.fract() != 0.0)
+    })
+}
+
+/// A time, as the coordinate it is drawn at.
+///
+/// With no `decimals`, a whole unit counted from one: week 1 is coordinate 0,
+/// which the ruler prints as 1, and a fraction of a unit is refused. With
+/// decimals, a continuous time from nought, at a thousandth of its unit: year
+/// 2015.25 is coordinate 2,015,250, which a ruler told the same decimals
+/// prints as 2015.25.
+fn time(value: &str, line: usize, decimals: u32) -> Result<u64, ReadError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite());
+    match number {
+        Some(number) if number < 0.0 => Err(ReadError::at(
             line,
-            format!(
-                "a time of {value}: times are whole units, a week, a day, a month or a \
-                 year; count in a smaller unit, as days, to keep the fraction"
-            ),
+            format!("a time of {value}: times run forward, from nought or from a start"),
         )),
+        Some(number) if decimals > 0 => Ok((number * 10f64.powi(decimals as i32)).round() as u64),
+        Some(number) if number.fract() != 0.0 => Err(ReadError::at(
+            line,
+            format!("a time of {value}, a fraction of a unit, in a table read in whole units"),
+        )),
+        // A whole number under one, the fractions being refused above: nought.
+        Some(number) if number < 1.0 => Err(ReadError::at(
+            line,
+            "a time of 0: whole units are counted from 1, as week 1, day 1 or a year",
+        )),
+        Some(number) => Ok(number as u64 - 1),
         // A date is the usual time that is not a number, and says so by
         // its separators.
-        _ if value.contains(['-', '/']) => Err(ReadError::at(
+        None if value.contains(['-', '/']) => Err(ReadError::at(
             line,
             format!(
-                "a time of {value:?}: times are whole numbers, as week 12 or day 340; \
-                 count dates from a start, as days or weeks since the first sample"
+                "a time of {value:?}: times are numbers, as week 12, day 340 or year \
+                 2015.25; count dates from a start, as days or weeks since the first sample"
             ),
         )),
-        _ => Err(ReadError::at(
+        None => Err(ReadError::at(
             line,
-            format!("a time of {value:?}, which is not a number of whole units"),
+            format!("a time of {value:?}, which is not a number"),
         )),
     }
 }
@@ -128,7 +163,14 @@ fn optional(field: Option<&str>, what: &str, line: usize) -> Result<Option<f64>,
 /// `mutation`, `variant`...), a count (`count`, `n`, `alt`...) and the total
 /// it is out of (`total`, `depth`...). Returns the rows and the name the time
 /// column goes by, which is what the ruler under them counts.
-pub fn counts(text: &str) -> Result<(Vec<SurveillanceObservation>, String), ReadError> {
+///
+/// `decimals` is nought for whole units counted from one, or [`DECIMALS`] for
+/// a table [`fractional_times`] finds fractions in, which is then read as a
+/// continuous time from nought.
+pub fn counts(
+    text: &str,
+    decimals: u32,
+) -> Result<(Vec<SurveillanceObservation>, String), ReadError> {
     let mut rows = lines(text);
     let (line, head) = rows
         .next()
@@ -184,7 +226,7 @@ pub fn counts(text: &str) -> Result<(Vec<SurveillanceObservation>, String), Read
             ));
         }
         out.push(SurveillanceObservation::new(
-            time(field(at), line)?,
+            time(field(at), line, decimals)?,
             field(group),
             seen as u64,
             of as u64,
@@ -202,8 +244,8 @@ pub fn counts(text: &str) -> Result<(Vec<SurveillanceObservation>, String), Read
 /// The columns are a time, an estimate (`estimate`, `mean`, `median`...)
 /// and, where the file has them, the two ends of its interval (`lower` and
 /// `upper`, or the quantiles EpiEstim writes). Returns the points and the name
-/// of the time column.
-pub fn estimates(text: &str) -> Result<(Vec<PhylodynamicPoint>, String), ReadError> {
+/// of the time column. `decimals` is as for [`counts`].
+pub fn estimates(text: &str, decimals: u32) -> Result<(Vec<PhylodynamicPoint>, String), ReadError> {
     let mut rows = lines(text);
     let (line, head) = rows
         .next()
@@ -257,7 +299,7 @@ pub fn estimates(text: &str) -> Result<(Vec<PhylodynamicPoint>, String), ReadErr
         let row = fields(row);
         let field = |index: usize| row.get(index).copied().unwrap_or_default();
         let mut point = PhylodynamicPoint::new(
-            time(field(at), line)?,
+            time(field(at), line, decimals)?,
             value(field(estimate), "the estimate", line)?,
         );
         let low = optional(lower.map(field), "the lower end", line)?;
@@ -488,17 +530,21 @@ mod tests {
     #[test]
     fn counts_are_found_by_their_headers_and_numbered_as_written() {
         let text = "week,lineage,count,total\n1,BA.2,30,100\n2,BA.2,55,110\n2,BA.5,40,110\n";
-        let (rows, unit) = counts(text).unwrap();
+        let (rows, unit) = counts(text, 0).unwrap();
         assert_eq!(unit, "week");
         assert_eq!(rows.len(), 3);
         // Week 1 is coordinate 0, which the ruler prints as 1.
         assert_eq!(rows[0].time, 0);
         assert_eq!(rows[2].lineage, "BA.5");
-        let error = counts("week\tlineage\tcount\n1\tA\t3\n").unwrap_err();
+        let error = counts("week\tlineage\tcount\n1\tA\t3\n", 0).unwrap_err();
         assert!(error.reason.contains("totals"), "{}", error.reason);
-        let error = counts("week\tlineage\tcount\ttotal\n1.5\tA\t3\t9\n").unwrap_err();
-        assert!(error.reason.contains("whole units"), "{}", error.reason);
-        let error = counts("week\tlineage\tcount\ttotal\n1\tA\t12\t9\n").unwrap_err();
+        let error = counts("week\tlineage\tcount\ttotal\n1.5\tA\t3\t9\n", 0).unwrap_err();
+        assert!(
+            error.reason.contains("a fraction of a unit"),
+            "{}",
+            error.reason
+        );
+        let error = counts("week\tlineage\tcount\ttotal\n1\tA\t12\t9\n", 0).unwrap_err();
         assert!(error.reason.contains("out of a total"), "{}", error.reason);
     }
 
@@ -507,11 +553,11 @@ mod tests {
         // EpiEstim's estimate_R table through write.csv, quotes and all.
         let text = "\"t_start\",\"t_end\",\"Mean(R)\",\"Std(R)\",\"Quantile.0.025(R)\",\
                     \"Median(R)\",\"Quantile.0.975(R)\"\n2,8,1.4,0.2,1.1,1.39,1.8\n";
-        let (points, unit) = estimates(text).unwrap();
+        let (points, unit) = estimates(text, 0).unwrap();
         assert_eq!(unit, "t_end");
         assert_eq!(points[0].time, 7);
         assert_eq!(points[0].bounds(), Some((1.1, 1.8)));
-        let error = counts("date,lineage,count,total\n2024-03-01,A,3,9\n").unwrap_err();
+        let error = counts("date,lineage,count,total\n2024-03-01,A,3,9\n", 0).unwrap_err();
         assert!(
             error.reason.contains("days or weeks since"),
             "{}",
@@ -519,10 +565,29 @@ mod tests {
         );
     }
 
+    /// A skyline in decimal years is a continuous time, read to a thousandth
+    /// of a year from nought: the present of a tree dated backwards is 0.
+    #[test]
+    fn a_table_with_fractions_is_a_continuous_time() {
+        let skyline = "time\tmedian\tlower\tupper\n0\t120\t80\t190\n2.5\t90\t60\t140\n\
+                       10.1234\t40\t20\t75\n";
+        assert!(fractional_times(skyline));
+        assert!(!fractional_times("week\tmean\n1\t1.2\n2\t1.4\n"));
+        let (points, _) = estimates(skyline, DECIMALS).unwrap();
+        let times: Vec<u64> = points.iter().map(|point| point.time).collect();
+        // Rounded to a thousandth, and nought is a time like any other.
+        assert_eq!(times, [0, 2_500, 10_123]);
+        let error = estimates("time\tmean\n-1\t2\n", DECIMALS).unwrap_err();
+        assert!(error.reason.contains("run forward"), "{}", error.reason);
+        // Whole units stay whole units, counted from one.
+        let (points, _) = estimates("week\tmean\n1\t1.2\n", 0).unwrap();
+        assert_eq!(points[0].time, 0);
+    }
+
     #[test]
     fn estimates_take_the_interval_where_the_file_has_one() {
         let text = "year\tmean\tlower\tupper\n2015\t120\t80\t190\n2016\t150\tNA\tNA\n";
-        let (points, unit) = estimates(text).unwrap();
+        let (points, unit) = estimates(text, 0).unwrap();
         assert_eq!(unit, "year");
         assert_eq!(points[0].time, 2014);
         assert_eq!(points.len(), 2);

@@ -96,6 +96,7 @@ pub struct CoverageTrack {
     fill_opacity: Option<f64>,
     show_max: bool,
     axis: QuantitativeAxis,
+    title: Option<String>,
 }
 
 impl CoverageTrack {
@@ -117,6 +118,7 @@ impl CoverageTrack {
             fill_opacity: None,
             show_max: true,
             axis: QuantitativeAxis::new(),
+            title: None,
         }
     }
 
@@ -196,6 +198,13 @@ impl CoverageTrack {
     /// Overrides the colour, which defaults to the theme accent.
     pub fn color(mut self, color: impl Into<String>) -> Self {
         self.color = Some(color.into());
+        self
+    }
+
+    /// What the value axis measures, written under the track's name, such
+    /// as `cM/Mb` for a recombination rate.
+    pub fn axis_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
@@ -345,6 +354,10 @@ fn column_grid(width: f64) -> (usize, f64) {
 impl Track for CoverageTrack {
     fn noun(&self) -> &str {
         "a coverage profile"
+    }
+
+    fn axis_title(&self) -> Option<&str> {
+        self.show_max.then_some(self.title.as_deref()).flatten()
     }
 
     fn height(&self, _scale: &Scale) -> f64 {

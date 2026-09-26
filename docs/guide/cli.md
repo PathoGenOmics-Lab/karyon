@@ -46,9 +46,13 @@ Four rules cover every command:
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
+| `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
+| `.slow5` | a read's signal (`--squiggle`) |
+| a name holding `genetic_map` | a recombination map (`--recombination`) |
 
 Any of these may end in `.gz`. A name that could be several things, `.tsv` or
-`.txt`, needs its track's flag.
+`.txt`, needs its track's flag, except the genetic maps HapMap and the
+imputation panels ship, whose names say what they are.
 
 An option and its value may be written as two words or joined by `=`, as
 `--label depth` or `--label=depth`.
@@ -145,7 +149,7 @@ command adds, and it does that with the readers in `karyon::read`, described in
 
 ## Track flags
 
-Thirty-four flags, one per track the command can draw. Each takes one
+Thirty-five flags, one per track the command can draw. Each takes one
 file, or `-` for [standard input](#standard-input), except `--axis`, which
 reads nothing.
 
@@ -160,6 +164,7 @@ reads nothing.
 | `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
+| `--recombination <FILE>` | recombination rates, as a line in cM/Mb | [a genetic map, or a bedGraph of rates](formats.md#a-recombination-map) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
 | `--tree <FILE>` | a phylogeny | [Newick](formats.md#newick) | [TreeTrack](../tracks/phylogeny.md#treetrack) |
 | `--msa <FILE>` | a multiple sequence alignment | [aligned FASTA](formats.md#aligned-fasta) | [MsaTrack](../tracks/comparison.md#msatrack) |
 | `--snps <FILE>` | the variable sites of an alignment | [aligned FASTA](formats.md#aligned-fasta) | [SnpTrack](../tracks/variation.md#snptrack) |
@@ -186,8 +191,9 @@ reads nothing.
 | `--squiggle <FILE>` | the current of a nanopore read | [SLOW5, or a column of samples](formats.md#slow5) | [SquiggleTrack](../tracks/reads-molecules.md#squiggletrack) |
 | `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
 
-`--matrix` and `--heatmap` draw the same track type from two shapes of table,
-so thirty-three types are drawn here. The other four are reached from Rust
+`--matrix` and `--heatmap` draw one track type from two shapes of table, and
+`--coverage` and `--recombination` another, so thirty-three types are drawn
+here. The other four are reached from Rust
 only, and the [track catalogue](../tracks/index.md) lists all thirty-seven.
 
 A few things about track flags are worth knowing before they surprise you:
@@ -207,7 +213,9 @@ A few things about track flags are worth knowing before they surprise you:
   of the sites of a gene and a read's signal need no place named: the figure is
   drawn over all of it, and its ruler counts columns, weeks, sites or samples
   rather than bases, numbering them from 1 as the file does. A place narrows
-  it, as `week:10-30` or `site:50-200`.
+  it, as `week:10-30` or `site:50-200`. A table whose times have fractions, as
+  a skyline in decimal years has, is a continuous time: its ruler and its
+  tooltips write the times as the file does, to a thousandth, from nought.
 - **A track flag takes the next word as its file, whatever it is.** A forgotten
   path swallows the flag after it, and the error arrives a word late:
 
@@ -242,7 +250,7 @@ takes.
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one sample; refused when the table holds several |
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
-| `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
+| `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--recombination`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
 | `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
@@ -264,7 +272,7 @@ takes.
 | `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
-| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs` | the theme's colours |
+| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by

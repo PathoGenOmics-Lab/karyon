@@ -209,6 +209,13 @@
 
 .pg-command {
   flex: 0 0 auto;
+  /* A command is one line once a control has rewritten it, and in a box that
+     does not wrap its end was cut off at the edge: the flag the control had
+     just written was the one a reader could not see. Wrapping does not change
+     the command, which is what the program is given, only where it breaks on
+     screen; a data file keeps `pre`, since its lines are its rows. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .pg-body {
@@ -275,7 +282,11 @@
 }
 
 .pg-plot {
-  flex: 1 1 auto;
+  /* As tall as the figure and no taller, so the controls under it are under
+     it. Grown to fill the pane, a short figure left the controls at the foot
+     of the screen, the width of the pane below what they change. A figure
+     taller than the pane still shrinks the box and scrolls inside it. */
+  flex: 0 1 auto;
   min-height: 0;
   padding: 0.7rem;
   overflow: auto;
@@ -324,6 +335,8 @@
 
 .pg-foot {
   flex: 0 0 auto;
+  /* The status line stays at the foot of the pane, whatever the figure left. */
+  margin-top: auto;
   padding: 0.35rem 0.7rem;
   border-top: 1px solid var(--md-default-fg-color--lightest);
   background: var(--md-code-bg-color);
@@ -617,4 +630,49 @@ body:not([data-md-color-scheme="slate"]) .pg-panel {
   font-size: 0.66rem;
   line-height: 1.5;
   color: var(--md-default-fg-color--light);
+}
+
+/* --------------------------------------------------------------- a phone */
+
+/* A workbench of a fixed height on a phone left the figure whatever the
+   controls did not take, and on a screen this narrow, with the words of every
+   control wrapped into a column, that was nothing: the figure was a scroll
+   box a few pixels tall. Here the page grows with what it holds instead, the
+   command and the file on top at a height of their own, the figure at its
+   full height under them, and each control's words on a line of their own
+   under it. The script starts a phone stacked. */
+@media screen and (max-width: 44.9375em) {
+  .pg-app {
+    height: auto;
+  }
+
+  /* A column rather than the grid: rows of a grid shared out the height the
+     page had and gave the figure's row none, since a pane that may shrink to
+     nothing is sized at nothing when room is short. */
+  .pg-panes.pg-stacked {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pg-panes.pg-stacked .pg-split {
+    display: none;
+  }
+
+  .pg-panes.pg-stacked .pg-editor,
+  .pg-panes.pg-stacked .pg-view {
+    min-height: auto;
+  }
+
+  .pg-body {
+    flex: 0 0 auto;
+    height: 14rem;
+  }
+
+  .pg-control {
+    flex-wrap: wrap;
+  }
+
+  .pg-control-says {
+    flex-basis: 100%;
+  }
 }

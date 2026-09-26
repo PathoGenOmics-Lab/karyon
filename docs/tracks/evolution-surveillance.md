@@ -17,7 +17,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 Both tracks put time on the figure's shared integer axis, so an inferred trajectory, the observed lineage composition and a ruler share exact time points without pretending to be the same kind of evidence. A time point is an integer: months since sampling began, days since an epoch, or any other whole unit, used consistently across the figure.
 
 !!! tip "Count time from nought and name the unit"
-    A time point sits in the middle of its unit, and the ruler prints positions 1-based, as it does for bases: point `0` is labelled `1`. Store week 1 as `0` and year 2015 as `2014`, and ask for a ruler that counts whole units, which writes a year as 2015 rather than `2,015` and names its unit: with `plot()` that is `.add_axis().label("month").adjust(|axis| axis.counting())`. The tooltips count the same way. The command line does all of this from a table's own times.
+    A time point sits in the middle of its unit, and the ruler prints positions 1-based, as it does for bases: point `0` is labelled `1`. Store week 1 as `0` and year 2015 as `2014`, and ask for a ruler that counts whole units, which writes a year as 2015 rather than `2,015` and names its unit: with `plot()` that is `.add_axis().label("month").adjust(|axis| axis.counting())`. The tooltips count the same way. A time with fractions, as a skyline in decimal years, is a continuous one: store it in thousandths, year 2015.25 as `2015250`, and tell the ruler and the track, `axis.counting().decimals(3)` and `.time_decimals(3)`, which then write it as 2015.25. The command line does all of this from a table's own times.
 
 ## PhylodynamicTrack { #phylodynamictrack }
 
@@ -72,6 +72,7 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 | `.reference(1.0, "R = 1")` | Adds an independent guide line, such as `R = 1` | none |
 | `.show_points(false)` | Shows or hides the point markers; the tooltips stay | shown |
 | `.show_interval(false)` | Shows or hides the uncertainty ribbon | shown |
+| `.time_decimals(3)` | Writes each time in the tooltips as a continuous time kept to that many places, as a ruler told `.decimals(3)` writes it | `0`, whole units counted from one |
 
 #### Notes
 
@@ -140,6 +141,7 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 | `.frequency_alert(0.50)` | Flags observations at or above this frequency | none |
 | `.growth_alert(0.15)` | Flags a rise of at least this much frequency from one observed step to the next | none |
 | `.show_points(false)` | Shows or hides the observation markers | shown |
+| `.time_decimals(3)` | Writes each time in the tooltips as a continuous time kept to that many places, as a ruler told `.decimals(3)` writes it | `0`, whole units counted from one |
 
 #### Notes
 
