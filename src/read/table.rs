@@ -101,6 +101,105 @@ pub fn matrix(text: &str, region: &Region) -> Result<(Vec<u64>, Vec<MatrixRow>),
     Ok((inside, rows))
 }
 
+/// The windows of a table, each 0-based and half-open, and a row of values
+/// per sample, one value per window.
+pub type WindowMatrix = (Vec<(u64, u64)>, Vec<MatrixRow>);
+
+/// Reads a value per sample per window, as `bedtools unionbedg` writes it.
+///
+/// Each row is a window, a sequence, a start and an end, 0-based and
+/// half-open as BED is, followed by one value per sample. The header names
+/// the samples: `chrom start end S1 S2` as `unionbedg -header` writes it, or
+/// `#'chr' 'start' 'end' 'S1.bam'` as deepTools does, its quotes and its hash
+/// taken off. A file with no header names its samples by their column. A
+/// value that is empty, `.` or `NA` is missing rather than zero.
+///
+/// Returns the windows that reach into the region, and one row per sample
+/// with a value per window, in the order of the file.
+pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut names: Option<Vec<String>> = None;
+    let mut spans = Vec::new();
+    let mut values: Vec<Vec<f64>> = Vec::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = index + 1;
+        let raw = raw.trim_end_matches('\r');
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let fields = columns(raw.trim_start_matches('#'));
+        let is_data = fields.len() >= 3
+            && !raw.starts_with('#')
+            && fields[1].trim().parse::<u64>().is_ok()
+            && fields[2].trim().parse::<u64>().is_ok();
+        if !is_data {
+            // The first line that is not a window names the samples, where
+            // it names at least one; a comment above it is only a comment.
+            if names.is_none() && spans.is_empty() && fields.len() >= 4 {
+                names = Some(
+                    fields[3..]
+                        .iter()
+                        .map(|name| {
+                            name.trim()
+                                .trim_matches(|c| c == '\'' || c == '"')
+                                .to_string()
+                        })
+                        .collect(),
+                );
+                continue;
+            }
+            if raw.starts_with('#') || raw.starts_with("track ") || raw.starts_with("browser ") {
+                continue;
+            }
+            return Err(ReadError::at(
+                line,
+                "a window is a sequence, a start and an end, then a value per sample",
+            ));
+        }
+        let samples = fields.len() - 3;
+        let wanted = names.as_ref().map_or(values.len(), Vec::len);
+        if samples == 0 || (wanted > 0 && samples != wanted) {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "this window has {samples} values and {} names {wanted} samples",
+                    if names.is_some() {
+                        "the header"
+                    } else {
+                        "the first window"
+                    }
+                ),
+            ));
+        }
+        if values.is_empty() {
+            values = vec![Vec::new(); samples];
+        }
+        if fields[0].trim() != region.seq() {
+            continue;
+        }
+        let start: u64 = number(fields[1].trim(), "the start", line)?;
+        let end: u64 = number(fields[2].trim(), "the end", line)?;
+        if end <= start || start >= region.end() || end <= region.start() {
+            continue;
+        }
+        spans.push((start, end));
+        for (sample, field) in fields[3..].iter().enumerate() {
+            values[sample].push(cell(field, sample + 4, line)?);
+        }
+    }
+    let names = names.unwrap_or_else(|| {
+        (0..values.len())
+            .map(|column| format!("column {}", column + 4))
+            .collect()
+    });
+    let rows = names
+        .into_iter()
+        .zip(values.into_iter().chain(std::iter::repeat(Vec::new())))
+        .map(|(name, cells)| MatrixRow::new(name, cells))
+        .collect();
+    Ok((spans, rows))
+}
+
 /// Where the positions start in the header row.
 ///
 /// The corner of the table is either empty or a word such as `sample`, so a
@@ -134,6 +233,34 @@ mod tests {
 
     fn region(locus: &str) -> Region {
         Region::parse(locus).unwrap()
+    }
+
+    #[test]
+    fn windows_are_read_as_unionbedg_and_deeptools_write_them() {
+        let bedtools = "chrom\tstart\tend\tS1\tS2\nchr1\t0\t100\t5\tNA\n\
+                        chr1\t100\t200\t0\t7.5\nchr2\t0\t100\t1\t1\n";
+        let (spans, rows) = windows(bedtools, &region("chr1:1-150")).unwrap();
+        assert_eq!(spans, vec![(0, 100), (100, 200)]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].name.as_str(), rows[1].name.as_str()), ("S1", "S2"));
+        assert_eq!(rows[1].value(0), None, "NA is missing, not zero");
+        assert_eq!(rows[0].value(1), Some(0.0));
+        let deeptools = "#'chr'\t'start'\t'end'\t'a.bam'\t'b.bam'\nchr1\t0\t100\t3\t4\n";
+        let (_, rows) = windows(deeptools, &region("chr1:1-100")).unwrap();
+        assert_eq!(rows[1].name, "b.bam");
+        // No header: the samples are named by their column.
+        let (_, rows) = windows("chr1\t0\t100\t3\t4\n", &region("chr1:1-100")).unwrap();
+        assert_eq!(rows[0].name, "column 4");
+        let error = windows(
+            "chrom\tstart\tend\tS1\tS2\nchr1\t0\t100\t3\n",
+            &region("chr1:1-100"),
+        )
+        .unwrap_err();
+        assert!(
+            error.reason.contains("the header names 2"),
+            "{}",
+            error.reason
+        );
     }
 
     #[test]

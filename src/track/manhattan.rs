@@ -32,7 +32,7 @@
 //! same way and only [`ManhattanTrack::unit`] tells the axis which of them it
 //! is showing.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis, Symbol};
@@ -113,6 +113,8 @@ pub struct ManhattanTrack {
     show_scale: bool,
     bands: Vec<u64>,
     axis: QuantitativeAxis,
+    lead: Option<u64>,
+    linkage: BTreeMap<u64, f64>,
 }
 
 impl ManhattanTrack {
@@ -133,7 +135,35 @@ impl ManhattanTrack {
             show_scale: true,
             bands: Vec::new(),
             axis: QuantitativeAxis::new(),
+            lead: None,
+            linkage: BTreeMap::new(),
         }
+    }
+
+    /// Colours every point by its linkage with a lead variant, as a
+    /// LocusZoom plot does: `linkage` is the r² of each 0-based position with
+    /// the lead at `lead`.
+    ///
+    /// A peak is a tower of variants inherited with one another, and which of
+    /// them travel with the lead is what says whether a second tower beside it
+    /// is the same signal or another one. The lead is a diamond with its
+    /// position over it; a point whose linkage is not known stays grey, which
+    /// is not the colour of an r² of nought.
+    pub fn linkage(mut self, lead: u64, linkage: impl IntoIterator<Item = (u64, f64)>) -> Self {
+        self.lead = Some(lead);
+        self.linkage = linkage
+            .into_iter()
+            .filter(|(_, r2)| r2.is_finite())
+            .map(|(pos, r2)| (pos, r2.clamp(0.0, 1.0)))
+            .collect();
+        self
+    }
+
+    /// The colour of an r² on the linkage ramp: grey where it is weak, the
+    /// accent where it is strong.
+    fn linkage_color(r2: f64, theme: &Theme) -> String {
+        let weak = mix(&theme.muted, theme.surface(), 0.55);
+        mix(&weak, &theme.accent, r2.clamp(0.0, 1.0))
     }
 
     /// Sets the text shown in the left gutter.
@@ -354,6 +384,37 @@ impl Track for ManhattanTrack {
             .flatten()
     }
 
+    /// The ramp of linkage with the lead, and the lead itself, where the
+    /// points are coloured by it.
+    fn key(
+        &self,
+        region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        let lead = self.lead?;
+        let place = crate::track::axis::group_thousands(lead.saturating_add(1));
+        let key = crate::track::legend::Legend::new().ramp(
+            format!("r² with {place}"),
+            Self::linkage_color(0.0, theme),
+            Self::linkage_color(1.0, theme),
+            "0",
+            "1",
+        );
+        // The diamond is keyed where one is drawn: a lead the scan did not
+        // test, or one outside the window, has none.
+        let drawn = region.contains(lead)
+            && self
+                .points
+                .iter()
+                .any(|point| point.pos == lead && point.value.is_finite());
+        Some(if drawn {
+            key.symbol("lead variant", theme.color(1), Symbol::Diamond)
+        } else {
+            key
+        })
+    }
+
     fn y_axis_width(&self, theme: &Theme) -> f64 {
         if !self.show_scale || self.points.is_empty() {
             return 0.0;
@@ -449,13 +510,30 @@ impl Track for ManhattanTrack {
         // front of a miss that was drawn over it. Measured on a hundred
         // thousand tests over a megabase, 101,385 elements and 5.9 MB became
         // 10,996 elements and 0.6 MB.
-        let mut taken: BTreeSet<(i64, i64, bool, u8, bool)> = BTreeSet::new();
-        let mut kept: Vec<(f64, f64, bool, Symbol, bool)> = Vec::new();
+        let mut taken: BTreeSet<(i64, i64, bool, u8, bool, u8)> = BTreeSet::new();
+        let mut kept: Vec<(f64, f64, bool, Symbol, bool, Option<f64>)> = Vec::new();
+        let mut lead_at: Option<(f64, f64)> = None;
         for point in self.points.iter().rev() {
             if !ctx.region.contains(point.pos) || !point.value.is_finite() {
                 continue;
             }
             let (x, y) = (ctx.scale.x_center(point.pos), y_of(point.value));
+            // Coloured by linkage, a point is a circle of its r², and the
+            // lead is drawn last, over everything, as a diamond of its own.
+            if self.lead.is_some() {
+                if Some(point.pos) == self.lead {
+                    lead_at.get_or_insert((x, y));
+                    continue;
+                }
+                let r2 = self.linkage.get(&point.pos).copied();
+                // One point a pixel for each shade the ramp can show apart.
+                let shade = r2.map_or(u8::MAX, |r2| (r2 * 32.0).round() as u8);
+                let pixel = (x.round() as i64, y.round() as i64);
+                if taken.insert((pixel.0, pixel.1, false, 0, false, shade)) {
+                    kept.push((x, y, false, Symbol::Circle, false, Some(r2.unwrap_or(-1.0))));
+                }
+                continue;
+            }
             let above = self.threshold.is_some_and(|t| point.value >= t);
             // A hit looks the same in every band. A miss takes the shape of its
             // band, and every other sequence a shade lighter, which is what
@@ -468,14 +546,40 @@ impl Track for ManhattanTrack {
                 (ctx.theme.symbol(nth), self.bands.len() > 1 && nth % 2 == 1)
             };
             let pixel = (x.round() as i64, y.round() as i64);
-            if taken.insert((pixel.0, pixel.1, above, symbol as u8, lighter)) {
-                kept.push((x, y, above, symbol, lighter));
+            if taken.insert((pixel.0, pixel.1, above, symbol as u8, lighter, 0)) {
+                kept.push((x, y, above, symbol, lighter, None));
             }
         }
 
         let shaded = mix(&plain, ctx.theme.surface(), 0.42);
         let radius = self.radius * ctx.visual_scale;
-        for &(x, y, above, symbol, lighter) in kept.iter().rev() {
+        let unknown = mix(&plain, ctx.theme.surface(), 0.62);
+        // Weakest drawn first, so a point in strong linkage is never under one
+        // in weak linkage on the same spot: sorted strongest first here, as
+        // the loop below walks the list from its end.
+        if self.lead.is_some() {
+            kept.sort_by(|a, b| b.5.unwrap_or(-1.0).total_cmp(&a.5.unwrap_or(-1.0)));
+        }
+        for &(x, y, above, symbol, lighter, r2) in kept.iter().rev() {
+            if let Some(r2) = r2 {
+                let color = if r2 < 0.0 {
+                    unknown.clone()
+                } else {
+                    Self::linkage_color(r2, ctx.theme)
+                };
+                // A locus is a few dozen points rather than a genome's
+                // texture, and each is read for its colour, so each is bigger.
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    radius * 1.35 + ctx.theme.tokens.hairline * 0.5,
+                    symbol,
+                    &color,
+                    ctx.theme.surface(),
+                    ctx.theme.tokens.hairline * 0.6,
+                );
+                continue;
+            }
             if above {
                 // A hit is worth a ring, so it stays a point where the texture
                 // around it is densest.
@@ -492,6 +596,42 @@ impl Track for ManhattanTrack {
                 let color = if lighter { &shaded } else { &plain };
                 ctx.svg.symbol(x, y, radius, symbol, color);
             }
+        }
+
+        // The lead over everything, with its place above it, so the tower
+        // says which variant the colours are read against.
+        if let (Some((x, y)), Some(lead)) = (lead_at, self.lead) {
+            let lead_radius = radius * 1.9;
+            ctx.svg.begin_titled(&format!(
+                "lead variant {}",
+                crate::track::axis::group_thousands(lead.saturating_add(1))
+            ));
+            ctx.svg.symbol_ringed(
+                x,
+                y,
+                lead_radius,
+                Symbol::Diamond,
+                ctx.theme.color(1),
+                ctx.theme.surface(),
+                ctx.theme.tokens.hairline,
+            );
+            ctx.svg.end_group();
+            let text = crate::track::axis::group_thousands(lead.saturating_add(1));
+            let above = y - lead_radius - ctx.theme.tokens.row_gap;
+            // Under the diamond where there is no room over it.
+            let baseline_y = if above - size * 0.8 >= band.y {
+                above
+            } else {
+                y + lead_radius + ctx.theme.tokens.row_gap + size * 0.8
+            };
+            ctx.svg.text(
+                x,
+                baseline_y,
+                &text,
+                ctx.theme.color(1),
+                size,
+                Anchor::Middle,
+            );
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {

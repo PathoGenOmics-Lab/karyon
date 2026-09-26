@@ -290,9 +290,14 @@
   list-style: none;
 }
 
+/* Two buttons side by side, and one over the other with a gap between them
+   where a phone has no room for both. */
 .md-typeset .kh-cards--more {
   margin-top: 1.2rem;
-  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
 }
 
 /* Four points, numbered in the ramp. */

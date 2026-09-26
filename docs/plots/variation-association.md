@@ -1,8 +1,9 @@
 # Variation and association
 
 Plots for calls and the patterns they make across samples: point and
-structural variants, copy number, variable sites, genotype matrices,
-association scans and site-wise selection.
+structural variants, copy number, variable sites, genotype matrices and
+heatmaps, association scans, linkage and other pairs, and site-wise
+selection.
 { .k-lead }
 
 ## How to choose
@@ -18,8 +19,11 @@ position.
 | How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number` with `--ploidy` |
 | Which sites tell closely related samples apart? | [Variable sites](../tracks/variation.md#snptrack) | `SnpTrack`, `--snps` |
 | Which samples carry what, site by site? | [Genotype matrix](../tracks/variation.md#matrixtrack) | `MatrixTrack`, `--matrix` |
+| Which samples lost or gained a stretch, window by window? | [Heatmap of samples](../tracks/variation.md#matrixtrack) | `MatrixTrack::windows`, `--heatmap` |
 | Where does a scan cross its significance line? | [Association scan](../tracks/variation.md#manhattantrack) | `ManhattanTrack`, `--manhattan` |
-| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack`, Rust only |
+| Which markers of a peak travel with its strongest? | [Scan coloured by linkage](../tracks/variation.md#manhattantrack) | `ManhattanTrack::linkage`, `--manhattan` with `--ld` |
+| Which variants are inherited together, or which places are in contact? | [Pairs of positions](../tracks/variation.md#pairtrack) | `PairTrack`, `--pairs` |
+| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack`, `--selection` |
 
 ## Plots
 
@@ -59,6 +63,21 @@ position.
 
     **[Association scan](../tracks/variation.md#manhattantrack)**
     One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
+
+-   [![A peak of an association scan, each marker coloured from grey to blue by its linkage with the strongest, which is a diamond labelled with its position, above a recombination rate with two hotspots](../assets/start/locus.svg){ .k-light width="720" height="286" loading="lazy" }![A peak of an association scan coloured by linkage](../assets/start/locus-dark.svg){ .k-dark width="720" height="286" loading="lazy" }](../tracks/variation.md#manhattantrack)
+
+    **[Scan coloured by linkage](../tracks/variation.md#manhattantrack)**
+    A peak as LocusZoom draws one: every marker coloured by its r² with the lead, so a second signal beside the first stands out grey.
+
+-   [![Forty samples in the order of a tree, each a row of cells along a chromosome, with one clade missing a stretch and three samples carrying another twice](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![A heatmap of forty samples in windows](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](../tracks/variation.md#matrixtrack)
+
+    **[Heatmap of samples](../tracks/variation.md#matrixtrack)**
+    A value per sample per window, each sample read against its own usual value, in the order of a tree.
+
+-   [![A triangle under a gene in which each pair of variants is a cell coloured by its linkage, with three dark blocks of variants inherited together](../assets/start/pairs.svg){ .k-light width="720" height="386" loading="lazy" }![A triangle of linkage under a gene](../assets/start/pairs-dark.svg){ .k-dark width="720" height="386" loading="lazy" }](../tracks/variation.md#pairtrack)
+
+    **[Pairs of positions](../tracks/variation.md#pairtrack)**
+    Linkage or contacts as a triangle hung under the axis, and a few pairs far apart as arcs.
 
 -   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }](../tracks/variation.md#selectiontrack)
 

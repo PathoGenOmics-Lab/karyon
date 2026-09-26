@@ -16,12 +16,12 @@ draws each one with its uncertainty in view; it fits none of the models.
 |:--|:--|:--|
 | What state was each ancestor in, and where did it change? | [Ancestral states and branch events](../tracks/phylogeny.md#treetrack) | `TreeTrack` with `AncestralStateLayer`, `BranchEventLayer` and `BranchIntervalLayer` |
 | On which branches is ω above or below one? | [Selection on branches](../tracks/phylogeny.md#treetrack) | `TreeTrack` with `.dnds()`, `BranchRateMixture` and `HomoplasyLayer` |
-| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack` |
-| How did the effective population size or R change through time? | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack) | `PhylodynamicTrack` |
-| Which lineages are rising, and out of how many samples? | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack) | `SurveillanceTrack` |
+| Which codons are under selection, and in which direction? | [Site-wise selection](../tracks/variation.md#selectiontrack) | `SelectionTrack`, `--selection` |
+| How did the effective population size or R change through time? | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack) | `PhylodynamicTrack`, `--phylodynamics` |
+| Which lineages are rising, and out of how many samples? | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack) | `SurveillanceTrack`, `--frequencies` |
 
-All five are built in Rust. The command line draws the tree itself with
-`--tree`, but none of these layers or tracks. To compare two trees, see the
+The first two are built in Rust: the command line draws the tree itself with
+`--tree`, but not these layers. The last three read a table each. To compare two trees, see the
 [tanglegram](phylogeny-clades.md).
 
 ??? info "Why karyon draws these results but fits none of them"

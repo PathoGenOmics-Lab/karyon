@@ -40,6 +40,31 @@ changes people make most.
     **[A whole sequence](genome.md)**
     The depth of one sample or several along a whole chromosome.
 
+-   [![Many samples in windows](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![Many samples in windows](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](samples.md)
+
+    **[Many samples in windows](samples.md)**
+    The depth or copy number of many samples, in the order of a tree.
+
+-   [![Pairs of positions](../assets/start/pairs.svg){ .k-light width="720" height="386" loading="lazy" }![Pairs of positions](../assets/start/pairs-dark.svg){ .k-dark width="720" height="386" loading="lazy" }](pairs.md)
+
+    **[Pairs of positions](pairs.md)**
+    Linkage from PLINK, contacts from a Hi-C map, scores between sites.
+
+-   [![Counts over time](../assets/start/time.svg){ .k-light width="720" height="342" loading="lazy" }![Counts over time](../assets/start/time-dark.svg){ .k-dark width="720" height="342" loading="lazy" }](time.md)
+
+    **[Counts over time](time.md)**
+    Lineages or mutations over time, and an estimate beside them.
+
+-   [![Selection along a gene](../assets/start/selection.svg){ .k-light width="720" height="216" loading="lazy" }![Selection along a gene](../assets/start/selection-dark.svg){ .k-dark width="720" height="216" loading="lazy" }](selection.md)
+
+    **[Selection along a gene](selection.md)**
+    A test at each site, from HyPhy or a table of your own.
+
+-   [![A nanopore signal](../assets/start/signal.svg){ .k-light width="720" height="156" loading="lazy" }![A nanopore signal](../assets/start/signal-dark.svg){ .k-dark width="720" height="156" loading="lazy" }](signal.md)
+
+    **[A nanopore signal](signal.md)**
+    The raw current of a read, from a SLOW5 file.
+
 </div>
 
 Something else? The [gallery](../plots/index.md) shows every kind of figure

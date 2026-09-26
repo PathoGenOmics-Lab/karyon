@@ -67,9 +67,11 @@ pub mod interval;
 pub mod junction;
 pub mod locus;
 pub mod methyl;
+pub mod pairs;
 pub mod point;
 pub mod segments;
 pub mod seq;
+pub mod series;
 pub mod sheet;
 pub mod signal;
 pub mod split;
@@ -196,6 +198,25 @@ pub fn columns(line: &str) -> Vec<&str> {
     } else {
         line.split_whitespace().collect()
     }
+}
+
+/// Splits on tabs, else on commas, else on runs of whitespace, and takes off
+/// the quotes R puts round a field.
+///
+/// For the tables a statistics package writes rather than a genomics tool:
+/// R and HyPhy write commas, and most command lines tabs.
+pub(crate) fn fields(line: &str) -> Vec<&str> {
+    let split: Vec<&str> = if line.contains('\t') {
+        line.split('\t').collect()
+    } else if line.contains(',') {
+        line.split(',').collect()
+    } else {
+        line.split_whitespace().collect()
+    };
+    split
+        .into_iter()
+        .map(|field| field.trim().trim_matches('"'))
+        .collect()
 }
 
 /// Parses a coordinate, saying which column failed rather than just failing.

@@ -60,9 +60,10 @@ On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag star
 | [StructuralTrack](variation.md#structuraltrack) | Structural calls as arcs between breakpoints | `.add_structural(variants)` | `--structural` |
 | [CopyNumberTrack](variation.md#copynumbertrack) | Segmented copy number and lost heterozygosity | `.add_copy_number(segments, ploidy)` | `--copy-number` with `--ploidy` |
 | [SnpTrack](variation.md#snptrack) | The variable sites of an alignment, one row per sample | `.add_snps(names, sites)` | `--snps` |
-| [MatrixTrack](variation.md#matrixtrack) | A value per sample per site | `.add_matrix(sites, rows)` | `--matrix` |
-| [ManhattanTrack](variation.md#manhattantrack) | Association statistics against a threshold | `.add_manhattan(points)` | `--manhattan` |
-| [SelectionTrack](variation.md#selectiontrack) | Selection evidence above, the ω effect below | `.add_selection(sites)` | none |
+| [MatrixTrack](variation.md#matrixtrack) | A value per sample per site, or per window as a heatmap | `.add_matrix(sites, rows)` | `--matrix`, `--heatmap` |
+| [ManhattanTrack](variation.md#manhattantrack) | Association statistics against a threshold, or coloured by linkage with a lead | `.add_manhattan(points)` | `--manhattan`, with `--ld` |
+| [PairTrack](variation.md#pairtrack) | Pairs of places as a triangle or as arcs: linkage, contacts, epistasis | `.add_pairs(pairs)` | `--pairs` |
+| [SelectionTrack](variation.md#selectiontrack) | Selection evidence above, the ω effect below | `.add_selection(sites)` | `--selection` |
 
 ## Reads and molecules
 
@@ -74,7 +75,7 @@ On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag star
 | [SplitReadTrack](reads-molecules.md#splitreadtrack) | Molecules that aligned in pieces | `.add_split_reads(reads)` | `--split-reads` |
 | [BisulfiteTrack](reads-molecules.md#bisulfitetrack) | Methylation one molecule at a time | `.add_bisulfite(sites, molecules)` | `--bisulfite` |
 | [JunctionTrack](reads-molecules.md#junctiontrack) | Splice junctions as arcs with read counts | `.add_junctions(junctions)` | `--junctions` |
-| [SquiggleTrack](reads-molecules.md#squiggletrack) | Raw nanopore current for one read | `.add_squiggle(signal)` | none |
+| [SquiggleTrack](reads-molecules.md#squiggletrack) | Raw nanopore current for one read | `.add_squiggle(signal)` | `--squiggle` |
 
 ## Comparison
 
@@ -104,8 +105,8 @@ On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag star
 
 | Track | Draws | Rust | Command line |
 |:--|:--|:--|:--|
-| [PhylodynamicTrack](evolution-surveillance.md#phylodynamictrack) | A trajectory through time, with its interval | `.add_phylodynamics(points)` | none |
-| [SurveillanceTrack](evolution-surveillance.md#surveillancetrack) | Lineage counts or frequencies through time | `.add_surveillance(observations)` | none |
+| [PhylodynamicTrack](evolution-surveillance.md#phylodynamictrack) | A trajectory through time, with its interval | `.add_phylodynamics(points)` | `--phylodynamics` |
+| [SurveillanceTrack](evolution-surveillance.md#surveillancetrack) | Lineage counts or frequencies through time | `.add_surveillance(observations)` | `--frequencies` |
 
 ## Whole genome
 
@@ -177,7 +178,7 @@ The Command line column above maps each flag to its track. A few flags need comp
 - **A number the file does not hold.** `--copy-number` needs `--ploidy`, since where balanced sits is not in the file.
 - **Standard input.** Any track file may be `-`, for one track per command, which is how BAM, CRAM and BCF get in: `samtools` and `bcftools` already write the text these readers take.
 
-Eight tracks are library only. `TranscriptionUnitTrack`, `SelectionTrack`, `PhylodynamicTrack`, `SurveillanceTrack`, `CodonTrack` and `GenomeTrack` would need a table with no single standard behind it; `SquiggleTrack` reads raw current, which comes in binary formats; and `LegendTrack` is built from what the other tracks drew rather than from a file. The whole grammar is in [Command line](../guide/cli.md).
+Four tracks are library only. `TranscriptionUnitTrack`, `CodonTrack` and `GenomeTrack` would need a table with no single standard behind it, and `LegendTrack` is built from what the other tracks drew rather than from a file; the command line draws that one by itself, under a figure with colours to key. The whole grammar is in [Command line](../guide/cli.md).
 
 ## Where next
 

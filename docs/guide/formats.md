@@ -41,6 +41,11 @@ BCF and bigWig come in through the tool that writes them as text.
 | [Structural VCF](#structural-vcf) | structural variant calls | `--structural` | `POS` is the base before the event | `StructuralTrack` |
 | [Association table](#the-association-table) | a statistic per tested position | `--manhattan` | 1-based | `ManhattanTrack` |
 | [Matrix table](#the-matrix-table) | a value per sample per site | `--matrix` | 1-based, in the header | `MatrixTrack` |
+| [Table of windows](#the-table-of-windows) | a value per sample per window | `--heatmap` | 0-based, half-open | `MatrixTrack` |
+| [Pairs of positions](#pairs-of-positions) | a value between two places | `--pairs`, `--ld` | PLINK and tables 1-based; BEDPE 0-based, half-open | `PairTrack`, `ManhattanTrack` |
+| [Selection by site](#selection-by-site) | a test of selection at each site | `--selection` | sites counted from 1 | `SelectionTrack` |
+| [Counts over time](#counts-over-time) | how many of each group at each time, of how many | `--frequencies` | whole units, as written | `SurveillanceTrack` |
+| [Estimates over time](#estimates-over-time) | an estimate at each time, with its interval | `--phylodynamics` | whole units, as written | `PhylodynamicTrack` |
 | [Segment table](#the-segment-table) | copy number per segment | `--copy-number` | CNVkit 0-based; ASCAT and `.seg` 1-based | `CopyNumberTrack` |
 | [FASTA](#fasta) | sequences | `--sequence`, `--orfs`, `--with-sequence` | none: byte n is position n | `SequenceTrack`, `OrfTrack` |
 | [Aligned FASTA](#aligned-fasta) | an alignment | `--msa`, `--snps`, `--logo` | alignment columns | `MsaTrack`, `SnpTrack`, `LogoTrack` |
@@ -50,6 +55,7 @@ BCF and bigWig come in through the tool that writes them as text.
 | [SJ.out.tab](#sj-out-tab) | splice junctions | `--junctions` | 1-based, inclusive, on the intron | `JunctionTrack` |
 | [bedMethyl](#bedmethyl) | modified bases per strand | `--methylation` | 0-based, half-open | `MethylationTrack` |
 | [Bismark extractor file](#the-bismark-extractor-file) | methylation calls per read | `--bisulfite` | 1-based | `BisulfiteTrack` |
+| [SLOW5](#slow5) | the raw current of nanopore reads | `--squiggle` | samples counted from 1 | `SquiggleTrack` |
 | [PAF](#paf) | alignments between two sequences | `--synteny`, `--dotplot` | 0-based, half-open | `SyntenyTrack`, `DotplotTrack` |
 | [Gene neighbourhoods](#gene-neighbourhoods) | BED or GFF3 with a genome per row | `--loci` | as BED or GFF3 | `LocusTrack` |
 | [Homology table](#the-homology-table) | which genes match which | `--links` | none | `LocusTrack` |
@@ -505,6 +511,95 @@ empty in a tab-separated file. An empty cell, `.` and `NA` are missing, drawn as
 a hole rather than as the bottom of the colour ramp; a typed `0` is a value, and
 any other word is refused.
 
+### The table of windows { #the-table-of-windows }
+
+A value per sample per window: a depth, a copy number, a methylation level,
+as `bedtools unionbedg -header` writes it.
+
+```text
+chrom        start   end     S01    S02    S03
+NC_000962.3  0       100000  68.1   103.2  54.9
+NC_000962.3  100000  200000  70.4   98.7   0.0
+```
+
+| | |
+|:--|:--|
+| Read by | `--heatmap`; `read::table::windows` |
+| Columns | a sequence, a start and an end, then one value per sample; the header names the samples |
+| Coordinates | 0-based, half-open, as BED; passed through |
+| Skipped | windows on another sequence or outside the region, and a window that ends where it starts |
+| Refused | a line after the header that is not a window; a window whose count of values differs from the count of samples |
+
+deepTools' `multiBigwigSummary --outRawCounts` writes the same shape under a
+header of its own, `#'chr' 'start' 'end' 'S01.bam'`, which is read with its hash
+and quotes taken off. A table with no header names its samples by their column,
+`column 4` onwards. An empty cell, `.` and `NA` are missing, as in the matrix
+table. `--relative` divides each sample by its own median over the windows
+drawn, so 1× is its usual value.
+
+### Pairs of positions { #pairs-of-positions }
+
+A value between two places: the linkage between two variants, the contacts
+between two bins, a score between two sites. Three shapes, told apart by the
+first line.
+
+PLINK's `.ld` table, as `--r2` writes it, its columns found by their names:
+
+```text
+ CHR_A    BP_A   SNP_A  CHR_B    BP_B   SNP_B      R2
+     1  754400  rs101      1  756600  rs102   0.8412
+```
+
+BEDPE, two stretches and a value, as `cooler dump --join` writes a contact
+map and loop callers write their loops:
+
+```text
+chr2  0      10000  chr2  20000  30000  57
+```
+
+A table of your own, headed by what its columns are:
+
+```text
+pos1     pos2     score
+761110   761155   0.82
+```
+
+| | |
+|:--|:--|
+| Read by | `--pairs`, and `--ld` after `--manhattan`; `read::pairs::pairs` |
+| Columns | PLINK: `BP_A` and `BP_B`, the value as `R2`, `R` or `DP`, the sequences as `CHR_A` and `CHR_B`. BEDPE: `chrom1 start1 end1 chrom2 start2 end2`, and the first number after them as the value, 1 where there is none. A table: two positions (`pos1` and `pos2`, `site_a` and `site_b`, `bp_a` and `bp_b`), a value (`r2`, `score`, `count`, `weight`, `value`) and a sequence (`chrom`) where there is one; three columns with no header are two positions and a value |
+| Coordinates | PLINK and a table: 1-based. BEDPE: 0-based, half-open |
+| Skipped | a pair with either place on another sequence |
+| Refused | a header with no two columns of positions; a position of 0; a BEDPE row of fewer than six columns |
+
+Tabs, commas or runs of spaces separate the columns. An empty value, `.`, `NA`
+or `nan` is a pair with no answer, kept and not drawn. A value named as a
+correlation, `R2`, `r²`, `R` or `D'`, is keyed from 0 to 1 whatever the
+strongest pair in the window, and drawn as a triangle.
+
+### Selection by site { #selection-by-site }
+
+A test of selection at each codon of a gene, as HyPhy's FEL writes it:
+
+```text
+alpha,beta,alpha=beta,LRT,p-value
+1.937,0.280,1.108,2.1,0.1476
+0.500,2.500,1.500,6.2,0.0128
+```
+
+| | |
+|:--|:--|
+| Read by | `--selection`; `read::series::selection` |
+| Columns | found by name in any case: a `site` or `codon`, where the rows are not the sites in order from 1; the rates as `alpha` and `beta`, `dS` and `dN`, or their ratio as `omega`; the evidence as a `p-value` or a `posterior` |
+| Coordinates | sites counted from 1, as HyPhy counts them |
+| Refused | a header with no rates; a site that is not a whole number from 1 |
+
+MEME's two rate classes are drawn where the table names them `beta-`, `beta+`
+and `p+`. A table of posteriors and no p-values, as FUBAR or a Bayes empirical
+Bayes writes, is drawn by its posteriors, and `--threshold` is then a posterior.
+Tabs, commas or spaces separate the columns, and an empty value or `NA` is left
+out rather than drawn at nought.
+
 ### The segment table { #the-segment-table }
 
 Copy number over segments, as a caller concluded it. Used with `--ploidy`.
@@ -538,6 +633,56 @@ file, which is why `--ploidy` is required. The allele split is read first
 because a caller that wrote it did so on purpose, and a total cannot be turned
 back into one. A missing copy number leaves a gap rather than a level nobody
 called.
+
+## Over time
+
+### Counts over time { #counts-over-time }
+
+How many of each group were seen at each time, out of how many: the lineages
+of a surveillance programme each week, or the reads carrying each mutation at
+each passage of an experiment.
+
+```text
+week  lineage  count  total
+1     A        106    124
+1     B.1      6      124
+2     A        111    131
+```
+
+| | |
+|:--|:--|
+| Read by | `--frequencies`; `read::series::counts` |
+| Columns | found by name in any case: a time (`week`, `day`, `month`, `year`, `time`, `passage`, `generation`), a group (`lineage`, `mutation`, `variant`, `clade`, `genotype`), a `count` and a `total` |
+| Coordinates | whole units, drawn as written: week 1 under 1, year 2015 under 2015 |
+| Refused | a missing column; a time of 0, or a fraction of a unit; a date; a count or a total that is not a whole number; a count above its total |
+
+A time is a whole number because the ruler counts whole units: a skyline in
+decimal years would be drawn rounded without a word, so it is refused with the
+way round it, which is a smaller unit. A date is refused the same way; count
+dates from a start, as days since the first sample. Where a group was looked for
+and not found, write a count of 0: a missing row is not a 0.
+
+### Estimates over time { #estimates-over-time }
+
+An estimate at each time and its interval: a reproductive number, an effective
+population size, a growth rate.
+
+```text
+week  mean   lower  upper
+3     1.060  0.796  1.377
+4     1.191  0.946  1.485
+```
+
+| | |
+|:--|:--|
+| Read by | `--phylodynamics`; `read::series::estimates` |
+| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
+| Coordinates | whole units, drawn as written |
+| Refused | a missing time or estimate; a time as for counts |
+
+EpiEstim's table is read as R's `write.csv` writes it, drawn at the end of each
+window, `t_end`. An interval with an empty end, or `NA`, is not drawn, and the
+estimate is.
 
 ## Sequences and trees
 
@@ -772,6 +917,28 @@ one read name (a `/1` or `/2` ending is dropped) and are one row, one molecule,
 and where they disagree about a cytosine neither call is kept. A cytosine a
 molecule never covered is drawn as nothing, unlike one measured and found
 unmethylated.
+
+### SLOW5 { #slow5 }
+
+The raw current of nanopore reads, as text. `slow5tools view` writes a BLOW5
+file this way.
+
+```text
+#slow5_version	0.2.0
+#read_id	read_group	digitisation	offset	range	sampling_rate	len_raw_signal	raw_signal
+read_1	0	8192	6	1467.61	4000	2400	432,434,436,450,433
+```
+
+| | |
+|:--|:--|
+| Read by | `--squiggle`, or a `.slow5` named on its own; `read::series::squiggle` |
+| Columns | `read_id` and `raw_signal`, and `digitisation`, `offset` and `range` to put the signal in picoamperes, as `(raw + offset) × range / digitisation` |
+| Coordinates | samples counted from 1 |
+| Skipped | every read but one: the one `--read` names, or the first |
+| Refused | a read `--read` names that the file does not hold, with the reads it does |
+
+A file of plain numbers, one sample after another, is read too, as picoamperes
+already. POD5 and FAST5 are binary and are converted to SLOW5 first.
 
 ## Comparisons
 

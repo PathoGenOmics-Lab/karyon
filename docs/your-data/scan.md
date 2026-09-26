@@ -31,5 +31,25 @@ high as `-log10` of its p-value, and the dashed line is p = 5e-8.
 `--rename` is for a table that names the chromosome `1` where the annotation
 calls it `NC_000962.3`.
 
-The example file: [gwas.assoc](../data/gwas.assoc). Every option:
+## Colour a peak by linkage
+
+Zoomed into the peak, each marker coloured by its linkage with the strongest,
+as LocusZoom draws one, with the recombination rate under it:
+
+```bash
+karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
+  --coverage recombination.bedgraph --style line --label cM/Mb -o locus.svg
+```
+
+<figure class="k-start" markdown>
+![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its position, and under them a recombination rate with two hotspots](../assets/start/locus.svg){ .k-light width="720" height="286" }
+![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="286" }
+</figure>
+
+`lead.ld` is PLINK's linkage of the lead with its neighbours, as
+`plink --r2 --ld-snp snp00342 --ld-window-kb 100 --ld-window 99999
+--ld-window-r2 0` writes it. The recombination rate is any bedGraph.
+
+The example files: [gwas.assoc](../data/gwas.assoc), [lead.ld](../data/lead.ld)
+and [recombination.bedgraph](../data/recombination.bedgraph). Every option:
 `karyon help manhattan`, or the [command line reference](../guide/cli.md).

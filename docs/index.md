@@ -77,7 +77,7 @@ karyon NC_000962.3:761,000-762,999 \
 
 </div>
 
-<p class="kh-cards--more" markdown>[Every kind of figure](plots/index.md){ .md-button }</p>
+<p class="kh-cards--more" markdown>[More kinds of data](your-data/index.md){ .md-button } [Every kind of figure](plots/index.md){ .md-button }</p>
 
 </section>
 

@@ -54,12 +54,13 @@ The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader w
 | `.height(30.0)` | Band height in pixels (`--height`) | `26` |
 | `.tick_spacing(80.0)` | Target distance between ticks, in pixels | `110` |
 | `.center_on_bases(true)` | Puts each tick in the middle of its base rather than on its left edge | off |
+| `.counting()` | A ruler of whole units that are not bases, weeks, sites, samples or columns: ticks in the middle of each unit and plain numbers, `2015` rather than `2,015` and `1500` rather than `1.5 kb` | off |
 
 #### Notes
 
 Coordinates are 0-based everywhere in the crate except where a reader looks, and the ruler is one of those places: a tick reading `761,100` is the coordinate that goes into a browser's search box or a samtools region string, the same 1-based form `Region::parse` reads (see [Coordinates](../how-it-works/coordinates.md)). `tick_spacing` asks for a density, not a step; the step is rounded to 1, 2 or 5 times a power of ten so the labels stay round. One unit, bp, kb or Mb, is chosen from the largest label and the step together and used for the whole ruler, since a ruler that changes unit half way across has to be decoded rather than read.
 
-A ruler marks boundaries, which is right while a base is a fraction of a pixel. Once a base is a column you can see, as in a logo, a short motif or a figure of time points, `center_on_bases` puts each number under the column it counts.
+A ruler marks boundaries, which is right while a base is a fraction of a pixel. Once a base is a column you can see, as in a logo, a short motif or a figure of time points, `center_on_bases` puts each number under the column it counts. `counting` does that too and writes plain numbers, for an axis whose unit is not a base: the command line uses it under an alignment, a table over time, the sites of a gene and a read's samples, and names the unit in the margin.
 
 `plot()` appends a ruler at the bottom when anything in the figure is laid on the coordinates, so a figure of trees alone gets none. `.add_axis()` puts it where the call sits and is not doubled at the bottom, `.remove_axis()` leaves it out, and calling `.add_axis()` twice gives a tall figure a ruler at the top and at the bottom. An `AxisTrack` passed to `add_track` is drawn as well as the automatic one, which makes two. On the command line `--axis` does the same as `add_axis`, and `--no-axis` the same as `remove_axis`.
 

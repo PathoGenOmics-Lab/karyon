@@ -3060,7 +3060,9 @@ fn trajectory(seed: u64) -> Trajectory {
 fn point_estimate(title: &str) -> Option<(u64, f64)> {
     let rest = title.strip_prefix("time ")?;
     let (time, rest) = rest.split_once(" | estimate ")?;
-    Some((time.parse().ok()?, rest.split(' ').next()?.parse().ok()?))
+    // Written as the ruler writes it, from one.
+    let time: u64 = time.parse().ok()?;
+    Some((time.checked_sub(1)?, rest.split(' ').next()?.parse().ok()?))
 }
 
 /// Every `<text>` in the document, as its anchor and what it says.
@@ -3435,7 +3437,11 @@ fn surveillance(rng: &mut Lcg, observations: Vec<SurveillanceObservation>) -> Pa
 
 /// The observation a tooltip names, as the three numbers that identify it.
 fn named_observation(tooltip: &str) -> Option<(u64, u64, u64)> {
-    let time = field(tooltip, "time ")?.parse().ok()?;
+    // Written as the ruler writes it, from one.
+    let time = field(tooltip, "time ")?
+        .parse::<u64>()
+        .ok()?
+        .checked_sub(1)?;
     let (count, total) = field(tooltip, "count ")?.split_once(" of ")?;
     Some((time, count.parse().ok()?, total.parse().ok()?))
 }

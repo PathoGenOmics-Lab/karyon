@@ -95,7 +95,7 @@ let figure = Plot::over(region);
 
 Each `add_` method builds one track and puts it under the tracks already added,
 so the order of the calls is the order of the stack. There is one for each of
-the 36 track types the crate ships, five `_at` forms that take the start of an
+the 37 track types the crate ships, five `_at` forms that take the start of an
 array, and two that take a track you built yourself.
 
 | Method | Adds | Takes |

@@ -56,10 +56,12 @@ TRACKS, by what they draw
                           --logo --dynseq
     annotation            --features --orfs
     variation             --variants --structural --copy-number --snps
-                          --matrix --manhattan
+                          --matrix --heatmap --manhattan --pairs
     reads and molecules   --pileup --split-reads --bisulfite --junctions
     comparison            --msa --domains --dotplot --synteny --loci
     phylogeny             --tree --tanglegram --clades
+    over time and sites   --frequencies --phylodynamics --selection
+                          --squiggle
     whole genome          --ideogram
     scales                --axis
 
@@ -87,9 +89,11 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Orfs => "tracks/annotation/#orftrack",
         Kind::Variants => "tracks/variation/#varianttrack",
         Kind::Structural => "tracks/variation/#structuraltrack",
+        Kind::Pairs => "tracks/variation/#pairtrack",
         Kind::CopyNumber => "tracks/variation/#copynumbertrack",
         Kind::Snps => "tracks/variation/#snptrack",
         Kind::Matrix => "tracks/variation/#matrixtrack",
+        Kind::Heatmap => "tracks/variation/#matrixtrack",
         Kind::Manhattan => "tracks/variation/#manhattantrack",
         Kind::Pileup => "tracks/reads-molecules/#pileuptrack",
         Kind::SplitReads => "tracks/reads-molecules/#splitreadtrack",
@@ -104,6 +108,10 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Tanglegram => "tracks/phylogeny/#tanglegramtrack",
         Kind::Clades => "tracks/phylogeny/#cladetrack",
         Kind::Ideogram => "tracks/whole-genome/#ideogramtrack",
+        Kind::Frequencies => "tracks/evolution-surveillance/#surveillancetrack",
+        Kind::Phylodynamics => "tracks/evolution-surveillance/#phylodynamictrack",
+        Kind::Selection => "tracks/variation/#selectiontrack",
+        Kind::Squiggle => "tracks/reads-molecules/#squiggletrack",
         Kind::Axis => "tracks/scales-keys/#axistrack",
     }
 }
@@ -125,11 +133,13 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--against", "b.nwk"),
     ("--with-sequence", "ref.fa"),
     ("--with-tree", "t.nwk"),
+    ("--ld", "lead.ld"),
     ("--links", "l.tsv"),
     ("--identity", "percent"),
     ("--modification", "m"),
     ("--context", "CpG"),
     ("--analysis", "Pfam"),
+    ("--read", "r1"),
     ("--ploidy", "2"),
     ("--sample", "s1"),
     ("--traits", "s.tsv"),
@@ -209,7 +219,7 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          folded clade shows what its tips agree on
 "
         }
-        (Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Domains, "--with-tree") => {
+        (Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains, "--with-tree") => {
             "    --with-tree <FILE>   a Newick tree: the rows are drawn in the order of
                          its tips, with the tree beside them
 "
@@ -228,6 +238,21 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
             "    --max-rows <N|all>   fold the smallest clades until the tree fits in N
                          rows; every tip stays on the figure, inside a
                          triangle saying how many it holds. No cap by default
+"
+        }
+        (Kind::Phylodynamics, "--threshold") => {
+            "    --threshold <V>      a dashed reference line at this value, as 1 for a
+                         reproductive number
+"
+        }
+        (Kind::Selection, "--threshold") => {
+            "    --threshold <V>      the evidence a site needs to count as selected: a
+                         p-value, 0.05 by default, or a posterior, 0.9 by
+                         default, where the table holds posteriors only
+"
+        }
+        (Kind::Pairs, "--threshold") => {
+            "    --threshold <V>      the least value a pair is drawn with, as 0.2 for an r²
 "
         }
         (Kind::Manhattan, "--threshold") => {
@@ -342,7 +367,10 @@ that one, so the order of the words is the order of the stack. A coordinate rule
 unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
 in the figure is laid on the coordinates: a phylogeny is not, so a stack of
 trees gets no ruler measuring a window it is not drawn in, and a figure made
-only of --tree, --tanglegram and --snps tracks takes no region at all. Any
+only of --tree, --tanglegram and --snps tracks takes no region at all. An
+alignment, a table over time or over the sites of a gene, and a read's signal
+are their own place: named nowhere, the figure is laid over all of it, and
+its ruler counts columns, weeks, sites or samples rather than bases. Any
 track file may be - for standard input, and one track may take it.
 
 TRACKS
@@ -367,6 +395,11 @@ TRACKS
     --snps <FILE>        the variable sites of an alignment, aligned FASTA
     --ideogram <FILE>    cytogenetic bands, a cytoBand table
     --matrix <FILE>      a value per sample per site, a table
+    --heatmap <FILE>     a value per sample per window along the sequence: a
+                         depth, a copy number or a methylation level, as
+                         bedtools unionbedg writes it, a sequence, a start and
+                         an end, then a column per sample under a header that
+                         names them
     --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
@@ -387,12 +420,33 @@ TRACKS
                          --modification says which one when a file holds several
     --structural <FILE>  structural calls as arcs between their breakpoints, a
                          VCF carrying symbolic alleles or SVTYPE
+    --pairs <FILE>       pairs of places and a value between them: linkage as
+                         PLINK writes it in a .ld table, contacts or loops as
+                         BEDPE, or a table headed pos1, pos2 and a value.
+                         Linkage and contacts are a triangle under the axis,
+                         and a few pairs far apart are arcs
     --split-reads <FILE> molecules that aligned in pieces, a BAM or SAM carrying
                          an SA tag; only primary alignments are read
     --bisulfite <FILE>   methylation one molecule at a time, a Bismark
                          methylation extractor file; --context says which
     --domains <FILE>     protein domains on an axis of residues, an
                          InterProScan table; --analysis says which
+    --frequencies <FILE> how many of each group were seen at each time, out
+                         of how many, drawn as frequencies: lineages over
+                         weeks, or mutations over the passages of an
+                         experiment. A table headed time (or week, day, year),
+                         lineage (or mutation, group), count and total
+    --phylodynamics <FILE>
+                         an estimate over time with its interval, as a
+                         skyline, a population size or a reproductive number:
+                         a table headed time, estimate (or mean, median) and
+                         lower and upper where there is an interval
+    --selection <FILE>   a test of selection at each site of a gene, HyPhy's
+                         FEL or MEME as CSV, or a table of site, alpha and beta
+                         (or dS and dN, or omega) and a p-value or a posterior
+    --squiggle <FILE>    the current of a nanopore read, a SLOW5 file as
+                         slow5tools view writes it, or one number per sample;
+                         --read says which read
     --axis               the coordinate ruler, put where this flag sits
 
 TRACK OPTIONS, each describing the track before it, once
@@ -403,6 +457,11 @@ TRACK OPTIONS, each describing the track before it, once
                          colours the bases that disagree with it, and draws
                          every read agreeing when it is not given
     --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
+    --ld <FILE>          the linkage of each variant of a scan with its lead, a
+                         PLINK .ld table of the lead against its neighbours:
+                         each point is coloured by its r² with the lead, and
+                         the lead is a diamond with its position over it, as
+                         in LocusZoom
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names
     --identity <UNIT>    percent or fraction, for a homology file whose third
@@ -413,6 +472,8 @@ TRACK OPTIONS, each describing the track before it, once
                          than one
     --analysis <NAME>    Pfam, PANTHER or another member database, for a
                          domain table holding more than one
+    --read <NAME>        which read of a SLOW5 file holding several; the first
+                         by default
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
                          required, since it is not in the file
     --sample <NAME>      which sample of a segment table holding several
@@ -432,7 +493,11 @@ TRACK OPTIONS, each describing the track before it, once
                          correction for a million tests and wrong wherever a
                          million were not run. On a phylogeny it is the least
                          support worth showing, and hides the weaker values
-                         --support-style would otherwise draw
+                         --support-style would otherwise draw. On an estimate
+                         over time it is a dashed reference line, as 1 for a
+                         reproductive number; on a selection test, the p-value
+                         (0.05 by default) or posterior (0.9) a site needs;
+                         on pairs, the least value a pair is drawn with
     --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
                          A circle sizes itself so its tip labels clear each
                          other, up to the width of the figure, so a big tree
@@ -488,6 +553,10 @@ TRACK OPTIONS, each describing the track before it, once
                          could not. A faded read is drawn square, without the
                          arrowhead that says which way it ran, and its
                          mismatches stay at full strength
+    --relative           read each sample of a heatmap against its own median,
+                         so 1× is its usual value: a sample sequenced deeper
+                         is no longer a darker row from end to end, and a
+                         deletion or a duplication is what stands out
     --row-height <PX>    how tall one row is, for the tracks that size
                          themselves by rows rather than by --height; each has
                          a minimum of its own and will not be drawn under it,
@@ -505,8 +574,10 @@ TRACK OPTIONS, each describing the track before it, once
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants, differences
-                         or all for an alignment
-    --log                a log scale
+                         or all for an alignment, stacked or line for
+                         frequencies, triangle or arcs for pairs
+    --log                a log scale, for coverage, for an estimate over time
+                         and for the colours of pairs, as a contact map is read
     --color <HEX>        as in '#d55e00'
     --format <NAME>      bedgraph, depth or values for coverage, bed or gff3
                          for features and loci, when the file cannot be told

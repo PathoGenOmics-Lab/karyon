@@ -12,7 +12,7 @@
 
 use crate::scale::Scale;
 use crate::style::{LinePattern, Symbol};
-use crate::svg::{text_exact, text_rounded, Anchor};
+use crate::svg::{text_exact, text_rounded, text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{DrawContext, Track};
 
@@ -368,20 +368,14 @@ impl Track for SelectionTrack {
 }
 
 impl SelectionTrack {
+    /// A key to the colours and the diamond. The track's own name is in the
+    /// gutter, where every track's is; a title here read `selection atlas`
+    /// over every figure of one, whatever it held.
     fn draw_header(&self, ctx: &mut DrawContext<'_>) {
         let y = ctx.band.y + ctx.px(12.5);
         let size = ctx.theme.font_size * 0.78;
         let mut x = ctx.band.x + ctx.px(4.0);
-        ctx.svg.text_bold(
-            x,
-            y,
-            "selection atlas",
-            &ctx.theme.foreground,
-            size,
-            Anchor::Start,
-        );
-        x += ctx.px(78.0);
-        for (label, omega) in [("omega<1", 0.3), ("~1", 1.0), (">1", 4.0)] {
+        for (label, omega) in [("ω < 1", 0.3), ("ω ≈ 1", 1.0), ("ω > 1", 4.0)] {
             let color = selection_color(
                 ctx.theme,
                 omega,
@@ -398,17 +392,17 @@ impl SelectionTrack {
                 size,
                 Anchor::Start,
             );
-            x += ctx.px(if label == "omega<1" { 49.0 } else { 30.0 });
+            x += ctx.px(5.0) + text_width(label, size) + ctx.px(12.0);
         }
 
         // The legend states the rule the track selects sites by, so it prints
         // the threshold and not a rounding of it: three decimals turn a
-        // genome-wide 5e-8 into `p<=0`, a claim no site can satisfy, and two
-        // turn a posterior threshold of 0.995 into `PP>=1`.
+        // genome-wide 5e-8 into `p ≤ 0`, a claim no site can satisfy, and two
+        // turn a posterior threshold of 0.995 into `PP ≥ 1`.
         let evidence = match self.evidence {
-            SelectionEvidence::PValue => format!("p<={}", text_exact(self.p_threshold)),
+            SelectionEvidence::PValue => format!("p ≤ {}", text_exact(self.p_threshold)),
             SelectionEvidence::Posterior => {
-                format!("PP>={}", text_exact(self.posterior_threshold))
+                format!("PP ≥ {}", text_exact(self.posterior_threshold))
             }
         };
         ctx.svg.symbol(
@@ -552,9 +546,9 @@ impl SelectionTrack {
         self.axis_text(
             ctx,
             top + ctx.px(6.0),
-            &format!("omega {}", text_rounded(self.saturation, 1)),
+            &format!("ω {}", text_rounded(self.saturation, 1)),
         );
-        self.axis_text(ctx, mid + ctx.px(3.0), "omega 1");
+        self.axis_text(ctx, mid + ctx.px(3.0), "ω 1");
         self.axis_text(
             ctx,
             top + height,
@@ -852,7 +846,7 @@ mod tests {
         let svg = Figure::new(Region::new("gene", 0, 10).unwrap())
             .push(track)
             .to_svg();
-        assert!(svg.contains("PP&gt;=0.95") || svg.contains("PP>=0.95"));
+        assert!(svg.contains("PP ≥ 0.95"));
     }
 
     #[test]
@@ -989,7 +983,7 @@ mod tests {
 
     #[test]
     fn a_genome_wide_threshold_is_printed_rather_than_rounded_away() {
-        // Three decimals turn 5e-8 into a rule reading `p<=0`, which nothing
+        // Three decimals turn 5e-8 into a rule reading `p ≤ 0`, which nothing
         // can satisfy, on a legend that is the only statement of which sites
         // the track picked out.
         let svg = Figure::new(Region::new("gene", 0, 30).unwrap())
@@ -998,9 +992,9 @@ mod tests {
                     .p_threshold(5e-8),
             )
             .to_svg();
-        assert!(svg.contains("p&lt;=5e-8") || svg.contains("p<=5e-8"));
+        assert!(svg.contains("p ≤ 5e-8"));
         assert!(svg.contains("p 5e-8"), "the axis labels the rule's height");
-        assert!(!svg.contains("p&lt;=0") && !svg.contains("p<=0"));
+        assert!(!svg.contains("p ≤ 0<") && !svg.contains("p ≤ 0.0<"));
     }
 
     #[test]

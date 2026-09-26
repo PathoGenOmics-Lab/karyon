@@ -674,7 +674,9 @@ fn observation_title(
 ) -> String {
     let mut parts = vec![
         observation.lineage.clone(),
-        format!("time {}", observation.time),
+        // As the ruler under it writes it: coordinate 0 is time 1, as base 0
+        // is base 1, so week 12 is not called week 11 on hover.
+        format!("time {}", observation.time.saturating_add(1)),
         format!("count {} of {}", observation.count, observation.total),
     ];
     if let Some(frequency) = observation.frequency() {
@@ -769,12 +771,12 @@ mod tests {
             .to_svg();
         assert!(
             svg.contains(
-                "a count above its total is not a frequency | A | time 1 | count 250 of 100"
+                "a count above its total is not a frequency | A | time 2 | count 250 of 100"
             ),
             "{svg}"
         );
         assert!(
-            svg.contains("no denominator, so there is no frequency | B | time 2 | count 4 of 0"),
+            svg.contains("no denominator, so there is no frequency | B | time 3 | count 4 of 0"),
             "{svg}"
         );
     }
@@ -860,7 +862,7 @@ mod tests {
         // its own numbers. Only the observation after them is read here.
         let change = |svg: &str| -> String {
             svg.split("<title>")
-                .find(|piece| piece.starts_with("A | time 3"))
+                .find(|piece| piece.starts_with("A | time 4"))
                 .and_then(|piece| piece.split("</title>").next())
                 .expect("the last observation is named")
                 .to_string()
@@ -872,7 +874,7 @@ mod tests {
         );
         assert_eq!(
             change(&one),
-            "A | time 3 | count 95 of 100 | frequency 0.95 | change +0.05"
+            "A | time 4 | count 95 of 100 | frequency 0.95 | change +0.05"
         );
         assert!(!one.contains("growth alert"), "{one}");
         assert!(!other.contains("growth alert"), "{other}");
@@ -893,7 +895,7 @@ mod tests {
                     .growth_alert(0.20),
             )
             .to_svg();
-        assert!(svg.contains("B | time 2 | count 40 of 100"), "{svg}");
+        assert!(svg.contains("B | time 3 | count 40 of 100"), "{svg}");
         assert!(svg.contains("frequency alert &gt;= 0.35"), "{svg}");
         assert!(svg.contains("growth alert &gt;= 0.2"), "{svg}");
         assert!(svg.contains("regional cluster"), "{svg}");
@@ -923,11 +925,11 @@ mod tests {
         // is wrong with those numbers and nothing is hidden from anyone who
         // set the floor, so that one stays out of the document.
         assert!(
-            svg.contains("no denominator, so there is no frequency | zero | time 1"),
+            svg.contains("no denominator, so there is no frequency | zero | time 2"),
             "{svg}"
         );
         assert!(!svg.contains("thin | time"), "{svg}");
-        assert!(svg.contains("kept | time 3"), "{svg}");
+        assert!(svg.contains("kept | time 4"), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
     }
 
@@ -951,7 +953,7 @@ mod tests {
             )
             .to_svg();
         assert!(
-            svg.contains("a count above its total is not a frequency | A | time 2"),
+            svg.contains("a count above its total is not a frequency | A | time 3"),
             "{svg}"
         );
         let lines = crate::track::polylines(&svg);
@@ -974,7 +976,7 @@ mod tests {
             ]))
             .to_svg();
         assert!(
-            svg.contains("no denominator, so there is no frequency | A | time 2"),
+            svg.contains("no denominator, so there is no frequency | A | time 3"),
             "{svg}"
         );
         let bands: Vec<&str> = svg

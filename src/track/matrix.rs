@@ -10,6 +10,11 @@
 //! A cell says where and what. It does not say how wide: every cell is drawn at
 //! one floor width, so its edges stand for no particular amount of sequence.
 //!
+//! A matrix of windows is the other kind, and its cells do say how wide:
+//! [`MatrixTrack::windows`] takes a start and an end for every column, as a
+//! depth or a copy number measured over each ten thousand bases of a genome
+//! is, and each cell covers exactly its window.
+//!
 //! What the colours do have to keep apart is three states: a sample that does
 //! not carry the allele, a sample that was never typed there, and stretches of
 //! the region with no site in them at all. Those are three different statements,
@@ -26,7 +31,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{text_width, Anchor};
+use crate::svg::{text_rounded, text_width, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::traits::Traits;
@@ -117,6 +122,8 @@ impl MatrixRow {
 #[derive(Debug, Clone)]
 pub struct MatrixTrack {
     sites: Vec<u64>,
+    /// Where each column ends, for a matrix of windows; `None` for sites.
+    ends: Option<Vec<u64>>,
     rows: Vec<MatrixRow>,
     label: Option<String>,
     row_height: f64,
@@ -129,6 +136,7 @@ pub struct MatrixTrack {
     tree_width: f64,
     tree_shape: TreeShape,
     traits: Traits,
+    unit: String,
 }
 
 impl MatrixTrack {
@@ -140,6 +148,7 @@ impl MatrixTrack {
     pub fn new(sites: impl Into<Vec<u64>>, rows: impl Into<Vec<MatrixRow>>) -> Self {
         MatrixTrack {
             sites: sites.into(),
+            ends: None,
             rows: rows.into(),
             label: None,
             row_height: 11.0,
@@ -152,12 +161,52 @@ impl MatrixTrack {
             tree_width: 90.0,
             tree_shape: TreeShape::Phylogram,
             traits: Traits::default(),
+            unit: String::new(),
         }
+    }
+
+    /// A matrix over `windows`, one row per sample: the depth, copy number
+    /// or methylation of many samples, each measured over the same stretches
+    /// of the sequence.
+    ///
+    /// `windows[j]` is the 0-based half-open span of column `j`, and a cell
+    /// covers all of it, so its width is a length of sequence rather than a
+    /// floor. A window with no length is not drawn.
+    ///
+    /// ```
+    /// use karyon::{Figure, MatrixRow, MatrixTrack, Region};
+    ///
+    /// let windows = vec![(0, 10_000), (10_000, 20_000), (20_000, 30_000)];
+    /// let rows = vec![
+    ///     MatrixRow::new("S1", vec![52.0, 0.0, 49.0]),
+    ///     MatrixRow::new("S2", vec![61.0, 58.0, 60.0]),
+    /// ];
+    /// let svg = Figure::new(Region::new("chr1", 0, 30_000).unwrap())
+    ///     .push(MatrixTrack::windows(windows, rows).label("depth"))
+    ///     .to_svg();
+    /// assert!(svg.contains("S1, 3 of 3 windows called"));
+    /// ```
+    pub fn windows(windows: impl Into<Vec<(u64, u64)>>, rows: impl Into<Vec<MatrixRow>>) -> Self {
+        let windows = windows.into();
+        let mut track = MatrixTrack::new(
+            windows.iter().map(|(start, _)| *start).collect::<Vec<_>>(),
+            rows,
+        );
+        track.ends = Some(windows.iter().map(|(_, end)| *end).collect());
+        track
     }
 
     /// Sets the text shown in the left gutter.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Sets what the values are counted in, written after the numbers at
+    /// the two ends of the key: `×` for a depth read against each sample's
+    /// usual one, `%` for a methylation level.
+    pub fn unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = unit.into();
         self
     }
 
@@ -258,9 +307,24 @@ impl MatrixTrack {
         self.tree.as_ref()
     }
 
-    /// The site positions.
+    /// The site positions, or where each window starts.
     pub fn sites(&self) -> &[u64] {
         &self.sites
+    }
+
+    /// Where each window ends, for a matrix of windows.
+    pub fn ends(&self) -> Option<&[u64]> {
+        self.ends.as_deref()
+    }
+
+    /// Whether column `column` is on display: its site inside the region, or
+    /// any of its window.
+    fn shown(&self, column: usize, region: &Region) -> bool {
+        let start = self.sites[column];
+        match self.ends.as_ref().and_then(|ends| ends.get(column)) {
+            Some(&end) => end > start && start < region.end() && end > region.start(),
+            None => region.contains(start),
+        }
     }
 
     /// The rows.
@@ -319,6 +383,30 @@ impl Track for MatrixTrack {
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    /// The ramp a quantity is painted on, from nought to the value that
+    /// saturates it. Without it a matrix of depths says which cells are
+    /// deeper and not how deep. A matrix of labels names its categories
+    /// nowhere a ramp could, and has none.
+    fn key(
+        &self,
+        _region: &Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        let CellScale::Sequential { max, hue } = &self.scale else {
+            return None;
+        };
+        let ceiling = max.or_else(|| self.value_ceiling())?;
+        let hue = hue.clone().unwrap_or_else(|| theme.accent.clone());
+        Some(crate::track::legend::Legend::new().ramp(
+            self.label.clone().unwrap_or_else(|| "value".to_string()),
+            mix(theme.surface(), &hue, ZERO_TINT),
+            hue,
+            format!("0{}", self.unit),
+            format!("{}{}", text_rounded(ceiling, 2), self.unit),
+        ))
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
@@ -401,18 +489,30 @@ impl Track for MatrixTrack {
             ctx.svg.begin_titled(&self.row_tooltip(row, ctx.region));
 
             for (column, site) in self.sites.iter().enumerate() {
-                if !ctx.region.contains(*site) {
+                if !self.shown(column, ctx.region) {
                     continue;
                 }
-                // The floor is hung symmetrically off the middle of the base,
-                // the point every other track marks a site at. Growing it
-                // rightwards from the left edge instead put a floored cell
-                // half a floor to the right of the site it stands for, so the
-                // tower of a Manhattan track above it did not stand over its
-                // own column.
-                let width = (ctx.scale.x(site.saturating_add(1)) - ctx.scale.x(*site))
-                    .max(self.min_cell_width);
-                let x = ctx.scale.x_center(*site) - width / 2.0;
+                let (x, width) = match self.ends.as_ref() {
+                    // A window is as wide as the sequence it covers, clipped
+                    // to the region so a window across its edge does not
+                    // reach past the band.
+                    Some(ends) => {
+                        let from = ctx.scale.x((*site).max(ctx.region.start()));
+                        let to = ctx.scale.x(ends[column].min(ctx.region.end()));
+                        (from, (to - from).max(0.5))
+                    }
+                    // The floor is hung symmetrically off the middle of the
+                    // base, the point every other track marks a site at.
+                    // Growing it rightwards from the left edge instead put a
+                    // floored cell half a floor to the right of the site it
+                    // stands for, so the tower of a Manhattan track above it
+                    // did not stand over its own column.
+                    None => {
+                        let width = (ctx.scale.x(site.saturating_add(1)) - ctx.scale.x(*site))
+                            .max(self.min_cell_width);
+                        (ctx.scale.x_center(*site) - width / 2.0, width)
+                    }
+                };
                 let color = match row.value(column) {
                     Some(value) => self.cell_color(value, ceiling, ctx.theme),
                     None => missing.clone(),
@@ -487,7 +587,7 @@ impl MatrixTrack {
     /// drawing loop uses and nothing else.
     fn row_tooltip(&self, row: &MatrixRow, region: &Region) -> String {
         let visible: Vec<usize> = (0..self.sites.len())
-            .filter(|column| region.contains(self.sites[*column]))
+            .filter(|column| self.shown(*column, region))
             .collect();
         let total = visible.len();
         if total == 0 {
@@ -497,8 +597,13 @@ impl MatrixTrack {
             .iter()
             .filter(|column| row.value(**column).is_some())
             .count();
+        let noun = if self.ends.is_some() {
+            "window"
+        } else {
+            "site"
+        };
         format!(
-            "{}, {} of {} site{} called",
+            "{}, {} of {} {noun}{} called",
             row.name,
             group_thousands(called as u64),
             group_thousands(total as u64),
@@ -512,6 +617,41 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+
+    /// A window is as wide as the sequence it covers: half the region is half
+    /// the band, where a site is drawn at a floor width that says nothing.
+    #[test]
+    fn a_window_is_as_wide_as_what_it_covers() {
+        let widths = |windows: Vec<(u64, u64)>| -> Vec<f64> {
+            let rows = vec![MatrixRow::new("S1", vec![1.0; windows.len()])];
+            let svg = Figure::new(Region::new("c1", 0, 300).unwrap())
+                .push(MatrixTrack::windows(windows, rows).show_row_names(false))
+                .to_svg();
+            svg.split("<rect ")
+                // The cells, and not the band's clip, which has no fill.
+                .filter(|rect| rect.contains("height=\"11\"") && rect.contains("fill="))
+                .filter_map(|rect| {
+                    rect.split("width=\"")
+                        .nth(1)
+                        .and_then(|rest| rest.split('"').next())
+                        .and_then(|width| width.parse().ok())
+                })
+                .collect()
+        };
+        let half = widths(vec![(0, 150)]);
+        let whole = widths(vec![(0, 300)]);
+        assert_eq!((half.len(), whole.len()), (1, 1), "{half:?} {whole:?}");
+        assert!(
+            (whole[0] - 2.0 * half[0]).abs() < 0.01,
+            "{half:?} {whole:?}"
+        );
+        // Two windows side by side meet, and together cover the whole.
+        let two = widths(vec![(0, 100), (100, 300)]);
+        assert!(
+            (two[0] + two[1] - whole[0]).abs() < 0.01,
+            "{two:?} {whole:?}"
+        );
+    }
 
     fn region() -> Region {
         Region::new("chr1", 1_000, 3_000).unwrap()

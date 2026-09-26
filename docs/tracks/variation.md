@@ -273,9 +273,9 @@ One row per sample, one column per site, and a cell saying what that sample had 
 
 | | |
 |:--|:--|
-| Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)` |
-| Command line | `--matrix FILE`, with `--row-height`, `--no-names`, `--traits`, `--columns` |
-| Reads | a table with 1-based site positions across the header and one row per sample; an empty cell, `.` or `NA` is missing (`read::table::matrix`) |
+| Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)`, and `MatrixTrack::windows(windows, rows)` for a column per window |
+| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` after `--heatmap` |
+| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample (`read::table::windows`). An empty cell, `.` or `NA` is missing |
 
 === "Rust"
 
@@ -323,12 +323,15 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.tree_width(120.0)` | Width of the tree strip in pixels | `90` |
 | `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |
 | `.traits(traits)` | Metadata columns between the names and the cells (`--traits`, `--columns`) | none |
+| `.unit("×")` | Written after the two numbers at the ends of the key | none |
 
 #### Notes
 
 Three things must look different: a sample that does not carry the allele, a sample that was never typed, and a stretch with no site at all. So the sequential ramp starts a step off the page colour rather than on it, and missing data has its own grey: `f64::NAN` is missing, and zero is a genotype. `Sequential` is one hue from light to dark, because two hues would imply a meaningful middle; `Categorical` reads the value as an index into the palette, for genotypes that name rather than measure.
 
-A cell's width is a floor, `min_cell_width`, so it says nothing about how much sequence it covers.
+A cell's width is a floor, `min_cell_width`, so it says nothing about how much sequence it covers. A matrix of windows is the other kind: `MatrixTrack::windows` takes a 0-based, half-open span for each column, and each cell covers exactly its window, as the depth of forty samples in windows of 100 kb does on the command line with `--heatmap`. There `--relative` divides each sample by its own median first, so 1× is its usual value and a sample sequenced deeper is not a darker row from end to end.
+
+A sequential ramp is keyed under the figure, from nought to the value it saturates at, which is how a reader learns how deep a dark cell is.
 
 `tree` sorts the rows by descent, which is what turns a speckle into rectangles; rows the tree does not name stay at the bottom. Cells never merge, and that is the refusal: six carriers drawn as six cells are six observations, and one rectangle covering a clade is a different claim, made by a [CladeTrack](phylogeny.md#cladetrack).
 
@@ -343,7 +346,7 @@ Association statistics: one point per test, height by significance, a line where
 | | |
 |:--|:--|
 | Rust | `.add_manhattan(points)` on `plot()`; `ManhattanTrack::new(points)` |
-| Command line | `--manhattan FILE`, with `--threshold`, `--height` |
+| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--height` |
 | Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`) |
 
 === "Rust"
@@ -390,6 +393,7 @@ Association statistics: one point per test, height by significance, a line where
 | `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values) | none |
 | `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
+| `.linkage(lead, r2)` | Colours each point by its r² with the lead variant at `lead`, 0-based, and draws the lead as a diamond with its position over it (`--ld`) | one colour |
 
 #### Notes
 
@@ -399,7 +403,67 @@ There is no default threshold, on purpose, and `significant()` returns nothing u
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 
+`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its position over it, both keyed under the figure. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
+
 The x axis is genomic, so this draws one sequence or one region of one. For a scan across a whole genome, build the figure over a `Genome`, pass `Genome::boundaries` to `bands` so the shading changes where each sequence starts, and put a [GenomeTrack](whole-genome.md#genometrack) under it.
+
+## PairTrack { #pairtrack }
+
+Pairs of places and a value between them: linkage between variants, contacts between the bins of a chromosome, epistasis between sites, loops. A triangle under the axis where most places were measured against their neighbours, and arcs where a few pairs join places far apart.
+
+<figure class="k-start" markdown>
+![A gene with thirty-six variants under it, and under them a triangle in which each pair of variants is a cell coloured by its linkage: three dark triangles where variants are inherited together](../assets/start/pairs.svg){ .k-light width="720" height="386" loading="lazy" }
+![The same figure on the dark page](../assets/start/pairs-dark.svg){ .k-dark width="720" height="386" loading="lazy" }
+</figure>
+
+| | |
+|:--|:--|
+| Rust | `.add_pairs(pairs)` on `plot()`; `PairTrack::new(pairs)` |
+| Command line | `--pairs FILE`, or a `.ld` or `.bedpe` named on its own, with `--style`, `--threshold`, `--log`, `--color`, `--height` |
+| Reads | PLINK's `.ld`, BEDPE, or a table headed `pos1`, `pos2` and a value (`read::pairs::pairs`) |
+
+=== "Rust"
+
+    ```rust
+    use karyon::{plot, Pair, PairStyle};
+
+    // Two variants in strong linkage and a third in weak linkage with both.
+    let pairs = vec![
+        Pair::new(760_101, 760_480, 0.93),
+        Pair::new(760_101, 761_900, 0.08),
+        Pair::new(760_480, 761_900, 0.11),
+    ];
+
+    plot("NC_000962.3:759,807-763,325")?
+        .add_pairs(pairs)
+        .label("r²")
+        .adjust(|track| track.ceiling(1.0).style(PairStyle::Triangle))
+        .save("linkage.svg")?;
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon rpoB genes.gff3 linkage.ld -o linkage.svg
+    ```
+
+#### Options
+
+| Method | What it does | Default |
+|:--|:--|:--|
+| `.label("r²")` | Names the track in the left gutter (`--label`) | none |
+| `.style(PairStyle::Arcs)` | `Triangle` or `Arcs` (`--style triangle`, `--style arcs`) | `Triangle`; on the command line, `PairStyle::for_pairs` |
+| `.height(200.0)` | Band height in pixels (`--height`) | a triangle as deep as its widest pair, up to `240`; arcs `90` |
+| `.ceiling(1.0)` | The value the ramp saturates at | the largest value drawn; `1` on the command line for an r², r or D' |
+| `.threshold(0.2)` | Draws only the pairs at or above this value (`--threshold`) | every pair |
+| `.log_scale(true)` | Colours on a log scale, as a contact map is read (`--log`) | linear |
+| `.color("#d55e00")` | The hue at the top of the ramp (`--color`) | theme accent |
+
+#### Notes
+
+A pair is two stretches, `Pair::spans` for two bins or two anchors, or two single bases, `Pair::new` for two variants. In a triangle each pair is a cell under the point half way between its places, as deep as they are far apart, so a block of variants inherited together is a dark triangle under the stretch it covers. A single base owns the stretch from half way to the place before it to half way to the one after, so the cells tile the triangle whatever the spacing, and each still sits under its own place. The triangle is squeezed to its band where the widest pair is deeper than it, and never stretched.
+
+`PairStyle::for_pairs` chooses a triangle where at least half the places are measured against the next place along, as linkage within a window and contact maps are, and arcs where fewer are, as a handful of epistatic sites or loops. The command line draws linkage as a triangle whatever its window left out. A pair with no value, or under the threshold, is not drawn; every drawn pair carries its places, counted from 1, and its value in a tooltip, up to 2,500 cells.
 
 ## SelectionTrack { #selectiontrack }
 
@@ -412,8 +476,8 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 | | |
 |:--|:--|
 | Rust | `.add_selection(sites)` on `plot()`; `SelectionTrack::new(sites)` |
-| Command line | none: library only, as codon-model results have no single standard table to read |
-| Reads | nothing from a file; build `SelectionSite` values from a fitted model |
+| Command line | `--selection FILE`, with `--threshold`, `--height` |
+| Reads | HyPhy's FEL or MEME CSV as it is, or a table naming its columns: a `site`, the rates as `alpha` and `beta`, `dS` and `dN` or their ratio `omega`, and a `p-value` or a `posterior` (`read::series::selection`) |
 
 === "Rust"
 
@@ -441,6 +505,16 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
         .save("selection.svg")?;
     ```
 
+=== "Command line"
+
+    ```bash
+    karyon --selection fel.csv --threshold 0.01 --label FEL -o selection.svg
+    ```
+
+    The table is its own place, and the ruler counts its sites from 1. A
+    table of posteriors only is drawn by its posteriors, and `--threshold`
+    is then a posterior.
+
 #### Options
 
 | Method | What it does | Default |
@@ -448,8 +522,8 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 | `.label("FEL")` | Names the track in the left gutter | none |
 | `.height(180.0)` | Total height of both tiers, in pixels | `150` |
 | `.evidence(SelectionEvidence::Posterior)` | `PValue` or `Posterior` for the upper tier | `PValue` |
-| `.p_threshold(0.01)` | Significance threshold for p-values | `0.05` |
-| `.posterior_threshold(0.95)` | Threshold for posterior probabilities | `0.90` |
+| `.p_threshold(0.01)` | Significance threshold for p-values (`--threshold`) | `0.05` |
+| `.posterior_threshold(0.95)` | Threshold for posterior probabilities (`--threshold`, for a table of posteriors) | `0.90` |
 | `.neutral_band(0.85, 1.15)` | The ω interval drawn as neutral | `0.90` to `1.10` |
 | `.saturation(4.0)` | The ω at which effect height and colour stop growing | `8` |
 | `.show_evidence(false)` | Shows or hides the evidence tier | shown |

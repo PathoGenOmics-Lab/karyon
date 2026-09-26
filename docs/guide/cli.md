@@ -145,7 +145,7 @@ command adds, and it does that with the readers in `karyon::read`, described in
 
 ## Track flags
 
-Twenty-eight flags, one per track type the command can draw. Each takes one
+Thirty-four flags, one per track the command can draw. Each takes one
 file, or `-` for [standard input](#standard-input), except `--axis`, which
 reads nothing.
 
@@ -165,6 +165,7 @@ reads nothing.
 | `--snps <FILE>` | the variable sites of an alignment | [aligned FASTA](formats.md#aligned-fasta) | [SnpTrack](../tracks/variation.md#snptrack) |
 | `--ideogram <FILE>` | cytogenetic bands | [a cytoBand table](formats.md#cytoband) | [IdeogramTrack](../tracks/whole-genome.md#ideogramtrack) |
 | `--matrix <FILE>` | a value per sample per site | [a matrix table](formats.md#the-matrix-table) | [MatrixTrack](../tracks/variation.md#matrixtrack) |
+| `--heatmap <FILE>` | a value per sample per window, as a heatmap | [a table of windows](formats.md#the-table-of-windows), as `bedtools unionbedg` writes it | [MatrixTrack](../tracks/variation.md#matrixtrack) |
 | `--pileup <FILE>` | aligned reads | [SAM text](formats.md#sam) from `samtools view`, or [a BAM](#binary-formats) | [PileupTrack](../tracks/reads-molecules.md#pileuptrack) |
 | `--synteny <FILE>` | alignment ribbons between two sequences | [PAF](formats.md#paf) from minimap2 | [SyntenyTrack](../tracks/comparison.md#syntenytrack) |
 | `--dotplot <FILE>` | the same alignments as a dot plot | [PAF](formats.md#paf) | [DotplotTrack](../tracks/comparison.md#dotplottrack) |
@@ -175,13 +176,19 @@ reads nothing.
 | `--loci <FILE>` | gene neighbourhoods from several genomes | [BED or GFF3 whose first column names the genome](formats.md#gene-neighbourhoods); `--links` names the homologies | [LocusTrack](../tracks/comparison.md#locustrack) |
 | `--methylation <FILE>` | modified bases per strand | [bedMethyl](formats.md#bedmethyl) from modkit | [MethylationTrack](../tracks/signal-sequence.md#methylationtrack) |
 | `--structural <FILE>` | structural calls as arcs between their breakpoints | [VCF with symbolic alleles or `SVTYPE`](formats.md#structural-vcf) | [StructuralTrack](../tracks/variation.md#structuraltrack) |
+| `--pairs <FILE>` | pairs of places and a value, as a triangle or as arcs | [PLINK's `.ld`, BEDPE or a table of pairs](formats.md#pairs-of-positions) | [PairTrack](../tracks/variation.md#pairtrack) |
 | `--split-reads <FILE>` | molecules that aligned in pieces | [SAM carrying an `SA` tag](formats.md#sam-with-sa-tags), or a BAM holding them | [SplitReadTrack](../tracks/reads-molecules.md#splitreadtrack) |
 | `--bisulfite <FILE>` | methylation one molecule at a time | [a Bismark methylation extractor file](formats.md#the-bismark-extractor-file) | [BisulfiteTrack](../tracks/reads-molecules.md#bisulfitetrack) |
 | `--domains <FILE>` | protein domains on an axis of residues | [an InterProScan table](formats.md#the-interproscan-table) | [DomainTrack](../tracks/comparison.md#domaintrack) |
+| `--frequencies <FILE>` | how often each group was seen at each time | [a table of counts over time](formats.md#counts-over-time) | [SurveillanceTrack](../tracks/evolution-surveillance.md#surveillancetrack) |
+| `--phylodynamics <FILE>` | an estimate over time with its interval | [a table of estimates over time](formats.md#estimates-over-time) | [PhylodynamicTrack](../tracks/evolution-surveillance.md#phylodynamictrack) |
+| `--selection <FILE>` | a test of selection at each site of a gene | [HyPhy's FEL or MEME, or a table of sites](formats.md#selection-by-site) | [SelectionTrack](../tracks/variation.md#selectiontrack) |
+| `--squiggle <FILE>` | the current of a nanopore read | [SLOW5, or a column of samples](formats.md#slow5) | [SquiggleTrack](../tracks/reads-molecules.md#squiggletrack) |
 | `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
 
-The other eight track types are reached from Rust only. The
-[track catalogue](../tracks/index.md) lists all thirty-six.
+`--matrix` and `--heatmap` draw the same track type from two shapes of table,
+so thirty-three types are drawn here. The other four are reached from Rust
+only, and the [track catalogue](../tracks/index.md) lists all thirty-seven.
 
 A few things about track flags are worth knowing before they surprise you:
 
@@ -196,6 +203,11 @@ A few things about track flags are worth knowing before they surprise you:
   is a panel of variable sites (its x is a site index) or an ideogram (its x is
   the whole chromosome), so a figure of nothing but `--tree`, `--tanglegram`,
   `--snps` and `--ideogram` gets no ruler unless you write `--axis`.
+- **Some files are their own place.** An alignment, a table over time, a table
+  of the sites of a gene and a read's signal need no place named: the figure is
+  drawn over all of it, and its ruler counts columns, weeks, sites or samples
+  rather than bases, numbering them from 1 as the file does. A place narrows
+  it, as `week:10-30` or `site:50-200`.
 - **A track flag takes the next word as its file, whatever it is.** A forgotten
   path swallows the flag after it, and the error arrives a word late:
 
@@ -218,18 +230,20 @@ takes.
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
-| `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
+| `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
+| `--ld <FILE>` | [PLINK's `.ld`](formats.md#pairs-of-positions) of the lead against its neighbours, or `-` | `--manhattan` | every point in one colour |
 | `--identity <UNIT>` | `percent` or `fraction` | `--loci` | worked out from the values, and refused when they cannot say |
 | `--modification <CODE>` | `m`, `h`, `a` or another modkit code | `--methylation` | the one code in the file; refused when it holds several |
 | `--context <NAME>` | `CpG`, `CHG` or `CHH` | `--bisulfite` | the one context in the file; refused when it holds several |
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
+| `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
 | `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
 | `--sample <NAME>` | a sample the table names | `--copy-number` | the one sample; refused when the table holds several |
-| `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
+| `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
-| `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--junctions`, `--axis` | the track's own |
-| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing | no line on a scan; every support value on a tree |
+| `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
+| `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
@@ -243,13 +257,14 @@ takes.
 | `--no-counts` | nothing | `--snps`, `--junctions` | counts printed |
 | `--min-reads <COUNT>` | a whole number of reads | `--methylation`, `--junctions` | 5 behind a methylation site; 1 across a junction |
 | `--fade-by-mapq` | nothing | `--pileup` | every read at full strength |
-| `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--relative` | nothing | `--heatmap` | the values as they are |
+| `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four; no cap on a tree |
-| `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
+| `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
-| `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment | `--coverage`, `--windows`, `--variants`, `--msa` | `area`, `steps`, `lollipop` and `differences` |
-| `--log` | nothing | `--coverage` | a linear scale |
-| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions` | the theme's colours |
+| `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
+| `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
+| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
@@ -260,7 +275,7 @@ neither.
 
 ### Tracks drawn from two files
 
-A track flag takes one path, so the five tracks whose data is two files name the
+A track flag takes one path, so the tracks whose data is two files name the
 second with an option, spelled by what the file is:
 
 | Track | First file | Second file |
@@ -270,6 +285,8 @@ second with an option, spelled by what the file is:
 | `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
+| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does |
+| `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
 
 The first four are refused without their second file:
 
@@ -342,7 +359,9 @@ karyon: --methylation dual.bed holds h, m, and --modification says which to draw
 ```
 
 The option that chooses is `--modification`, `--context`, `--analysis` or
-`--sample`. A methylation, bisulfite or domain band is named after what it shows
+`--sample`. A SLOW5 file holds many reads and is the exception: its first read
+is drawn, the command says how many others there are, and `--read` names
+another. A methylation, bisulfite or domain band is named after what it shows
 unless `--label` names it.
 
 `--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
@@ -396,8 +415,8 @@ karyon NC_000962.3:1-4,411,532 \
   --traits samples.tsv --columns lineage,drug,depth
 ```
 
-Seven tracks take a sheet: `--matrix`, `--msa`, `--snps`, `--clades`,
-`--domains`, `--loci` and `--tree`. A pileup has rows too, but they are reads,
+Eight tracks take a sheet: `--matrix`, `--heatmap`, `--msa`, `--snps`,
+`--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows too, but they are reads,
 so `--traits` is refused there. On a tree the strips sit beside the tips, or
 become rings on a circular or unrooted one, and a folded clade shows what its
 tips agree on and nothing where they differ. The strips are not placed at
@@ -544,7 +563,7 @@ karyon NC_000962.3:761,000-762,999 \
 
 Any file a command names can be `-`, which reads standard input: a track's own
 file, and the files named by `--against`, `--with-sequence`, `--with-tree`,
-`--links` and `--traits`. There is one standard input, so only one of them can
+`--links`, `--ld` and `--traits`. There is one standard input, so only one of them can
 take it:
 
 ```text

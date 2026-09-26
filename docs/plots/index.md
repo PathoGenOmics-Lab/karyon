@@ -65,7 +65,7 @@ line flag that draws it, and the route opens its page in this gallery.
 | Reads aligned in pieces: a BAM or SAM with `SA` tags | [Split reads](../tracks/reads-molecules.md#splitreadtrack), `--split-reads` | [Reads and molecules](reads-molecules.md) |
 | Splice junction counts: STAR's `SJ.out.tab` | [Splice junctions](../tracks/reads-molecules.md#junctiontrack), `--junctions` | [Reads and molecules](reads-molecules.md) |
 | Methylation calls read by read: a Bismark methylation extractor file | [Methylation by molecule](../tracks/reads-molecules.md#bisulfitetrack), `--bisulfite` | [Reads and molecules](reads-molecules.md) |
-| Raw nanopore current and a basecaller move table | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack), Rust only | [Reads and molecules](reads-molecules.md) |
+| Raw nanopore current and a basecaller move table | [Nanopore signal](../tracks/reads-molecules.md#squiggletrack) | [Reads and molecules](reads-molecules.md) |
 | A value per base: bedGraph, `samtools depth`, a column of values, or the depth of a BAM | [Coverage](../tracks/signal-sequence.md#coveragetrack), `--coverage` | [Signal and sequence](signal-sequence.md) |
 | A statistic in windows: bedGraph | [Windowed statistic](../tracks/signal-sequence.md#windowtrack), `--windows` | [Signal and sequence](signal-sequence.md) |
 | Modified bases per strand: bedMethyl from `modkit pileup` | [Methylation by strand](../tracks/signal-sequence.md#methylationtrack), `--methylation` | [Signal and sequence](signal-sequence.md) |
@@ -79,7 +79,7 @@ line flag that draws it, and the route opens its page in this gallery.
 | Closely related genomes: aligned FASTA | [Variable sites](../tracks/variation.md#snptrack), `--snps`, or a [multiple alignment](../tracks/comparison.md#msatrack), `--msa` | [Variation and association](variation-association.md), [Comparisons and alignments](comparisons-alignments.md) |
 | A value per sample per site: a table | [Genotype matrix](../tracks/variation.md#matrixtrack), `--matrix` | [Variation and association](variation-association.md) |
 | Association statistics: a table of position and value | [Association scan](../tracks/variation.md#manhattantrack), `--manhattan` | [Variation and association](variation-association.md) |
-| Site-wise results from a codon model | [Site-wise selection](../tracks/variation.md#selectiontrack), Rust only | [Variation and association](variation-association.md), [Evolution and surveillance](evolution-surveillance.md) |
+| Site-wise results from a codon model | [Site-wise selection](../tracks/variation.md#selectiontrack) | [Variation and association](variation-association.md), [Evolution and surveillance](evolution-surveillance.md) |
 | A pairwise alignment: PAF from `minimap2` | [Dotplot](../tracks/comparison.md#dotplottrack), `--dotplot`, or [synteny ribbons](../tracks/comparison.md#syntenytrack), `--synteny` | [Comparisons and alignments](comparisons-alignments.md) |
 | Protein domains: an InterProScan table | [Domain architectures](../tracks/comparison.md#domaintrack), `--domains` | [Comparisons and alignments](comparisons-alignments.md) |
 | Genes from several genomes, and the hits between them | [Gene neighbourhoods](../tracks/comparison.md#locustrack), `--loci` with `--links` | [Comparisons and alignments](comparisons-alignments.md) |
@@ -87,8 +87,8 @@ line flag that draws it, and the route opens its page in this gallery.
 | Two trees over the same taxa | [Tanglegram](../tracks/phylogeny.md#tanglegramtrack), `--tanglegram` with `--against` | [Phylogeny and clades](phylogeny-clades.md) |
 | Spans carried by named taxa: Gubbins GFF3, and the tree | [Clade blocks](../tracks/phylogeny.md#cladetrack), `--clades` with `--with-tree` | [Phylogeny and clades](phylogeny-clades.md) |
 | Ancestral states, branch events or branch ω, as tree annotations | [Ancestral states and branch events](../tracks/phylogeny.md#treetrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
-| Estimates through time, such as effective population size or R | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
-| Lineage counts and totals through time | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack), Rust only | [Evolution and surveillance](evolution-surveillance.md) |
+| Estimates through time, such as effective population size or R | [Phylodynamic trajectory](../tracks/evolution-surveillance.md#phylodynamictrack) | [Evolution and surveillance](evolution-surveillance.md) |
+| Lineage counts and totals through time | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack) | [Evolution and surveillance](evolution-surveillance.md) |
 | Cytogenetic bands: a UCSC cytoBand table | [Ideogram](../tracks/whole-genome.md#ideogramtrack), `--ideogram` | [Whole genomes and maps](whole-genomes-geography.md) |
 | An assembly of many contigs or chromosomes | [Whole assembly](../tracks/whole-genome.md#genometrack), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
 | A circular chromosome or plasmid | [Circular genome](../guide/plot.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
@@ -114,7 +114,7 @@ line flag that draws it, and the route opens its page in this gallery.
 
 -   **[Track catalogue](../tracks/index.md)**
 
-    All 36 track types, family by family, with the options of each and the
+    All 37 track types, family by family, with the options of each and the
     files it reads.
 
 -   **[Recipes](../recipes.md)**

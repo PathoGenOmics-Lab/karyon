@@ -272,8 +272,8 @@ Raw nanopore current for one read, before it was ever a base. When a basecall is
 | | |
 |:--|:--|
 | Rust | `.add_squiggle(signal)` or `.add_squiggle_at(start, signal)` on `plot()`; `SquiggleTrack::new(start, signal)`, `SquiggleTrack::normalized(start, signal)` |
-| Command line | none: library only, as the formats that carry raw signal, POD5 and FAST5, are binary |
-| Reads | nothing from a file; pass the samples as a `Vec<f64>` |
+| Command line | `--squiggle FILE`, or a `.slow5` named on its own, with `--read`, `--color`, `--height` |
+| Reads | SLOW5, the text form of BLOW5 that `slow5tools view` writes, put into picoamperes with each read's digitisation, offset and range; or one sample per number, as picoamperes already (`read::series::squiggle`). POD5 and FAST5 are binary and are converted first |
 
 === "Rust"
 
@@ -290,6 +290,16 @@ Raw nanopore current for one read, before it was ever a base. When a basecall is
         .adjust(|track| track.moves(moves))
         .save("squiggle.svg")?;
     ```
+
+=== "Command line"
+
+    ```bash
+    karyon reads.slow5 --read read_2 -o squiggle.svg
+    ```
+
+    The figure is laid over the read's samples, counted from 1, so it names no
+    place; `sample:1-500` draws part of it. A file of many reads draws the
+    first, and says so, unless `--read` names another.
 
 #### Options
 

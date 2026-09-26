@@ -252,6 +252,182 @@ def write_windows(rng):
                 out.write(f"{SEQ}\t{start}\t{end}\t{max(0.0, value):.1f}\n")
 
 
+def write_lineages(rng):
+    # Weekly counts of four lineages out of every genome sequenced that week:
+    # A fades, B.1 rises and is overtaken by B.2, and C stays rare. Each
+    # lineage's share follows its own growth rate, and the counts are drawn
+    # from it, so the frequencies wander the way sampled ones do.
+    import math
+    growth = {"A": (3.0, -0.18), "B.1": (0.4, 0.13), "B.2": (-4.5, 0.36), "C": (0.3, 0.0)}
+    with open(path("lineages.tsv"), "w") as out:
+        out.write("week\tlineage\tcount\ttotal\n")
+        for week in range(1, 31):
+            total = 60 + int(40 * (1 + math.sin(week / 4))) + rng.randrange(0, 20)
+            scores = {name: a + b * week for name, (a, b) in growth.items()}
+            top = max(scores.values())
+            weights = {name: math.exp(score - top) for name, score in scores.items()}
+            whole = sum(weights.values())
+            left = total
+            names = list(growth)
+            for index, name in enumerate(names):
+                if index == len(names) - 1:
+                    count = left
+                else:
+                    share = weights[name] / whole
+                    count = min(left, sum(1 for _ in range(total) if rng.random() < share))
+                left -= count
+                out.write(f"{week}\t{name}\t{count}\t{total}\n")
+
+
+def write_reproduction(rng):
+    # The reproductive number over the same weeks, with its 95% interval,
+    # as EpiEstim or a phylodynamic model writes one: above one while B.2
+    # spreads, below it between the waves. The interval narrows where more
+    # cases were seen.
+    import math
+    with open(path("reproduction.tsv"), "w") as out:
+        out.write("week\tmean\tlower\tupper\n")
+        for week in range(3, 31):
+            mean = 1.0 + 0.32 * math.sin((week - 2) / 4.2) + rng.gauss(0, 0.03)
+            width = 0.12 + 0.25 / math.sqrt(week)
+            out.write(f"{week}\t{mean:.3f}\t{mean - width:.3f}\t{mean + width * 1.2:.3f}\n")
+
+
+def write_selection(rng):
+    # A test of selection at each of 300 codons, as HyPhy's FEL writes it:
+    # most sites under purifying selection, beta below alpha, and a handful
+    # in two stretches where beta is well above it and the test says so.
+    with open(path("fel.csv"), "w") as out:
+        out.write("site,alpha,beta,p-value\n")
+        hot = set(range(58, 66)) | set(range(181, 187))
+        for site in range(1, 301):
+            alpha = rng.uniform(0.3, 2.0)
+            if site in hot and rng.random() < 0.7:
+                beta = alpha * rng.uniform(3.0, 9.0)
+                p = rng.uniform(0.0005, 0.04)
+            elif rng.random() < 0.08:
+                beta = alpha * rng.uniform(0.9, 2.0)
+                p = rng.uniform(0.1, 0.9)
+            else:
+                beta = alpha * rng.uniform(0.02, 0.6)
+                p = rng.uniform(0.2, 1.0)
+            out.write(f"{site},{alpha:.3f},{beta:.3f},{p:.4f}\n")
+
+
+def write_signal(rng):
+    # Two nanopore reads as slow5tools view writes them: the current steps
+    # from level to level as the strand ratchets through the pore, each step
+    # a few samples to a few dozen long, with noise on top. Stored raw, and
+    # put into picoamperes with each read's digitisation, offset and range.
+    digitisation, offset, span = 8192.0, 6.0, 1467.61
+    with open(path("reads.slow5"), "w") as out:
+        out.write("#slow5_version\t0.2.0\n#num_read_groups\t1\n")
+        out.write("@run_id\texample\n")
+        out.write("#char*\tuint32_t\tdouble\tdouble\tdouble\tdouble\tuint64_t\tint16_t*\n")
+        out.write("#read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate"
+                  "\tlen_raw_signal\traw_signal\n")
+        for read, samples in (("read_1", 2400), ("read_2", 1800)):
+            raw = []
+            level = rng.uniform(80, 100)
+            while len(raw) < samples:
+                level = min(125.0, max(65.0, level + rng.gauss(0, 12)))
+                for _ in range(rng.randint(4, 40)):
+                    current = level + rng.gauss(0, 1.8)
+                    raw.append(round(current * digitisation / span - offset))
+            raw = raw[:samples]
+            out.write(f"{read}\t0\t{digitisation:.0f}\t{offset:.0f}\t{span}\t4000"
+                      f"\t{samples}\t{','.join(str(value) for value in raw)}\n")
+
+
+def write_depths(rng):
+    # The depth of all 40 samples of the tree in windows of 100 kb along the
+    # whole chromosome, as bedtools unionbedg writes it. Each sample was
+    # sequenced to its own depth; one clade has lost a 100 kb stretch and
+    # another carries a stretch twice.
+    import re
+    tips = re.findall(r"(S\d\d):", open(path("tree.nwk")).read())
+    lost = {"S08", "S10", "S11", "S12", "S13", "S14", "S15", "S16"}
+    doubled = {"S18", "S23", "S24"}
+    mean = {tip: rng.uniform(45, 110) for tip in tips}
+    with open(path("depths.tsv"), "w") as out:
+        out.write("chrom\tstart\tend\t" + "\t".join(tips) + "\n")
+        for start in range(0, LENGTH, 100_000):
+            end = min(start + 100_000, LENGTH)
+            values = []
+            for tip in tips:
+                depth = mean[tip] * rng.uniform(0.9, 1.1)
+                if tip in lost and 1_400_000 <= start < 1_500_000:
+                    depth = 0.0
+                if tip in doubled and 3_100_000 <= start < 3_200_000:
+                    depth *= 2
+                values.append(f"{depth:.1f}")
+            out.write(f"{SEQ}\t{start}\t{end}\t" + "\t".join(values) + "\n")
+
+
+def write_linkage(rng):
+    # Linkage between 36 variants across rpoB, as PLINK's --r2 writes it with
+    # --ld-window-r2 0: three blocks inherited together, strong inside each
+    # and weak between them, fading with distance.
+    import math
+    sites = sorted(rng.sample(range(759_900, 763_300), 36))
+    blocks = [760_900, 762_100]  # where one block ends and the next begins
+    block = [sum(site >= edge for edge in blocks) for site in sites]
+    with open(path("linkage.ld"), "w") as out:
+        out.write(" CHR_A         BP_A        SNP_A  CHR_B         BP_B        SNP_B           R2 \n")
+        for i, a in enumerate(sites):
+            for j in range(i + 1, len(sites)):
+                b = sites[j]
+                if block[i] == block[j]:
+                    r2 = 0.95 * math.exp(-(b - a) / 4000) * rng.uniform(0.75, 1.0)
+                else:
+                    r2 = 0.25 * math.exp(-(b - a) / 1500) * rng.uniform(0.0, 1.0)
+                out.write(f" {SEQ} {a:>12} {f'v{i + 1}':>12} {SEQ} {b:>12} {f'v{j + 1}':>12} "
+                          f"{r2:>12.4f} \n")
+
+
+def write_epistasis():
+    # A few pairs of the calls that change together, with how strongly: a
+    # table of your own, headed by what its columns are.
+    pairs = [
+        (761110, 761155, 0.82), (761139, 761161, 0.35), (760314, 762368, 0.64),
+        (761155, 762917, 0.91), (761110, 762917, 0.28),
+    ]
+    with open(path("epistasis.tsv"), "w") as out:
+        out.write("pos1\tpos2\tscore\n")
+        for a, b, score in pairs:
+            out.write(f"{a}\t{b}\t{score}\n")
+
+
+def write_lead_linkage(rng):
+    # The linkage of every marker within 100 kb of the scan's strongest with
+    # it, as PLINK's --r2 --ld-snp writes it, and a recombination map of the
+    # same stretch in windows of 5 kb. A marker is linked in proportion to how
+    # much of the signal it carries, as markers in partial linkage are.
+    import math
+    rows = []
+    with open(path("gwas.assoc")) as held:
+        next(held)
+        for line in held:
+            fields = line.split()
+            rows.append((fields[1], int(fields[2]), float(fields[8])))
+    lead_name, lead, lead_p = min(rows, key=lambda row: row[2])
+    top = -math.log10(lead_p)
+    with open(path("lead.ld"), "w") as out:
+        out.write(" CHR_A         BP_A        SNP_A  CHR_B         BP_B        SNP_B           R2 \n")
+        for name, bp, p in rows:
+            if name == lead_name or abs(bp - lead) > 100_000:
+                continue
+            carried = min(1.0, max(0.0, -math.log10(p) / top))
+            r2 = carried ** 0.7 * rng.uniform(0.85, 1.0)
+            out.write(f"     1 {lead:>12} {lead_name:>12}      1 {bp:>12} {name:>12} {r2:>12.4f} \n")
+    with open(path("recombination.bedgraph"), "w") as out:
+        for start in range(lead - 150_000, lead + 150_000, 5_000):
+            rate = 0.4 + rng.uniform(0, 0.6)
+            for hotspot, height in ((lead - 62_000, 38.0), (lead + 47_000, 55.0)):
+                rate += height * math.exp(-((start - hotspot) / 6_000) ** 2)
+            out.write(f"1\t{start}\t{start + 5_000}\t{rate:.2f}\n")
+
+
 def write_zip():
     # Every file a page draws, in one download. Dated the same every time, so
     # the archive is the same file when its contents are.
@@ -259,7 +435,9 @@ def write_zip():
     names = ["reads.bam", "reads.bam.bai", "genes.gff3", "calls.vcf.gz",
              "calls.vcf.gz.tbi", "ref.fa", "gwas.assoc", "tree.nwk", "tree2.nwk",
              "samples.tsv", "aln.fasta", "assemblies.paf", "sampleA.bedgraph",
-             "sampleB.bedgraph"]
+             "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
+             "reads.slow5", "depths.tsv", "linkage.ld", "epistasis.tsv", "lead.ld",
+             "recombination.bedgraph"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -280,6 +458,14 @@ def main():
     write_samples()
     write_assemblies(rng)
     write_windows(rng)
+    write_lineages(rng)
+    write_reproduction(rng)
+    write_selection(rng)
+    write_signal(rng)
+    write_depths(rng)
+    write_linkage(rng)
+    write_epistasis()
+    write_lead_linkage(rng)
     write_zip()
 
 
