@@ -311,7 +311,24 @@ impl Figure {
         self
     }
 
-    /// Whether a ruler along the bottom would be measuring anything.
+    /// Puts a ruler under the last track measured against the coordinates,
+    /// or at the bottom of a figure that has none.
+    ///
+    /// A ruler numbers what is above it. At the bottom of a stack that ends in
+    /// a tree, or in a panel of sites laid out by their own index, it sat a
+    /// track away from the coverage it numbered, under something it does not
+    /// measure.
+    pub(crate) fn push_ruler(mut self, ruler: impl Track + 'static) -> Self {
+        let at = self
+            .tracks
+            .iter()
+            .rposition(|track| track.on_coordinates())
+            .map_or(self.tracks.len(), |last| last + 1);
+        self.tracks.insert(at, Box::new(ruler));
+        self
+    }
+
+    /// Whether a ruler would be measuring anything.
     ///
     /// True unless everything in the figure says otherwise. A stack of
     /// phylogenies says otherwise: a ruler under one measures a window that
@@ -788,7 +805,7 @@ impl crate::rings::Drawing for Figure {
     }
 
     fn region(&self) -> Option<&Region> {
-        // The test that decides whether a plot gets a ruler along the bottom.
+        // The test that decides whether a plot gets a ruler.
         // A window nothing is measured against is not one worth moving.
         self.measures_coordinates().then_some(&self.region)
     }

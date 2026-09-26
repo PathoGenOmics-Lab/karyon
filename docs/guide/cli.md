@@ -105,7 +105,7 @@ Read the command one flag at a time:
 - `--sequence`, `--features` and `--variants` open the next three bands, each
   named by the `--label` that follows it.
 - `--title` and `-o` describe the figure, so where they sit does not matter.
-- A coordinate ruler is added along the bottom without being asked for.
+- A coordinate ruler is added under the tracks without being asked for.
 
 Every reader skips rows on another sequence and rows outside the window, so you
 can hand over a genome-wide file and only the window is drawn. The
@@ -463,7 +463,7 @@ karyon --tree big.nwk --max-rows 60 \
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
-  `--no-scale-bar` leaves it out. It is not the ruler at the bottom, which
+  `--no-scale-bar` leaves it out. It is not the coordinate ruler, which
   measures the region, and a cladogram or a tree with no branch lengths draws
   none.
 - `--focus` draws one clade and nothing else, named by its own label, by a tip
@@ -543,7 +543,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--title <TEXT>` | a title above the stack | no title |
 | `--width <PX>` | the width of the figure, at most 100,000 pixels | 900 |
 | `--theme <NAME>` | `light` or `dark` | `light` |
-| `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
+| `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler under the tracks |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |

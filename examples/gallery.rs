@@ -4,7 +4,7 @@
 //! cargo run --example gallery -- assets
 //! ```
 //!
-//! The twenty-two panels draw twenty-nine of the thirty-six track types
+//! The twenty-three panels draw thirty of the thirty-seven track types
 //! between them, and a circular chromosome. The seven with no panel are drawn
 //! by other examples: `CopyNumberTrack` by `copy_number`, `DomainTrack` by
 //! `phylogenetics`, `DynseqTrack` and `JunctionTrack` by `regulation`, and
