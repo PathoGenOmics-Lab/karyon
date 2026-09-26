@@ -644,6 +644,31 @@ pub fn window<R: Read + Seek>(
     Ok((header, records))
 }
 
+/// The records of one read, by its name, and of the reads Dorado split out
+/// of it, which name it as their parent in `pi:Z`, read from the start of the
+/// file to its end: a basecaller's BAM is neither sorted nor indexed.
+///
+/// # Errors
+///
+/// A file that is not BAM, or is damaged.
+pub fn named<R: Read + Seek>(reader: R, name: &str) -> Result<(Header, Vec<Record>), ReadError> {
+    let mut bgzf = Bgzf::new(reader);
+    let header = header(&mut bgzf)?;
+    let mut records = Vec::new();
+    while let Some(record) = record(&mut bgzf)? {
+        let mut parent = None;
+        walk_tags(&record.tags, |tag, kind, value| {
+            if tag == *b"pi" && kind == b'Z' {
+                parent = value.split_last().map(|(_, text)| text.to_vec());
+            }
+        });
+        if record.name == name || parent.as_deref() == Some(name.as_bytes()) {
+            records.push(record);
+        }
+    }
+    Ok((header, records))
+}
+
 /// Just the header of a BAM, for the lengths of its sequences.
 ///
 /// # Errors
@@ -936,6 +961,19 @@ d\t256\tchr1\t20\t0\t8M\t*\t0\t0\tACGTACGT\tIIIIIIII\n\
             .map(|line| format!("{line}\n"))
             .collect();
         assert_eq!(records, VIEW_15_20);
+    }
+
+    /// A read is found by its name from one end of the file to the other,
+    /// mapped or not, since a basecaller's BAM is neither sorted nor indexed.
+    #[test]
+    fn a_read_is_found_by_its_name_mapped_or_not() {
+        let (header, found) = named(Cursor::new(&BAM[..]), "u").unwrap();
+        assert_eq!(names(&found), ["u"]);
+        assert!(sam(&header, &found).contains("u\t4\t*"));
+        let (_, found) = named(Cursor::new(&BAM[..]), "b").unwrap();
+        assert_eq!(names(&found), ["b"]);
+        let (_, none) = named(Cursor::new(&BAM[..]), "zz").unwrap();
+        assert!(none.is_empty());
     }
 
     #[test]

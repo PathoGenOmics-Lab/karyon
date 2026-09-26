@@ -8,6 +8,67 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A panel of variable sites whose columns would be narrower than a pixel and
+  a half is drawn a pixel at a time: each pixel of a row is shaded by the
+  share of the sites under it that differ from the reference, in eight steps,
+  and the key says so. A pixel with any difference in it takes at least the
+  first step. A cell per site made thirty thousand sites of forty samples an
+  SVG of 124 MB, which no viewer opens, and it is now 1.2 MB. A panel with
+  room for its cells is drawn as it was.
+- A panel whose columns are too narrow for their position labels holds no
+  strip for them under it: it held a hundred pixels of nothing under a panel
+  of thirty thousand sites. A note on rows left out keeps a line of its own.
+- `Molecule` keeps only the sites a molecule covered. `Molecule::covering`
+  builds one from those alone, `call(site)` reads one back, `calls()` walks
+  them in order and `uncover(site)` leaves one out; `calls` is no longer a
+  public field. Twenty thousand long reads over thirty thousand sites peaked
+  at 707 MB and take 56, with the same figure.
+- `CoverageTrack` keeps its values as runs of bases holding one value, where
+  it kept one per base. A bedGraph of windows over 200 Mb took 1.6 GB and
+  1.9 seconds and takes 4 MB and a few milliseconds, with the same figure. A
+  per-base depth file costs what it did.
+
+- A Manhattan plot draws its hits after every miss, and every hit's ring
+  before any hit: a tower of hits is one solid shape in the hit colour with
+  one ring round it, where each ring cut into the hit beneath it and a dense
+  tower read as hatched in the colour of the page. A hit at the threshold is
+  no longer under a miss the file listed after it. `example-association.svg`,
+  `example-genomewide.svg`, the gallery and the scan page figures change.
+- `SurveillanceTrack::minimum_total` breaks the line, and leaves the stack
+  open, at a time whose every row is under the floor. The line ran straight
+  across it, drawing a trend through the very time the floor had left out.
+- `plot()` puts its ruler under the last track laid on the coordinates, where
+  it put it at the bottom: a tree, a panel of sites or a key stacked below a
+  coverage profile sits under the ruler, which numbers what is above it, and
+  not over it. The command line's ruler of columns, weeks, sites or samples
+  does the same. In `example-cluster.svg` and `example-structural.svg` the
+  ruler moves above the key.
+- The gallery is titled `What karyon draws`, where it claimed every
+  representation on a sheet that leaves seven track types to other examples,
+  and gains a twenty-third panel for `PairTrack`, which had none: linkage
+  between variants as a triangle under their gene.
+
+- The pictures drawn in advance for Start here and the Your data pages are
+  drawn with `--background` on the page's colour, where the white of the
+  figure was replaced afterwards: the shades mixed from the ground, the pill
+  behind the locus and the greys of the ruler, were mixed from white and are
+  now mixed from the page. Twenty-two of the twenty-four change, only there.
+
+- `--relative` draws a heatmap either side of 1×, a loss in the theme's first
+  colour and a gain in its second, with the usual depth pale, where one hue
+  drew a lost stretch nearly as pale as the page. The page figures of the
+  heatmap change.
+- A surveillance alert is a triangle in its lineage's colour, and a chip
+  after the lineages' own says what the triangles flag, as `≥ 50% or up 15
+  points`. Every alert was drawn in the second lineage's colour, with nothing
+  to say what it was. `example-evolutionary-surveillance.svg` changes.
+- A file on disk is read again when a figure needs it twice, rather than kept:
+  kept, every file was held twice while its track was built, and a 176 MB
+  depth file took 435 MB to draw where it now takes 259. A pipe the shell
+  names is kept, as it cannot be read again.
+- `LegendItem::Ramp` has a `through` field, the colour and the number a scale
+  with a middle passes through; a match on it by its fields needs `..`.
+
 - The command line and the playground read every tree with `Tree::parse`, so a
   NEXUS file from BEAST, MrBayes or FigTree is drawn where it was refused as
   Newick with `more than one root`, and the playground keeps a tree's
@@ -221,6 +282,62 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The figures of Start here and of the Your data pages are drawn by the
+  program in the page, from the command printed above each one and the
+  example files the site publishes: in the page's light or dark, at the width
+  of its column, with what each mark is under the pointer, and along the
+  genome under the reader's hand where the figure is over one. On a phone a
+  figure is drawn at the phone's width, where it was a 720 pixel picture
+  shrunk to half. The pictures drawn in advance stay for a page without
+  JavaScript, and a test holds each one to its command drawn in the page.
+- `--background HEX` draws a figure on the colour of the page or the slide it
+  goes on, and the shades mixed from the ground follow it.
+- `cli::stack::Held` holds a command line's files in memory by name and reads
+  them as `Disk` reads them from a path, a BAM through its index and gzipped
+  text out of its wrapper; `cli::stack::build_figure` builds a command line's
+  figure in a given theme and over another window, and says whether it runs
+  along a genome (`Built`); `Invocation::files` names the files a command line
+  reads, and `TrackSpec::sources` those of one track. The playground's
+  program reads a page's files as bytes through them, and its `command`,
+  `command_region` and `command_files` draw a page's command.
+- `--with-recombination FILE` after `--manhattan` lays a genetic map's rate
+  behind the scan's points, read off a scale of its own on the right with
+  `cM/Mb` after its highest number, as LocusZoom draws one, and keys it.
+  `ManhattanTrack::recombination` does it in Rust, and `Track::right_axis_width`
+  lets any track ask for a strip right of its band, which the figure takes
+  from every plotting area as it does on the left. The LocusZoom page figure
+  lays the map over the scan where it drew it as a track under it.
+- The lead variant of a scan coloured by linkage is called by its name, from
+  the scan's `SNP` or `ID` column or from PLINK's `.ld`, over its diamond, in
+  its tooltip and in the key, where its position was written
+  (`ManhattanTrack::lead_name`, `Associations::names`, `read::pairs::names`).
+- `--with-moves FILE` after `--squiggle` puts the bases the basecaller called
+  over the current, from the move table Dorado writes with `--emit-moves`, in
+  SAM or in BAM, which is read from end to end as a basecaller writes one
+  unsorted. A read Dorado split out of a longer one is placed by `pi:Z` and
+  `sp:i` (`read::series::moves`, `read::bam::named`, `Files::named_read`).
+  The page data gains `moves.sam`.
+- `--frequencies` takes `--threshold` as the frequency a lineage is flagged
+  at, `--growth` for a rise in points of frequency from one time to the next,
+  `--min-total` for the fewest samples a time needs, and `--counts` to draw
+  counts of samples rather than frequencies.
+- `CellScale::Diverging` draws a matrix either side of a centre, each side at
+  full strength at its own furthest value unless a spread is given, and
+  `--center` sets the centre of a heatmap, as 0 for a log ratio.
+  `Legend::diverging` keys it, with the centre written between two halves.
+- A table of windows in the long form, a sequence, a start, an end, a sample
+  and its value to a row, is read by `--heatmap` as the wide one is
+  (`read::table::long_windows`).
+- A table of its own place, an alignment, a table over time or over the sites
+  of a gene, or a signal, is drawn from standard input without a region, and
+  a table with fractional times from standard input is read as a continuous
+  time: the figure keeps what the pipe gave, whatever `Files` it is drawn
+  through. Both were refused.
+- A contact map as cooler or Juicer writes it, a `.cool`, `.mcool` or `.hic`,
+  is recognised and answered with how to write it as the BEDPE `--pairs`
+  reads: the `cooler dump` command for a `.cool`, and the steps that pick a
+  resolution first for the other two.
+
 - `Tree::parse` reads Newick or NEXUS, whichever the text is, with its
   annotations, and `Tree::parse_all` and `Tree::count_trees` read and count a
   file of several.
@@ -234,6 +351,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   most recent tip's date.
 - Two tips of one name, and branches of a negative length, are said under the
   tree.
+
 - `NodeRef` names a clade by index, by name, as the smallest clade holding
   some tips (`NodeRef::mrca`), or as the clade of the tips carrying a value
   (`NodeRef::holding("lineage", "L4")`). A clade found that holds tips it was

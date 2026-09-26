@@ -311,7 +311,24 @@ impl Figure {
         self
     }
 
-    /// Whether a ruler along the bottom would be measuring anything.
+    /// Puts a ruler under the last track measured against the coordinates,
+    /// or at the bottom of a figure that has none.
+    ///
+    /// A ruler numbers what is above it. At the bottom of a stack that ends in
+    /// a tree, or in a panel of sites laid out by their own index, it sat a
+    /// track away from the coverage it numbered, under something it does not
+    /// measure.
+    pub(crate) fn push_ruler(mut self, ruler: impl Track + 'static) -> Self {
+        let at = self
+            .tracks
+            .iter()
+            .rposition(|track| track.on_coordinates())
+            .map_or(self.tracks.len(), |last| last + 1);
+        self.tracks.insert(at, Box::new(ruler));
+        self
+    }
+
+    /// Whether a ruler would be measuring anything.
     ///
     /// True unless everything in the figure says otherwise. A stack of
     /// phylogenies says otherwise: a ruler under one measures a window that
@@ -577,13 +594,20 @@ impl Figure {
                 );
             }
 
-            svg.begin_clip(axis.x, band.y, axis.w + band.w, band.h);
+            let right_axis = Rect {
+                x: band.right(),
+                y,
+                w: track.right_axis_width(&theme).max(0.0),
+                h: *height,
+            };
+            svg.begin_clip(axis.x, band.y, axis.w + band.w + right_axis.w, band.h);
             let mut ctx = DrawContext {
                 svg: &mut svg,
                 scale: &layout.scale,
                 theme: &theme,
                 band,
                 axis,
+                right_axis,
                 region: &self.region,
                 visual_scale: self.visual_scale * self.density.scale(),
             };
@@ -693,7 +717,14 @@ impl Figure {
             .map(|t| t.y_axis_width(theme).max(0.0))
             .fold(0.0f64, f64::max);
         let plot_x = margin_left + gutter + axis_width;
-        let plot_width = (width - plot_x - margin_right).max(1.0);
+        // And the widest strip any track asks for on the right, taken from
+        // every plotting area the same way.
+        let right_axis_width = self
+            .tracks
+            .iter()
+            .map(|t| t.right_axis_width(theme).max(0.0))
+            .fold(0.0f64, f64::max);
+        let plot_width = (width - plot_x - margin_right - right_axis_width).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
         // A height that is not a number is not a height. It would reach
@@ -788,7 +819,7 @@ impl crate::rings::Drawing for Figure {
     }
 
     fn region(&self) -> Option<&Region> {
-        // The test that decides whether a plot gets a ruler along the bottom.
+        // The test that decides whether a plot gets a ruler.
         // A window nothing is measured against is not one worth moving.
         self.measures_coordinates().then_some(&self.region)
     }

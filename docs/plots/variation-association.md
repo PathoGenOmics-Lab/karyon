@@ -64,7 +64,7 @@ position.
     **[Association scan](../tracks/variation.md#manhattantrack)**
     One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
 
--   [![A peak of an association scan, each marker coloured from grey to blue by its linkage with the strongest, which is a diamond labelled with its position, above a recombination rate with two hotspots](../assets/start/locus.svg){ .k-light width="720" height="286" loading="lazy" }![A peak of an association scan coloured by linkage](../assets/start/locus-dark.svg){ .k-dark width="720" height="286" loading="lazy" }](../tracks/variation.md#manhattantrack)
+-   [![A peak of an association scan, each marker coloured from grey to blue by its linkage with the strongest, which is a diamond labelled with its name, with a recombination rate with two hotspots laid behind it](../assets/start/locus.svg){ .k-light width="720" height="214" loading="lazy" }![A peak of an association scan coloured by linkage](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" loading="lazy" }](../tracks/variation.md#manhattantrack)
 
     **[Scan coloured by linkage](../tracks/variation.md#manhattantrack)**
     A peak as LocusZoom draws one: every marker coloured by its r² with the lead, so a second signal beside the first stands out grey.

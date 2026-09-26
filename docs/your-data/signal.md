@@ -26,13 +26,19 @@ SLOW5 is text. A BLOW5 file is the same in binary, and `slow5tools view`
 writes it as text. A file of plain numbers, one sample after another, is read
 too, as picoamperes already.
 
+The bases the basecaller called come from its SAM or BAM, as Dorado writes it
+with `--emit-moves`: its move table puts each base over the stretch of
+current it was called from.
+
 ## Change it
 
 | To | Write |
 |:--|:--|
 | Another read | `--read read_2` |
+| The bases the basecaller called, over the current | `--with-moves moves.sam` |
 | Part of the read | `sample:1-500` as the place, before the file |
 | Another colour | `--color '#d55e00'` |
 
-The example file: [reads.slow5](../data/reads.slow5). Every option:
+The example files: [reads.slow5](../data/reads.slow5), and
+[moves.sam](../data/moves.sam) for the bases. Every option:
 `karyon help squiggle`, or the [command line reference](../guide/cli.md).

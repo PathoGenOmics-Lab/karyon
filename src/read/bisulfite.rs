@@ -216,11 +216,11 @@ pub fn molecules(text: &str, region: &Region, wanted: &str) -> Result<Calls, Rea
     }
 
     found.sites = sites.into_iter().collect();
-    // Written by position into a row of the full width, which is the whole of
-    // what keeps a call in its own column.
+    // Each call finds its column, which is the whole of what keeps it there,
+    // and only the calls are kept: a row the full width of the window was a
+    // byte for every site a fragment never reached.
     for name in order {
         let calls = &per_read[&name];
-        let mut row = vec![None; found.sites.len()];
         // The molecule's own calls, each finding its column, rather than every
         // column asking this molecule whether it was reached. A fragment
         // covers a few dozen sites and the window holds tens of thousands, so
@@ -228,13 +228,11 @@ pub fn molecules(text: &str, region: &Region, wanted: &str) -> Result<Calls, Rea
         // thirty thousand sites of lookups to place a million calls, and 2.12
         // of the 2.38 seconds the figure took. Every position here was put
         // into the site list by the same line that put it here, so the search
-        // finds it.
-        for (site, call) in calls {
-            if let Ok(column) = found.sites.binary_search(site) {
-                row[column] = *call;
-            }
-        }
-        found.molecules.push(Molecule::new(name, row));
+        // finds it. A cell two mates disagreed on has no call.
+        let covered = calls
+            .iter()
+            .filter_map(|(site, call)| Some((found.sites.binary_search(site).ok()?, (*call)?)));
+        found.molecules.push(Molecule::covering(name, covered));
     }
 
     Ok(found)
@@ -330,8 +328,8 @@ r3/1\t+\tchr2\t101\tZ
             .iter()
             .find(|m| m.name == "r2")
             .expect("r2 is a molecule");
-        assert_eq!(r2.calls.len(), found.sites.len());
-        assert_eq!(r2.calls, vec![Some(false), None, Some(true)]);
+        let row: Vec<Option<bool>> = (0..found.sites.len()).map(|site| r2.call(site)).collect();
+        assert_eq!(row, vec![Some(false), None, Some(true)]);
     }
 
     #[test]
@@ -351,8 +349,9 @@ r3/1\t+\tchr2\t101\tZ
         let found = molecules(TEXT, &window(), "CpG").unwrap();
         assert_eq!(found.molecules.len(), 2);
         let r1 = found.molecules.iter().find(|m| m.name == "r1").unwrap();
+        let row: Vec<Option<bool>> = (0..found.sites.len()).map(|site| r1.call(site)).collect();
         assert_eq!(
-            r1.calls,
+            row,
             vec![Some(true), Some(false), Some(true)],
             "the second mate's call did not reach the fragment"
         );
@@ -365,7 +364,8 @@ r3/1\t+\tchr2\t101\tZ
         let text = "r1/1\t+\tchr1\t101\tZ\nr1/2\t-\tchr1\t101\tz\n";
         let found = molecules(text, &window(), "CpG").unwrap();
         assert_eq!(found.contradicted, 1);
-        assert_eq!(found.molecules[0].calls, vec![None]);
+        assert_eq!(found.molecules[0].call(0), None);
+        assert_eq!(found.molecules[0].covered(), (0, 0));
         assert_eq!(found.sites, vec![100], "the site itself is still a site");
     }
 
@@ -391,7 +391,10 @@ r3/1\t+\tchr2\t101\tZ
         let narrow = molecules(TEXT, &Region::new("chr1", 0, 250).unwrap(), "CpG").unwrap();
         assert_eq!(narrow.sites, vec![100, 200]);
         assert_eq!(narrow.off_region, 2);
-        assert!(narrow.molecules.iter().all(|m| m.calls.len() == 2));
+        assert!(narrow
+            .molecules
+            .iter()
+            .all(|m| m.calls().all(|(site, _)| site < 2)));
     }
 
     #[test]

@@ -115,6 +115,22 @@ pub struct Associations {
     /// A threshold is given in the units the file is in, so a threshold for a
     /// file of p-values is a p-value too and wants the same conversion.
     pub p_values: bool,
+    /// The name of each variant in the window, as `(position, name)`, where
+    /// the table has a column of them: `SNP` as PLINK and BOLT write it, `ID`
+    /// as PLINK 2 and REGENIE do. Empty for a table with none.
+    pub names: Vec<(u64, String)>,
+}
+
+impl Associations {
+    /// The name of the variant at a 0-based position, where the table gives
+    /// one and it is not a placeholder.
+    pub fn name_at(&self, pos: u64) -> Option<&str> {
+        self.names
+            .iter()
+            .find(|(at, _)| *at == pos)
+            .map(|(_, name)| name.as_str())
+            .filter(|name| !matches!(*name, "" | "." | "NA"))
+    }
 }
 
 /// Reads association statistics from a table.
@@ -269,6 +285,7 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
     Ok(Associations {
         points: converted,
         p_values,
+        names: Vec::new(),
     })
 }
 
@@ -350,6 +367,7 @@ struct Wide {
     position: usize,
     value: usize,
     p_values: bool,
+    id: Option<usize>,
 }
 
 impl Wide {
@@ -390,11 +408,23 @@ impl Wide {
                     .position(|name| name.contains("log") && name.contains('p'))
                     .map(|at| (at, false))
             })?;
+        let id = find(&[
+            "snp",
+            "id",
+            "rsid",
+            "rs",
+            "snpid",
+            "marker",
+            "markerid",
+            "markername",
+            "variant_id",
+        ]);
         Some(Wide {
             sequence,
             position,
             value,
             p_values,
+            id,
         })
     }
 
@@ -405,6 +435,7 @@ impl Wide {
             .max(self.value)
             .max(self.sequence.unwrap_or(0));
         let mut points = Vec::new();
+        let mut names = Vec::new();
         for (line, row) in lines(text).filter(|(line, _)| *line != header) {
             let fields = columns(row);
             if fields.len() <= widest {
@@ -433,6 +464,9 @@ impl Wide {
                 continue;
             }
             let value: f64 = number(value, "value", line)?;
+            if let Some(name) = self.id.and_then(|at| fields.get(at)) {
+                names.push((pos, name.trim().to_string()));
+            }
             if !self.p_values {
                 points.push(Association::new(pos, value));
                 continue;
@@ -448,6 +482,7 @@ impl Wide {
         Ok(Associations {
             points,
             p_values: self.p_values,
+            names,
         })
     }
 }
@@ -982,6 +1017,26 @@ locus\t0.4
     /// PLINK 2 writes its header behind a `#`, where every other reader here
     /// sees a comment. It read the first row of numbers as the header and
     /// refused the file.
+    /// The tools that write a variant's name write it under their own names
+    /// for the column, and a table with none names nothing.
+    #[test]
+    fn a_variant_is_named_by_the_column_its_tool_writes_names_in() {
+        let region = Region::parse("1:1-1,000").unwrap();
+        for table in [
+            "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 480 A 1e-9\n",
+            "#CHROM POS ID P\n1 150 rs1 0.5\n1 480 rs2 1e-9\n",
+            "CHROM GENPOS ID LOG10P\n1 150 rs1 0.3\n1 480 rs2 9\n",
+        ] {
+            let read = association_table(table, &region).unwrap();
+            assert_eq!(read.name_at(479), Some("rs2"), "{table}");
+            assert_eq!(read.name_at(100), None);
+        }
+        let unnamed = association_table("CHR BP A1 P\n1 150 A 0.5\n", &region).unwrap();
+        assert!(unnamed.names.is_empty());
+        let placeholder = association_table("CHR SNP BP A1 P\n1 . 150 A 0.5\n", &region).unwrap();
+        assert_eq!(placeholder.name_at(149), None, "a dot names nothing");
+    }
+
     #[test]
     fn a_plink_2_header_behind_a_hash_is_read_as_the_header() {
         let region = Region::parse("1:1-1000").unwrap();

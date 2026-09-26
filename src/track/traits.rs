@@ -1306,6 +1306,7 @@ D\tL1\thuman\t95
                     to,
                     low,
                     high,
+                    ..
                 } => Some((label, from, to, low, high)),
                 _ => None,
             })

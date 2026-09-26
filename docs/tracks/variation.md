@@ -259,6 +259,8 @@ An alignment of close relatives is almost all agreement: thirty kilobases carryi
 
 The price is the x axis. Two neighbouring columns may be nine bases or nine kilobases apart, and nothing about the spacing says which, so each column carries its own position turned on end, counted from one like a ruler's, and a ruler does not belong under the panel. The region is the site index space, `Region::new("sites", 0, 34)` for thirty-four sites. The panel answers `false` to `Track::on_coordinates`, so `plot()` and the command line append no ruler for it; a figure that also holds a track on the coordinates keeps the ruler that track is read against.
 
+A panel with more sites than pixels, the whole genomes of an outbreak say, is drawn a pixel at a time once a column would be narrower than a pixel and a half. Each pixel of a row is shaded by the share of the sites under it that differ from the reference, in eight steps from the colour of an agreement to the colour of a difference, and the key says so. A pixel with any difference in it takes at least the first step, so one difference among forty sites is not drawn as agreement. The positions, the strip under the panel that holds them and the column tint go, since there is no room for them, and each row's tooltip counts its differences. Thirty thousand sites of forty samples were an SVG of 124 MB drawn a cell at a time, which no viewer opens, and are about a megabyte this way.
+
 `from_alignment(reference, &rows)` keeps a column when any row disagrees with the reference row, gaps included, since a deletion is an observation too. Positions are alignment columns, counted from 0 and labelled from 1; `offset` moves them to where the alignment starts.
 
 `tree` sorts the rows by descent, so a clade's shared substitutions line up into a block. Rows are matched to leaves by name, and a sample the tree does not mention keeps its place at the bottom rather than vanishing: a row silently dropped from a figure is worse than a row out of order. The same tree beside a [MatrixTrack](#matrixtrack), [MsaTrack](comparison.md#msatrack) or [DomainTrack](comparison.md#domaintrack) sorts it the same way.
@@ -274,8 +276,8 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | | |
 |:--|:--|
 | Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)`, and `MatrixTrack::windows(windows, rows)` for a column per window |
-| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` after `--heatmap` |
-| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample (`read::table::windows`). An empty cell, `.` or `NA` is missing |
+| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` and `--center` after `--heatmap` |
+| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample, or in the long form, a sample and its value to a row (`read::table::windows`). An empty cell, `.` or `NA` is missing |
 
 === "Rust"
 
@@ -315,7 +317,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.label("genotypes")` | Names the track in the left gutter (`--label`) | none |
 | `.row_height(14.0)` | Height of one row (`--row-height`) | `11` |
 | `.row_gap(2.0)` | Gap between rows, in the page colour | `1` |
-| `.scale(CellScale::Categorical)` | How a value becomes a colour: a one-hue `Sequential` ramp, or `Categorical` palette indices | `Sequential { max: None, hue: None }` |
+| `.scale(CellScale::Categorical)` | How a value becomes a colour: a one-hue `Sequential` ramp, `Categorical` palette indices, or `Diverging { center, spread }`, two hues either side of a centre (`--center`, and `--relative` about 1) | `Sequential { max: None, hue: None }` |
 | `.missing_color("#bdbdbd")` | Colour of a missing cell | from the theme |
 | `.min_cell_width(4.0)` | Narrowest a cell is drawn, in pixels | `3` |
 | `.show_row_names(false)` | Shows or hides sample names (`--no-names`) | shown |
@@ -333,6 +335,8 @@ A cell's width is a floor, `min_cell_width`, so it says nothing about how much s
 
 A sequential ramp is keyed under the figure, from nought to the value it saturates at, which is how a reader learns how deep a dark cell is.
 
+A quantity with a middle that means something is `Diverging`: the centre is drawn pale, in neither hue, a value below it in the theme's first colour and one above it in the second, as a [CopyNumberTrack](#copynumbertrack) draws a loss and a gain. With no `spread`, each side is at full strength at its own furthest value, so depths from nothing to three times the usual run from a full loss at 0× to a full gain at 3×, and the key writes the centre between the two halves of its strip, since the ends are not the same distance from it. `--relative` reads the depths this way about 1×, where one hue drew a lost stretch nearly as pale as the page.
+
 `tree` sorts the rows by descent, which is what turns a speckle into rectangles; rows the tree does not name stay at the bottom. Cells never merge, and that is the refusal: six carriers drawn as six cells are six observations, and one rectangle covering a clade is a different claim, made by a [CladeTrack](phylogeny.md#cladetrack).
 
 ## ManhattanTrack { #manhattantrack }
@@ -346,7 +350,7 @@ Association statistics: one point per test, height by significance, a line where
 | | |
 |:--|:--|
 | Rust | `.add_manhattan(points)` on `plot()`; `ManhattanTrack::new(points)` |
-| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--height` |
+| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--with-recombination`, `--height` |
 | Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`) |
 
 === "Rust"
@@ -394,6 +398,8 @@ Association statistics: one point per test, height by significance, a line where
 | `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.linkage(lead, r2)` | Colours each point by its r² with the lead variant at `lead`, 0-based, and draws the lead as a diamond with its position over it (`--ld`) | one colour |
+| `.lead_name("rs1234")` | Calls the lead by its name over the diamond and in the key, in place of its position (from the scan's `SNP` or `ID` column, or the `.ld` table's) | its position |
+| `.recombination(rates)` | Lays a recombination rate over the scan as a line, from 0-based half-open `(start, end, cM/Mb)` spans, read off a scale on the right (`--with-recombination`) | none |
 
 #### Notes
 
@@ -403,7 +409,7 @@ There is no default threshold, on purpose, and `significant()` returns nothing u
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 
-`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its position over it, both keyed under the figure. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
+`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its name or its position over it, both keyed under the figure. `recombination` lays the rate under the points, as LocusZoom does too, on a scale of its own on the right with its unit after the highest number: a peak ends where the haplotypes it rides on break up, at a hotspot, so the two are read against each other. The figure makes room for that scale on the right of every track, so the bands still end together. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
 
 The x axis is genomic, so this draws one sequence or one region of one. For a scan across a whole genome, build the figure over a `Genome`, pass `Genome::boundaries` to `bands` so the shading changes where each sequence starts, and put a [GenomeTrack](whole-genome.md#genometrack) under it.
 

@@ -37,6 +37,10 @@ self.karyon = self.karyon || (function () {
     ? here.replace(/[^/]*$/, "karyon_playground.wasm")
     : "karyon_playground.wasm";
 
+  // The example files the pages print commands over, which the site publishes
+  // beside its assets folder, under data/.
+  var DATA = here ? here.replace(/assets\/[^/]*$/, "data/") : "data/";
+
   var wasm = null;
   var arriving = null;
   var encoder = new TextEncoder();
@@ -107,9 +111,9 @@ self.karyon = self.karyon || (function () {
   // after it, and that word is not the region however much it looks like one:
   // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
   // drag then rewrote the label and left the figure where it was.
-  var ALONE = ["--axis", "--fade-by-mapq", "--log", "--no-axis", "--no-counts",
-               "--no-legend", "--no-names", "--no-region-label", "--no-scale-bar",
-               "--relative"];
+  var ALONE = ["--axis", "--counts", "--fade-by-mapq", "--log", "--no-axis",
+               "--no-counts", "--no-legend", "--no-names", "--no-region-label",
+               "--no-scale-bar", "--relative"];
 
   // The flags that open a track. Everything between one of these and the next
   // describes that track, which is what makes a command a stack rather than a
@@ -342,8 +346,10 @@ self.karyon = self.karyon || (function () {
       parts.push(b);
       total += 4;
     }
+    // A file's body is text a page holds, or the bytes it fetched, which may
+    // be a BAM as much as a FASTA and go across as they are.
     function str(s) {
-      var bytes = encoder.encode(s);
+      var bytes = s instanceof Uint8Array ? s : encoder.encode(s);
       u32(bytes.length);
       parts.push(bytes);
       total += bytes.length;
@@ -669,10 +675,79 @@ self.karyon = self.karyon || (function () {
     return { ok: true, moves: moves, region: region };
   }
 
+  // One buffer after another.
+  function joined(first, second) {
+    var out = new Uint8Array(first.length + second.length);
+    out.set(first, 0);
+    out.set(second, first.length);
+    return out;
+  }
+
+  // Draws a command line over files a page fetched, the way `opts` asks, as
+  // `figure` draws a committed figure: `argv` is the command's words without
+  // `karyon`, and `list` the `{name, body}` files, a body text or bytes.
+  // Answers `{ok, body, ms}` as `run` does.
+  function command(argv, list, opts) {
+    if (!wasm) return { ok: false, body: "the program has not arrived", ms: 0 };
+    opts = opts || {};
+    var input = joined(pack(argv, list), packed(function (into) {
+      into.str(opts.theme || (dark() ? "dark" : "light"));
+      into.str(opts.background || "");
+      into.u32(Math.max(0, Math.round(opts.width || 0)));
+      into.str(opts.region || "");
+      into.str(opts.prefix || "");
+    }));
+    var answer = call("command", input);
+    return { ok: answer.ok, body: decoder.decode(answer.bytes), ms: answer.ms };
+  }
+
+  // Whether a command line's figure runs along a genome, and over what,
+  // answered as `figureRegion` answers for a committed figure.
+  function commandRegion(argv, list) {
+    if (!wasm) return { ok: false, body: "the program has not arrived" };
+    var answer = call("command_region", pack(argv, list));
+    if (!answer.ok) return { ok: false, body: decoder.decode(answer.bytes) };
+    var view = new DataView(answer.bytes.buffer);
+    var moves = answer.bytes[0] === 1;
+    var len = view.getUint32(1, true);
+    var region = decoder.decode(answer.bytes.subarray(5, 5 + len));
+    return { ok: true, moves: moves, region: region };
+  }
+
+  // The files a command line reads, each once, as the program's own parser
+  // names them: `{ok, files}`, or `{ok: false, body}` saying why the command
+  // is not one.
+  function commandFiles(argv) {
+    if (!wasm) return { ok: false, body: "the program has not arrived" };
+    // The command line as `run` packs it; the empty file list after it is
+    // not read.
+    var answer = call("command_files", pack(argv, []));
+    if (!answer.ok) return { ok: false, body: decoder.decode(answer.bytes) };
+    var view = new DataView(answer.bytes.buffer);
+    var count = view.getUint32(0, true);
+    var at = 4;
+    var files = [];
+    for (var i = 0; i < count; i++) {
+      var len = view.getUint32(at, true);
+      files.push(decoder.decode(answer.bytes.subarray(at + 4, at + 4 + len)));
+      at += 4 + len;
+    }
+    return { ok: true, files: files };
+  }
+
+  // Where an example file a page's command names is published.
+  function data(name) {
+    return DATA + encodeURIComponent(name).replace(/%2F/g, "/");
+  }
+
   return {
     load: load,
     figure: figure,
     figureRegion: figureRegion,
+    command: command,
+    commandRegion: commandRegion,
+    commandFiles: commandFiles,
+    data: data,
     positions: positions,
     tipsAccountedFor: tipsAccountedFor,
     ready: ready,

@@ -200,6 +200,8 @@ A [MethylationTrack](signal-sequence.md#methylationtrack) gives a fraction per s
 
 The refusal is in the marks. A ring is "measured and not methylated" and no mark is "not measured", two different statements that must not look alike. Columns sit at the real distances between the cytosines, which matters when the question is whether an island is uniformly modified.
 
+A molecule keeps only the sites it covers. `Molecule::new(name, calls)` takes a call or `None` for every site, as above; `Molecule::covering(name, [(site, methylated)])` takes the covered sites alone, which is what a long read over a few of ten thousand sites wants, and `call(site)` reads one back. Holding a slot for every site in every molecule made a file of long reads over a wide region cost 708 MB, and the same figure now takes 56.
+
 From an extractor file, both mates of a pair are one row; where they overlap and disagree about a cytosine, neither call is kept. The file's call letter carries the context, and `--context` picks CpG, CHG or CHH when the file holds more than one.
 
 ## JunctionTrack { #junctiontrack }
@@ -272,7 +274,7 @@ Raw nanopore current for one read, before it was ever a base. When a basecall is
 | | |
 |:--|:--|
 | Rust | `.add_squiggle(signal)` or `.add_squiggle_at(start, signal)` on `plot()`; `SquiggleTrack::new(start, signal)`, `SquiggleTrack::normalized(start, signal)` |
-| Command line | `--squiggle FILE`, or a `.slow5` named on its own, with `--read`, `--color`, `--height` |
+| Command line | `--squiggle FILE`, or a `.slow5` named on its own, with `--read`, `--with-moves` for the bases, `--color`, `--height` |
 | Reads | SLOW5, the text form of BLOW5 that `slow5tools view` writes, put into picoamperes with each read's digitisation, offset and range; or one sample per number, as picoamperes already (`read::series::squiggle`). POD5 and FAST5 are binary and are converted first |
 
 === "Rust"
@@ -299,7 +301,9 @@ Raw nanopore current for one read, before it was ever a base. When a basecall is
 
     The figure is laid over the read's samples, counted from 1, so it names no
     place; `sample:1-500` draws part of it. A file of many reads draws the
-    first, and says so, unless `--read` names another.
+    first, and says so, unless `--read` names another. `--with-moves
+    calls.bam` puts the bases over it, from the move table Dorado writes with
+    `--emit-moves`.
 
 #### Options
 
@@ -307,7 +311,7 @@ Raw nanopore current for one read, before it was ever a base. When a basecall is
 |:--|:--|:--|
 | `.label("current")` | Names the track in the left gutter | none |
 | `.height(120.0)` | Band height in pixels | `90` |
-| `.moves(moves)` | Attaches the basecaller's move table: the first sample of each called base | none |
+| `.moves(moves)` | Attaches the basecaller's move table: the first sample of each called base (`--with-moves`, from SAM or BAM; `read::series::moves`) | none |
 | `.color("#0072b2")` | Colour of the trace | theme accent |
 | `.range(60.0, 140.0)` | Pins the current axis | the signal's own range |
 | `.unit(" pA")` | Unit printed after the axis numbers | `" pA"` |

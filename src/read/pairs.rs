@@ -99,6 +99,44 @@ pub fn is_correlation(name: &str) -> bool {
         .any(|known| name.trim().eq_ignore_ascii_case(known))
 }
 
+/// The names PLINK gives the places of its pairs, as `(position, name)` with
+/// the position 0-based, from the `SNP_A` and `SNP_B` columns beside `BP_A`
+/// and `BP_B`. Empty for a table with no such columns, which names nothing.
+///
+/// A table of linkage with a lead, as `--ld-snp` writes one, names the lead
+/// on every row, and a scan whose own table names no variant can still call
+/// its lead by name.
+pub fn names(text: &str) -> Vec<(u64, String)> {
+    let mut rows = lines(text);
+    let Some((_, first)) = rows.next() else {
+        return Vec::new();
+    };
+    let head = fields(first.trim());
+    let sides = [
+        (column(&head, &["bp_a"]), column(&head, &["snp_a"])),
+        (column(&head, &["bp_b"]), column(&head, &["snp_b"])),
+    ];
+    let mut out: std::collections::BTreeMap<u64, String> = std::collections::BTreeMap::new();
+    for (_, row) in rows {
+        let cells = fields(row.trim());
+        for (at, name) in sides {
+            let (Some(at), Some(name)) = (at, name) else {
+                continue;
+            };
+            let position = cells
+                .get(at)
+                .and_then(|field| field.trim().parse::<u64>().ok());
+            let (Some(position), Some(name)) = (position.filter(|p| *p > 0), cells.get(name))
+            else {
+                continue;
+            };
+            out.entry(position - 1)
+                .or_insert_with(|| name.trim().to_string());
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// Reads the pairs with both places on the region's sequence, and what the
 /// header calls their values, where it names them.
 ///
@@ -221,6 +259,23 @@ mod tests {
 
     fn region(locus: &str) -> Region {
         Region::parse(locus).unwrap()
+    }
+
+    /// PLINK names both places of a pair, and a lead is named on every row.
+    #[test]
+    fn plink_names_the_places_of_its_pairs() {
+        let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
+                   1 754400 rs42 1 655400 rs7 0.05\n1 754400 rs42 1 657600 rs8 0.05\n";
+        let named = names(ld);
+        assert_eq!(
+            named,
+            vec![
+                (655_399, "rs7".to_string()),
+                (657_599, "rs8".to_string()),
+                (754_399, "rs42".to_string())
+            ]
+        );
+        assert!(names("pos1 pos2 score\n10 20 1\n").is_empty());
     }
 
     #[test]
