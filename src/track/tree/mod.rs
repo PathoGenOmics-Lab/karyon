@@ -860,6 +860,13 @@ fn draw(
     }
 }
 
+/// The levels of `key` over `tree`, each with the palette colour a
+/// [`TreeTrack`] colouring its branches by `key` deals it: in the order the
+/// tree meets them, from the palette's first colour.
+pub(crate) fn tree_levels(tree: &Tree, key: &str) -> BTreeMap<String, usize> {
+    rectangular::tree_domain(tree, key, Dealt::default()).categories
+}
+
 /// A phylogeny as a track of its own.
 ///
 /// ```

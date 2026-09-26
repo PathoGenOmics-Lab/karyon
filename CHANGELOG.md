@@ -591,6 +591,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cut, as ape's `keep.tip` makes one.
 - The tree beside a matrix with metadata strips starts level with the rows,
   under the strips' headings; it sat a heading's height above them.
+- A tanglegram coloured by an annotation deals its colours in the order the
+  left tree meets the values, as the tree coloured by the same key does; it
+  dealt them in the order the values sort, so a tanglegram and the tree
+  beside it painted one country two colours. A tie whose trees disagree is
+  drawn in the foreground ink, where it took the palette's second colour and
+  looked like the second value, and `TanglegramTrack::legend` keys the values
+  and the disagreement for `Figure::key`, where the tanglegram had no key.
 - A tree keys every layer it draws. The chips across the top of its band,
   for node glyphs, dN/dS, rate classes, branch events, intervals and
   homoplasy, ran along one row and the ones past its end were dropped: at 500

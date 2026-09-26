@@ -262,7 +262,7 @@ Two trees over the same taxa, drawn facing each other with every shared tip join
 
 `crossings()` is worth a caption, and it is not a statistic. It depends on how each tree happened to rotate its clades, and a clade rotates freely without changing what the tree says. `untangle` alternates greedy rotations on both sides and keeps only strict improvements, so it never changes a clade or a branch length and never increases the count; it is a deterministic local heuristic, not a global optimum. `initial_crossings()` and `crossing_reduction()` report where it started and what it saved, and the summary drawn with the track gives the count before and after, how many tips were joined, and how many only one tree has.
 
-With `color_by`, a tie whose two ends disagree about the annotation turns dashed in the crossing colour, and each end keeps its own value.
+With `color_by`, each value takes the colour a phylogeny coloured by the same key gives it, in the order the left tree meets the values, and a tie whose two ends disagree about the annotation turns dashed in the foreground ink, which no value is dealt, while each end keeps its own value. `legend(&theme)` keys the values and the disagreement, and `Figure::key()` gathers that key.
 
 A tip only one of the trees has is drawn on that tree and joined to nothing, because a taxon missing from one analysis is a fact about the analysis. `shared()` lists the tips both trees have and `unshared()` the rest. `--against` is required: a tanglegram of one tree against itself has no crossings, which is what a perfect result looks like.
 

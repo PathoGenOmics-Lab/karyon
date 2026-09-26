@@ -44,7 +44,8 @@ use std::collections::BTreeMap;
 use crate::style::LinePattern;
 use crate::svg::{fit_text, num, text_width, Anchor};
 use crate::theme::{mix, Theme};
-use crate::track::tree::{draw_tree_titled, TreeShape, TreeStyle};
+use crate::track::legend::Legend;
+use crate::track::tree::{draw_tree_titled, tree_levels, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -225,9 +226,12 @@ impl TanglegramTrack {
 
     /// Colours ties by a terminal annotation shared by the two trees.
     ///
-    /// Equal values receive one categorical colour. A disagreement is drawn
-    /// with the crossing colour and a dashed centre line, while endpoint marks
-    /// retain the value from each tree. Tooltips report both exact values.
+    /// Equal values receive one categorical colour, dealt in the order the
+    /// left tree meets them, as a [`TreeTrack`](crate::TreeTrack) colouring
+    /// that tree by the same key deals them. A disagreement is drawn in the
+    /// foreground ink with a dashed centre line, while endpoint marks retain
+    /// the value from each tree, and [`TanglegramTrack::legend`] keys both.
+    /// Tooltips report both exact values.
     pub fn color_by(mut self, key: impl Into<String>) -> Self {
         self.color_by = Some(key.into());
         self
@@ -375,23 +379,64 @@ impl TanglegramTrack {
             .map(ToString::to_string)
     }
 
+    /// The colour each value of the key is dealt: in the order the left
+    /// tree meets them, as a tree coloured by the key deals them, and then the
+    /// values only the right tree holds, in the order it meets them.
+    ///
+    /// They were dealt in the order the values sort, so the same key coloured
+    /// a tanglegram and the tree beside it two different ways.
     fn annotation_categories(&self) -> BTreeMap<String, usize> {
-        let mut categories = BTreeMap::new();
-        for name in self.shared() {
-            for value in [
-                self.annotation(&self.left, &name),
-                self.annotation(&self.right, &name),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                categories.insert(value, 0);
+        let Some(key) = self.color_by.as_deref() else {
+            return BTreeMap::new();
+        };
+        let mut categories = tree_levels(&self.left, key);
+        for name in self.right.leaf_names() {
+            if let Some(value) = self.annotation(&self.right, &name) {
+                let next = categories.len();
+                categories.entry(value).or_insert(next);
             }
         }
-        for (index, value) in categories.values_mut().enumerate() {
-            *value = index;
-        }
         categories
+    }
+
+    /// The key to the colours the ties are drawn in, when they are coloured
+    /// by an annotation: each value the linked tips hold, and the ink of a
+    /// tie whose two trees disagree, where one does.
+    ///
+    /// [`Figure::key`](crate::Figure::key) gathers it in the figure's own
+    /// theme.
+    pub fn legend(&self, theme: &Theme) -> Legend {
+        let Some(key) = self.color_by.as_deref() else {
+            return Legend::new();
+        };
+        let categories = self.annotation_categories();
+        let mut held: Vec<(String, usize)> = Vec::new();
+        let mut differ = false;
+        for name in self.shared() {
+            let left = self.annotation(&self.left, &name);
+            let right = self.annotation(&self.right, &name);
+            differ |= left != right;
+            for value in [left, right].into_iter().flatten() {
+                if let Some(index) = categories.get(&value) {
+                    if !held.iter().any(|(level, _)| *level == value) {
+                        held.push((value, *index));
+                    }
+                }
+            }
+        }
+        held.sort_by(|a, b| crate::track::traits::natural(&a.0, &b.0));
+        let mut legend = held
+            .into_iter()
+            .fold(Legend::new(), |legend, (level, index)| {
+                legend.line(format!("{key}: {level}"), theme.color(index).to_string())
+            });
+        if differ {
+            legend = legend.line(
+                format!("{key} differs between the trees"),
+                theme.foreground.clone(),
+            );
+        }
+        legend
     }
 }
 
@@ -454,6 +499,16 @@ fn improve_rotations(candidate: &mut Tree, fixed: &Tree, candidate_is_left: bool
 impl Track for TanglegramTrack {
     fn noun(&self) -> &str {
         "two phylogenies face to face"
+    }
+
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<Legend> {
+        let legend = self.legend(theme);
+        (!legend.is_empty()).then_some(legend)
     }
 
     fn height(&self, _scale: &Scale) -> f64 {
@@ -538,8 +593,11 @@ impl Track for TanglegramTrack {
                 .as_ref()
                 .and_then(|value| categories.get(value))
                 .map(|index| ctx.theme.color(*index).to_string());
+            // A disagreement is drawn in the ink no level is dealt. It took
+            // the crossing colour, which is the palette's second, so a tie
+            // whose trees disagree looked like one of the second level.
             let ink = if mismatch {
-                crossing.clone()
+                ctx.theme.foreground.clone()
             } else if let Some(color) = &annotation_color {
                 color.clone()
             } else if crosses {
@@ -977,6 +1035,78 @@ mod tests {
         assert!(svg.contains("left country Spain; right country Kenya"));
         assert!(svg.contains("annotation mismatch"));
         assert!(svg.contains("stroke-dasharray"));
+    }
+
+    #[test]
+    fn a_tie_takes_the_colour_its_level_takes_on_the_tree_and_is_keyed() {
+        use crate::track::legend::LegendItem;
+        // The left tree meets Spain first and Peru last. Dealt in the order
+        // the values sort, the ties painted Peru the colour the tree beside
+        // them painted Spain.
+        let left = Tree::parse_annotated_newick(
+            "((Zed[&country=Spain],Yan[&country=Spain]),(Abe[&country=Portugal],Bo[&country=Peru]));",
+        )
+        .unwrap();
+        let right = Tree::parse_annotated_newick(
+            "((Zed[&country=Spain],Abe[&country=Portugal]),(Yan[&country=Spain],Bo[&country=Chile]));",
+        )
+        .unwrap();
+        let theme = Theme::light();
+        let track = TanglegramTrack::new(left.clone(), right).color_by("country");
+        let tree = Figure::new(region())
+            .show_region_label(false)
+            .push(crate::TreeTrack::new(left).color_by("country"))
+            .to_svg();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(track.clone())
+            .to_svg();
+        let tie = |name: &str| {
+            let after = svg
+                .split(&format!("<title>{name}, "))
+                .nth(1)
+                .expect("a tie");
+            let body = after.split("</g>").next().unwrap();
+            body.split("stroke=\"").nth(1).unwrap()[..7].to_string()
+        };
+        let branch = |title: &str| {
+            let after = tree
+                .split(&format!("<title>{title}"))
+                .nth(1)
+                .expect("a branch");
+            after.split("stroke=\"").nth(1).unwrap()[..7].to_string()
+        };
+        assert_eq!(tie("Zed"), branch("country Spain"));
+        assert_eq!(tie("Abe"), branch("country Portugal"));
+        // Bo is Peru on the left and Chile on the right: the tie is in the ink
+        // no level is dealt, where it was in the palette's second colour.
+        assert_eq!(tie("Bo"), theme.foreground);
+        assert!(!theme.palette.contains(&tie("Bo")));
+
+        let legend = track.legend(&theme);
+        let lines: Vec<(&str, &str)> = legend
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                LegendItem::Key { label, color, .. } => Some((label.as_str(), color.as_str())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            lines.iter().map(|(label, _)| *label).collect::<Vec<_>>(),
+            [
+                "country: Chile",
+                "country: Peru",
+                "country: Portugal",
+                "country: Spain",
+                "country differs between the trees",
+            ]
+        );
+        assert!(lines.contains(&("country: Spain", tie("Zed").as_str())));
+        let figure = Figure::new(region()).push(track);
+        assert_eq!(figure.key().len(), 5);
+        let plain = Figure::new(region()).push(disagreeing());
+        assert!(plain.key().is_empty());
     }
 
     #[test]
