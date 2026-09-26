@@ -927,6 +927,7 @@ impl Kind {
         match self {
             Kind::Pileup => Some("--with-sequence"),
             Kind::Manhattan => Some("--ld"),
+            Kind::Squiggle => Some("--with-moves"),
             Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains => {
                 Some("--with-tree")
             }
@@ -1350,6 +1351,9 @@ pub struct TrackSpec {
     pub counts: bool,
     /// `--center`, the value a heatmap is read either side of, in two hues.
     pub center: Option<f64>,
+    /// `--with-recombination`, a genetic map whose rate is laid over a scan,
+    /// read off a scale on the right.
+    pub recombination: Option<Source>,
     /// `--row-height`, for the tracks whose height follows from their rows.
     ///
     /// The complement of [`TrackSpec::height`], and the two never both apply:
@@ -1410,6 +1414,7 @@ impl TrackSpec {
             min_total: None,
             counts: false,
             center: None,
+            recombination: None,
             ploidy: None,
             sample: None,
             traits: None,
@@ -1587,6 +1592,8 @@ pub const FLAGS: &[&str] = &[
     "--links",
     "--with-sequence",
     "--ld",
+    "--with-recombination",
+    "--with-moves",
     "--modification",
     "--context",
     "--analysis",
@@ -2175,6 +2182,28 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.min_total = Some(floor);
             }
+            "--with-recombination" => {
+                let word = value("--with-recombination")?;
+                // Checked before the track is borrowed, as the other files a
+                // track names are: a pipe can be read once.
+                let stdin = word == "-";
+                if stdin && stdin_taken(&tracks) {
+                    return Err(ArgError::StdinTwice);
+                }
+                let source = if stdin {
+                    Source::Stdin
+                } else {
+                    Source::Path(PathBuf::from(word))
+                };
+                let track = once(&mut tracks, &mut given, "--with-recombination")?;
+                if track.kind != Kind::Manhattan {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--with-recombination",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.recombination = Some(source);
+            }
             "--center" => {
                 let text = value("--center")?;
                 let center = text
@@ -2611,7 +2640,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
                 track.color = Some(text);
             }
-            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld") => {
+            flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld"
+            | "--with-moves") => {
                 // One arm for every second path, because the mechanism is one
                 // mechanism; only the spelling changes, and the spelling is
                 // what says which file it is.
@@ -2620,6 +2650,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     "--links" => "--links",
                     "--with-sequence" => "--with-sequence",
                     "--ld" => "--ld",
+                    "--with-moves" => "--with-moves",
                     _ => "--against",
                 };
                 let word = value(flag)?;
@@ -2962,7 +2993,14 @@ fn written_as_a_locus(word: &str) -> bool {
 fn stdin_taken(tracks: &[TrackSpec]) -> bool {
     tracks
         .iter()
-        .flat_map(|t| [t.source.as_ref(), t.second.as_ref(), t.traits.as_ref()])
+        .flat_map(|t| {
+            [
+                t.source.as_ref(),
+                t.second.as_ref(),
+                t.traits.as_ref(),
+                t.recombination.as_ref(),
+            ]
+        })
         .any(|source| matches!(source, Some(Source::Stdin)))
 }
 
@@ -3118,6 +3156,16 @@ mod tests {
         assert!(refused("chr1:1-9 --coverage d.bg --relative").contains("--relative"));
         assert!(draw("chr1:1-9 --heatmap d.tsv --relative").tracks[0].relative);
         assert!(refused("chr1:1-9 --coverage d.bg --ld l.ld").contains("--ld"));
+        assert!(
+            draw("chr1:1-9 --manhattan g.assoc --with-recombination m.txt").tracks[0]
+                .recombination
+                .is_some()
+        );
+        assert!(
+            refused("chr1:1-9 --coverage d.bg --with-recombination m.txt")
+                .contains("coverage track")
+        );
+        assert!(refused("chr1:1-9 --manhattan - --with-recombination -").contains("standard input"));
         assert!(draw("chr1:1-9 --manhattan g.assoc --ld l.ld").tracks[0]
             .second
             .is_some());

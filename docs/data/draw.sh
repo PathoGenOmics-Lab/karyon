@@ -24,7 +24,7 @@ draw alignment --msa aln.fasta --with-tree tree.nwk
 draw assemblies asm1_chr1 assemblies.paf
 draw genome NC_000962.3 sampleA.bedgraph sampleB.bedgraph
 draw locus 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
-  genetic_map.txt --label recombination
+  --with-recombination genetic_map.txt
 draw heatmap NC_000962.3 --heatmap depths.tsv --relative --with-tree tree.nwk --label depth
 draw pairs rpoB genes.gff3 linkage.ld
 draw time --frequencies lineages.tsv --phylodynamics reproduction.tsv --threshold 1

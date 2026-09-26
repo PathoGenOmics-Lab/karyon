@@ -1607,6 +1607,16 @@ pub trait Files {
         Ok(None)
     }
 
+    /// The records of one read in a binary alignment file, by its name, as
+    /// SAM text, or `None` for a source this cannot read that way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being read.
+    fn named_read(&mut self, _source: &Source, _name: &str) -> io::Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Something about a figure drawn anyway that whoever asked for it should
     /// know, such as where the end of a sequence was taken from. The default
     /// keeps it, as a page with nowhere to print it does.
@@ -1656,6 +1666,10 @@ impl Files for KeptStdin<'_> {
 
     fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
         self.files.sequences(source)
+    }
+
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        self.files.named_read(source, name)
     }
 
     fn note(&mut self, message: &str) {
@@ -1733,6 +1747,19 @@ impl Files for Disk {
         Ok(self
             .bam(source, region)?
             .map(|(header, records)| read::bam::sam(&header, &records)))
+    }
+
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        if !is_bam(path)? {
+            return Ok(None);
+        }
+        let file = io::BufReader::new(fs::File::open(path)?);
+        read::bam::named(file, name)
+            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
     }
 
     fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
@@ -2459,7 +2486,7 @@ fn track(
                 return Err(empty("association statistics"));
             }
             let points = table.points.clone();
-            let mut track = ManhattanTrack::new(table.points);
+            let mut track = ManhattanTrack::new(points.clone());
             if let Some(source) = spec.second.as_ref() {
                 let (text, ld_path) = fetch(name, source, files)?;
                 let (pairs, _) = wrap(name, &ld_path, read::pairs::pairs(&text, region))?;
@@ -2478,6 +2505,29 @@ fn track(
                     ));
                 }
                 track = track.linkage(lead, linkage);
+                // Called by the name the scan gives it, or the one the table
+                // of linkage does, as PLINK writes the lead on every row.
+                let named = table.name_at(lead).map(str::to_string).or_else(|| {
+                    read::pairs::names(&text)
+                        .into_iter()
+                        .find(|(at, _)| *at == lead)
+                        .map(|(_, name)| name)
+                });
+                if let Some(named) = named {
+                    track = track.lead_name(named);
+                }
+            }
+            if let Some(source) = spec.recombination.as_ref() {
+                let (text, map_path) = fetch(name, source, files)?;
+                let rates = wrap(name, &map_path, read::recombination::rates(&text, region))?;
+                if rates.is_empty() {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path: map_path,
+                        wanted: "recombination rates",
+                    });
+                }
+                track = track.recombination(rates);
             }
             // Drawn as -log10, and the axis says so, since the file said p.
             if table.p_values {
@@ -3579,9 +3629,32 @@ fn track(
                     signal.reads, signal.read
                 ));
             }
+            // The bases the basecaller called, each where its stretch of
+            // current starts, from the move table of the read's record.
+            let moves = match spec.second.as_ref() {
+                Some(source) => {
+                    let wanted = signal.named.then_some(signal.read.as_str());
+                    let from_bam = files.named_read(source, &signal.read).map_err(|cause| {
+                        BuildError::Open {
+                            track: name,
+                            path: called(source),
+                            cause,
+                        }
+                    })?;
+                    let (text, moves_path) = match from_bam {
+                        Some(text) => (text, called(source)),
+                        None => fetch(name, source, files)?,
+                    };
+                    Some(wrap(name, &moves_path, read::series::moves(&text, wanted))?)
+                }
+                None => None,
+            };
             // Named for its read, which is what tells two squiggles apart.
             let label = spec.label.clone().or(Some(signal.read));
             let mut track = SquiggleTrack::new(0, signal.samples);
+            if let Some(moves) = moves {
+                track = track.moves(moves);
+            }
             if let Some(color) = &spec.color {
                 track = track.color(color);
             }
@@ -5833,6 +5906,39 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.unwrap().contains("PP ≥ 0.95"));
     }
 
+    /// The basecaller's record of the read drawn puts each base it called
+    /// over the stretch of current it was called from, the record of that
+    /// read and not of another.
+    #[test]
+    fn a_move_table_puts_the_bases_over_the_signal_of_the_read_drawn() {
+        let slow5 = "#slow5_version\t0.2.0\n\
+                     #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\t\
+                     len_raw_signal\traw_signal\n\
+                     r1\t0\t2048\t0\t2048\t4000\t20\t80,81,80,79,95,96,94,95,70,71,70,69,70,90,91,90,89,90,91,90\n\
+                     r2\t0\t2048\t0\t2048\t4000\t4\t70,75,72,71\n";
+        let sam = "r2\t4\t*\t0\t0\t*\t*\t0\t0\tG\t*\tmv:B:c,4,1\n\
+                   r1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\t*\tmv:B:c,4,1,1,1,0,1\n";
+        let held = [("reads.slow5", slow5), ("calls.sam", sam)];
+        let (svg, _) = drawn_noting("reads.slow5 --with-moves calls.sam", &held);
+        let svg = svg.unwrap();
+        for base in ["A", "C", "G", "T"] {
+            assert!(svg.contains(&format!(">{base}</text>")), "no {base}: {svg}");
+        }
+        // A record for another read is not taken for this one.
+        let (other, _) = drawn_noting(
+            "reads.slow5 --with-moves calls.sam",
+            &[
+                ("reads.slow5", slow5),
+                (
+                    "calls.sam",
+                    "r2\t4\t*\t0\t0\t*\t*\t0\t0\tG\t*\tmv:B:c,4,1\n",
+                ),
+            ],
+        );
+        let error = other.unwrap_err().to_string();
+        assert!(error.contains("no read called r1; it holds r2"), "{error}");
+    }
+
     /// A SLOW5 holds many reads and the figure draws one, named for it, and
     /// says which when it had to choose.
     #[test]
@@ -6007,17 +6113,35 @@ chr2\t300\t.\tA\tG\t.\t.\t.
     #[test]
     fn a_scan_is_coloured_by_linkage_with_its_lead() {
         let scan = "CHR\tBP\tP\n1\t100\t1e-9\n1\t200\t1e-5\n1\t300\t0.2\n";
-        // As PLINK's --ld-snp writes it: the lead in every row.
+        // As PLINK's --ld-snp writes it: the lead in every row, by name.
         let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
-                  1 100 lead 1 200 b 0.8\n1 100 lead 1 300 c 0.05\n";
+                  1 100 rs100 1 200 rs200 0.8\n1 100 rs100 1 300 rs300 0.05\n";
         let held = [("g.assoc", scan), ("lead.ld", ld)];
         let (svg, notes) = drawn_noting("1:1-400 g.assoc --ld lead.ld", &held);
         let svg = svg.unwrap();
         assert!(notes.is_empty(), "{notes:?}");
+        // The scan names no variant, so the lead takes the name the table of
+        // linkage gives it.
         assert!(
-            svg.contains("lead variant 100") && svg.contains("r² with 100"),
+            svg.contains("lead variant rs100 at 100") && svg.contains("r² with rs100"),
             "{svg}"
         );
+        // A scan that names its variants names the lead first.
+        let named = "CHR\tSNP\tBP\tP\n1\tvar_a\t100\t1e-9\n1\tvar_b\t200\t1e-5\n";
+        let (svg, _) = drawn_noting(
+            "1:1-400 g.assoc --ld lead.ld",
+            &[("g.assoc", named), ("lead.ld", ld)],
+        );
+        assert!(svg.unwrap().contains(">var_a</text>"));
+        // A genetic map laid over the scan, read off a scale on the right.
+        let map = "position rate\n50 2\n250 30\n390 1\n";
+        let (svg, _) = drawn_noting(
+            "1:1-400 g.assoc --ld lead.ld --with-recombination map.txt",
+            &[("g.assoc", scan), ("lead.ld", ld), ("map.txt", map)],
+        );
+        let svg = svg.unwrap();
+        assert!(svg.contains(" cM/Mb</text>"), "{svg}");
+        assert!(svg.contains("recombination, cM/Mb"), "keyed: {svg}");
         // A lead the scan did not test has no diamond, and the figure says so.
         let held = [
             ("g.assoc", scan),

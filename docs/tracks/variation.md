@@ -350,7 +350,7 @@ Association statistics: one point per test, height by significance, a line where
 | | |
 |:--|:--|
 | Rust | `.add_manhattan(points)` on `plot()`; `ManhattanTrack::new(points)` |
-| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--height` |
+| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--with-recombination`, `--height` |
 | Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`) |
 
 === "Rust"
@@ -398,6 +398,8 @@ Association statistics: one point per test, height by significance, a line where
 | `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.linkage(lead, r2)` | Colours each point by its r² with the lead variant at `lead`, 0-based, and draws the lead as a diamond with its position over it (`--ld`) | one colour |
+| `.lead_name("rs1234")` | Calls the lead by its name over the diamond and in the key, in place of its position (from the scan's `SNP` or `ID` column, or the `.ld` table's) | its position |
+| `.recombination(rates)` | Lays a recombination rate over the scan as a line, from 0-based half-open `(start, end, cM/Mb)` spans, read off a scale on the right (`--with-recombination`) | none |
 
 #### Notes
 
@@ -407,7 +409,7 @@ There is no default threshold, on purpose, and `significant()` returns nothing u
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 
-`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its position over it, both keyed under the figure. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
+`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its name or its position over it, both keyed under the figure. `recombination` lays the rate under the points, as LocusZoom does too, on a scale of its own on the right with its unit after the highest number: a peak ends where the haplotypes it rides on break up, at a hotspot, so the two are read against each other. The figure makes room for that scale on the right of every track, so the bands still end together. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
 
 The x axis is genomic, so this draws one sequence or one region of one. For a scan across a whole genome, build the figure over a `Genome`, pass `Genome::boundaries` to `bands` so the shading changes where each sequence starts, and put a [GenomeTrack](whole-genome.md#genometrack) under it.
 

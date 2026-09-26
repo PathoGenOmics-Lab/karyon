@@ -283,7 +283,7 @@ chr1        609401        0.63         0.004200
 
 | | |
 |:--|:--|
-| Read by | `--recombination`, or a file whose name holds `genetic_map`; `read::recombination::rates` |
+| Read by | `--recombination`, or a file whose name holds `genetic_map`, as a track of its own; `--with-recombination` after `--manhattan`, laid over the scan; `read::recombination::rates` |
 | Columns | found by name in any case: a position (`Position(bp)`, `position`), a rate (`Rate(cM/Mb)`, `COMBINED_rate(cM/Mb)`) and, where there is one, a chromosome; with no header, a bedGraph of rates |
 | Coordinates | positions 1-based; a bedGraph 0-based, half-open |
 | Skipped | rows on another sequence; a rate that is empty or `NA`, which leaves its stretch out rather than at nought |
@@ -993,6 +993,23 @@ read_1	0	8192	6	1467.61	4000	2400	432,434,436,450,433
 
 A file of plain numbers, one sample after another, is read too, as picoamperes
 already. POD5 and FAST5 are binary and are converted to SLOW5 first.
+
+The bases the basecaller called come from its own record of the read, SAM or
+BAM as Dorado writes it with `--emit-moves`, named by `--with-moves`:
+
+```text
+read_1  4  *  0  0  *  *  0  0  GGATCA  *  mv:B:c,5,1,0,0,0,0,1  ts:i:0
+```
+
+The move table, `mv:B:c`, is the stride and then a flag for each stride of
+samples, 1 where a new base begins, and `ts:i` is how many samples were
+trimmed from the start of the signal first. The record read is the one named
+as the signal's read, or one Dorado split out of it, which names it in `pi:Z`
+and says where it starts in `sp:i`; a record on the reverse strand is turned
+back into the order of the signal. Secondary and supplementary records are
+skipped, and a hard clipped record, a table that starts more or fewer bases
+than the read holds, or a record with no table are refused. A BAM is read
+from end to end, as a basecaller writes one neither sorted nor indexed.
 
 ## Comparisons
 

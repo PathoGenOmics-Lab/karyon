@@ -594,13 +594,20 @@ impl Figure {
                 );
             }
 
-            svg.begin_clip(axis.x, band.y, axis.w + band.w, band.h);
+            let right_axis = Rect {
+                x: band.right(),
+                y,
+                w: track.right_axis_width(&theme).max(0.0),
+                h: *height,
+            };
+            svg.begin_clip(axis.x, band.y, axis.w + band.w + right_axis.w, band.h);
             let mut ctx = DrawContext {
                 svg: &mut svg,
                 scale: &layout.scale,
                 theme: &theme,
                 band,
                 axis,
+                right_axis,
                 region: &self.region,
                 visual_scale: self.visual_scale * self.density.scale(),
             };
@@ -710,7 +717,14 @@ impl Figure {
             .map(|t| t.y_axis_width(theme).max(0.0))
             .fold(0.0f64, f64::max);
         let plot_x = margin_left + gutter + axis_width;
-        let plot_width = (width - plot_x - margin_right).max(1.0);
+        // And the widest strip any track asks for on the right, taken from
+        // every plotting area the same way.
+        let right_axis_width = self
+            .tracks
+            .iter()
+            .map(|t| t.right_axis_width(theme).max(0.0))
+            .fold(0.0f64, f64::max);
+        let plot_width = (width - plot_x - margin_right - right_axis_width).max(1.0);
         let scale = Scale::new(&self.region, plot_x, plot_width);
 
         // A height that is not a number is not a height. It would reach

@@ -22,6 +22,7 @@
 use crate::read::{fields, lines, ReadError};
 use crate::track::phylodynamics::PhylodynamicPoint;
 use crate::track::selection::SelectionSite;
+use crate::track::squiggle::Move;
 use crate::track::surveillance::SurveillanceObservation;
 
 /// The names a column of times goes by.
@@ -421,6 +422,9 @@ pub struct Signal {
     pub read: String,
     /// How many reads the file holds, this one among them.
     pub reads: usize,
+    /// Whether the read has a name of its own, as a SLOW5 read has, rather
+    /// than being a column of plain numbers called `signal`.
+    pub named: bool,
 }
 
 /// The current of one nanopore read, in picoamperes, and what it is called.
@@ -451,6 +455,7 @@ pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
             samples: signal,
             read: "signal".to_string(),
             reads: 1,
+            named: false,
         });
     }
     let header_line = text
@@ -504,6 +509,7 @@ pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
             samples: signal,
             read: name.to_string(),
             reads,
+            named: true,
         });
     }
     Err(ReadError::whole(match read {
@@ -523,9 +529,244 @@ pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
     }))
 }
 
+/// The bases a basecaller called from a read's signal, each at the sample
+/// its stretch of current starts at, from the move table Dorado writes with
+/// `--emit-moves`.
+///
+/// A SAM record's `mv:B:c` tag holds the stride, and then a flag for each
+/// stride of samples, 1 where a new base begins; `ts:i` is how many samples
+/// were trimmed from the start of the signal before the first stride. A read
+/// Dorado split out of a longer one names that read in `pi:Z`, and says in
+/// `sp:i` where its stretch of the signal starts. The record read is the
+/// primary one called `read`, or else one whose parent it is; with no name,
+/// as for a signal of plain numbers, the file has to hold one record and no
+/// more. A record on the reverse strand holds its bases reverse
+/// complemented, and they are turned back into the order the signal was
+/// read in.
+pub fn moves(sam: &str, read: Option<&str>) -> Result<Vec<Move>, ReadError> {
+    struct Found<'a> {
+        line: usize,
+        fields: Vec<&'a str>,
+    }
+    let records: Vec<Found<'_>> = sam
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.starts_with('@') && !line.trim().is_empty())
+        .map(|(index, line)| Found {
+            line: index + 1,
+            fields: line.trim_end_matches('\r').split('\t').collect(),
+        })
+        .filter(|found| {
+            // Secondary and supplementary records repeat part of a read.
+            let flag: u16 = found
+                .fields
+                .get(1)
+                .and_then(|flag| flag.parse().ok())
+                .unwrap_or(0);
+            flag & 0x900 == 0
+        })
+        .collect();
+    let tag = |found: &Found<'_>, name: &str| -> Option<String> {
+        found
+            .fields
+            .iter()
+            .skip(11)
+            .find_map(|field| field.strip_prefix(name).map(str::to_string))
+    };
+    let (record, offset) = match read {
+        Some(read) => {
+            let own = records
+                .iter()
+                .find(|found| found.fields.first() == Some(&read));
+            let child = || {
+                records
+                    .iter()
+                    .find(|found| tag(found, "pi:Z:").as_deref() == Some(read))
+            };
+            match own {
+                Some(found) => (found, 0),
+                None => {
+                    let Some(found) = child() else {
+                        let names: Vec<&str> = records
+                            .iter()
+                            .take(3)
+                            .filter_map(|found| found.fields.first().copied())
+                            .collect();
+                        return Err(ReadError::whole(if names.is_empty() {
+                            "no read in it".to_string()
+                        } else {
+                            format!(
+                                "no read called {read}; it holds {}{}",
+                                names.join(", "),
+                                if records.len() > names.len() {
+                                    format!(" and {} more", records.len() - names.len())
+                                } else {
+                                    String::new()
+                                }
+                            )
+                        }));
+                    };
+                    let start = tag(found, "sp:i:")
+                        .and_then(|start| start.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    (found, start)
+                }
+            }
+        }
+        None => match records.as_slice() {
+            [only] => (only, 0),
+            _ => {
+                return Err(ReadError::whole(format!(
+                    "{} reads, and a signal of plain numbers names none of them: give \
+                     the signal as SLOW5, whose read is found by its name",
+                    records.len()
+                )))
+            }
+        },
+    };
+    let line = record.line;
+    let Some(table) = tag(record, "mv:B:") else {
+        return Err(ReadError::at(
+            line,
+            "no move table: Dorado writes one, as mv:B:c, with --emit-moves",
+        ));
+    };
+    let mut values = table.split(',').skip(1);
+    let stride: usize = values
+        .next()
+        .and_then(|stride| stride.trim().parse().ok())
+        .filter(|stride| *stride > 0)
+        .ok_or_else(|| ReadError::at(line, "a move table starts with its stride, above nought"))?;
+    let trimmed = tag(record, "ts:i:")
+        .and_then(|trimmed| trimmed.parse::<usize>().ok())
+        .unwrap_or(0);
+    let flag: u16 = record
+        .fields
+        .get(1)
+        .and_then(|flag| flag.parse().ok())
+        .unwrap_or(0);
+    if record
+        .fields
+        .get(5)
+        .is_some_and(|cigar| cigar.contains('H'))
+    {
+        return Err(ReadError::at(
+            line,
+            "a hard clipped record holds only some of the read's bases, and the move \
+             table is for all of them",
+        ));
+    }
+    let mut bases: Vec<u8> = record
+        .fields
+        .get(9)
+        .map(|seq| seq.as_bytes().to_vec())
+        .unwrap_or_default();
+    if flag & 0x10 != 0 {
+        bases.reverse();
+        for base in &mut bases {
+            *base = match base.to_ascii_uppercase() {
+                b'A' => b'T',
+                b'C' => b'G',
+                b'G' => b'C',
+                b'T' => b'A',
+                other => other,
+            };
+        }
+    }
+    let mut out = Vec::with_capacity(bases.len());
+    for (step, moved) in values.enumerate() {
+        match moved.trim() {
+            "0" => {}
+            "1" => {
+                let Some(&base) = bases.get(out.len()) else {
+                    return Err(ReadError::at(
+                        line,
+                        format!(
+                            "the move table starts more bases than the {} the read has",
+                            bases.len()
+                        ),
+                    ));
+                };
+                out.push(Move {
+                    sample: offset + trimmed + step * stride,
+                    base,
+                });
+            }
+            other => {
+                return Err(ReadError::at(
+                    line,
+                    format!("a move is 0 or 1, not {other:?}"),
+                ))
+            }
+        }
+    }
+    if out.len() != bases.len() {
+        return Err(ReadError::at(
+            line,
+            format!(
+                "the move table starts {} bases and the read has {}",
+                out.len(),
+                bases.len()
+            ),
+        ));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dorado's move table: a base where a stride starts with a 1, after the
+    /// samples trimmed off the start, in the order the signal was read.
+    #[test]
+    fn a_move_table_puts_each_base_where_its_stretch_of_current_starts() {
+        let sam = "@HD\tVN:1.6\n\
+                   r1\t4\t*\t0\t0\t*\t*\t0\t0\tACG\t*\tmv:B:c,5,1,0,1,1,0\tts:i:10\n\
+                   r2\t4\t*\t0\t0\t*\t*\t0\t0\tTT\t*\tmv:B:c,5,1,1\n";
+        let read = moves(sam, Some("r1")).unwrap();
+        let placed: Vec<(usize, u8)> = read.iter().map(|m| (m.sample, m.base)).collect();
+        assert_eq!(placed, vec![(10, b'A'), (20, b'C'), (25, b'G')]);
+        // On the reverse strand the record holds the bases turned round.
+        let reverse = "r1\t16\tchr1\t100\t60\t3M\t*\t0\t0\tCGT\t*\tmv:B:c,5,1,1,1\n";
+        let turned: Vec<u8> = moves(reverse, Some("r1"))
+            .unwrap()
+            .iter()
+            .map(|m| m.base)
+            .collect();
+        assert_eq!(turned, b"ACG".to_vec());
+        // A read split out of r0 starts where the parent's signal says.
+        let split =
+            "r0_1\t4\t*\t0\t0\t*\t*\t0\t0\tAC\t*\tmv:B:c,4,1,1\tts:i:2\tpi:Z:r0\tsp:i:500\n";
+        let child = moves(split, Some("r0")).unwrap();
+        assert_eq!(child[0].sample, 502);
+        assert_eq!(child[1].sample, 506);
+        // A column of plain numbers names no read, and one record is its own.
+        assert_eq!(moves(split, None).unwrap().len(), 2);
+        assert!(moves(sam, None).unwrap_err().reason.contains("2 reads"));
+    }
+
+    /// What cannot be read as a move table says what it is, and the reads a
+    /// file holds where the one wanted is not among them.
+    #[test]
+    fn a_move_table_that_does_not_fit_its_read_is_refused() {
+        let reason = |sam: &str| moves(sam, Some("r1")).unwrap_err().reason;
+        assert!(reason("r1\t4\t*\t0\t0\t*\t*\t0\t0\tAC\t*\n").contains("--emit-moves"));
+        assert!(reason("r1\t4\t*\t0\t0\t*\t*\t0\t0\tACG\t*\tmv:B:c,5,1,1\n")
+            .contains("starts 2 bases and the read has 3"));
+        assert!(reason("r1\t4\t*\t0\t0\t*\t*\t0\t0\tA\t*\tmv:B:c,5,1,1\n").contains("more bases"));
+        assert!(
+            reason("r1\t0\tc\t1\t60\t2H2M\t*\t0\t0\tAC\t*\tmv:B:c,5,1,1\n")
+                .contains("hard clipped")
+        );
+        assert!(reason("r2\t4\t*\t0\t0\t*\t*\t0\t0\tAC\t*\tmv:B:c,5,1,1\n")
+            .contains("no read called r1; it holds r2"));
+        // A secondary record repeats part of a read and is not the read.
+        assert!(
+            reason("r1\t256\tc\t1\t0\t2M\t*\t0\t0\tAC\t*\tmv:B:c,5,1,1\n")
+                .contains("no read in it")
+        );
+    }
 
     #[test]
     fn counts_are_found_by_their_headers_and_numbered_as_written() {
