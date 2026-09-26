@@ -44,12 +44,12 @@ USAGE
     karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
-names, or a sequence drawn whole, named as the files name it; a figure of
-trees alone needs none. Each file is a track of the kind its name says, BAM,
-VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, and .gz or not;
-its options come after it. A BAM is drawn as its depth, and a track flag
-chooses another kind, as --pileup reads.bam. The figure is SVG, on standard
-output unless -o names one.
+names, or a sequence drawn whole; several places draw a panel each. Trees
+need none, and a scan alone is drawn across every chromosome. Each file is a
+track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA,
+Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is its
+depth, and a track flag chooses another kind, as --pileup reads.bam. The
+figure is SVG, on standard output unless -o names one.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -385,6 +385,12 @@ of --tree, --tanglegram and --snps tracks takes no region at all. An
 alignment, a table over time or over the sites of a gene, and a read's
 signal are their own place: named nowhere, the figure is laid over all of
 it, and its ruler counts columns, weeks, sites or samples rather than bases.
+A --manhattan table with no place is drawn across the whole genome: every
+sequence it names, end to end, in the order chromosomes are counted, each as
+long as its furthest marker and named under the scan. Several places, as
+karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each, one under
+the other, the same tracks over each and the key once under them; a track
+with nothing in one of them says so there rather than refusing the figure.
 Any track file may be - for standard input, and one track may take it.
 
 TRACKS

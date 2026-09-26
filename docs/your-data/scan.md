@@ -31,6 +31,25 @@ high as `-log10` of its p-value, and the dashed line is p = 5e-8.
 `--rename` is for a table that names the chromosome `1` where the annotation
 calls it `NC_000962.3`.
 
+## Every chromosome at once
+
+With no place, the table is drawn across every chromosome it names, end to
+end, in the order they are counted, each named under the scan:
+
+```bash
+karyon trait.assoc --threshold genome-wide -o genome.svg
+```
+
+<figure class="k-start" markdown>
+![A scan across twelve chromosomes in alternating shades, each named under it, flat except for two towers, on chromosomes 3 and 9, that rise above the dashed line at p = 5e-8](../assets/start/genome-scan.svg){ .k-light width="720" height="152" }
+![The same figure on the dark page](../assets/start/genome-scan-dark.svg){ .k-dark width="720" height="152" }
+</figure>
+
+Each chromosome is as long as its furthest marker, since a table says where
+its markers are and not how long the chromosomes run, and the shades alternate
+so a tower is read against the chromosome it stands on. Name one to draw it
+alone, as `karyon 3 trait.assoc`.
+
 ## Colour a peak by linkage
 
 Zoomed into the peak, each marker coloured by its linkage with the strongest,
@@ -53,6 +72,7 @@ it. `genetic_map.txt` is a genetic map as HapMap writes one, laid over the
 scan by `--with-recombination` and read off the scale on the right; named on
 its own, it is drawn as a track of its own under the scan instead.
 
-The example files: [gwas.assoc](../data/gwas.assoc), [lead.ld](../data/lead.ld)
-and [genetic_map.txt](../data/genetic_map.txt). Every option:
+The example files: [gwas.assoc](../data/gwas.assoc),
+[trait.assoc](../data/trait.assoc), [lead.ld](../data/lead.ld) and
+[genetic_map.txt](../data/genetic_map.txt). Every option:
 `karyon help manhattan`, or the [command line reference](../guide/cli.md).
