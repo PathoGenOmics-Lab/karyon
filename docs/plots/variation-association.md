@@ -60,7 +60,7 @@ position.
     **[Association scan](../tracks/variation.md#manhattantrack)**
     One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
 
--   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }](../tracks/variation.md#selectiontrack)
+-   [![A molecular selection atlas: rate classes and recurrent changes on a rectangular tree, mean branch omega on a circular tree, and two site-wise scans over protein domains with evidence above signed omega effects](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }](../tracks/variation.md#selectiontrack)
 
     **[Site-wise selection](../tracks/variation.md#selectiontrack)**
     Evidence, as a p-value or a posterior, in one tier and the signed log2(ω) effect in another, so a significant purifying site still reads as purifying.

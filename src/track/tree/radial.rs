@@ -154,18 +154,18 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     let time = track.time_axis();
     let dnds = track.dnds_layer();
     let scene = TreeScene::new(&track.tree, track.shape, time.as_ref(), track.folded());
-    let header_room = track.annotation_header_room();
+    let header_room = track.annotation_header_room(ctx.band.w, ctx.theme);
     let area = Rect {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
         w: ctx.band.w,
-        h: (ctx.band.h - header_room).max(1.0),
+        h: (ctx.band.h - header_room - track.warning_room(ctx.band.w, ctx.theme)).max(1.0),
     };
     let geometry = RadialGeometry::new(track, ctx.theme, &scene, area);
     let colors = branch_colors(
         &track.tree,
         &scene,
-        track.color_by.as_deref(),
+        track.branch_key(),
         track.color_levels(),
         ctx.theme,
         &color,
@@ -227,7 +227,8 @@ pub(super) fn draw_radial_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
     if let Some(bar) = track.branch_scale() {
         draw_radial_scale_bar(ctx, &scene, &geometry, area, bar);
     }
-    draw_annotation_legend(track, ctx);
+    track.draw_layer_chips(ctx);
+    track.draw_warnings(ctx);
 }
 
 pub(super) fn draw_radial_padding(
@@ -267,6 +268,7 @@ pub(super) fn draw_radial_branches(
 ) {
     let dnds = track.dnds_layer();
     let labels = track.branch_label_layer();
+    let reading = SupportReading::of(&track.tree, track.support_threshold);
     for placement in scene.placements.iter().flatten() {
         let node = &track.tree.nodes()[placement.node];
         let Some(parent) = node.parent else {
@@ -281,7 +283,7 @@ pub(super) fn draw_radial_branches(
         let title = branch_title(
             &track.tree,
             placement.node,
-            track.color_by.as_deref(),
+            track.branch_key(),
             dnds.as_ref(),
             track.branch_labels.as_deref(),
             !track.show_tips,
@@ -352,7 +354,7 @@ pub(super) fn draw_radial_branches(
             let title = branch_title(
                 &track.tree,
                 placement.node,
-                track.color_by.as_deref(),
+                track.branch_key(),
                 None,
                 None,
                 false,
@@ -379,15 +381,16 @@ pub(super) fn draw_radial_branches(
         }
         let angle = geometry.angle(placement.row);
         let (x, y) = geometry.point(radius, angle);
-        if let Some(support) = node.support.filter(|value| {
-            track.support_style != SupportStyle::None
-                && support_fraction(*value).is_some_and(|value| value >= track.support_threshold)
-        }) {
+        if let Some(support) = node
+            .support
+            .filter(|value| track.support_style != SupportStyle::None && reading.shown(*value))
+        {
             draw_support(
                 ctx,
                 x,
                 y,
                 support,
+                reading,
                 &styles.get(placement.node).color,
                 track.support_style,
             );
@@ -586,8 +589,9 @@ pub(super) fn draw_trait_sector(
     let thickness = (outer - inner).max(0.0);
     let arc_room = middle_radius * (end - start).abs();
     let marker_radius = (thickness.min(arc_room) * 0.28).clamp(1.4, 5.5);
+    let style = column.drawn_style(domain, ctx.theme);
     ctx.svg.begin_titled(title);
-    match column.style {
+    match style {
         TraitStyle::Strip => {
             if let Some(fill) = &fill {
                 ctx.svg.path(&path, fill, 1.0);
@@ -646,7 +650,7 @@ pub(super) fn draw_trait_sector(
             }
         }
     }
-    if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+    if column.show_values && matches!(style, TraitStyle::Strip | TraitStyle::Bar) {
         let text = value
             .map(ToString::to_string)
             .unwrap_or_else(|| crate::tree::ABSENT.to_string());
@@ -680,7 +684,8 @@ pub(super) fn draw_trait_rings(
     }
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.tree_outer + gap;
-    for column in &track.trait_columns {
+    let dealing = track.dealing();
+    for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
@@ -689,7 +694,7 @@ pub(super) fn draw_trait_rings(
             .collect();
         // The whole tree's count, the one every colour of this key comes
         // from. See `tree_domain`.
-        let domain = tree_domain(&track.tree, &column.key, column.dealt());
+        let domain = tree_domain(&track.tree, &column.key, *dealt);
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = geometry.angle(row as f64);
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
@@ -776,10 +781,14 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
         if visible != column.label {
             ctx.svg.begin_titled(&column.label);
         }
+        // The chip says what kind of mark the ring is, in the ink of the text
+        // beside it. In a colour of the palette it read as a key: the heading
+        // of a ring of lineages was a blue square, the colour of L1.
+        let ink = &ctx.theme.muted;
         match column.style {
             TraitStyle::Strip => {
                 ctx.svg
-                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, &ctx.theme.accent)
+                    .rect_rounded(x + 3.0, ctx.band.y + 3.0, 8.0, 8.0, 1.5, ink)
             }
             TraitStyle::Bar => {
                 ctx.svg.rect_outline(
@@ -790,14 +799,13 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
                     &ctx.theme.rule,
                     ctx.theme.tokens.hairline,
                 );
-                ctx.svg
-                    .rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, &ctx.theme.accent);
+                ctx.svg.rect(x + 2.0, ctx.band.y + 6.0, 7.0, 5.0, ink);
             }
             TraitStyle::Binary => ctx.svg.circle_ringed(
                 x + 7.0,
                 ctx.band.y + 7.0,
                 3.6,
-                &ctx.theme.accent,
+                ink,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             ),
@@ -805,8 +813,8 @@ pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<
                 x + 7.0,
                 ctx.band.y + 7.0,
                 3.8,
-                ctx.theme.symbol(index),
-                ctx.theme.color(index),
+                crate::style::Symbol::Diamond,
+                ink,
                 &ctx.theme.background,
                 ctx.theme.tokens.hairline,
             ),

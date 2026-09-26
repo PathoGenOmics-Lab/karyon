@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Tree::reroot`, `reroot_outgroup`, `reroot_midpoint`, `rotate` and
+  `collapse` are `#[must_use]`: each leaves the tree as it was when it cannot
+  do what it was asked, and its result is the one thing that says so. A call
+  that throws the result away now gets a compiler warning.
 - A figure's description names every track it counts, each by its label or,
   where it has none, by what it is: `with 4 tracks, drawn top to bottom: reads
   depth, genes, calls and a ruler`. It counted the ruler and the key and named
@@ -582,6 +586,86 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A tree beside an alignment, a matrix, a panel of variable sites or a
+  domain panel is cut to the rows it has. Drawn whole, a tree with a tip the
+  panel lacked put every row after that tip beside the branch of the tip
+  before it and the last branch below the last row, with nothing to say so;
+  the band now says how many tips have no row. A row hidden under a cap goes
+  from the tree too, so no branch leads off the band. `Tree::keep_tips` is the
+  cut, as ape's `keep.tip` makes one.
+- The tree beside a matrix with metadata strips starts level with the rows,
+  under the strips' headings; it sat a heading's height above them.
+- A tree says what it was asked for and does not draw, in lines under it, and
+  `TreeTrack::warnings` hands them to a caller; the command line prints them.
+  A reroot, fold or highlight naming a node the tree does not have, or a tip,
+  an outgroup that is not one clade, a midpoint on a tree without lengths, a
+  key no node carries, a support threshold with no support style, a negative
+  dN/dS significance, a time axis some tip has no date for, branches that run
+  backwards in time, branch colours shared by two values and support above
+  100 each drew a figure like the one asked for, or like the plain tree, with
+  nothing to say so.
+- A tree's settings draw one figure in either order. A radial start, sweep,
+  direction or inner radius turned a tree chosen as unrooted or rectangular
+  into a circle, `circular` undid a fan, a scale bar's length or unit brought
+  back a bar hidden with `show_scale_bar(false)`, `dnds` and `color_by` each
+  cleared the other so the last one won, and a tanglegram's `show_tips` put
+  the names back on both sides. A projection chosen by name is the one drawn,
+  a hidden bar stays hidden, and dN/dS colours the branches whichever came
+  first, with the band saying the other colouring was not drawn.
+- A tree whose time axis cannot be drawn keeps the scale bar its branch
+  lengths need; drawn by branch length, it had lost both.
+- A fold or a highlight asked for before a reroot follows its clade through
+  it. Rerooting turns edges round and keeps every node where it was in the
+  list, so the index named another clade: a fold of one lineage folded
+  twenty-eight tips of three. A clade the new root splits is said instead.
+- A tanglegram coloured by an annotation deals its colours in the order the
+  left tree meets the values, as the tree coloured by the same key does; it
+  dealt them in the order the values sort, so a tanglegram and the tree
+  beside it painted one country two colours. A tie whose trees disagree is
+  drawn in the foreground ink, where it took the palette's second colour and
+  looked like the second value, and `TanglegramTrack::legend` keys the values
+  and the disagreement for `Figure::key`, where the tanglegram had no key.
+- A tree keys every layer it draws. The chips across the top of its band,
+  for node glyphs, dN/dS, rate classes, branch events, intervals and
+  homoplasy, ran along one row and the ones past its end were dropped: at 500
+  pixels two of six glyph layers had no key and a third was cut to its first
+  letter. They now run onto as many rows as they need, and the band grows to
+  hold them. A layer of branch events or intervals on its own had its room
+  held and no chip drawn in it. The chips keep to the left of a rectangular
+  tree's column headings and under a circular tree's ring headings, where
+  the first chip covered the first heading.
+- The columns of words on a phylogeny each take a stretch of the palette, as
+  a sheet's columns do. Two strips added with `trait_categorical` both started
+  at the palette's first colour, so each lineage was also a country. A column
+  that chose its start with `first_color`, as every column from a sheet does,
+  keeps it, and branches coloured by a key no column shows take a stretch of
+  their own.
+- A strip of words with more levels than the palette has colours is drawn as
+  symbols, beside a tree or any other track, and keyed with them. Drawn as
+  asked, a column of seven countries painted two of them one colour; only
+  `Traits::spread` chose symbols for such a column.
+- A key draws each level the way its column draws it. A symbol column was
+  keyed as boxes, so two levels sharing a colour were two entries nobody could
+  tell apart, and a binary column was keyed in two palette colours neither of
+  its dots was drawn in; it is now keyed `present` and `absent` with the two
+  dots. A column over the key the branches are coloured by keys them under its
+  own heading and in its own marks, where the column went unkeyed as a repeat.
+- A symbol column tells as many levels apart as it says. `Theme::symbol`
+  wrapped with the colour every twelve levels of the six-colour palette, so the
+  thirteenth level was drawn exactly as the first; with `Theme::color` of the
+  same index it now tells four times the palette's length apart, from whichever
+  colour a column starts at.
+- `Figure::key` names a phylogeny's colours, in the figure's own theme.
+  `TreeTrack` did not implement `Track::key`, so a figure's key left the tree
+  out, and a key built by hand from the default theme named each level of a
+  dark figure in the light palette's colour.
+- The heading of a ring around a circular or unrooted tree is marked in the
+  ink of its text. It was a chip in the palette's first colour, which is the
+  colour of the first level, and read as a key to it.
+- A tree's support is read out of a hundred or out of one once for the whole
+  tree, out of a hundred when any value runs above one. It was read value by
+  value, so a clade at 1 on a bootstrap tree was drawn as full support, at
+  the largest size and past any threshold asked for.
 - `--features` draws a gene once. An annotation writes it at every level, and
   each was drawn as a feature of its own: NCBI's five rows for one gene came out
   as the chromosome, named `ANONYMOUS`, the gene, its transcript, two exons and

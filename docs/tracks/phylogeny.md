@@ -126,7 +126,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | Method | What it does | Default |
 |:--|:--|:--|
 | `.trait_column(TraitColumn::continuous("depth"))` | Adds one metadata column beside the tips, or a ring around them (`--traits`, `--columns`) | none |
-| `.trait_categorical("country")` | A categorical column | none |
+| `.trait_categorical("country")` | A categorical column, with a stretch of the palette of its own; one with more levels than colours is drawn as symbols | none |
 | `.trait_continuous("depth")` | A continuous column | none |
 | `.trait_bar("depth")` | A bar column, or radial bars | none |
 | `.trait_binary("resistant")` | A presence and absence column | none |
@@ -176,22 +176,22 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 ![A rectangular tree with abundance bubbles and stacked host bars, a radial tree with ancestral-state donuts and a highlighted clade, and tree-aligned genomic rows](../assets/figures/example-phylo-faces.svg){ width="1386" height="660" loading="lazy" }
 </figure>
 
-**Support, labels and scale.** `support_style` makes support visible as scaled symbols, labels or both, and `support_threshold` takes a fraction or a percentage: `0.8` and `80.0` both mean eighty per cent. `branch_labels` prints a node's own annotation along its branch and never inherits an ancestor's, which suits mutations and other events that belong to one branch. `scale_bar` adds a ruler in branch-length units to a phylogram and refuses to imply those units on a cladogram or a dated tree.
+**Support, labels and scale.** `support_style` makes support visible as scaled symbols, labels or both, and `support_threshold` takes a fraction or a percentage: `0.8` and `80.0` both mean eighty per cent. A tree's own values are read one way for the whole tree, out of a hundred when any of them runs above one, so a clade at 1 on a bootstrap tree is one per cent. `branch_labels` prints a node's own annotation along its branch and never inherits an ancestor's, which suits mutations and other events that belong to one branch. `scale_bar` adds a ruler in branch-length units to a phylogram and refuses to imply those units on a cladogram or a dated tree.
 
 <figure class="k-plate" markdown>
 ![One phylogram in rectangular, circular and unrooted coordinates with support markers and labels, mutation labels and branch-length scale bars](../assets/figures/example-phylo-evidence.svg){ width="1739" height="630" loading="lazy" }
 </figure>
 
-**Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was; use `Tree::reroot` directly when you need to handle that failure. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
+**Rooting.** The four reroot builders change where the root sits without changing tip-to-tip distances. An outgroup must be monophyletic and the midpoint needs every branch length, and a builder that cannot do what it was asked leaves the tree as it was and says why in a line under the tree, as `warnings()` does; use `Tree::reroot` directly when you need to handle that failure. A fold or a highlight asked for before a reroot follows its clade through it. A successful reroot shows a root diamond, which `show_root` controls, and an unrooted drawing has none by definition.
 
 <figure class="k-plate" markdown>
 ![The same phylogram using the source root, a validated monophyletic outgroup and the weighted midpoint, with each root marked by a diamond](../assets/figures/example-phylo-reroot.svg){ width="1739" height="360" loading="lazy" }
 </figure>
 
-**Evolutionary layers.** `dnds` colours each branch by its own ω and never inherits a missing one, and `dnds_significance` changes weight rather than colour, so effect and evidence stay separate. A `BranchRateMixture` keeps several fitted ω classes on one branch, with capsule width following each class's weight. A `HomoplasyLayer` joins branches carrying the same event with dashed curves: a picture of recurrence, not a proof of convergence. `AncestralStateLayer`, `BranchEventLayer` and `BranchIntervalLayer` draw state posteriors, ordered events and estimates with intervals, in all three projections.
+**Evolutionary layers.** `dnds` colours each branch by its own ω and never inherits a missing one, and `dnds_significance` changes weight rather than colour, so effect and evidence stay separate. A `BranchRateMixture` keeps several fitted ω classes on one branch, with capsule width following each class's weight. A `HomoplasyLayer` joins branches carrying the same event with dashed curves: a picture of recurrence, not a proof of convergence. `AncestralStateLayer`, `BranchEventLayer` and `BranchIntervalLayer` draw state posteriors, ordered events and estimates with intervals, in all three projections. Every layer is keyed across the top of the tree, the dN/dS classes, rate classes, events, intervals, homoplasy and node glyphs each in a chip of their own, and the chips run onto as many rows as they need rather than leaving one out.
 
 <figure class="k-plate" markdown>
-![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
+![A synthetic molecular-selection atlas combining weighted branch rate classes, recurrent-event links, circular mean omega and site scans](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }
 </figure>
 
 **Large trees.** A tree lays a row per tip and has no cap unless you ask for one. `max_rows` collapses the smallest clades first until the tree fits, so every tip stays on the figure inside a triangle that says how many it holds; `collapse` folds one clade by hand, and neither changes the `Tree` the track owns. From the command line, `--focus` draws one clade and nothing else, named by its label, by a tip inside it, or by two tips it spans.
@@ -262,7 +262,7 @@ Two trees over the same taxa, drawn facing each other with every shared tip join
 
 `crossings()` is worth a caption, and it is not a statistic. It depends on how each tree happened to rotate its clades, and a clade rotates freely without changing what the tree says. `untangle` alternates greedy rotations on both sides and keeps only strict improvements, so it never changes a clade or a branch length and never increases the count; it is a deterministic local heuristic, not a global optimum. `initial_crossings()` and `crossing_reduction()` report where it started and what it saved, and the summary drawn with the track gives the count before and after, how many tips were joined, and how many only one tree has.
 
-With `color_by`, a tie whose two ends disagree about the annotation turns dashed in the crossing colour, and each end keeps its own value.
+With `color_by`, each value takes the colour a phylogeny coloured by the same key gives it, in the order the left tree meets the values, and a tie whose two ends disagree about the annotation turns dashed in the foreground ink, which no value is dealt, while each end keeps its own value. `legend(&theme)` keys the values and the disagreement, and `Figure::key()` gathers that key.
 
 A tip only one of the trees has is drawn on that tree and joined to nothing, because a taxon missing from one analysis is a fact about the analysis. `shared()` lists the tips both trees have and `unshared()` the rest. `--against` is required: a tanglegram of one tree against itself has no crossings, which is what a perfect result looks like.
 

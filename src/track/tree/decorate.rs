@@ -564,129 +564,266 @@ pub(super) fn draw_unrooted_node_glyphs(
 /// pixels used to cut "aBSREL omega classes" short on a row that had several
 /// hundred to spare.
 fn legend_title_room(ctx: &DrawContext<'_>, x: f64, marks: f64) -> f64 {
-    const MOST: f64 = 180.0;
-    (ctx.band.right() - x - marks).clamp(0.0, MOST)
+    (ctx.band.right() - x - marks).clamp(0.0, TITLE_MOST)
 }
 
-pub(super) fn draw_annotation_legend(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
-    if track.node_glyphs.is_empty()
-        && track.dnds.is_none()
-        && track.rate_mixtures.is_empty()
-        && track.homoplasy_layers.is_empty()
-    {
+/// The most room one chip's title takes.
+const TITLE_MOST: f64 = 180.0;
+
+/// The space between one chip and the next, across a row and down.
+const CHIP_GAP: f64 = 6.0;
+
+/// One entry of the key a tree draws across the top of its band, for a layer
+/// whose marks no other key explains.
+pub(super) enum LayerChip<'a> {
+    Dnds(DnDsLayer),
+    Mixture(&'a BranchRateMixture),
+    Event(&'a BranchEventLayer),
+    Interval(&'a BranchIntervalLayer),
+    Homoplasy(&'a HomoplasyLayer),
+    Glyph(usize, &'a NodeGlyph),
+}
+
+/// A tree's chips, in the order they are drawn.
+pub(super) fn layer_chips(track: &TreeTrack) -> Vec<LayerChip<'_>> {
+    let mut chips: Vec<LayerChip<'_>> = track
+        .dnds_layer()
+        .map(LayerChip::Dnds)
+        .into_iter()
+        .collect();
+    chips.extend(track.rate_mixtures.iter().map(LayerChip::Mixture));
+    chips.extend(track.branch_event_layers.iter().map(LayerChip::Event));
+    chips.extend(track.branch_interval_layers.iter().map(LayerChip::Interval));
+    chips.extend(track.homoplasy_layers.iter().map(LayerChip::Homoplasy));
+    chips.extend(
+        track
+            .node_glyphs
+            .iter()
+            .enumerate()
+            .map(|(index, glyph)| LayerChip::Glyph(index, glyph)),
+    );
+    chips
+}
+
+impl LayerChip<'_> {
+    /// How wide the chip is on a row with room for all of it.
+    fn width(&self, size: f64) -> f64 {
+        let title = |label: &str, room: f64| text_width(&fit_text(label, room, size), size);
+        match self {
+            LayerChip::Dnds(dnds) => dnds_marks(dnds, size) + title(&dnds.label, TITLE_MOST),
+            LayerChip::Mixture(mixture) => MIXTURE_MARKS + title(&mixture.label, TITLE_MOST),
+            LayerChip::Event(layer) => EVENT_MARKS + title(&layer.label, TITLE_MOST),
+            LayerChip::Interval(layer) => INTERVAL_MARKS + title(&layer.label, TITLE_MOST),
+            LayerChip::Homoplasy(layer) => HOMOPLASY_MARKS + title(&layer.label, TITLE_MOST),
+            LayerChip::Glyph(_, glyph) => match glyph.style {
+                NodeGlyphStyle::Bubble => {
+                    (title(&glyph.label, BUBBLE_MOST - 20.0) + 24.0).min(BUBBLE_MOST)
+                }
+                _ => glyph_marks(glyph, size) + title(&glyph.label, TITLE_MOST),
+            },
+        }
+    }
+}
+
+/// How high one row of chips is, with the space under it.
+pub(super) fn chip_pitch(theme: &Theme) -> f64 {
+    chip_size(theme) + 7.0 + 4.0
+}
+
+fn chip_size(theme: &Theme) -> f64 {
+    (theme.font_size - 2.0).max(6.0)
+}
+
+/// Where each chip goes across `room` pixels: its row, and its left edge
+/// from the row's.
+///
+/// A chip that does not fit what is left of a row starts the next one, so no
+/// chip is left out for want of room. They were drawn along one row until it
+/// ran out, and the rest were dropped: at 500 pixels two of six layers had no
+/// key. A chip wider than a whole row has one to itself and is cut to it.
+pub(super) fn chip_places(chips: &[LayerChip<'_>], room: f64, theme: &Theme) -> Vec<(usize, f64)> {
+    let size = chip_size(theme);
+    let mut row = 0;
+    let mut x = 2.0;
+    chips
+        .iter()
+        .map(|chip| {
+            let width = chip.width(size);
+            if x > 2.0 && x + width > room {
+                row += 1;
+                x = 2.0;
+            }
+            let place = (row, x);
+            x += width + CHIP_GAP;
+            place
+        })
+        .collect()
+}
+
+/// How many rows the chips take across `room` pixels.
+pub(super) fn chip_rows(track: &TreeTrack, room: f64, theme: &Theme) -> usize {
+    chip_places(&layer_chips(track), room, theme)
+        .last()
+        .map_or(0, |(row, _)| row + 1)
+}
+
+/// Draws the chips in rows from `top`, across `room` pixels from the band's
+/// left edge.
+pub(super) fn draw_annotation_legend(
+    track: &TreeTrack,
+    ctx: &mut DrawContext<'_>,
+    top: f64,
+    room: f64,
+) {
+    let chips = layer_chips(track);
+    if chips.is_empty() {
         return;
     }
-    let size = (ctx.theme.font_size - 2.0).max(6.0);
-    let mut x = ctx.band.x + 2.0;
-    let top = ctx.band.y + 1.0;
+    let size = chip_size(ctx.theme);
     let height = size + 7.0;
-    let y = top + height / 2.0 + size * 0.34;
+    let pitch = chip_pitch(ctx.theme);
     let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
-    if let Some(dnds) = &track.dnds_layer() {
-        x = draw_dnds_legend(ctx, dnds, x, top, height, size, &chip);
-    }
-    for mixture in &track.rate_mixtures {
-        if x >= ctx.band.right() - 10.0 {
-            break;
+    // Each chip is drawn in a band cut to its own row's room, so it takes
+    // what that row has and not the band's whole width.
+    let band = ctx.band;
+    ctx.band = Rect {
+        w: room.min(band.w),
+        ..band
+    };
+    for (chip_of, (row, x)) in chips.iter().zip(chip_places(&chips, ctx.band.w, ctx.theme)) {
+        let x = band.x + x;
+        let top = top + row as f64 * pitch;
+        let y = top + height / 2.0 + size * 0.34;
+        match chip_of {
+            LayerChip::Dnds(dnds) => {
+                draw_dnds_legend(ctx, dnds, x, top, height, size, &chip);
+            }
+            LayerChip::Mixture(mixture) => {
+                draw_rate_mixture_legend(ctx, mixture, x, top, height, size, &chip);
+            }
+            LayerChip::Event(layer) => {
+                draw_branch_event_legend(ctx, layer, x, top, height, size, &chip);
+            }
+            LayerChip::Interval(layer) => {
+                draw_branch_interval_legend(ctx, layer, x, top, height, size, &chip);
+            }
+            LayerChip::Homoplasy(layer) => {
+                draw_homoplasy_legend(ctx, layer, x, top, height, size, &chip);
+            }
+            LayerChip::Glyph(glyph_index, glyph) => {
+                draw_glyph_legend(ctx, *glyph_index, glyph, x, top, y, height, size, &chip);
+            }
         }
-        x = draw_rate_mixture_legend(ctx, mixture, x, top, height, size, &chip);
     }
-    for layer in &track.branch_event_layers {
-        if x >= ctx.band.right() - 10.0 {
-            break;
+    ctx.band = band;
+}
+
+/// The widest a bubble's chip is drawn.
+const BUBBLE_MOST: f64 = 110.0;
+
+/// What a chip holds besides its title, in pixels, one kind of chip each.
+const MIXTURE_MARKS: f64 = 43.0;
+const EVENT_MARKS: f64 = 51.0;
+const INTERVAL_MARKS: f64 = 49.0;
+const HOMOPLASY_MARKS: f64 = 42.0;
+
+/// What a composition's chip holds besides its title: one dot and one name
+/// for every key it draws.
+fn glyph_marks(glyph: &NodeGlyph, size: f64) -> f64 {
+    16.0 + glyph
+        .keys
+        .iter()
+        .map(|key| 16.0 + text_width(&fit_text(key, 58.0, size), size))
+        .sum::<f64>()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_glyph_legend(
+    ctx: &mut DrawContext<'_>,
+    glyph_index: usize,
+    glyph: &NodeGlyph,
+    x: f64,
+    top: f64,
+    y: f64,
+    height: f64,
+    size: f64,
+    chip: &str,
+) {
+    match glyph.style {
+        NodeGlyphStyle::Bubble => {
+            let available = (ctx.band.right() - x).min(BUBBLE_MOST);
+            let label = fit_text(&glyph.label, (available - 20.0).max(0.0), size);
+            let width = (text_width(&label, size) + 24.0).min(available);
+            ctx.svg
+                .rect_rounded(x, top, width, height, height / 2.0, chip);
+            ctx.svg.circle_ringed(
+                x + 9.0,
+                top + height / 2.0,
+                3.0,
+                ctx.theme.color(glyph_index),
+                ctx.theme.surface(),
+                0.7,
+            );
+            ctx.svg.text_bold(
+                x + 16.0,
+                y,
+                &label,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Start,
+            );
         }
-        x = draw_branch_event_legend(ctx, layer, x, top, height, size, &chip);
-    }
-    for layer in &track.branch_interval_layers {
-        if x >= ctx.band.right() - 10.0 {
-            break;
-        }
-        x = draw_branch_interval_legend(ctx, layer, x, top, height, size, &chip);
-    }
-    for layer in &track.homoplasy_layers {
-        if x >= ctx.band.right() - 10.0 {
-            break;
-        }
-        x = draw_homoplasy_legend(ctx, layer, x, top, height, size, &chip);
-    }
-    for (glyph_index, glyph) in track.node_glyphs.iter().enumerate() {
-        if x >= ctx.band.right() - 10.0 {
-            break;
-        }
-        match glyph.style {
-            NodeGlyphStyle::Bubble => {
-                let available = (ctx.band.right() - x).min(110.0);
-                let label = fit_text(&glyph.label, (available - 20.0).max(0.0), size);
-                let width = (text_width(&label, size) + 24.0).min(available);
-                ctx.svg
-                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
-                ctx.svg.circle_ringed(
-                    x + 9.0,
+        _ => {
+            let label = fit_text(
+                &glyph.label,
+                legend_title_room(ctx, x, glyph_marks(glyph, size)),
+                size,
+            );
+            let keys: Vec<String> = glyph
+                .keys
+                .iter()
+                .map(|key| fit_text(key, 58.0, size))
+                .collect();
+            let natural = 16.0
+                + text_width(&label, size)
+                + keys
+                    .iter()
+                    .map(|key| 16.0 + text_width(key, size))
+                    .sum::<f64>();
+            let width = natural.min(ctx.band.right() - x);
+            ctx.svg
+                .rect_rounded(x, top, width, height, height / 2.0, chip);
+            let mut cursor = x + 8.0;
+            ctx.svg.text_bold(
+                cursor,
+                y,
+                &label,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Start,
+            );
+            cursor += text_width(&label, size) + 8.0;
+            for (key_index, key) in keys.iter().enumerate() {
+                if cursor + 12.0 >= x + width {
+                    break;
+                }
+                ctx.svg.circle(
+                    cursor + 3.0,
                     top + height / 2.0,
                     3.0,
-                    ctx.theme.color(glyph_index),
-                    ctx.theme.surface(),
-                    0.7,
+                    ctx.theme.color(key_index),
                 );
-                ctx.svg.text_bold(
-                    x + 16.0,
-                    y,
-                    &label,
-                    &ctx.theme.muted,
-                    size,
-                    crate::svg::Anchor::Start,
-                );
-                x += width + 6.0;
-            }
-            _ => {
-                let label = fit_text(&glyph.label, legend_title_room(ctx, x, 60.0), size);
-                let keys: Vec<String> = glyph
-                    .keys
-                    .iter()
-                    .map(|key| fit_text(key, 58.0, size))
-                    .collect();
-                let natural = 16.0
-                    + text_width(&label, size)
-                    + keys
-                        .iter()
-                        .map(|key| 16.0 + text_width(key, size))
-                        .sum::<f64>();
-                let width = natural.min(ctx.band.right() - x);
-                ctx.svg
-                    .rect_rounded(x, top, width, height, height / 2.0, &chip);
-                let mut cursor = x + 8.0;
-                ctx.svg.text_bold(
+                cursor += 9.0;
+                let key = fit_text(key, (x + width - cursor - 5.0).max(0.0), size);
+                ctx.svg.text(
                     cursor,
                     y,
-                    &label,
+                    &key,
                     &ctx.theme.muted,
                     size,
                     crate::svg::Anchor::Start,
                 );
-                cursor += text_width(&label, size) + 8.0;
-                for (key_index, key) in keys.iter().enumerate() {
-                    if cursor + 12.0 >= x + width {
-                        break;
-                    }
-                    ctx.svg.circle(
-                        cursor + 3.0,
-                        top + height / 2.0,
-                        3.0,
-                        ctx.theme.color(key_index),
-                    );
-                    cursor += 9.0;
-                    let key = fit_text(key, (x + width - cursor - 5.0).max(0.0), size);
-                    ctx.svg.text(
-                        cursor,
-                        y,
-                        &key,
-                        &ctx.theme.muted,
-                        size,
-                        crate::svg::Anchor::Start,
-                    );
-                    cursor += text_width(&key, size) + 7.0;
-                }
-                x += width + 6.0;
+                cursor += text_width(&key, size) + 7.0;
             }
         }
     }
@@ -701,8 +838,8 @@ fn draw_branch_event_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, legend_title_room(ctx, x, 51.0), size);
-    let width = (text_width(&label, size) + 51.0).min((ctx.band.right() - x).max(0.0));
+    let label = fit_text(&layer.label, legend_title_room(ctx, x, EVENT_MARKS), size);
+    let width = (text_width(&label, size) + EVENT_MARKS).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
     }
@@ -750,8 +887,12 @@ fn draw_branch_interval_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, legend_title_room(ctx, x, 51.0), size);
-    let width = (text_width(&label, size) + 49.0).min((ctx.band.right() - x).max(0.0));
+    let label = fit_text(
+        &layer.label,
+        legend_title_room(ctx, x, INTERVAL_MARKS),
+        size,
+    );
+    let width = (text_width(&label, size) + INTERVAL_MARKS).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
     }
@@ -791,8 +932,12 @@ fn draw_rate_mixture_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&mixture.label, legend_title_room(ctx, x, 60.0), size);
-    let width = (text_width(&label, size) + 43.0).min((ctx.band.right() - x).max(0.0));
+    let label = fit_text(
+        &mixture.label,
+        legend_title_room(ctx, x, MIXTURE_MARKS),
+        size,
+    );
+    let width = (text_width(&label, size) + MIXTURE_MARKS).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
     }
@@ -847,8 +992,12 @@ fn draw_homoplasy_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&layer.label, legend_title_room(ctx, x, 60.0), size);
-    let width = (text_width(&label, size) + 42.0).min((ctx.band.right() - x).max(0.0));
+    let label = fit_text(
+        &layer.label,
+        legend_title_room(ctx, x, HOMOPLASY_MARKS),
+        size,
+    );
+    let width = (text_width(&label, size) + HOMOPLASY_MARKS).min((ctx.band.right() - x).max(0.0));
     if width <= 14.0 {
         return x;
     }
@@ -883,6 +1032,27 @@ fn draw_homoplasy_legend(
     x + width + 6.0
 }
 
+/// The three classes a dN/dS chip names.
+const DNDS_CLASSES: [&str; 3] = ["purifying", "near neutral", "diversifying"];
+
+/// The test a dN/dS chip names, when the layer has one.
+fn dnds_significance(dnds: &DnDsLayer) -> Option<String> {
+    dnds.significance
+        .as_ref()
+        .map(|test| format!("{} ≤ {}", test.key, text_rounded(test.maximum, 3)))
+}
+
+/// What a dN/dS chip holds besides its title.
+fn dnds_marks(dnds: &DnDsLayer, size: f64) -> f64 {
+    16.0 + DNDS_CLASSES
+        .iter()
+        .map(|label| 15.0 + text_width(label, size))
+        .sum::<f64>()
+        + 20.0
+        + text_width("missing", size)
+        + dnds_significance(dnds).map_or(0.0, |label| 48.0 + text_width(&label, size))
+}
+
 fn draw_dnds_legend(
     ctx: &mut DrawContext<'_>,
     dnds: &DnDsLayer,
@@ -892,24 +1062,15 @@ fn draw_dnds_legend(
     size: f64,
     chip: &str,
 ) -> f64 {
-    let label = fit_text(&dnds.label, legend_title_room(ctx, x, 240.0), size);
-    let labels = ["purifying", "near neutral", "diversifying"];
+    let label = fit_text(
+        &dnds.label,
+        legend_title_room(ctx, x, dnds_marks(dnds, size)),
+        size,
+    );
+    let labels = DNDS_CLASSES;
     let values = [1.0 / dnds.saturation, 1.0, dnds.saturation];
-    let significance = dnds
-        .significance
-        .as_ref()
-        .map(|test| format!("{} ≤ {}", test.key, text_rounded(test.maximum, 3)));
-    let natural = 16.0
-        + text_width(&label, size)
-        + labels
-            .iter()
-            .map(|label| 15.0 + text_width(label, size))
-            .sum::<f64>()
-        + 20.0
-        + text_width("missing", size)
-        + significance
-            .as_ref()
-            .map_or(0.0, |label| 48.0 + text_width(label, size));
+    let significance = dnds_significance(dnds);
+    let natural = text_width(&label, size) + dnds_marks(dnds, size);
     let available = (ctx.band.right() - x).max(0.0);
     let width = natural.min(available);
     if width <= 12.0 {

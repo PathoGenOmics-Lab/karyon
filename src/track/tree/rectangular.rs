@@ -29,7 +29,7 @@ pub(super) fn draw_tree_scene(
     dnds: Option<&DnDsLayer>,
     show_nodes: bool,
     support_style: SupportStyle,
-    support_threshold: f64,
+    support: SupportReading,
     branch_labels: Option<&BranchLabels>,
     rate_mixtures: &[BranchRateMixture],
     homoplasy_layers: &[HomoplasyLayer],
@@ -193,16 +193,17 @@ pub(super) fn draw_tree_scene(
                 ctx.svg.end_group();
             }
         }
-        if let Some(support) = node.support.filter(|value| {
-            support_style != SupportStyle::None
-                && support_fraction(*value).is_some_and(|value| value >= support_threshold)
-        }) {
-            let title = format!("clade support {}", text_rounded(support, 3));
+        if let Some(value) = node
+            .support
+            .filter(|value| support_style != SupportStyle::None && support.shown(*value))
+        {
+            let title = format!("clade support {}", text_rounded(value, 3));
             ctx.svg.begin_titled(&title);
             draw_support(
                 ctx,
                 x,
                 y_of(placement.row),
+                value,
                 support,
                 &styles.get(placement.node).color,
                 support_style,
@@ -711,6 +712,7 @@ pub(super) fn draw_trait_columns(
     area: Rect,
     tip_width: f64,
     columns: &[TraitColumn],
+    dealing: &[Dealt<'_>],
     row_pitch: f64,
 ) {
     if columns.is_empty() {
@@ -723,13 +725,13 @@ pub(super) fn draw_trait_columns(
         .map(|node| terminal_label(tree, *node, collapsed))
         .collect();
 
-    for column in columns {
+    for (column, dealt) in columns.iter().zip(dealing) {
         // Over the whole tree and not the rows on screen, for the reasons
         // `tree_domain` gives. A folded row shows what its tips agree on, and
         // that is one of their values, so it has a colour here: counting only
         // the nodes the walk placed once left forty rows of lineage as forty
         // empty outlines.
-        let domain = tree_domain(tree, &column.key, column.dealt());
+        let domain = tree_domain(tree, &column.key, *dealt);
         let rows: Vec<TraitRow<'_>> = names
             .iter()
             .zip(&scene.terminals)

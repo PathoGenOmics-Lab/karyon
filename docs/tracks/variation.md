@@ -406,7 +406,7 @@ The x axis is genomic, so this draws one sequence or one region of one. For a sc
 Site-wise molecular selection in two aligned tiers, so evidence and effect never share one colour: `-log10(p)` or a posterior probability above, and a signed `log2(ω)` effect centred on ω = 1 below.
 
 <figure class="k-plate" markdown>
-![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
+![The site-wise panels of a synthetic molecular-selection atlas, with p-value and posterior evidence above signed omega effects and protein domains](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }
 </figure>
 
 | | |

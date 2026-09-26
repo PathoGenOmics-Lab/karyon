@@ -2324,6 +2324,11 @@ fn track(
                 track = track.row_height(px);
             }
             gather(legend, &track.legend(theme));
+            // What the tree was asked for and does not draw is said under
+            // it, and here too, where a command that ran is read.
+            for warning in track.warnings() {
+                files.note(&format!("--tree {path}: {warning}"));
+            }
             Box::new(named(track, label, TreeTrack::label))
         }
         // Two trees, and the grammar gives one path per flag, so the second
@@ -4844,6 +4849,22 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         };
         let drawn = build_files(&invocation, &mut files, |_, _| None);
         (drawn, files.notes)
+    }
+
+    /// A threshold with no style draws no support, and the command that ran
+    /// said nothing of it.
+    #[test]
+    fn a_tree_says_what_it_was_asked_for_and_did_not_draw() {
+        let held = [("t.nwk", "((A:0.1,B:0.2)0.9:0.3,(C:0.15,D:0.05)0.4:0.2);")];
+        let (svg, notes) = drawn_noting("--tree t.nwk --threshold 0.7", &held);
+        let svg = svg.unwrap();
+        assert_eq!(
+            notes,
+            ["--tree t.nwk: no support is drawn: a threshold was set and no support style"]
+        );
+        assert!(svg.contains("no support is drawn"), "{svg}");
+        let (_, notes) = drawn_noting("--tree t.nwk --threshold 0.7 --support-style labels", &held);
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file

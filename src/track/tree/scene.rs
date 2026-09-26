@@ -227,11 +227,61 @@ pub(super) fn terminal_label(tree: &Tree, node: usize, collapsed: &BTreeSet<usiz
     }
 }
 
-pub(super) fn support_fraction(value: f64) -> Option<f64> {
-    if !value.is_finite() {
+/// How the support on one tree is read.
+///
+/// Whether full support is written as one or as a hundred is decided once,
+/// for the whole tree: a hundred when any value on it runs above one. Decided
+/// value by value, a clade supported at 1 on a tree out of a hundred was drawn
+/// as fully supported and passed any threshold asked for.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SupportReading {
+    /// What full support is written as on this tree.
+    full: f64,
+    /// The least fraction of full support worth drawing.
+    threshold: f64,
+}
+
+impl SupportReading {
+    pub(super) fn of(tree: &Tree, threshold: f64) -> Self {
+        let percent = tree
+            .nodes()
+            .iter()
+            .filter_map(|node| node.support)
+            .any(|value| value.is_finite() && value > 1.0);
+        Self {
+            full: if percent { 100.0 } else { 1.0 },
+            threshold,
+        }
+    }
+
+    /// `value` as a fraction of full support, or `None` when it is not a
+    /// number.
+    pub(super) fn fraction(self, value: f64) -> Option<f64> {
+        value
+            .is_finite()
+            .then(|| (value / self.full).clamp(0.0, 1.0))
+    }
+
+    /// Whether `value` reaches the threshold.
+    pub(super) fn shown(self, value: f64) -> bool {
+        self.fraction(value)
+            .is_some_and(|fraction| fraction >= self.threshold)
+    }
+}
+
+/// A threshold as a fraction of full support.
+///
+/// A threshold is one number and says itself which way it is written, so
+/// `0.8` and `80` are both eighty percent, whatever the tree is written in.
+pub(super) fn threshold_fraction(minimum: f64) -> Option<f64> {
+    if !minimum.is_finite() {
         return None;
     }
-    let fraction = if value > 1.0 { value / 100.0 } else { value };
+    let fraction = if minimum > 1.0 {
+        minimum / 100.0
+    } else {
+        minimum
+    };
     Some(fraction.clamp(0.0, 1.0))
 }
 
@@ -254,10 +304,11 @@ pub(super) fn draw_support(
     x: f64,
     y: f64,
     support: f64,
+    reading: SupportReading,
     color: &str,
     style: SupportStyle,
 ) {
-    let fraction = support_fraction(support).unwrap_or(0.0);
+    let fraction = reading.fraction(support).unwrap_or(0.0);
     let radius = ctx.theme.tokens.marker_radius * (0.45 + fraction * 0.55);
     if style.symbols() {
         ctx.svg.circle_ringed(

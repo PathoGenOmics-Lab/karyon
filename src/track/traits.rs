@@ -40,8 +40,10 @@
 //!
 //! The palette has six colours. A column with more levels than that reuses one,
 //! and two levels sharing a swatch is a figure that states something false, so
-//! [`Traits::spread`] gives such a column [`TraitStyle::Symbol`], which carries
-//! the level in a shape as well as a hue and separates twenty-four.
+//! a strip whose levels come round the palette is drawn as
+//! [`TraitStyle::Symbol`], which carries the level in a shape as well as a hue
+//! and separates twenty-four. [`Traits::spread`] makes such a column one from
+//! the start, and gives it the narrower cell a shape needs.
 //!
 //! # A missing value is drawn as missing
 //!
@@ -71,6 +73,10 @@ pub enum TraitScale {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TraitStyle {
     /// One filled cell or annular sector per row.
+    ///
+    /// A strip of words whose levels come round the palette is drawn as
+    /// [`TraitStyle::Symbol`] instead, since two filled cells of one colour
+    /// cannot be told apart.
     #[default]
     Strip,
     /// Numeric value encoded by bar length or radial height.
@@ -92,7 +98,9 @@ pub struct TraitColumn {
     pub(crate) ring_width: f64,
     pub(crate) show_values: bool,
     pub(crate) levels: Vec<String>,
-    pub(crate) first: usize,
+    /// The palette colour the first level takes, where one was chosen. A
+    /// phylogeny gives a column without one a stretch of its own.
+    pub(crate) first: Option<usize>,
 }
 
 impl TraitColumn {
@@ -108,7 +116,7 @@ impl TraitColumn {
             ring_width: 10.0,
             show_values: true,
             levels: Vec::new(),
-            first: 0,
+            first: None,
         }
     }
 
@@ -136,15 +144,18 @@ impl TraitColumn {
     /// Deals the levels the palette from its colour `index` on, rather than
     /// from its first, so two columns side by side do not paint two different
     /// things one colour. [`Traits::spread`] gives each column of a sheet its
-    /// own stretch of the palette this way.
+    /// own stretch of the palette this way, and a phylogeny does the same for
+    /// the columns it is handed without one.
     pub fn first_color(mut self, index: usize) -> Self {
-        self.first = index;
+        self.first = Some(index);
         self
     }
 
-    /// The palette colour the first level is dealt.
+    /// The palette colour the first level is dealt: the one
+    /// [`TraitColumn::first_color`] chose, or the palette's first. A
+    /// phylogeny deals a column that chose none a stretch of its own.
     pub fn first_color_index(&self) -> usize {
-        self.first
+        self.first.unwrap_or(0)
     }
 
     /// Builds a continuous column from numeric annotation `key`.
@@ -256,11 +267,20 @@ pub(crate) struct Dealt<'a> {
 }
 
 impl TraitColumn {
-    /// How this column deals the palette.
-    pub(crate) fn dealt(&self) -> Dealt<'_> {
-        Dealt {
-            levels: &self.levels,
-            first: self.first,
+    /// The mark this column is drawn with over `domain` in `theme`.
+    ///
+    /// A strip of words whose levels have run through the palette and come
+    /// round again is drawn as symbols, whose shape keeps apart two levels
+    /// the colour no longer does. Drawn as asked, a column of seven
+    /// countries painted two of them one colour, in the strip and in its key.
+    pub(crate) fn drawn_style(&self, domain: &TraitDomain, theme: &Theme) -> TraitStyle {
+        let repeats = self.scale == TraitScale::Categorical
+            && self.style == TraitStyle::Strip
+            && domain.colors_repeat(theme.palette.len());
+        if repeats {
+            TraitStyle::Symbol
+        } else {
+            self.style
         }
     }
 }
@@ -278,6 +298,10 @@ pub(crate) struct TraitDomain {
     met: BTreeSet<String>,
     pub(crate) minimum: f64,
     pub(crate) maximum: f64,
+    /// Whether some value was on and whether some was off, the two things a
+    /// binary column's key names.
+    on: bool,
+    off: bool,
 }
 
 impl TraitDomain {
@@ -299,7 +323,13 @@ impl TraitDomain {
             categories.entry(level.clone()).or_insert(next);
         }
         let mut met = BTreeSet::new();
+        let (mut on, mut off) = (false, false);
         for value in &values {
+            match binary_state(Some(value)) {
+                Some(true) => on = true,
+                Some(false) => off = true,
+                None => {}
+            }
             let value = value.to_string();
             let next = first + categories.len();
             categories.entry(value.clone()).or_insert(next);
@@ -315,6 +345,8 @@ impl TraitDomain {
             met,
             minimum: numeric.iter().copied().fold(f64::MAX, f64::min),
             maximum: numeric.iter().copied().fold(f64::MIN, f64::max),
+            on,
+            off,
         }
     }
 
@@ -364,6 +396,17 @@ impl TraitDomain {
             .collect();
         levels.sort_by_key(|(_, index)| *index);
         levels
+    }
+
+    /// Whether two levels some value held were dealt one colour of a palette
+    /// of `colors`, which a filled strip then draws alike.
+    pub(crate) fn colors_repeat(&self, colors: usize) -> bool {
+        let colors = colors.max(1);
+        let mut seen = BTreeSet::new();
+        self.categories
+            .iter()
+            .filter(|(level, _)| self.met.contains(*level))
+            .any(|(_, index)| !seen.insert(index % colors))
     }
 
     /// The levels a key names: the ones some value held, in the order a
@@ -421,6 +464,72 @@ pub(crate) fn natural(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
+/// One column's entries in a key, each drawn the way the column draws it.
+///
+/// A key is a copy of the mark. Keyed as boxes, the levels of a symbol column
+/// that share a colour were two entries nobody could tell apart, and a binary
+/// column keyed as palette levels named `false` in a colour none of its dots
+/// was drawn in. A ramp is labelled with the two ends of the range, and a
+/// continuous column with no number in it has no range and is left out
+/// rather than keyed from the placeholders the count starts at.
+pub(crate) fn key_entries(
+    legend: Legend,
+    label: &str,
+    scale: TraitScale,
+    style: TraitStyle,
+    domain: &TraitDomain,
+    theme: &Theme,
+) -> Legend {
+    match (scale, style) {
+        (_, TraitStyle::Binary) => {
+            let mut legend = legend;
+            if domain.on {
+                legend = legend.dot(format!("{label}: present"), theme.accent.clone());
+            }
+            if domain.off {
+                legend = legend.dot(format!("{label}: absent"), theme.rule.clone());
+            }
+            legend
+        }
+        (TraitScale::Continuous, _) => {
+            if domain.minimum > domain.maximum {
+                return legend;
+            }
+            // The colours first and the values after, which is the order
+            // `Legend::ramp` takes them in. They were the other way round
+            // once, so the ramp was painted with `fill="2015.17"` and
+            // labelled with two colour codes.
+            legend.ramp(
+                label,
+                theme.muted.clone(),
+                theme.accent.clone(),
+                crate::svg::text_rounded(domain.minimum, 3),
+                crate::svg::text_rounded(domain.maximum, 3),
+            )
+        }
+        (TraitScale::Categorical, TraitStyle::Symbol) => {
+            domain
+                .keyed()
+                .into_iter()
+                .fold(legend, |legend, (level, index)| {
+                    legend.symbol(
+                        format!("{label}: {level}"),
+                        theme.color(index).to_string(),
+                        theme.symbol(index),
+                    )
+                })
+        }
+        (TraitScale::Categorical, _) => {
+            domain
+                .keyed()
+                .into_iter()
+                .fold(legend, |legend, (level, index)| {
+                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
+                })
+        }
+    }
+}
+
 pub(crate) fn binary_state(value: Option<&AnnotationValue>) -> Option<bool> {
     match value? {
         AnnotationValue::Boolean(value) => Some(*value),
@@ -455,6 +564,7 @@ pub(crate) fn draw_column(
     rows: &[TraitRow<'_>],
 ) {
     let size = (ctx.theme.font_size - 2.0).max(6.0);
+    let style = column.drawn_style(domain, ctx.theme);
 
     if let Some(y) = heading_y {
         let heading = fit_text(&column.label, column.width, size);
@@ -482,7 +592,7 @@ pub(crate) fn draw_column(
             None => format!("{name}; {} missing", column.key),
         };
         ctx.svg.begin_titled(&title);
-        match column.style {
+        match style {
             TraitStyle::Strip => {
                 if let Some(fill) = &fill {
                     ctx.svg.rect_rounded(
@@ -573,12 +683,12 @@ pub(crate) fn draw_column(
                 }
             }
         }
-        if column.show_values && matches!(column.style, TraitStyle::Strip | TraitStyle::Bar) {
+        if column.show_values && matches!(style, TraitStyle::Strip | TraitStyle::Bar) {
             let text = displayed.as_deref().unwrap_or(crate::tree::ABSENT);
             let (visible, size) = fit_text_shrinking(text, column.width - 4.0, size, size * 0.8);
             let ink = fill
                 .as_deref()
-                .filter(|_| column.style == TraitStyle::Strip)
+                .filter(|_| style == TraitStyle::Strip)
                 .map(contrast_ink)
                 .unwrap_or(ctx.theme.muted.as_str());
             ctx.svg.text(
@@ -601,7 +711,7 @@ pub(crate) fn draw_column(
 /// made once when the columns are built and a theme arrives later, so it is
 /// made against the palette the crate ships rather than against one it might
 /// be handed.
-const STRIP_LEVELS: usize = 6;
+pub(crate) const STRIP_LEVELS: usize = 6;
 
 /// What is known about a track's rows, and the columns drawn from it.
 ///
@@ -853,7 +963,9 @@ impl Traits {
         self.heading_room
     }
 
-    /// A key naming every level and every ramp the columns drew.
+    /// A key naming every level and every ramp the columns drew, each level
+    /// with the mark its column draws: a box for a strip, its own shape for a
+    /// symbol column, and the two dots of a binary one.
     ///
     /// Nothing calls this on its own. A legend is a judgement about a figure
     /// rather than about a column, so the caller decides whether the figure
@@ -866,40 +978,17 @@ impl Traits {
     /// so its key is [`TreeTrack::legend`](crate::track::tree::TreeTrack::legend)
     /// and not this, which would name each colour beside another level.
     pub fn legend(&self, theme: &Theme) -> Legend {
-        let mut legend = Legend::new();
-        for column in &self.columns {
+        self.columns.iter().fold(Legend::new(), |legend, column| {
             let domain = self.domain(column);
-            match column.scale {
-                TraitScale::Continuous => {
-                    // A column with no number in it has no range to show, and
-                    // its ends would be the placeholders the count starts at.
-                    if domain.minimum > domain.maximum {
-                        continue;
-                    }
-                    let (low, high) = self.ramp_ends(column);
-                    // The colours first and the values after, which is the
-                    // order `Legend::ramp` takes them in. They were the other
-                    // way round, so the ramp was painted with `fill="2015.17"`
-                    // and labelled with two colour codes.
-                    legend = legend.ramp(
-                        column.label.clone(),
-                        theme.muted.clone(),
-                        theme.accent.clone(),
-                        low,
-                        high,
-                    );
-                }
-                TraitScale::Categorical => {
-                    for (level, index) in domain.keyed() {
-                        legend = legend.key(
-                            format!("{}: {level}", column.label),
-                            theme.color(index).to_string(),
-                        );
-                    }
-                }
-            }
-        }
-        legend
+            key_entries(
+                legend,
+                &column.label,
+                column.scale,
+                column.drawn_style(&domain, theme),
+                &domain,
+                theme,
+            )
+        })
     }
 
     /// The two numbers a continuous column's ramp runs between, as written.
@@ -921,7 +1010,11 @@ impl Traits {
     /// The levels and the range one column covers over every row named here,
     /// dealt the palette in the column's own order where it has one.
     fn domain(&self, column: &TraitColumn) -> TraitDomain {
-        TraitDomain::ordered(column.first, &column.levels, self.stated(&column.key))
+        TraitDomain::ordered(
+            column.first_color_index(),
+            &column.levels,
+            self.stated(&column.key),
+        )
     }
 
     /// Draws the strip beside rows that have already been laid out.
@@ -1286,6 +1379,41 @@ D\tL1\thuman\t95
         let columns = held.columns.clone();
         let few = Traits::new(held.rows).spread(columns);
         assert_eq!(few.columns()[0].trait_style(), TraitStyle::Strip);
+    }
+
+    #[test]
+    fn a_strip_built_by_hand_with_more_levels_than_colours_is_drawn_as_symbols() {
+        // `spread` chooses symbols for such a column, and a column added with
+        // `column` kept its strip, painting C6 as C0 in the cell and the key.
+        let rows: String = (0..8).map(|i| format!("S{i}\tC{i}\n")).collect();
+        let held = sheet(&format!("sample\tcountry\n{rows}")).expect("a sheet");
+        let traits = Traits::from_sheet(&held).column(TraitColumn::categorical("country"));
+        let rows: Vec<MatrixRow> = (0..8)
+            .map(|i| MatrixRow::new(format!("S{i}"), vec![1.0]))
+            .collect();
+        let matrix = MatrixTrack::new(vec![10], rows);
+        let svg = drawn(matrix.traits(traits.clone()));
+        let cell = |row: usize| {
+            let after = svg
+                .split(&format!("S{row}; country C{row}</title>"))
+                .nth(1)
+                .expect("a cell");
+            after.split("</g>").next().unwrap().to_string()
+        };
+        // The seventh level is the first colour again, as a diamond.
+        assert!(cell(6).contains("<polygon"), "{}", cell(6));
+        assert!(cell(0).contains("<circle"), "{}", cell(0));
+        assert!(traits
+            .legend(&Theme::light())
+            .items()
+            .iter()
+            .all(|item| matches!(
+                item,
+                crate::track::legend::LegendItem::Key {
+                    marker: crate::track::legend::Marker::Symbol(_),
+                    ..
+                }
+            )));
     }
 
     #[test]

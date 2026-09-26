@@ -39,7 +39,7 @@ use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::msa::{is_gap, MsaSequence};
 use crate::track::traits::Traits;
-use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -520,7 +520,11 @@ impl Track for SnpTrack {
 
         // The tree takes the left of the strip and the names the right of it,
         // so a leaf, its name and its row of cells are all on one line.
-        if let Some(tree) = &self.tree {
+        let (tree, without_row) = self
+            .tree
+            .as_ref()
+            .map_or((None, 0), |tree| tree_beside_rows(tree, &self.names, rows));
+        if let Some(tree) = tree.as_deref() {
             let reference_offset = if self.show_reference {
                 self.row_height + self.row_gap
             } else {
@@ -669,11 +673,18 @@ impl Track for SnpTrack {
             }
         }
 
+        let mut notes: Vec<String> = Vec::new();
         if hidden > 0 {
+            notes.push(format!("+{hidden} more"));
+        }
+        if without_row > 0 {
+            notes.push(crate::track::tips_without_rows(without_row));
+        }
+        if !notes.is_empty() {
             ctx.svg.text(
                 band.right() - 3.0,
                 band.bottom() - 2.0,
-                &format!("+{hidden} more"),
+                &notes.join(", "),
                 &ctx.theme.muted,
                 ctx.theme.font_size - 1.0,
                 Anchor::End,

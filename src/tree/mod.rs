@@ -471,6 +471,7 @@ impl Tree {
     /// Reverses the child order of one internal node.
     ///
     /// A rotation changes how a tree is drawn but not the clades it contains.
+    #[must_use = "a node with fewer than two children is left as it was, and this says whether it turned"]
     pub fn rotate(&mut self, node: usize) -> bool {
         let Some(clade) = self.nodes.get_mut(node) else {
             return false;
@@ -518,6 +519,7 @@ impl Tree {
     /// changes. The new root has neither, because it has no incoming branch. A
     /// leaf is refused because turning a sampled tip into an internal root
     /// would silently remove it from the tip set.
+    #[must_use = "a tip or a node the tree lacks leaves the root where it was, and this says whether it moved"]
     pub fn reroot(&mut self, node: usize) -> bool {
         let Some(target) = self.nodes.get(node) else {
             return false;
@@ -538,6 +540,7 @@ impl Tree {
     /// node. Returns its stable index, or `None` without changing the tree when
     /// the selection is empty, invalid, non-monophyletic or already spans the
     /// whole tree.
+    #[must_use = "an outgroup that is not one clade leaves the root where it was, and this is None then"]
     pub fn reroot_outgroup(&mut self, outgroup: &[usize]) -> Option<usize> {
         let selected: BTreeSet<usize> = outgroup.iter().copied().collect();
         if selected.is_empty()
@@ -573,6 +576,7 @@ impl Tree {
     /// an edge creates one degree-two root and splits that edge exactly; a
     /// midpoint already on an internal node reuses it. Returns the root index,
     /// or `None` without mutation when the required distances are unavailable.
+    #[must_use = "a tree without every branch length keeps its root, and this is None then"]
     pub fn reroot_midpoint(&mut self) -> Option<usize> {
         let leaves = self.leaves();
         if leaves.len() < 2 {
@@ -757,6 +761,106 @@ impl Tree {
         Some(root)
     }
 
+    /// A copy holding only the tips named in `names`, as ape's `keep.tip`
+    /// makes one: an internal node left with one child is merged into its
+    /// branch, the lengths along the merged path added up, and a root left
+    /// with one child gives way to it.
+    ///
+    /// The clade below a merged path keeps its own name, support and
+    /// annotations, since after the cut it holds the same tips the path did.
+    /// A name the tree does not have is passed over, and `None` comes back
+    /// when no named tip is left.
+    ///
+    /// ```
+    /// use karyon::Tree;
+    ///
+    /// let tree = Tree::parse_newick("((A:1,B:1)90:1,(C:1,D:1)80:1);").unwrap();
+    /// let cut = tree.keep_tips(["A", "C", "D"]).unwrap();
+    /// assert_eq!(cut.leaf_names(), ["A", "C", "D"]);
+    /// // B's parent had one tip left, so A hangs from the root on a branch
+    /// // of both lengths.
+    /// let a = cut.node_named("A").unwrap();
+    /// assert_eq!(cut.nodes()[a].branch_length, Some(2.0));
+    /// ```
+    pub fn keep_tips<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Option<Tree> {
+        let wanted: std::collections::HashSet<&str> = names.into_iter().collect();
+        let mut kept = vec![false; self.nodes.len()];
+        for index in self.postorder() {
+            let node = &self.nodes[index];
+            kept[index] = if node.is_leaf() {
+                node.name
+                    .as_deref()
+                    .is_some_and(|name| wanted.contains(name))
+            } else {
+                node.children.iter().any(|child| kept[*child])
+            };
+        }
+        if !kept[self.root] {
+            return None;
+        }
+        let join = |a: Option<f64>, b: Option<f64>| match (a, b) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+        };
+        let mut nodes: Vec<Clade> = Vec::new();
+        let mut annotations: Vec<Annotations> = Vec::new();
+        // A stack rather than recursion, since a tree read from a file can be
+        // a caterpillar a million tips deep.
+        let mut stack: Vec<(usize, Option<usize>)> = vec![(self.root, None)];
+        while let Some((old, parent)) = stack.pop() {
+            // Down through every node with one kept child, adding up the
+            // branch it merges into. The root's own branch is not a branch.
+            let mut current = old;
+            let mut length = if parent.is_some() {
+                self.nodes[old].branch_length
+            } else {
+                None
+            };
+            loop {
+                let children: Vec<usize> = self.nodes[current]
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|child| kept[*child])
+                    .collect();
+                match children.as_slice() {
+                    [only] => {
+                        current = *only;
+                        // At the root, the root gives way to its one child,
+                        // which then has no branch above it.
+                        length = parent.and(join(length, self.nodes[current].branch_length));
+                    }
+                    _ => break,
+                }
+            }
+            let source = &self.nodes[current];
+            let index = nodes.len();
+            nodes.push(Clade {
+                name: source.name.clone(),
+                branch_length: if parent.is_some() { length } else { None },
+                support: source.support,
+                children: Vec::new(),
+                parent,
+            });
+            annotations.push(self.annotations[current].clone());
+            if let Some(parent) = parent {
+                nodes[parent].children.push(index);
+            }
+            for child in source.children.iter().rev() {
+                if kept[*child] {
+                    stack.push((*child, Some(index)));
+                }
+            }
+        }
+        Some(Tree {
+            nodes,
+            root: 0,
+            annotations,
+            tree_annotations: self.tree_annotations.clone(),
+            rooted: self.rooted,
+        })
+    }
+
     /// Copies the clade rooted at `node` into a standalone tree.
     pub fn subtree(&self, node: usize) -> Option<Tree> {
         self.extract(node)
@@ -767,6 +871,7 @@ impl Tree {
     /// The selected node keeps its name, annotations and incoming branch.
     /// This is a data operation; [`TreeTrack`](crate::TreeTrack) also supports
     /// non-destructive visual collapsing.
+    #[must_use = "a tip or a node the tree lacks collapses nothing, and this says whether it did"]
     pub fn collapse(&mut self, node: usize) -> bool {
         let Some(clade) = self.nodes.get_mut(node) else {
             return false;

@@ -336,6 +336,55 @@ fn support_can_be_encoded_visibly_and_filtered_without_losing_tooltips() {
 }
 
 #[test]
+fn support_is_read_out_of_a_hundred_for_the_whole_tree_or_not_at_all() {
+    // A bootstrap out of a hundred, with the (C,D) split found in one
+    // replicate. Read value by value, that 1 was full support: drawn at the
+    // largest size and printed past a threshold of 70.
+    let percent =
+        Tree::parse_newick("((A:0.1,B:0.1)100:0.2,((C:0.1,D:0.1)1:0.1,E:0.2)45:0.2);").unwrap();
+    // The same shape with support written as fractions, where 1 is full.
+    let fraction =
+        Tree::parse_newick("((A:0.1,B:0.1)1:0.2,((C:0.1,D:0.1)0.5:0.1,E:0.2)0.45:0.2);").unwrap();
+    let largest = |svg: &str| {
+        let radii: Vec<f64> = svg
+            .split("<circle")
+            .skip(1)
+            .filter_map(|circle| circle.split("r=\"").nth(1)?.split('"').next()?.parse().ok())
+            .collect();
+        let most = radii.iter().copied().fold(f64::MIN, f64::max);
+        radii.iter().filter(|radius| **radius == most).count()
+    };
+    for (tree, threshold, full, weak) in [(percent, 70.0, "100", "1"), (fraction, 0.7, "1", "0.5")]
+    {
+        for track in [
+            TreeTrack::new(tree.clone()),
+            TreeTrack::new(tree.clone()).circular(),
+            TreeTrack::new(tree.clone()).unrooted(),
+        ] {
+            let draw = |track: TreeTrack| {
+                Figure::new(region())
+                    .width(540.0)
+                    .show_region_label(false)
+                    .push(track)
+                    .to_svg()
+            };
+            let labelled = draw(
+                track
+                    .clone()
+                    .support_style(SupportStyle::SymbolsAndLabels)
+                    .support_threshold(threshold),
+            );
+            assert!(labelled.contains(&format!(">{full}</text>")), "{labelled}");
+            assert!(!labelled.contains(&format!(">{weak}</text>")), "{labelled}");
+            // Every support drawn, only the one fully supported clade is
+            // drawn at the largest size.
+            let sized = draw(track.support_style(SupportStyle::Symbols));
+            assert_eq!(largest(&sized), 1, "{sized}");
+        }
+    }
+}
+
+#[test]
 fn branch_event_labels_are_direct_exact_and_projection_independent() {
     let event_tree = Tree::parse_annotated_newick(
         "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",
@@ -435,17 +484,23 @@ fn dnds_is_direct_diverging_and_projection_independent() {
 }
 
 #[test]
-fn the_last_branch_colour_encoding_wins() {
-    let tree = Tree::parse_newick("(A:1,B:1);").unwrap();
-    let dnds = TreeTrack::new(tree.clone())
+fn a_dnds_colouring_takes_the_branches_whichever_came_first() {
+    // The last of the two won, so the same settings in another order drew
+    // another figure. Both colour the branches, one at a time, and the band
+    // says which was left out.
+    let tree =
+        Tree::parse_annotated_newick("(A[&omega=0.2,country=Peru]:1,B[&omega=3,country=Chile]:1);")
+            .unwrap();
+    let first = TreeTrack::new(tree.clone())
         .color_by("country")
         .dnds("omega");
-    assert!(dnds.color_by.is_none());
-    assert_eq!(dnds.dnds.as_deref(), Some("omega"));
-
-    let categorical = TreeTrack::new(tree).dnds("omega").color_by("country");
-    assert_eq!(categorical.color_by.as_deref(), Some("country"));
-    assert!(categorical.dnds.is_none());
+    let last = TreeTrack::new(tree).dnds("omega").color_by("country");
+    assert_eq!(first.branch_key(), None);
+    assert_eq!(drawn(first.clone()), drawn(last.clone()));
+    assert_eq!(
+        last.warnings(),
+        ["branches coloured by dN/dS (omega), not by country: one colouring at a time"]
+    );
 }
 
 #[test]
@@ -2178,4 +2233,943 @@ fn a_phylogram_draws_its_scale_bar_unless_asked_not_to() {
             .height(&scale)
     );
     assert!(!drawn(TreeTrack::new(bare)).contains(bar));
+}
+
+/// The centre of every row, from where its name is set, and the height of
+/// every tip branch, in a panel with an ultrametric tree beside it, whose
+/// tips all end at one x.
+fn rows_and_tips(svg: &str, names: &[&str]) -> (Vec<f64>, Vec<f64>) {
+    let attr = |tag: &str, key: &str| -> Option<f64> {
+        tag.split(&format!(" {key}=\""))
+            .nth(1)?
+            .split('"')
+            .next()?
+            .parse()
+            .ok()
+    };
+    // A name's baseline is its row's centre and 0.35 of its size, the rule
+    // every row of the crate sets its name by.
+    let rows: Vec<f64> = names
+        .iter()
+        .map(|name| {
+            let at = svg
+                .find(&format!(">{name}</text>"))
+                .unwrap_or_else(|| panic!("no row {name}"));
+            let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+            attr(tag, "y").unwrap() - 0.35 * attr(tag, "font-size").unwrap()
+        })
+        .collect();
+    let horizontal: Vec<(f64, f64)> = svg
+        .split("<line")
+        .skip(1)
+        .filter_map(|piece| {
+            let tag = piece.split('>').next()?;
+            let (x1, y1, x2, y2) = (
+                attr(tag, "x1")?,
+                attr(tag, "y1")?,
+                attr(tag, "x2")?,
+                attr(tag, "y2")?,
+            );
+            (y1 == y2 && x2 > x1 && x2 < 140.0).then_some((x2, y1))
+        })
+        .collect();
+    let right = horizontal
+        .iter()
+        .map(|line| line.0)
+        .fold(f64::MIN, f64::max);
+    let mut tips: Vec<f64> = horizontal
+        .iter()
+        .filter(|line| (line.0 - right).abs() < 0.01)
+        .map(|line| line.1)
+        .collect();
+    tips.sort_by(f64::total_cmp);
+    (rows, tips)
+}
+
+/// Every row sits beside its own tip when the tree has a tip the panel lacks.
+/// Drawn whole, the tree put each row after the missing one beside the branch
+/// of the tip before it, and nothing said so.
+#[test]
+fn a_panel_beside_a_tree_with_a_tip_it_lacks_keeps_every_row_on_its_tip() {
+    use crate::read::sheet::sheet;
+    use crate::track::traits::Traits;
+    use crate::{DomainArchitecture, DomainTrack, MatrixRow, MatrixTrack, MsaSequence, MsaTrack};
+    use crate::{SnpSite, SnpTrack};
+    let tree = || Tree::parse_newick("((tipA:0.1,tipB:0.1):0.3,(tipC:0.1,tipD:0.1):0.3);").unwrap();
+    let names = ["tipA", "tipC", "tipD"];
+    // Headings over the rows, which the matrix left out of its tree's start.
+    let traits = || {
+        let held = sheet("sample\tgroup\ntipA\tx\ntipC\ty\ntipD\tx\n").unwrap();
+        Traits::from_sheet(&held).spread(held.columns.clone())
+    };
+    let check = |panel: &str, svg: String| {
+        let (rows, tips) = rows_and_tips(&svg, &names);
+        assert_eq!(
+            tips.len(),
+            rows.len(),
+            "{panel}: {} tips for {} rows",
+            tips.len(),
+            rows.len()
+        );
+        for (row, tip) in rows.iter().zip(&tips) {
+            assert!(
+                (row - tip).abs() < 0.6,
+                "{panel}: row centred at {row}, tip at {tip}"
+            );
+        }
+        assert!(
+            svg.contains("1 tip of the tree has no row"),
+            "{panel}: {svg}"
+        );
+    };
+    let sequences: Vec<MsaSequence> = names
+        .iter()
+        .map(|name| MsaSequence::new(*name, b"ACGTACGTAC".to_vec()))
+        .collect();
+    check(
+        "alignment",
+        Figure::new(Region::new("aln", 0, 10).unwrap())
+            .push(
+                MsaTrack::new(sequences.clone())
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let rows: Vec<MatrixRow> = names
+        .iter()
+        .map(|name| MatrixRow::new(*name, vec![1.0]))
+        .collect();
+    check(
+        "matrix",
+        Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(
+                MatrixTrack::new(vec![10], rows)
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let sites = vec![SnpSite::new(5, b'A', b"AGG".to_vec())];
+    let names_owned: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+    check(
+        "variable sites",
+        Figure::new(Region::new("sites", 0, 1).unwrap())
+            .push(
+                SnpTrack::new(names_owned, sites)
+                    .tree(tree())
+                    .traits(traits()),
+            )
+            .to_svg(),
+    );
+    let domains: Vec<DomainArchitecture> = names
+        .iter()
+        .map(|name| DomainArchitecture::new(*name, 100))
+        .collect();
+    check(
+        "domains",
+        Figure::new(Region::new("protein", 0, 100).unwrap())
+            .push(DomainTrack::new(domains).tree(tree()).traits(traits()))
+            .to_svg(),
+    );
+}
+
+/// The tree beside rows is cut to the rows that are drawn, so no branch leads
+/// off the band to a row a cap left out, and counts the tips with no row.
+#[test]
+fn the_tree_beside_rows_is_cut_to_the_rows_drawn() {
+    let tree = Tree::parse_newick("((tipA,tipB),(tipC,tipD));").unwrap();
+    let rows: Vec<String> = ["tipA", "tipC", "tipD", "tipZ"]
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    let (cut, without_row) = tree_beside_rows(&tree, &rows, 2);
+    assert_eq!(cut.unwrap().leaf_names(), ["tipA", "tipC"]);
+    assert_eq!(without_row, 1, "tipB has no row; tipD's is only hidden");
+    // Every tip on a drawn row: the tree itself, not a copy.
+    let (whole, none) = tree_beside_rows(
+        &tree,
+        &["tipA", "tipB", "tipC", "tipD"].map(String::from),
+        4,
+    );
+    assert!(matches!(whole, Some(std::borrow::Cow::Borrowed(_))));
+    assert_eq!(none, 0);
+}
+
+/// The marks drawn under a title, each as the shape it is and its fill, in
+/// the order drawn: a ring under a symbol comes first, the symbol after it.
+fn marks_under(svg: &str, title: &str) -> Vec<(crate::style::Symbol, String)> {
+    use crate::style::Symbol;
+    let Some(piece) = svg
+        .split("<title>")
+        .skip(1)
+        .find(|piece| piece.starts_with(&format!("{title}</title>")))
+    else {
+        return Vec::new();
+    };
+    let group = piece.split("</g>").next().unwrap_or_default();
+    group
+        .split('<')
+        .skip(1)
+        .filter_map(|element| {
+            let fill = element
+                .split("fill=\"")
+                .nth(1)?
+                .split('"')
+                .next()?
+                .to_string();
+            let shape = if element.starts_with("circle") {
+                Symbol::Circle
+            } else if element.starts_with("rect") {
+                Symbol::Square
+            } else if element.starts_with("polygon") {
+                let points = element.split("points=\"").nth(1)?.split('"').next()?;
+                match points.split_whitespace().count() {
+                    4 => Symbol::Diamond,
+                    3 => Symbol::Triangle,
+                    _ => return None,
+                }
+            } else {
+                return None;
+            };
+            Some((shape, fill))
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_draws_each_level_the_way_its_column_draws_it() {
+    use crate::track::legend::{LegendItem, Marker};
+    // Seven hosts on seven tips: the seventh comes round to the first colour,
+    // and only its shape tells it from the first. Keyed as boxes, the two
+    // were one entry twice. The flag is keyed with the two dots it is drawn
+    // with; it was keyed as two palette colours neither dot was drawn in.
+    let tree = Tree::parse_annotated_newick(
+        "(((A[&host=h1,flag=true]:1,B[&host=h2,flag=false]:1):1,\
+         (C[&host=h3,flag=true]:1,D[&host=h4,flag=true]:1):1):1,\
+         ((E[&host=h5,flag=false]:1,F[&host=h6,flag=true]:1):1,G[&host=h7,flag=true]:1):1);",
+    )
+    .unwrap();
+    let theme = Theme::light();
+    for track in [
+        TreeTrack::new(tree.clone()),
+        TreeTrack::new(tree.clone()).circular(),
+        TreeTrack::new(tree.clone()).unrooted(),
+    ] {
+        let track = track.trait_symbol("host").trait_binary("flag");
+        let legend = track.legend(&theme);
+        let svg = drawn(track);
+        let mut hosts = Vec::new();
+        for item in legend.items() {
+            let LegendItem::Key {
+                label,
+                color,
+                marker,
+            } = item
+            else {
+                panic!("no ramp here: {item:?}");
+            };
+            if let Some(level) = label.strip_prefix("host: ") {
+                let Marker::Symbol(symbol) = marker else {
+                    panic!("{label} keyed as {marker:?}");
+                };
+                let tip =
+                    ["A", "B", "C", "D", "E", "F", "G"][level[1..].parse::<usize>().unwrap() - 1];
+                let drawn = marks_under(&svg, &format!("{tip}; host {level}"));
+                assert_eq!(
+                    drawn.last(),
+                    Some(&(*symbol, color.clone())),
+                    "{label} against the mark on {tip}: {drawn:?}"
+                );
+                hosts.push((color.clone(), *symbol));
+            }
+        }
+        hosts.sort_by_key(|(color, symbol)| (color.clone(), format!("{symbol:?}")));
+        hosts.dedup();
+        assert_eq!(hosts.len(), 7, "seven hosts, seven marks: {hosts:?}");
+
+        let dots: Vec<(&str, &str, Marker)> = legend
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                LegendItem::Key {
+                    label,
+                    color,
+                    marker,
+                } if label.starts_with("flag") => Some((label.as_str(), color.as_str(), *marker)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            dots,
+            [
+                ("flag: present", theme.accent.as_str(), Marker::Dot),
+                ("flag: absent", theme.rule.as_str(), Marker::Dot),
+            ]
+        );
+        assert_eq!(
+            marks_under(&svg, "A; flag true")
+                .last()
+                .map(|(_, fill)| fill.as_str()),
+            Some(theme.accent.as_str())
+        );
+        assert_eq!(
+            marks_under(&svg, "B; flag false")
+                .last()
+                .map(|(_, fill)| fill.as_str()),
+            Some(theme.rule.as_str())
+        );
+    }
+}
+
+#[test]
+fn a_dark_figure_keys_its_tree_in_the_colours_it_drew() {
+    // The key was built from a theme the caller passed, and the one to hand
+    // was the default: a dark figure's strip was drawn in the dark palette
+    // and keyed in the light one.
+    for profile in [crate::RenderProfile::Dark, crate::RenderProfile::Manuscript] {
+        let figure = Figure::new(region())
+            .width(640.0)
+            .show_region_label(false)
+            .profile(profile)
+            .push(TreeTrack::new(countries()).trait_categorical("country"));
+        let key = figure.key();
+        let svg = figure.to_svg();
+        assert_eq!(key.len(), 3, "{:?}", key.items());
+        for item in key.items() {
+            let crate::track::legend::LegendItem::Key { label, color, .. } = item else {
+                panic!("no ramp here: {item:?}");
+            };
+            let level = label.strip_prefix("country: ").unwrap();
+            let tip = match level {
+                "Spain" => "Zed",
+                "Portugal" => "Abe",
+                _ => "Bo",
+            };
+            assert_eq!(
+                painted_under(&svg, &format!("{tip}; country {level}")),
+                std::slice::from_ref(color),
+                "{profile:?}"
+            );
+        }
+    }
+    let plain = Figure::new(region()).push(TreeTrack::new(countries()));
+    assert!(plain.key().is_empty(), "{:?}", plain.key().items());
+}
+
+#[test]
+fn a_column_over_the_branch_key_keys_it_in_its_own_marks() {
+    use crate::track::legend::{LegendItem, Marker};
+    // The branch key was keyed as boxes and the column of symbols over the
+    // same key was left out as a repeat, so the shapes had no key at all.
+    let legend = TreeTrack::new(countries())
+        .color_by("country")
+        .trait_symbol("country")
+        .legend(&Theme::light());
+    assert_eq!(legend.len(), 3, "{:?}", legend.items());
+    assert!(legend.items().iter().all(|item| matches!(
+        item,
+        LegendItem::Key {
+            marker: Marker::Symbol(_),
+            ..
+        }
+    )));
+}
+
+#[test]
+fn a_ring_heading_is_not_drawn_in_a_colour_of_the_key() {
+    // A ring's heading chip was a square of the palette's first colour, which
+    // is the colour of the first level: it read as a key saying L1.
+    let theme = Theme::light();
+    for track in [
+        TreeTrack::new(countries()).circular(),
+        TreeTrack::new(countries()).unrooted(),
+    ] {
+        for column in [
+            TraitColumn::categorical("country"),
+            TraitColumn::symbol("country"),
+            TraitColumn::binary("country"),
+            TraitColumn::bar("country"),
+        ] {
+            let svg = drawn(track.clone().trait_column(column.clone()));
+            let heading = svg
+                .split("<text")
+                .position(|piece| piece.contains(">country</text>"))
+                .expect("a heading");
+            // The chip is the last mark drawn before the heading's text.
+            let before: String = svg
+                .split("<text")
+                .take(heading)
+                .collect::<Vec<_>>()
+                .join("<text");
+            let chip = before
+                .rsplit('<')
+                .find(|element| element.contains("fill=\""))
+                .unwrap();
+            let fill = chip
+                .split("fill=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            assert!(
+                !theme.palette.iter().any(|color| color == fill) && fill != theme.accent,
+                "{:?} heading chip in {fill}: {chip}",
+                column.trait_style()
+            );
+        }
+    }
+}
+
+/// Six tips, each with a lineage, a country and a host of its own.
+fn sampled() -> Tree {
+    Tree::parse_annotated_newick(
+        "(((A[&lineage=L1,country=India,host=cow]:1,B[&lineage=L2,country=Peru,host=pig]:1):1,\
+         (C[&lineage=L3,country=Chile,host=cat]:1,D[&lineage=L1,country=India,host=cow]:1):1):1,\
+         (E[&lineage=L2,country=Peru,host=pig]:1,F[&lineage=L3,country=Chile,host=cat]:1):1);",
+    )
+    .unwrap()
+}
+
+#[test]
+fn two_columns_of_words_on_a_tree_do_not_share_a_colour() {
+    // Both columns started at the palette's first colour, so L1 was India,
+    // L2 was Peru and L3 was Chile, in the strips and in the key.
+    let tips = ["A", "B", "C", "D", "E", "F"];
+    let cells = |svg: &str, key: &str| -> BTreeSet<String> {
+        let tree = sampled();
+        tips.iter()
+            .map(|tip| {
+                let node = tree.node_named(tip).unwrap();
+                let value = tree.annotation(node, key).unwrap().to_string();
+                painted_under(svg, &format!("{tip}; {key} {value}"))[0].clone()
+            })
+            .collect()
+    };
+    for track in [
+        TreeTrack::new(sampled()),
+        TreeTrack::new(sampled()).circular(),
+        TreeTrack::new(sampled()).unrooted(),
+    ] {
+        let svg = drawn(
+            track
+                .clone()
+                .trait_categorical("lineage")
+                .trait_categorical("country"),
+        );
+        let (lineage, country) = (cells(&svg, "lineage"), cells(&svg, "country"));
+        assert_eq!((lineage.len(), country.len()), (3, 3));
+        assert!(lineage.is_disjoint(&country), "{lineage:?} {country:?}");
+        assert!(lineage.contains(&colour(0)) && country.contains(&colour(3)));
+
+        // Branches coloured by a key no column shows take a stretch too.
+        let svg = drawn(track.color_by("host").trait_categorical("lineage"));
+        let branches: BTreeSet<String> = ["host cow", "host pig", "host cat"]
+            .iter()
+            .flat_map(|title| painted_under(&svg, title))
+            .collect();
+        let lineage = cells(&svg, "lineage");
+        assert!(branches.is_disjoint(&lineage), "{branches:?} {lineage:?}");
+    }
+    // A column that chose where it starts keeps it, as a sheet's does.
+    let svg = drawn(
+        TreeTrack::new(sampled())
+            .trait_categorical("lineage")
+            .trait_column(TraitColumn::categorical("country").first_color(0)),
+    );
+    assert!(cells(&svg, "country").contains(&colour(0)));
+}
+
+#[test]
+fn a_strip_with_more_levels_than_colours_is_drawn_as_symbols() {
+    use crate::track::legend::{LegendItem, Marker};
+    // Eight countries and six colours: the seventh and eighth were painted as
+    // the first and second, in the strip and in its key.
+    let tree = Tree::parse_annotated_newick(
+        "((((T1[&c=a]:1,T2[&c=b]:1):1,(T3[&c=c]:1,T4[&c=d]:1):1):1,\
+         ((T5[&c=e]:1,T6[&c=f]:1):1,(T7[&c=g]:1,T8[&c=h]:1):1):1):1);",
+    )
+    .unwrap();
+    for track in [
+        TreeTrack::new(tree.clone()),
+        TreeTrack::new(tree.clone()).circular(),
+        TreeTrack::new(tree.clone()).unrooted(),
+    ] {
+        let track = track.trait_categorical("c");
+        let legend = track.legend(&Theme::light());
+        let svg = drawn(track);
+        let mut marks = BTreeSet::new();
+        for (tip, level) in ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
+            .iter()
+            .zip(["a", "b", "c", "d", "e", "f", "g", "h"])
+        {
+            let (shape, fill) = marks_under(&svg, &format!("{tip}; c {level}"))
+                .pop()
+                .expect("a mark");
+            marks.insert((format!("{shape:?}"), fill));
+        }
+        assert_eq!(marks.len(), 8, "{marks:?}");
+        assert_eq!(legend.len(), 8);
+        assert!(legend.items().iter().all(|item| matches!(
+            item,
+            LegendItem::Key {
+                marker: Marker::Symbol(_),
+                ..
+            }
+        )));
+    }
+    // Six fit the palette, and stay a strip.
+    let six = Tree::parse_annotated_newick(
+        "(((T1[&c=a]:1,T2[&c=b]:1):1,(T3[&c=c]:1,T4[&c=d]:1):1):1,(T5[&c=e]:1,T6[&c=f]:1):1);",
+    )
+    .unwrap();
+    let svg = drawn(TreeTrack::new(six).trait_categorical("c"));
+    assert_eq!(
+        marks_under(&svg, "T6; c f").pop().map(|(shape, _)| shape),
+        Some(crate::style::Symbol::Square),
+        "a filled cell"
+    );
+}
+
+/// A tree carrying the annotations six layers read.
+fn layered() -> (Tree, TreeTrack) {
+    let tree = Tree::parse_annotated_newick(
+        "(((A[&host=h1,a=1,b=2,c=3,d=0.5]:1,B[&host=h2,a=2,b=1,c=0,d=0.2]:1)[&a=3,b=3,c=1,d=0.9]:1,\
+         (C[&host=h3,a=1,b=1,c=1,d=0.1]:1,D[&host=h1,a=0,b=2,c=2,d=0.7]:1)[&a=1,b=2,c=3,d=0.4]:1)\
+         [&a=2,b=2,c=2,d=0.3]:1);",
+    )
+    .unwrap();
+    let track = TreeTrack::new(tree.clone())
+        .trait_categorical("host")
+        .node_glyph(NodeGlyph::pie(["a", "b", "c"]).label("composition one"))
+        .node_glyph(NodeGlyph::donut(["a", "b"]).label("composition two"))
+        .node_glyph(NodeGlyph::bubble("d").label("bubble three"))
+        .node_glyph(NodeGlyph::stacked_bar(["a", "c"]).label("bars four"))
+        .node_glyph(NodeGlyph::pie(["b", "c"]).label("composition five"))
+        .node_glyph(NodeGlyph::bubble("a").label("bubble six"));
+    (tree, track)
+}
+
+/// The chips across the top of a tree's band, as `(x, y, width, height)`.
+fn chips(svg: &str) -> Vec<(f64, f64, f64, f64)> {
+    let theme = Theme::light();
+    let fill = mix(theme.surface(), &theme.rule, 0.32);
+    svg.split("<rect")
+        .skip(1)
+        // The element alone, so an attribute is read off the rectangle and
+        // not off the text drawn after it.
+        .filter_map(|rest| rest.split("/>").next())
+        .filter(|rect| rect.contains(&format!("fill=\"{fill}\"")))
+        .filter_map(|rect| {
+            let number = |name: &str| -> Option<f64> {
+                rect.split(&format!(" {name}=\""))
+                    .nth(1)?
+                    .split('"')
+                    .next()?
+                    .parse()
+                    .ok()
+            };
+            Some((
+                number("x")?,
+                number("y")?,
+                number("width")?,
+                number("height")?,
+            ))
+        })
+        .collect()
+}
+
+/// Where a text reading `content` sits: its left edge, baseline, width and
+/// size.
+fn text_box(svg: &str, content: &str) -> Option<(f64, f64, f64, f64)> {
+    let piece = svg.split("<text ").skip(1).find(|piece| {
+        piece
+            .split('>')
+            .nth(1)
+            .is_some_and(|text| text.starts_with(&format!("{content}</text")))
+    })?;
+    let number = |name: &str| -> Option<f64> {
+        piece
+            .split(&format!("{name}=\""))
+            .nth(1)?
+            .split('"')
+            .next()?
+            .parse()
+            .ok()
+    };
+    let (x, y, size) = (number("x")?, number("y")?, number("font-size")?);
+    let width = crate::svg::text_width(content, size);
+    let left = if piece.contains("text-anchor=\"middle\"") {
+        x - width / 2.0
+    } else if piece.contains("text-anchor=\"end\"") {
+        x - width
+    } else {
+        x
+    };
+    Some((left, y, width, size))
+}
+
+#[test]
+fn every_layer_is_keyed_however_narrow_the_figure() {
+    // Chips ran along one row until it ended and the rest were dropped: at
+    // 500 pixels two of six layers had no key, and a third was cut to "b...".
+    let (_, track) = layered();
+    for (projected, rectangular) in [
+        (track.clone(), true),
+        (track.clone().circular(), false),
+        (track.unrooted(), false),
+    ] {
+        // Widths where the chips wrap, where one row of them would reach the
+        // column's heading, and where they all fit short of it.
+        for width in [500.0, 640.0, 700.0, 760.0, 900.0] {
+            let svg = Figure::new(region())
+                .width(width)
+                .show_region_label(false)
+                .push(projected.clone())
+                .to_svg();
+            for label in [
+                "composition one",
+                "composition two",
+                "bubble three",
+                "bars four",
+                "composition five",
+                "bubble six",
+            ] {
+                assert!(text_box(&svg, label).is_some(), "{label} at {width}: {svg}");
+            }
+            let placed = chips(&svg);
+            assert_eq!(placed.len(), 6, "{placed:?}");
+            for (index, a) in placed.iter().enumerate() {
+                assert!(a.0 + a.2 <= width, "a chip runs off the figure: {a:?}");
+                for b in &placed[index + 1..] {
+                    let apart = a.0 + a.2 <= b.0
+                        || b.0 + b.2 <= a.0
+                        || a.1 + a.3 <= b.1
+                        || b.1 + b.3 <= a.1;
+                    assert!(apart, "{a:?} over {b:?}");
+                }
+            }
+            // No chip reaches down to the tree: the first tip's name is under
+            // every one of them. A ring's names are turned, so the band is
+            // measured on the rows of a rectangular tree.
+            if rectangular {
+                let tip = text_box(&svg, "A").expect("a tip name");
+                let lowest = placed
+                    .iter()
+                    .map(|chip| chip.1 + chip.3)
+                    .fold(f64::MIN, f64::max);
+                assert!(
+                    lowest < tip.1 - tip.3,
+                    "chips down to {lowest}, tip at {tip:?}"
+                );
+            }
+            // And none covers the heading of the column or the ring.
+            let heading = text_box(&svg, "host").expect("a heading");
+            for chip in &placed {
+                let apart = chip.0 + chip.2 <= heading.0
+                    || heading.0 + heading.2 <= chip.0
+                    || chip.1 + chip.3 <= heading.1 - heading.3
+                    || heading.1 <= chip.1;
+                assert!(apart, "{chip:?} over the heading at {heading:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_layer_of_branch_events_on_its_own_is_keyed() {
+    // The room was held and the chip was never drawn, because the chips were
+    // only drawn when some other layer was there too.
+    let tree = Tree::parse_annotated_newick(
+        "((A[&event=S_D614G]:0.8,B:0.8)0.95:0.8,C[&event=N_R203K]:1.6);",
+    )
+    .unwrap();
+    for track in [
+        TreeTrack::new(tree.clone())
+            .branch_event_layer(BranchEventLayer::new("event").label("changes")),
+        TreeTrack::new(tree.clone())
+            .branch_interval(BranchIntervalLayer::new("rate", "low", "high").label("rates")),
+    ] {
+        let svg = drawn(track);
+        assert_eq!(chips(&svg).len(), 1, "{svg}");
+        assert!(
+            text_box(&svg, "changes")
+                .or_else(|| text_box(&svg, "rates"))
+                .is_some(),
+            "{svg}"
+        );
+    }
+}
+
+#[test]
+fn every_request_the_tree_cannot_carry_out_is_said_under_it() {
+    // Each of these drew a figure byte for byte like the plain tree, with
+    // nothing to say the request had been dropped.
+    let a = tree().node_named("A").unwrap();
+    let tip = format!("node {a} is a tip");
+    let cases: Vec<(TreeTrack, String)> = vec![
+        (
+            TreeTrack::new(tree()).reroot_named("L4"),
+            "not rerooted: no node is named L4".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot(a),
+            format!("not rerooted: {tip}"),
+        ),
+        (
+            TreeTrack::new(tree()).reroot(99),
+            "not rerooted: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot_outgroup(["A", "Z"]),
+            "not rerooted: no tip is named Z".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).reroot_outgroup(["A", "C"]),
+            "not rerooted: A, C are not one clade of the tree".to_string(),
+        ),
+        (
+            TreeTrack::new(Tree::parse_newick("((A,B),(C,D));").unwrap()).reroot_midpoint(),
+            "not rerooted at the midpoint: a branch has no length, or a negative one".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).collapse(a),
+            format!("not collapsed: {tip}"),
+        ),
+        (
+            TreeTrack::new(tree()).collapse(99),
+            "not collapsed: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).clade_highlight(CladeHighlight::new(99)),
+            "not highlighted: the tree has no node 99".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).highlight_named("L4"),
+            "not highlighted: no node is named L4".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).color_by("lineage"),
+            "no branch is coloured: no node carries lineage".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).dnds("omega"),
+            "no branch is coloured by dN/dS: no node carries omega".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).support_threshold(70.0),
+            "no support is drawn: a threshold was set and no support style".to_string(),
+        ),
+        (
+            TreeTrack::new(tree()).dnds_significance("q", -1.0),
+            "no dN/dS significance drawn: -1 is no threshold a test can pass".to_string(),
+        ),
+    ];
+    let plain = drawn(TreeTrack::new(tree()));
+    assert!(TreeTrack::new(tree()).warnings().is_empty());
+    for (track, said) in cases {
+        let warnings = track.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0], said);
+        let svg = drawn(track);
+        assert_ne!(svg, plain, "{said}");
+        assert!(svg.contains(&format!(">{}</text>", warnings[0])), "{svg}");
+    }
+}
+
+#[test]
+fn a_time_axis_says_why_it_was_not_drawn_or_runs_backwards() {
+    let dated = |text: &str| Tree::parse_annotated_newick(text).unwrap();
+    let whole = "((A[&date=2001]:2,B[&date=2003]:4):1,C[&date=2002]:4);";
+    assert!(TreeTrack::new(dated(whole))
+        .time("date")
+        .warnings()
+        .is_empty());
+    // Dates the parser threw away, and one tip without a date.
+    assert_eq!(
+        TreeTrack::new(tree()).time("date").warnings(),
+        ["drawn by branch length: 4 of 4 tips have no number under date"]
+    );
+    assert_eq!(
+        TreeTrack::new(dated("((A[&date=2001]:2,B:4):1,C[&date=2002]:4);"))
+            .time("date")
+            .warnings(),
+        ["drawn by branch length: 1 of 3 tips have no number under date"]
+    );
+    // Heights before the present, read as dates: every branch runs back.
+    let heights =
+        dated("((A[&height=0]:2,B[&height=0]:2)[&height=2]:1,C[&height=0]:3)[&height=3];");
+    assert!(TreeTrack::new(heights.clone())
+        .time("height")
+        .time_direction(TimeDirection::Decreasing)
+        .warnings()
+        .is_empty());
+    assert_eq!(
+        TreeTrack::new(heights).time("height").warnings(),
+        ["4 of 4 branches run backwards in height"]
+    );
+}
+
+#[test]
+fn a_fold_and_a_highlight_follow_their_clade_through_a_reroot() {
+    // Rerooting turns edges round and keeps each node where it was in the
+    // list, so an index chosen before it named another clade after it.
+    let tree =
+        Tree::parse_newick("(((A:1,B:1)ab:1,(C:1,D:1)cd:1):1,((E:1,F:1)ef:1,G:1):1);").unwrap();
+    let ab = tree.node_named("ab").unwrap();
+    let folded = |track: TreeTrack| -> Vec<String> {
+        drawn(track)
+            .split("<title>")
+            .skip(1)
+            .map(|title| title.split("</title>").next().unwrap().to_string())
+            .filter(|title| title.contains("(2 tips)"))
+            .collect()
+    };
+    let before = folded(TreeTrack::new(tree.clone()).collapse(ab));
+    // A root outside the clade leaves it whole, and the same two tips fold.
+    let track = TreeTrack::new(tree.clone())
+        .collapse(ab)
+        .clade_highlight(CladeHighlight::new(ab).label("ab field"))
+        .reroot_outgroup(["G"]);
+    assert!(track.warnings().is_empty(), "{:?}", track.warnings());
+    assert_eq!(folded(track.clone()), before);
+    assert!(drawn(track).contains("ab field"));
+    // A root inside it splits it, and that is said rather than drawn.
+    let split = TreeTrack::new(tree)
+        .collapse(ab)
+        .clade_highlight(CladeHighlight::new(ab))
+        .reroot_outgroup(["A"]);
+    assert_eq!(
+        split.warnings(),
+        [
+            format!("not collapsed: the new root splits the clade of node {ab}"),
+            format!("not highlighted: the new root splits the clade of node {ab}"),
+        ]
+    );
+}
+
+#[test]
+fn a_colour_key_with_more_values_than_colours_and_support_past_a_hundred_are_said() {
+    let seven = Tree::parse_annotated_newick(
+        "(((A[&k=a]:1,B[&k=b]:1):1,(C[&k=c]:1,D[&k=d]:1):1):1,((E[&k=e]:1,F[&k=f]:1):1,G[&k=g]:1):1);",
+    )
+    .unwrap();
+    assert_eq!(
+        TreeTrack::new(seven.clone()).color_by("k").warnings(),
+        ["k has 7 values and the palette 6 colours, so some branches of two values share one"]
+    );
+    let counts = Tree::parse_newick("((A:1,B:1)950:1,(C:1,D:1)40:1);").unwrap();
+    assert_eq!(
+        TreeTrack::new(counts.clone())
+            .support_style(SupportStyle::Labels)
+            .warnings(),
+        ["support above 100 is drawn as full support"]
+    );
+    assert!(TreeTrack::new(counts).warnings().is_empty());
+}
+
+#[test]
+fn the_band_keeps_room_for_what_it_says() {
+    // The lines are under the tree and its ruler, not over them: what a
+    // builder refused first, then what the tree says nothing about.
+    let track = TreeTrack::new(tree())
+        .color_by("lineage")
+        .highlight_named("L4");
+    let plain = Figure::new(region())
+        .width(640.0)
+        .push(TreeTrack::new(tree()));
+    let said = Figure::new(region()).width(640.0).push(track);
+    assert!(said.dimensions().1 > plain.dimensions().1);
+    let svg = said.to_svg();
+    let ruler = text_box(&svg, "0.1").expect("the scale bar");
+    let first = text_box(&svg, "not highlighted: no node is named L4").expect("a line");
+    let second = text_box(&svg, "no branch is coloured: no node carries lineage").expect("a line");
+    assert!(ruler.1 < first.1 - first.3, "{ruler:?} {first:?}");
+    assert!(first.1 < second.1 - second.3, "{first:?} {second:?}");
+}
+
+#[test]
+fn settings_that_used_to_undo_each_other_draw_one_figure_in_either_order() {
+    // Each pair drew two different figures written one way round and the
+    // other, although the builder's own docs say the order does not matter.
+    let tree = || {
+        Tree::parse_annotated_newick(
+            "((A[&omega=0.2,k=x]:1,B[&omega=3,k=y]:2):1,(C[&omega=1,k=x]:1,D[&k=y]:1):2);",
+        )
+        .unwrap()
+    };
+    type Pair = (
+        &'static str,
+        fn(TreeTrack) -> TreeTrack,
+        fn(TreeTrack) -> TreeTrack,
+    );
+    let pairs: [Pair; 7] = [
+        (
+            "unrooted and a radial start",
+            |t| t.unrooted(),
+            |t| t.radial_start(0.0),
+        ),
+        (
+            "unrooted and a radial sweep",
+            |t| t.unrooted(),
+            |t| t.radial_sweep(200.0),
+        ),
+        (
+            "a rectangle and an inner radius",
+            |t| t.projection(TreeProjection::Rectangular),
+            |t| t.inner_radius(0.3),
+        ),
+        ("a fan and a circle", |t| t.fan(180.0), |t| t.circular()),
+        (
+            "a hidden bar and its unit",
+            |t| t.show_scale_bar(false),
+            |t| t.scale_bar_unit("subs/site"),
+        ),
+        (
+            "a hidden bar and its length",
+            |t| t.show_scale_bar(false),
+            |t| t.scale_bar_length(0.5),
+        ),
+        (
+            "dN/dS and a colour key",
+            |t| t.dnds("omega"),
+            |t| t.color_by("k"),
+        ),
+    ];
+    for (what, one, other) in pairs {
+        let forward = drawn(other(one(TreeTrack::new(tree()))));
+        let backward = drawn(one(other(TreeTrack::new(tree()))));
+        assert_eq!(forward, backward, "{what}");
+    }
+    // And what was chosen by name is what is drawn.
+    let unrooted = TreeTrack::new(tree()).unrooted().radial_start(-90.0);
+    assert_eq!(unrooted.projection, TreeProjection::Unrooted);
+    let alone = TreeTrack::new(tree()).radial_start(-90.0);
+    assert_eq!(alone.projection, TreeProjection::Circular);
+    let fan = TreeTrack::new(tree()).fan(180.0).circular();
+    assert_eq!(fan.radial.sweep_degrees, 180.0);
+    let hidden = drawn(
+        TreeTrack::new(tree())
+            .scale_bar_unit("subs/site")
+            .show_scale_bar(false),
+    );
+    assert!(!hidden.contains("subs/site"), "{hidden}");
+}
+
+#[test]
+fn a_time_axis_that_cannot_be_drawn_leaves_the_scale_bar_its_tree_needs() {
+    // Drawn by branch length because a tip has no date, the tree lost its
+    // time axis and its scale bar with it, so nothing measured its branches.
+    let undated =
+        Tree::parse_annotated_newick("((A[&date=2001]:2,B:4):1,C[&date=2002]:4);").unwrap();
+    let svg = drawn(TreeTrack::new(undated.clone()).time("date"));
+    assert!(svg.contains("drawn by branch length"), "{svg}");
+    assert!(svg.contains("<title>branch length scale "), "{svg}");
+    // A tree its dates do place has its time axis, and no bar.
+    let dated =
+        Tree::parse_annotated_newick("((A[&date=2001]:2,B[&date=2003]:4):1,C[&date=2002]:4);")
+            .unwrap();
+    let timed = drawn(TreeTrack::new(dated).time("date"));
+    assert!(!timed.contains("<title>branch length scale "), "{timed}");
 }

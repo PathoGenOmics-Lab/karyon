@@ -650,6 +650,42 @@ pub fn leaf_order(tree: &Tree, names: &[String]) -> Vec<usize> {
     order
 }
 
+/// The tree to draw beside rows: cut to the tips whose row is among the
+/// first `drawn` of `rows`, and with how many of its tips have no row at all.
+///
+/// Drawn whole, a tree with a tip the panel lacks put every row after that
+/// tip beside the branch of the tip before it, and the last branch below the
+/// last row: the rows were put in the tree's order, but the tree was never
+/// cut to the rows. A row hidden under a cap goes from the tree too, so no
+/// branch leads off the band to a row that is not there. `None` when no tip
+/// has a row that is drawn.
+pub(crate) fn tree_beside_rows<'a>(
+    tree: &'a Tree,
+    rows: &[String],
+    drawn: usize,
+) -> (Option<std::borrow::Cow<'a, Tree>>, usize) {
+    use std::collections::HashSet;
+    let all: HashSet<&str> = rows.iter().map(String::as_str).collect();
+    let shown: HashSet<&str> = rows.iter().take(drawn).map(String::as_str).collect();
+    let leaves = tree.leaf_names();
+    let without_row = leaves
+        .iter()
+        .filter(|leaf| !all.contains(leaf.as_str()))
+        .count();
+    let kept: Vec<&str> = leaves
+        .iter()
+        .map(String::as_str)
+        .filter(|leaf| shown.contains(leaf))
+        .collect();
+    if kept.len() == leaves.len() {
+        return (Some(std::borrow::Cow::Borrowed(tree)), without_row);
+    }
+    (
+        tree.keep_tips(kept).map(std::borrow::Cow::Owned),
+        without_row,
+    )
+}
+
 /// How the branches of a tree are drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TreeStyle<'a> {
@@ -689,45 +725,6 @@ pub fn draw_tree(
             leaves: false,
         },
     );
-}
-
-/// One annotation's entries in a tree's key, from the whole tree's count.
-///
-/// A ramp is labelled with the two ends of the range it runs over, and a
-/// continuous annotation with no number anywhere has no range and is left
-/// out rather than keyed from the placeholder the empty count starts at.
-fn key_of(
-    legend: crate::track::legend::Legend,
-    label: &str,
-    scale: TraitScale,
-    tree: &Tree,
-    key: &str,
-    levels: Dealt<'_>,
-    theme: &Theme,
-) -> crate::track::legend::Legend {
-    let domain = rectangular::tree_domain(tree, key, levels);
-    match scale {
-        TraitScale::Continuous => {
-            if domain.minimum > domain.maximum {
-                return legend;
-            }
-            legend.ramp(
-                label,
-                theme.muted.clone(),
-                theme.accent.clone(),
-                text_rounded(domain.minimum, 3),
-                text_rounded(domain.maximum, 3),
-            )
-        }
-        TraitScale::Categorical => {
-            domain
-                .keyed()
-                .into_iter()
-                .fold(legend, |legend, (level, index)| {
-                    legend.key(format!("{label}: {level}"), theme.color(index).to_string())
-                })
-        }
-    }
 }
 
 /// The same drawing, with the branches named.
@@ -863,6 +860,21 @@ fn draw(
     }
 }
 
+/// Names as a sentence lists them: the first three, and how many more.
+fn listed(names: &[String]) -> String {
+    match names.len() {
+        0..=3 => names.join(", "),
+        n => format!("{} and {} more", names[..3].join(", "), n - 3),
+    }
+}
+
+/// The levels of `key` over `tree`, each with the palette colour a
+/// [`TreeTrack`] colouring its branches by `key` deals it: in the order the
+/// tree meets them, from the palette's first colour.
+pub(crate) fn tree_levels(tree: &Tree, key: &str) -> BTreeMap<String, usize> {
+    rectangular::tree_domain(tree, key, Dealt::default()).categories
+}
+
 /// A phylogeny as a track of its own.
 ///
 /// ```
@@ -894,6 +906,9 @@ pub struct TreeTrack {
     row_height: f64,
     shape: TreeShape,
     projection: TreeProjection,
+    /// Whether a projection was chosen by name, which a radial setting then
+    /// leaves as it is rather than turning the tree into a circle.
+    projection_chosen: bool,
     branch_geometry: BranchGeometry,
     radial: RadialLayout,
     color: Option<String>,
@@ -931,10 +946,13 @@ pub struct TreeTrack {
     support_threshold: f64,
     branch_labels: Option<String>,
     branch_label_size: f64,
-    scale_bar: Option<ScaleBar>,
+    scale_bar: ScaleBar,
+    show_scale_bar: bool,
     trait_columns: Vec<TraitColumn>,
     node_glyphs: Vec<NodeGlyph>,
     clade_highlights: Vec<CladeHighlight>,
+    /// Requests a builder could not carry out, each said in a line.
+    refused: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1012,6 +1030,7 @@ impl TreeTrack {
             row_height: 15.0,
             shape: TreeShape::Phylogram,
             projection: TreeProjection::Rectangular,
+            projection_chosen: false,
             branch_geometry: BranchGeometry::Orthogonal,
             radial: RadialLayout::default(),
             color: None,
@@ -1045,10 +1064,12 @@ impl TreeTrack {
             // On by default: a phylogram's widths are its branch lengths, and
             // with no rule to read them against they measured nothing a
             // reader could name. A tree that is not a phylogram draws none.
-            scale_bar: Some(ScaleBar::default()),
+            scale_bar: ScaleBar::default(),
+            show_scale_bar: true,
             trait_columns: Vec::new(),
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
+            refused: Vec::new(),
         }
     }
 
@@ -1071,9 +1092,22 @@ impl TreeTrack {
     }
 
     /// Chooses rectangular, circular or unrooted coordinates.
+    ///
+    /// A projection chosen here, or with [`TreeTrack::circular`],
+    /// [`TreeTrack::fan`] or [`TreeTrack::unrooted`], is the one drawn,
+    /// whatever radial setting comes before or after it. A radial setting on
+    /// its own draws a circle.
     pub fn projection(mut self, projection: TreeProjection) -> Self {
         self.projection = projection;
+        self.projection_chosen = true;
         self
+    }
+
+    /// The projection a radial setting implies, unless one was chosen.
+    fn imply(&mut self, projection: TreeProjection) {
+        if !self.projection_chosen {
+            self.projection = projection;
+        }
     }
 
     /// Chooses orthogonal, diagonal or curved rectangular branches.
@@ -1084,34 +1118,32 @@ impl TreeTrack {
         self
     }
 
-    /// Draws a complete circular tree radiating outwards by default.
-    pub fn circular(mut self) -> Self {
-        self.projection = TreeProjection::Circular;
-        self.radial.sweep_degrees = 360.0;
-        self
+    /// Draws a circular tree radiating outwards by default: a complete circle,
+    /// unless [`TreeTrack::fan`] or [`TreeTrack::radial_sweep`] asks for less,
+    /// before this or after it.
+    pub fn circular(self) -> Self {
+        self.projection(TreeProjection::Circular)
     }
 
     /// Draws an equal-angle tree around a topology-balanced central node.
     ///
     /// The source root is not used as the centre. Branch lengths are retained
     /// for a phylogram and topology alone is used for a cladogram.
-    pub fn unrooted(mut self) -> Self {
-        self.projection = TreeProjection::Unrooted;
-        self
+    pub fn unrooted(self) -> Self {
+        self.projection(TreeProjection::Unrooted)
     }
 
     /// Draws a circular fan covering `sweep_degrees` clockwise.
     pub fn fan(mut self, sweep_degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
         self.radial.sweep_degrees = finite_within(sweep_degrees, 10.0, 359.0, 240.0);
-        self
+        self.projection(TreeProjection::Circular)
     }
 
     /// Sets the angle where a circular tree begins, in clockwise degrees.
     ///
     /// Zero is three o'clock and -90 is twelve o'clock.
     pub fn radial_start(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         if degrees.is_finite() {
             self.radial.start_degrees = degrees;
         }
@@ -1120,21 +1152,21 @@ impl TreeTrack {
 
     /// Sets the clockwise angular span of a circular tree in degrees.
     pub fn radial_sweep(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.sweep_degrees = finite_within(degrees, 10.0, 360.0, 360.0);
         self
     }
 
     /// Chooses whether tips point away from or towards the centre.
     pub fn radial_direction(mut self, direction: RadialDirection) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.direction = direction;
         self
     }
 
     /// Sets the central gap as a fraction of the tree radius.
     pub fn inner_radius(mut self, fraction: f64) -> Self {
-        self.projection = TreeProjection::Circular;
+        self.imply(TreeProjection::Circular);
         self.radial.inner_radius = finite_within(fraction, 0.0, 0.85, 0.08);
         self
     }
@@ -1152,7 +1184,7 @@ impl TreeTrack {
 
     /// Rotates the first equal-angle sector of an unrooted tree.
     pub fn unrooted_start(mut self, degrees: f64) -> Self {
-        self.projection = TreeProjection::Unrooted;
+        self.imply(TreeProjection::Unrooted);
         if degrees.is_finite() {
             self.radial.start_degrees = degrees;
         }
@@ -1161,21 +1193,35 @@ impl TreeTrack {
 
     /// Reorients the owned tree around internal `node` and marks the new root.
     ///
-    /// An invalid index or sampled tip leaves the tree unchanged. Use
+    /// An invalid index or sampled tip leaves the tree unchanged, and the band
+    /// says so under the tree, as [`TreeTrack::warnings`] does. Use
     /// [`Tree::reroot`](crate::Tree::reroot) directly when failure must be
-    /// handled rather than represented as an unchanged builder.
+    /// handled rather than reported.
     pub fn reroot(mut self, node: usize) -> Self {
-        if self.tree.reroot(node) {
-            self.after_reroot();
+        match self.tree.nodes().get(node) {
+            None => self.refuse(format!("not rerooted: the tree has no node {node}")),
+            Some(clade) if clade.is_leaf() => {
+                self.refuse(format!("not rerooted: node {node} is a tip"));
+            }
+            Some(_) => {
+                self.rerooted_with(|tree| tree.reroot(node));
+            }
         }
         self
     }
 
     /// Reorients the owned tree around an internal node with this exact name.
+    ///
+    /// A name no node has, or a tip's, leaves the tree unchanged and is said
+    /// under it.
     pub fn reroot_named(mut self, name: &str) -> Self {
-        if let Some(node) = self.tree.node_named(name) {
-            if self.tree.reroot(node) {
-                self.after_reroot();
+        match self.tree.node_named(name) {
+            None => self.refuse(format!("not rerooted: no node is named {name}")),
+            Some(node) if self.tree.nodes()[node].is_leaf() => {
+                self.refuse(format!("not rerooted: {name} is a tip"));
+            }
+            Some(node) => {
+                self.rerooted_with(|tree| tree.reroot(node));
             }
         }
         self
@@ -1184,45 +1230,131 @@ impl TreeTrack {
     /// Roots halfway along the edge leading to a monophyletic named outgroup.
     ///
     /// Missing, duplicate, internal or non-monophyletic names leave the tree
-    /// unchanged. The new root is inserted without converting an outgroup tip
-    /// into an internal node.
+    /// unchanged, and the band says which under the tree. The new root is
+    /// inserted without converting an outgroup tip into an internal node.
     pub fn reroot_outgroup<I, S>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let names: Vec<String> = names
+            .into_iter()
+            .map(|name| name.as_ref().to_string())
+            .collect();
         let mut nodes = Vec::new();
-        for name in names {
-            let Some(node) = self.tree.node_named(name.as_ref()) else {
-                return self;
-            };
-            nodes.push(node);
+        for name in &names {
+            match self.tree.node_named(name) {
+                None => {
+                    self.refuse(format!("not rerooted: no tip is named {name}"));
+                    return self;
+                }
+                Some(node) if !self.tree.nodes()[node].is_leaf() => {
+                    self.refuse(format!("not rerooted: {name} is not a tip"));
+                    return self;
+                }
+                Some(node) => nodes.push(node),
+            }
         }
-        if self.tree.reroot_outgroup(&nodes).is_some() {
-            self.after_reroot();
+        if !self.rerooted_with(|tree| tree.reroot_outgroup(&nodes).is_some()) {
+            self.refuse(format!(
+                "not rerooted: {} {} not one clade of the tree",
+                listed(&names),
+                if names.len() == 1 { "is" } else { "are" }
+            ));
         }
         self
     }
 
     /// Roots the owned phylogram at the midpoint of its weighted tip diameter.
     ///
-    /// Missing, negative or non-finite branch lengths leave the tree unchanged.
+    /// Missing, negative or non-finite branch lengths leave the tree
+    /// unchanged, and the band says so under it.
     pub fn reroot_midpoint(mut self) -> Self {
-        if self.tree.reroot_midpoint().is_some() {
-            self.after_reroot();
+        if !self.rerooted_with(|tree| tree.reroot_midpoint().is_some()) {
+            let why = if self.tree.leaves().len() < 2 {
+                "not rerooted at the midpoint: the tree has one tip"
+            } else {
+                "not rerooted at the midpoint: a branch has no length, or a negative one"
+            };
+            self.refuse(why.to_string());
         }
         self
     }
 
-    /// What every reroot that worked leaves behind.
+    /// Records a request this track was given and cannot carry out.
+    fn refuse(&mut self, why: String) {
+        if !self.refused.contains(&why) {
+            self.refused.push(why);
+        }
+    }
+
+    /// Reroots with `reroot`, and carries every fold and highlight asked for
+    /// before it to the same clade after it. Whether it rerooted.
     ///
-    /// The root it chose is marked, unless [`TreeTrack::show_root`] says
-    /// otherwise before the reroot or after it, and the folds are emptied to
-    /// be worked out again: rerooting moves the tips about, and a fold worked
-    /// out against the old shape would collapse the wrong clades.
-    fn after_reroot(&mut self) {
+    /// A clade is its tips. Rerooting keeps each node where it was in the
+    /// list and turns edges round, so an index names another clade after it:
+    /// a fold of one lineage asked for before a reroot folded twenty-eight
+    /// tips of three lineages after it. Each is found again by its tips, and
+    /// one the new root splits is said under the tree rather than drawn.
+    ///
+    /// The root chosen is marked, unless [`TreeTrack::show_root`] says
+    /// otherwise before the reroot or after it, and the folds a row cap made
+    /// are emptied to be worked out against the new shape.
+    fn rerooted_with(&mut self, reroot: impl FnOnce(&mut Tree) -> bool) -> bool {
+        let tips = |tree: &Tree, node: usize| -> BTreeSet<usize> {
+            if tree.nodes()[node].is_leaf() {
+                return [node].into_iter().collect();
+            }
+            tree.descendants(node)
+                .into_iter()
+                .filter(|below| tree.nodes()[*below].is_leaf())
+                .collect()
+        };
+        let folds: Vec<(usize, BTreeSet<usize>)> = self
+            .collapsed
+            .iter()
+            .map(|node| (*node, tips(&self.tree, *node)))
+            .collect();
+        let fields: Vec<BTreeSet<usize>> = self
+            .clade_highlights
+            .iter()
+            .map(|highlight| tips(&self.tree, highlight.node))
+            .collect();
+        if !reroot(&mut self.tree) {
+            return false;
+        }
         self.rerooted = true;
         self.folds = OnceLock::new();
+        let found = |tree: &Tree, held: &BTreeSet<usize>| {
+            let nodes: Vec<usize> = held.iter().copied().collect();
+            tree.mrca(&nodes)
+                .filter(|clade| tips(tree, *clade) == *held)
+        };
+        self.collapsed = BTreeSet::new();
+        for (node, held) in folds {
+            match found(&self.tree, &held) {
+                Some(clade) => {
+                    self.collapsed.insert(clade);
+                }
+                None => self.refuse(format!(
+                    "not collapsed: the new root splits the clade of node {node}"
+                )),
+            }
+        }
+        let highlights = std::mem::take(&mut self.clade_highlights);
+        for (mut highlight, held) in highlights.into_iter().zip(fields) {
+            match found(&self.tree, &held) {
+                Some(clade) => {
+                    highlight.node = clade;
+                    self.clade_highlights.push(highlight);
+                }
+                None => self.refuse(format!(
+                    "not highlighted: the new root splits the clade of node {}",
+                    highlight.node
+                )),
+            }
+        }
+        true
     }
 
     /// Draws or hides the selected root marker in rooted projections.
@@ -1296,10 +1428,19 @@ impl TreeTrack {
     }
 
     /// Colours each incoming branch by one node annotation.
+    ///
+    /// [`TreeTrack::dnds`] colours the branches too, and where both are set
+    /// the dN/dS colouring is drawn, whichever came first, and the band says
+    /// this one was not.
     pub fn color_by(mut self, key: impl Into<String>) -> Self {
         self.color_by = Some(key.into());
-        self.dnds = None;
         self
+    }
+
+    /// The key the branches are coloured by, where one is drawn: a dN/dS
+    /// colouring takes the branches over.
+    fn branch_key(&self) -> Option<&str> {
+        self.color_by.as_deref().filter(|_| self.dnds.is_none())
     }
 
     /// Colours incoming branches by a direct dN/dS (ω) annotation.
@@ -1312,7 +1453,6 @@ impl TreeTrack {
     /// proof of selection by itself.
     pub fn dnds(mut self, key: impl Into<String>) -> Self {
         self.dnds = Some(key.into());
-        self.color_by = None;
         self
     }
 
@@ -1358,6 +1498,11 @@ impl TreeTrack {
                 key: key.into(),
                 maximum,
             });
+        } else {
+            self.refuse(format!(
+                "no dN/dS significance drawn: {} is no threshold a test can pass",
+                text_rounded(maximum, 3)
+            ));
         }
         self
     }
@@ -1429,15 +1574,19 @@ impl TreeTrack {
     }
 
     /// Collapses one internal node visually while preserving the source tree.
+    ///
+    /// An index the tree does not have, or a tip's, folds nothing and is said
+    /// under the tree.
     pub fn collapse(mut self, node: usize) -> Self {
-        if self
-            .tree
-            .nodes()
-            .get(node)
-            .is_some_and(|clade| !clade.is_leaf())
-        {
-            self.collapsed.insert(node);
-            self.folds = OnceLock::new();
+        match self.tree.nodes().get(node) {
+            None => self.refuse(format!("not collapsed: the tree has no node {node}")),
+            Some(clade) if clade.is_leaf() => {
+                self.refuse(format!("not collapsed: node {node} is a tip"));
+            }
+            Some(_) => {
+                self.collapsed.insert(node);
+                self.folds = OnceLock::new();
+            }
         }
         self
     }
@@ -1578,8 +1727,11 @@ impl TreeTrack {
 
     /// Chooses how internal-node support is made visible.
     ///
-    /// Values in either the `0..=1` or `0..=100` convention are recognised.
-    /// Their original representation is retained in labels and tooltips.
+    /// Values in either the `0..=1` or `0..=100` convention are recognised,
+    /// once for the whole tree: when any value runs above one, every value is
+    /// read out of a hundred, so a clade at 1 on a bootstrap tree is one
+    /// percent and not full support. Their original representation is
+    /// retained in labels and tooltips.
     pub fn support_style(mut self, style: SupportStyle) -> Self {
         self.support_style = style;
         self
@@ -1590,7 +1742,7 @@ impl TreeTrack {
     /// `0.8` and `80.0` both mean eighty percent. Non-finite values reset the
     /// threshold to zero.
     pub fn support_threshold(mut self, minimum: f64) -> Self {
-        self.support_threshold = support_fraction(minimum).unwrap_or(0.0);
+        self.support_threshold = threshold_fraction(minimum).unwrap_or(0.0);
         self
     }
 
@@ -1626,19 +1778,17 @@ impl TreeTrack {
     /// Cladograms, explicitly time-scaled trees and trees with no branch
     /// lengths omit it, because their widths do not measure evolutionary
     /// branch length.
-    pub fn scale_bar(mut self) -> Self {
-        self.scale_bar.get_or_insert_with(ScaleBar::default);
-        self
+    pub fn scale_bar(self) -> Self {
+        self.show_scale_bar(true)
     }
 
     /// Draws or removes the branch-length scale bar, which a phylogram
     /// draws by default.
+    ///
+    /// Hidden, it stays hidden whatever length or unit is set for it before
+    /// or after; those used to bring it back.
     pub fn show_scale_bar(mut self, show: bool) -> Self {
-        if show {
-            self.scale_bar.get_or_insert_with(ScaleBar::default);
-        } else {
-            self.scale_bar = None;
-        }
+        self.show_scale_bar = show;
         self
     }
 
@@ -1647,16 +1797,14 @@ impl TreeTrack {
     /// Values longer than the visible tree span are clamped to that span.
     /// Invalid values fall back to automatic sizing.
     pub fn scale_bar_length(mut self, length: f64) -> Self {
-        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
-        bar.length = (length.is_finite() && length > 0.0).then_some(length);
+        self.scale_bar.length = (length.is_finite() && length > 0.0).then_some(length);
         self
     }
 
     /// Adds a unit such as `substitutions/site` to the scale-bar label.
     pub fn scale_bar_unit(mut self, unit: impl Into<String>) -> Self {
-        let bar = self.scale_bar.get_or_insert_with(ScaleBar::default);
         let unit = unit.into();
-        bar.unit = (!unit.is_empty()).then_some(unit);
+        self.scale_bar.unit = (!unit.is_empty()).then_some(unit);
         self
     }
 
@@ -1700,17 +1848,28 @@ impl TreeTrack {
     }
 
     /// Adds a translucent clade field behind branches and node graphics.
+    ///
+    /// An index the tree does not have highlights nothing and is said under
+    /// the tree.
     pub fn clade_highlight(mut self, highlight: CladeHighlight) -> Self {
         if self.tree.nodes().get(highlight.node).is_some() {
             self.clade_highlights.push(highlight);
+        } else {
+            self.refuse(format!(
+                "not highlighted: the tree has no node {}",
+                highlight.node
+            ));
         }
         self
     }
 
     /// Highlights a clade by its exact internal or terminal name.
+    ///
+    /// A name no node has highlights nothing and is said under the tree.
     pub fn highlight_named(mut self, name: &str) -> Self {
-        if let Some(node) = self.tree.node_named(name) {
-            self.clade_highlights.push(CladeHighlight::new(node));
+        match self.tree.node_named(name) {
+            Some(node) => self.clade_highlights.push(CladeHighlight::new(node)),
+            None => self.refuse(format!("not highlighted: no node is named {name}")),
         }
         self
     }
@@ -1735,11 +1894,13 @@ impl TreeTrack {
     pub fn strips(&self, theme: &Theme) -> Vec<crate::TraitStrip> {
         const BANDS: usize = 16;
         let nodes = self.tree.nodes().len();
+        let dealing = self.dealing();
         self.trait_columns
             .iter()
-            .map(|column| {
+            .zip(dealing.columns)
+            .map(|(column, dealt)| {
                 let values = rectangular::branch_values(&self.tree, &column.key);
-                let domain = rectangular::tree_domain(&self.tree, &column.key, column.dealt());
+                let domain = rectangular::tree_domain(&self.tree, &column.key, dealt);
                 let mut levels: Vec<crate::TraitLevel> = Vec::new();
                 let mut of: Vec<Option<usize>> = vec![None; nodes];
                 match column.scale {
@@ -1800,54 +1961,138 @@ impl TreeTrack {
     /// different order: a figure of two countries printed each one's colour
     /// beside the other's name.
     ///
-    /// A column that repeats the branch key with the same scale is not keyed
-    /// twice. Nothing calls this on its own, since whether a figure wants a
-    /// key and where it goes is the caller's decision, as it is for
-    /// [`Traits::legend`](crate::track::traits::Traits::legend).
+    /// Each level is keyed with the mark its column draws: a box for a strip,
+    /// its own shape for a symbol column, and the two dots of a binary one.
+    /// A column over the branch key keys the branch colours too, under its
+    /// own heading, and a colour is not keyed twice.
+    /// [`Figure::key`](crate::Figure::key) gathers this key in the figure's
+    /// own theme; where it goes, and whether the figure needs it, is the
+    /// caller's decision.
     pub fn legend(&self, theme: &Theme) -> crate::track::legend::Legend {
+        // What a column's colours are dealt from and how it marks them: two
+        // columns alike in both key the same entries, and a binary column
+        // marks its values with two dots of its own whatever it shares.
+        let marks = |key: &'_ str, scale: TraitScale, style: TraitStyle| {
+            (key.to_string(), scale, style == TraitStyle::Binary)
+        };
+        let dealing = self.dealing();
         let mut legend = crate::track::legend::Legend::new();
-        let mut keyed: Vec<(&str, TraitScale)> = Vec::new();
-        if let Some(key) = &self.color_by {
+        let mut keyed = Vec::new();
+        if let Some(key) = self.branch_key() {
             let values = rectangular::branch_values(&self.tree, key);
             let scale = if rectangular::is_continuous(&values) {
                 TraitScale::Continuous
             } else {
                 TraitScale::Categorical
             };
-            let levels = self.color_levels();
-            legend = key_of(legend, key, scale, &self.tree, key, levels, theme);
-            keyed.push((key, scale));
+            // A column over the same key keys these colours itself, in its
+            // own marks and under its own heading. Keyed here as boxes, a
+            // column of symbols beside them went unkeyed as a repeat.
+            let covered = self.trait_columns.iter().any(|column| {
+                marks(&column.key, column.scale, column.style)
+                    == marks(key, scale, TraitStyle::Strip)
+            });
+            if !covered {
+                let domain = rectangular::tree_domain(&self.tree, key, dealing.branches);
+                legend = crate::track::traits::key_entries(
+                    legend,
+                    key,
+                    scale,
+                    TraitStyle::Strip,
+                    &domain,
+                    theme,
+                );
+                keyed.push(marks(key, scale, TraitStyle::Strip));
+            }
         }
-        for column in &self.trait_columns {
-            if keyed.contains(&(column.key.as_str(), column.scale)) {
+        for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
+            let these = marks(&column.key, column.scale, column.style);
+            if keyed.contains(&these) {
                 continue;
             }
-            legend = key_of(
+            let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
+            legend = crate::track::traits::key_entries(
                 legend,
                 &column.label,
                 column.scale,
-                &self.tree,
-                &column.key,
-                column.dealt(),
+                column.drawn_style(&domain, theme),
+                &domain,
                 theme,
             );
-            keyed.push((&column.key, column.scale));
+            keyed.push(these);
         }
         legend
     }
 
-    /// The order the branch colour key's levels are dealt the palette in: the
-    /// one a trait column over the same key carries from its sheet, so the
-    /// branches and the strip beside them agree, and otherwise none.
+    /// How the branch colour key deals the palette: as a trait column over
+    /// the same key does, so the branches and the strip beside them agree,
+    /// and otherwise from a stretch of its own.
     fn color_levels(&self) -> Dealt<'_> {
-        self.color_by
-            .as_deref()
-            .and_then(|key| {
-                self.trait_columns
-                    .iter()
-                    .find(|column| column.key == key && column.scale == TraitScale::Categorical)
+        self.dealing().branches
+    }
+
+    /// How each trait column deals the palette, in the order of the columns,
+    /// and how the branch key does.
+    ///
+    /// A column given a start of its own keeps it, as every column from a
+    /// sample sheet does. The others, and the branch key where no column
+    /// covers it, take one stretch of the palette each, in the order they
+    /// were asked for, the way a sheet deals its columns: two strips of words
+    /// both started at the palette's first colour, so each lineage was also a
+    /// country. A key some column chose a start for starts there in every
+    /// column over it.
+    fn dealing(&self) -> Dealing<'_> {
+        let worded = |column: &TraitColumn| {
+            column.scale == TraitScale::Categorical && column.style != TraitStyle::Binary
+        };
+        let covering = |key: &str| {
+            self.trait_columns
+                .iter()
+                .position(|column| column.key == key && column.scale == TraitScale::Categorical)
+        };
+        let branch_key = self.branch_key().filter(|key| {
+            covering(key).is_none()
+                && !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key))
+        });
+        let mut order: Vec<&str> = branch_key.into_iter().collect();
+        for column in self.trait_columns.iter().filter(|column| worded(column)) {
+            if !order.contains(&column.key.as_str()) {
+                order.push(&column.key);
+            }
+        }
+        let stride = (crate::track::traits::STRIP_LEVELS / order.len().max(1)).max(1);
+        let start = |key: &str| {
+            self.trait_columns
+                .iter()
+                .filter(|column| column.key == key)
+                .find_map(|column| column.first)
+                .or_else(|| {
+                    order
+                        .iter()
+                        .position(|named| *named == key)
+                        .map(|place| place * stride)
+                })
+                .unwrap_or(0)
+        };
+        let columns: Vec<Dealt<'_>> = self
+            .trait_columns
+            .iter()
+            .map(|column| Dealt {
+                levels: &column.levels,
+                first: start(&column.key),
             })
-            .map_or(Dealt::default(), TraitColumn::dealt)
+            .collect();
+        let branches = match self.branch_key() {
+            Some(key) => match covering(key) {
+                Some(index) => columns[index],
+                None => Dealt {
+                    levels: &[],
+                    first: start(key),
+                },
+            },
+            None => Dealt::default(),
+        };
+        Dealing { columns, branches }
     }
 
     fn branch_scale(&self) -> Option<&ScaleBar> {
@@ -1858,9 +2103,13 @@ impl TreeTrack {
             .nodes()
             .iter()
             .any(|node| node.branch_length.is_some_and(|length| length > 0.0));
-        self.scale_bar
-            .as_ref()
-            .filter(|_| measured && self.shape == TreeShape::Phylogram && self.time.is_none())
+        // A time axis that cannot be drawn leaves the tree drawn by branch
+        // length, and that drawing is measured by the bar as any other is.
+        let timed = self
+            .time_axis()
+            .is_some_and(|time| self.tree.time_layout(&time.key, time.direction).is_some());
+        (self.show_scale_bar && measured && self.shape == TreeShape::Phylogram && !timed)
+            .then_some(&self.scale_bar)
     }
 
     /// Width the tip names need.
@@ -1914,20 +2163,246 @@ impl TreeTrack {
         }
     }
 
-    fn annotation_header_room(&self) -> f64 {
-        if self.trait_columns.is_empty()
-            && self.node_glyphs.is_empty()
-            && self.dnds.is_none()
-            && self.rate_mixtures.is_empty()
-            && self.homoplasy_layers.is_empty()
-            && self.branch_event_layers.is_empty()
-            && self.branch_interval_layers.is_empty()
-            && self.ancestral_state_layers.is_empty()
+    /// What this track was asked for and does not draw, a line each.
+    ///
+    /// A builder that cannot do what it was asked leaves the tree as it was,
+    /// so a chain of settings never fails halfway: a reroot, a fold or a
+    /// highlight naming a node the tree does not have, an outgroup that is not
+    /// one clade. A setting can also say nothing about this tree: a key no
+    /// node carries, a time axis some tip has no date for, a support
+    /// threshold with no support drawn. Each of these used to leave a figure
+    /// that looked finished and was not what was asked for. The band says
+    /// every one of them under the tree, in these words, and this hands them
+    /// to a caller that would rather stop.
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings_in(&Theme::default())
+    }
+
+    fn warnings_in(&self, theme: &Theme) -> Vec<String> {
+        let mut said = self.refused.clone();
+        let carried = |key: &str| {
+            (0..self.tree.nodes().len()).any(|node| self.tree.annotation(node, key).is_some())
+        };
+        if let (Some(key), Some(dnds)) = (&self.color_by, &self.dnds) {
+            said.push(format!(
+                "branches coloured by dN/dS ({dnds}), not by {key}: one colouring at a time"
+            ));
+        }
+        if let Some(key) = self.branch_key() {
+            if !carried(key) {
+                said.push(format!("no branch is coloured: no node carries {key}"));
+            } else {
+                let values = rectangular::branch_values(&self.tree, key);
+                if !rectangular::is_continuous(&values) {
+                    let domain = rectangular::tree_domain(&self.tree, key, self.dealing().branches);
+                    if domain.colors_repeat(theme.palette.len()) {
+                        said.push(format!(
+                            "{key} has {} values and the palette {} colours, so some branches of two values share one",
+                            domain.keyed().len(),
+                            theme.palette.len()
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(key) = &self.dnds {
+            if !carried(key) {
+                said.push(format!(
+                    "no branch is coloured by dN/dS: no node carries {key}"
+                ));
+            }
+        }
+        if self.support_style == SupportStyle::None && self.support_threshold > 0.0 {
+            said.push("no support is drawn: a threshold was set and no support style".to_string());
+        }
+        if self.support_style != SupportStyle::None
+            && self
+                .tree
+                .nodes()
+                .iter()
+                .filter_map(|node| node.support)
+                .any(|value| value > 100.0)
         {
+            said.push("support above 100 is drawn as full support".to_string());
+        }
+        if let Some(time) = self.time_axis() {
+            said.extend(self.time_warning(&time));
+        }
+        let dealing = self.dealing();
+        let most = theme.palette.len().max(1) * 4;
+        for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
+            let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
+            let levels = domain.keyed().len();
+            if column.drawn_style(&domain, theme) == TraitStyle::Symbol && levels > most {
+                said.push(format!(
+                    "{}: {levels} values, and shapes and colours tell {most} apart",
+                    column.label
+                ));
+            }
+        }
+        said
+    }
+
+    /// What is wrong with the time axis asked for, if anything.
+    fn time_warning(&self, time: &TimeAxis) -> Option<String> {
+        let tips = self.tree.leaves();
+        let undated = tips
+            .iter()
+            .filter(|tip| {
+                self.tree
+                    .annotation(**tip, &time.key)
+                    .and_then(AnnotationValue::as_number)
+                    .map_or(true, |value| !value.is_finite())
+            })
+            .count();
+        if undated > 0 {
+            return Some(format!(
+                "drawn by branch length: {undated} of {} tips have no number under {}",
+                tips.len(),
+                time.key
+            ));
+        }
+        let Some(placed) = self.tree.time_layout(&time.key, time.direction) else {
+            return Some(format!(
+                "drawn by branch length: the tree cannot be placed on {}",
+                time.key
+            ));
+        };
+        let branches = self
+            .tree
+            .nodes()
+            .iter()
+            .enumerate()
+            .filter_map(|(node, clade)| Some((node, clade.parent?)))
+            .collect::<Vec<_>>();
+        let backwards = branches
+            .iter()
+            .filter(|(node, parent)| {
+                let (at, from) = (placed[*node].depth, placed[*parent].depth);
+                let slack = 1e-9 * (at.abs() + from.abs()).max(1.0);
+                match time.direction {
+                    TimeDirection::Increasing => at < from - slack,
+                    TimeDirection::Decreasing => at > from + slack,
+                }
+            })
+            .count();
+        (backwards > 0).then(|| {
+            format!(
+                "{backwards} of {} branches run backwards in {}",
+                branches.len(),
+                time.key
+            )
+        })
+    }
+
+    /// The lines [`TreeTrack::warnings`] takes across a band `width` pixels
+    /// wide, and the size they are set at.
+    fn warning_lines(&self, width: f64, theme: &Theme) -> (Vec<String>, f64) {
+        let size = (theme.font_size - 1.0).max(6.0);
+        let mut lines = Vec::new();
+        for warning in self.warnings_in(theme) {
+            let mut line = String::new();
+            for word in warning.split(' ') {
+                let longer = if line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{line} {word}")
+                };
+                if !line.is_empty() && text_width(&longer, size) > width - 8.0 {
+                    lines.push(std::mem::replace(&mut line, word.to_string()));
+                } else {
+                    line = longer;
+                }
+            }
+            lines.push(line);
+        }
+        (lines, size)
+    }
+
+    /// The room under the tree for its warnings.
+    fn warning_room(&self, width: f64, theme: &Theme) -> f64 {
+        let (lines, size) = self.warning_lines(width, theme);
+        if lines.is_empty() {
+            0.0
+        } else {
+            (lines.len() as f64 * (size + 4.0) + 6.0).ceil()
+        }
+    }
+
+    /// Writes the warnings in the room kept for them at the foot of the band.
+    fn draw_warnings(&self, ctx: &mut DrawContext<'_>) {
+        let (lines, size) = self.warning_lines(ctx.band.w, ctx.theme);
+        if lines.is_empty() {
+            return;
+        }
+        let room = (lines.len() as f64 * (size + 4.0) + 6.0).ceil();
+        let mut y = ctx.band.bottom() - room + 4.0;
+        for line in &lines {
+            y += size + 4.0;
+            ctx.svg.text(
+                ctx.band.x + 4.0,
+                y - 4.0,
+                line,
+                &ctx.theme.muted,
+                size,
+                crate::svg::Anchor::Start,
+            );
+        }
+    }
+
+    /// The room across the top of a band `width` pixels wide for the
+    /// headings of the columns or rings and the chips that key the layers.
+    ///
+    /// A rectangular tree's headings sit over its columns, at the right, and
+    /// the chips keep to the left of them, so the two share the room. Rings
+    /// have their headings in a row of their own across the top, with the
+    /// chips under it: drawn in one row, the first chip covered the first
+    /// ring's heading.
+    fn annotation_header_room(&self, width: f64, theme: &Theme) -> f64 {
+        let chips = match chip_rows(self, self.chip_room(width, theme), theme) {
+            0 => 0.0,
+            // Whole pixels, so a figure is as many pixels tall as it says.
+            rows => (rows as f64 * chip_pitch(theme) + 1.5).ceil(),
+        };
+        let headings = if self.trait_columns.is_empty() {
             0.0
         } else {
             22.0
+        };
+        match self.projection {
+            TreeProjection::Rectangular => chips.max(headings),
+            TreeProjection::Circular | TreeProjection::Unrooted => chips + headings,
         }
+    }
+
+    /// Where the chips start below the top of the band.
+    fn chip_top(&self) -> f64 {
+        match self.projection {
+            TreeProjection::Rectangular => 1.0,
+            TreeProjection::Circular | TreeProjection::Unrooted => {
+                if self.trait_columns.is_empty() {
+                    1.0
+                } else {
+                    23.0
+                }
+            }
+        }
+    }
+
+    /// How much of a band `width` pixels wide the chips may take: a
+    /// rectangular tree's columns keep the right of it for their headings.
+    fn chip_room(&self, width: f64, theme: &Theme) -> f64 {
+        match self.projection {
+            TreeProjection::Rectangular => (width - self.trait_width(theme)).max(0.0),
+            TreeProjection::Circular | TreeProjection::Unrooted => width,
+        }
+    }
+
+    /// Draws the chips that key the layers where the header keeps them.
+    fn draw_layer_chips(&self, ctx: &mut DrawContext<'_>) {
+        let top = ctx.band.y + self.chip_top();
+        let room = self.chip_room(ctx.band.w, ctx.theme);
+        draw_annotation_legend(self, ctx, top, room);
     }
 
     /// How wide across the circular and unrooted projections are drawn.
@@ -2045,13 +2520,14 @@ impl TreeTrack {
         let tips = self.tip_width(ctx.theme, &scene);
         let axis_room = self.axis_room(ctx.theme);
         let traits = self.trait_width(ctx.theme);
-        let header_room = self.annotation_header_room();
+        let header_room = self.annotation_header_room(band.w, ctx.theme);
+        let warning_room = self.warning_room(band.w, ctx.theme);
         let (glyph_x, glyph_y) = self.rectangular_glyph_padding();
         let area = Rect {
             x: band.x + glyph_x,
             y: band.y + header_room + glyph_y,
             w: (band.w - tips - traits - glyph_x * 2.0).max(1.0),
-            h: (band.h - axis_room - header_room - glyph_y * 2.0).max(1.0),
+            h: (band.h - axis_room - header_room - glyph_y * 2.0 - warning_room).max(1.0),
         };
 
         draw_rectangular_clade_highlights(self, ctx, &scene, area);
@@ -2063,12 +2539,12 @@ impl TreeTrack {
             self.row_height,
             &color,
             self.line_width,
-            self.color_by.as_deref(),
+            self.branch_key(),
             self.color_levels(),
             self.dnds_layer().as_ref(),
             self.show_nodes,
             self.support_style,
-            self.support_threshold,
+            SupportReading::of(&self.tree, self.support_threshold),
             self.branch_label_layer().as_ref(),
             &self.rate_mixtures,
             &self.homoplasy_layers,
@@ -2136,6 +2612,7 @@ impl TreeTrack {
             area,
             tips + glyph_x,
             &self.trait_columns,
+            &self.dealing().columns,
             self.row_height,
         );
         if let Some(time) = time.as_ref().filter(|time| time.show_axis) {
@@ -2144,13 +2621,36 @@ impl TreeTrack {
         if let Some(bar) = self.branch_scale() {
             draw_rectangular_scale_bar(ctx, &scene, area, bar);
         }
-        draw_annotation_legend(self, ctx);
+        self.draw_layer_chips(ctx);
+        self.draw_warnings(ctx);
     }
+}
+
+/// How a tree's colour keys deal the palette, worked out once a drawing.
+struct Dealing<'a> {
+    /// One for each trait column, in their order.
+    columns: Vec<Dealt<'a>>,
+    /// The key the branches are coloured by.
+    branches: Dealt<'a>,
 }
 
 impl Track for TreeTrack {
     fn noun(&self) -> &str {
         "a phylogeny"
+    }
+
+    /// The key [`TreeTrack::legend`] builds, in the figure's own theme, so
+    /// [`Figure::key`](crate::Figure::key) names every colour the tree
+    /// paints. Built by hand from a theme the caller passed, the key of a
+    /// dark figure named each level in the light palette's colour.
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        let legend = self.legend(theme);
+        (!legend.is_empty()).then_some(legend)
     }
 
     fn height(&self, scale: &Scale) -> f64 {
@@ -2170,10 +2670,13 @@ impl Track for TreeTrack {
                     } else {
                         0.0
                     }
-                    + self.annotation_header_room()
+                    + self.annotation_header_room(scale.width(), &Theme::default())
+                    + self.warning_room(scale.width(), &Theme::default())
             }
             TreeProjection::Circular | TreeProjection::Unrooted => {
-                self.radial_diameter(scale, &Theme::default()) + self.annotation_header_room()
+                self.radial_diameter(scale, &Theme::default())
+                    + self.annotation_header_room(scale.width(), &Theme::default())
+                    + self.warning_room(scale.width(), &Theme::default())
             }
         }
     }

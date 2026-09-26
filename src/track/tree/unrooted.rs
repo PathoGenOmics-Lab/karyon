@@ -545,18 +545,18 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         track.folded(),
         track.radial.start_degrees,
     );
-    let header_room = track.annotation_header_room();
+    let header_room = track.annotation_header_room(ctx.band.w, ctx.theme);
     let area = Rect {
         x: ctx.band.x,
         y: ctx.band.y + header_room,
         w: ctx.band.w,
-        h: (ctx.band.h - header_room).max(1.0),
+        h: (ctx.band.h - header_room - track.warning_room(ctx.band.w, ctx.theme)).max(1.0),
     };
     let geometry = UnrootedGeometry::new(track, ctx.theme, &scene, area);
     let colors = unrooted_branch_colors(
         &track.tree,
         &scene,
-        track.color_by.as_deref(),
+        track.branch_key(),
         track.color_levels(),
         ctx.theme,
         &color,
@@ -633,7 +633,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
         let title = branch_title(
             &track.tree,
             owner,
-            track.color_by.as_deref(),
+            track.branch_key(),
             dnds.as_ref(),
             track.branch_labels.as_deref(),
             !track.show_tips && scene.terminals.contains(node),
@@ -688,6 +688,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     }
 
     if track.show_nodes || track.support_style != SupportStyle::None {
+        let reading = SupportReading::of(&track.tree, track.support_threshold);
         for node in &scene.visible {
             if scene.terminals.contains(node) {
                 continue;
@@ -696,16 +697,16 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                 continue;
             };
             let (x, y) = geometry.node(raw);
-            if let Some(support) = track.tree.nodes()[*node].support.filter(|value| {
-                track.support_style != SupportStyle::None
-                    && support_fraction(*value)
-                        .is_some_and(|value| value >= track.support_threshold)
-            }) {
+            if let Some(support) = track.tree.nodes()[*node]
+                .support
+                .filter(|value| track.support_style != SupportStyle::None && reading.shown(*value))
+            {
                 draw_support(
                     ctx,
                     x,
                     y,
                     support,
+                    reading,
                     &styles.get(*node).color,
                     track.support_style,
                 );
@@ -754,7 +755,8 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
     if let Some(bar) = track.branch_scale() {
         draw_unrooted_scale_bar(ctx, &scene, &geometry, area, bar);
     }
-    draw_annotation_legend(track, ctx);
+    track.draw_layer_chips(ctx);
+    track.draw_warnings(ctx);
 }
 
 pub(super) fn unrooted_branch_colors(
@@ -808,7 +810,8 @@ pub(super) fn draw_unrooted_trait_rings(
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.branch_radius + gap;
     let step = std::f64::consts::TAU / scene.terminals.len() as f64;
-    for column in &track.trait_columns {
+    let dealing = track.dealing();
+    for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
             .terminals
@@ -817,7 +820,7 @@ pub(super) fn draw_unrooted_trait_rings(
             .collect();
         // The whole tree's count, the one every colour of this key comes
         // from. See `tree_domain`.
-        let domain = tree_domain(&track.tree, &column.key, column.dealt());
+        let domain = tree_domain(&track.tree, &column.key, *dealt);
         for (row, node) in scene.terminals.iter().enumerate() {
             let angle = scene.angles[*node]
                 .unwrap_or(track.radial.start_degrees.to_radians() + row as f64 * step);

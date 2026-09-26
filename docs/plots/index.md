@@ -42,7 +42,7 @@ the buttons under it or a pinch, and hover a mark for what it holds.
     **[Phylogeny and clades](phylogeny-clades.md)**
     Trees in every layout with their metadata, two trees face to face, spans painted onto clades, and a tree around a map.
 
--   [![An eight-panel synthetic atlas of tree geometries, ancestral states, selection on branches and at sites, a tanglegram, a population trajectory and lineage frequencies through time](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }](evolution-surveillance.md)
+-   [![An eight-panel synthetic atlas of tree geometries, ancestral states, selection on branches and at sites, a tanglegram, a population trajectory and lineage frequencies through time](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2115" loading="lazy" }](evolution-surveillance.md)
 
     **[Evolution and surveillance](evolution-surveillance.md)**
     Results fitted upstream: ancestral states, selection on branches and at sites, population trajectories and lineage counts through time.

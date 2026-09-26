@@ -804,3 +804,64 @@ fn an_unrooted_cladogram_counts_rather_than_measures() {
         );
     }
 }
+
+/// Cutting a tree to some of its tips merges every node left with one
+/// child into its branch, and keeps what the clade below says of itself.
+#[test]
+fn keeping_some_tips_merges_the_nodes_left_with_one_child() {
+    let tree = Tree::parse_annotated_newick(
+        "((A:1,B:1)90:1,((C:1,D:1)70[&host=cattle]:2,E:1)80:1)root:0.5;",
+    )
+    .unwrap();
+    // B goes, so (A,B) is merged into A's branch, 1 + 1.
+    let cut = tree.keep_tips(["A", "C", "D", "E"]).unwrap();
+    assert_eq!(cut.leaf_names(), ["A", "C", "D", "E"]);
+    let a = cut.node_named("A").unwrap();
+    assert_eq!(cut.nodes()[a].branch_length, Some(2.0));
+    // E goes too, so ((C,D),E) is merged into the branch above (C,D), which
+    // keeps (C,D)'s support and annotations: 2 + 1.
+    let cut = tree.keep_tips(["A", "C", "D"]).unwrap();
+    let c = cut.node_named("C").unwrap();
+    let clade = cut.nodes()[c].parent.unwrap();
+    assert_eq!(cut.nodes()[clade].support, Some(70.0));
+    assert_eq!(cut.nodes()[clade].branch_length, Some(3.0));
+    assert_eq!(
+        cut.annotation(clade, "host")
+            .and_then(|value| value.as_text()),
+        Some("cattle")
+    );
+    // A root left with one child gives way to it, which has no branch above.
+    let cut = tree.keep_tips(["C", "D"]).unwrap();
+    assert_eq!(cut.leaf_names(), ["C", "D"]);
+    assert_eq!(cut.nodes()[cut.root()].branch_length, None);
+    assert_eq!(cut.nodes()[cut.root()].support, Some(70.0));
+    // One tip is a tree of one node; a name the tree lacks is passed over,
+    // and nothing left is nothing.
+    let one = tree.keep_tips(["E", "Z"]).unwrap();
+    assert_eq!(one.leaf_names(), ["E"]);
+    assert_eq!(one.nodes().len(), 1);
+    assert!(tree.keep_tips(["Z"]).is_none());
+    // Every tip kept is the tree as it was.
+    let all = tree
+        .keep_tips(tree.leaf_names().iter().map(String::as_str))
+        .unwrap();
+    assert_eq!(all.nodes().len(), tree.nodes().len());
+}
+
+/// A caterpillar a hundred thousand tips deep is cut without recursion.
+#[test]
+fn keeping_tips_walks_a_deep_tree_without_recursion() {
+    let depth = 100_000;
+    let mut newick = String::new();
+    for _ in 0..depth {
+        newick.push('(');
+    }
+    newick.push_str("t0:1");
+    for tip in 1..=depth {
+        newick.push_str(&format!(",t{tip}:1):1"));
+    }
+    newick.push(';');
+    let tree = Tree::parse_newick(&newick).unwrap();
+    let cut = tree.keep_tips(["t0", "t1", &format!("t{depth}")]).unwrap();
+    assert_eq!(cut.leaf_count(), 3);
+}

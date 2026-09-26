@@ -193,7 +193,14 @@ impl Theme {
         }
     }
 
-    /// Returns a categorical point shape, wrapping in the same way as colours.
+    /// Returns a categorical point shape, wrapping as the colours do.
+    ///
+    /// With [`Theme::color`] of the same index it tells four times as many
+    /// levels apart as the palette has colours, from wherever the count
+    /// starts. Wrapped on its own, the shape came round with the colour
+    /// every twelve levels of the six-colour palette, so the thirteenth
+    /// level was drawn as the first. The shapes move on by one each time
+    /// the pairs would repeat, which reaches the pairs no level has had.
     pub fn symbol(&self, index: usize) -> Symbol {
         const SYMBOLS: [Symbol; 4] = [
             Symbol::Circle,
@@ -201,7 +208,14 @@ impl Theme {
             Symbol::Diamond,
             Symbol::Triangle,
         ];
-        SYMBOLS[index % SYMBOLS.len()]
+        let colors = self.palette.len().max(1);
+        let shapes = SYMBOLS.len();
+        let mut repeat = colors;
+        while repeat % shapes != 0 {
+            repeat += colors;
+        }
+        let index = index % (colors * shapes);
+        SYMBOLS[(index + index / repeat) % shapes]
     }
 
     /// Returns the same visual system with all typographic chrome scaled by
@@ -802,6 +816,39 @@ mod tests {
         );
         assert_ne!(Theme::light().symbol(0), Theme::light().symbol(1));
         assert_eq!(Theme::light().symbol(0), Theme::light().symbol(4));
+    }
+
+    #[test]
+    fn a_colour_and_a_shape_tell_four_palettes_of_levels_apart() {
+        let mut short = Theme::light();
+        short.palette.truncate(3);
+        let mut long = Theme::light();
+        long.palette.extend(Theme::dark().palette);
+        for theme in [Theme::light(), Theme::dark(), short, long] {
+            let levels = theme.palette.len() * 4;
+            // From any first colour, as a column given its own stretch of the
+            // palette starts from.
+            for first in [0, 1, 5, 23] {
+                let marks: std::collections::BTreeSet<(String, String)> = (first..first + levels)
+                    .map(|index| {
+                        (
+                            theme.color(index).to_string(),
+                            format!("{:?}", theme.symbol(index)),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    marks.len(),
+                    levels,
+                    "{} colours from {first}",
+                    theme.palette.len()
+                );
+            }
+        }
+        // Level 12 of the six colours was drawn exactly as level 0.
+        let theme = Theme::light();
+        assert_eq!(theme.color(12), theme.color(0));
+        assert_ne!(theme.symbol(12), theme.symbol(0));
     }
 
     #[test]

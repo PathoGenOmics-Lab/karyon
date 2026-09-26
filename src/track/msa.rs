@@ -41,7 +41,7 @@ use crate::svg::{text_width, Anchor};
 use crate::theme::{contrast_ink, mix, wash, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::traits::Traits;
-use crate::track::tree::{draw_tree, leaf_order, TreeShape, TreeStyle};
+use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, TreeStyle};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
@@ -549,7 +549,16 @@ impl Track for MsaTrack {
         let first = ctx.region.start() as usize;
         let last = (ctx.region.end() as usize).min(self.columns());
 
-        if let Some(tree) = &self.tree {
+        let names: Vec<String> = self
+            .sequences
+            .iter()
+            .map(|sequence| sequence.name.clone())
+            .collect();
+        let (tree, without_row) = self
+            .tree
+            .as_ref()
+            .map_or((None, 0), |tree| tree_beside_rows(tree, &names, rows));
+        if let Some(tree) = tree.as_deref() {
             let area = Rect {
                 x: ctx.axis.x + 2.0,
                 y: band.y + head,
@@ -670,26 +679,15 @@ impl Track for MsaTrack {
             &placed,
         );
 
+        let mut notes: Vec<String> = Vec::new();
         if hidden > 0 {
-            let text = format!("+{hidden} sequences not shown");
-            let size = ctx.theme.font_size - 1.0;
-            let width = text_width(&text, size) + 6.0;
-            ctx.svg.rect_opacity(
-                band.right() - width,
-                band.bottom() - size - 3.0,
-                width,
-                size + 3.0,
-                &ctx.theme.background,
-                0.8,
-            );
-            ctx.svg.text(
-                band.right() - 3.0,
-                band.bottom() - 2.0,
-                &text,
-                &ctx.theme.muted,
-                size,
-                Anchor::End,
-            );
+            notes.push(format!("+{hidden} sequences not shown"));
+        }
+        if without_row > 0 {
+            notes.push(crate::track::tips_without_rows(without_row));
+        }
+        if !notes.is_empty() {
+            crate::track::band_note(ctx, &notes.join(", "));
         }
     }
 }

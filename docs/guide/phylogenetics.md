@@ -123,7 +123,10 @@ order the tree meets them, counted over the whole tree, so folding a clade does
 not repaint the rest. A column that came from a sample sheet carries the
 sheet's order instead (`TraitColumn::levels`), so a lineage is the colour here
 that it is beside every other track the sheet is drawn with. `legend(&theme)`
-hands back a key read off the same count as the branches and the strips. A
+hands back a key read off the same count as the branches and the strips, and
+`Figure::key()` gathers it in the figure's own theme, so a dark figure is keyed
+in the colours it drew. Each entry copies its mark: a symbol column is keyed
+with its shapes and a binary one with the two dots it draws. A
 missing value is an empty outline whose tooltip says missing, never a zero, and
 `show_values(false)` drops the text inside the cells.
 
@@ -258,12 +261,15 @@ stays an outline in every mark. `width` sizes a column and `ring_width` a ring,
 2 to 24 pixels; `trait_categorical`, `trait_bar` and their siblings on
 `TreeTrack` add columns with their defaults. `--traits` picks the mark from the
 values: numbers get a ramp, more than six levels get symbols, anything else a
-colour strip.
+colour strip. A strip whose levels outnumber the palette's colours is drawn as
+symbols however it was built, and each column of words on a tree takes its own
+stretch of the palette, as a sheet's columns do, so a lineage and a country are
+never one colour while each fits its stretch.
 
 ## Choose a tree geometry
 
 <figure class="k-plate" markdown>
-![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2050" loading="lazy" }
+![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2115" loading="lazy" }
 <figcaption>A to C: the three rectangular geometries. D and E: circular and unrooted.</figcaption>
 </figure>
 
@@ -321,7 +327,9 @@ channel of its own.
 `SupportStyle::None`, the default, keeps support in the tooltips; `Symbols`
 scales a marker by it, `Labels` prints it and `SymbolsAndLabels` does both.
 `support_threshold` hides weaker values in either convention, `0.70` or `70`,
-and a label keeps the value as the file wrote it.
+and a label keeps the value as the file wrote it. The convention is read once
+for the whole tree: one value above one puts every value out of a hundred, so a
+clade at 1 on a bootstrap tree is one per cent and not full support.
 
 `branch_labels(key)` writes a node's own annotation along its incoming branch
 and never inherits, so a mutation is not repeated on every descendant. Labels
@@ -391,8 +399,16 @@ and circular coordinates.
 | `reroot_midpoint()` | a tree whose every branch has a finite, non-negative length | halfway along the longest tip-to-tip path |
 | `show_root(false)` | | hides the diamond, keeps the root |
 
-A request the tree cannot meet leaves the builder's tree unchanged. Where that
-must be an error, call the operation on the `Tree` and check its result:
+A request the tree cannot meet leaves the builder's tree unchanged, and the
+band says so in a line under the tree: `not rerooted: no tip is named B3`. The
+same goes for a fold or a highlight that names a node the tree does not have,
+a key no node carries, a time axis some tip has no date for and a support
+threshold with no support style, and `TreeTrack::warnings()` hands the same
+lines to a caller that would rather stop; the command line prints them. A fold
+or a highlight asked for before a reroot follows its clade through it, by its
+tips, and one the new root splits is said rather than drawn. Where a failed
+reroot must be an error, call the operation on the `Tree` and check its
+result:
 
 ```rust
 use karyon::TreeTrack;
@@ -406,7 +422,7 @@ let track = TreeTrack::new(tree).show_root(true);
 ## Show dN/dS around the neutral point
 
 <figure class="k-plate" markdown>
-![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1390" loading="lazy" }
+![One codon-model tree as a phylogram, a circular tree, an unrooted tree and a cladogram, branches coloured cool to warm around a dN/dS of one, significant branches thicker and missing estimates dotted](../assets/figures/example-phylo-dnds.svg){ width="1508" height="1434" loading="lazy" }
 </figure>
 
 ```rust
@@ -431,8 +447,10 @@ dotted branch, not a zero.
 
 `dnds_significance(key, maximum)` thickens a branch whose own test value is at
 most `maximum`, so width carries the evidence and colour the effect size.
-`dnds` and `color_by` replace each other, and the other `dnds_` settings do
-nothing without `dnds` and count the same written before it or after it. The
+`dnds` and `color_by` both colour the branches, so where both are set the dN/dS
+colouring is drawn, whichever was written first, and the band says the other
+was not. The other `dnds_` settings do nothing without `dnds` and count the
+same written before it or after it. The
 estimates come from upstream: karyon computes no dN, dS,
 tests or corrections, and calls ω above the neutral band diversifying, not
 proof of positive selection.
@@ -440,7 +458,7 @@ proof of positive selection.
 ## Keep rate classes and site evidence apart
 
 <figure class="k-plate" markdown>
-![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1508" height="1053" loading="lazy" }
+![Branches carrying capsules of weighted omega classes with dashed links between repeated changes, a circular tree coloured by mean omega, and two site scans over a protein, by p-value and by posterior probability](../assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }
 </figure>
 
 A branch-site model fits several ω classes to one branch, and a single mean
