@@ -109,11 +109,11 @@ use crate::track::{
     DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Junction,
     JunctionTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack,
     MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack,
-    OrfTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read, SelectionSite,
-    SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SquiggleTrack,
-    Strand, StructuralTrack, StructuralVariant, SurveillanceObservation, SurveillanceTrack,
-    SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit, TranscriptionUnitTrack, TreeTrack,
-    Variant, VariantTrack, Window, WindowTrack,
+    OrfTrack, Pair, PairTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read,
+    SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack,
+    SquiggleTrack, Strand, StructuralTrack, StructuralVariant, SurveillanceObservation,
+    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit,
+    TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -243,6 +243,7 @@ tracks![
     MethylationTrack,
     MsaTrack,
     OrfTrack,
+    PairTrack,
     PhylodynamicTrack,
     PileupTrack,
     SelectionTrack,
@@ -666,6 +667,12 @@ impl<T: Slot> Plot<T> {
     /// Open reading frames in a sequence whose first base is at `start`.
     pub fn add_orfs_at(self, start: u64, seq: impl Into<Vec<u8>>) -> Plot<OrfTrack> {
         self.settle().park(OrfTrack::new(start, seq))
+    }
+
+    /// Pairs of places and a value between them, as a triangle hung under
+    /// the axis until [`PairTrack::style`] says arcs.
+    pub fn add_pairs(self, pairs: impl Into<Vec<Pair>>) -> Plot<PairTrack> {
+        self.settle().park(PairTrack::new(pairs))
     }
 
     /// Aligned reads, stacked into rows that do not overlap.

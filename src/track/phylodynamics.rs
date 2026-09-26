@@ -8,7 +8,7 @@
 
 use crate::scale::Scale;
 use crate::style::{legible_ticks, LinePattern, QuantitativeAxis};
-use crate::svg::{num, text_rounded, Anchor};
+use crate::svg::{num, text_rounded, text_width_strong, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::{unbroken, DrawContext, Track};
 
@@ -354,7 +354,8 @@ impl Track for PhylodynamicTrack {
             .clone()
             .unwrap_or_else(|| ctx.theme.accent.clone());
 
-        self.draw_header(ctx, &color);
+        let ribbon = self.show_interval && points.iter().any(|(point, _)| point.bounds().is_some());
+        self.draw_header(ctx, &color, ribbon);
         // Round values in the units the estimate is in, not four equal cuts
         // of the transformed range: on a log axis those came out as 77.988 and
         // 2167.255, which are nobody's idea of a population size.
@@ -422,14 +423,6 @@ impl Track for PhylodynamicTrack {
                     ctx.theme.color(1),
                     ctx.theme.tokens.hairline.max(1.0),
                     LinePattern::Dashed,
-                );
-                ctx.svg.text(
-                    ctx.band.right() - ctx.px(4.0),
-                    y - ctx.px(3.0),
-                    label,
-                    ctx.theme.color(1),
-                    ctx.theme.font_size * 0.74,
-                    Anchor::End,
                 );
                 ctx.svg.end_group();
             }
@@ -515,37 +508,97 @@ impl Track for PhylodynamicTrack {
             }
             ctx.svg.end_group();
         }
+
+        // Last, so no point is drawn over the words, and at the left, over the
+        // line, as a scan writes its threshold. At the right end they sat on
+        // the latest estimate, which is the one a reader looks at first.
+        if let Some((reference, label)) = &self.reference {
+            if let Some(value) = self.transformed(*reference).filter(|_| !label.is_empty()) {
+                let y = y_of(value);
+                let size = ctx.theme.font_size * 0.74;
+                let gap = ctx.theme.tokens.row_gap;
+                let baseline = if y - gap - size * 0.8 >= plot_top {
+                    y - gap
+                } else {
+                    y + gap + size * 0.8
+                };
+                ctx.svg.text(
+                    ctx.band.x + ctx.theme.tokens.label_gap,
+                    baseline,
+                    label,
+                    ctx.theme.color(1),
+                    size,
+                    Anchor::Start,
+                );
+            }
+        }
     }
 }
 
 impl PhylodynamicTrack {
-    fn draw_header(&self, ctx: &mut DrawContext<'_>, color: &str) {
+    /// A key to what is drawn: the line is the estimate, the ribbon where
+    /// there is one its interval, and the scale where it is not the plain one.
+    /// It used to read `trajectory · linear`, which named the default and
+    /// left the ribbon to be guessed at.
+    fn draw_header(&self, ctx: &mut DrawContext<'_>, color: &str, ribbon: bool) {
         let size = ctx.theme.font_size * 0.76;
         let top = ctx.band.y + ctx.px(2.0);
         let height = ctx.px(15.0);
+        let middle = top + height / 2.0;
+        let baseline = middle + size * 0.34;
+        let swatch = ctx.px(17.0);
+        let gap = ctx.px(6.0);
+        let log = self.scale == PhylodynamicScale::Log10;
+        let mut width = ctx.px(8.0) + swatch + gap + text_width_strong("estimate", size);
+        if ribbon {
+            width += ctx.px(12.0) + swatch + gap + text_width_strong("interval", size);
+        }
+        if log {
+            width += ctx.px(12.0) + text_width_strong("log scale", size);
+        }
+        width += ctx.px(8.0);
         let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
-        let scale = match self.scale {
-            PhylodynamicScale::Linear => "linear",
-            PhylodynamicScale::Log10 => "log10",
-        };
         ctx.svg
-            .rect_rounded(ctx.band.x + 2.0, top, 112.0, height, height / 2.0, &chip);
-        ctx.svg.line(
-            ctx.band.x + 10.0,
-            top + height / 2.0,
-            ctx.band.x + 27.0,
-            top + height / 2.0,
-            color,
-            2.0,
-        );
+            .rect_rounded(ctx.band.x + 2.0, top, width, height, height / 2.0, &chip);
+        let mut x = ctx.band.x + 2.0 + ctx.px(8.0);
+        ctx.svg.line(x, middle, x + swatch, middle, color, 2.0);
+        x += swatch + gap;
         ctx.svg.text_bold(
-            ctx.band.x + 33.0,
-            top + height / 2.0 + size * 0.34,
-            &format!("trajectory · {scale}"),
+            x,
+            baseline,
+            "estimate",
             &ctx.theme.muted,
             size,
             Anchor::Start,
         );
+        x += text_width_strong("estimate", size);
+        if ribbon {
+            x += ctx.px(12.0);
+            let tall = ctx.px(8.0);
+            ctx.svg
+                .rect_opacity(x, middle - tall / 2.0, swatch, tall, color, 0.16);
+            x += swatch + gap;
+            ctx.svg.text_bold(
+                x,
+                baseline,
+                "interval",
+                &ctx.theme.muted,
+                size,
+                Anchor::Start,
+            );
+            x += text_width_strong("interval", size);
+        }
+        if log {
+            x += ctx.px(12.0);
+            ctx.svg.text_bold(
+                x,
+                baseline,
+                "log scale",
+                &ctx.theme.muted,
+                size,
+                Anchor::Start,
+            );
+        }
     }
 }
 
@@ -574,7 +627,8 @@ fn point_title(point: &PhylodynamicPoint, unit: &str) -> String {
         format!(" {unit}")
     };
     let mut parts = vec![
-        format!("time {}", point.time),
+        // As the ruler under it writes it, as a surveillance panel does.
+        format!("time {}", point.time.saturating_add(1)),
         format!("estimate {}{}", text_rounded(point.estimate, 6), suffix),
     ];
     if let Some((lower, upper)) = point.bounds() {
@@ -596,6 +650,21 @@ fn point_title(point: &PhylodynamicPoint, unit: &str) -> String {
 mod tests {
     use super::*;
     use crate::{Figure, Region};
+
+    /// A tooltip calls a time what the ruler under it calls it: time 0 is
+    /// the first, which a ruler numbers 1. It said 0, so week 12 was week 11
+    /// on hover.
+    #[test]
+    fn a_time_is_written_as_the_ruler_writes_it() {
+        let svg = Figure::new(Region::new("week", 0, 3).unwrap())
+            .push(PhylodynamicTrack::new(vec![
+                PhylodynamicPoint::new(0, 1.2),
+                PhylodynamicPoint::new(2, 0.9),
+            ]))
+            .to_svg();
+        assert!(svg.contains("<title>time 1 | estimate 1.2"), "{svg}");
+        assert!(svg.contains("<title>time 3 | estimate 0.9"), "{svg}");
+    }
 
     #[test]
     fn intervals_references_and_exact_values_are_independent() {

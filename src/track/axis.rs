@@ -56,6 +56,7 @@ pub struct AxisTrack {
     target_spacing: f64,
     label: Option<String>,
     center_on_bases: bool,
+    counting: bool,
 }
 
 impl AxisTrack {
@@ -67,7 +68,21 @@ impl AxisTrack {
             target_spacing: 110.0,
             label: None,
             center_on_bases: false,
+            counting: false,
         }
+    }
+
+    /// A ruler of whole units that are not bases: weeks, years, the sites of
+    /// a gene, the samples of a signal, the columns of an alignment.
+    ///
+    /// Each unit is one coordinate, drawn in the middle of it and numbered
+    /// from one, and the numbers are written as numbers: a ruler of years in
+    /// base units printed 2015 as `2,015`, and one of samples as kilobases.
+    /// [`AxisTrack::label`] says what the units are.
+    pub fn counting(mut self) -> Self {
+        self.counting = true;
+        self.center_on_bases = true;
+        self
     }
 
     /// Puts each tick in the middle of its base rather than on its left edge.
@@ -145,7 +160,11 @@ impl Track for AxisTrack {
         let ticks = self.ticks(ctx.region.display_start(), ctx.region.display_end(), band.w);
         // One unit for the whole ruler: an axis that switches from kb to Mb
         // half way across is unreadable.
-        let unit = tick_unit(ticks.positions.last().copied().unwrap_or(0), ticks.step);
+        let unit = if self.counting {
+            TickUnit::COUNT
+        } else {
+            tick_unit(ticks.positions.last().copied().unwrap_or(0), ticks.step)
+        };
         let style = TextStyle {
             family: Some(&ctx.theme.mono_family),
             ..TextStyle::default()
@@ -266,8 +285,22 @@ struct TickUnit {
 }
 
 impl TickUnit {
+    /// Whole units written as numbers: a year as `2015` and a count past ten
+    /// thousand with its thousands grouped.
+    const COUNT: TickUnit = TickUnit {
+        divisor: 0,
+        suffix: "",
+        decimals: 0,
+    };
+
     fn format(&self, pos: u64) -> String {
-        if self.divisor <= 1 {
+        if self.divisor == 0 {
+            if pos < 10_000 {
+                pos.to_string()
+            } else {
+                group_thousands(pos)
+            }
+        } else if self.divisor <= 1 {
             group_thousands(pos)
         } else {
             format!(
@@ -355,6 +388,33 @@ pub(crate) fn group_thousands(value: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ruler of years wrote 2015 as `2,015`, and one of samples wrote two
+    /// thousand as `2 kb`: whole units that are not bases are plain numbers,
+    /// grouped only from ten thousand, in the middle of each unit.
+    #[test]
+    fn a_counting_ruler_writes_plain_numbers_under_each_unit() {
+        use crate::figure::Figure;
+        use crate::region::Region;
+        let texts = |svg: &str| -> Vec<String> {
+            svg.split("</text>")
+                .filter_map(|piece| piece.rsplit_once('>').map(|(_, text)| text.to_string()))
+                .collect()
+        };
+        // Years 2011 to 2020, stored one less, as the command line stores them.
+        let years = Figure::new(Region::new("year", 2010, 2020).unwrap())
+            .push(AxisTrack::new().counting().label("year"))
+            .to_svg();
+        let written = texts(&years);
+        assert!(written.iter().any(|text| text == "2015"), "{written:?}");
+        assert!(!years.contains("2,01") && !years.contains(" bp"), "{years}");
+        let samples = Figure::new(Region::new("read", 0, 40_000).unwrap())
+            .push(AxisTrack::new().counting())
+            .to_svg();
+        let written = texts(&samples);
+        assert!(written.iter().any(|text| text == "20,000"), "{written:?}");
+        assert!(!samples.contains(" kb<"), "{samples}");
+    }
 
     #[test]
     fn steps_are_round_numbers() {
