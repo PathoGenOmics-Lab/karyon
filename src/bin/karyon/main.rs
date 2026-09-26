@@ -370,20 +370,21 @@ USAGE
 
 The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
-file named on its own is a track of the kind its name says: BAM and CRAM draw
-their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
+file named on its own is a track of the kind its name says: BAM and CRAM
+draw their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
 bedGraph a signal, FASTA the reference, Newick a tree, PAF synteny, and a
 PLINK or REGENIE table a scan; a .gz is read as the file inside. Each track
 flag starts a track of its own kind, and the flags after a track describe
-that one, so the order of the words is the order of the stack. A coordinate ruler is added at the bottom
-unless --axis puts one elsewhere or --no-axis leaves it out, and unless nothing
-in the figure is laid on the coordinates: a phylogeny is not, so a stack of
-trees gets no ruler measuring a window it is not drawn in, and a figure made
-only of --tree, --tanglegram and --snps tracks takes no region at all. An
-alignment, a table over time or over the sites of a gene, and a read's signal
-are their own place: named nowhere, the figure is laid over all of it, and
-its ruler counts columns, weeks, sites or samples rather than bases. Any
-track file may be - for standard input, and one track may take it.
+that one, so the order of the words is the order of the stack. A coordinate
+ruler is added under the last track laid on the coordinates unless --axis
+puts one elsewhere or --no-axis leaves it out, and unless nothing in the
+figure is laid on the coordinates: a phylogeny is not, so a stack of trees
+gets no ruler measuring a window it is not drawn in, and a figure made only
+of --tree, --tanglegram and --snps tracks takes no region at all. An
+alignment, a table over time or over the sites of a gene, and a read's
+signal are their own place: named nowhere, the figure is laid over all of
+it, and its ruler counts columns, weeks, sites or samples rather than bases.
+Any track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, samtools depth, values, or
@@ -553,7 +554,7 @@ TRACK OPTIONS, each describing the track before it, once
                          is one step, which is the shape to read a topology by
     --no-scale-bar       leave out the rule in the tree's own branch-length
                          units, which a phylogram draws by default. It is not
-                         the ruler along the bottom: that one measures the
+                         the coordinate ruler: that one measures the
                          region, and is left out of a figure holding nothing
                          but phylogenies
     --focus <NAME[,N]>   draw one clade of a phylogeny and nothing else, named

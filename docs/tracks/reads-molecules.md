@@ -200,6 +200,8 @@ A [MethylationTrack](signal-sequence.md#methylationtrack) gives a fraction per s
 
 The refusal is in the marks. A ring is "measured and not methylated" and no mark is "not measured", two different statements that must not look alike. Columns sit at the real distances between the cytosines, which matters when the question is whether an island is uniformly modified.
 
+A molecule keeps only the sites it covers. `Molecule::new(name, calls)` takes a call or `None` for every site, as above; `Molecule::covering(name, [(site, methylated)])` takes the covered sites alone, which is what a long read over a few of ten thousand sites wants, and `call(site)` reads one back. Holding a slot for every site in every molecule made a file of long reads over a wide region cost 708 MB, and the same figure now takes 56.
+
 From an extractor file, both mates of a pair are one row; where they overlap and disagree about a cytosine, neither call is kept. The file's call letter carries the context, and `--context` picks CpG, CHG or CHH when the file holds more than one.
 
 ## JunctionTrack { #junctiontrack }

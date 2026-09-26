@@ -1,7 +1,8 @@
 //! Per-base quantitative signal: read depth, GC content, mappability.
 //!
 //! Dense values from a start position are what [`CoverageTrack::new`] takes;
-//! scattered points come in through [`CoverageTrack::from_pairs`]. The profile
+//! scattered points come in through [`CoverageTrack::from_pairs`], and spans
+//! as a bedGraph states them through [`CoverageTrack::from_spans`]. The profile
 //! is drawn upwards from the floor of the band, so the quantity has to be one
 //! whose zero is the bottom in fact and not by convention: a signed or centred
 //! statistic belongs in [`WindowTrack`](crate::WindowTrack).
@@ -68,10 +69,10 @@ pub enum Aggregate {
 
 /// A quantitative signal sampled once per base.
 ///
-/// Values are stored densely from a start position, which is the shape
-/// `samtools depth` output arrives in. When a pixel covers more than one base
-/// the column is reduced with [`Aggregate`]; the SVG therefore has at most one
-/// point per pixel however wide the region is.
+/// Values are kept from a start position as runs of bases holding one value,
+/// so a stretch of one depth costs one entry however long it is. When a pixel
+/// covers more than one base the column is reduced with [`Aggregate`]; the SVG
+/// therefore has at most one point per pixel however wide the region is.
 ///
 /// ```
 /// use karyon::{CoverageTrack, Figure, Region};
@@ -85,7 +86,11 @@ pub enum Aggregate {
 #[derive(Debug, Clone)]
 pub struct CoverageTrack {
     start: u64,
-    values: Vec<f64>,
+    /// The values as runs of bases holding one value, each ending where the
+    /// next begins, the first beginning at `start`. A value per base was a
+    /// double for every base of the region: two gigabytes to draw a whole
+    /// chromosome from a bedGraph of a few thousand windows.
+    runs: Vec<Run>,
     label: Option<String>,
     height: f64,
     color: Option<String>,
@@ -105,9 +110,15 @@ impl CoverageTrack {
     /// Values need not cover the whole region: anything outside is not
     /// drawn, and non-finite values are treated as missing.
     pub fn new(start: u64, values: impl Into<Vec<f64>>) -> Self {
+        let mut runs = Vec::new();
+        let mut at = start;
+        for value in values.into() {
+            at = at.saturating_add(1);
+            push_run(&mut runs, at, value);
+        }
         CoverageTrack {
             start,
-            values: values.into(),
+            runs,
             label: None,
             height: 60.0,
             color: None,
@@ -124,9 +135,9 @@ impl CoverageTrack {
 
     /// A track built from sparse `(position, value)` pairs.
     ///
-    /// Positions are 0-based. The dense buffer spans `region`, so memory is
-    /// proportional to the region on display, not to the genome. Pairs outside
-    /// the region are ignored, and positions not listed stay at zero.
+    /// Positions are 0-based. The profile spans `region`, and memory follows
+    /// the changes of value in it rather than its length. Pairs outside the
+    /// region are ignored, and positions not listed stay at zero.
     pub fn from_pairs(region: &Region, pairs: impl IntoIterator<Item = (u64, f64)>) -> Self {
         Self::from_spans(
             region,
@@ -145,7 +156,13 @@ impl CoverageTrack {
     /// [`CoverageTrack::from_pairs`], because that is what a depth of nought
     /// means and what a bedGraph leaves out.
     pub fn from_spans(region: &Region, spans: impl IntoIterator<Item = (u64, u64, f64)>) -> Self {
-        let mut track = CoverageTrack::new(region.start(), vec![0.0; region.len() as usize]);
+        let mut track = CoverageTrack::new(region.start(), Vec::new());
+        if region.end() > region.start() {
+            track.runs.push(Run {
+                end: region.end(),
+                value: 0.0,
+            });
+        }
         for (start, end, value) in spans {
             track.paint(start, end, value);
         }
@@ -160,16 +177,59 @@ impl CoverageTrack {
     /// hold the whole list. `samtools depth` writes a line per base, and over
     /// ten million bases collecting them first cost 231 MB for a track of 76.
     pub(crate) fn paint(&mut self, start: u64, end: u64, value: f64) {
-        let first = start.max(self.start) - self.start;
-        let last = end.saturating_sub(self.start);
-        let Ok(first) = usize::try_from(first) else {
+        let (lo, hi) = (start.max(self.start), end.min(self.end()));
+        if lo >= hi {
             return;
-        };
-        let last = usize::try_from(last)
-            .unwrap_or(self.values.len())
-            .min(self.values.len());
-        for slot in self.values.iter_mut().take(last).skip(first) {
-            *slot = value;
+        }
+        // A file in order paints inside the last run, the stretch it has not
+        // reached yet, so that run is split where it lies, with no search and
+        // nothing allocated. `samtools depth` paints ten million bases this
+        // way, and a search for each one made that figure almost twice as
+        // slow as the value per base these runs replaced.
+        let tail = self.runs.len() - 1;
+        let tail_start = self.run_start(tail);
+        if lo >= tail_start {
+            let Run { end, value: under } = self.runs[tail];
+            self.runs.pop();
+            if tail_start < lo {
+                push_run(&mut self.runs, lo, under);
+            }
+            push_run(&mut self.runs, hi, value);
+            if hi < end {
+                push_run(&mut self.runs, end, under);
+            }
+            return;
+        }
+        // Anywhere else, the run holding `lo` and the run holding the base
+        // before `hi` are replaced by what the span leaves of them.
+        let first = self.runs.partition_point(|run| run.end <= lo);
+        let last = self.runs.partition_point(|run| run.end < hi);
+        let mut replacement = Vec::with_capacity(3);
+        let before = self.run_start(first);
+        if before < lo {
+            replacement.push(Run {
+                end: lo,
+                value: self.runs[first].value,
+            });
+        }
+        replacement.push(Run { end: hi, value });
+        if hi < self.runs[last].end {
+            replacement.push(Run {
+                end: self.runs[last].end,
+                value: self.runs[last].value,
+            });
+        }
+        self.runs.splice(first..=last, replacement);
+        // Runs of one value either side of the new one become one.
+        let from = first.saturating_sub(1);
+        let mut index = from;
+        while index + 1 < self.runs.len() && index <= from + 3 {
+            if same(self.runs[index].value, self.runs[index + 1].value) {
+                self.runs[index].end = self.runs[index + 1].end;
+                self.runs.remove(index + 1);
+            } else {
+                index += 1;
+            }
         }
     }
 
@@ -179,8 +239,37 @@ impl CoverageTrack {
     /// `Some(0.0)` here is a nought the file stated or a base it left out, and
     /// `None` is a position this track does not reach at all.
     pub fn at(&self, pos: u64) -> Option<f64> {
-        let index = usize::try_from(pos.checked_sub(self.start)?).ok()?;
-        self.values.get(index).copied()
+        if pos < self.start {
+            return None;
+        }
+        let index = self.runs.partition_point(|run| run.end <= pos);
+        self.runs.get(index).map(|run| run.value)
+    }
+
+    /// One past the last base this track holds a value for.
+    fn end(&self) -> u64 {
+        self.runs.last().map_or(self.start, |run| run.end)
+    }
+
+    /// Where run `index` begins, which is where the one before it ends.
+    fn run_start(&self, index: usize) -> u64 {
+        match index {
+            0 => self.start,
+            _ => self.runs[index - 1].end,
+        }
+    }
+
+    /// The runs over `[lo, hi)`, each cut to the part inside, as
+    /// `(from, to, value)`.
+    fn overlapping(&self, lo: u64, hi: u64) -> impl Iterator<Item = (u64, u64, f64)> + '_ {
+        let first = self.runs.partition_point(|run| run.end <= lo);
+        (first..self.runs.len()).map_while(move |index| {
+            let from = self.run_start(index);
+            (from < hi).then(|| {
+                let run = self.runs[index];
+                (from.max(lo), run.end.min(hi), run.value)
+            })
+        })
     }
 
     /// Sets the text shown in the left gutter.
@@ -265,53 +354,51 @@ impl CoverageTrack {
     /// Largest finite value inside `region`, or `None` when nothing overlaps.
     pub fn visible_max(&self, region: &Region) -> Option<f64> {
         let (lo, hi) = self.visible_slice(region)?;
-        self.values[lo..hi]
-            .iter()
-            .copied()
+        self.overlapping(lo, hi)
+            .map(|(_, _, value)| value)
             .filter(|v| v.is_finite())
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
             })
     }
 
-    /// Index range of `self.values` overlapping `region`.
-    fn visible_slice(&self, region: &Region) -> Option<(usize, usize)> {
-        // Saturating, because a caller is free to hand in a start near the top
-        // of the coordinate range and the sum is computed before the test that
-        // would have thrown the track out for being off screen.
-        let end = self.start.saturating_add(self.values.len() as u64);
+    /// The stretch of positions this track holds that `region` overlaps.
+    fn visible_slice(&self, region: &Region) -> Option<(u64, u64)> {
+        let end = self.end();
         if region.end() <= self.start || region.start() >= end {
             return None;
         }
-        let lo = region.start().max(self.start) - self.start;
-        let hi = region.end().min(end) - self.start;
-        if hi <= lo {
-            return None;
-        }
-        Some((lo as usize, hi as usize))
+        let lo = region.start().max(self.start);
+        let hi = region.end().min(end);
+        (hi > lo).then_some((lo, hi))
     }
 
     /// Reduces the bases in `[lo, hi)` to the single value a pixel shows.
     fn sample(&self, lo: f64, hi: f64) -> Option<f64> {
         let origin = self.start as f64;
         let first = (lo - origin).floor().max(0.0);
-        let last = (hi - origin).ceil().min(self.values.len() as f64);
+        let last = (hi - origin).ceil().min((self.end() - self.start) as f64);
         if last <= first {
             return None;
         }
-        let slice = &self.values[first as usize..last as usize];
-        let mut count = 0usize;
+        let (from, to) = (self.start + first as u64, self.start + last as u64);
+        let mut count = 0u64;
         let mut acc = match self.aggregate {
             Aggregate::Max => f64::NEG_INFINITY,
             Aggregate::Min => f64::INFINITY,
             Aggregate::Mean => 0.0,
         };
-        for value in slice.iter().copied().filter(|v| v.is_finite()) {
-            count += 1;
+        for (run_from, run_to, value) in self.overlapping(from, to) {
+            if !value.is_finite() {
+                continue;
+            }
+            // Every base of the run counts once, as it did one at a time.
+            let bases = run_to - run_from;
+            count += bases;
             acc = match self.aggregate {
                 Aggregate::Max => acc.max(value),
                 Aggregate::Min => acc.min(value),
-                Aggregate::Mean => acc + value,
+                Aggregate::Mean => acc + value * bases as f64,
             };
         }
         if count == 0 {
@@ -329,6 +416,29 @@ impl CoverageTrack {
         } else {
             value
         }
+    }
+}
+
+/// A stretch of bases holding one value, from where the run before it ends to
+/// `end`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Run {
+    end: u64,
+    value: f64,
+}
+
+/// Whether two values are one: the same bits, so two missing values are one
+/// value and a nought is not a missing one.
+fn same(a: f64, b: f64) -> bool {
+    a.to_bits() == b.to_bits()
+}
+
+/// Adds a run ending at `end`, joined to the one before it where it holds the
+/// same value.
+fn push_run(runs: &mut Vec<Run>, end: u64, value: f64) {
+    match runs.last_mut() {
+        Some(last) if same(last.value, value) => last.end = end,
+        _ => runs.push(Run { end, value }),
     }
 }
 
@@ -377,9 +487,9 @@ impl Track for CoverageTrack {
         // round to over all of it bound the labels over any part of it.
         let size = theme.font_size - 1.0;
         let whole = self
-            .values
+            .runs
             .iter()
-            .copied()
+            .map(|run| run.value)
             .filter(|v| v.is_finite())
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
@@ -754,8 +864,61 @@ mod tests {
     fn from_pairs_places_values_at_their_positions() {
         let window = Region::new("chr1", 100, 105).unwrap();
         let track = CoverageTrack::from_pairs(&window, [(101, 7.0), (104, 3.0), (900, 99.0)]);
-        assert_eq!(track.values, vec![0.0, 7.0, 0.0, 0.0, 3.0]);
+        let values: Vec<f64> = (100..105).map(|pos| track.at(pos).unwrap()).collect();
+        assert_eq!(values, vec![0.0, 7.0, 0.0, 0.0, 3.0]);
         assert_eq!(track.visible_max(&window), Some(7.0));
+    }
+
+    /// Spans painted in order, as a file writes them, or in any order at all,
+    /// leave every base holding what a value per base would, and no two
+    /// neighbouring runs holding one value.
+    #[test]
+    fn painting_spans_leaves_what_a_value_per_base_would() {
+        let window = Region::new("chr1", 100, 400).unwrap();
+        // A generator of its own, since the crate takes no dependencies.
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |below: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % below
+        };
+        for round in 0..200 {
+            let mut track = CoverageTrack::from_spans(&window, std::iter::empty());
+            let mut expected = [0.0f64; 300];
+            let mut reached = 90;
+            for _ in 0..40 {
+                let (start, end) = if round % 2 == 0 {
+                    let start = reached + next(4);
+                    reached = start + 1 + next(12);
+                    (start, reached)
+                } else {
+                    let start = 90 + next(330);
+                    (start, start + 1 + next(60))
+                };
+                let value = [0.0, 1.0, 2.0, f64::NAN][next(4) as usize];
+                track.paint(start, end, value);
+                for pos in start.max(100)..end.min(400) {
+                    expected[(pos - 100) as usize] = value;
+                }
+            }
+            for pos in 100..400 {
+                let (held, wanted) = (track.at(pos).unwrap(), expected[(pos - 100) as usize]);
+                assert!(
+                    same(held, wanted),
+                    "round {round}, base {pos}: {held} for {wanted}"
+                );
+            }
+            assert_eq!(track.end(), 400, "round {round}");
+            assert!(
+                track
+                    .runs
+                    .windows(2)
+                    .all(|pair| pair[0].end < pair[1].end && !same(pair[0].value, pair[1].value)),
+                "round {round}: {:?}",
+                track.runs
+            );
+        }
     }
 
     #[test]
