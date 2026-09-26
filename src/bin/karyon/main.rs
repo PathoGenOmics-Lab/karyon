@@ -351,8 +351,8 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     out.push_str(
-        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme, --no-axis,\n\
-         --no-region-label, --no-legend, --rename and -o.\n",
+        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme,\n\
+         --background, --no-axis, --no-region-label, --no-legend, --rename and -o.\n",
     );
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
@@ -625,6 +625,8 @@ FIGURE OPTIONS
     --title <TEXT>
     --width <PX>         900 by default
     --theme <NAME>       light or dark
+    --background <HEX>   the colour under the figure, as in '#fbfaff', for a
+                         page or a slide of another colour than the theme's
     --no-axis            leave out the ruler
     --no-region-label    leave out the locus printed at the top right
     --no-legend          leave out the key to the colours a tree's branches and
@@ -892,6 +894,7 @@ mod tests {
             ("--title", "a"),
             ("--width", "500"),
             ("--theme", "dark"),
+            ("--background", "#fbfaff"),
             ("-o", "a.svg"),
         ] {
             let line = format!("chr1:1-10 {flag} {value} {flag} {value}");

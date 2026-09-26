@@ -546,6 +546,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--title <TEXT>` | a title above the stack | no title |
 | `--width <PX>` | the width of the figure, at most 100,000 pixels | 900 |
 | `--theme <NAME>` | `light` or `dark` | `light` |
+| `--background <HEX>` | the colour under the figure, as `#rrggbb`, for a page or a slide of another colour; the shades mixed from it follow | the theme's |
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler at the bottom |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |

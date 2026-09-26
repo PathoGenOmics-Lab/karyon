@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The pictures drawn in advance for Start here and the Your data pages are
+  drawn with `--background` on the page's colour, where the white of the
+  figure was replaced afterwards: the shades mixed from the ground, the pill
+  behind the locus and the greys of the ruler, were mixed from white and are
+  now mixed from the page. Twenty-two of the twenty-four change, only there.
+
 - `--relative` draws a heatmap either side of 1×, a loss in the theme's first
   colour and a gain in its second, with the usual depth pale, where one hue
   drew a lost stretch nearly as pale as the page. The page figures of the
@@ -204,6 +210,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--background HEX` draws a figure on the colour of the page or the slide it
+  goes on, and the shades mixed from the ground follow it.
+- `cli::stack::Held` holds a command line's files in memory by name and reads
+  them as `Disk` reads them from a path, a BAM through its index and gzipped
+  text out of its wrapper; `cli::stack::build_figure` builds a command line's
+  figure in a given theme and over another window, and says whether it runs
+  along a genome (`Built`); `Invocation::files` names the files a command line
+  reads, and `TrackSpec::sources` those of one track.
 - `--with-recombination FILE` after `--manhattan` lays a genetic map's rate
   behind the scan's points, read off a scale of its own on the right with
   `cM/Mb` after its highest number, as LocusZoom draws one, and keys it.
