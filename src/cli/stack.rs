@@ -620,7 +620,14 @@ pub fn build_files(
     // the colours of bases too narrow for their letters.
     let key = figure.key();
     let bases = theme.bases.legend();
-    if bases.items().iter().all(|item| key.items().contains(item)) {
+    // Only for a reference drawn as blocks: an alignment keys its colours the
+    // same way, and its reader came for the pattern down the rows, not for
+    // the letters a width of several thousand pixels would write.
+    let sequence = invocation
+        .tracks
+        .iter()
+        .any(|spec| spec.kind == Kind::Sequence);
+    if sequence && bases.items().iter().all(|item| key.items().contains(item)) {
         // And how wide the figure would have to be for the letters, which a
         // reader asked to show a sequence came for.
         let px = figure.px_per_bp();
@@ -724,6 +731,18 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                     .into_iter()
                     .map(|(n, l)| (renamed(invocation, n), l)),
             );
+            // A PAF writes the length of every query it aligns, which is the
+            // sequence a synteny figure or a dot plot is drawn along. It was
+            // not asked, so a figure placed on its own query was refused.
+            if matches!(spec.kind, Kind::Synteny | Kind::Dotplot)
+                && spec.source.as_ref() == Some(source)
+            {
+                lengths.extend(
+                    paf_query_lengths(&text)
+                        .into_iter()
+                        .map(|(n, l)| (renamed(invocation, n), l)),
+                );
+            }
             if matches!(spec.kind, Kind::Features | Kind::Loci)
                 && spec.source.as_ref() == Some(source)
             {
@@ -965,6 +984,25 @@ fn sequence_lengths(text: &str) -> Vec<(String, u64)> {
                     found.push((name.to_string(), length));
                 }
             }
+        }
+    }
+    found
+}
+
+/// The query sequences a PAF aligns, each with the length its second column
+/// gives it, once each.
+fn paf_query_lengths(text: &str) -> Vec<(String, u64)> {
+    let mut found: Vec<(String, u64)> = Vec::new();
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let mut fields = line.split('\t');
+        let (Some(name), Some(length)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let Ok(length) = length.parse() else {
+            continue;
+        };
+        if !name.is_empty() && !found.iter().any(|(held, _)| held == name) {
+            found.push((name.to_string(), length));
         }
     }
     found
@@ -5082,6 +5120,45 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             "{error}"
         );
         assert!(error.contains("X, Y"), "{error}");
+    }
+
+    /// A PAF writes each query's length, and a figure placed on the query by
+    /// its name was refused as a place no file named.
+    #[test]
+    fn a_comparison_is_placed_on_its_query_by_name() {
+        let paf = "asm1\t6000\t0\t2000\t+\tasm2\t6200\t0\t2000\t1990\t2000\t60\n\
+                   asm1\t6000\t2000\t4000\t-\tasm2\t6200\t2100\t4100\t1990\t2000\t60\n";
+        let held = [("a.paf", paf)];
+        for line in ["asm1 a.paf", "asm1 --dotplot a.paf"] {
+            let (svg, notes) = drawn_noting(line, &held);
+            let svg = svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+            assert!(svg.contains("asm1:1-6000"), "{line}: {svg}");
+            // Which way round a block runs is keyed, as each is drawn.
+            assert!(
+                svg.contains(">same strand</text>") && svg.contains(">reversed</text>"),
+                "{line}"
+            );
+        }
+    }
+
+    /// An alignment too wide for its letters paints them as colours, which a
+    /// key now names, and it is not told to be drawn thousands of pixels wide.
+    #[test]
+    fn an_alignment_keys_its_colours_and_is_not_told_to_widen() {
+        let rows: String = (0..4)
+            .map(|row| format!(">r{row}\n{}\n", "ACGT".repeat(150)))
+            .collect();
+        let held = [("aln.fa", rows.as_str())];
+        let (svg, notes) = drawn_noting("--msa aln.fa --style all", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        for base in ["A", "C", "G", "T"] {
+            assert!(
+                svg.contains(&format!(">{base}</text>")),
+                "no key for {base}: {svg}"
+            );
+        }
     }
 
     /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file

@@ -143,6 +143,27 @@ fn block_color(
     }
 }
 
+/// The key to the two colours a comparison is drawn in, naming only the
+/// orientations its blocks have.
+///
+/// Which way round a block runs is the one thing a comparison says by colour,
+/// and the second colour of the palette read as nothing in particular: an
+/// inversion was a pink ribbon with no word for pink anywhere on the page.
+fn strand_key(
+    blocks: &[AlignmentBlock],
+    theme: &Theme,
+    forward: &Option<String>,
+    reverse: &Option<String>,
+) -> Option<crate::track::legend::Legend> {
+    let mut legend = crate::track::legend::Legend::new();
+    for (reversed, label) in [(false, "same strand"), (true, "reversed")] {
+        if let Some(block) = blocks.iter().find(|block| block.reversed == reversed) {
+            legend = legend.area(label, block_color(block, theme, forward, reverse));
+        }
+    }
+    (!legend.is_empty()).then_some(legend)
+}
+
 /// What a block is, where it lands on both sequences, and which way round.
 ///
 /// A block is one datum drawn as one glyph in either track, so it is named in
@@ -296,6 +317,20 @@ impl DotplotTrack {
 impl Track for DotplotTrack {
     fn noun(&self) -> &str {
         "a dotplot"
+    }
+
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        strand_key(
+            &self.blocks,
+            theme,
+            &self.forward_color,
+            &self.reverse_color,
+        )
     }
 
     fn height(&self, _scale: &Scale) -> f64 {
@@ -508,6 +543,20 @@ impl SyntenyTrack {
 impl Track for SyntenyTrack {
     fn noun(&self) -> &str {
         "synteny ribbons"
+    }
+
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        strand_key(
+            &self.blocks,
+            theme,
+            &self.forward_color,
+            &self.reverse_color,
+        )
     }
 
     fn height(&self, _scale: &Scale) -> f64 {

@@ -507,6 +507,44 @@ impl Track for MsaTrack {
         "a multiple sequence alignment"
     }
 
+    /// The colours a cell is painted in, while the columns are too narrow for
+    /// the letters that would name them: the four bases, the six classes of
+    /// amino acid, or the one colour a difference is drawn in. An alignment of
+    /// three hundred columns was a field of four colours with no word for any
+    /// of them.
+    fn key(
+        &self,
+        _region: &crate::region::Region,
+        px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        if self.show_letters && px_per_bp >= self.letter_threshold {
+            return None;
+        }
+        let legend = crate::track::legend::Legend::new();
+        Some(match self.coloring {
+            MsaColoring::Nucleotide => theme.bases.legend(),
+            MsaColoring::Residue => [
+                ("hydrophobic", ResidueClass::Hydrophobic),
+                ("positive", ResidueClass::Positive),
+                ("negative", ResidueClass::Negative),
+                ("polar", ResidueClass::Polar),
+                ("glycine", ResidueClass::Glycine),
+                ("proline", ResidueClass::Proline),
+            ]
+            .into_iter()
+            .fold(legend, |legend, (name, class)| {
+                legend.key(name, theme.color(class.palette_index()).to_string())
+            }),
+            MsaColoring::Uniform => legend.key(
+                "differs",
+                self.uniform_color
+                    .clone()
+                    .unwrap_or_else(|| theme.accent.clone()),
+            ),
+        })
+    }
+
     fn height(&self, _scale: &Scale) -> f64 {
         let (rows, _) = self.visible_rows();
         let rows = rows.max(1) as f64;

@@ -161,6 +161,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A comparison is placed on its query by name: `karyon asm1_chr1
+  assemblies.paf` reads the length the PAF writes for `asm1_chr1`, where the
+  place was refused as a name no file gave.
+- Synteny ribbons and dot plots key the two colours they are drawn in, `same
+  strand` and `reversed`, and an alignment too narrow for its letters keys the
+  colours of its bases, its classes of amino acid or its one colour of
+  difference. `Figure::key` gathers them, and the command line draws them.
+
 - `--with-tree FILE` after `--msa`, `--snps`, `--matrix` or `--domains` orders
   the rows as the tree's tips and draws the tree beside them, as the library
   has done all along; the command line could not ask for it.
