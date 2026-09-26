@@ -13,9 +13,15 @@
    sits in, in that page's light or dark, so it is part of the page rather
    than a picture laid on it.
 
+   A figure a page prints the command for, drawn in advance under it in the
+   page's light and in its dark, is drawn the same way from that command, over
+   the example files the site publishes under data/: the program's own parser
+   says which files the command reads, and they are fetched when the figure
+   comes near.
+
    The file stays in the page as it was written, and is what shows with
    JavaScript off or if the program never arrives. Nothing is fetched but the
-   program, and nothing is sent anywhere.
+   program and those example files, and nothing is sent anywhere.
 
    No dependencies, in a crate that has none. */
 
@@ -128,11 +134,68 @@
     if (tip) tip.hidden = true;
   }
 
+  /* -------------------------------------------------------------- sources */
+
+  /* What a figure is drawn from. A committed figure is compiled into the
+     program and named by its file; a command is the words a page prints,
+     over the example files they name. Both answer the same three questions:
+     is it ready, draw it this way, and does it run along a genome. */
+
+  function Committed(stem) {
+    this.stem = stem;
+  }
+  Committed.prototype.prepare = function () {
+    return Promise.resolve();
+  };
+  Committed.prototype.draw = function (opts) {
+    return K.figure(this.stem, opts);
+  };
+  Committed.prototype.region = function () {
+    return K.figureRegion(this.stem);
+  };
+
+  var fetches = {};
+
+  /* An example file's bytes, fetched once however many figures read it. */
+  function fetched(name) {
+    if (!fetches[name]) {
+      fetches[name] = fetch(K.data(name)).then(function (response) {
+        if (!response.ok) throw new Error(response.status + " fetching " + name);
+        return response.arrayBuffer();
+      }).then(function (buffer) {
+        return { name: name, body: new Uint8Array(buffer) };
+      });
+    }
+    return fetches[name];
+  }
+
+  function Command(argv) {
+    this.argv = argv;
+    this.files = null;
+    this.ready = null;
+  }
+  Command.prototype.prepare = function () {
+    if (this.ready) return this.ready;
+    var self = this;
+    var named = K.commandFiles(this.argv);
+    this.ready = named.ok
+      ? Promise.all(named.files.map(fetched)).then(function (files) { self.files = files; })
+      : Promise.reject(new Error(named.body));
+    return this.ready;
+  };
+  Command.prototype.draw = function (opts) {
+    return K.command(this.argv, this.files || [], opts);
+  };
+  Command.prototype.region = function () {
+    return K.commandRegion(this.argv, this.files || []);
+  };
+
   /* ------------------------------------------------------------- a figure */
 
   function Figure(img, stem, options) {
     this.img = img;
     this.stem = stem;
+    this.source = options.source || new Committed(stem);
     this.alt = img.getAttribute("alt") || "";
     this.thumb = !!options.thumb;
     this.wide = !!options.wide;
@@ -158,6 +221,10 @@
     img.parentNode.insertBefore(host, img);
     host.appendChild(stage);
     stage.appendChild(img);
+    /* A figure drawn in advance twice, on the light page and on the dark, is
+       both pictures until the program draws it once. */
+    (options.pair || []).forEach(function (other) { stage.appendChild(other); });
+    if (options.pair) host.classList.add("k-fig--pair");
     this.host = host;
     this.stage = stage;
 
@@ -245,7 +312,7 @@
     var ground = groundOf(this.host);
     var want = [scheme(), ground, width, this.view ? regionText(this.view) : ""].join("|");
     if (!force && want === this.drawn) return;
-    var answer = K.figure(this.stem, {
+    var answer = this.source.draw({
       theme: scheme(),
       background: ground,
       width: width,
@@ -513,7 +580,7 @@
   /* The view on screen as a file of its own: drawn again without a prefix,
      so it names itself the way a file the program wrote does. */
   Figure.prototype.save = function () {
-    var answer = K.figure(this.stem, {
+    var answer = this.source.draw({
       theme: scheme(),
       width: this.moves ? this.width : 0,
       region: this.view ? regionText(this.view) : "",
@@ -536,7 +603,7 @@
   Figure.prototype.learn = function () {
     if (this.thumb || this.learnt) return;
     this.learnt = true;
-    var answer = K.figureRegion(this.stem);
+    var answer = this.source.region();
     if (!answer.ok || !answer.moves) return;
     var home = K.locus(answer.region);
     if (!home) return;
@@ -558,7 +625,7 @@
     var img = fig.img.cloneNode(true);
     dialog.appendChild(img);
     document.body.appendChild(dialog);
-    var big = new Figure(img, fig.stem, { wide: true });
+    var big = new Figure(img, fig.stem, { wide: true, source: fig.source });
     big.host.kFigure = big;
     big.opener = fig;
     larger = { dialog: dialog, figure: big };
@@ -600,16 +667,60 @@
     return found;
   }
 
+  /* A figure drawn in advance under the command a page prints for it: a
+     `figure.k-start` right after its code block, holding the picture for the
+     light page and the one for the dark. The command is the block's words,
+     less `karyon` and where it writes to, which names the file a view is
+     saved as. */
+  function commands() {
+    var found = [];
+    var figures = document.querySelectorAll(".md-typeset figure.k-start");
+    for (var i = 0; i < figures.length; i++) {
+      var figure = figures[i];
+      if (figure.querySelector(".k-fig")) continue;
+      var block = figure.previousElementSibling;
+      var code = block && block.matches(".language-bash") ? block.querySelector("code") : null;
+      if (!code) continue;
+      var words = K.words(code.textContent);
+      if (words[0] !== "karyon") continue;
+      var argv = [];
+      var name = "figure";
+      for (var w = 1; w < words.length; w++) {
+        if (words[w] === "-o" || words[w] === "--output") {
+          name = (words[w + 1] || name).replace(/\.svg$/, "");
+          w++;
+        } else {
+          argv.push(words[w]);
+        }
+      }
+      var light = figure.querySelector("img.k-light");
+      var dark = figure.querySelector("img.k-dark");
+      if (!light) continue;
+      found.push({
+        img: light,
+        stem: name,
+        thumb: false,
+        source: new Command(argv),
+        pair: dark ? [dark] : [],
+      });
+    }
+    return found;
+  }
+
   function each(then) {
     for (var i = 0; i < all.length; i++) then(all[i]);
     if (larger) then(larger.figure);
   }
 
   function start() {
-    var found = candidates();
+    var found = candidates().concat(commands());
     if (!found.length) return;
     found.forEach(function (item) {
-      var fig = new Figure(item.img, item.stem, { thumb: item.thumb });
+      var fig = new Figure(item.img, item.stem, {
+        thumb: item.thumb,
+        source: item.source,
+        pair: item.pair,
+      });
       fig.host.kFigure = fig;
       all.push(fig);
     });
@@ -630,15 +741,18 @@
           var fig = entry.target.kFigure;
           fig.visible = entry.isIntersecting;
           if (!entry.isIntersecting) return;
-          K.load().then(
-            function () {
-              fig.learn();
-              fig.draw();
-            },
-            function () {
-              fig.host.dataset.state = "static";
-            }
-          );
+          K.load()
+            .then(function () { return fig.source.prepare(); })
+            .then(
+              function () {
+                fig.learn();
+                fig.draw();
+              },
+              function (error) {
+                fig.host.dataset.state = "static";
+                if (error && error.message) fig.host.title = "karyon: " + error.message;
+              }
+            );
         });
       },
       { rootMargin: AHEAD }

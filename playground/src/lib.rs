@@ -24,7 +24,7 @@
 //!
 //! ```text
 //! in   [u32 argc]  argc x ([u32 len][bytes])        the command line, one word each
-//!      [u32 filec] filec x ([u32 len][name] [u32 len][body])
+//!      [u32 filec] filec x ([u32 len][name] [u32 len][body])   any bytes
 //!
 //! out  [u8 ok]     1 for a figure, 0 for a message
 //!      [u32 len][bytes]                              the SVG, or what went wrong
@@ -95,9 +95,40 @@
 //! out  [u8 ok][u32 len]        1, and the length of what follows
 //!      [u8 moves] [u32 len][region]
 //! ```
+//!
+//! # A command line drawn as a page's figure
+//!
+//! A page whose figure is a command it prints, over files it links to, draws
+//! that figure with [`command`] the way [`figure`] draws a committed one: in
+//! the page's light or dark, on its colour, at the width of its column, over
+//! the window its reader has moved to, and with ids of its own. The files are
+//! whatever the page fetched, a BAM and its index as much as a FASTA, read the
+//! way a shell reads them from disk.
+//!
+//! ```text
+//! in   [u32 argc]  argc x ([u32 len][word])      the command line
+//!      [u32 filec] filec x ([u32 len][name] [u32 len][bytes])
+//!      [u32 len][theme] [u32 len][background] [u32 width] [u32 len][region] [u32 len][prefix]
+//!
+//! out  [u8 ok][u32 len][bytes]                   the SVG, or what went wrong
+//! ```
+//!
+//! The last five are [`figure`]'s, and read the same way; a width or a
+//! background the command writes is kept. [`command_region`] takes the command line and the files,
+//! and answers as [`figure_region`] does: whether the figure runs along a
+//! genome, and over what, so a page knows whether to move it along one.
+//!
+//! Which files to fetch is the command line's to say, and [`command_files`]
+//! asks it: the buffer in is the command line alone, and the answer names
+//! each file it reads, once.
+//!
+//! ```text
+//! in   [u32 argc]  argc x ([u32 len][word])
+//! out  [u8 ok][u32 len]        1, and the length of what follows
+//!      [u32 count] count x ([u32 len][name])
+//! ```
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 
 use karyon::cli::{args, stack};
 use karyon::{Region, Theme, Tree};
@@ -160,49 +191,86 @@ pub unsafe extern "C" fn render(ptr: *const u8, len: usize) -> *mut u8 {
 /// The whole of what the playground does, with the pointers already gone.
 fn run(mut input: &[u8]) -> Result<String, String> {
     let argv = strings(&mut input).ok_or("the command line is not in the shape this expects")?;
-    let count = number(&mut input).ok_or("the file list is not in the shape this expects")?;
-    let mut files: BTreeMap<String, String> = BTreeMap::new();
-    for _ in 0..count {
-        let name = text(&mut input).ok_or("a file name is not in the shape this expects")?;
-        let body = text(&mut input).ok_or("a file body is not in the shape this expects")?;
-        files.insert(name, body);
-    }
+    let mut files = page_files(&mut input)?;
+    let invocation = invocation(&argv)?;
+    stack::build_files(&invocation, &mut files, remembered).map_err(|error| error.to_string())
+}
 
-    let request = args::parse(&argv).map_err(|error| error.to_string())?;
-    let invocation = match request {
-        args::Request::Draw(invocation) => invocation,
+/// A command line, parsed, as a figure to draw.
+fn invocation(argv: &[String]) -> Result<Box<args::Invocation>, String> {
+    match args::parse(argv).map_err(|error| error.to_string())? {
+        args::Request::Draw(invocation) => Ok(invocation),
         // A page has nowhere to print to and no exit code, so the two requests
         // that are not a figure are answered as text rather than performed.
         args::Request::Help | args::Request::HelpOn(_) => {
-            return Err("--help prints to a terminal".to_string())
+            Err("--help prints to a terminal".to_string())
         }
         // `karyon::VERSION` and not this crate's own, which is the shim's.
-        args::Request::Version => return Err(format!("karyon {}", karyon::VERSION)),
-    };
+        args::Request::Version => Err(format!("karyon {}", karyon::VERSION)),
+    }
+}
 
-    stack::build_with(
-        &invocation,
-        |source| match source {
-            args::Source::Path(path) => {
-                let name = path.display().to_string();
-                files.get(&name).cloned().ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        // The one error this front end phrases differently from
-                        // a shell, because a page's files are a list a reader
-                        // can see rather than a directory they have to go and
-                        // look in.
-                        format!("no such file here; this page holds {}", named(&files)),
-                    )
-                })
+/// Reads the page's files off the front: how many, then each one's name and
+/// its bytes, which may be any bytes at all.
+fn page_files(input: &mut &[u8]) -> Result<Page, String> {
+    let count = number(input).ok_or("the file list is not in the shape this expects")?;
+    let mut files = stack::Held::new();
+    for _ in 0..count {
+        let name = text(input).ok_or("a file name is not in the shape this expects")?;
+        let body = bytes(input).ok_or("a file body is not in the shape this expects")?;
+        files.insert(name, body);
+    }
+    Ok(Page(files))
+}
+
+/// The files a page holds, read as a shell reads the same files from disk,
+/// and saying what the page holds where a command names a file it does not.
+struct Page(stack::Held);
+
+impl stack::Files for Page {
+    fn text(&mut self, source: &args::Source) -> std::io::Result<String> {
+        match source {
+            args::Source::Path(path) if !self.0.contains(&path.display().to_string()) => {
+                let names: Vec<&str> = self.0.names().collect();
+                let held = if names.is_empty() {
+                    "no files".to_string()
+                } else {
+                    names.join(", ")
+                };
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    // The one error this front end phrases differently from
+                    // a shell, because a page's files are a list a reader can
+                    // see rather than a directory they have to go and look in.
+                    format!("no such file here; this page holds {held}"),
+                ))
             }
             // There is no pipe into a browser tab. Saying so is better than
             // answering with the empty string, which reads as an empty file.
             args::Source::Stdin => Err(std::io::Error::other("nothing is piped into a page")),
-        },
-        remembered,
-    )
-    .map_err(|error| error.to_string())
+            args::Source::Path(_) => self.0.text(source),
+        }
+    }
+
+    fn depth(&mut self, source: &args::Source, region: &Region) -> std::io::Result<Option<String>> {
+        self.0.depth(source, region)
+    }
+
+    fn reads(&mut self, source: &args::Source, region: &Region) -> std::io::Result<Option<String>> {
+        self.0.reads(source, region)
+    }
+
+    fn sequences(&mut self, source: &args::Source) -> std::io::Result<Option<Vec<(String, u64)>>> {
+        self.0.sequences(source)
+    }
+
+    fn named_read(&mut self, source: &args::Source, name: &str) -> std::io::Result<Option<String>> {
+        self.0.named_read(source, name)
+    }
+
+    fn note(&mut self, message: &str) {
+        self.0.note(message);
+    }
 }
 
 /// Draws one of the committed figures the way the page asks for it.
@@ -235,14 +303,30 @@ const MAX_WIDTH: usize = 100_000;
 /// The whole of what [`figure`] does, with the pointer already gone.
 fn drawn(mut input: &[u8]) -> Result<String, String> {
     let name = text(&mut input).ok_or("the figure's name is not in the shape this expects")?;
-    let scheme = text(&mut input).ok_or("the theme is not in the shape this expects")?;
-    let background = text(&mut input).ok_or("the background is not in the shape this expects")?;
-    let width = number(&mut input).ok_or("the width is not in the shape this expects")?;
-    let window = text(&mut input).ok_or("the region is not in the shape this expects")?;
-    let prefix = text(&mut input).ok_or("the id prefix is not in the shape this expects")?;
-
+    let look = look(&mut input)?;
     let build =
         committed::builder(&name).ok_or_else(|| format!("no committed figure is called {name}"))?;
+    Ok(build(&look.theme, look.width, look.region.as_ref()).to_svg_with_id_prefix(&look.prefix))
+}
+
+/// How a page asks for a figure: in its light or dark, on its colour, at the
+/// width of its column, over its reader's window, and with ids of its own.
+struct Look {
+    theme: Theme,
+    width: Option<f64>,
+    region: Option<Region>,
+    prefix: String,
+}
+
+/// Reads how a page asks for a figure off the front, and refuses what no page
+/// could mean.
+fn look(input: &mut &[u8]) -> Result<Look, String> {
+    let scheme = text(input).ok_or("the theme is not in the shape this expects")?;
+    let background = text(input).ok_or("the background is not in the shape this expects")?;
+    let width = number(input).ok_or("the width is not in the shape this expects")?;
+    let window = text(input).ok_or("the region is not in the shape this expects")?;
+    let prefix = text(input).ok_or("the id prefix is not in the shape this expects")?;
+
     let mut theme = match scheme.as_str() {
         "light" => Theme::light(),
         "dark" => Theme::dark(),
@@ -282,8 +366,110 @@ fn drawn(mut input: &[u8]) -> Result<String, String> {
             "an id prefix is letters, digits, '-' and '_', and {prefix:?} is not"
         ));
     }
+    Ok(Look {
+        theme,
+        width,
+        region,
+        prefix,
+    })
+}
 
-    Ok(build(&theme, width, region.as_ref()).to_svg_with_id_prefix(&prefix))
+/// Draws a command line over the page's files, the way the page asks.
+///
+/// Returns a buffer in the shape [`render`] returns, freed the same way. The
+/// input is the shape the module documentation gives for a command line
+/// drawn as a page's figure.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer written in that input shape.
+#[no_mangle]
+pub unsafe extern "C" fn command(ptr: *const u8, len: usize) -> *mut u8 {
+    let input = std::slice::from_raw_parts(ptr, len);
+    match commanded(input) {
+        Ok(svg) => answer(true, &svg),
+        Err(message) => answer(false, &message),
+    }
+}
+
+/// The whole of what [`command`] does, with the pointer already gone.
+fn commanded(mut input: &[u8]) -> Result<String, String> {
+    let argv = strings(&mut input).ok_or("the command line is not in the shape this expects")?;
+    let mut files = page_files(&mut input)?;
+    let look = look(&mut input)?;
+    let mut invocation = invocation(&argv)?;
+    // The page's width and ground where the command did not write its own.
+    if invocation.width.is_none() {
+        invocation.width = look.width;
+    }
+    let mut theme = look.theme;
+    if let Some(ground) = &invocation.background {
+        theme.background = ground.clone();
+    }
+    let built = stack::build_figure(
+        &invocation,
+        &mut files,
+        remembered,
+        theme,
+        look.region.as_ref(),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(built.figure.to_svg_with_id_prefix(&look.prefix))
+}
+
+/// Names the files a command line reads, so a page can fetch them first.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer holding the command line, as
+/// [`render`] reads it.
+#[no_mangle]
+pub unsafe extern "C" fn command_files(ptr: *const u8, len: usize) -> *mut u8 {
+    let mut input = std::slice::from_raw_parts(ptr, len);
+    let Some(argv) = strings(&mut input) else {
+        return answer(false, "the command line is not in the shape this expects");
+    };
+    match invocation(&argv) {
+        Ok(invocation) => framed(true, &names(&invocation.files())),
+        Err(message) => answer(false, &message),
+    }
+}
+
+/// A count, then each name.
+fn names(files: &[&std::path::Path]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(files.len() as u32).to_le_bytes());
+    for file in files {
+        put_text(&mut out, &file.display().to_string());
+    }
+    out
+}
+
+/// Says whether a command line's figure runs along a genome, and over what.
+///
+/// The input is the command line and the files as [`command`] reads them,
+/// with nothing after; the answer is framed as [`figure_region`]'s.
+///
+/// # Safety
+///
+/// `ptr` and `len` must describe a buffer written in that input shape.
+#[no_mangle]
+pub unsafe extern "C" fn command_region(ptr: *const u8, len: usize) -> *mut u8 {
+    let input = std::slice::from_raw_parts(ptr, len);
+    match placed(input) {
+        Ok(entry) => framed(true, &entry),
+        Err(message) => answer(false, &message),
+    }
+}
+
+/// The whole of what [`command_region`] does, with the pointer already gone.
+fn placed(mut input: &[u8]) -> Result<Vec<u8>, String> {
+    let argv = strings(&mut input).ok_or("the command line is not in the shape this expects")?;
+    let mut files = page_files(&mut input)?;
+    let invocation = invocation(&argv)?;
+    let built = stack::build_figure(&invocation, &mut files, remembered, Theme::light(), None)
+        .map_err(|error| error.to_string())?;
+    Ok(entry(built.along.as_ref()))
 }
 
 /// Lists the committed figures, and the window each one moves over.
@@ -319,8 +505,14 @@ pub unsafe extern "C" fn figure_region(ptr: *const u8, len: usize) -> *mut u8 {
 
 /// One figure's entry of the list: whether it moves, and over what.
 fn region_entry(build: committed::Builder) -> Vec<u8> {
+    entry(build(&Theme::light(), None, None).region())
+}
+
+/// Whether a figure moves along a genome, and over what: 1 and the region,
+/// or 0 and nothing.
+fn entry(region: Option<&Region>) -> Vec<u8> {
     let mut out = Vec::new();
-    match build(&Theme::light(), None, None).region() {
+    match region {
         Some(region) => {
             out.push(1);
             put_text(&mut out, &region.to_string());
@@ -664,14 +856,6 @@ fn remembered(name: &str, text: &str) -> Option<Tree> {
     })
 }
 
-/// The files a page is holding, for the error that says one is missing.
-fn named(files: &BTreeMap<String, String>) -> String {
-    if files.is_empty() {
-        return "no files".to_string();
-    }
-    files.keys().cloned().collect::<Vec<_>>().join(", ")
-}
-
 /// Reads a little-endian `u32` off the front.
 fn number(input: &mut &[u8]) -> Option<usize> {
     let (head, rest) = input.split_at_checked(4)?;
@@ -681,10 +865,15 @@ fn number(input: &mut &[u8]) -> Option<usize> {
 
 /// Reads a length-prefixed UTF-8 string off the front.
 fn text(input: &mut &[u8]) -> Option<String> {
+    String::from_utf8(bytes(input)?).ok()
+}
+
+/// Reads length-prefixed bytes off the front, whatever they are.
+fn bytes(input: &mut &[u8]) -> Option<Vec<u8>> {
     let len = number(input)?;
     let (head, rest) = input.split_at_checked(len)?;
     *input = rest;
-    String::from_utf8(head.to_vec()).ok()
+    Some(head.to_vec())
 }
 
 /// Reads a length-prefixed list of length-prefixed strings off the front.
@@ -711,28 +900,257 @@ fn framed(ok: bool, bytes: &[u8]) -> *mut u8 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
 
     /// Builds the input buffer the way the page does, so the protocol is
     /// exercised rather than described.
     fn packed(argv: &[&str], files: &[(&str, &str)]) -> Vec<u8> {
+        packed_bytes(argv, files)
+    }
+
+    /// The same, for files that may hold any bytes.
+    fn packed_bytes<B: AsRef<[u8]>>(argv: &[&str], files: &[(&str, B)]) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();
-        fn push(out: &mut Vec<u8>, text: &str) {
-            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
-            out.extend_from_slice(text.as_bytes());
+        fn push(out: &mut Vec<u8>, bytes: &[u8]) {
+            out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            out.extend_from_slice(bytes);
         }
         out.extend_from_slice(&(argv.len() as u32).to_le_bytes());
         for word in argv {
-            push(&mut out, word);
+            push(&mut out, word.as_bytes());
         }
         out.extend_from_slice(&(files.len() as u32).to_le_bytes());
         for (name, body) in files {
-            push(&mut out, name);
-            push(&mut out, body);
+            push(&mut out, name.as_bytes());
+            push(&mut out, body.as_ref());
         }
         out
+    }
+
+    /// A command line and its files, packed as [`command`] reads them, with
+    /// how the page asks for the figure after them.
+    fn commanded_on<B: AsRef<[u8]>>(
+        argv: &[&str],
+        files: &[(&str, B)],
+        scheme: &str,
+        ground: &str,
+        width: u32,
+        region: &str,
+        prefix: &str,
+    ) -> Result<String, String> {
+        let mut input = packed_bytes(argv, files);
+        for text in [scheme, ground] {
+            input.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            input.extend_from_slice(text.as_bytes());
+        }
+        input.extend_from_slice(&width.to_le_bytes());
+        for text in [region, prefix] {
+            input.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            input.extend_from_slice(text.as_bytes());
+        }
+        commanded(&input)
+    }
+
+    /// The words of a command as the page's script reads them out of its
+    /// code block: quotes kept together, a backslash at the end of a line
+    /// joining it to the next, and `karyon` and `-o FILE` left out.
+    fn command_words(block: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quote: Option<char> = None;
+        let mut started = false;
+        let mut chars = block.chars().peekable();
+        while let Some(c) = chars.next() {
+            match quote {
+                Some(open) if c == open => quote = None,
+                Some(_) => word.push(c),
+                None if c == '"' || c == '\'' => {
+                    quote = Some(c);
+                    started = true;
+                }
+                None if c == '\\' && chars.peek() == Some(&'\n') => {
+                    chars.next();
+                }
+                None if c.is_whitespace() => {
+                    if started {
+                        words.push(std::mem::take(&mut word));
+                        started = false;
+                    }
+                }
+                None => {
+                    word.push(c);
+                    started = true;
+                }
+            }
+        }
+        if started {
+            words.push(word);
+        }
+        let mut out = Vec::new();
+        let mut rest = words.into_iter();
+        while let Some(word) = rest.next() {
+            match word.as_str() {
+                "karyon" if out.is_empty() => {}
+                "-o" | "--output" => {
+                    rest.next();
+                }
+                _ => out.push(word),
+            }
+        }
+        out
+    }
+
+    /// Every figure of the short path is the command printed above it, drawn
+    /// here over the example files it names, and is the picture drawn in
+    /// advance for the light page and for the dark one: what a reader sees
+    /// before the program arrives and after are one figure.
+    #[test]
+    fn every_figure_of_the_short_path_is_its_command_drawn_here() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs");
+        let mut pages = vec![docs.join("start.md")];
+        let mut data_pages: Vec<_> = std::fs::read_dir(docs.join("your-data"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+            .collect();
+        data_pages.sort();
+        pages.extend(data_pages);
+        let mut drawn = 0;
+        for page in &pages {
+            let text = std::fs::read_to_string(page).unwrap();
+            let lines: Vec<&str> = text.lines().collect();
+            for (at, line) in lines.iter().enumerate() {
+                if !line.starts_with("<figure class=\"k-start\"") {
+                    continue;
+                }
+                let shown = |line: &str| {
+                    line.split("assets/start/")
+                        .nth(1)
+                        .and_then(|rest| rest.split(".svg").next())
+                        .map(str::to_string)
+                };
+                let light = shown(lines[at + 1]).unwrap_or_else(|| panic!("{page:?}:{at}"));
+                let dark = shown(lines[at + 2]).unwrap_or_else(|| panic!("{page:?}:{at}"));
+                assert_eq!(dark, format!("{light}-dark"), "{page:?}: {light}");
+                // The command is the code block right above the figure.
+                let close = (0..at)
+                    .rev()
+                    .find(|above| !lines[*above].trim().is_empty())
+                    .unwrap();
+                assert_eq!(
+                    lines[close], "```",
+                    "{page:?}: {light} has no command above it"
+                );
+                let open = (0..close)
+                    .rev()
+                    .find(|above| lines[*above].starts_with("```"))
+                    .unwrap();
+                assert_eq!(lines[open], "```bash", "{page:?}: {light}");
+                let block = lines[open + 1..close].join("\n");
+                assert!(block.starts_with("karyon "), "{page:?}: {block}");
+                let argv = command_words(&block);
+                let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+
+                let owned: Vec<String> = argv.iter().map(|word| word.to_string()).collect();
+                let names: Vec<String> = invocation(&owned)
+                    .unwrap()
+                    .files()
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect();
+                assert!(!names.is_empty(), "{page:?}: {block}");
+                let files: Vec<(&str, Vec<u8>)> = names
+                    .iter()
+                    .map(|name| {
+                        let bytes = std::fs::read(docs.join("data").join(name))
+                            .unwrap_or_else(|_| panic!("{page:?}: {name} is not an example file"));
+                        (name.as_str(), bytes)
+                    })
+                    .collect();
+                for (scheme, ground, file) in
+                    [("light", "#fbfaff", &light), ("dark", "#0d0822", &dark)]
+                {
+                    let live = commanded_on(&argv, &files, scheme, ground, 720, "", "")
+                        .unwrap_or_else(|error| panic!("{page:?}: {block}: {error}"));
+                    let before = std::fs::read_to_string(
+                        docs.join("assets/start").join(format!("{file}.svg")),
+                    )
+                    .unwrap();
+                    assert!(
+                        live == before,
+                        "{page:?}: {file}.svg is not `{block}` drawn in {scheme} on {ground}"
+                    );
+                }
+                drawn += 1;
+            }
+        }
+        assert!(drawn >= 13, "only {drawn} figures were found");
+    }
+
+    /// The files a command names are the ones a page fetches, each once.
+    #[test]
+    fn a_page_is_told_which_files_a_command_reads() {
+        let argv = ["rpoB", "reads.bam", "genes.gff3", "--pileup", "reads.bam"];
+        let mut input = Vec::new();
+        input.extend_from_slice(&(argv.len() as u32).to_le_bytes());
+        for word in argv {
+            input.extend_from_slice(&(word.len() as u32).to_le_bytes());
+            input.extend_from_slice(word.as_bytes());
+        }
+        let out = unsafe {
+            let at = command_files(input.as_ptr(), input.len());
+            let len =
+                u32::from_le_bytes(std::slice::from_raw_parts(at.add(1), 4).try_into().unwrap());
+            let bytes = std::slice::from_raw_parts(at, 5 + len as usize).to_vec();
+            dealloc(at, 5 + len as usize);
+            bytes
+        };
+        assert_eq!(out[0], 1);
+        let mut rest = &out[5..];
+        assert_eq!(strings(&mut rest).unwrap(), ["reads.bam", "genes.gff3"]);
+    }
+
+    /// A page moves a figure placed by a gene along the genome: it is told
+    /// where the figure is, and asks for it over another window, titled with
+    /// the gene still, and with ids of its own.
+    #[test]
+    fn a_command_moves_along_the_genome_under_a_page() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/data");
+        let names = ["reads.bam", "genes.gff3", "calls.vcf.gz"];
+        let files: Vec<(&str, Vec<u8>)> = names
+            .iter()
+            .map(|name| (*name, std::fs::read(docs.join(name)).unwrap()))
+            .collect();
+        let argv = ["rpoB", "reads.bam", "genes.gff3", "calls.vcf.gz"];
+        let mut where_ = &placed(&packed_bytes(&argv, &files)).unwrap()[..];
+        assert_eq!(where_[0], 1, "a figure over a gene moves");
+        where_ = &where_[1..];
+        let home = text(&mut where_).unwrap();
+        assert!(home.starts_with("NC_000962.3:"), "{home}");
+        let moved = commanded_on(
+            &argv,
+            &files,
+            "light",
+            "",
+            600,
+            "NC_000962.3:761,000-762,000",
+            "k1-",
+        )
+        .unwrap();
+        assert!(
+            moved.contains("NC_000962.3:761000-762000") || moved.contains("761,000"),
+            "not moved"
+        );
+        assert!(moved.contains("rpoB"), "the gene's title went");
+        assert!(moved.contains("id=\"k1-"), "no ids of its own");
+        assert!(!moved.contains("id=\"karyon-"), "an id without the prefix");
+        assert!(moved.contains("width=\"600\""), "not the page's width");
+        // A tree is no place along a genome.
+        let tree = [("tree.nwk", std::fs::read(docs.join("tree.nwk")).unwrap())];
+        let entry = placed(&packed_bytes(&["tree.nwk"], &tree)).unwrap();
+        assert_eq!(entry[0], 0);
     }
 
     #[test]

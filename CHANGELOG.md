@@ -48,6 +48,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and gains a twenty-third panel for `PairTrack`, which had none: linkage
   between variants as a triangle under their gene.
 
+- The pictures drawn in advance for Start here and the Your data pages are
+  drawn with `--background` on the page's colour, where the white of the
+  figure was replaced afterwards: the shades mixed from the ground, the pill
+  behind the locus and the greys of the ruler, were mixed from white and are
+  now mixed from the page. Twenty-two of the twenty-four change, only there.
+
 - `--relative` draws a heatmap either side of 1×, a loss in the theme's first
   colour and a gain in its second, with the usual depth pale, where one hue
   drew a lost stretch nearly as pale as the page. The page figures of the
@@ -244,6 +250,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The figures of Start here and of the Your data pages are drawn by the
+  program in the page, from the command printed above each one and the
+  example files the site publishes: in the page's light or dark, at the width
+  of its column, with what each mark is under the pointer, and along the
+  genome under the reader's hand where the figure is over one. On a phone a
+  figure is drawn at the phone's width, where it was a 720 pixel picture
+  shrunk to half. The pictures drawn in advance stay for a page without
+  JavaScript, and a test holds each one to its command drawn in the page.
+- `--background HEX` draws a figure on the colour of the page or the slide it
+  goes on, and the shades mixed from the ground follow it.
+- `cli::stack::Held` holds a command line's files in memory by name and reads
+  them as `Disk` reads them from a path, a BAM through its index and gzipped
+  text out of its wrapper; `cli::stack::build_figure` builds a command line's
+  figure in a given theme and over another window, and says whether it runs
+  along a genome (`Built`); `Invocation::files` names the files a command line
+  reads, and `TrackSpec::sources` those of one track. The playground's
+  program reads a page's files as bytes through them, and its `command`,
+  `command_region` and `command_files` draw a page's command.
 - `--with-recombination FILE` after `--manhattan` lays a genetic map's rate
   behind the scan's points, read off a scale of its own on the right with
   `cM/Mb` after its highest number, as LocusZoom draws one, and keys it.

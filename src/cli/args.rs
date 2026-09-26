@@ -1422,6 +1422,19 @@ impl TrackSpec {
             guessed: false,
         }
     }
+
+    /// Every source the track reads: its data, its other file, its sample
+    /// sheet and its recombination rates, where it names them.
+    pub fn sources(&self) -> impl Iterator<Item = &Source> + '_ {
+        [
+            self.source.as_ref(),
+            self.second.as_ref(),
+            self.traits.as_ref(),
+            self.recombination.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 /// `--threshold`, as it was asked for.
@@ -1477,6 +1490,9 @@ pub struct Invocation {
     pub width: Option<f64>,
     /// `--theme`.
     pub theme: Palette,
+    /// `--background`: the colour under the figure, as `#rrggbb`, where the
+    /// theme's own is not the colour of the page or the slide it goes on.
+    pub background: Option<String>,
     /// Cleared by `--no-axis`.
     pub axis: bool,
     /// Cleared by `--no-region-label`.
@@ -1495,6 +1511,37 @@ pub struct Invocation {
     /// `--rename FROM=TO`: a sequence a file calls `FROM` is the figure's
     /// `TO`, as PLINK's `1` is the FASTA's `NC_000962.3`.
     pub renames: Vec<(String, String)>,
+}
+
+impl Invocation {
+    /// The files the command line names, each once, in the order it names
+    /// them: what a caller with no disk has to hold before it can draw.
+    ///
+    /// ```
+    /// use karyon::cli::args::{parse, Request};
+    ///
+    /// let argv = ["rpoB", "reads.bam", "genes.gff3", "--pileup", "reads.bam"].map(String::from);
+    /// let Request::Draw(invocation) = parse(&argv).unwrap() else {
+    ///     unreachable!("a command line that draws")
+    /// };
+    /// let files: Vec<String> = invocation
+    ///     .files()
+    ///     .iter()
+    ///     .map(|path| path.display().to_string())
+    ///     .collect();
+    /// assert_eq!(files, ["reads.bam", "genes.gff3"]);
+    /// ```
+    pub fn files(&self) -> Vec<&std::path::Path> {
+        let mut files: Vec<&std::path::Path> = Vec::new();
+        for source in self.tracks.iter().flat_map(TrackSpec::sources) {
+            if let Source::Path(path) = source {
+                if !files.contains(&path.as_path()) {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
 }
 
 /// What the command line asked for, which is not always a figure.
@@ -1603,6 +1650,7 @@ pub const FLAGS: &[&str] = &[
     "--title",
     "--width",
     "--theme",
+    "--background",
     "--no-axis",
     "--no-region-label",
     "--no-legend",
@@ -1895,6 +1943,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut title = None;
     let mut width = None;
     let mut theme = Palette::Light;
+    let mut background = None;
     let mut axis = true;
     let mut region_label = true;
     let mut output = None;
@@ -2818,6 +2867,23 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     }
                 };
             }
+            "--background" => {
+                figure_once(&mut given, "--background")?;
+                let text = value("--background")?;
+                // As `#rrggbb` and no other spelling, since the shades a
+                // figure mixes from its ground, as the pill behind the locus,
+                // are worked out from those six digits and would stay mixed
+                // from the theme's own under any other.
+                let hex = text.strip_prefix('#').unwrap_or_default();
+                if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(ArgError::BadValue {
+                        flag: "--background",
+                        given: text.clone(),
+                        expected: "a colour as #rrggbb, as in '#fbfaff'",
+                    });
+                }
+                background = Some(text.clone());
+            }
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
@@ -2936,6 +3002,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         title,
         width,
         theme,
+        background,
         axis,
         region_label,
         output,
@@ -2993,15 +3060,8 @@ fn written_as_a_locus(word: &str) -> bool {
 fn stdin_taken(tracks: &[TrackSpec]) -> bool {
     tracks
         .iter()
-        .flat_map(|t| {
-            [
-                t.source.as_ref(),
-                t.second.as_ref(),
-                t.traits.as_ref(),
-                t.recombination.as_ref(),
-            ]
-        })
-        .any(|source| matches!(source, Some(Source::Stdin)))
+        .flat_map(TrackSpec::sources)
+        .any(|source| matches!(source, Source::Stdin))
 }
 
 /// The format a file name promises when it is one karyon does not write.
@@ -3096,6 +3156,32 @@ mod tests {
             Request::Draw(invocation) => *invocation,
             other => panic!("expected a figure, got {other:?}"),
         }
+    }
+
+    /// Every file a command line names is one a caller with no disk has to
+    /// hold: a track's own, its second, its sheet and its rates, once each,
+    /// and standard input is not a file.
+    #[test]
+    fn a_command_line_lists_the_files_it_reads() {
+        let files = |line: &str| -> Vec<String> {
+            draw(line)
+                .files()
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect()
+        };
+        assert_eq!(
+            files("--msa aln.fa --with-tree t.nwk --traits s.tsv"),
+            ["aln.fa", "t.nwk", "s.tsv"]
+        );
+        assert_eq!(
+            files("1 gwas.assoc --ld lead.ld --with-recombination map.txt"),
+            ["gwas.assoc", "lead.ld", "map.txt"]
+        );
+        assert_eq!(
+            files("chr1:1-100 --coverage - --features genes.gff3 --variants genes.gff3"),
+            ["genes.gff3"]
+        );
     }
 
     /// The options the new tracks take, each refused by name where it means

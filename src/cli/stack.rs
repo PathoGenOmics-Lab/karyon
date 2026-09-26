@@ -25,12 +25,12 @@ use std::path::Path;
 
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
-    DotplotTrack, DynseqTrack, FeatureTrack, IdeogramTrack, JunctionTrack, LocusTrack, LogoTrack,
-    ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack, PairStyle,
-    PairTrack, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Plot, Region, SelectionEvidence,
-    SelectionTrack, SequenceTrack, SnpTrack, SplitReadTrack, SquiggleTrack, StructuralTrack,
-    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree, TreeTrack, VariantTrack,
-    WindowStyle, WindowTrack,
+    DotplotTrack, DynseqTrack, FeatureTrack, Figure, IdeogramTrack, JunctionTrack, LocusTrack,
+    LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
+    PairStyle, PairTrack, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Plot, Region,
+    SelectionEvidence, SelectionTrack, SequenceTrack, SnpTrack, SplitReadTrack, SquiggleTrack,
+    StructuralTrack, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree,
+    TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{
@@ -489,8 +489,50 @@ pub fn build_with(
 pub fn build_files(
     invocation: &Invocation,
     files: &mut dyn Files,
-    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
+    parsed: impl FnMut(&str, &str) -> Option<Tree>,
 ) -> Result<String, BuildError> {
+    let mut theme = match invocation.theme {
+        Palette::Dark => Theme::dark(),
+        Palette::Light => Theme::light(),
+    };
+    if let Some(ground) = &invocation.background {
+        theme.background = ground.clone();
+    }
+    build_figure(invocation, files, parsed, theme, None).map(|built| built.figure.to_svg())
+}
+
+/// A figure a command line builds, before it is written out.
+pub struct Built {
+    /// The figure, for [`Figure::to_svg`], or for
+    /// [`Figure::to_svg_with_id_prefix`] where a page holds several.
+    pub figure: Figure,
+    /// The stretch of a genome it is drawn over, where it is drawn over one:
+    /// the place the command line wrote or named, which [`build_figure`] can
+    /// draw the same command over another stretch of. `None` for a figure
+    /// that is its own place, as an alignment's columns or a table's weeks,
+    /// and for one with no place, as a tree.
+    pub along: Option<Region>,
+}
+
+/// What [`build_files`] draws, as the figure rather than its text: in
+/// `theme`, and over `window` where one is given, in place of the place the
+/// command line wrote or named.
+///
+/// A page that runs a command line draws it in the page's own colours, and
+/// moves it along the genome under its reader's hand, which is the same
+/// command over another stretch. A figure placed by a gene's name keeps the
+/// gene as its title wherever it is moved to.
+///
+/// # Errors
+///
+/// The same as [`build`].
+pub fn build_figure(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
+    theme: Theme,
+    window: Option<&Region>,
+) -> Result<Built, BuildError> {
     let mut kept = KeptStdin { files, stdin: None };
     let files: &mut dyn Files = &mut kept;
     // A figure of phylogenies and variable-site panels names no region, and
@@ -503,9 +545,8 @@ pub fn build_files(
         (None, Some(name)) => Some(place(name, invocation, files)?),
         _ => None,
     };
-    let known = invocation
-        .region
-        .as_ref()
+    let known = window
+        .or(invocation.region.as_ref())
         .or(placed.as_ref().map(|placed| &placed.region));
     // An alignment is its own place: a figure of one, named nowhere, is laid
     // over all its columns. It was refused until a region was made up for it,
@@ -520,7 +561,7 @@ pub fn build_files(
     // A place written for a continuous time names it in its own units, as
     // `year:2010-2016`, and the tables are read to a thousandth of one.
     let rescaled = match (&invocation.region, decimals) {
-        (Some(written), 1..) if all_times(invocation) => {
+        (Some(written), 1..) if window.is_none() && all_times(invocation) => {
             let scale = 10u64.pow(decimals);
             Region::new(
                 written.seq(),
@@ -537,10 +578,19 @@ pub fn build_files(
         .or(columns.as_ref())
         .unwrap_or(&unnamed);
     let counting = counted(invocation, region, decimals);
+    // Along a genome where the place is one, and not where the ruler counts
+    // weeks, sites, samples or columns.
+    let along = known
+        .filter(|_| counting.is_none() && rescaled.is_none())
+        .cloned();
     // A sequence no file gives the length of ends where its rows do, which
     // is a figure worth drawing and an end worth saying where it came from:
     // three simulated users read it as the end of the chromosome.
-    if let Some(file) = placed.as_ref().and_then(|placed| placed.reached.as_ref()) {
+    let reached = placed
+        .as_ref()
+        .and_then(|placed| placed.reached.as_ref())
+        .filter(|_| window.is_none());
+    if let Some(file) = reached {
         let sequence = region.seq();
         // A FASTA that calls the sequence otherwise draws it only once the
         // figure is placed on its name, which --rename then reads the table
@@ -567,10 +617,6 @@ pub fn build_files(
     if let Some(title) = invocation.title.as_ref().or(gene) {
         plot = plot.title(title);
     }
-    let theme = match invocation.theme {
-        Palette::Dark => Theme::dark(),
-        Palette::Light => Theme::light(),
-    };
     // The key to every colour a track paints by a category, gathered as the
     // tracks are built and drawn under the ruler.
     let mut legend = crate::track::legend::Legend::new();
@@ -585,9 +631,7 @@ pub fn build_files(
     if let Some(width) = invocation.width {
         plot = plot.width(width);
     }
-    if invocation.theme == Palette::Dark {
-        plot = plot.theme(Theme::dark());
-    }
+    plot = plot.theme(theme.clone());
     // A week, a site or a sample says no more at the top right than the
     // ruler says under it.
     if !invocation.region_label || counting.as_ref().is_some_and(|counting| !counting.columns) {
@@ -697,7 +741,7 @@ pub fn build_files(
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend));
     }
-    Ok(figure.to_svg())
+    Ok(Built { figure, along })
 }
 
 /// Files that name the same sequences, and those sequences, each with how
@@ -1526,6 +1570,13 @@ pub fn open_from_disk(source: &Source) -> io::Result<String> {
             (bytes, None)
         }
     };
+    decoded(bytes, path)
+}
+
+/// The text a file's bytes hold, whether they were read from a path or held
+/// in memory, with `path` the name they go by, for saying what they are when
+/// they are not text.
+fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
     // Compressed text is text: a `.vcf.gz`, a `.bed.gz` or anything bgzip
     // wrote is taken out of its wrapper here, so every reader takes it as it
     // takes the plain file. BAM and BCF are compressed the same way and are
@@ -1799,6 +1850,162 @@ fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
         }
     }
     Ok(None)
+}
+
+/// The files a command line names, held in memory by name.
+///
+/// What [`Disk`] reads from a path, read from bytes a caller already has: a
+/// page that fetched them, a service that was sent them, a test. Compressed
+/// text is taken out of its wrapper, a BAM is read a window at a time through
+/// the `.bai` held beside it, and one read is found by its name, so a figure
+/// drawn from these files is the figure a shell draws from the same files on
+/// disk. A file is found by its name as the command line writes it.
+///
+/// ```
+/// use karyon::cli::{args, stack};
+///
+/// let mut files = stack::Held::new();
+/// files.insert("depth.bg", "chr1\t0\t100\t12\n");
+/// let argv = ["chr1:1-100", "depth.bg"].map(String::from);
+/// let args::Request::Draw(invocation) = args::parse(&argv).unwrap() else {
+///     unreachable!("a command line that draws")
+/// };
+/// let svg = stack::build_files(&invocation, &mut files, |_, _| None).unwrap();
+/// assert!(svg.starts_with("<svg"));
+/// ```
+#[derive(Debug, Default)]
+pub struct Held {
+    files: std::collections::BTreeMap<String, Vec<u8>>,
+    /// What [`Files::note`] was told.
+    pub notes: Vec<String>,
+}
+
+impl Held {
+    /// Holds no files yet.
+    pub fn new() -> Self {
+        Held::default()
+    }
+
+    /// Holds `bytes` as the file called `name`, in place of any held before.
+    pub fn insert(&mut self, name: impl Into<String>, bytes: impl Into<Vec<u8>>) {
+        self.files.insert(name.into(), bytes.into());
+    }
+
+    /// Whether a file called `name` is held.
+    pub fn contains(&self, name: &str) -> bool {
+        self.files.contains_key(name)
+    }
+
+    /// The names of the files held, in order.
+    pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.files.keys().map(String::as_str)
+    }
+
+    /// The bytes held for a source, and the name they are held under.
+    fn held<'s>(&self, source: &'s Source) -> io::Result<(&'s Path, &[u8])> {
+        let Source::Path(path) = source else {
+            return Err(io::Error::other(
+                "nothing is piped into files held in memory",
+            ));
+        };
+        let name = path.display().to_string();
+        match self.files.get(&name) {
+            Some(bytes) => Ok((path.as_path(), bytes.as_slice())),
+            None => {
+                let names: Vec<&str> = self.names().collect();
+                let held = if names.is_empty() {
+                    ", and no files are".to_string()
+                } else {
+                    format!("; the files held are {}", names.join(", "))
+                };
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("no file called {name} is held{held}"),
+                ))
+            }
+        }
+    }
+
+    /// A source's bytes where it is a BAM: bgzip on the outside, and BAM's
+    /// header inside. `None` for any other file, and for one not held, which
+    /// [`Files::text`] then says.
+    fn bam<'s>(&self, source: &'s Source) -> Option<(&'s Path, &[u8])> {
+        let (path, bytes) = self.held(source).ok()?;
+        let bam =
+            read::gzip::is_gzip(bytes) && read::bam::header_of(io::Cursor::new(bytes)).is_ok();
+        bam.then_some((path, bytes))
+    }
+
+    /// The `.bai` held beside a BAM, as `reads.bam.bai` or `reads.bai`, if
+    /// there is one.
+    fn bam_index(&self, path: &Path) -> io::Result<Option<read::bam::Index>> {
+        let mut beside = path.as_os_str().to_owned();
+        beside.push(".bai");
+        for candidate in [std::path::PathBuf::from(beside), path.with_extension("bai")] {
+            if let Some(bytes) = self.files.get(&candidate.display().to_string()) {
+                return read::bam::index(bytes).map(Some).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
+                });
+            }
+        }
+        Ok(None)
+    }
+
+    /// The header and the reads over `region`, for a source that is a BAM.
+    fn window(
+        &self,
+        source: &Source,
+        region: &Region,
+    ) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
+        let Some((path, bytes)) = self.bam(source) else {
+            return Ok(None);
+        };
+        let index = self.bam_index(path)?;
+        read::bam::window(io::Cursor::new(bytes), index.as_ref(), region)
+            .map(Some)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+}
+
+impl Files for Held {
+    fn note(&mut self, message: &str) {
+        self.notes.push(message.to_string());
+    }
+
+    fn text(&mut self, source: &Source) -> io::Result<String> {
+        let (path, bytes) = self.held(source)?;
+        decoded(bytes.to_vec(), Some(path))
+    }
+
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self.window(source, region)?.map(|(_, records)| {
+            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
+        }))
+    }
+
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(self
+            .window(source, region)?
+            .map(|(header, records)| read::bam::sam(&header, &records)))
+    }
+
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        let Some((_, bytes)) = self.bam(source) else {
+            return Ok(None);
+        };
+        read::bam::named(io::Cursor::new(bytes), name)
+            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        let Some((_, bytes)) = self.bam(source) else {
+            return Ok(None);
+        };
+        read::bam::header_of(io::Cursor::new(bytes))
+            .map(|header| Some(header.references))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
 }
 
 /// A file that is not text, by the format its first bytes say it is.
@@ -5505,6 +5712,77 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert_eq!(scanned, svg);
     }
 
+    /// Files held in memory draw what the same files on disk draw: a BAM a
+    /// window at a time through the index held beside it, or from its start
+    /// without one, a sequence as long as its header says, one read by its
+    /// name, and compressed text out of its wrapper.
+    #[test]
+    fn files_held_in_memory_draw_what_the_same_files_on_disk_draw() {
+        use crate::read::bam::fixture::{BAI, BAM};
+        let dir = Scratch::new("held");
+        let bam = dir.write("tiny.bam", &BAM);
+        dir.write("tiny.bam.bai", &BAI);
+        let mut held = Held::new();
+        held.insert(bam.as_str(), BAM);
+        held.insert(format!("{bam}.bai"), BAI);
+        let from_memory = |line: &str, held: &mut Held| {
+            build_files(&invocation(line), held, |_, _| None).unwrap()
+        };
+        let window = format!("chr1:10-35 --coverage {bam} --pileup {bam}");
+        let drawn = from_memory(&window, &mut held);
+        assert_eq!(drawn, drawn_from_disk(&window).unwrap());
+        let mut unindexed = Held::new();
+        unindexed.insert(bam.as_str(), BAM);
+        assert_eq!(from_memory(&window, &mut unindexed), drawn);
+        let whole = format!("chr1 {bam}");
+        assert_eq!(
+            from_memory(&whole, &mut held),
+            drawn_from_disk(&whole).unwrap()
+        );
+        let source = Source::Path(bam.clone().into());
+        let read = held.named_read(&source, "a").unwrap();
+        assert!(
+            read.as_deref().is_some_and(|sam| sam.contains("\na\t")),
+            "{read:?}"
+        );
+        assert_eq!(read, Disk::default().named_read(&source, "a").unwrap());
+
+        let calls = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/data/calls.vcf.gz");
+        let calls = calls.display().to_string();
+        let mut held = Held::new();
+        held.insert(calls.as_str(), fs::read(&calls).unwrap());
+        let line = format!("NC_000962.3:759,000-764,000 {calls}");
+        assert_eq!(
+            from_memory(&line, &mut held),
+            drawn_from_disk(&line).unwrap()
+        );
+    }
+
+    /// A file a command names that is not held says which are, a BAM asked
+    /// for as text says what it is, and nothing is piped into files held.
+    #[test]
+    fn a_file_not_held_says_which_files_are() {
+        let mut held = Held::new();
+        let calls = Source::Path("calls.vcf".into());
+        let error = held.text(&calls).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            error.to_string(),
+            "no file called calls.vcf is held, and no files are"
+        );
+        held.insert("genes.gff3", GENES);
+        held.insert("tiny.bam", crate::read::bam::fixture::BAM);
+        assert_eq!(
+            held.text(&calls).unwrap_err().to_string(),
+            "no file called calls.vcf is held; the files held are genes.gff3, tiny.bam"
+        );
+        let error = held.text(&Source::Path("tiny.bam".into())).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("BAM"), "{error}");
+        assert!(held.text(&Source::Stdin).is_err());
+        assert!(held.contains("genes.gff3") && !held.contains("calls.vcf"));
+    }
+
     /// A BAM named on its own is its depth, and over a window a few reads
     /// wide the figure says the reads could be drawn: a simulated user drew
     /// four hundred bases of depth where the task wanted the reads.
@@ -5657,30 +5935,6 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         build_files(&invocation, &mut files, |_, _| None)
     }
 
-    /// Files held in memory, and what the figure told whoever drew it.
-    struct Held {
-        files: Vec<(String, String)>,
-        notes: Vec<String>,
-    }
-
-    impl Files for Held {
-        fn text(&mut self, source: &Source) -> io::Result<String> {
-            let Source::Path(path) = source else {
-                unreachable!("every source is a file")
-            };
-            let path = path.to_string_lossy();
-            self.files
-                .iter()
-                .find(|(name, _)| *name == path)
-                .map(|(_, text)| text.clone())
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, path.to_string()))
-        }
-
-        fn note(&mut self, message: &str) {
-            self.notes.push(message.to_string());
-        }
-    }
-
     /// The figure `line` draws from `held`, and the notes it made.
     fn drawn_noting(
         line: &str,
@@ -5690,13 +5944,10 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let Request::Draw(invocation) = parse(&args).unwrap() else {
             unreachable!("a figure")
         };
-        let mut files = Held {
-            files: held
-                .iter()
-                .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
-                .collect(),
-            notes: Vec::new(),
-        };
+        let mut files = Held::new();
+        for (name, text) in held {
+            files.insert(*name, *text);
+        }
         let drawn = build_files(&invocation, &mut files, |_, _| None);
         (drawn, files.notes)
     }
@@ -6323,6 +6574,134 @@ chr1\t.\tgene\t10001\t12000\t.\t+\t.\tID=gene-A;Name=rpoB;locus_tag=SYN_1
 chr1\t.\tCDS\t10001\t11997\t.\t+\t0\tID=cds-A;Parent=gene-A;gene=rpoB
 chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
 ";
+
+    /// The figure `line` builds from `held`, in `theme` and over `window`.
+    fn built_from(line: &str, held: &[(&str, &str)], theme: Theme, window: Option<&str>) -> Built {
+        let mut files = Held::new();
+        for (name, text) in held {
+            files.insert(*name, *text);
+        }
+        let window = window.map(|text| Region::parse(text).unwrap());
+        build_figure(
+            &invocation(line),
+            &mut files,
+            |_, _| None,
+            theme,
+            window.as_ref(),
+        )
+        .unwrap_or_else(|error| panic!("{line}: {error}"))
+    }
+
+    /// A command drawn over another window is the command with that window
+    /// written in place of its own, and one placed by a gene keeps the gene
+    /// as its title wherever it is moved to.
+    #[test]
+    fn a_command_is_drawn_over_the_window_a_page_moves_it_to() {
+        let held = [("genes.gff3", GENES), ("depth.bg", "chr1\t0\t50000\t12\n")];
+        let moved = built_from(
+            "rpoB depth.bg genes.gff3",
+            &held,
+            Theme::light(),
+            Some("chr1:11,001-13,000"),
+        );
+        let written =
+            drawn_from("chr1:11,001-13,000 depth.bg genes.gff3 --title rpoB", &held).unwrap();
+        assert_eq!(moved.figure.to_svg(), written);
+        assert_eq!(moved.along, Region::parse("chr1:11,001-13,000").ok());
+        let moved = built_from(
+            "chr1:1-100 depth.bg",
+            &held,
+            Theme::light(),
+            Some("chr1:201-300"),
+        );
+        assert_eq!(
+            moved.figure.to_svg(),
+            drawn_from("chr1:201-300 depth.bg", &held).unwrap()
+        );
+        // Where a sequence ends when no file says is a note about the figure
+        // as the command draws it, and not about a window moved along it.
+        let notes = |window: Option<&str>| {
+            let mut files = Held::new();
+            files.insert("depth.bg", "chr1\t0\t500\t12\n");
+            let window = window.map(|text| Region::parse(text).unwrap());
+            build_figure(
+                &invocation("chr1 depth.bg"),
+                &mut files,
+                |_, _| None,
+                Theme::light(),
+                window.as_ref(),
+            )
+            .unwrap();
+            files.notes
+        };
+        assert_eq!(notes(None).len(), 1, "{:?}", notes(None));
+        assert!(notes(Some("chr1:101-200")).is_empty());
+    }
+
+    /// A figure along a genome says where, so a page can move it along; a
+    /// figure that is its own place, or has none, says nothing.
+    #[test]
+    fn a_figure_says_whether_it_runs_along_a_genome() {
+        let held = [
+            ("genes.gff3", GENES),
+            ("depth.bg", "chr1\t0\t50000\t12\n"),
+            ("aln.fa", ALIGNMENT),
+            ("t.nwk", ROWS_TREE),
+            ("f.tsv", COUNTS),
+        ];
+        let along = |line: &str| {
+            built_from(line, &held, Theme::light(), None)
+                .along
+                .map(|region| region.to_string())
+        };
+        assert_eq!(
+            along("rpoB depth.bg genes.gff3").as_deref(),
+            Some("chr1:9801-12200")
+        );
+        assert_eq!(along("chr1:1-100 depth.bg").as_deref(), Some("chr1:1-100"));
+        for own in [
+            "--msa aln.fa",
+            "--tree t.nwk",
+            "--frequencies f.tsv",
+            "week:1-3 --frequencies f.tsv",
+        ] {
+            assert_eq!(along(own), None, "{own}");
+        }
+    }
+
+    /// A page's own colours: the theme a command is built in is the theme it
+    /// is drawn in, down to the ground under it.
+    #[test]
+    fn a_command_is_built_in_the_theme_it_is_given() {
+        let held = [("depth.bg", "chr1\t0\t100\t12\n")];
+        let dark = built_from("chr1:1-100 depth.bg", &held, Theme::dark(), None);
+        assert_eq!(
+            dark.figure.to_svg(),
+            drawn_from("chr1:1-100 depth.bg --theme dark", &held).unwrap()
+        );
+        let light = built_from("chr1:1-100 depth.bg", &held, Theme::light(), None);
+        assert_eq!(
+            light.figure.to_svg(),
+            drawn_from("chr1:1-100 depth.bg", &held).unwrap()
+        );
+        let mut page = Theme::light();
+        page.background = "#fbfaff".to_string();
+        let svg = built_from("chr1:1-100 depth.bg", &held, page, None)
+            .figure
+            .to_svg();
+        // The first thing drawn after the definitions, under everything.
+        let ground = |svg: &str| {
+            svg.split("</defs>")
+                .nth(1)
+                .and_then(|drawn| drawn.split("<rect").nth(1))
+                .and_then(|rect| rect.split("fill=\"").nth(1))
+                .and_then(|fill| fill.split('"').next())
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(ground(&svg), "#fbfaff");
+        assert_eq!(ground(&light.figure.to_svg()), Theme::light().background);
+    }
 
     fn locus_of(svg: &str) -> String {
         svg.split("<title id=\"karyon-title\">")

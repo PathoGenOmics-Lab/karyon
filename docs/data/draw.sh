@@ -11,11 +11,13 @@ out="$here/../assets/start"
 mkdir -p "$out"
 cd "$here"
 # Each is drawn on the colour of the page it sits on, light or dark, so it is
-# part of the page rather than a picture laid on it.
+# part of the page rather than a picture laid on it, and is what the program
+# in the page draws from the same command once it arrives: a test in the
+# playground holds the two to one figure.
 draw() {
   name="$1"; shift
-  "$karyon" "$@" --width 720 2>/dev/null | sed 's/#ffffff/#fbfaff/g' > "$out/$name.svg"
-  "$karyon" "$@" --width 720 --theme dark 2>/dev/null | sed 's/#120b2b/#0d0822/g' > "$out/$name-dark.svg"
+  "$karyon" "$@" --width 720 --background '#fbfaff' 2>/dev/null > "$out/$name.svg"
+  "$karyon" "$@" --width 720 --theme dark --background '#0d0822' 2>/dev/null > "$out/$name-dark.svg"
 }
 draw reads rpoB reads.bam genes.gff3 calls.vcf.gz
 draw scan 1 gwas.assoc --threshold genome-wide
