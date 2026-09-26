@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The playground's controls sit under the figure rather than at the foot of
+  its pane, where a short figure left them a pane's height below what they
+  change. The command box wraps and grows with the command, since a control
+  that lengthened it wrote its flag past the edge of the box. On a phone the
+  page starts stacked, command over figure, and grows with what it holds: side
+  by side, each pane was a strip a hundred and fifty pixels wide and the
+  figure a few pixels tall. A place counted in weeks, sites or samples says
+  so, where it said bases.
+- Unticking `--relative` in the playground took the word after it out of the
+  command too, `--with-tree` among them: the page's list of flags that take no
+  value lacked it, and `--no-legend` and `--no-scale-bar`. A test holds the
+  list to the parser.
+
 - A time is written as the ruler writes it: a surveillance panel's and a
   phylodynamic trajectory's tooltips call time 0 `time 1`, as a base 0 is base
   1, where they called week 12 week 11 over a ruler that said 12.
@@ -175,6 +188,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- `--recombination FILE` draws a recombination rate as a line in cM/Mb, from
+  a genetic map as HapMap or the imputation panels write one, or from a
+  bedGraph of rates; a file whose name holds `genetic_map` is one when named
+  on its own. `read::recombination::rates` reads it, and
+  `CoverageTrack::axis_title` says what a line measures.
+- A table of counts or of estimates whose times have fractions, as a skyline
+  in decimal years, is read as a continuous time to a thousandth of its unit,
+  from nought, where it was refused. Its ruler and its tooltips write each
+  time as the file does. `AxisTrack::decimals`, `time_decimals` on the two
+  tracks and `read::series::fractional_times` are the library side.
+- Seven playground examples, for the tracks that had none: lineages over
+  time, selection along a gene, a nanopore signal, samples in windows,
+  linkage between variants, a contact map and a peak by linkage. The
+  examples use every track flag again, and a test says so.
 
 - Four tracks the command line could not draw now read the tables their
   tools write, each its own place, so none needs a region:

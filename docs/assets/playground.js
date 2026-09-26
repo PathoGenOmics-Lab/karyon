@@ -1616,6 +1616,350 @@
         ];
       },
     },
+    {
+      name: "Lineages over time",
+      bounds: { from: 1, to: 40, min: 6 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--style", after: "--frequencies",
+          label: "Stacked to the whole, or a line per lineage", options: ["stacked", "line"] },
+        { kind: "choice", flag: "--threshold", after: "--phylodynamics",
+          label: "The line the estimate is read against", options: ["1", "1.2"] },
+        { kind: "data", param: "lineages", value: 4, label: "Lineages in circulation",
+          options: [2, 4, 6] },
+      ],
+      group: "Evolution and surveillance",
+      // A table is its own place, so the first word is a stretch of weeks
+      // rather than of a genome, and the ruler counts weeks. Each lineage has
+      // a heyday, so the stacked band is a replacement read left to right, and
+      // the reproductive number under it rises while a new one spreads.
+      command:
+        "week:1-40 --frequencies lineages.tsv \\\n" +
+        "  --phylodynamics reproduction.tsv --threshold 1",
+      files: [
+        { name: "lineages.tsv", body: "" },
+        { name: "reproduction.tsv", body: "" },
+      ],
+      make: function (p) {
+        var many = (p && p.lineages) || 4;
+        var next = rolls(20260926);
+        var names = ["A", "B.1", "B.2", "C", "D", "E.1"].slice(0, many);
+        // The week each lineage is at its most common, and how far from it it
+        // stays common. The last two are side lineages that never lead.
+        var heyday = [-2, 14, 27, 40, 8, 33];
+        var counts = "week\tlineage\tcount\ttotal\n";
+        var rt = "week\tmean\tlower\tupper\n";
+        for (var week = 1; week <= 40; week++) {
+          var total = 60 + Math.round(45 * (1 + Math.sin(week / 5))) + Math.floor(next() * 20);
+          var weights = names.map(function (name, i) {
+            var away = (week - heyday[i]) / 9;
+            return Math.exp(-away * away + (i >= 4 ? -1.5 : 0));
+          });
+          var whole = weights.reduce(function (a, b) { return a + b; }, 0);
+          var left = total;
+          for (var i = 0; i < names.length; i++) {
+            var count = i === names.length - 1 ? left
+              : Math.min(left, Math.round(total * weights[i] / whole * (0.85 + next() * 0.3)));
+            left -= count;
+            counts += week + "\t" + names[i] + "\t" + count + "\t" + total + "\n";
+          }
+          if (week >= 3) {
+            var mean = 1 + 0.3 * Math.sin((week - 2) / 5) + (next() - 0.5) * 0.06;
+            var width = 0.1 + 0.3 / Math.sqrt(week);
+            rt += week + "\t" + mean.toFixed(3) + "\t" + (mean - width).toFixed(3) + "\t" +
+                  (mean + width * 1.2).toFixed(3) + "\n";
+          }
+        }
+        return [
+          { name: "lineages.tsv", body: counts },
+          { name: "reproduction.tsv", body: rt },
+        ];
+      },
+    },
+    {
+      name: "Selection along a gene",
+      bounds: { from: 1, to: 300, min: 30 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--threshold", after: "--selection",
+          label: "The p-value a site needs to count as selected", options: ["0.01", "0.05", "0.1"] },
+        { kind: "data", param: "selected", value: "two stretches", label: "Where selection acts",
+          options: ["nowhere", "two stretches", "scattered sites"] },
+      ],
+      group: "Evolution and surveillance",
+      // HyPhy's FEL table as it writes it. Most sites are purifying, so the
+      // effect strip hangs below the line at one, and the evidence above it
+      // stays low until the sites where beta runs well past alpha.
+      command: "site:1-300 --selection fel.csv --label FEL",
+      files: [{ name: "fel.csv", body: "" }],
+      make: function (p) {
+        var selected = (p && p.selected) || "two stretches";
+        var next = rolls(90210);
+        var out = "site,alpha,beta,p-value\n";
+        for (var site = 1; site <= 300; site++) {
+          var alpha = 0.3 + next() * 1.7;
+          var hot = selected === "two stretches"
+            ? (site >= 58 && site < 66) || (site >= 181 && site < 187)
+            : selected === "scattered sites" && next() < 0.04;
+          var beta, pv;
+          if (hot && next() < 0.8) {
+            beta = alpha * (3 + next() * 6);
+            pv = 0.0005 + next() * 0.04;
+          } else if (next() < 0.08) {
+            beta = alpha * (0.9 + next() * 1.1);
+            pv = 0.1 + next() * 0.8;
+          } else {
+            beta = alpha * (0.02 + next() * 0.58);
+            pv = 0.2 + next() * 0.8;
+          }
+          out += site + "," + alpha.toFixed(3) + "," + beta.toFixed(3) + "," + pv.toFixed(4) + "\n";
+        }
+        return [{ name: "fel.csv", body: out }];
+      },
+    },
+    {
+      name: "A nanopore signal",
+      bounds: { from: 1, to: 3000, min: 60 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--read", after: "--squiggle",
+          label: "Which read of the file", options: ["read_1", "read_2", "read_3"] },
+        { kind: "choice", flag: "--height", after: "--squiggle",
+          label: "How tall the trace is", options: ["60", "90", "160"] },
+      ],
+      group: "Reads and molecules",
+      // Three reads as slow5tools view writes them, each stepping from level
+      // to level as the strand ratchets through the pore. The ruler counts
+      // samples, and zoomed in far enough the envelope becomes the samples.
+      command: "sample:1-3,000 --squiggle reads.slow5 --read read_1",
+      files: [{ name: "reads.slow5", body: "" }],
+      make: function () {
+        var next = rolls(5005);
+        var digitisation = 8192, offset = 6, range = 1467.61;
+        var out = "#slow5_version\t0.2.0\n#num_read_groups\t1\n@run_id\texample\n" +
+                  "#char*\tuint32_t\tdouble\tdouble\tdouble\tdouble\tuint64_t\tint16_t*\n" +
+                  "#read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate" +
+                  "\tlen_raw_signal\traw_signal\n";
+        ["read_1", "read_2", "read_3"].forEach(function (read) {
+          var raw = [];
+          var level = 80 + next() * 20;
+          while (raw.length < 3000) {
+            level = Math.min(125, Math.max(65, level + (next() - 0.5) * 30));
+            var dwell = 4 + Math.floor(next() * 36);
+            for (var k = 0; k < dwell && raw.length < 3000; k++) {
+              var current = level + (next() - 0.5) * 4;
+              raw.push(Math.round(current * digitisation / range - offset));
+            }
+          }
+          out += read + "\t0\t" + digitisation + "\t" + offset + "\t" + range + "\t4000\t" +
+                 raw.length + "\t" + raw.join(",") + "\n";
+        });
+        return [{ name: "reads.slow5", body: out }];
+      },
+    },
+    {
+      name: "Samples in windows",
+      bounds: { from: 1, to: 2000000, min: 200000 },
+      controls: [
+        { kind: "region" },
+        { kind: "toggle", flag: "--relative", after: "--heatmap",
+          label: "Each sample against its own median" },
+        { kind: "choice", flag: "--row-height", after: "--heatmap",
+          label: "How tall one sample's row is", options: ["6", "11", "16"] },
+        { kind: "data", param: "samples", value: 16, label: "Samples", options: [8, 16, 24] },
+      ],
+      group: "Signal and annotation",
+      // The depth of every sample in windows of 50 kb, as bedtools unionbedg
+      // writes it, in the order of a tree. Each sample was sequenced to its
+      // own depth, which is what --relative takes away: off, the rows differ
+      // from end to end; on, what is left is the clade that lost a stretch and
+      // the two samples that carry another twice.
+      command:
+        "chr1:1-2,000,000 --heatmap depths.tsv --relative \\\n" +
+        "  --with-tree tree.nwk --label depth",
+      files: [
+        { name: "depths.tsv", body: "" },
+        { name: "tree.nwk", body: "" },
+      ],
+      make: function (p) {
+        var many = (p && p.samples) || 16;
+        var next = rolls(424242);
+        var names = [];
+        for (var i = 0; i < many; i++) names.push("S" + ("0" + (i + 1)).slice(-2));
+        // Clades of four, joined two by two, so the rows come in blocks.
+        var level = [];
+        for (var c = 0; c < many; c += 4) {
+          level.push("((" + names[c] + ":0.01," + names[c + 1] + ":0.02):0.01,(" +
+                     names[c + 2] + ":0.015," + names[c + 3] + ":0.01):0.02)");
+        }
+        while (level.length > 1) {
+          var up = [];
+          for (var j = 0; j < level.length; j += 2) {
+            up.push(j + 1 < level.length ? "(" + level[j] + ":0.02," + level[j + 1] + ":0.03)" : level[j]);
+          }
+          level = up;
+        }
+        var mean = names.map(function () { return 40 + next() * 80; });
+        var out = "chrom\tstart\tend\t" + names.join("\t") + "\n";
+        for (var start = 0; start < 2000000; start += 50000) {
+          var row = ["chr1", start, start + 50000];
+          for (var s = 0; s < many; s++) {
+            var depth = mean[s] * (0.9 + next() * 0.2);
+            if (s >= 4 && s < 8 && start >= 700000 && start < 800000) depth = 0;
+            if (s >= many - 3 && s < many - 1 && start >= 1300000 && start < 1400000) depth *= 2;
+            row.push(depth.toFixed(1));
+          }
+          out += row.join("\t") + "\n";
+        }
+        return [
+          { name: "depths.tsv", body: out },
+          { name: "tree.nwk", body: level[0] + ";\n" },
+        ];
+      },
+    },
+    {
+      name: "Linkage between variants",
+      bounds: { from: 1, to: 30000, min: 2000 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--style", after: "--pairs",
+          label: "A triangle under the axis, or arcs", options: ["triangle", "arcs"] },
+        { kind: "choice", flag: "--threshold", after: "--pairs",
+          label: "The least r² a pair is drawn with", options: ["0.2", "0.5", "0.8"] },
+        { kind: "data", param: "variants", value: 40, label: "Variants", options: [20, 40, 80] },
+      ],
+      group: "Pairs and linkage",
+      // Every pair of variants as PLINK's --r2 writes it, in three blocks
+      // inherited together. Each pair is a cell under the point half way
+      // between its variants, as deep as they are far apart, so a block is a
+      // dark triangle under the stretch it covers.
+      command: "chr1:1-30,000 --pairs linkage.ld --label r²",
+      files: [{ name: "linkage.ld", body: "" }],
+      make: function (p) {
+        var many = (p && p.variants) || 40;
+        var next = rolls(31337);
+        var sites = [];
+        for (var i = 0; i < many; i++) sites.push(200 + Math.floor(next() * 29600));
+        sites.sort(function (a, b) { return a - b; });
+        sites = sites.filter(function (site, k) { return k === 0 || site !== sites[k - 1]; });
+        var block = function (x) { return x >= 19000 ? 2 : x >= 9000 ? 1 : 0; };
+        var out = " CHR_A         BP_A        SNP_A  CHR_B         BP_B        SNP_B           R2\n";
+        for (var a = 0; a < sites.length; a++) {
+          for (var b = a + 1; b < sites.length; b++) {
+            var apart = sites[b] - sites[a];
+            var r2 = block(sites[a]) === block(sites[b])
+              ? 0.95 * Math.exp(-apart / 15000) * (0.75 + next() * 0.25)
+              : 0.25 * Math.exp(-apart / 5000) * next();
+            out += " chr1 " + sites[a] + " v" + (a + 1) + " chr1 " + sites[b] + " v" + (b + 1) +
+                   " " + r2.toFixed(4) + "\n";
+          }
+        }
+        return [{ name: "linkage.ld", body: out }];
+      },
+    },
+    {
+      name: "A contact map",
+      bounds: { from: 1, to: 2000000, min: 400000 },
+      controls: [
+        { kind: "region" },
+        { kind: "toggle", flag: "--log", after: "--pairs", label: "Colours on a log scale" },
+        { kind: "choice", flag: "--height", after: "--pairs",
+          label: "How deep the triangle is drawn", options: ["120", "240", "400"] },
+        { kind: "data", param: "domains", value: 4, label: "Domains along the stretch",
+          options: [2, 4, 8] },
+      ],
+      group: "Pairs and linkage",
+      // Contacts between bins of 40 kb as cooler dump --join writes them.
+      // Contacts fall by orders of magnitude with distance, so on a straight
+      // ramp only the diagonal has a colour; --log is what shows the domains.
+      command: "chr2:1-2,000,000 --pairs contacts.bedpe --log --label contacts",
+      files: [{ name: "contacts.bedpe", body: "" }],
+      make: function (p) {
+        var domains = (p && p.domains) || 4;
+        var next = rolls(777);
+        var bin = 40000, bins = 50;
+        var edges = [];
+        for (var d = 1; d < domains; d++) edges.push(Math.round(bins * d / domains));
+        var domainOf = function (at) {
+          var k = 0;
+          while (k < edges.length && at >= edges[k]) k++;
+          return k;
+        };
+        var out = "";
+        for (var a = 0; a < bins; a++) {
+          for (var b = a; b < bins; b++) {
+            var count = 900 / Math.pow(1 + b - a, 1.15);
+            if (domainOf(a) === domainOf(b)) count *= 3;
+            count *= 0.8 + next() * 0.4;
+            out += "chr2\t" + a * bin + "\t" + (a + 1) * bin + "\tchr2\t" + b * bin + "\t" +
+                   (b + 1) * bin + "\t" + count.toFixed(1) + "\n";
+          }
+        }
+        return [{ name: "contacts.bedpe", body: out }];
+      },
+    },
+    {
+      name: "A peak by linkage",
+      bounds: { from: 1, to: 1000000, min: 20000 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--threshold", after: "--manhattan",
+          label: "The line the scan is read against", options: ["5", "genome-wide"] },
+        { kind: "choice", flag: "--height", after: "--manhattan",
+          label: "How tall the scan is drawn", options: ["90", "160"] },
+      ],
+      group: "Pairs and linkage",
+      // A peak as LocusZoom draws one: each marker coloured by its r² with the
+      // strongest, from PLINK's --ld-snp, and the recombination rate under it
+      // from a genetic map. A file named genetic_map is one on its own too,
+      // and the flag is written here so the page shows it. Markers that stand
+      // high and stay grey would be a second signal.
+      command:
+        "chr1:560,001-760,000 --manhattan scan.tsv --ld lead.ld \\\n" +
+        "  --threshold genome-wide --recombination genetic_map.txt",
+      files: [
+        { name: "scan.tsv", body: "" },
+        { name: "lead.ld", body: "" },
+        { name: "genetic_map.txt", body: "" },
+      ],
+      make: function () {
+        var next = rolls(66001);
+        var lead = 660001;
+        var markers = [lead];
+        for (var at = 1001; at < 1000000; at += 1500 + Math.floor(next() * 1500)) {
+          if (Math.abs(at - lead) > 300) markers.push(at);
+        }
+        markers.sort(function (a, b) { return a - b; });
+        var scan = "CHR\tBP\tP\n";
+        var ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n";
+        for (var i = 0; i < markers.length; i++) {
+          var from = Math.abs(markers[i] - lead);
+          var carried = markers[i] === lead ? 1 : Math.max(0, 1 - from / 80000) * (0.3 + 0.7 * next());
+          var logp = carried * 11 + -Math.log(Math.max(1e-6, next())) / Math.LN10 * 0.6;
+          scan += "chr1\t" + markers[i] + "\t" + Math.pow(10, -logp).toExponential(3) + "\n";
+          if (markers[i] !== lead && from <= 100000) {
+            ld += " chr1 " + lead + " lead chr1 " + markers[i] + " m" + i + " " +
+                  Math.pow(carried, 0.8).toFixed(4) + "\n";
+          }
+        }
+        var map = "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n";
+        var cm = 0;
+        for (var pos = 460001; pos < 860001; pos += 5000) {
+          var rate = 0.4 + next() * 0.6;
+          [[lead - 62000, 38], [lead + 47000, 55]].forEach(function (hot) {
+            var z = (pos - hot[0]) / 6000;
+            rate += hot[1] * Math.exp(-z * z);
+          });
+          map += "chr1\t" + pos + "\t" + rate.toFixed(2) + "\t" + cm.toFixed(6) + "\n";
+          cm += rate * 5000 / 1e6;
+        }
+        return [
+          { name: "scan.tsv", body: scan },
+          { name: "lead.ld", body: ld },
+          { name: "genetic_map.txt", body: map },
+        ];
+      },
+    },
   ];
 
   // ---------------------------------------------------------------------
@@ -1653,6 +1997,18 @@
 
   var current = null;
   var params = {};
+
+  // What a stretch of the figure's place is counted in: bases along a
+  // sequence, and the place's own unit where the place is a table's, as
+  // week:1-40 or site:1-300. The command line names such a place after its
+  // unit, so its name says which. It said "40 bases" of forty weeks.
+  var UNITS = ["week", "day", "month", "year", "time", "passage", "generation",
+               "site", "codon", "sample", "column"];
+  function counted(where, n) {
+    var name = where.seq.toLowerCase();
+    var unit = UNITS.indexOf(name) >= 0 ? name : "base";
+    return K.grouped(n) + " " + unit + (n === 1 ? "" : "s");
+  }
 
   function bounds() {
     return current && current.bounds ? current.bounds : null;
@@ -1721,7 +2077,7 @@
         var lo = Math.log(Math.max(K.MIN_SPAN, edge.min || 60, Math.min(room, 60)));
         var hi = Math.log(room);
         zoom.value = String(Math.round(((Math.log(span) - lo) / Math.max(1e-9, hi - lo)) * 1000));
-        zoom.setAttribute("aria-label", "How many bases are in view");
+        zoom.setAttribute("aria-label", "How much of the place is in view");
         zoom.addEventListener("input", function () {
           var want = Math.round(Math.exp(lo + (parseInt(zoom.value, 10) / 1000) * (hi - lo)));
           var here = K.locus(el.command.value);
@@ -1732,7 +2088,7 @@
 
         var says = document.createElement("output");
         says.className = "pg-control-says";
-        says.textContent = K.grouped(span) + " bases";
+        says.textContent = counted(where, span);
         wide.appendChild(says);
         strip.appendChild(wide);
         return;
@@ -1811,7 +2167,18 @@
 
   var drawn = null;
 
+  // The command box is as tall as the command, up to a third of the panes,
+  // so a command that wraps, or that a control has lengthened, is not cut off
+  // under its fourth line.
+  function fitCommand() {
+    var box = el.command;
+    box.style.height = "auto";
+    var most = Math.max(80, (el.panes.clientHeight || 600) / 3);
+    box.style.height = Math.min(box.scrollHeight + 2, most) + "px";
+  }
+
   function draw() {
+    fitCommand();
     if (!K.ready()) return;
     save();
     var answer = K.run(el.command.value, files, el.plot.clientWidth - 24);
@@ -1833,7 +2200,7 @@
       var where = K.locus(el.command.value);
       el.region.textContent = where
         ? where.seq + ":" + K.grouped(where.start) + "-" + K.grouped(where.end) +
-          "  (" + K.grouped(where.end - where.start + 1) + " bases)"
+          "  (" + counted(where, where.end - where.start + 1) + ")"
         : "";
       el.status.textContent =
         files.length + (files.length === 1 ? " file" : " files") +
@@ -2363,6 +2730,14 @@
     el.reset.addEventListener("click", function () {
       if (home) { el.command.value = home; draw(); }
     });
+    // A phone has no room for two panes side by side: each was a strip about
+    // a hundred and fifty pixels wide, the command broken every dozen letters
+    // and the figure a sliver of itself. On a narrow screen the page starts
+    // stacked, command over figure, and Layout still turns it.
+    if (window.matchMedia && window.matchMedia("(max-width: 44.9375em)").matches) {
+      el.panes.classList.add("pg-stacked");
+      el.split.setAttribute("aria-orientation", "horizontal");
+    }
     el.layout.addEventListener("click", function () {
       el.panes.classList.toggle("pg-stacked");
       // The separator's orientation is a fact about the layout, and it was

@@ -3320,6 +3320,74 @@ mod tests {
     /// for the reason the help text is checked both ways: a track added to the
     /// parser and not to the page fails here, and so does a spelling on the
     /// page that the parser has never heard of.
+    /// The playground knows which flags take no value, since clearing one of
+    /// them takes one word out of the command and clearing any other takes
+    /// two. `--relative` arrived without its line there, and unticking it
+    /// took `--with-tree` out of the command with it.
+    #[test]
+    fn the_playground_knows_which_flags_stand_alone() {
+        const SHIM: &str = include_str!("../../docs/assets/karyon-wasm.js");
+        let listed = SHIM
+            .split_once("var ALONE = [")
+            .expect("the playground has no ALONE list")
+            .1
+            .split_once("];")
+            .expect("the ALONE list does not end")
+            .0;
+        let mut alone: Vec<&str> = listed
+            .split('"')
+            .filter(|piece| piece.starts_with("--"))
+            .collect();
+        // Asked of the parser: a flag that takes a value, written last, is
+        // refused for the value it has not got.
+        let mut parser: Vec<&str> = FLAGS
+            .iter()
+            .copied()
+            .filter(|flag| !matches!(*flag, "--help" | "--version"))
+            .filter(|flag| {
+                let line = args(&format!("chr1:1-10 --coverage x.bg {flag}"));
+                !matches!(parse_line(&line), Err(ArgError::MissingValue(_)))
+            })
+            .collect();
+        alone.sort_unstable();
+        parser.sort_unstable();
+        assert_eq!(
+            alone, parser,
+            "the playground's ALONE and the parser disagree"
+        );
+    }
+
+    /// The playground's examples between them use every track flag, as its
+    /// page says they do. A track added without an example is a failing test
+    /// here rather than a sentence on the page that has stopped being true,
+    /// which is what happened when six tracks arrived at once.
+    #[test]
+    fn the_playground_examples_use_every_track_flag() {
+        const PAGE: &str = include_str!("../../docs/assets/playground.js");
+        let examples = PAGE
+            .split_once("var EXAMPLES = [")
+            .expect("the playground has no EXAMPLES list")
+            .1;
+        // Every command an example opens with, which is what a reader sees.
+        let commands: Vec<&str> = examples
+            .split("command:")
+            .skip(1)
+            .map(|rest| rest.split("files:").next().unwrap_or(rest))
+            .collect();
+        let missing: Vec<&str> = Kind::ALL
+            .iter()
+            .map(|kind| kind.dashed())
+            .filter(|flag| {
+                !commands.iter().any(|command| {
+                    command
+                        .split(|c: char| c.is_whitespace() || c == '"' || c == '\\')
+                        .any(|word| word == *flag)
+                })
+            })
+            .collect();
+        assert!(missing.is_empty(), "no playground example uses {missing:?}");
+    }
+
     #[test]
     fn the_playground_knows_every_track_the_parser_does() {
         const SHIM: &str = include_str!("../../docs/assets/karyon-wasm.js");

@@ -64,7 +64,7 @@ compiled to WebAssembly.
     <div class="pg-panel-head">
       <div>
         <h2 id="pg-picker-title">Examples</h2>
-        <p>Twenty-four examples that between them use twenty-eight of the track flags. Every preview is drawn live, in this page.</p>
+        <p>Thirty-one examples that between them use every track flag the command line has. Every preview is drawn live, in this page.</p>
       </div>
       <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
     </div>
@@ -77,7 +77,7 @@ compiled to WebAssembly.
 
 ## How to use it
 
-1. **Start from an example, or write a command.** *Examples* opens twenty-four
+1. **Start from an example, or write a command.** *Examples* opens thirty-one
    figures that between them use every track flag the command line has. The
    command box takes everything you would type after `karyon` in a terminal.
 2. **Edit the files.** Each tab under the command is one input file, and the
