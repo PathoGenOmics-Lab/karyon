@@ -575,7 +575,8 @@ picks the piece it falls in.
 
 ### Aligned FASTA { #aligned-fasta }
 
-An alignment: FASTA whose records are all the same length.
+An alignment: FASTA whose records are all the same length. A figure of one
+needs no place, and is drawn over all its columns: `karyon --msa aln.fasta`.
 
 ```text
 >sample_01
@@ -616,7 +617,7 @@ A phylogeny, read whole as one tree.
 |:--|:--|
 | Read by | `--tree`, `--tanglegram`, `--against` and `--with-tree`; `Tree::parse_annotated_newick` |
 | What is read | nested clades, branch lengths, tip names, internal labels, and bracketed annotations |
-| Coordinates | none: a figure of trees takes no region, and one given is not compared with anything |
+| Coordinates | none: a figure of trees takes no region, and one given is not compared with anything; a tree named with `--with-tree` orders the rows of an alignment, a matrix, a panel of variable sites or a domain panel by its tips |
 | Refused | an empty file; unbalanced parentheses; a comma outside any clade; more than one root; a branch length that is not a number or has nothing to attach to |
 
 - The trailing `;` is optional and whitespace is ignored, so a tree written

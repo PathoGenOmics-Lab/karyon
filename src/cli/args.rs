@@ -83,6 +83,17 @@ pub enum ArgError {
         /// The track it landed on.
         track: &'static str,
     },
+    /// A modifier the track it follows has no use for, written after a file
+    /// an earlier track reads and that track takes it: it was meant for that
+    /// one, and the grammar reads options as the file just before them.
+    Misplaced {
+        /// The modifier.
+        flag: &'static str,
+        /// The track it landed on.
+        track: &'static str,
+        /// The file, as written, of the track that takes it.
+        belongs: String,
+    },
     /// The first argument was not a locus string.
     BadRegion(crate::Error),
     /// A locus of one position, where a figure needs a span.
@@ -231,6 +242,16 @@ impl fmt::Display for ArgError {
             ArgError::WrongTrack { flag, track } => {
                 write!(f, "{flag} means nothing to {} {track} track", article(track))
             }
+            ArgError::Misplaced {
+                flag,
+                track,
+                belongs,
+            } => write!(
+                f,
+                "{flag} means nothing to {} {track} track; it is an option of {belongs}, so \
+                 write it right after {belongs}",
+                article(track)
+            ),
             ArgError::BadRegion(error) => write!(f, "{error}"),
             ArgError::OnePosition {
                 given,
@@ -252,7 +273,8 @@ impl fmt::Display for ArgError {
             ArgError::NoRegion => write!(
                 f,
                 "the first argument is the region, as in NC_000962.3:761,000-763,000; \
-                 only a figure of --tree, --tanglegram and --snps tracks goes without one"
+                 only a figure of --tree, --tanglegram, --snps, --msa and --logo tracks \
+                 goes without one"
             ),
             ArgError::RenamedTwice {
                 from,
@@ -739,11 +761,22 @@ impl Kind {
     ///
     /// A phylogeny, a tanglegram and a panel of variable sites lay themselves
     /// out without asking where the window is: a tree's x is a branch length,
-    /// and a variable-site panel places its own columns by site index. A
-    /// figure made of nothing else needs no region. Everything else does,
-    /// the ruler included, since measuring a window is all it does.
+    /// and a variable-site panel places its own columns by site index. An
+    /// alignment and its logo have a place of their own, their columns, and
+    /// are drawn over all of them. A figure made of nothing else needs no
+    /// region. Everything else does, the ruler included, since measuring a
+    /// window is all it does.
     pub fn needs_region(self) -> bool {
-        !matches!(self, Kind::Tree | Kind::Tanglegram | Kind::Snps)
+        !matches!(
+            self,
+            Kind::Tree | Kind::Tanglegram | Kind::Snps | Kind::Msa | Kind::Logo
+        )
+    }
+
+    /// Whether this track is drawn over the columns of an alignment, which a
+    /// figure that names no region is laid over.
+    pub fn over_columns(self) -> bool {
+        matches!(self, Kind::Msa | Kind::Logo)
     }
 
     fn takes_height(self) -> bool {
@@ -792,9 +825,14 @@ impl Kind {
     /// what every pileup this command line has ever drawn looks like, so the
     /// file is offered rather than demanded. [`Kind::second_flag`] is the other
     /// half of this: the tracks there are refused without their second file.
+    ///
+    /// The tracks drawn as rows of samples take a tree the same way: named
+    /// with `--with-tree`, it orders the rows as its tips and is drawn beside
+    /// them, and without it the rows stay in the order of their file.
     pub fn optional_second(self) -> Option<&'static str> {
         match self {
             Kind::Pileup => Some("--with-sequence"),
+            Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Domains => Some("--with-tree"),
             _ => None,
         }
     }
@@ -1519,6 +1557,98 @@ pub(crate) fn edits(a: &str, b: &str) -> usize {
 /// Returns the first thing that does not fit the grammar. Nothing is read from
 /// disk here, so an error means the command line was wrong rather than the data.
 pub fn parse(args: &[String]) -> Result<Request, ArgError> {
+    match parse_line(args) {
+        Err(ArgError::WrongTrack { flag, track }) => {
+            Err(misplaced(args, flag, track).unwrap_or(ArgError::WrongTrack { flag, track }))
+        }
+        other => other,
+    }
+}
+
+/// Whether `flag`, with `value` after it where it takes one, is an option of
+/// a `kind` track.
+///
+/// Asked of the grammar itself, so the answer is the parser's: an option a
+/// track has no use for is refused by name, and that refusal is the one thing
+/// that means no. A line that fails for any other reason, such as a second
+/// file not yet named, took the option.
+pub fn takes(kind: Kind, flag: &str, value: Option<&str>) -> bool {
+    let line = |with: bool| {
+        let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
+        if kind != Kind::Axis {
+            line.push("x.txt".to_string());
+        }
+        line.push(flag.to_string());
+        if let Some(value) = value.filter(|_| with) {
+            line.push(value.to_string());
+        }
+        line
+    };
+    // Without a value first: a flag that takes none would read the value as
+    // a file of its own and fail for that, which is not the answer asked for.
+    let answer = match parse_line(&line(false)) {
+        Err(ArgError::MissingValue(_)) => parse_line(&line(true)),
+        answer => answer,
+    };
+    !matches!(answer, Err(ArgError::WrongTrack { .. }))
+}
+
+/// The track an option refused by the track it follows was meant for, where
+/// an earlier track in the line takes it: `gwas.assoc genes.gff3 --threshold
+/// genome-wide` gives the threshold to the genes, and the scan was the one
+/// that wanted it.
+fn misplaced(args: &[String], flag: &'static str, track: &'static str) -> Option<ArgError> {
+    let words = split_equals(args);
+    for (at, word) in words.iter().enumerate() {
+        if word != flag {
+            continue;
+        }
+        let Ok(Request::Draw(before)) = parse_line(&words[..at]) else {
+            continue;
+        };
+        let Some((last, earlier)) = before.tracks.split_last() else {
+            continue;
+        };
+        if last.kind.flag() != track {
+            continue;
+        }
+        let value = words.get(at + 1).map(String::as_str);
+        let meant = earlier
+            .iter()
+            .rev()
+            .find(|spec| takes(spec.kind, flag, value))?;
+        let belongs = match &meant.source {
+            Some(Source::Path(path)) => path.display().to_string(),
+            Some(Source::Stdin) => "the track read from standard input".to_string(),
+            None => meant.kind.dashed().to_string(),
+        };
+        return Some(ArgError::Misplaced {
+            flag,
+            track,
+            belongs,
+        });
+    }
+    None
+}
+
+/// `--flag=value` as `--flag value`, as most command lines take it. Only a
+/// word that starts with two dashes is split, and only at its first `=`, so
+/// a title or a colour holding one is left as it was.
+fn split_equals(args: &[String]) -> Vec<String> {
+    args.iter()
+        .flat_map(|word| {
+            match word
+                .strip_prefix("--")
+                .and_then(|rest| rest.split_once('='))
+            {
+                Some((flag, value)) => vec![format!("--{flag}"), value.to_string()],
+                None => vec![word.clone()],
+            }
+        })
+        .collect()
+}
+
+fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     if args.is_empty() {
         return Err(ArgError::NoArguments);
     }
@@ -1544,21 +1674,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
     if args.iter().any(|a| a == "-V" || a == "--version") {
         return Ok(Request::Version);
     }
-    // `--flag=value` is the same as `--flag value`, as most command lines take
-    // it. Only a word that starts with two dashes is split, and only at its
-    // first `=`, so a title or a colour holding one is left as it was.
-    let split: Vec<String> = args
-        .iter()
-        .flat_map(|word| {
-            match word
-                .strip_prefix("--")
-                .and_then(|rest| rest.split_once('='))
-            {
-                Some((flag, value)) => vec![format!("--{flag}"), value.to_string()],
-                None => vec![word.clone()],
-            }
-        })
-        .collect();
+    let split = split_equals(args);
     let args = &split[..];
 
     let mut region: Option<Region> = None;
@@ -3926,12 +4042,19 @@ mod tests {
             "--tanglegram a.nwk --against b.nwk",
             "--snps aln.fa",
             "--tree t.nwk --snps aln.fa",
+            "--msa aln.fa",
+            "--logo aln.fa",
+            "--msa aln.fa --tree t.nwk",
         ] {
             let invocation = draw(line);
             assert!(invocation.region.is_none(), "{line} kept a region");
         }
         // One track drawn in a window, and the window has to be named.
-        for line in ["--tree t.nwk --coverage d.bg", "--axis", "--msa aln.fa"] {
+        for line in [
+            "--tree t.nwk --coverage d.bg",
+            "--axis",
+            "--msa aln.fa --coverage d.bg",
+        ] {
             let err = parse(&args(line)).unwrap_err();
             assert!(matches!(err, ArgError::NoRegion), "{line}: {err}");
             assert!(err.to_string().contains("--tree"), "{err}");
@@ -3940,6 +4063,43 @@ mod tests {
         // that worked stops working.
         assert!(draw("tree:1-1 --tree t.nwk").region.is_some());
     }
+    #[test]
+    fn an_option_after_the_wrong_file_names_the_file_it_belongs_to() {
+        // Options describe the file just before them, so a threshold written
+        // after the genes went to the genes, which have no use for one, and
+        // the refusal named the genes and not the scan that wanted it.
+        let error = parse(&args(
+            "NC_1:1-100 gwas.assoc genes.gff3 --threshold genome-wide",
+        ))
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--threshold means nothing to a features track; it is an option of gwas.assoc, \
+             so write it right after gwas.assoc"
+        );
+        // Written with an equals sign, and after a file two tracks back.
+        let error = parse(&args(
+            "NC_1:1-100 reads.bam genes.gff3 calls.vcf --aggregate=min",
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(&error, ArgError::Misplaced { flag, belongs, .. }
+                if *flag == "--aggregate" && belongs == "reads.bam"),
+            "{error:?}"
+        );
+        // With no earlier track that takes it, the refusal stays as it was.
+        let error = parse(&args("NC_1:1-100 genes.gff3 --aggregate min")).unwrap_err();
+        assert!(
+            matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--aggregate"),
+            "{error:?}"
+        );
+        // And the grammar is asked, not a copy of it.
+        assert!(takes(Kind::Manhattan, "--threshold", Some("genome-wide")));
+        assert!(!takes(Kind::Features, "--threshold", Some("genome-wide")));
+        assert!(takes(Kind::Msa, "--with-tree", Some("t.nwk")));
+        assert!(!takes(Kind::Coverage, "--with-tree", Some("t.nwk")));
+    }
+
     #[test]
     fn focus_takes_a_clade_a_tip_or_a_pair_and_refuses_the_rest() {
         let focus = |value: &str| {

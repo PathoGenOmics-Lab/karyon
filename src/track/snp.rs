@@ -520,10 +520,20 @@ impl Track for SnpTrack {
 
         // The tree takes the left of the strip and the names the right of it,
         // so a leaf, its name and its row of cells are all on one line.
-        let (tree, without_row) = self
+        let (tree, mut without_row) = self
             .tree
             .as_ref()
             .map_or((None, 0), |tree| tree_beside_rows(tree, &self.names, rows));
+        // The reference is a tip too, drawn on the row above the tree rather
+        // than beside it: it has a row, only not one the tree orders, and the
+        // band said it had none.
+        let reference_tip = self.tree.as_ref().is_some_and(|tree| {
+            tree.node_named(&self.reference_name)
+                .is_some_and(|node| tree.nodes()[node].is_leaf())
+        });
+        if self.show_reference && reference_tip {
+            without_row = without_row.saturating_sub(1);
+        }
         if let Some(tree) = tree.as_deref() {
             let reference_offset = if self.show_reference {
                 self.row_height + self.row_gap

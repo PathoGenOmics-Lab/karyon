@@ -209,6 +209,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          folded clade shows what its tips agree on
 "
         }
+        (Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Domains, "--with-tree") => {
+            "    --with-tree <FILE>   a Newick tree: the rows are drawn in the order of
+                         its tips, with the tree beside them
+"
+        }
         (Kind::Tree, "--threshold") => {
             "    --threshold <V>      the least support worth showing: the weaker values
                          --support-style would draw are left out
@@ -249,22 +254,14 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
     })
 }
 
-/// Whether the parser takes `flag` after a `kind` track.
-///
-/// Asked of the parser itself, so the answer is the grammar's: an option a
-/// track has no use for is refused by name, and that refusal is the one thing
-/// that means no. A line that fails for any other reason, such as a second
-/// file not yet named, took the option.
+/// Whether the parser takes `flag` after a `kind` track, asked with a value
+/// of the kind the flag reads.
 fn takes(kind: args::Kind, flag: &str) -> bool {
-    let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
-    if kind != args::Kind::Axis {
-        line.push("x.txt".to_string());
-    }
-    line.push(flag.to_string());
-    if let Some((_, value)) = SAMPLES.iter().find(|(name, _)| *name == flag) {
-        line.push((*value).to_string());
-    }
-    !matches!(args::parse(&line), Err(args::ArgError::WrongTrack { .. }))
+    let value = SAMPLES
+        .iter()
+        .find(|(name, _)| *name == flag)
+        .map(|(_, value)| *value);
+    args::takes(kind, flag, value)
 }
 
 /// The help on one topic: everything for `all`, and for a track its entry,

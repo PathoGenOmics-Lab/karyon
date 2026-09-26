@@ -161,6 +161,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A comparison is placed on its query by name: `karyon asm1_chr1
+  assemblies.paf` reads the length the PAF writes for `asm1_chr1`, where the
+  place was refused as a name no file gave.
+- Synteny ribbons and dot plots key the two colours they are drawn in, `same
+  strand` and `reversed`, and an alignment too narrow for its letters keys the
+  colours of its bases, its classes of amino acid or its one colour of
+  difference. `Figure::key` gathers them, and the command line draws them.
+
+- `--with-tree FILE` after `--msa`, `--snps`, `--matrix` or `--domains` orders
+  the rows as the tree's tips and draws the tree beside them, as the library
+  has done all along; the command line could not ask for it.
+- An alignment needs no place: `karyon --msa aln.fasta` draws all its columns,
+  as a tree is drawn without one. It was refused until a region was made up,
+  and the one to make up was the name of one of its rows.
+- An option written after a file that has no use for it, where an earlier
+  file does, is refused with the file it belongs to: `--threshold means
+  nothing to a features track; it is an option of gwas.assoc, so write it
+  right after gwas.assoc`. `args::takes` asks the grammar whether a track
+  takes an option.
+
 - `--rename FROM=TO` reads a sequence a file calls `FROM` as the figure's `TO`,
   so a PLINK table that writes `1` is drawn beside a FASTA and a BAM that say
   `NC_000962.3`, on their length. A file is read by the figure's name first
@@ -604,6 +624,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backwards in time, branch colours shared by two values and support above
   100 each drew a figure like the one asked for, or like the plain tree, with
   nothing to say so.
+- A panel of variable sites drawn beside a tree no longer says its reference
+  sample has no row. The reference is drawn on the row above the tree, and it
+  was counted among the tips without one.
 - A tree's settings draw one figure in either order. A radial start, sweep,
   direction or inner radius turned a tree chosen as unrooted or rectangular
   into a circle, `circular` undid a fan, a scale bar's length or unit brought

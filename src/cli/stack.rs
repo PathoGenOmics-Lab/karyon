@@ -500,7 +500,14 @@ pub fn build_files(
         .region
         .as_ref()
         .or(placed.as_ref().map(|placed| &placed.region));
-    let region = known.unwrap_or(&unnamed);
+    // An alignment is its own place: a figure of one, named nowhere, is laid
+    // over all its columns. It was refused until a region was made up for it,
+    // and the one to make up was the name of one of its rows.
+    let columns = match known {
+        None => alignment_columns(invocation, files)?,
+        Some(_) => None,
+    };
+    let region = known.or(columns.as_ref()).unwrap_or(&unnamed);
     // A sequence no file gives the length of ends where its rows do, which
     // is a figure worth drawing and an end worth saying where it came from:
     // three simulated users read it as the end of the chromosome.
@@ -613,7 +620,14 @@ pub fn build_files(
     // the colours of bases too narrow for their letters.
     let key = figure.key();
     let bases = theme.bases.legend();
-    if bases.items().iter().all(|item| key.items().contains(item)) {
+    // Only for a reference drawn as blocks: an alignment keys its colours the
+    // same way, and its reader came for the pattern down the rows, not for
+    // the letters a width of several thousand pixels would write.
+    let sequence = invocation
+        .tracks
+        .iter()
+        .any(|spec| spec.kind == Kind::Sequence);
+    if sequence && bases.items().iter().all(|item| key.items().contains(item)) {
         // And how wide the figure would have to be for the letters, which a
         // reader asked to show a sequence came for.
         let px = figure.px_per_bp();
@@ -717,6 +731,18 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                     .into_iter()
                     .map(|(n, l)| (renamed(invocation, n), l)),
             );
+            // A PAF writes the length of every query it aligns, which is the
+            // sequence a synteny figure or a dot plot is drawn along. It was
+            // not asked, so a figure placed on its own query was refused.
+            if matches!(spec.kind, Kind::Synteny | Kind::Dotplot)
+                && spec.source.as_ref() == Some(source)
+            {
+                lengths.extend(
+                    paf_query_lengths(&text)
+                        .into_iter()
+                        .map(|(n, l)| (renamed(invocation, n), l)),
+                );
+            }
             if matches!(spec.kind, Kind::Features | Kind::Loci)
                 && spec.source.as_ref() == Some(source)
             {
@@ -963,6 +989,25 @@ fn sequence_lengths(text: &str) -> Vec<(String, u64)> {
     found
 }
 
+/// The query sequences a PAF aligns, each with the length its second column
+/// gives it, once each.
+fn paf_query_lengths(text: &str) -> Vec<(String, u64)> {
+    let mut found: Vec<(String, u64)> = Vec::new();
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let mut fields = line.split('\t');
+        let (Some(name), Some(length)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let Ok(length) = length.parse() else {
+            continue;
+        };
+        if !name.is_empty() && !found.iter().any(|(held, _)| held == name) {
+            found.push((name.to_string(), length));
+        }
+    }
+    found
+}
+
 /// How far a file's rows on `name` reach, by the largest number in the
 /// columns that hold positions.
 fn reach_on(text: &str, column: &SequenceColumn, name: &str) -> Option<u64> {
@@ -1114,6 +1159,101 @@ fn called(source: &Source) -> String {
         Source::Path(path) => path.display().to_string(),
         Source::Stdin => "standard input".to_string(),
     }
+}
+
+/// The tree `--with-tree` names for a track drawn as rows of samples, which
+/// orders the rows as its tips and is drawn beside them, or `None` where no
+/// tree was named.
+///
+/// A tree none of whose tips names a row is refused: drawn, it would order
+/// nothing and hang beside rows it says nothing about.
+fn row_tree(
+    spec: &TrackSpec,
+    names: &[String],
+    files: &mut dyn Files,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
+) -> Result<Option<Tree>, BuildError> {
+    let Some(source) = spec.second.as_ref() else {
+        return Ok(None);
+    };
+    let name = spec.kind.flag();
+    let (newick, path) = fetch(name, source, files)?;
+    let tree = match parsed(&path, newick.trim()) {
+        Some(tree) => tree,
+        None => Tree::parse_annotated_newick(newick.trim()).map_err(|cause| BuildError::Tree {
+            flag: "--with-tree",
+            path: path.clone(),
+            cause,
+        })?,
+    };
+    let tips = tree.leaf_names();
+    if !names.iter().any(|row| tips.contains(row)) {
+        return Err(BuildError::Unjoined {
+            track: name,
+            path,
+            what: "tip",
+            against: "the rows",
+            examples: tips
+                .into_iter()
+                .filter(|tip| !tip.is_empty())
+                .take(3)
+                .collect(),
+        });
+    }
+    Ok(Some(tree))
+}
+
+/// The columns of the alignment a figure that names no region is drawn over,
+/// as a region called after its file, or `None` where no track is drawn over
+/// an alignment's columns.
+fn alignment_columns(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+) -> Result<Option<Region>, BuildError> {
+    let Some(spec) = invocation
+        .tracks
+        .iter()
+        .find(|spec| spec.kind.over_columns())
+    else {
+        return Ok(None);
+    };
+    let name = spec.kind.flag();
+    let Some(source) = spec.source.as_ref() else {
+        return Ok(None);
+    };
+    // Read twice, here for its width and then for its rows, which a pipe
+    // cannot be.
+    if matches!(source, Source::Stdin) {
+        return Err(BuildError::Open {
+            track: name,
+            path: called(source),
+            cause: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "an alignment read from standard input needs a place, as aln:1-1,000, \
+                 since a pipe can be read only once and its width is needed first",
+            ),
+        });
+    }
+    let (text, path) = fetch(name, source, files)?;
+    let rows = wrap(name, &path, read::seq::alignment(&text))?;
+    let width = rows.iter().map(|(_, row)| row.len()).max().unwrap_or(0);
+    if width == 0 {
+        return Err(BuildError::Empty {
+            track: name,
+            path,
+            wanted: "sequences",
+        });
+    }
+    let called = std::path::Path::new(&path)
+        .file_name()
+        .map_or(path.clone(), |file| file.to_string_lossy().to_string());
+    Region::new(called, 0, width as u64)
+        .map(Some)
+        .map_err(|error| BuildError::Open {
+            track: name,
+            path,
+            cause: io::Error::new(io::ErrorKind::InvalidData, error.to_string()),
+        })
 }
 
 /// Reads one source, and says what it was called.
@@ -2564,6 +2704,9 @@ fn track(
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
+            }
             Box::new(match label {
                 Some(label) => track.label(label),
                 None => track.label(analysis),
@@ -2799,6 +2942,9 @@ fn track(
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
+            }
             Box::new(named(track, label, MsaTrack::label))
         }
         Kind::Snps => {
@@ -2821,6 +2967,9 @@ fn track(
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
+            }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
             }
             Box::new(named(track, label, SnpTrack::label))
         }
@@ -2910,6 +3059,9 @@ fn track(
             if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
+            }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
             }
             Box::new(named(track, label, MatrixTrack::label))
         }
@@ -4865,6 +5017,148 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.contains("no support is drawn"), "{svg}");
         let (_, notes) = drawn_noting("--tree t.nwk --threshold 0.7 --support-style labels", &held);
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    /// Four rows of eight columns, and a tree of the same four samples in
+    /// another order.
+    const ALIGNMENT: &str = ">one\nACGTACGT\n>two\nACGTACGA\n>three\nACGAACGT\n>four\nTCGTACGT\n";
+    const ROWS_TREE: &str = "((four:1,two:1):1,(three:1,one:1):1);";
+
+    /// The rows in the order drawn, top to bottom, read off the names written
+    /// beside them.
+    fn rows_drawn(svg: &str) -> Vec<String> {
+        let mut rows: Vec<(f64, String)> = Vec::new();
+        for piece in svg.split("<text ").skip(1) {
+            let Some(content) = piece
+                .split('>')
+                .nth(1)
+                .and_then(|text| text.strip_suffix("</text"))
+            else {
+                continue;
+            };
+            if !["one", "two", "three", "four"].contains(&content)
+                || rows.iter().any(|(_, held)| held == content)
+            {
+                continue;
+            }
+            let y: f64 = piece
+                .split("y=\"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .and_then(|y| y.parse().ok())
+                .unwrap_or(f64::NAN);
+            rows.push((y, content.to_string()));
+        }
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        rows.into_iter().map(|(_, name)| name).collect()
+    }
+
+    /// An alignment is its own place, as a tree is: it was refused until a
+    /// region was made up for it, and the one to make up was a row's name.
+    #[test]
+    fn an_alignment_is_drawn_over_its_own_columns_when_no_place_is_named() {
+        let held = [("aln.fa", ALIGNMENT)];
+        let (svg, notes) = drawn_noting("--msa aln.fa", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(
+            svg.contains("aln.fa:1-8"),
+            "the columns as the place: {svg}"
+        );
+        assert_eq!(rows_drawn(&svg), ["one", "two", "three", "four"]);
+        // The same as naming the columns by hand.
+        let (named, _) = drawn_noting("aln.fa:1-8 --msa aln.fa", &held);
+        assert_eq!(svg, named.unwrap());
+        // A pipe can be read once, and the width is needed before the rows.
+        let args: Vec<String> = "--msa -".split_whitespace().map(String::from).collect();
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let mut files = Held {
+            files: Vec::new(),
+            notes: Vec::new(),
+        };
+        let error = build_files(&invocation, &mut files, |_, _| None).unwrap_err();
+        assert!(error.to_string().contains("needs a place"), "{error}");
+    }
+
+    /// The library ordered an alignment's rows by a tree and drew the tree
+    /// beside them, and the command line could not ask for it.
+    #[test]
+    fn a_tree_named_with_the_rows_orders_them_and_is_drawn_beside_them() {
+        let held = [("aln.fa", ALIGNMENT), ("t.nwk", ROWS_TREE)];
+        // A panel of variable sites keeps its reference, the first row, on a
+        // row of its own above the tree, and orders the rest.
+        for (track, order) in [
+            ("--msa", ["four", "two", "three", "one"]),
+            ("--snps", ["one", "four", "two", "three"]),
+        ] {
+            let (plain, _) = drawn_noting(&format!("{track} aln.fa"), &held);
+            let (ordered, notes) =
+                drawn_noting(&format!("{track} aln.fa --with-tree t.nwk"), &held);
+            let (plain, ordered) = (plain.unwrap(), ordered.unwrap());
+            assert!(notes.is_empty(), "{notes:?}");
+            assert_eq!(
+                rows_drawn(&plain),
+                ["one", "two", "three", "four"],
+                "{track}"
+            );
+            assert_eq!(rows_drawn(&ordered), order, "{track}: {ordered}");
+            // Every tip has a row, the reference's included.
+            assert!(!ordered.contains("has no row"), "{track}: {ordered}");
+            assert!(
+                ordered.matches("<line").count() > plain.matches("<line").count(),
+                "{track}: no branches beside the rows"
+            );
+        }
+        // A tree that names none of the rows orders nothing, and is refused.
+        let held = [("aln.fa", ALIGNMENT), ("t.nwk", "(X:1,Y:1);")];
+        let (drawn, _) = drawn_noting("--msa aln.fa --with-tree t.nwk", &held);
+        let error = drawn.unwrap_err().to_string();
+        assert!(
+            error.contains("no tip in this file names anything in the rows"),
+            "{error}"
+        );
+        assert!(error.contains("X, Y"), "{error}");
+    }
+
+    /// A PAF writes each query's length, and a figure placed on the query by
+    /// its name was refused as a place no file named.
+    #[test]
+    fn a_comparison_is_placed_on_its_query_by_name() {
+        let paf = "asm1\t6000\t0\t2000\t+\tasm2\t6200\t0\t2000\t1990\t2000\t60\n\
+                   asm1\t6000\t2000\t4000\t-\tasm2\t6200\t2100\t4100\t1990\t2000\t60\n";
+        let held = [("a.paf", paf)];
+        for line in ["asm1 a.paf", "asm1 --dotplot a.paf"] {
+            let (svg, notes) = drawn_noting(line, &held);
+            let svg = svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+            assert!(svg.contains("asm1:1-6000"), "{line}: {svg}");
+            // Which way round a block runs is keyed, as each is drawn.
+            assert!(
+                svg.contains(">same strand</text>") && svg.contains(">reversed</text>"),
+                "{line}"
+            );
+        }
+    }
+
+    /// An alignment too wide for its letters paints them as colours, which a
+    /// key now names, and it is not told to be drawn thousands of pixels wide.
+    #[test]
+    fn an_alignment_keys_its_colours_and_is_not_told_to_widen() {
+        let rows: String = (0..4)
+            .map(|row| format!(">r{row}\n{}\n", "ACGT".repeat(150)))
+            .collect();
+        let held = [("aln.fa", rows.as_str())];
+        let (svg, notes) = drawn_noting("--msa aln.fa --style all", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        for base in ["A", "C", "G", "T"] {
+            assert!(
+                svg.contains(&format!(">{base}</text>")),
+                "no key for {base}: {svg}"
+            );
+        }
     }
 
     /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file

@@ -220,10 +220,17 @@ jobs:
       # added is not stale to it, it is invisible. One arrived that way: the
       # documentation copy was committed and the assets/ original was not.
       # Staging the renders first makes an uncommitted figure a difference.
+      # The figures of the short path on the site are drawn by the command
+      # line from the example files, with the very commands the pages print,
+      # so a change to what a command draws shows up here as a changed figure.
+      - name: Draw the figures the site's data pages print commands for
+        run: |
+          cargo build --quiet --release
+          sh docs/data/draw.sh "$PWD/target/release/karyon"
       - name: Fail if the committed figures are stale or missing
         run: |
-          git add --intent-to-add assets
-          git diff --exit-code -- assets
+          git add --intent-to-add assets docs/assets/start
+          git diff --exit-code -- assets docs/assets/start
       # The documentation site serves its own copies, because MkDocs only
       # serves what is under docs/. They are the same files and drift the
       # same way.

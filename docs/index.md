@@ -13,112 +13,71 @@ hide:
 <section class="kh-section" markdown>
 
 <div class="kh-head" markdown>
-<p class="kh-eyebrow">One region, every track</p>
+<p class="kh-eyebrow">One command, one figure</p>
 
-## Name the region once. Every track lines up on it.
+## Name a place, then your files
 
-A karyon figure is a stack of tracks over one coordinate axis. The gene, the
-depth over it and the variants inside it land on the same position because they
-are drawn on the same scale, not because anyone placed them.
+Each file is a row, and every row is drawn on the same coordinates, so the
+gene, the depth over it and the calls inside it line up without anyone placing
+them.
 </div>
 
 <figure class="k-plate" markdown>
 ![A stack of four rows over two kilobases of the rpoB locus: a depth profile with a dropout in it, a reference row that says to zoom in to see bases, the gene with its resistance determining region marked inside it, variant lollipops coloured by consequence, and a coordinate ruler underneath](assets/figures/example.svg){ width="900" height="305" }
 </figure>
 
-<div class="kh-code" markdown>
-
-=== "Rust"
-
-    ```rust
-    use karyon::{plot, Aggregate};
-
-    plot("NC_000962.3:761000-762999")?
-        .title("rpoB locus, resistance determining region")
-        .add_coverage(depth).label("depth")
-        .adjust(|track| track.aggregate(Aggregate::Min).height(70.0))
-        .add_sequence(bases).label("reference")
-        .add_features(genes).label("annotation")
-        .add_variants(variants).label("variants")
-        .save("example.svg")?;
-    ```
-
-=== "Command line"
-
-    ```bash
-    karyon NC_000962.3:761,000-762,999 \
-      depth.bg --aggregate min reference.fa annotation.gff3 variants.vcf \
-      --title 'rpoB locus, resistance determining region' \
-      -o example.svg
-    ```
-
-</div>
-
-Each file is drawn as what its name says it holds and labelled after itself.
-The ruler, the depth axis, the colour key and the accessible title and
-description are added for you. The whole program is
-[`examples/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/locus.rs),
-and the figure it writes is built in
-[`examples/figures/locus.rs`](https://github.com/PathoGenOmics-Lab/karyon/blob/main/examples/figures/locus.rs).
+```bash
+karyon NC_000962.3:761,000-762,999 \
+  depth.bg --aggregate min reference.fa annotation.gff3 variants.vcf \
+  --title 'rpoB locus, resistance determining region' \
+  -o example.svg
+```
 
 </section>
 
 <section class="kh-section" markdown>
 
 <div class="kh-head" markdown>
-<p class="kh-eyebrow">36 track types</p>
+<p class="kh-eyebrow">What do you have?</p>
 
-## What it draws
-
-From a read pileup to a phylogeny around a globe, sorted by the question you
-are asking of your data.
+## Pick your data
 </div>
 
 <div class="k-plots kh-cards" markdown>
 
--   [![A read pileup with mismatches, insertions, deletions and spliced alignments](assets/figures/example-pileup.svg){ width="920" height="473" loading="lazy" }](plots/reads-molecules.md)
+-   [![Reads, calls and genes](assets/start/reads.svg){ .k-light width="720" height="248" loading="lazy" }![Reads, calls and genes](assets/start/reads-dark.svg){ .k-dark width="720" height="248" loading="lazy" }](your-data/reads.md)
 
-    **[Reads and molecules](plots/reads-molecules.md)**
-    Pileups, split reads, single molecules.
+    **[Reads, calls and genes](your-data/reads.md)**
+    A BAM, a VCF and an annotation over one place.
 
--   [![A chromosome ideogram with its bands and a highlighted region](assets/figures/example-ideogram.svg){ width="900" height="275" loading="lazy" }](plots/annotation-coordinates.md)
+-   [![An association scan](assets/start/scan.svg){ .k-light width="720" height="185" loading="lazy" }![An association scan](assets/start/scan-dark.svg){ .k-dark width="720" height="185" loading="lazy" }](your-data/scan.md)
 
-    **[Annotation](plots/annotation-coordinates.md)**
-    Ideograms, genes, transcripts.
+    **[An association scan](your-data/scan.md)**
+    A table from PLINK, REGENIE, SAIGE or another association tool.
 
--   [![Variable sites across isolates, ordered by the phylogeny beside them](assets/figures/example-snps.svg){ width="900" height="388" loading="lazy" }](plots/variation-association.md)
+-   [![A tree and its samples](assets/start/tree.svg){ .k-light width="720" height="717" loading="lazy" }![A tree and its samples](assets/start/tree-dark.svg){ .k-dark width="720" height="717" loading="lazy" }](your-data/tree.md)
 
-    **[Variation](plots/variation-association.md)**
-    Variants, variable sites, scans.
+    **[A tree and its samples](your-data/tree.md)**
+    A Newick tree and a sheet of what you know about each sample.
 
--   [![A dotplot with synteny ribbons between two genomes](assets/figures/example-synteny.svg){ width="900" height="437" loading="lazy" }](plots/comparisons-alignments.md)
+-   [![An alignment and its tree](assets/start/alignment.svg){ .k-light width="720" height="642" loading="lazy" }![An alignment and its tree](assets/start/alignment-dark.svg){ .k-dark width="720" height="642" loading="lazy" }](your-data/alignment.md)
 
-    **[Comparisons](plots/comparisons-alignments.md)**
-    Dotplots, synteny, alignments.
+    **[An alignment and its tree](your-data/alignment.md)**
+    An aligned FASTA, in the order of a tree drawn beside it.
 
--   [![Two phylogenies of the same isolates face to face, with the tips that moved linked across](assets/figures/example-tanglegram.svg){ width="760" height="234" loading="lazy" }](plots/phylogeny-clades.md)
+-   [![Two assemblies](assets/start/assemblies.svg){ .k-light width="720" height="234" loading="lazy" }![Two assemblies](assets/start/assemblies-dark.svg){ .k-dark width="720" height="234" loading="lazy" }](your-data/assemblies.md)
 
-    **[Phylogeny](plots/phylogeny-clades.md)**
-    Trees, clades, sample traits.
+    **[Two assemblies](your-data/assemblies.md)**
+    How two assemblies line up, from a PAF alignment.
 
--   [![Sequence logos scored three ways](assets/figures/example-logo.svg){ width="900" height="379" loading="lazy" }](plots/signal-sequence.md)
+-   [![A whole sequence](assets/start/genome.svg){ .k-light width="720" height="227" loading="lazy" }![A whole sequence](assets/start/genome-dark.svg){ .k-dark width="720" height="227" loading="lazy" }](your-data/genome.md)
 
-    **[Signal and sequence](plots/signal-sequence.md)**
-    Coverage, logos, methylation.
-
--   [![Branch rate mixtures, recurrence links and genomic site-wise selection evidence](assets/figures/example-selection-atlas.svg){ width="1508" height="1075" loading="lazy" }](plots/evolution-surveillance.md)
-
-    **[Evolution and surveillance](plots/evolution-surveillance.md)**
-    Selection, lineages over time.
-
--   [![A dated phylogeny drawn around a globe, each tip linked to where it was sampled](assets/figures/example-phylo-map.svg){ width="1916" height="868" loading="lazy" }](plots/whole-genomes-geography.md)
-
-    **[Whole genomes and maps](plots/whole-genomes-geography.md)**
-    Circular plots, assemblies, geography.
+    **[A whole sequence](your-data/genome.md)**
+    The depth of one sample or several along a whole chromosome.
 
 </div>
 
-<p class="kh-cards--more" markdown>[Open the gallery](plots/index.md){ .md-button } [Every track type](tracks/index.md){ .md-button }</p>
+<p class="kh-cards--more" markdown>[Every kind of figure](plots/index.md){ .md-button }</p>
 
 </section>
 
@@ -197,87 +156,7 @@ NC_000962.3 762206 . C T . . AF=0.15;ANN=T|synonymous_variant|LOW|rpoB</code></p
 
 </section>
 
-<section class="kh-section" markdown>
 
-<div class="kh-head" markdown>
-<p class="kh-eyebrow">Why karyon</p>
-
-## Small, strict and honest about the data
-</div>
-
-<div class="kh-points" markdown>
-
-<div class="kh-point" markdown>
-### Aligned by construction
-One scale is handed to every track, so nothing is lined up by hand and nothing
-drifts when the region changes.
-</div>
-
-<div class="kh-point" markdown>
-### Honest about gaps
-When the data cannot support a picture, karyon stops with a clear message
-instead of drawing something that only looks right.
-</div>
-
-<div class="kh-point" markdown>
-### Nothing else to install
-No runtime dependencies. A Rust toolchain is all it needs, and the same code
-runs in this page as WebAssembly.
-</div>
-
-<div class="kh-point" markdown>
-### Ready to publish
-Plain SVG 1.1 with a title and a description a screen reader can use, and the
-same input always gives the same file.
-</div>
-
-</div>
-
-</section>
-
-<section class="kh-section" markdown>
-
-<div class="kh-head" markdown>
-<p class="kh-eyebrow">Three ways in</p>
-
-## From Rust, from the shell or from this browser
-</div>
-
-<div class="kh-ways" markdown>
-
-<div class="kh-way" markdown>
-### Rust library
-
-```toml
-[dependencies]
-karyon = { git = "https://github.com/PathoGenOmics-Lab/karyon" }
-```
-
-[The Rust API](guide/plot.md)
-</div>
-
-<div class="kh-way" markdown>
-### Command line
-
-```bash
-cargo install --git https://github.com/PathoGenOmics-Lab/karyon
-karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
-```
-
-[Your first figure](getting-started/quickstart.md) · [Every flag](guide/cli.md)
-</div>
-
-<div class="kh-way" markdown>
-### In your browser
-
-The [playground](playground.md) runs the command line on your own files, and
-the [tree viewer](tree.md) opens a Newick tree of up to a million tips. Nothing
-leaves your machine.
-</div>
-
-</div>
-
-</section>
 
 <section class="kh-cite" markdown>
 
