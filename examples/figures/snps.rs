@@ -45,7 +45,7 @@ pub fn example_snps(
     // not carry are absent from the sheet, and their cells say so.
     let sheet = read::sheet::sheet(SAMPLES).expect("the sheet in this example is well formed");
     let columns = sheet.columns.clone();
-    let traits = Traits::new(sheet.rows).spread(columns);
+    let traits = Traits::new(sheet.rows).strips(columns);
 
     let panel = SnpTrack::from_alignment(0, &alignment)
         .offset(START)

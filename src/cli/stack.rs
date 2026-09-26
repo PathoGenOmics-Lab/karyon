@@ -1214,7 +1214,7 @@ fn strip(
     // levels the palette in the order the file lists them. A phylogeny is
     // handed these same columns, and that shared order is what makes a
     // lineage one colour beside the tree and beside the matrix under it.
-    Ok(Some(Traits::from_sheet(held).spread(wanted)))
+    Ok(Some(Traits::from_sheet(held).strips(wanted)))
 }
 
 /// A track's own file, what it was called, and whether it arrived converted

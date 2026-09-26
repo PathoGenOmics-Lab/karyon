@@ -27,7 +27,7 @@ A multiple sequence alignment, row by row, painting only what disagrees with the
 === "Rust"
 
     ```rust
-    use karyon::{plot, MsaSequence};
+    use karyon::{plot_alignment, MsaSequence};
 
     let rows = vec![
         MsaSequence::new("H37Rv", b"ACGTACGTAC".to_vec()),
@@ -35,8 +35,7 @@ A multiple sequence alignment, row by row, painting only what disagrees with the
         MsaSequence::new("Beijing", b"ACGT-CGTAC".to_vec()),
     ];
 
-    plot("alignment:1-10")?
-        .add_msa(rows)
+    plot_alignment(rows)
         .label("isolates")
         .adjust(|track| track.compare_to(0))
         .save("msa.svg")?;

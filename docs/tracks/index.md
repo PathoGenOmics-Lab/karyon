@@ -148,7 +148,7 @@ let sheet = read::sheet::sheet(
      S2\tL2\tbovine\t61\n\
      S3\tL4\t\t48.2\n",
 )?;
-let traits = Traits::new(sheet.rows).spread(sheet.columns);
+let traits = Traits::new(sheet.rows).strips(sheet.columns);
 
 let rows = vec![
     MatrixRow::new("S1", vec![1.0, 0.0]),
@@ -161,7 +161,7 @@ plot("chr1:1-1,000")?
 ```
 
 - **The join is by name**, so the strips follow whatever order the rows are in, including the order a phylogeny put them in. A row the sheet says nothing about gets an empty outline, the one mark in a strip that cannot be mistaken for a level.
-- **`Traits::spread` picks the mark.** A column whose every stated value is a number gets a ramp; anything else gets the categorical palette, and a column with more levels than the palette's six gets `TraitStyle::Symbol`, which carries the level in a shape as well as a hue. `TraitColumn::categorical`, `continuous`, `bar`, `binary` and `symbol` build a column by hand, for `Traits::column`.
+- **`Traits::strips` picks the mark.** A column whose every stated value is a number gets a ramp; anything else gets the categorical palette, and a column with more levels than the palette has colours is drawn as `TraitStyle::Symbol`, which carries the level in a shape as well as a hue. That is decided in the theme the figure is drawn in, so a theme with more colours keeps it a strip, and `Traits::colors` or `TraitColumn::colors` gives levels colours of their own. `TraitColumn::categorical`, `continuous`, `bar`, `binary` and `symbol` build a column by hand, for `Traits::column`.
 - **Levels are coloured in the order the sheet lists them**, never sorted, when the strip comes from `Traits::from_sheet`: a figure redrawn from the same file colours the same way, and a sample added at the end of the file does not repaint the others. `Traits::new` takes a map of rows and has no file order, so it deals the colours in the order the names sort. The key lists the levels as a reader looks them up, `L1`, `L2`, `L4`, `L10`, each in the colour the sheet dealt it, so the order a sheet happens to meet them in never reaches the reader.
 - **One vocabulary.** Every column `Traits` makes carries that order (`TraitColumn::level_order`), and a phylogeny handed the same column deals its colours the same way, so a lineage is one colour beside the tree, beside the matrix and in the key, which is most of the reason to put them in one figure. `--traits` does this for you.
 - **Each column its own colours.** Every column of words in a sheet deals its own stretch of the six colours, by its place in the sheet: two columns take three each and three take two, so a lineage and a country are never one colour while each fits its stretch. A column with more levels runs on into the next stretch, and the key names every colour by its column. The stretch goes by the sheet and not by what is drawn, so `--columns` never repaints, and not by how many levels come before, so an appended sample never does. `TraitColumn::first_color` sets where a column starts, and a phylogeny deals the columns it is given without a start, and the key its branches are coloured by, a stretch each the same way.

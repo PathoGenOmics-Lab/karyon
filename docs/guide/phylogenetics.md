@@ -69,22 +69,40 @@ let sheet = Sheet::parse(&std::fs::read_to_string("samples.tsv")?)?;
 
 plot_tree()
     .add_tree(tree)
-    .adjust(|track| track.traits(Traits::from_sheet(&sheet).spread(["lineage", "country"])))
+    .adjust(|track| track.traits(Traits::from_sheet(&sheet).strips(["lineage", "country"])))
     .add_key()
     .save("strips.svg")?;
 ```
 
 A sheet is a tab-separated table with a header, the names in its first column
 and one column per thing known about them. `traits` joins it to the tips by
-name, draws each column you spread it into as a strip, and says under the tree
+name, draws each column named in `strips` as a strip, and says under the tree
 which tips it has no row for; `.join()` on the track gives what matched and
 what was left out on both sides. Each column starts on a stretch of the palette
 of its own, in the order of the sheet, so a value added to one column later
-does not repaint another. The palette has six colours, and a column with more
-values than that is drawn as shapes, each value a colour and a shape of its
-own: its colours come round the palette again, so a country can share a colour
-with a lineage, and the shape and the key tell them apart. `add_key()` keys
-every strip at the foot of the figure, in the colours it drew.
+does not repaint another, and a value is one colour in every figure drawn from
+the sheet. `add_key()` keys every strip at the foot of the figure, in the
+colours it drew.
+
+The palette has six colours. A column with more values than that is drawn as
+shapes, each value a colour and a shape of its own, and the figure says so
+under the tree; so does one whose values run into the colours of the strip
+beside it. To keep it a strip, give its values colours of your own, as a field
+that knows its lineages by colour already would:
+
+```rust
+let traits = Traits::from_sheet(&sheet)
+    .strips(["lineage", "country"])
+    .colors("country", [
+        ("China", "#1b9e77"), ("India", "#d95f02"), ("Kenya", "#7570b3"),
+        ("Peru", "#e7298a"), ("Portugal", "#66a61e"), ("Spain", "#e6ab02"),
+        ("Vietnam", "#666666"),
+    ]);
+```
+
+or draw the figure in a theme with more colours, with `plot_tree().theme(theme)`
+and a longer `theme.palette`: which values are shapes is decided in the theme
+the figure is drawn in.
 
 ### Colour the branches and fold a clade
 
@@ -103,17 +121,20 @@ plot_tree()
     .save("folded.svg")?;
 ```
 
-A sheet joined with no column spread draws no strip, and still gives each tip
-its values, which is all `color_by` and the fold need; spread `lineage` too for
-a strip beside the colours. `color_by` colours each branch by a column of the
-sheet or an annotation of the file, and a clade whose tips agree takes their
-colour too. A clade is named as
-you would name it: `NodeRef::holding("lineage", "L4")` is the smallest clade
-holding every L4 tip, `NodeRef::mrca(["S01", "S07"])` the smallest holding two
-tips, and a name or an index works as it is. A clade that holds tips it was
-not named for is folded all the same, and the tips are said under the tree. A
-folded clade is a wedge one row high, named by its first tip and how many more
-it holds, as `S26 +15 more`, and its tooltip lists them.
+A sheet joined with no `strips` draws no strip, and still gives each tip its
+values, which is all `color_by` and the fold need; name `lineage` in `strips`
+too for a strip beside the branches. `color_by` colours each branch by a column
+of the sheet or an annotation of the file, and a clade whose tips agree takes
+their colour too; a column of the sheet colours the branches as its strip
+does, drawn or not, so L1 is one colour in every figure of a set. A clade is
+named as you would name it: `NodeRef::holding("lineage", "L4")` is the smallest
+clade holding every L4 tip, `NodeRef::mrca(["S01", "S07"])` the smallest
+holding two tips, and a name or an index works as it is. A clade that holds
+tips it was not named for is folded all the same, and the tips are said under
+the tree. A folded clade is a wedge in the colour of its branches, named by
+the value it was folded by, as `L4 (16 tips)`, by a name of its own where it
+has one, and otherwise by its first tip and how many more it holds, as
+`S26 +15 more`; its tooltip gives its first and last tips.
 
 ### Draw it as a circle
 
@@ -122,37 +143,36 @@ plot_tree()
     .add_tree(tree)
     .adjust(|track| {
         track
-            .traits(Traits::from_sheet(&sheet).spread(["lineage"]))
+            .traits(Traits::from_sheet(&sheet).strips(["lineage"]))
             .circular()
     })
     .add_key()
     .save("circle.svg")?;
 ```
 
-The strips become rings around the tips, keyed the same way. [Change the
-projection, not the tree](#change-the-projection-not-the-tree) has the fans,
-the inward trees and the unrooted drawing.
+The strips become rings around the tips, keyed the same way. One ring is named
+by the key; two or more are named across the top as well, inside out. [Change
+the projection, not the tree](#change-the-projection-not-the-tree) has the
+fans, the inward trees and the unrooted drawing.
 
 ### Put an alignment in the order of the tree
 
 ```rust
-use karyon::{plot, read, MsaSequence};
+use karyon::{plot_alignment, read, MsaSequence};
 
 let rows: Vec<MsaSequence> = read::seq::alignment(&std::fs::read_to_string("aln.fasta")?)?
     .into_iter()
     .map(|(name, bases)| MsaSequence::new(name, bases))
     .collect();
-let columns = rows.iter().map(|row| row.residues.len()).max().unwrap_or(0);
 
-plot(&format!("alignment:1-{columns}"))?
-    .remove_region_label()
-    .add_msa(rows)
+plot_alignment(rows)
     .adjust(|track| track.tree(tree))
     .add_key()
     .save("alignment.svg")?;
 ```
 
-An alignment is placed by its columns, so the plot is over them. `tree` sorts
+An alignment is placed by its columns, so `plot_alignment` plots over them, as
+many as its longest row has, with a ruler that counts them. `tree` sorts
 the rows by descent and draws the tree beside them, cut to the rows there are;
 a tip with no row is counted under the tree, and a row the tree does not name
 stays at the bottom. Only the bases that differ from the consensus are
@@ -457,7 +477,7 @@ never one colour while each fits its stretch.
 ## Choose a tree geometry
 
 <figure class="k-plate" markdown>
-![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2115" loading="lazy" }
+![Eight panels: one tree with orthogonal, diagonal and curved branches, circular and unrooted trees carrying branch evidence, a tanglegram, a selection scan over a protein, and population size above lineage frequencies](../assets/figures/example-evolutionary-surveillance.svg){ width="1408" height="2093" loading="lazy" }
 <figcaption>A to C: the three rectangular geometries. D and E: circular and unrooted.</figcaption>
 </figure>
 

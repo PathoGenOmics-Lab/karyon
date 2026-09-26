@@ -644,7 +644,7 @@ fn resolve_strips(tree: &Tree, body: &str) -> Vec<Strip> {
     let Ok(held) = karyon::Sheet::parse(body) else {
         return Vec::new();
     };
-    let spread = karyon::Traits::from_sheet(&held).spread(held.columns.clone());
+    let spread = karyon::Traits::from_sheet(&held).strips(held.columns.clone());
     let track = karyon::track::tree::TreeTrack::new(tree.clone()).traits(spread);
     let light = track.strips(&karyon::Theme::light());
     let dark = track.strips(&karyon::Theme::dark());

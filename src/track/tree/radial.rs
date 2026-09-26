@@ -30,7 +30,7 @@ impl RadialGeometry {
                 .iter()
                 .map(|node| {
                     text_width(
-                        &terminal_label(&track.tree, *node, track.folded()),
+                        &terminal_label(&track.tree, *node, track.folded(), &track.fold_names),
                         theme.font_size - 1.0,
                     )
                 })
@@ -431,7 +431,7 @@ pub(super) fn draw_radial_labels(
         ctx.svg.text_rotated(
             (x, y + size * 0.32),
             rotation,
-            &terminal_label(&track.tree, *node, track.folded()),
+            &terminal_label(&track.tree, *node, track.folded(), &track.fold_names),
             &ctx.theme.muted,
             size,
             anchor,
@@ -576,9 +576,11 @@ pub(super) fn draw_radial_collapsed(
             num(right_x),
             num(right_y)
         );
-        let title = collapsed_title(&track.tree, *node);
+        let title = collapsed_title(&track.tree, *node, &track.fold_names);
+        let color = &styles.get(*node).color;
         ctx.svg.begin_titled(&title);
-        ctx.svg.path(&d, &styles.get(*node).color, 0.28);
+        ctx.svg.path(&d, color, FOLD_FILL);
+        ctx.svg.path_stroked(&d, color, ctx.theme.tokens.hairline);
         ctx.svg.end_group();
     }
 }
@@ -702,7 +704,7 @@ pub(super) fn draw_trait_rings(
     }
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.tree_outer + gap;
-    let dealing = track.dealing();
+    let dealing = track.dealing(ctx.theme.palette.len());
     for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
@@ -731,7 +733,7 @@ pub(super) fn draw_trait_rings(
             };
             let value = values[row];
             let displayed = value.map(ToString::to_string);
-            let name = terminal_label(&track.tree, *node, track.folded());
+            let name = terminal_label(&track.tree, *node, track.folded(), &track.fold_names);
             let title = match &displayed {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
@@ -788,7 +790,7 @@ pub(super) fn annular_sector_path(
 }
 
 pub(super) fn draw_trait_ring_headings(track: &TreeTrack, ctx: &mut DrawContext<'_>) {
-    if track.trait_columns.is_empty() {
+    if !track.ring_headings() {
         return;
     }
     let size = (ctx.theme.font_size - 2.0).max(6.0);

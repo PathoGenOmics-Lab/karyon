@@ -319,7 +319,8 @@ pub(super) struct UnrootedGeometry {
 impl UnrootedGeometry {
     pub(super) fn new(track: &TreeTrack, theme: &Theme, scene: &UnrootedScene, area: Rect) -> Self {
         let size = theme.font_size - 1.0;
-        let name = |node: &usize| terminal_label(&track.tree, *node, track.folded());
+        let name =
+            |node: &usize| terminal_label(&track.tree, *node, track.folded(), &track.fold_names);
         let label_extent = if track.show_tips {
             scene
                 .terminals
@@ -740,7 +741,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                 } else {
                     angle.to_degrees() + 180.0
                 },
-                &terminal_label(&track.tree, *node, track.folded()),
+                &terminal_label(&track.tree, *node, track.folded(), &track.fold_names),
                 &ctx.theme.muted,
                 size,
                 if right {
@@ -775,11 +776,7 @@ pub(super) fn unrooted_branch_colors(
     // rather than the nodes left visible, so folding a clade does not
     // repaint the rest. See `tree_domain`.
     let values = branch_values(tree, key);
-    let domain = TraitDomain::ordered(
-        levels.first,
-        levels.levels,
-        values.iter().flatten().copied(),
-    );
+    let domain = TraitDomain::dealt(levels, values.iter().flatten().copied());
     let continuous = is_continuous(&values);
     for node in &scene.visible {
         let color = if continuous {
@@ -789,7 +786,7 @@ pub(super) fn unrooted_branch_colors(
         } else {
             domain
                 .category(values[*node])
-                .map(|index| theme.color(index).to_string())
+                .map(|index| domain.paint(index, theme))
         };
         if let Some(color) = color {
             colors.set(*node, color);
@@ -810,7 +807,7 @@ pub(super) fn draw_unrooted_trait_rings(
     let gap = ctx.theme.tokens.legend_gap.clamp(1.0, 4.0);
     let mut inner = geometry.branch_radius + gap;
     let step = std::f64::consts::TAU / scene.terminals.len() as f64;
-    let dealing = track.dealing();
+    let dealing = track.dealing(ctx.theme.palette.len());
     for (column, dealt) in track.trait_columns.iter().zip(&dealing.columns) {
         let outer = (inner + column.ring_width).min(geometry.ring_outer);
         let values: Vec<Option<&AnnotationValue>> = scene
@@ -827,7 +824,7 @@ pub(super) fn draw_unrooted_trait_rings(
             let gap_angle = if outer > 0.0 { 0.8 / outer } else { 0.0 };
             let half = (step / 2.0 - gap_angle).max(step * 0.12);
             let value = values[row];
-            let name = terminal_label(&track.tree, *node, track.folded());
+            let name = terminal_label(&track.tree, *node, track.folded(), &track.fold_names);
             let title = match value {
                 Some(value) => format!("{name}; {} {value}", column.key),
                 None => format!("{name}; {} missing", column.key),
