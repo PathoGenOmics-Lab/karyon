@@ -1,7 +1,8 @@
 # Installation
 
 Install the `karyon` program with one command, or add the library to a Rust
-project with one line. Either way, a Rust toolchain is all you need.
+project with one line. Either way, a Rust toolchain is all you need. This page
+has the details; [Start here](../start.md) has the short way.
 { .k-lead }
 
 ## The fast path
@@ -123,16 +124,20 @@ figure saves the view you are looking at.
 | Dependencies | None. The `[dependencies]` table in `Cargo.toml` is empty. |
 | System libraries | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
 | Platforms | Any target with Rust's standard library, WebAssembly included. |
-| Input | Line-based text formats. BAM, CRAM and BCF come in through `samtools` or `bcftools`, piped. |
+| Input | Text formats, gzipped or not, and BAM read directly through its index. CRAM and BCF come in through `samtools` or `bcftools`, piped. |
 | Output | Standalone SVG that names its fonts rather than embedding them. |
 
 ## Next
 
 <div class="grid cards" markdown>
 
--   **[Your first figure](quickstart.md)**
+-   **[Start here](../start.md)**
 
-    A figure from the shell in two lines, then the same kind of stack from Rust.
+    A figure from the shell in three steps.
+
+-   **[A first program](quickstart.md)**
+
+    The same kind of figure from Rust.
 
 -   **[Core ideas](concepts.md)**
 

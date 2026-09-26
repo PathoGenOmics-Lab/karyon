@@ -1490,3 +1490,29 @@ body {
 .pg-plot > svg > rect:first-of-type {
   fill: transparent;
 }
+
+/* A figure drawn twice, on the light page and on the dark one, of which the
+   page shows the one drawn on its own colour. For the figures of the short
+   path, which the command line draws from files the program in the page
+   cannot read. */
+.md-typeset .k-dark,
+.md-typeset .k-plots > ul > li > p:first-child img.k-dark {
+  display: none;
+}
+[data-md-color-scheme="slate"] .md-typeset .k-light,
+[data-md-color-scheme="slate"] .md-typeset .k-plots > ul > li > p:first-child img.k-light {
+  display: none;
+}
+[data-md-color-scheme="slate"] .md-typeset .k-dark {
+  display: inline;
+}
+[data-md-color-scheme="slate"] .md-typeset .k-plots > ul > li > p:first-child img.k-dark {
+  display: block;
+}
+.md-typeset figure.k-start {
+  margin: 1.2em 0;
+}
+.md-typeset figure.k-start img {
+  width: 100%;
+  height: auto;
+}

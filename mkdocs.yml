@@ -160,11 +160,15 @@ extra:
 # up; the two tools that run in the page have a tab of their own.
 nav:
   - Home: index.md
-  - Get started:
-      - Installation: getting-started/installation.md
-      - Your first figure: getting-started/quickstart.md
-      - Core ideas: getting-started/concepts.md
-      - Recipes: recipes.md
+  - Start here: start.md
+  - Your data:
+      - your-data/index.md
+      - Reads, calls and genes: your-data/reads.md
+      - An association scan: your-data/scan.md
+      - A tree and its samples: your-data/tree.md
+      - An alignment and its tree: your-data/alignment.md
+      - Two assemblies: your-data/assemblies.md
+      - A whole sequence: your-data/genome.md
   - Gallery:
       - plots/index.md
       - Signal and sequence: plots/signal-sequence.md
@@ -175,15 +179,13 @@ nav:
       - Phylogeny: plots/phylogeny-clades.md
       - Evolution and surveillance: plots/evolution-surveillance.md
       - Whole genomes and maps: plots/whole-genomes-geography.md
-  - Guides:
-      - The Rust API: guide/plot.md
+  - Reference:
+      - Installation: getting-started/installation.md
       - Command line: guide/cli.md
       - File formats: guide/formats.md
-      - Phylogenetics: guide/phylogenetics.md
-      - Maps: guide/maps.md
+      - Core ideas: getting-started/concepts.md
+      - Recipes: recipes.md
       - Styling: guide/theming.md
-      - Writing a track: how-it-works/extending.md
-  - Reference:
       - Tracks:
           - tracks/index.md
           - Signal and sequence: tracks/signal-sequence.md
@@ -197,6 +199,12 @@ nav:
           - Scales and keys: tracks/scales-keys.md
       - Coordinates: how-it-works/coordinates.md
       - Scale: how-it-works/scale.md
+  - Rust:
+      - A first program: getting-started/quickstart.md
+      - The Rust API: guide/plot.md
+      - Phylogenetics: guide/phylogenetics.md
+      - Maps: guide/maps.md
+      - Writing a track: how-it-works/extending.md
   - Try it:
       - Playground: playground.md
       - Tree viewer: tree.md
