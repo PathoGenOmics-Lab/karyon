@@ -531,11 +531,13 @@ impl QuantitativeAxis {
 /// Round values across a span of time, each with its label.
 ///
 /// Written as plain numbers with as many decimals as the step needs, never
-/// with a `k`: a year is 2024 and not 2.02k. The unit goes on the latest.
+/// with a `k`: a year is 2024 and not 2.02k. The unit is not written on any
+/// of them: a calendar year is not a quantity of years, and `2005 year` read
+/// as one, so the unit is the axis's title, drawn apart from its numbers.
 /// The two ends of a dated tree are its root and its latest tip, and they are
 /// rarely round, so labelled as they came a tree read "2021.85", "2022.965"
 /// and "2024.08", three numbers nobody would put on an axis.
-pub(crate) fn time_ticks(min: f64, max: f64, unit: Option<&str>) -> Vec<(f64, String)> {
+pub(crate) fn time_ticks(min: f64, max: f64) -> Vec<(f64, String)> {
     let ticks = QuantitativeAxis::new().ticks(4).values(min, max);
     let step = ticks
         .windows(2)
@@ -546,18 +548,9 @@ pub(crate) fn time_ticks(min: f64, max: f64, unit: Option<&str>) -> Vec<(f64, St
     } else {
         0
     };
-    let last = ticks.len().saturating_sub(1);
     ticks
         .iter()
-        .enumerate()
-        .map(|(index, &value)| {
-            let number = crate::svg::text_rounded(value, decimals);
-            let label = match unit {
-                Some(unit) if index == last => format!("{number} {unit}"),
-                _ => number,
-            };
-            (value, label)
-        })
+        .map(|&value| (value, crate::svg::text_rounded(value, decimals)))
         .collect()
 }
 
@@ -733,17 +726,18 @@ mod tests {
 
     #[test]
     fn dates_are_labelled_as_plain_round_numbers() {
-        let labels: Vec<String> = time_ticks(2021.85, 2024.08, Some("year"))
+        // No unit on any of them: a calendar year is not a quantity of years.
+        let labels: Vec<String> = time_ticks(2021.85, 2024.08)
             .into_iter()
             .map(|(_, label)| label)
             .collect();
-        assert_eq!(labels, vec!["2022", "2023", "2024 year"]);
-        let halves: Vec<String> = time_ticks(2021.9, 2024.1, None)
+        assert_eq!(labels, vec!["2022", "2023", "2024"]);
+        let halves: Vec<String> = time_ticks(2021.9, 2024.1)
             .into_iter()
             .map(|(_, label)| label)
             .collect();
         assert_eq!(halves, vec!["2022", "2023", "2024"]);
-        let fine: Vec<String> = time_ticks(0.0, 0.3, None)
+        let fine: Vec<String> = time_ticks(0.0, 0.3)
             .into_iter()
             .map(|(_, label)| label)
             .collect();

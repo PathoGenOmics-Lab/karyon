@@ -929,20 +929,16 @@ fn a_time_tree_draws_calendar_values_on_its_axis() {
         .show_region_label(false)
         .push(TreeTrack::new(tree).time("date").time_unit("year"))
         .to_svg();
-    // Whole years, the unit written once on the latest, and the two at the
-    // ends of the axis pinned to them rather than hanging past.
-    for label in ["2021", "2022", "2023", "2024", "2025 year"] {
+    // Whole years, the two at the ends of the axis pinned to them rather than
+    // hanging past, and the unit as the axis's title, on a line of its own:
+    // written on the latest year, it read `2025 year`.
+    for label in ["2021", "2022", "2023", "2024", "2025", "year"] {
         assert!(svg.contains(&format!(">{label}</text>")), "{label}: {svg}");
     }
-    assert!(
-        !svg.contains(">2023 year</text>"),
-        "the unit is not repeated"
-    );
+    assert!(!svg.contains(" year</text>"), "the unit on a number: {svg}");
     assert!(svg.contains("text-anchor=\"start\">2021</text>"), "{svg}");
-    assert!(
-        svg.contains("text-anchor=\"end\">2025 year</text>"),
-        "{svg}"
-    );
+    assert!(svg.contains("text-anchor=\"end\">2025</text>"), "{svg}");
+    assert!(svg.contains("text-anchor=\"middle\">year</text>"), "{svg}");
 }
 
 #[test]
@@ -976,7 +972,7 @@ fn time_settings_count_the_same_written_before_time_or_after_it() {
             );
         }
         let before = drawn(track().time_unit("years").time("date"));
-        assert!(before.contains(" years</text>"), "{before}");
+        assert!(before.contains(">years</text>"), "{before}");
     }
 }
 
@@ -1183,7 +1179,7 @@ fn circular_time_guides_fall_on_whole_years() {
                 .show_tips(false),
         )
         .to_svg();
-    for label in ["2021", "2023", "2025 year"] {
+    for label in ["2021", "2023", "2025", "year"] {
         assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
     }
 }

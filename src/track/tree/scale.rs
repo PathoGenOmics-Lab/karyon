@@ -160,7 +160,7 @@ pub(super) fn draw_time_axis(
         ctx.theme.tokens.hairline,
     );
     let size = ctx.theme.font_size - 1.0;
-    let ticks = time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    let ticks = time_ticks(scene.minimum, scene.maximum);
     for (value, label) in &ticks {
         let x = scene.x(area, *value);
         ctx.svg.line(
@@ -193,6 +193,18 @@ pub(super) fn draw_time_axis(
             &ctx.theme.muted,
             size,
             anchor,
+        );
+    }
+    // The unit is the axis's title, a line under its numbers, and not a word
+    // glued to the last of them.
+    if let Some(unit) = time.unit.as_deref().filter(|unit| !unit.trim().is_empty()) {
+        ctx.svg.text(
+            (area.x + area.right()) / 2.0,
+            y + ctx.theme.tokens.tick_length + size * 2.0 + 3.0,
+            unit,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Middle,
         );
     }
 }

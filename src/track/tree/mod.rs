@@ -1405,7 +1405,9 @@ impl TreeTrack {
         self
     }
 
-    /// Adds a unit after temporal axis values.
+    /// Names what the time axis counts, as `year` or `years before present`,
+    /// written as the axis's title, under its numbers or at the inner end of
+    /// the rings, and not after the latest of them.
     pub fn time_unit(mut self, unit: impl Into<String>) -> Self {
         self.time_unit = Some(unit.into());
         self
@@ -2139,11 +2141,21 @@ impl TreeTrack {
             + 6.0
     }
 
+    /// The line under a time axis its unit is written on, where it has one.
+    fn time_title_room(&self) -> f64 {
+        match self.time_unit.as_deref() {
+            Some(unit) if !unit.trim().is_empty() => 14.0,
+            _ => 0.0,
+        }
+    }
+
     fn axis_room(&self, theme: &Theme) -> f64 {
         let time = self
             .time_axis()
             .filter(|time| time.show_axis)
-            .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 5.0);
+            .map_or(0.0, |_| {
+                theme.font_size + theme.tokens.tick_length + 5.0 + self.time_title_room()
+            });
         let scale = self
             .branch_scale()
             .map_or(0.0, |_| theme.font_size + theme.tokens.tick_length + 7.0);
@@ -2661,7 +2673,7 @@ impl Track for TreeTrack {
                 rows * self.row_height
                     + glyph_y * 2.0
                     + if self.time_axis().is_some_and(|time| time.show_axis) {
-                        22.0
+                        22.0 + self.time_title_room()
                     } else {
                         0.0
                     }

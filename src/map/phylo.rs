@@ -693,17 +693,34 @@ pub(super) fn draw_phylo_time_guides(
     let Some(time) = map.phylo_time() else {
         return;
     };
-    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum, time.unit.as_deref());
+    let ticks = crate::style::time_ticks(scene.minimum, scene.maximum);
+    let angle = layout.start - 0.018;
     for (value, label) in &ticks {
         let radius = scene.radius(layout, *value);
         let path = radial_arc(layout, radius, layout.start, layout.start + layout.sweep);
         svg.path_stroked(&path, &theme.rule, theme.tokens.hairline * 0.75);
-        let angle = layout.start - 0.018;
         let (x, y) = phylo_point(layout, radius, angle);
         svg.text_rotated(
             (x, y),
             upright_tangent(angle),
             label,
+            &theme.muted,
+            theme.font_size - 2.0,
+            Anchor::End,
+        );
+    }
+    // The unit is the title of the guides, at the inner end of the ray their
+    // numbers stand on, as a circular tree writes it.
+    if let (Some(unit), Some((first, _))) = (
+        time.unit.as_deref().filter(|unit| !unit.trim().is_empty()),
+        ticks.first(),
+    ) {
+        let inner = (scene.radius(layout, *first) - theme.font_size * 1.3).max(0.0);
+        let (x, y) = phylo_point(layout, inner, angle);
+        svg.text_rotated(
+            (x, y),
+            upright_tangent(angle),
+            unit,
             &theme.muted,
             theme.font_size - 2.0,
             Anchor::End,
