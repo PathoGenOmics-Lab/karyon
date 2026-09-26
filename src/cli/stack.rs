@@ -2459,7 +2459,7 @@ fn track(
                 return Err(empty("association statistics"));
             }
             let points = table.points.clone();
-            let mut track = ManhattanTrack::new(table.points);
+            let mut track = ManhattanTrack::new(points.clone());
             if let Some(source) = spec.second.as_ref() {
                 let (text, ld_path) = fetch(name, source, files)?;
                 let (pairs, _) = wrap(name, &ld_path, read::pairs::pairs(&text, region))?;
@@ -2478,6 +2478,29 @@ fn track(
                     ));
                 }
                 track = track.linkage(lead, linkage);
+                // Called by the name the scan gives it, or the one the table
+                // of linkage does, as PLINK writes the lead on every row.
+                let named = table.name_at(lead).map(str::to_string).or_else(|| {
+                    read::pairs::names(&text)
+                        .into_iter()
+                        .find(|(at, _)| *at == lead)
+                        .map(|(_, name)| name)
+                });
+                if let Some(named) = named {
+                    track = track.lead_name(named);
+                }
+            }
+            if let Some(source) = spec.recombination.as_ref() {
+                let (text, map_path) = fetch(name, source, files)?;
+                let rates = wrap(name, &map_path, read::recombination::rates(&text, region))?;
+                if rates.is_empty() {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path: map_path,
+                        wanted: "recombination rates",
+                    });
+                }
+                track = track.recombination(rates);
             }
             // Drawn as -log10, and the axis says so, since the file said p.
             if table.p_values {
@@ -5992,17 +6015,35 @@ chr2\t300\t.\tA\tG\t.\t.\t.
     #[test]
     fn a_scan_is_coloured_by_linkage_with_its_lead() {
         let scan = "CHR\tBP\tP\n1\t100\t1e-9\n1\t200\t1e-5\n1\t300\t0.2\n";
-        // As PLINK's --ld-snp writes it: the lead in every row.
+        // As PLINK's --ld-snp writes it: the lead in every row, by name.
         let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
-                  1 100 lead 1 200 b 0.8\n1 100 lead 1 300 c 0.05\n";
+                  1 100 rs100 1 200 rs200 0.8\n1 100 rs100 1 300 rs300 0.05\n";
         let held = [("g.assoc", scan), ("lead.ld", ld)];
         let (svg, notes) = drawn_noting("1:1-400 g.assoc --ld lead.ld", &held);
         let svg = svg.unwrap();
         assert!(notes.is_empty(), "{notes:?}");
+        // The scan names no variant, so the lead takes the name the table of
+        // linkage gives it.
         assert!(
-            svg.contains("lead variant 100") && svg.contains("r² with 100"),
+            svg.contains("lead variant rs100 at 100") && svg.contains("r² with rs100"),
             "{svg}"
         );
+        // A scan that names its variants names the lead first.
+        let named = "CHR\tSNP\tBP\tP\n1\tvar_a\t100\t1e-9\n1\tvar_b\t200\t1e-5\n";
+        let (svg, _) = drawn_noting(
+            "1:1-400 g.assoc --ld lead.ld",
+            &[("g.assoc", named), ("lead.ld", ld)],
+        );
+        assert!(svg.unwrap().contains(">var_a</text>"));
+        // A genetic map laid over the scan, read off a scale on the right.
+        let map = "position rate\n50 2\n250 30\n390 1\n";
+        let (svg, _) = drawn_noting(
+            "1:1-400 g.assoc --ld lead.ld --with-recombination map.txt",
+            &[("g.assoc", scan), ("lead.ld", ld), ("map.txt", map)],
+        );
+        let svg = svg.unwrap();
+        assert!(svg.contains(" cM/Mb</text>"), "{svg}");
+        assert!(svg.contains("recombination, cM/Mb"), "keyed: {svg}");
         // A lead the scan did not test has no diamond, and the figure says so.
         let held = [
             ("g.assoc", scan),

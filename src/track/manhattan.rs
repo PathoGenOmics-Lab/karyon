@@ -114,7 +114,9 @@ pub struct ManhattanTrack {
     bands: Vec<u64>,
     axis: QuantitativeAxis,
     lead: Option<u64>,
+    lead_name: Option<String>,
     linkage: BTreeMap<u64, f64>,
+    recombination: Vec<(u64, u64, f64)>,
 }
 
 impl ManhattanTrack {
@@ -136,7 +138,9 @@ impl ManhattanTrack {
             bands: Vec::new(),
             axis: QuantitativeAxis::new(),
             lead: None,
+            lead_name: None,
             linkage: BTreeMap::new(),
+            recombination: Vec::new(),
         }
     }
 
@@ -157,6 +161,67 @@ impl ManhattanTrack {
             .map(|(pos, r2)| (pos, r2.clamp(0.0, 1.0)))
             .collect();
         self
+    }
+
+    /// Names the lead variant, as `rs12345`, over its diamond and in the key,
+    /// where its position was written: a reader looks a variant up by its
+    /// name. An empty name leaves the position.
+    pub fn lead_name(mut self, name: impl Into<String>) -> Self {
+        let name = name.into();
+        self.lead_name = (!name.trim().is_empty()).then_some(name);
+        self
+    }
+
+    /// Lays a recombination rate over the scan, as LocusZoom does, read off a
+    /// scale of its own on the right: `rates` are 0-based half-open `(start,
+    /// end, cM/Mb)` spans, as
+    /// [`read::recombination::rates`](crate::read::recombination::rates)
+    /// reads a genetic map.
+    ///
+    /// A peak ends where the haplotypes it rides on break up, at a hotspot, so
+    /// the two are read together, and in a band of its own below the scan the
+    /// line was a track's height away from the points it explains. A span
+    /// with no length or a rate that is not a number of nought or more is
+    /// left out, and a gap between two spans is a gap in the line.
+    pub fn recombination(mut self, rates: impl Into<Vec<(u64, u64, f64)>>) -> Self {
+        let mut rates: Vec<(u64, u64, f64)> = rates
+            .into()
+            .into_iter()
+            .filter(|(start, end, rate)| end > start && rate.is_finite() && *rate >= 0.0)
+            .collect();
+        rates.sort_by_key(|(start, _, _)| *start);
+        self.recombination = rates;
+        self
+    }
+
+    /// The scale the recombination rate is read off, from nought to a round
+    /// value over the highest rate, or `None` where there is no rate.
+    fn rate_scale(&self) -> Option<(QuantitativeAxis, f64)> {
+        let highest = self
+            .recombination
+            .iter()
+            .map(|(_, _, rate)| *rate)
+            .fold(None, |most: Option<f64>, rate| {
+                Some(most.map_or(rate, |most| most.max(rate)))
+            })?;
+        let axis = QuantitativeAxis::new();
+        let (_, top) = axis.nice(0.0, highest.max(1.0));
+        Some((axis, top))
+    }
+
+    /// The colour the recombination rate is drawn in: a hue of its own, since
+    /// the points are grey to the accent by their linkage and a hit is the
+    /// second colour, and lightened, since it is read behind them.
+    fn rate_color(theme: &Theme) -> String {
+        mix(theme.color(2), theme.surface(), 0.2)
+    }
+
+    /// What the lead is called: its name, or its position as the ruler
+    /// counts it.
+    fn lead_text(&self, lead: u64) -> String {
+        self.lead_name
+            .clone()
+            .unwrap_or_else(|| crate::track::axis::group_thousands(lead.saturating_add(1)))
     }
 
     /// The colour of an r² on the linkage ramp: grey where it is weak, the
@@ -392,10 +457,17 @@ impl Track for ManhattanTrack {
         _px_per_bp: f64,
         theme: &Theme,
     ) -> Option<crate::track::legend::Legend> {
-        let lead = self.lead?;
-        let place = crate::track::axis::group_thousands(lead.saturating_add(1));
+        let rate = (!self.recombination.is_empty()).then(|| {
+            crate::track::legend::Legend::new().line(
+                format!("recombination, {RATE_UNIT}"),
+                Self::rate_color(theme),
+            )
+        });
+        let Some(lead) = self.lead else {
+            return rate;
+        };
         let key = crate::track::legend::Legend::new().ramp(
-            format!("r² with {place}"),
+            format!("r² with {}", self.lead_text(lead)),
             Self::linkage_color(0.0, theme),
             Self::linkage_color(1.0, theme),
             "0",
@@ -408,10 +480,14 @@ impl Track for ManhattanTrack {
                 .points
                 .iter()
                 .any(|point| point.pos == lead && point.value.is_finite());
-        Some(if drawn {
+        let key = if drawn {
             key.symbol("lead variant", theme.color(1), Symbol::Diamond)
         } else {
             key
+        };
+        Some(match rate {
+            Some(rate) => key.and(&rate),
+            None => key,
         })
     }
 
@@ -421,6 +497,21 @@ impl Track for ManhattanTrack {
         }
         let (floor, ceiling) = self.range();
         self.axis.label_room(floor, ceiling, theme.font_size - 1.0) + 8.0
+    }
+
+    /// Room on the right for the scale the recombination rate is read off,
+    /// and its unit over it.
+    fn right_axis_width(&self, theme: &Theme) -> f64 {
+        if !self.show_scale || self.points.is_empty() {
+            return 0.0;
+        }
+        let Some((axis, top)) = self.rate_scale() else {
+            return 0.0;
+        };
+        let size = theme.font_size - 1.0;
+        axis.label_room(0.0, top, size)
+            + crate::svg::text_width(&format!(" {RATE_UNIT}"), size)
+            + 8.0
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -500,6 +591,32 @@ impl Track for ManhattanTrack {
                 style.stroke_width,
                 reference.pattern,
             );
+        }
+
+        // The recombination rate under the points, as steps: a map's rate
+        // holds from one of its positions to the next. A gap between spans is
+        // a stretch the map says nothing about, and the line breaks there.
+        let rate_scale = self.rate_scale();
+        if let Some((_, top)) = rate_scale {
+            let rate_y = |rate: f64| baseline - (rate / top).clamp(0.0, 1.0) * band.h;
+            let color = Self::rate_color(ctx.theme);
+            let mut line: Vec<(f64, f64)> = Vec::new();
+            let mut reached: Option<u64> = None;
+            for &(start, end, rate) in &self.recombination {
+                let (from, to) = (start.max(ctx.region.start()), end.min(ctx.region.end()));
+                if from >= to {
+                    continue;
+                }
+                if reached.is_some_and(|reached| reached != from) {
+                    ctx.svg.polyline(&line, &color, ctx.theme.tokens.stroke);
+                    line.clear();
+                }
+                let y = rate_y(rate);
+                line.push((ctx.scale.x(from), y));
+                line.push((ctx.scale.x(to), y));
+                reached = Some(to);
+            }
+            ctx.svg.polyline(&line, &color, ctx.theme.tokens.stroke);
         }
 
         // A point drawn over one of its own look on the same pixel is the same
@@ -602,10 +719,11 @@ impl Track for ManhattanTrack {
         // says which variant the colours are read against.
         if let (Some((x, y)), Some(lead)) = (lead_at, self.lead) {
             let lead_radius = radius * 1.9;
-            ctx.svg.begin_titled(&format!(
-                "lead variant {}",
-                crate::track::axis::group_thousands(lead.saturating_add(1))
-            ));
+            let place = crate::track::axis::group_thousands(lead.saturating_add(1));
+            ctx.svg.begin_titled(&match &self.lead_name {
+                Some(name) => format!("lead variant {name} at {place}"),
+                None => format!("lead variant {place}"),
+            });
             ctx.svg.symbol_ringed(
                 x,
                 y,
@@ -616,7 +734,7 @@ impl Track for ManhattanTrack {
                 ctx.theme.tokens.hairline,
             );
             ctx.svg.end_group();
-            let text = crate::track::axis::group_thousands(lead.saturating_add(1));
+            let text = self.lead_text(lead);
             let above = y - lead_radius - ctx.theme.tokens.row_gap;
             // Under the diamond where there is no room over it.
             let baseline_y = if above - size * 0.8 >= band.y {
@@ -632,6 +750,38 @@ impl Track for ManhattanTrack {
                 size,
                 Anchor::Middle,
             );
+        }
+
+        // The rate's own scale on the right, in the line's colour, with its
+        // unit after the highest number, so each number sits level with its
+        // value and the unit costs no line of its own.
+        if let (Some((axis, top)), true) = (rate_scale, ctx.right_axis.w > 0.0) {
+            let rate_y = |rate: f64| baseline - (rate / top).clamp(0.0, 1.0) * band.h;
+            let ticks = axis.values(0.0, top);
+            let shown = legible_ticks(&ticks, rate_y, size);
+            let highest = shown.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let left = ctx.right_axis.x + 4.0;
+            let color = Self::rate_color(ctx.theme);
+            for (value, label) in ticks.iter().zip(axis.labels(&ticks)) {
+                if !shown.contains(value) {
+                    continue;
+                }
+                let label = if *value == highest {
+                    format!("{label} {RATE_UNIT}")
+                } else {
+                    label
+                };
+                ctx.svg.text(
+                    left,
+                    (rate_y(*value) + size * 0.35)
+                        .max(band.y + size)
+                        .min(baseline - size * 0.22),
+                    &label,
+                    &color,
+                    size,
+                    Anchor::Start,
+                );
+            }
         }
 
         if self.show_scale && ctx.axis.w > 0.0 {
@@ -708,6 +858,10 @@ impl ManhattanTrack {
     }
 }
 
+/// What a recombination rate is counted in, written after the highest number
+/// of its scale and in the key.
+const RATE_UNIT: &str = "cM/Mb";
+
 /// A p-value as it is usually written: `0.05` and `0.001` as they are, and
 /// smaller ones in scientific notation, `5e-8`.
 fn p_text(p: f64) -> String {
@@ -726,6 +880,79 @@ mod tests {
 
     fn region() -> Region {
         Region::new("chr1", 0, 10_000).unwrap()
+    }
+
+    /// A recombination rate laid over a scan is a line under the points, read
+    /// off a scale of its own on the right, which the figure makes room for,
+    /// and the key names it.
+    #[test]
+    fn a_recombination_rate_is_laid_over_the_scan_with_a_scale_on_the_right() {
+        let points = vec![Association::new(2_000, 3.0), Association::new(6_000, 8.0)];
+        let plain = ManhattanTrack::new(points.clone());
+        let theme = Theme::light();
+        assert_eq!(plain.right_axis_width(&theme), 0.0, "no rate, no room");
+        let overlaid = ManhattanTrack::new(points).recombination(vec![
+            (0, 4_000, 2.0),
+            (4_000, 5_000, 38.0),
+            (7_000, 10_000, 1.0),
+            (8_000, 8_000, 99.0),
+        ]);
+        assert!(overlaid.right_axis_width(&theme) > 0.0);
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(overlaid.clone())
+            .to_svg();
+        // Two lines, since the map says nothing between 5,000 and 7,000, and
+        // the empty span is left out.
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(lines[0].len(), 4, "two steps: {lines:?}");
+        assert!(
+            svg.contains(">40 cM/Mb</text>"),
+            "the unit after the top number"
+        );
+        // Under the points: the line comes before the first of them.
+        assert!(svg.find("<polyline").unwrap() < svg.find("<circle").unwrap());
+        let key = overlaid.key(&region(), 1.0, &theme).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Key { label, .. } if label == "recombination, cM/Mb")),
+            "{:?}",
+            key.items()
+        );
+        // The band ends where the scale on the right begins, for every track.
+        let (with, _) = Figure::new(region()).push(overlaid).dimensions();
+        let (without, _) = Figure::new(region()).push(plain).dimensions();
+        assert_eq!(with, without, "the image keeps its width");
+    }
+
+    /// A lead with a name is called by it, over its diamond, in its tooltip
+    /// and in the key, where its position was written.
+    #[test]
+    fn a_named_lead_is_called_by_its_name() {
+        let points = vec![Association::new(4_999, 9.0), Association::new(6_000, 3.0)];
+        let track = ManhattanTrack::new(points)
+            .linkage(4_999, vec![(6_000, 0.4)])
+            .lead_name("rs1234");
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(track.clone())
+            .to_svg();
+        assert!(svg.contains(">rs1234</text>"), "{svg}");
+        assert!(svg.contains("lead variant rs1234 at 5,000"), "{svg}");
+        let key = track.key(&region(), 1.0, &Theme::light()).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Ramp { label, .. } if label == "r² with rs1234")),
+            "{:?}",
+            key.items()
+        );
+        // An empty name leaves the position.
+        let unnamed = ManhattanTrack::new(vec![Association::new(4_999, 9.0)])
+            .linkage(4_999, Vec::new())
+            .lead_name(" ");
+        let svg = Figure::new(region()).push(unnamed).to_svg();
+        assert!(svg.contains(">5,000</text>"), "{svg}");
     }
 
     #[test]

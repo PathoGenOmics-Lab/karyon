@@ -136,6 +136,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--with-sequence", "ref.fa"),
     ("--with-tree", "t.nwk"),
     ("--ld", "lead.ld"),
+    ("--with-recombination", "map.txt"),
     ("--links", "l.tsv"),
     ("--identity", "percent"),
     ("--modification", "m"),
@@ -474,8 +475,13 @@ TRACK OPTIONS, each describing the track before it, once
     --ld <FILE>          the linkage of each variant of a scan with its lead, a
                          PLINK .ld table of the lead against its neighbours:
                          each point is coloured by its r² with the lead, and
-                         the lead is a diamond with its position over it, as
-                         in LocusZoom
+                         the lead is a diamond with its name over it, from
+                         the scan or the table, or its position, as in
+                         LocusZoom
+    --with-recombination <FILE>
+                         a genetic map whose rate is laid over a scan as a
+                         line, read off a scale on the right in cM/Mb, as
+                         LocusZoom draws one
     --links <FILE>       the homologies between the rows of a locus track,
                          BLAST tabular, or two or three columns of names
     --identity <UNIT>    percent or fraction, for a homology file whose third

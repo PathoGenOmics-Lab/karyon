@@ -283,7 +283,7 @@ chr1        609401        0.63         0.004200
 
 | | |
 |:--|:--|
-| Read by | `--recombination`, or a file whose name holds `genetic_map`; `read::recombination::rates` |
+| Read by | `--recombination`, or a file whose name holds `genetic_map`, as a track of its own; `--with-recombination` after `--manhattan`, laid over the scan; `read::recombination::rates` |
 | Columns | found by name in any case: a position (`Position(bp)`, `position`), a rate (`Rate(cM/Mb)`, `COMBINED_rate(cM/Mb)`) and, where there is one, a chromosome; with no header, a bedGraph of rates |
 | Coordinates | positions 1-based; a bedGraph 0-based, half-open |
 | Skipped | rows on another sequence; a rate that is empty or `NA`, which leaves its stretch out rather than at nought |

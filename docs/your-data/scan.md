@@ -34,23 +34,24 @@ calls it `NC_000962.3`.
 ## Colour a peak by linkage
 
 Zoomed into the peak, each marker coloured by its linkage with the strongest,
-as LocusZoom draws one, with the recombination rate under it:
+as LocusZoom draws one, with the recombination rate laid over it:
 
 ```bash
 karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
-  genetic_map.txt --label recombination -o locus.svg
+  --with-recombination genetic_map.txt -o locus.svg
 ```
 
 <figure class="k-start" markdown>
-![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its position, and under them a recombination rate with two hotspots](../assets/start/locus.svg){ .k-light width="720" height="286" }
-![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="286" }
+![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
+![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" }
 </figure>
 
 `lead.ld` is PLINK's linkage of the lead with its neighbours, as
 `plink --r2 --ld-snp snp00342 --ld-window-kb 100 --ld-window 99999
---ld-window-r2 0` writes it. `genetic_map.txt` is a genetic map as HapMap
-writes one, drawn by its name alone as the recombination rate; any other name
-takes `--recombination` in front.
+--ld-window-r2 0` writes it, and the lead is called by the name the scan gives
+it. `genetic_map.txt` is a genetic map as HapMap writes one, laid over the
+scan by `--with-recombination` and read off the scale on the right; named on
+its own, it is drawn as a track of its own under the scan instead.
 
 The example files: [gwas.assoc](../data/gwas.assoc), [lead.ld](../data/lead.ld)
 and [genetic_map.txt](../data/genetic_map.txt). Every option:
