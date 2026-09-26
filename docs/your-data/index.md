@@ -6,7 +6,9 @@ description: Pick the kind of data you have, and see the command that draws it a
 # What do you have?
 
 Pick your data. Each page has one command, the figure it draws, and the few
-changes people make most.
+changes people make most. The figure is that command run in your browser over
+the example files, so you can zoom into it, and move it along the genome where
+it is drawn over one.
 
 <div class="k-plots" markdown>
 
