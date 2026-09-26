@@ -137,7 +137,7 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 | `.height(160.0)` | Band height in pixels | `138` |
 | `.metric(SurveillanceMetric::Count)` | `Frequency`, each count over its total, or the raw `Count` | `Frequency` |
 | `.style(SurveillanceStyle::Lines)` | `Stacked` composition, or one line per lineage with `Lines` | `Stacked` |
-| `.minimum_total(20)` | Leaves out observations whose total is below this sampling floor | `1` |
+| `.minimum_total(20)` | Leaves out observations whose total is below this sampling floor, and breaks the line at a time it empties | `1` |
 | `.frequency_alert(0.50)` | Flags observations at or above this frequency | none |
 | `.growth_alert(0.15)` | Flags a rise of at least this much frequency from one observed step to the next | none |
 | `.show_points(false)` | Shows or hides the observation markers | shown |
@@ -147,7 +147,7 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 
 A time counts from nought, as a base does, and a ruler made with `AxisTrack::counting` and the tooltips both call time 0 the first, 1. The command line reads a table's times as they are written.
 
-`Frequency` divides each count by the total supplied with it, and `minimum_total` is a visible sampling floor rather than a pseudocount. An alert is a small symbol with its exact reason in the tooltip; it never replaces the count and the total.
+`Frequency` divides each count by the total supplied with it, and `minimum_total` is a visible sampling floor rather than a pseudocount: a time whose every row is under it is a gap, where the line breaks and the stack is left open, rather than a time the line runs across. An alert is a small symbol with its exact reason in the tooltip; it never replaces the count and the total.
 
 Absence has to be stated. Supply an explicit count of nought where a lineage was looked for and not found, because a missing lineage and time pair is never turned into a nought. A stacked view leaves out a time whose composition is incomplete, a line view breaks at the gap, and two observations of one lineage at one time are neither summed nor joined: each of those gets a small grey mark whose tooltip gives the reason.
 

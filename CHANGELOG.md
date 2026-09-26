@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A Manhattan plot draws its hits after every miss, and every hit's ring
+  before any hit: a tower of hits is one solid shape in the hit colour with
+  one ring round it, where each ring cut into the hit beneath it and a dense
+  tower read as hatched in the colour of the page. A hit at the threshold is
+  no longer under a miss the file listed after it. `example-association.svg`,
+  `example-genomewide.svg`, the gallery and the scan page figures change.
+- `SurveillanceTrack::minimum_total` breaks the line, and leaves the stack
+  open, at a time whose every row is under the floor. The line ran straight
+  across it, drawing a trend through the very time the floor had left out.
+- `plot()` puts its ruler under the last track laid on the coordinates, where
+  it put it at the bottom: a tree, a panel of sites or a key stacked below a
+  coverage profile sits under the ruler, which numbers what is above it, and
+  not over it. The command line's ruler of columns, weeks, sites or samples
+  does the same. In `example-cluster.svg` and `example-structural.svg` the
+  ruler moves above the key.
+- The gallery is titled `What karyon draws`, where it claimed every
+  representation on a sheet that leaves seven track types to other examples,
+  and gains a twenty-third panel for `PairTrack`, which had none: linkage
+  between variants as a triangle under their gene.
+
 - The playground's controls sit under the figure rather than at the foot of
   its pane, where a short figure left them a pane's height below what they
   change. The command box wraps and grows with the command, since a control

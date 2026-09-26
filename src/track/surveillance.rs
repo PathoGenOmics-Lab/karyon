@@ -162,6 +162,10 @@ impl SurveillanceTrack {
     }
 
     /// Omits observations whose denominator is below this sampling floor.
+    ///
+    /// A time whose every row is under the floor is a gap: the line breaks
+    /// there and the stack leaves it open, rather than running across a time
+    /// the floor held back as if it had been read.
     pub fn minimum_total(mut self, minimum: u64) -> Self {
         self.minimum_total = minimum;
         self
@@ -307,10 +311,18 @@ impl Track for SurveillanceTrack {
         // holding no value for anyone. Left off it, a trajectory ran straight
         // through the diamond, drawing a frequency at the very time the panel
         // had just said it could not draw one, and broke there only when some
-        // other lineage happened to be read at that time.
+        // other lineage happened to be read at that time. A time whose rows
+        // are all under the sampling floor stays on it too: the floor says
+        // those rows were too thin to read, and a line joined across them
+        // drew a trend through the very time it had left out.
+        let held_back = self.observations.iter().filter(|observation| {
+            ctx.region.contains(observation.time) && observation.total < self.minimum_total
+        });
         let times: Vec<u64> = observations
             .iter()
-            .chain(&undrawn)
+            .copied()
+            .chain(undrawn.iter().copied())
+            .chain(held_back)
             .map(|observation| observation.time)
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -957,6 +969,44 @@ mod tests {
         assert!(!svg.contains("thin | time"), "{svg}");
         assert!(svg.contains("kept | time 4"), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    /// A time the sampling floor held back is a gap, as a time that could not
+    /// be read is, in a line and in a stack.
+    #[test]
+    fn a_time_under_the_sampling_floor_is_a_gap() {
+        let rows = |style| {
+            Figure::new(Region::new("week", 0, 6).unwrap())
+                .push(
+                    SurveillanceTrack::new(vec![
+                        SurveillanceObservation::new(1, "A", 30, 100),
+                        SurveillanceObservation::new(1, "B", 70, 100),
+                        SurveillanceObservation::new(2, "A", 1, 4),
+                        SurveillanceObservation::new(2, "B", 3, 4),
+                        SurveillanceObservation::new(3, "A", 40, 100),
+                        SurveillanceObservation::new(3, "B", 60, 100),
+                        SurveillanceObservation::new(4, "A", 50, 100),
+                        SurveillanceObservation::new(4, "B", 50, 100),
+                    ])
+                    .minimum_total(10)
+                    .style(style),
+                )
+                .to_svg()
+        };
+        // Weeks three and four are joined, and week one stands alone: no line
+        // runs from week one to week three across the week held back.
+        let lines = crate::track::polylines(&rows(SurveillanceStyle::Lines));
+        assert_eq!(lines.len(), 2, "one line a lineage: {lines:?}");
+        assert!(lines.iter().all(|line| line.len() == 2), "{lines:?}");
+        let stack = rows(SurveillanceStyle::Stacked);
+        assert!(
+            stack.contains("A trajectory; 2 complete time points"),
+            "the stack ran across the week held back"
+        );
+        assert!(
+            !stack.contains("trajectory; 3 complete time points"),
+            "{stack}"
+        );
     }
 
     #[test]
