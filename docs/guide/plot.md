@@ -49,7 +49,7 @@ and bases generated from a seed, the RRDR box coloured, and two more variants.
 
 Three things in that chain happen without being written down:
 
-- **The ruler along the bottom** was never asked for. The plot adds it.
+- **The ruler under the tracks** was never asked for. The plot adds it.
 - **The window start is written once**, in the locus string. `add_coverage` and
   `add_sequence` start their arrays at the left edge of the region.
 - **`label` and `adjust` act on the track added just above them**, not on the
@@ -322,10 +322,12 @@ returns. `Slot` is sealed: a track type from outside the crate goes in through
 
 Two things happen without being asked, and both can be undone.
 
-#### The ruler at the bottom
+#### The ruler under the tracks
 
 A figure with no coordinates along it is rarely what anyone meant, so the plot
-appends an `AxisTrack` when it becomes a figure. It leaves the ruler out when
+adds an `AxisTrack` when it becomes a figure, under the last track laid on the
+coordinates. A tree or a panel of sites below that track stays below the ruler,
+which numbers what is above it and not them. The plot leaves the ruler out when
 nothing in the stack is laid on the coordinates: a plot of nothing but
 phylogenies (`add_tree`, `add_tanglegram`) gets none, because a tree's x is a
 branch length, not a position in the region.
@@ -703,7 +705,7 @@ puts finished drawings on one SVG sheet, each with an optional letter and
 caption, without any of them knowing about the others.
 
 <figure class="k-plate" markdown>
-![One sheet of twenty-two panels in three columns, lettered A to V, covering most kinds of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny and transcription units](../assets/figures/gallery.svg){ width="3475" height="1903" loading="lazy" }
+![One sheet of twenty-three panels in three columns, lettered A to W, covering most kinds of plot karyon draws: a genomic stack, a read pileup, sequence logos, association statistics with a genotype matrix, a dotplot and synteny ribbons, an alignment, variable sites beside a phylogeny, a tree, windowed statistics, a circular chromosome, raw nanopore signal, one locus in three genomes, methylation per site, a whole draft assembly, structural variants, six reading frames, two trees face to face, methylation per molecule, codons with variants named by residue, a split read, intervals painted onto a phylogeny, transcription units and linkage between variants](../assets/figures/gallery.svg){ width="3475" height="2078" loading="lazy" }
 </figure>
 
 ```rust

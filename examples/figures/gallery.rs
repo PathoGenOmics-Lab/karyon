@@ -10,7 +10,7 @@ use karyon::{
     plot, Aggregate, AlignmentBlock, Association, AxisRing, AxisTrack, Band, CellScale, CigarOp,
     CladeBlock, CodonTrack, CoverageTrack, Drawing, Feature, FeatureRing, Figure, Genome, Homology,
     Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, MarkerRing, MatrixRow,
-    MethylSite, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, Panels, Plot, Read,
+    MethylSite, Molecule, Move, MsaColoring, MsaDisplay, MsaSequence, Pair, Panels, Plot, Read,
     ReadColoring, Region, Rings, SignalRing, SnpTrack, SplitRead, SplitSegment, Stain, Strand,
     StructuralTrack, StructuralVariant, SupportStyle, SvKind, Terminator, Theme, TranscriptionUnit,
     Variant, VariantTrack, Window, WindowStyle, WindowTrack,
@@ -26,9 +26,9 @@ const WIDTH: f64 = 860.0;
 /// own, so `width` and `region` are ignored.
 pub fn gallery(theme: &Theme, _width: Option<f64>, _region: Option<&Region>) -> Box<dyn Drawing> {
     let sheet = Panels::new()
-        .title("karyon: every representation")
+        .title("What karyon draws")
         .theme(theme.clone())
-        // Twenty-two panels in one column is a scroll rather than a figure.
+        // Twenty-three panels in one column is a scroll rather than a figure.
         .columns(3)
         .gap(20.0)
         .push_captioned(
@@ -136,6 +136,11 @@ pub fn gallery(theme: &Theme, _width: Option<f64>, _region: Option<&Region>) -> 
             &transcripts(theme),
             "V",
             "Transcription units: one arrow, one molecule, one hairpin",
+        )
+        .push_captioned(
+            &pairs(theme),
+            "W",
+            "Linkage between variants: a triangle of r² under the gene that holds them",
         );
     Box::new(sheet)
 }
@@ -1161,6 +1166,56 @@ fn transcripts(theme: &Theme) -> Figure {
 
 /// A linear congruential generator, so the sheet is reproducible without a
 /// dependency.
+/// W: pairs of positions.
+fn pairs(theme: &Theme) -> Figure {
+    let start = 759_700u64;
+    let span = 3_800u64;
+    let mut rng = Lcg::new(7_070);
+    // Thirty variants across rpoB in three blocks inherited together: strong
+    // linkage inside a block, fading with distance, and weak between blocks.
+    let mut sites: Vec<u64> = (0..30)
+        .map(|_| start + 200 + rng.next() % (span - 400))
+        .collect();
+    sites.sort_unstable();
+    sites.dedup();
+    let edges = [760_900u64, 762_100];
+    let block = |site: u64| edges.iter().filter(|&&edge| site >= edge).count();
+    let mut linkage = Vec::new();
+    for (index, &first) in sites.iter().enumerate() {
+        for &second in &sites[index + 1..] {
+            let jitter = (rng.next() % 1_000) as f64 / 1_000.0;
+            let distance = (second - first) as f64;
+            let r2 = if block(first) == block(second) {
+                0.95 * (-distance / 4_000.0).exp() * (0.75 + 0.25 * jitter)
+            } else {
+                0.25 * (-distance / 1_500.0).exp() * jitter
+            };
+            linkage.push(Pair::new(first, second, r2));
+        }
+    }
+
+    Plot::over(Region::new("NC_000962.3", start, start + span).unwrap())
+        .width(WIDTH)
+        .theme(theme.clone())
+        .remove_region_label()
+        .add_features(vec![Feature::new(759_806, 763_325)
+            .name("rpoB")
+            .strand(Strand::Forward)])
+        .label("genes")
+        .add_variants(
+            sites
+                .iter()
+                .map(|&site| Variant::new(site))
+                .collect::<Vec<_>>(),
+        )
+        .label("variants")
+        .adjust(|track| track.height(26.0))
+        .add_pairs(linkage)
+        .label("linkage")
+        .adjust(|track| track.ceiling(1.0).height(120.0))
+        .into_figure()
+}
+
 struct Lcg(u64);
 
 impl Lcg {

@@ -10,7 +10,9 @@
 //! Which settles the drawing. Points are small by default, and a point above
 //! the threshold is given a ring rather than a larger disc: the ring keeps it
 //! findable where the crowd is densest without swallowing the neighbours it has
-//! to be seen against.
+//! to be seen against. The hits go on after every miss, and every ring before
+//! any hit, so a tower of hits is one solid shape with one ring round its edge
+//! rather than a stack of rings each cutting into the hit beneath it.
 //!
 //! # What a pixel holds
 //!
@@ -677,6 +679,12 @@ impl Track for ManhattanTrack {
         if self.lead.is_some() {
             kept.sort_by(|a, b| b.5.unwrap_or(-1.0).total_cmp(&a.5.unwrap_or(-1.0)));
         }
+        // The hits are drawn after every miss, their rings in a pass of their
+        // own under every hit's fill, so a tower of hits is one shape in the
+        // hit colour with one ring round its edge. A ring and a fill at a time,
+        // each ring was laid over the hits beneath it, and a dense tower read
+        // as hatched in the colour of the page rather than solid.
+        let mut hits: Vec<(f64, f64, Symbol)> = Vec::new();
         for &(x, y, above, symbol, lighter, r2) in kept.iter().rev() {
             if let Some(r2) = r2 {
                 let color = if r2 < 0.0 {
@@ -698,21 +706,21 @@ impl Track for ManhattanTrack {
                 continue;
             }
             if above {
-                // A hit is worth a ring, so it stays a point where the texture
-                // around it is densest.
-                ctx.svg.symbol_ringed(
-                    x,
-                    y,
-                    radius + ctx.theme.tokens.hairline,
-                    symbol,
-                    &significant,
-                    ctx.theme.surface(),
-                    ctx.theme.tokens.hairline,
-                );
+                hits.push((x, y, symbol));
             } else {
                 let color = if lighter { &shaded } else { &plain };
                 ctx.svg.symbol(x, y, radius, symbol, color);
             }
+        }
+        // A hit is worth a ring, so it stays a point where the texture around
+        // it is densest.
+        let ring = ctx.theme.tokens.hairline;
+        for &(x, y, symbol) in &hits {
+            ctx.svg
+                .symbol(x, y, radius + ring * 2.0, symbol, ctx.theme.surface());
+        }
+        for &(x, y, symbol) in &hits {
+            ctx.svg.symbol(x, y, radius + ring, symbol, &significant);
         }
 
         // The lead over everything, with its place above it, so the tower
@@ -1262,12 +1270,12 @@ mod tests {
     }
 
     #[test]
-    fn a_pixel_keeps_one_mark_of_each_look_and_the_one_on_top() {
+    fn a_pixel_keeps_one_mark_of_each_look_and_the_hit_on_top() {
         // A miss, a hit and a second miss on one pixel. The hit and the misses
-        // look different, so both looks are drawn; the second miss was drawn
-        // over the first and over the hit, so it is the miss kept, and it
-        // still goes on after the hit. Keeping the first of each look instead
-        // would bring the hit in front of what used to cover it.
+        // look different, so both looks are drawn, and of the two misses the
+        // second, which was drawn over the first, is the one kept. The hit
+        // goes on after every miss, whatever order the file gave them in, so
+        // a hit is never under a miss at the threshold.
         let at = 5_000;
         let points = vec![
             Association::new(at, 5.0 - 1e-9),
@@ -1285,11 +1293,32 @@ mod tests {
             2,
             "the hit, a diamond and its ring"
         );
-        let hit = svg.rfind("<polygon").unwrap();
+        let hit = svg.find("<polygon").unwrap();
         let miss = svg.rfind("<circle").unwrap();
+        assert!(miss < hit, "the miss was drawn over the hit");
+    }
+
+    /// A tower of hits is one shape in the hit colour: every ring is drawn
+    /// before every fill, so no ring is laid over a hit beneath it.
+    #[test]
+    fn a_tower_of_hits_is_solid_with_one_ring_round_it() {
+        let points: Vec<Association> = (0..6)
+            .map(|step| Association::new(5_000 + step * 40, 7.0 + step as f64 * 0.05))
+            .collect();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(ManhattanTrack::new(points).threshold(5.0).show_scale(false))
+            .to_svg();
+        let page = Theme::light().surface().to_string();
+        let marks: Vec<bool> = svg
+            .split("<polygon ")
+            .skip(1)
+            .map(|mark| mark.contains(&format!("fill=\"{page}\"")))
+            .collect();
+        assert_eq!(marks.len(), 12, "six hits, each a ring and a fill");
         assert!(
-            miss > hit,
-            "the hit was brought in front of the miss over it"
+            marks[..6].iter().all(|&ring| ring) && marks[6..].iter().all(|&ring| !ring),
+            "a ring after a fill: {marks:?}"
         );
     }
 

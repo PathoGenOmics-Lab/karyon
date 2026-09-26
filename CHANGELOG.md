@@ -8,6 +8,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A panel of variable sites whose columns would be narrower than a pixel and
+  a half is drawn a pixel at a time: each pixel of a row is shaded by the
+  share of the sites under it that differ from the reference, in eight steps,
+  and the key says so. A pixel with any difference in it takes at least the
+  first step. A cell per site made thirty thousand sites of forty samples an
+  SVG of 124 MB, which no viewer opens, and it is now 1.2 MB. A panel with
+  room for its cells is drawn as it was.
+- A panel whose columns are too narrow for their position labels holds no
+  strip for them under it: it held a hundred pixels of nothing under a panel
+  of thirty thousand sites. A note on rows left out keeps a line of its own.
+- `Molecule` keeps only the sites a molecule covered. `Molecule::covering`
+  builds one from those alone, `call(site)` reads one back, `calls()` walks
+  them in order and `uncover(site)` leaves one out; `calls` is no longer a
+  public field. Twenty thousand long reads over thirty thousand sites peaked
+  at 707 MB and take 56, with the same figure.
+- `CoverageTrack` keeps its values as runs of bases holding one value, where
+  it kept one per base. A bedGraph of windows over 200 Mb took 1.6 GB and
+  1.9 seconds and takes 4 MB and a few milliseconds, with the same figure. A
+  per-base depth file costs what it did.
+
+- A Manhattan plot draws its hits after every miss, and every hit's ring
+  before any hit: a tower of hits is one solid shape in the hit colour with
+  one ring round it, where each ring cut into the hit beneath it and a dense
+  tower read as hatched in the colour of the page. A hit at the threshold is
+  no longer under a miss the file listed after it. `example-association.svg`,
+  `example-genomewide.svg`, the gallery and the scan page figures change.
+- `SurveillanceTrack::minimum_total` breaks the line, and leaves the stack
+  open, at a time whose every row is under the floor. The line ran straight
+  across it, drawing a trend through the very time the floor had left out.
+- `plot()` puts its ruler under the last track laid on the coordinates, where
+  it put it at the bottom: a tree, a panel of sites or a key stacked below a
+  coverage profile sits under the ruler, which numbers what is above it, and
+  not over it. The command line's ruler of columns, weeks, sites or samples
+  does the same. In `example-cluster.svg` and `example-structural.svg` the
+  ruler moves above the key.
+- The gallery is titled `What karyon draws`, where it claimed every
+  representation on a sheet that leaves seven track types to other examples,
+  and gains a twenty-third panel for `PairTrack`, which had none: linkage
+  between variants as a triangle under their gene.
+
 - The pictures drawn in advance for Start here and the Your data pages are
   drawn with `--background` on the page's colour, where the white of the
   figure was replaced afterwards: the shades mixed from the ground, the pill

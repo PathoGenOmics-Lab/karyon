@@ -43,6 +43,14 @@ use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, Tre
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::Tree;
 
+/// Below this many pixels a column, the panel draws a pixel for the sites
+/// under it rather than a cell for each one.
+const DENSE_BELOW: f64 = 1.5;
+
+/// The steps a dense panel shades a pixel in, from none of its sites
+/// differing to all of them.
+const DENSE_LEVELS: usize = 8;
+
 /// One position where the sequences disagree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SnpSite {
@@ -389,22 +397,53 @@ impl SnpTrack {
         }
     }
 
-    /// Height of the strip under the panel holding the position labels.
+    /// Height of the strip under the panel: the position labels, where the
+    /// columns are `cell_width` pixels wide enough to stand them in, or else a
+    /// line for the note on the rows and tips left out, where there is one.
     ///
     /// Measured on the labels as they are written, which count from one: a
     /// site at 999 is labelled 1000, and a strip measured a digit short lets
-    /// the clip take the end off that label.
-    fn position_strip(&self, theme: &Theme) -> f64 {
-        if !self.show_positions || self.sites.is_empty() {
+    /// the clip take the end off that label. Columns too narrow for a label
+    /// draw none, and the strip held for them was a hundred pixels of nothing
+    /// under a panel of thirty thousand sites.
+    fn position_strip(&self, theme: &Theme, cell_width: f64) -> f64 {
+        if self.sites.is_empty() {
             return 0.0;
         }
         let size = theme.font_size - 2.0;
-        let widest = self
-            .sites
-            .iter()
-            .map(|site| text_width(&shown(site).to_string(), size))
-            .fold(0.0f64, f64::max);
-        widest + 6.0
+        if self.show_positions && cell_width >= size {
+            let widest = self
+                .sites
+                .iter()
+                .map(|site| text_width(&shown(site).to_string(), size))
+                .fold(0.0f64, f64::max);
+            return widest + 6.0;
+        }
+        if self.visible_rows().1 > 0 || self.tips_without_rows() > 0 {
+            theme.font_size + 2.0
+        } else {
+            0.0
+        }
+    }
+
+    /// How wide one column is when the panel is `width` pixels wide, the
+    /// counts on the right taken out.
+    fn cell_width(&self, width: f64, theme: &Theme) -> f64 {
+        (width - self.counts_strip(theme)).max(1.0) / self.sites.len().max(1) as f64
+    }
+
+    /// How many of the tree's tips name no row drawn here. The reference is
+    /// not one of them when it is drawn: it has a row, only not one the tree
+    /// orders.
+    fn tips_without_rows(&self) -> usize {
+        let Some(tree) = self.tree.as_ref() else {
+            return 0;
+        };
+        let (_, count) = tree_beside_rows(tree, &self.names, self.visible_rows().0);
+        let reference_tip = tree
+            .node_named(&self.reference_name)
+            .is_some_and(|node| tree.nodes()[node].is_leaf());
+        count.saturating_sub(usize::from(self.show_reference && reference_tip))
     }
 
     /// Width of the strip on the right holding the per-sample counts.
@@ -431,15 +470,47 @@ impl SnpTrack {
 }
 
 impl Track for SnpTrack {
+    /// A dense panel keys its shades, from the colour of an agreement to the
+    /// colour a pixel takes when every site under it differs. Whether the
+    /// panel is dense is a matter of the figure's width, which arrives here
+    /// as the pixels a base takes times the bases of the window.
+    fn key(
+        &self,
+        region: &crate::region::Region,
+        px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        if self.sites.is_empty()
+            || self.cell_width(px_per_bp * region.len() as f64, theme) >= DENSE_BELOW
+        {
+            return None;
+        }
+        let matched = self
+            .match_color
+            .clone()
+            .unwrap_or_else(|| mix(theme.surface(), &theme.rule, 0.22));
+        Some(crate::track::legend::Legend::new().ramp(
+            format!(
+                "sites under a pixel that differ from {}",
+                self.reference_name
+            ),
+            matched.clone(),
+            Self::dense_color(DENSE_LEVELS, &matched, theme),
+            "none",
+            "all",
+        ))
+    }
+
     fn noun(&self) -> &str {
         "variable sites by sample"
     }
 
-    fn height(&self, _scale: &Scale) -> f64 {
+    fn height(&self, scale: &Scale) -> f64 {
         let rows = self.drawn_rows().max(1) as f64;
+        let theme = Theme::default();
         rows * self.row_height
             + (rows - 1.0).max(0.0) * self.row_gap
-            + self.position_strip(&Theme::default())
+            + self.position_strip(&theme, self.cell_width(scale.width(), &theme))
             + self.traits.heading_height()
     }
 
@@ -500,9 +571,14 @@ impl Track for SnpTrack {
         // Its x axis is the site index, which means nothing to any neighbour,
         // and the counts on the right need a strip the scale knows nothing of.
         let strip = self.counts_strip(ctx.theme);
-        let cell_width = (band.w - strip).max(1.0) / self.sites.len() as f64;
+        let cell_width = self.cell_width(band.w, ctx.theme);
         let x_of = |index: usize| band.x + index as f64 * cell_width;
         let letters = cell_width >= self.letter_threshold;
+        // Under a pixel and a half a column, a cell per site is more elements
+        // than the panel has pixels: thirty thousand sites of forty samples
+        // were an SVG of 124 MB that no viewer opens. Each pixel then stands
+        // for the sites under it, shaded by how many of them differ.
+        let dense = cell_width < DENSE_BELOW;
         let matched = self
             .match_color
             .clone()
@@ -510,7 +586,7 @@ impl Track for SnpTrack {
 
         // A tint on every other column, so the eye can cross a wide panel of
         // sparse cells without losing its place.
-        if self.zebra {
+        if self.zebra && !dense {
             let tint = mix(ctx.theme.surface(), &ctx.theme.rule, 0.13);
             let height = self.drawn_rows() as f64 * (self.row_height + self.row_gap);
             for index in (0..self.sites.len()).step_by(2) {
@@ -520,20 +596,14 @@ impl Track for SnpTrack {
 
         // The tree takes the left of the strip and the names the right of it,
         // so a leaf, its name and its row of cells are all on one line.
-        let (tree, mut without_row) = self
+        let tree = self
             .tree
             .as_ref()
-            .map_or((None, 0), |tree| tree_beside_rows(tree, &self.names, rows));
+            .and_then(|tree| tree_beside_rows(tree, &self.names, rows).0);
         // The reference is a tip too, drawn on the row above the tree rather
         // than beside it: it has a row, only not one the tree orders, and the
         // band said it had none.
-        let reference_tip = self.tree.as_ref().is_some_and(|tree| {
-            tree.node_named(&self.reference_name)
-                .is_some_and(|node| tree.nodes()[node].is_leaf())
-        });
-        if self.show_reference && reference_tip {
-            without_row = without_row.saturating_sub(1);
-        }
+        let without_row = self.tips_without_rows();
         if let Some(tree) = tree.as_deref() {
             let reference_offset = if self.show_reference {
                 self.row_height + self.row_gap
@@ -562,7 +632,20 @@ impl Track for SnpTrack {
         }
 
         let mut top = band.y;
-        if self.show_reference {
+        if self.show_reference && dense {
+            // Every site of the reference is the reference: one bar, in the
+            // colour its cells take one by one.
+            ctx.svg.rect_rounded(
+                band.x + 1.0,
+                top,
+                (band.w - strip - 2.0).max(1.0),
+                self.row_height,
+                ctx.theme.corner_radius,
+                &mix(ctx.theme.surface(), &ctx.theme.rule, 0.55),
+            );
+            self.paint_name(ctx, top, name_size, &self.reference_name.clone(), true);
+            top += self.row_height + self.row_gap;
+        } else if self.show_reference {
             for (index, site) in self.sites.iter().enumerate() {
                 let x = x_of(index);
                 self.paint_cell(
@@ -583,7 +666,10 @@ impl Track for SnpTrack {
         }
 
         for row in 0..rows {
-            for (index, site) in self.sites.iter().enumerate() {
+            if dense {
+                self.paint_dense_row(ctx, row, top, band.x, band.w - strip, &matched);
+            }
+            for (index, site) in self.sites.iter().enumerate().filter(|_| !dense) {
                 let x = x_of(index);
                 // The cell is what a pointer lands on, so the cell is what
                 // carries the site. Naming only the column label left the
@@ -824,6 +910,84 @@ impl SnpTrack {
         }
     }
 
+    /// The shade a pixel of a dense panel takes: the share of its sites that
+    /// differ from the reference, in eight steps from the colour of an
+    /// agreement to the colour a difference is keyed in.
+    fn dense_color(level: usize, matched: &str, theme: &Theme) -> String {
+        if level == 0 {
+            matched.to_string()
+        } else {
+            mix(matched, &theme.accent, level as f64 / DENSE_LEVELS as f64)
+        }
+    }
+
+    /// One row of a dense panel: the sites under each pixel counted, and a
+    /// rectangle for each run of pixels of one shade. A pixel with no typed
+    /// site is left empty, as a missing cell is.
+    fn paint_dense_row(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        row: usize,
+        top: f64,
+        left: f64,
+        width: f64,
+        matched: &str,
+    ) {
+        let pixels = width.floor().max(1.0) as usize;
+        let per = width / pixels as f64;
+        let sites = self.sites.len();
+        let mut typed = vec![0usize; pixels];
+        let mut differing = vec![0usize; pixels];
+        for (index, site) in self.sites.iter().enumerate() {
+            let pixel = (index * pixels / sites).min(pixels - 1);
+            if site.allele(row).is_some() {
+                typed[pixel] += 1;
+                differing[pixel] += usize::from(site.differs(row));
+            }
+        }
+        let level = |pixel: usize| {
+            (typed[pixel] > 0).then(|| {
+                let share = differing[pixel] as f64 / typed[pixel] as f64;
+                // Any difference at all is at least the first step, so a
+                // pixel of forty sites with one difference is not an
+                // agreement.
+                let steps = (share * DENSE_LEVELS as f64).round() as usize;
+                if differing[pixel] > 0 {
+                    steps.max(1)
+                } else {
+                    0
+                }
+            })
+        };
+        let differences = self.differences(row);
+        ctx.svg.begin_titled(&format!(
+            "{}: {} of {} sites differ from {}",
+            self.names.get(row).map_or("", String::as_str),
+            group_thousands(differences as u64),
+            group_thousands(sites as u64),
+            self.reference_name
+        ));
+        let mut start = 0;
+        while start < pixels {
+            let shade = level(start);
+            let mut end = start + 1;
+            while end < pixels && level(end) == shade {
+                end += 1;
+            }
+            if let Some(shade) = shade {
+                ctx.svg.rect(
+                    left + start as f64 * per,
+                    top,
+                    (end - start) as f64 * per,
+                    self.row_height,
+                    &Self::dense_color(shade, matched, ctx.theme),
+                );
+            }
+            start = end;
+        }
+        ctx.svg.end_group();
+    }
+
     /// Draws one row name in the axis strip.
     fn paint_name(
         &self,
@@ -857,6 +1021,91 @@ mod tests {
     use super::*;
     use crate::figure::Figure;
     use crate::region::Region;
+
+    /// Thousands of sites in a few hundred pixels are drawn a pixel at a time,
+    /// shaded by how many of the sites under it differ: a cell per site was
+    /// 124 MB for thirty thousand sites of forty samples.
+    #[test]
+    fn a_panel_denser_than_its_pixels_is_drawn_a_pixel_at_a_time() {
+        let sites = 30_000;
+        let reference = vec![b'A'; sites];
+        // Every column varies: one sample differs over the first half, the
+        // other over the second.
+        let first: Vec<u8> = (0..sites)
+            .map(|i| if i < sites / 2 { b'C' } else { b'A' })
+            .collect();
+        let second: Vec<u8> = (0..sites)
+            .map(|i| if i < sites / 2 { b'A' } else { b'T' })
+            .collect();
+        let panel = SnpTrack::from_alignment(
+            0,
+            &[
+                MsaSequence::new("reference", reference),
+                MsaSequence::new("first", first),
+                MsaSequence::new("second", second),
+            ],
+        );
+        let region = Region::new("sites", 0, 1).unwrap();
+        let theme = Theme::light();
+        assert!(
+            panel.key(&region, 800.0, &theme).is_some(),
+            "a dense panel keys its shades"
+        );
+        let svg = Figure::new(region.clone())
+            .width(800.0)
+            .push(panel)
+            .to_svg();
+        assert!(svg.len() < 200_000, "{} bytes", svg.len());
+        // A run of pixels of one shade is one rectangle: each sample's half
+        // that differs is one, as wide as the other's.
+        let full = SnpTrack::dense_color(
+            DENSE_LEVELS,
+            &mix(theme.surface(), &theme.rule, 0.22),
+            &theme,
+        );
+        let widths: Vec<f64> = svg
+            .split("<rect ")
+            .filter(|rect| rect.contains(&format!("fill=\"{full}\"")))
+            .filter_map(|rect| {
+                rect.split("width=\"")
+                    .nth(1)?
+                    .split('"')
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        assert_eq!(widths.len(), 2, "{widths:?}");
+        assert!((widths[0] - widths[1]).abs() <= 1.0, "{widths:?}");
+        assert!(svg.contains("first: 15,000 of 30,000 sites differ from reference"));
+        // One difference among the sites under a pixel is the first step and
+        // not an agreement, however many sites agree beside it.
+        let mut lone = vec![b'A'; sites];
+        lone[sites / 2] = b'G';
+        let panel = SnpTrack::from_alignment(
+            0,
+            &[
+                MsaSequence::new("reference", vec![b'A'; sites]),
+                MsaSequence::new("lone", lone),
+                MsaSequence::new(
+                    "varied",
+                    (0..sites).map(|i| b"CT"[i % 2]).collect::<Vec<u8>>(),
+                ),
+            ],
+        );
+        let svg = Figure::new(region.clone())
+            .width(800.0)
+            .push(panel)
+            .to_svg();
+        let first = SnpTrack::dense_color(1, &mix(theme.surface(), &theme.rule, 0.22), &theme);
+        assert!(
+            svg.contains(&format!("fill=\"{first}\"")),
+            "no pixel at the first step"
+        );
+        // A panel with room for its cells keeps them, and no key.
+        let sparse = SnpTrack::from_alignment(0, &alignment());
+        assert!(sparse.key(&region, 800.0, &theme).is_none());
+    }
 
     fn alignment() -> Vec<MsaSequence> {
         vec![
@@ -1050,8 +1299,13 @@ mod tests {
         let theme = Theme::light();
         let with = SnpTrack::from_alignment(0, &alignment());
         let without = SnpTrack::from_alignment(0, &alignment()).show_positions(false);
-        assert!(with.position_strip(&theme) > 0.0);
-        assert_eq!(without.position_strip(&theme), 0.0);
+        assert!(with.position_strip(&theme, 20.0) > 0.0);
+        assert_eq!(without.position_strip(&theme, 20.0), 0.0);
+        // Columns too narrow to stand a label in draw none, so they take no
+        // room for one either, unless there is a note on rows left out.
+        assert_eq!(with.position_strip(&theme, 2.0), 0.0);
+        let capped = SnpTrack::from_alignment(0, &alignment()).max_rows(Some(1));
+        assert_eq!(capped.position_strip(&theme, 2.0), theme.font_size + 2.0);
     }
 
     /// Every group a track opens has to be closed by exactly one `end_group`.
@@ -1185,7 +1439,10 @@ mod tests {
             vec![SnpSite::new(999, b'A', b"C".to_vec())],
         );
         let size = theme.font_size - 2.0;
-        assert_eq!(panel.position_strip(&theme), text_width("1000", size) + 6.0);
+        assert_eq!(
+            panel.position_strip(&theme, 20.0),
+            text_width("1000", size) + 6.0
+        );
     }
 
     #[test]
