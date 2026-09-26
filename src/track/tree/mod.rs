@@ -39,7 +39,7 @@ use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
-use crate::track::traits::{binary_state, draw_column, Dealt, TraitDomain, TraitRow};
+use crate::track::traits::{binary_state, draw_column, Dealt, Join, TraitDomain, TraitRow, Traits};
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, NodeRef, Placement, TimeDirection, Tree};
 
@@ -963,6 +963,8 @@ pub struct TreeTrack {
     clade_highlights: Vec<CladeHighlight>,
     /// Requests a builder could not carry out, each said in a line.
     refused: Vec<String>,
+    /// What the sheet given to [`TreeTrack::traits`] matched and left out.
+    joined: Option<Join>,
 }
 
 #[derive(Debug, Clone)]
@@ -1080,6 +1082,7 @@ impl TreeTrack {
             node_glyphs: Vec::new(),
             clade_highlights: Vec::new(),
             refused: Vec::new(),
+            joined: None,
         }
     }
 
@@ -1831,6 +1834,92 @@ impl TreeTrack {
     pub fn trait_column(mut self, column: TraitColumn) -> Self {
         self.trait_columns.push(column);
         self
+    }
+
+    /// Draws a sample sheet's columns beside the tips, joined to them by
+    /// name, as `--traits` does on the command line:
+    ///
+    /// ```
+    /// use karyon::{Sheet, Traits, Tree, TreeTrack};
+    ///
+    /// let sheet = Sheet::parse("sample\tlineage\nA\tL1\nB\tL2\nC\tL2\n")?;
+    /// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
+    /// let track = TreeTrack::new(tree).traits(Traits::from_sheet(&sheet).spread(["lineage"]));
+    /// assert_eq!(track.join().unwrap().matched.len(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Each tip the sheet names takes its values as annotations, so the
+    /// strips, [`TreeTrack::color_by`] and [`NodeRef::holding`] read them,
+    /// and each column the sheet was spread into is drawn, widened to fit its
+    /// heading, which a tree writes across the top of its strip: at the width
+    /// a matrix gives it, `lineage` came out as `li…`.
+    ///
+    /// A sheet that names none of the tips draws no strip, and a tip it does
+    /// not name is counted under the tree, since its cells are drawn empty.
+    /// [`TreeTrack::join`] says what was matched and what was left out on
+    /// both sides.
+    pub fn traits(mut self, traits: Traits) -> Self {
+        let leaves = self.tree.leaf_names();
+        let join = traits.join(leaves.iter().map(String::as_str));
+        if join.matched.is_empty() {
+            self.refuse("no strips: the sheet names none of the tips".to_string());
+            self.joined = Some(join);
+            return self;
+        }
+        for name in &join.matched {
+            let (Some(values), Some(node)) = (traits.values(name), self.tree.node_named(name))
+            else {
+                continue;
+            };
+            let values: Vec<(String, AnnotationValue)> = values
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            if let Some(into) = self.tree.annotations_mut(node) {
+                for (key, value) in values {
+                    into.insert(key, value);
+                }
+            }
+        }
+        if !join.without_row.is_empty() {
+            let count = join.without_row.len();
+            let (tips, have) = if count == 1 {
+                ("tip", "has")
+            } else {
+                ("tips", "have")
+            };
+            let shown: Vec<&str> = join
+                .without_row
+                .iter()
+                .take(3)
+                .map(String::as_str)
+                .collect();
+            let more = if count > shown.len() {
+                format!(" and {} more", count - shown.len())
+            } else {
+                String::new()
+            };
+            self.refuse(format!(
+                "{count} {tips} {have} no row in the sheet: {}{more}",
+                shown.join(", ")
+            ));
+        }
+        for column in traits.columns() {
+            // The heading is drawn two points under the body size, and a
+            // long column name is capped so it cannot eat the tree beside it.
+            let heading = text_width(column.heading(), 9.0) + 8.0;
+            self.trait_columns
+                .push(column.clone().width(heading.clamp(14.0, 72.0)));
+        }
+        self.joined = Some(join);
+        self
+    }
+
+    /// What the sheet handed to [`TreeTrack::traits`] matched and what it left
+    /// out, where one was.
+    pub fn join(&self) -> Option<&Join> {
+        self.joined.as_ref()
     }
 
     /// Adds a categorical metadata strip.

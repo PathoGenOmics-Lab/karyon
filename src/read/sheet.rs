@@ -79,6 +79,16 @@ pub struct Sheet {
 }
 
 impl Sheet {
+    /// Reads a sample sheet, as [`sheet`] does: the name the type is looked
+    /// for under.
+    ///
+    /// # Errors
+    ///
+    /// As [`sheet`].
+    pub fn parse(text: &str) -> Result<Sheet, ReadError> {
+        sheet(text)
+    }
+
     /// The names the sheet holds, in order.
     pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
         self.rows.keys().map(String::as_str)

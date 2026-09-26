@@ -713,6 +713,18 @@ pub(crate) fn draw_column(
 /// be handed.
 pub(crate) const STRIP_LEVELS: usize = 6;
 
+/// What a join of a sheet's rows to the names a track draws matched and what
+/// it left out, as [`Traits::join`] makes it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Join {
+    /// The names the sheet has a row for.
+    pub matched: Vec<String>,
+    /// The names the sheet has no row for, drawn with every cell absent.
+    pub without_row: Vec<String>,
+    /// The rows of the sheet that name nothing drawn, in the sheet's order.
+    pub without_name: Vec<String>,
+}
+
 /// What is known about a track's rows, and the columns drawn from it.
 ///
 /// The rows are keyed by name because that is the only thing a sheet and a
@@ -932,6 +944,31 @@ impl Traits {
     /// What the sheet holds about one row.
     pub fn values(&self, row: &str) -> Option<&Annotations> {
         self.rows.get(row)
+    }
+
+    /// Joins these rows to the names a track draws, as `(matched, names
+    /// without a row, rows without a name)`, each in the order given.
+    ///
+    /// A join by name drops what does not match on either side, and a figure
+    /// that does it quietly looks as finished as one that dropped nothing.
+    pub fn join<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Join {
+        let mut join = Join::default();
+        let mut seen = std::collections::BTreeSet::new();
+        for name in names {
+            seen.insert(name.to_string());
+            if self.rows.contains_key(name) {
+                join.matched.push(name.to_string());
+            } else {
+                join.without_row.push(name.to_string());
+            }
+        }
+        join.without_name = self
+            .order
+            .iter()
+            .filter(|row| !seen.contains(*row))
+            .cloned()
+            .collect();
+        join
     }
 
     /// How many of `rows` are named here.

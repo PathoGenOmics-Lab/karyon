@@ -158,6 +158,7 @@ pub use crate::map::{
 };
 pub use crate::panels::Panels;
 pub use crate::plot::{plot, Plot};
+pub use crate::read::sheet::Sheet;
 pub use crate::read::{Format, ReadError};
 pub use crate::region::Region;
 pub use crate::rings::{
@@ -170,6 +171,7 @@ pub use crate::style::{
 };
 pub use crate::svg::{fit_text, Anchor, SvgWriter, TextStyle};
 pub use crate::theme::{wash, BaseColors, Theme};
+pub use crate::track::traits::{Join, Traits};
 pub use crate::track::{
     strand_color, Aggregate, AlignmentBlock, AncestralStateLayer, Association, AxisTrack, Band,
     BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,

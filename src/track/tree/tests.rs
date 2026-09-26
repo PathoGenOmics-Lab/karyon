@@ -3214,3 +3214,47 @@ fn a_clade_is_picked_by_the_tips_or_the_value_it_holds() {
         drawn(TreeTrack::new(tree()).clade_highlight(CladeHighlight::new(index)))
     );
 }
+
+/// A sheet is joined onto the tips by name, its columns drawn with their
+/// headings whole, and what it left out on either side is said: the tips on
+/// the band, since their cells are drawn empty, and both in the join.
+#[test]
+fn a_sheet_is_joined_onto_the_tips_and_what_it_left_out_is_said() {
+    let sheet =
+        crate::Sheet::parse("sample\tlineage\tcountry\nA\tL1\tPeru\nB\tL2\tChile\nZ\tL3\tSpain\n")
+            .unwrap();
+    let tree = || Tree::parse_newick("((A:1,B:1):1,C:2);").unwrap();
+    let traits = crate::Traits::from_sheet(&sheet).spread(["lineage", "country"]);
+    let track = TreeTrack::new(tree()).traits(traits.clone());
+    let join = track.join().unwrap();
+    assert_eq!(join.matched, ["A", "B"]);
+    assert_eq!(join.without_row, ["C"]);
+    assert_eq!(join.without_name, ["Z"]);
+    assert_eq!(
+        track.warnings(),
+        vec!["1 tip has no row in the sheet: C".to_string()]
+    );
+    let svg = drawn(track.clone());
+    assert!(
+        svg.contains(">lineage</text>") && svg.contains(">country</text>"),
+        "a heading cut short: {svg}"
+    );
+    // The values are the tips' annotations now, which colouring reads.
+    let coloured = track.color_by("lineage");
+    assert!(
+        !coloured
+            .warnings()
+            .iter()
+            .any(|warning| warning.contains("no node carries")),
+        "{:?}",
+        coloured.warnings()
+    );
+    // A sheet naming none of the tips draws no strip, and says so.
+    let other = crate::Sheet::parse("sample\tlineage\nX\tL1\n").unwrap();
+    let none = TreeTrack::new(tree()).traits(crate::Traits::from_sheet(&other).spread(["lineage"]));
+    assert_eq!(
+        none.warnings(),
+        vec!["no strips: the sheet names none of the tips".to_string()]
+    );
+    assert!(!drawn(none).contains(">lineage</text>"));
+}
