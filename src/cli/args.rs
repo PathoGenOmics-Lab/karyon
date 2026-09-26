@@ -753,12 +753,18 @@ impl Kind {
 
     /// Whether `--threshold` means anything here: the line a scan is read
     /// against, the least support a phylogeny shows, the reference an
-    /// estimate is read against (a reproductive number of one), and the
-    /// evidence a site needs to count as selected.
+    /// estimate is read against (a reproductive number of one), the evidence
+    /// a site needs to count as selected, and the frequency a lineage is
+    /// flagged at.
     fn takes_threshold(self) -> bool {
         matches!(
             self,
-            Kind::Manhattan | Kind::Tree | Kind::Phylodynamics | Kind::Selection | Kind::Pairs
+            Kind::Manhattan
+                | Kind::Tree
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Pairs
+                | Kind::Frequencies
         )
     }
 
@@ -1330,6 +1336,15 @@ pub struct TrackSpec {
     /// `--relative`, which reads each sample of a heatmap against its own
     /// median, so one is its usual value.
     pub relative: bool,
+    /// `--growth`, the rise in frequency from one time to the next that a
+    /// table of counts flags.
+    pub growth: Option<f64>,
+    /// `--min-total`, the fewest samples a time needs for its counts to be
+    /// drawn.
+    pub min_total: Option<u64>,
+    /// `--counts`, which draws a table of counts as counts rather than as
+    /// frequencies.
+    pub counts: bool,
     /// `--row-height`, for the tracks whose height follows from their rows.
     ///
     /// The complement of [`TrackSpec::height`], and the two never both apply:
@@ -1386,6 +1401,9 @@ impl TrackSpec {
             min_reads: None,
             fade_by_mapq: false,
             relative: false,
+            growth: None,
+            min_total: None,
+            counts: false,
             ploidy: None,
             sample: None,
             traits: None,
@@ -1548,6 +1566,9 @@ pub const FLAGS: &[&str] = &[
     "--min-reads",
     "--fade-by-mapq",
     "--relative",
+    "--growth",
+    "--min-total",
+    "--counts",
     "--row-height",
     "--height",
     "--aggregate",
@@ -2074,6 +2095,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                             }
                             Kind::Selection => "a p-value, as in 0.05, or a posterior, as in 0.9",
                             Kind::Pairs => "the least value a pair is drawn with, as in 0.2",
+                            Kind::Frequencies => "the frequency a lineage is flagged at, as in 0.5",
                             _ => "a support value on a phylogeny, as in 0.7",
                         },
                     });
@@ -2091,7 +2113,70 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                                    above nought and at most one",
                     });
                 }
+                // A frequency is a share of the samples, and an alert above
+                // one or at nought flags every lineage or none.
+                if track.kind == Kind::Frequencies
+                    && !matches!(value, Threshold::At(at) if at > 0.0 && at <= 1.0)
+                {
+                    return Err(ArgError::BadValue {
+                        flag: "--threshold",
+                        given: text.clone(),
+                        expected: "the frequency a lineage is flagged at, as in 0.5, \
+                                   above nought and at most one",
+                    });
+                }
                 track.threshold = Some(value);
+            }
+            "--growth" => {
+                let text = value("--growth")?;
+                let rise = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|rise| rise.is_finite() && *rise > 0.0 && *rise <= 1.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--growth",
+                        given: text.clone(),
+                        expected: "a rise in frequency from one time to the next, as in \
+                                   0.15, above nought and at most one",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--growth")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--growth",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.growth = Some(rise);
+            }
+            "--min-total" => {
+                let text = value("--min-total")?;
+                let floor = text
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|floor| *floor > 0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--min-total",
+                        given: text.clone(),
+                        expected: "a whole number of samples, 1 or more",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--min-total")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--min-total",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.min_total = Some(floor);
+            }
+            "--counts" => {
+                let track = last(&mut tracks, "--counts")?;
+                if track.kind != Kind::Frequencies {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--counts",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.counts = true;
             }
             "--max-rows" => {
                 let text = value("--max-rows")?;
@@ -2953,6 +3038,25 @@ mod tests {
     #[test]
     fn the_new_tracks_take_their_own_options_and_no_others() {
         let refused = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        // A table of counts takes its alerts, its floor and its metric.
+        let counted =
+            draw("--frequencies f.tsv --threshold 0.5 --growth 0.15 --min-total 20 --counts");
+        let spec = &counted.tracks[0];
+        assert_eq!(spec.threshold, Some(Threshold::At(0.5)));
+        assert_eq!(
+            (spec.growth, spec.min_total, spec.counts),
+            (Some(0.15), Some(20), true)
+        );
+        assert!(refused("--frequencies f.tsv --threshold 2").contains("at most one"));
+        assert!(refused("--frequencies f.tsv --threshold genome-wide").contains("flagged at"));
+        assert!(refused("--frequencies f.tsv --growth 0").contains("above nought"));
+        assert!(refused("--frequencies f.tsv --min-total 0").contains("1 or more"));
+        for flag in ["--growth 0.1", "--min-total 5", "--counts"] {
+            assert!(
+                refused(&format!("chr1:1-9 --coverage d.bg {flag}")).contains("coverage track"),
+                "{flag}"
+            );
+        }
         // Their own place: no region needed.
         for flag in [
             "--frequencies",

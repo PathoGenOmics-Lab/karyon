@@ -158,6 +158,8 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--focus", "a"),
     ("--compare-to", "r"),
     ("--min-reads", "2"),
+    ("--growth", "0.1"),
+    ("--min-total", "5"),
     ("--row-height", "10"),
     ("--max-rows", "10"),
     ("--aggregate", "max"),
@@ -251,6 +253,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
             "    --threshold <V>      the evidence a site needs to count as selected: a
                          p-value, 0.05 by default, or a posterior, 0.9 by
                          default, where the table holds posteriors only
+"
+        }
+        (Kind::Frequencies, "--threshold") => {
+            "    --threshold <V>      flag a lineage once its frequency reaches this, as
+                         0.5: a triangle in its colour marks each time it does
 "
         }
         (Kind::Pairs, "--threshold") => {
@@ -503,7 +510,9 @@ TRACK OPTIONS, each describing the track before it, once
                          over time it is a dashed reference line, as 1 for a
                          reproductive number; on a selection test, the p-value
                          (0.05 by default) or posterior (0.9) a site needs;
-                         on pairs, the least value a pair is drawn with
+                         on pairs, the least value a pair is drawn with; on
+                         a table of counts, the frequency a lineage is
+                         flagged at
     --projection <HOW>   rectangular, circular or unrooted, for a phylogeny.
                          A circle sizes itself so its tip labels clear each
                          other, up to the width of the figure, so a big tree
@@ -563,6 +572,13 @@ TRACK OPTIONS, each describing the track before it, once
                          so 1× is its usual value: a sample sequenced deeper
                          is no longer a darker row from end to end, and a
                          deletion or a duplication is what stands out
+    --growth <RISE>      flag a lineage whose frequency rose by at least this
+                         since the time before, in points of frequency: 0.15
+                         is from 20% to 35%
+    --min-total <N>      the fewest samples a time of a table of counts needs
+                         to be drawn; a time with fewer is a gap in the line
+    --counts             draw a table of counts as counts of samples rather
+                         than as frequencies
     --row-height <PX>    how tall one row is, for the tracks that size
                          themselves by rows rather than by --height; each has
                          a minimum of its own and will not be drawn under it,

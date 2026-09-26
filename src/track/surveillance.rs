@@ -378,7 +378,7 @@ impl Track for SurveillanceTrack {
         let height = (bottom - top).max(2.0);
         let y_of = |value: f64| bottom - value / maximum * height;
 
-        self.draw_legend(ctx, &lineages);
+        let legend_end = self.draw_legend(ctx, &lineages);
         for index in 0..=2 {
             let value = maximum * index as f64 / 2.0;
             let y = y_of(value);
@@ -469,6 +469,7 @@ impl Track for SurveillanceTrack {
             }
         }
 
+        let mut alerted = false;
         for (lineage_index, lineage) in lineages.iter().enumerate() {
             let mut history: Vec<&SurveillanceObservation> = observations
                 .iter()
@@ -540,12 +541,17 @@ impl Track for SurveillanceTrack {
                 let y = y_of(plotted);
                 ctx.svg.begin_titled(&title);
                 if frequency_alert || growth_alert {
+                    // In the lineage's own colour: the shape says it is an
+                    // alert and the key says for what. In one colour for every
+                    // lineage it was the second lineage's colour, and an alert
+                    // on the first read as a point of the second.
+                    alerted = true;
                     ctx.svg.symbol_ringed(
                         x,
                         y - ctx.px(5.0),
                         ctx.px(4.0),
                         Symbol::Triangle,
-                        ctx.theme.color(1),
+                        ctx.theme.color(lineage_index),
                         ctx.theme.surface(),
                         ctx.px(1.0),
                     );
@@ -563,6 +569,9 @@ impl Track for SurveillanceTrack {
                 }
                 ctx.svg.end_group();
             }
+        }
+        if alerted {
+            self.draw_alert_key(ctx, legend_end);
         }
     }
 }
@@ -639,7 +648,51 @@ fn draw_surveillance_line(ctx: &mut DrawContext<'_>, lineage_index: usize, point
 }
 
 impl SurveillanceTrack {
-    fn draw_legend(&self, ctx: &mut DrawContext<'_>, lineages: &[String]) {
+    /// What the triangles flag, in a chip after the lineages' own, at `x`:
+    /// a triangle is an alert only once something says what it is an alert
+    /// for, and the tooltip on each one is read one at a time.
+    fn draw_alert_key(&self, ctx: &mut DrawContext<'_>, x: f64) {
+        // A rise is in points of frequency, not a share of the frequency
+        // before it: 0.15 is from 20% to 35%, and not from 20% to 23%.
+        let percent = |value: f64| text_rounded(value * 100.0, 1);
+        let text = match (self.frequency_alert, self.growth_alert) {
+            (Some(at), Some(rise)) => {
+                format!("≥ {}% or up {} points", percent(at), percent(rise))
+            }
+            (Some(at), None) => format!("≥ {}%", percent(at)),
+            (None, Some(rise)) => format!("up {} points", percent(rise)),
+            (None, None) => return,
+        };
+        let size = ctx.theme.font_size * 0.74;
+        let top = ctx.band.y + ctx.px(2.0);
+        let height = ctx.px(16.0);
+        let width = text_width(&text, size) + 25.0;
+        if x + width > ctx.band.right() {
+            return;
+        }
+        let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
+        ctx.svg
+            .rect_rounded(x, top, width, height, height / 2.0, &chip);
+        ctx.svg.symbol(
+            x + 9.0,
+            top + height / 2.0,
+            3.6,
+            Symbol::Triangle,
+            &ctx.theme.foreground,
+        );
+        ctx.svg.text_bold(
+            x + 16.0,
+            top + height / 2.0 + size * 0.34,
+            &text,
+            &ctx.theme.muted,
+            size,
+            Anchor::Start,
+        );
+    }
+
+    /// The lineages' chips along the top of the band, as far as they fit, and
+    /// where the last one ends.
+    fn draw_legend(&self, ctx: &mut DrawContext<'_>, lineages: &[String]) -> f64 {
         let size = ctx.theme.font_size * 0.74;
         let top = ctx.band.y + ctx.px(2.0);
         let height = ctx.px(16.0);
@@ -666,6 +719,7 @@ impl SurveillanceTrack {
             );
             x += width + ctx.px(4.0);
         }
+        x
     }
 }
 
@@ -927,6 +981,53 @@ mod tests {
         assert!(svg.contains("regional cluster"), "{svg}");
         assert!(svg.contains("fill-opacity=\"0.78\""), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    /// An alert is a triangle in its lineage's colour, and the band says what
+    /// the triangles flag, once, where one is drawn.
+    #[test]
+    fn an_alert_is_in_its_lineage_colour_and_keyed() {
+        let rows = |alert: f64| {
+            Figure::new(Region::new("week", 0, 4).unwrap())
+                .push(
+                    SurveillanceTrack::new(vec![
+                        SurveillanceObservation::new(1, "A", 90, 100),
+                        SurveillanceObservation::new(1, "B", 10, 100),
+                        SurveillanceObservation::new(2, "A", 60, 100),
+                        SurveillanceObservation::new(2, "B", 40, 100),
+                    ])
+                    .style(SurveillanceStyle::Lines)
+                    .frequency_alert(alert)
+                    .growth_alert(0.2),
+                )
+                .to_svg()
+        };
+        let svg = rows(0.8);
+        assert!(svg.contains(">≥ 80% or up 20 points</text>"), "{svg}");
+        // A at week one is over the line, and B rose by thirty points.
+        let theme = Theme::light();
+        let triangles: Vec<&str> = svg
+            .split("<polygon ")
+            .skip(1)
+            .filter_map(|mark| mark.split("/>").next())
+            .filter(|mark| !mark.contains(&format!("fill=\"{}\"", theme.surface())))
+            .collect();
+        for colour in [theme.color(0), theme.color(1)] {
+            assert!(
+                triangles
+                    .iter()
+                    .any(|mark| mark.contains(&format!("fill=\"{colour}\""))),
+                "no alert in {colour}: {triangles:?}"
+            );
+        }
+        // Nothing over a line of one and no rise of a hundred points: no key.
+        let quiet = Figure::new(Region::new("week", 0, 4).unwrap())
+            .push(
+                SurveillanceTrack::new(vec![SurveillanceObservation::new(1, "A", 5, 100)])
+                    .frequency_alert(1.0),
+            )
+            .to_svg();
+        assert!(!quiet.contains("≥ 100%"), "{quiet}");
     }
 
     #[test]

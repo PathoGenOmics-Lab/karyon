@@ -3450,6 +3450,18 @@ fn track(
             if let Some(style) = spec.style.and_then(Style::frequencies) {
                 track = track.style(style);
             }
+            if spec.counts {
+                track = track.metric(crate::SurveillanceMetric::Count);
+            }
+            if let Some(floor) = spec.min_total {
+                track = track.minimum_total(floor);
+            }
+            if let Some(alert) = spec.threshold.map(Threshold::drawn) {
+                track = track.frequency_alert(alert);
+            }
+            if let Some(rise) = spec.growth {
+                track = track.growth_alert(rise);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -5616,6 +5628,32 @@ chr2\t300\t.\tA\tG\t.\t.\t.
 
     const COUNTS: &str = "week\tlineage\tcount\ttotal\n1\tA\t9\t10\n1\tB\t1\t10\n\
                           2\tA\t6\t10\n2\tB\t4\t10\n3\tA\t2\t12\n3\tB\t10\t12\n";
+
+    /// A table of counts takes its alerts, its sampling floor and its metric
+    /// from the command line.
+    #[test]
+    fn a_table_of_counts_takes_its_alerts_floor_and_metric() {
+        let held = [("f.tsv", COUNTS)];
+        let (svg, _) = drawn_noting(
+            "--frequencies f.tsv --style line --threshold 0.8 --growth 0.3",
+            &held,
+        );
+        let svg = svg.unwrap();
+        assert!(svg.contains(">≥ 80% or up 30 points</text>"), "{svg}");
+        assert!(svg.contains("frequency alert &gt;= 0.8"), "{svg}");
+        let (counted, _) = drawn_noting("--frequencies f.tsv --counts", &held);
+        let counted = counted.unwrap();
+        assert!(!counted.contains(">100%</text>"), "{counted}");
+        assert!(
+            counted.contains(">12</text>"),
+            "a ceiling of twelve samples"
+        );
+        // Weeks one and two had ten samples each and week three twelve.
+        let (floored, _) = drawn_noting("--frequencies f.tsv --min-total 11", &held);
+        let floored = floored.unwrap();
+        assert!(!floored.contains("A | time 1 |"), "{floored}");
+        assert!(floored.contains("A | time 3 |"), "{floored}");
+    }
 
     /// A table over time is its own place, as an alignment is, and the ruler
     /// under it counts its weeks: week 1 is printed 1, not 0 and not `1 bp`.
