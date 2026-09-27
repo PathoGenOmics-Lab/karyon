@@ -34,7 +34,7 @@ use crate::{
 };
 
 use crate::cli::args::{
-    Invocation, Kind, Palette, Source, Style, Threshold, TrackSpec, TreeSupport,
+    Invocation, Kind, Palette, Place, Source, Style, Threshold, TrackSpec, TreeSupport,
 };
 use crate::read;
 use crate::track::traits::Traits;
@@ -498,7 +498,81 @@ pub fn build_files(
     if let Some(ground) = &invocation.background {
         theme.background = ground.clone();
     }
-    build_figure(invocation, files, parsed, theme, None).map(|built| built.figure.to_svg())
+    if invocation.more.is_empty() {
+        return build_figure(invocation, files, parsed, theme, None)
+            .map(|built| built.figure.to_svg());
+    }
+    build_sheet(invocation, files, parsed, theme).map(|sheet| sheet.to_svg())
+}
+
+/// A figure of several places, as `karyon rpoB katG inhA reads.bam
+/// genes.gff3`: one panel a place, each the same tracks over its own place,
+/// one under the other with their plotting areas aligned, the title over
+/// them all and the key once under them.
+///
+/// Each panel is the figure its place would be on its own, so a gene is
+/// titled with its name and a locus says itself at the top right, and what
+/// is piped in is read once for all of them.
+///
+/// # Errors
+///
+/// The first place that would not draw, as [`build`] says it.
+pub fn build_sheet(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
+    theme: Theme,
+) -> Result<crate::Panels, BuildError> {
+    let mut kept = KeptStdin { files, stdin: None };
+    let first = match (&invocation.region, &invocation.named) {
+        (Some(region), _) => Some(Place::Locus(region.clone())),
+        (None, Some(name)) => Some(Place::Named(name.clone())),
+        (None, None) => None,
+    };
+    let places: Vec<Place> = first
+        .into_iter()
+        .chain(invocation.more.iter().cloned())
+        .collect();
+    let mut sheet = crate::Panels::new().theme(theme.clone());
+    if let Some(title) = &invocation.title {
+        sheet = sheet.title(title);
+    }
+    let mut legend = crate::track::legend::Legend::new();
+    let mut names = Vec::with_capacity(places.len());
+    for place in &places {
+        let mut one = invocation.clone();
+        one.more = Vec::new();
+        one.title = None;
+        one.legend = false;
+        match place {
+            Place::Locus(region) => {
+                one.region = Some(region.clone());
+                one.named = None;
+                names.push(region.to_string());
+            }
+            Place::Named(name) => {
+                one.region = None;
+                one.named = Some(name.clone());
+                names.push(name.clone());
+            }
+        }
+        let built = build_one(&one, &mut kept, &mut parsed, theme.clone(), None, true)?;
+        gather(&mut legend, &built.legend);
+        sheet = sheet.push_bare(&built.figure);
+    }
+    if invocation.legend && !legend.is_empty() {
+        let key = crate::Figure::new(Region::new("key", 0, 1).expect("a one-base window"))
+            .width(invocation.width.unwrap_or(900.0))
+            .theme(theme)
+            .show_region_label(false)
+            .push(crate::track::legend::LegendTrack::new(legend));
+        sheet = sheet.push_bare(&key);
+    }
+    Ok(sheet.description(format!(
+        "A karyon figure of {} places, one panel each over the same tracks: {}.",
+        places.len(),
+        names.join(", ")
+    )))
 }
 
 /// A figure a command line builds, before it is written out.
@@ -512,6 +586,10 @@ pub struct Built {
     /// that is its own place, as an alignment's columns or a table's weeks,
     /// and for one with no place, as a tree.
     pub along: Option<Region>,
+    /// The key to the colours the tracks paint, drawn under the figure where
+    /// the command line asks for one, and kept here either way, for a sheet of
+    /// several places that draws it once under them all.
+    pub legend: crate::track::legend::Legend,
 }
 
 /// What [`build_files`] draws, as the figure rather than its text: in
@@ -529,12 +607,29 @@ pub struct Built {
 pub fn build_figure(
     invocation: &Invocation,
     files: &mut dyn Files,
-    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
+    parsed: impl FnMut(&str, &str) -> Option<Tree>,
     theme: Theme,
     window: Option<&Region>,
 ) -> Result<Built, BuildError> {
+    build_one(invocation, files, parsed, theme, window, false)
+}
+
+/// The same, where `tolerant` draws a track with nothing in the place as a
+/// band that says so rather than refusing the figure, for a panel of a sheet
+/// of several places.
+fn build_one(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
+    theme: Theme,
+    window: Option<&Region>,
+    tolerant: bool,
+) -> Result<Built, BuildError> {
     let mut kept = KeptStdin { files, stdin: None };
     let files: &mut dyn Files = &mut kept;
+    if invocation.genome_wide() && window.is_none() {
+        return build_genome(invocation, files, theme);
+    }
     // A figure of phylogenies and variable-site panels names no region, and
     // none of its tracks asks the window anything. The figure still wants
     // one to lay its width out over, so it is given one that nothing prints:
@@ -691,9 +786,16 @@ pub fn build_figure(
                         break;
                     }
                 }
-                match again {
-                    Some(built) => built,
-                    None => return Err(explained(error, spec, known, files)),
+                match (again, error) {
+                    (Some(built), _) => built,
+                    // One place of several with nothing on it is a finding,
+                    // a gene with no calls, and refused it took every other
+                    // panel of the figure with it.
+                    (None, BuildError::Empty { wanted, .. }) if tolerant => Box::new(Nothing {
+                        label: spec.label.clone().or_else(|| default_label(spec)),
+                        said: format!("no {wanted} here"),
+                    }),
+                    (None, error) => return Err(explained(error, spec, known, files)),
                 }
             }
         };
@@ -739,9 +841,186 @@ pub fn build_figure(
     }
     gather(&mut legend, &key);
     if invocation.legend && !legend.is_empty() {
-        figure = figure.push(crate::track::legend::LegendTrack::new(legend));
+        figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
-    Ok(Built { figure, along })
+    Ok(Built {
+        figure,
+        along,
+        legend,
+    })
+}
+
+/// A track of one place of several that has nothing there: the band it would
+/// have been, under the label it would have had, saying so.
+struct Nothing {
+    label: Option<String>,
+    said: String,
+}
+
+impl Track for Nothing {
+    fn height(&self, _scale: &crate::scale::Scale) -> f64 {
+        26.0
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    fn noun(&self) -> &str {
+        "an empty track"
+    }
+
+    fn draw(&self, ctx: &mut crate::track::DrawContext<'_>) {
+        let size = (ctx.theme.font_size - 1.0).max(6.0);
+        ctx.svg.text(
+            ctx.band.x + ctx.band.w / 2.0,
+            ctx.band.y + ctx.band.h / 2.0 + size * 0.35,
+            &self.said,
+            &ctx.theme.muted,
+            size,
+            crate::svg::Anchor::Middle,
+        );
+    }
+}
+
+/// A scan's threshold line, where the command line draws one: as a p-value
+/// wherever the file held p-values, and in the file's own units otherwise.
+fn thresholded(
+    track: ManhattanTrack,
+    spec: &TrackSpec,
+    p_values: bool,
+    path: &str,
+) -> Result<ManhattanTrack, BuildError> {
+    Ok(match spec.threshold {
+        None => track,
+        Some(Threshold::GenomeWide) => track.genome_wide_threshold(),
+        // In the units the file is in, so a p-value where the file held
+        // p-values, drawn where its points are.
+        Some(Threshold::At(value)) if p_values => {
+            if !(value > 0.0 && value <= 1.0) {
+                return Err(BuildError::NotAPValue {
+                    track: spec.kind.flag(),
+                    path: path.to_string(),
+                    given: value,
+                });
+            }
+            track.p_value_threshold(value)
+        }
+        Some(Threshold::At(value)) => track.threshold(value),
+    })
+}
+
+/// The order a reader counts chromosomes in: the numbered ones by number,
+/// with or without `chr` in front, then X, Y and the mitochondrion, then any
+/// other sequence, contigs and unplaced scaffolds, as their names sort.
+fn chromosome_order(a: &str, b: &str) -> std::cmp::Ordering {
+    fn rank(name: &str) -> (u8, u64) {
+        let lower = name.to_ascii_lowercase();
+        let bare = lower.strip_prefix("chr").unwrap_or(&lower);
+        if let Ok(number) = bare.parse::<u64>() {
+            return (0, number);
+        }
+        match bare {
+            "x" => (1, 0),
+            "y" => (2, 0),
+            "m" | "mt" => (3, 0),
+            _ => (4, 0),
+        }
+    }
+    rank(a)
+        .cmp(&rank(b))
+        .then_with(|| crate::track::traits::natural(a, b))
+}
+
+/// A scan across a whole genome: every sequence the `--manhattan` tables
+/// name, end to end, in the order a reader counts chromosomes, with the
+/// bands a genome-wide plot is read by and each sequence named under the
+/// scan in place of a ruler of positions no file uses.
+///
+/// Each sequence is as long as the furthest position a table tests on it,
+/// which is how a scan is drawn: an association table says where its
+/// markers are and not how long the chromosomes they are on run.
+fn build_genome(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    theme: Theme,
+) -> Result<Built, BuildError> {
+    let mut scans = Vec::with_capacity(invocation.tracks.len());
+    for spec in &invocation.tracks {
+        let name = spec.kind.flag();
+        let Some(source) = spec.source.as_ref() else {
+            continue;
+        };
+        let (text, path) = fetch(name, source, files)?;
+        let read = wrap(name, &path, read::point::genome_associations(&text))?;
+        if read.sequences.iter().all(|(_, points)| points.is_empty()) {
+            return Err(BuildError::Empty {
+                track: name,
+                path,
+                wanted: "association statistics",
+            });
+        }
+        scans.push((spec, path, read));
+    }
+    let mut lengths: Vec<(String, u64)> = Vec::new();
+    for (_, _, read) in &scans {
+        for (sequence, points) in &read.sequences {
+            let end = points
+                .iter()
+                .map(|point| point.pos.saturating_add(1))
+                .max()
+                .unwrap_or(1);
+            match lengths.iter_mut().find(|(named, _)| named == sequence) {
+                Some((_, length)) => *length = (*length).max(end),
+                None => lengths.push((sequence.clone(), end)),
+            }
+        }
+    }
+    lengths.sort_by(|a, b| chromosome_order(&a.0, &b.0));
+    let genome = crate::Genome::new(lengths);
+
+    let mut plot = Plot::over(genome.region())
+        .remove_region_label()
+        .remove_axis()
+        .theme(theme);
+    if let Some(title) = &invocation.title {
+        plot = plot.title(title);
+    }
+    if let Some(width) = invocation.width {
+        plot = plot.width(width);
+    }
+    for (spec, path, read) in scans {
+        let points: Vec<crate::Association> = read
+            .sequences
+            .iter()
+            .flat_map(|(sequence, points)| {
+                let offset = genome.offset(sequence).unwrap_or(0);
+                points
+                    .iter()
+                    .map(move |point| crate::Association::new(offset + point.pos, point.value))
+            })
+            .collect();
+        let mut track = ManhattanTrack::new(points).bands(genome.boundaries());
+        if read.p_values {
+            track = track.axis_title("-log10 p");
+        }
+        let mut track = thresholded(track, spec, read.p_values, &path)?;
+        if let Some(height) = spec.height {
+            track = track.height(height);
+        }
+        let label = spec.label.clone().or_else(|| default_label(spec));
+        plot = plot.add_track(named(track, label, ManhattanTrack::label));
+    }
+    let mut figure = plot.add_genome(genome).into_figure();
+    let legend = figure.key();
+    if invocation.legend && !legend.is_empty() {
+        figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
+    }
+    Ok(Built {
+        figure,
+        along: None,
+        legend,
+    })
 }
 
 /// Files that name the same sequences, and those sequences, each with how
@@ -2763,24 +3042,7 @@ fn track(
             if table.p_values {
                 track = track.axis_title("-log10 p");
             }
-            // The line says where it is, as a p-value wherever it is one.
-            match spec.threshold {
-                None => {}
-                Some(Threshold::GenomeWide) => track = track.genome_wide_threshold(),
-                // In the units the file is in, so a p-value where the file
-                // held p-values, drawn where its points are.
-                Some(Threshold::At(value)) if table.p_values => {
-                    if !(value > 0.0 && value <= 1.0) {
-                        return Err(BuildError::NotAPValue {
-                            track: name,
-                            path: path.clone(),
-                            given: value,
-                        });
-                    }
-                    track = track.p_value_threshold(value);
-                }
-                Some(Threshold::At(value)) => track = track.threshold(value),
-            }
+            let mut track = thresholded(track, spec, table.p_values, &path)?;
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -6736,6 +6998,120 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         };
         assert_eq!(ground(&svg), "#fbfaff");
         assert_eq!(ground(&light.figure.to_svg()), Theme::light().background);
+    }
+
+    /// Chromosomes in the order a reader counts them: by number, with or
+    /// without `chr`, then X, Y and the mitochondrion, then the rest.
+    #[test]
+    fn chromosomes_are_counted_by_number_then_x_y_and_the_mitochondrion() {
+        let mut names = vec![
+            "contig_12",
+            "chr10",
+            "MT",
+            "chrX",
+            "chr2",
+            "contig_7",
+            "Y",
+            "chr1",
+            "chrM",
+        ];
+        names.sort_by(|a, b| chromosome_order(a, b));
+        assert_eq!(
+            names,
+            [
+                "chr1",
+                "chr2",
+                "chr10",
+                "chrX",
+                "Y",
+                "chrM",
+                "MT",
+                "contig_7",
+                "contig_12"
+            ]
+        );
+    }
+
+    /// A scan read on its own is drawn across every sequence the tables
+    /// name, end to end, each as long as the furthest position tested on it,
+    /// each named under the scan in place of a ruler of positions nothing
+    /// else uses. It was refused for having no region.
+    #[test]
+    fn a_scan_alone_is_drawn_across_the_whole_genome() {
+        let first = "CHR\tBP\tP\nX\t150000000\t0.2\n2\t240000000\t1e-9\n\
+                     1\t100000000\t0.3\n10\t130000000\t0.5\nX\t20000000\t0.3\n";
+        let second = "CHR\tBP\tP\n3\t198000000\t0.01\n1\t248000000\t0.4\n";
+        let held = [("a.assoc", first), ("b.assoc", second)];
+        let svg = drawn_from(
+            "--manhattan a.assoc --threshold genome-wide --manhattan b.assoc",
+            &held,
+        )
+        .unwrap();
+        // Each sequence under the scan says its name and length.
+        let at = |name: &str| {
+            svg.find(&format!("<title>{name}, "))
+                .unwrap_or_else(|| panic!("{name} is not named: {svg}"))
+        };
+        assert!(at("1") < at("2") && at("2") < at("3") && at("3") < at("10") && at("10") < at("X"));
+        // Every sequence of both tables, each as long as its furthest test.
+        assert!(svg.contains("genome:1-966000000"), "{svg}");
+        assert_eq!(svg.matches(">-log10 p</text>").count(), 2);
+        // Every other chromosome a shade lighter, which is what tells a
+        // reader where one ends and the next begins.
+        let theme = Theme::light();
+        let lighter = crate::theme::mix(&theme.muted, theme.surface(), 0.42);
+        assert!(
+            svg.contains(&format!("fill=\"{lighter}\"")),
+            "no chromosome is a shade lighter: {svg}"
+        );
+        assert!(svg.contains("p = 5e-8"), "{svg}");
+        for unit in [" kb</text>", " Mb</text>"] {
+            assert!(!svg.contains(unit), "a ruler of positions: {svg}");
+        }
+        // A table of positions on no sequence has no place on a genome.
+        let error =
+            drawn_from("--manhattan a.assoc", &[("a.assoc", "BP\tP\n100\t0.5\n")]).unwrap_err();
+        assert!(error.to_string().contains("names no sequence"), "{error}");
+    }
+
+    /// Several places are one panel each, the same tracks over each, the
+    /// title over them all and the key once under them. A track with nothing
+    /// in one place is a band there that says so, where it refused the whole
+    /// figure; alone, a place with nothing on a track is refused as before.
+    #[test]
+    fn several_places_are_panels_of_the_same_tracks() {
+        let genome = format!(">chr1\n{}\n", "ACGT".repeat(12_500));
+        let calls = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t10500\t.\tA\tG\t.\t.\t.\n";
+        let held = [
+            ("genes.gff3", GENES),
+            ("calls.vcf", calls),
+            ("ref.fa", genome.as_str()),
+        ];
+        let svg = drawn_from(
+            "rpoB katG genes.gff3 calls.vcf --sequence ref.fa --title Both",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(
+            svg.matches("<svg").count(),
+            4,
+            "the sheet, two panels and the key: {svg}"
+        );
+        assert_eq!(svg.matches(">Both</text>").count(), 1);
+        assert!(svg.contains(">rpoB</text>") && svg.contains(">katG</text>"));
+        assert_eq!(svg.matches(">no variants here</text>").count(), 1);
+        assert_eq!(svg.matches(">T</text>").count(), 1, "the key once: {svg}");
+        let alone = drawn_from("katG genes.gff3 calls.vcf", &held).unwrap_err();
+        assert!(alone.to_string().contains("no variants"), "{alone}");
+    }
+
+    /// What is piped in is read once, for every panel of a sheet.
+    #[test]
+    fn a_sheet_reads_what_is_piped_in_once() {
+        let svg = drawn_piped("rpoB katG --features -", GENES, &[]).unwrap();
+        assert_eq!(svg.matches("<svg").count(), 3, "{svg}");
+        assert!(svg.contains(">rpoB</text>") && svg.contains(">katG</text>"));
     }
 
     fn locus_of(svg: &str) -> String {

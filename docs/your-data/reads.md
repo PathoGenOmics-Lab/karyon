@@ -30,6 +30,7 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 | See the reads, not their depth | `--pileup reads.bam` |
 | See the bases, zoomed in | `NC_000962.3:761,100-761,200 --pileup reads.bam ref.fa` |
 | Draw a wider stretch | `NC_000962.3:755,000-770,000` in place of `rpoB` |
+| Draw two genes, one under the other | `rpoB rpoC` in place of `rpoB` |
 | Make a row taller | `reads.bam --height 100` |
 | Rename a row | `calls.vcf.gz --label "variant calls"` |
 

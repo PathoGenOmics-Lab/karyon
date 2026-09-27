@@ -126,6 +126,30 @@ def write_scan(rng):
             )
 
 
+def write_trait_scan():
+    # A scan across a whole genome of twelve chromosomes, as PLINK writes one,
+    # for the figure of every chromosome at once. It keeps a seed of its own,
+    # so the files above stay as they are when this changes. Two peaks, on 3
+    # and on 9, cross the genome-wide line.
+    rng = random.Random(20261001)
+    lengths = [43, 36, 36, 35, 30, 31, 30, 28, 23, 23, 29, 27]  # megabases
+    peaks = {3: 18_500_000, 9: 11_200_000}
+    with open(path("trait.assoc"), "w") as out:
+        out.write(" CHR          SNP         BP   A1      F_A      F_U   A2        CHISQ            P        OR\n")
+        number = 0
+        for chrom, megabases in enumerate(lengths, start=1):
+            for bp in range(40_000, megabases * 1_000_000, 150_000):
+                strength = 0.0
+                if chrom in peaks:
+                    strength = max(0.0, 10.0 - abs(bp - peaks[chrom]) / 120_000.0)
+                strength *= 0.25 + 0.75 * rng.random()
+                p = max(min(1.0, rng.random() * 10 ** (-strength)), 1e-300)
+                out.write(
+                    f"{chrom:4d}   snp{number:05d} {bp:10d}    T   0.3000   0.2500    C        5.000 {p:12.4g}     1.285\n"
+                )
+                number += 1
+
+
 def write_samples():
     # Forty samples in four lineages, a tree of them with branch lengths and
     # support, a second tree that disagrees in two places, a sample sheet in
@@ -461,7 +485,7 @@ def write_zip():
              "samples.tsv", "aln.fasta", "assemblies.paf", "sampleA.bedgraph",
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
              "reads.slow5", "moves.sam", "depths.tsv", "linkage.ld", "epistasis.tsv",
-             "lead.ld", "genetic_map.txt"]
+             "lead.ld", "genetic_map.txt", "trait.assoc"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -490,6 +514,7 @@ def main():
     write_linkage(rng)
     write_epistasis()
     write_lead_linkage(rng)
+    write_trait_scan()
     write_zip()
 
 

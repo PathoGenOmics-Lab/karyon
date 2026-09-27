@@ -22,7 +22,17 @@ Four rules cover every command:
     - a sequence's name is the whole sequence.
 
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
-    place, since none of them is drawn in a window.
+    place, since none of them is drawn in a window, and neither does a scan:
+    `--manhattan` tables with no place are drawn across the whole genome, every
+    sequence they name end to end, in the order chromosomes are counted, each
+    as long as its furthest marker and named under the scan.
+
+    Several places draw one panel each, one under the other, with the same
+    tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
+    calls.vcf.gz`. A gene is titled with its name and a locus says itself at
+    the top right, the key is drawn once under them all, `--title` goes over
+    the whole figure, and a track with nothing in one place says so there, as
+    `no variants here`, where a figure of that place alone is refused.
 2. **Each file, or each track flag and its file, starts a track.** A file
    named on its own is the kind of track its name says, as the table below
    has it; a flag in front chooses the kind, as `--pileup reads.bam`. Tracks
@@ -217,11 +227,11 @@ A few things about track flags are worth knowing before they surprise you:
   a skyline in decimal years has, is a continuous time: its ruler and its
   tooltips write the times as the file does, to a thousandth, from nought.
 - **A track flag takes the next word as its file, whatever it is.** A forgotten
-  path swallows the flag after it, and the error arrives a word late:
+  path swallows the flag after it, and the error names the flag it took:
 
     ```text
     $ karyon NC_000962.3:761,000-763,000 --coverage --label depth
-    karyon: one region per figure, and "depth" is a second one
+    karyon: --coverage --label: No such file or directory (os error 2)
     ```
 
 ## Track options
