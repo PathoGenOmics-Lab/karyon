@@ -109,7 +109,7 @@ Where transcription starts, how far the 5' leader runs and where it stops: a ben
 | | |
 |:--|:--|
 | Rust | `.add_transcription_units(units)` on `plot()`; `TranscriptionUnitTrack::new(units)` |
-| Command line | none: library only, as no single standard table of transcription units exists to read |
+| Command line | none: library only, as no single standard table of transcription units exists to read, and none states how an RNA stops. Where it starts and where it codes do reach the command line: `--features` on a BED12 whose thick span is the part that codes, or on a GFF3 or GTF with UTR or CDS rows, draws each RNA with its 5' leader at half height |
 | Reads | nothing from a file; build `TranscriptionUnit` values |
 
 === "Rust"

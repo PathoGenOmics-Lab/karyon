@@ -246,6 +246,39 @@ pub enum BuildError {
         /// Which track is short of a file.
         track: &'static str,
     },
+    /// A `--colors` naming a column no `--traits` sheet of the figure has,
+    /// or a value no row of one holds in that column.
+    ///
+    /// Refused rather than passed over, as a misspelt `--columns` is: the
+    /// colours would paint nothing, and the figure would come out in the
+    /// palette looking as though they had been read.
+    NotColored {
+        /// The column `--colors` names.
+        column: String,
+        /// The value it names, or `None` where no sheet has the column.
+        value: Option<String>,
+        /// The sheets of the figure, by what they were called.
+        sheets: Vec<String>,
+        /// What they hold instead: their columns, or the values of this one.
+        held: Vec<String>,
+    },
+    /// A `--colors` for a column of a sheet that no track draws: left out
+    /// of every `--columns`, and colouring no tree's branches.
+    ///
+    /// The colours would reach it and show nowhere, which is a figure that
+    /// looks as though they had been read and were wrong.
+    ColorsUndrawn {
+        /// The column.
+        column: String,
+    },
+    /// A `--colors` for a column whose every value is a number.
+    ///
+    /// A strip draws such a column on a ramp, and so do the branches
+    /// coloured by it, and a colour chosen for a value reaches neither.
+    ColorsOfNumbers {
+        /// The column.
+        column: String,
+    },
     /// The tree would not parse.
     Tree {
         /// The flag that asked for it, since more than one takes a phylogeny
@@ -438,6 +471,42 @@ impl fmt::Display for BuildError {
             BuildError::MissingSecond { track } => write!(
                 f,
                 "a {track} track is drawn from two files, and only one was given"
+            ),
+            BuildError::NotColored {
+                column,
+                value,
+                sheets,
+                held,
+            } => {
+                let several = sheets.len() > 1;
+                let named: Vec<(String, usize)> =
+                    sheets.iter().map(|sheet| (sheet.clone(), 0)).collect();
+                let sheets = listed_as(&named, "sheets");
+                match value {
+                    None => write!(
+                        f,
+                        "--colors names a column called {column}, and {sheets} {} none; {} {}",
+                        if several { "have" } else { "has" },
+                        if several { "they have" } else { "it has" },
+                        held.join(", ")
+                    ),
+                    Some(value) => write!(
+                        f,
+                        "--colors names {value} in {column}, and no row of {sheets} holds it; \
+                         {column} holds {}",
+                        held.join(", ")
+                    ),
+                }
+            }
+            BuildError::ColorsUndrawn { column } => write!(
+                f,
+                "--colors paints {column}, and no track draws it: name it in --columns, or \
+                 colour a tree's branches by it with --color-by {column}"
+            ),
+            BuildError::ColorsOfNumbers { column } => write!(
+                f,
+                "--colors names {column}, a column of numbers, which is drawn as a ramp; \
+                 --colors paints a column of words"
             ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
         }
@@ -752,6 +821,7 @@ fn build_one(
         plot = plot.remove_axis();
     }
 
+    colored_as_asked(invocation, files)?;
     for spec in &invocation.tracks {
         // The ruler is the one track that reads nothing, and the one the plot
         // has to be told about so it does not append a second.
@@ -777,6 +847,7 @@ fn build_one(
             theme: &theme,
             reference: reference.as_ref(),
             decimals,
+            colors: &invocation.colors,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -793,6 +864,7 @@ fn build_one(
                         theme: &theme,
                         reference: reference.as_ref(),
                         decimals,
+                        colors: &invocation.colors,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -1439,6 +1511,9 @@ struct Context<'a> {
     /// The places the figure's times are read to: nought for whole units,
     /// or `read::series::DECIMALS` where a table has fractions of one.
     decimals: u32,
+    /// The colours `--colors` chose for the values of a sheet's columns,
+    /// which every sheet of the figure paints alike.
+    colors: &'a [(String, Vec<(String, String)>)],
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -1475,10 +1550,15 @@ fn sheet(
 /// because a sheet that names none of these rows draws a strip of empty
 /// outlines beside every one of them, and a figure that says "nothing is known
 /// about any of these" looks exactly like a figure that read the wrong file.
+///
+/// The colours `--colors` chose go to every column of the sheet they name,
+/// drawn as a strip or not, so a phylogeny coloured by one with no strip of
+/// it beside the tree paints its branches in them too.
 fn strip(
     spec: &TrackSpec,
     sheet: Option<&(read::sheet::Sheet, String)>,
     rows: &[String],
+    colors: &[(String, Vec<(String, String)>)],
 ) -> Result<Option<Traits>, BuildError> {
     let Some((held, path)) = sheet else {
         return Ok(None);
@@ -1517,7 +1597,127 @@ fn strip(
     // levels the palette in the order the file lists them. A phylogeny is
     // handed these same columns, and that shared order is what makes a
     // lineage one colour beside the tree and beside the matrix under it.
-    Ok(Some(Traits::from_sheet(held).strips(wanted)))
+    let traits = colors.iter().fold(
+        Traits::from_sheet(held).strips(wanted),
+        |traits, (key, chosen)| traits.colors(key, chosen.iter().cloned()),
+    );
+    Ok(Some(traits))
+}
+
+/// Refuses a `--colors` that would paint nothing: a column no `--traits`
+/// sheet of the figure has, a column of numbers, which is drawn as a ramp,
+/// a value no row holds in the column, or a column no track draws.
+///
+/// Over every sheet of the figure at once, before any track is built,
+/// because the colours are the figure's and each sheet takes what it holds
+/// of them: a tree's sheet may name a country the matrix's does not, and
+/// the country is painted where it is named. One sheet at a time, the
+/// matrix would refuse a colour the tree was asked for.
+fn colored_as_asked(invocation: &Invocation, files: &mut dyn Files) -> Result<(), BuildError> {
+    if invocation.colors.is_empty() {
+        return Ok(());
+    }
+    // Each sheet once, and each track with the sheet it was given.
+    let mut sheets: Vec<(read::sheet::Sheet, String)> = Vec::new();
+    let mut given: Vec<(&TrackSpec, usize)> = Vec::new();
+    for spec in &invocation.tracks {
+        if let Some(held) = sheet(spec, files)? {
+            let at = match sheets.iter().position(|(_, path)| *path == held.1) {
+                Some(at) => at,
+                None => {
+                    sheets.push(held);
+                    sheets.len() - 1
+                }
+            };
+            given.push((spec, at));
+        }
+    }
+    // Capped, since a column can hold as many values as there are rows.
+    let shown = |names: Vec<String>| -> Vec<String> {
+        let mut shown: Vec<String> = names.iter().take(24).cloned().collect();
+        if names.len() > shown.len() {
+            shown.push(format!("and {} more", names.len() - shown.len()));
+        }
+        shown
+    };
+    for (column, chosen) in &invocation.colors {
+        let having: Vec<&read::sheet::Sheet> = sheets
+            .iter()
+            .filter(|(held, _)| held.columns.contains(column))
+            .map(|(held, _)| held)
+            .collect();
+        if having.is_empty() {
+            let mut held: Vec<String> = Vec::new();
+            for (sheet, _) in &sheets {
+                for name in &sheet.columns {
+                    if !held.contains(name) {
+                        held.push(name.clone());
+                    }
+                }
+            }
+            return Err(BuildError::NotColored {
+                column: column.clone(),
+                value: None,
+                sheets: sheets.iter().map(|(_, path)| path.clone()).collect(),
+                held: shown(held),
+            });
+        }
+        // As `Traits::strips` decides it: a column whose every stated value
+        // is a number is a ramp.
+        let numeric = |sheet: &read::sheet::Sheet| {
+            let mut stated = sheet
+                .order
+                .iter()
+                .filter_map(|name| sheet.rows.get(name))
+                .filter_map(|row| row.get(column))
+                .peekable();
+            stated.peek().is_some() && stated.all(|value| value.as_number().is_some())
+        };
+        if having.iter().all(|sheet| numeric(sheet)) {
+            return Err(BuildError::ColorsOfNumbers {
+                column: column.clone(),
+            });
+        }
+        let mut levels: Vec<String> = Vec::new();
+        for sheet in &having {
+            for level in sheet.levels(column) {
+                if !levels.contains(&level) {
+                    levels.push(level);
+                }
+            }
+        }
+        if let Some((value, _)) = chosen.iter().find(|(value, _)| !levels.contains(value)) {
+            // In the order a key lists them, which is the order a reader
+            // looks a misspelt value up in.
+            levels.sort_by(|a, b| crate::track::traits::natural(a, b));
+            return Err(BuildError::NotColored {
+                column: column.clone(),
+                value: Some(value.clone()),
+                sheets: sheets
+                    .iter()
+                    .filter(|(held, _)| held.columns.contains(column))
+                    .map(|(_, path)| path.clone())
+                    .collect(),
+                held: shown(levels),
+            });
+        }
+        // A column the sheet has and no track draws, as a strip or as the
+        // colour of a tree's branches, takes the colours and shows none.
+        let drawn = given.iter().any(|(spec, at)| {
+            sheets[*at].0.columns.contains(column)
+                && (spec
+                    .columns
+                    .as_ref()
+                    .map_or(true, |named| named.contains(column))
+                    || spec.color_by.as_ref() == Some(column))
+        });
+        if !drawn {
+            return Err(BuildError::ColorsUndrawn {
+                column: column.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// A track's own file, what it was called, and whether it arrived converted
@@ -3131,7 +3331,7 @@ fn track(
             let leaves = tree.leaf_names();
             // Joined onto the tips by `TreeTrack::traits`, as a library caller
             // joins one, once the track is made.
-            let held = strip(spec, sheet.as_ref(), &leaves)?;
+            let held = strip(spec, sheet.as_ref(), &leaves, context.colors)?;
 
             // Mutations are branch data the file keeps under a key, and
             // asking who carries one is a question about the shape of the tree.
@@ -3216,7 +3416,11 @@ fn track(
                 track = track.highlight_named(wanted);
             }
             if let Some(held) = held {
-                track = track.traits(held);
+                // Where the palette runs out over a column of the sheet, the
+                // line under the tree that says so names the way out.
+                track = track
+                    .traits(held)
+                    .recolour("--colors gives them colours of their own");
             }
             if let Some(projection) = spec.projection {
                 track = track.projection(projection);
@@ -3539,7 +3743,7 @@ fn track(
             if spec.no_names {
                 track = track.show_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -3616,7 +3820,7 @@ fn track(
             if spec.no_names {
                 track = track.show_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -3677,7 +3881,7 @@ fn track(
             if spec.no_names {
                 track = track.show_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -3768,7 +3972,7 @@ fn track(
             if spec.no_names {
                 track = track.show_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -3794,7 +3998,7 @@ fn track(
             if spec.no_names {
                 track = track.show_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -3886,7 +4090,7 @@ fn track(
             if spec.no_names {
                 track = track.show_row_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -4003,7 +4207,7 @@ fn track(
             if spec.no_names {
                 track = track.show_row_names(false);
             }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
                 gather(legend, &traits.legend(theme));
                 track = track.traits(traits);
             }
@@ -7505,6 +7709,220 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             key_colour(&alone, "lineage: L4"),
             key_colour(&alone, "country: Kenya")
         );
+    }
+
+    /// One sheet, one row name per row of every track that draws strips from
+    /// a sheet, and the files each of those tracks reads.
+    const STRIPPED: &[(&str, &str)] = &[
+        ("s.tsv", "sample\tlineage\nA\tL1\nB\tL2\nC\tL1\nD\tL3\n"),
+        (
+            "m.tsv",
+            "sample\t100\t200\nA\t1\t0\nB\t0\t1\nC\t1\t1\nD\t0\t0\n",
+        ),
+        (
+            "h.tsv",
+            "chrom\tstart\tend\tA\tB\tC\tD\n\
+             chr\t0\t100\t1\t2\t3\t4\nchr\t100\t200\t2\t2\t3\t1\nchr\t200\t300\t1\t1\t1\t1\n",
+        ),
+        (
+            "aln.fa",
+            ">A\nACGTACGT\n>B\nACGTTCGT\n>C\nACGAACGT\n>D\nTCGTACGA\n",
+        ),
+        ("t.nwk", "((A:1,B:1):1,(C:1,D:1):1);"),
+        (
+            "c.gff",
+            "SEQUENCE\tGUBBINS\tCDS\t101\t200\t0.000\t.\t0\tnode=\"N1\";taxa=\"A B\";\n",
+        ),
+        (
+            "d.tsv",
+            "A\tmd5\t300\tPfam\tPF1\tKinase\t10\t100\t1e-5\tT\t01-01-2026\n\
+             B\tmd5\t300\tPfam\tPF1\tKinase\t20\t110\t1e-5\tT\t01-01-2026\n\
+             C\tmd5\t300\tPfam\tPF2\tBinding\t150\t250\t1e-5\tT\t01-01-2026\n\
+             D\tmd5\t300\tPfam\tPF1\tKinase\t30\t120\t1e-5\tT\t01-01-2026\n",
+        ),
+        (
+            "l.bed",
+            "A\t100\t900\tgA\t0\t+\nB\t150\t950\tgB\t0\t+\n\
+             C\t120\t920\tgC\t0\t+\nD\t110\t910\tgD\t0\t+\n",
+        ),
+        ("links.tsv", "gA\tgB\t98\ngB\tgC\t97\ngC\tgD\t96\n"),
+    ];
+
+    /// Every track that draws strips from a sheet paints a level `--colors`
+    /// chose in that colour, in its cells and in its key, and a level it did
+    /// not choose in the palette's colour, the same in all of them.
+    ///
+    /// The colours reach a track through the sheet it is given, so a track
+    /// added to the ones that take `--traits` and wired past `strip` would
+    /// draw the palette here, and one left out of this list fails the count.
+    #[test]
+    fn colors_paint_a_level_alike_in_every_track_that_draws_strips() {
+        // In the order `Kind::ALL` lists them.
+        let lines = [
+            (Kind::Tree, "--tree t.nwk"),
+            (Kind::Msa, "--msa aln.fa"),
+            (Kind::Snps, "--snps aln.fa"),
+            (Kind::Matrix, "chr:1-300 --matrix m.tsv"),
+            (Kind::Heatmap, "chr:1-300 --heatmap h.tsv"),
+            (
+                Kind::Clades,
+                "SEQUENCE:1-300 --clades c.gff --with-tree t.nwk",
+            ),
+            (Kind::Loci, "locus:1-1000 --loci l.bed --links links.tsv"),
+            (Kind::Domains, "protein:1-300 --domains d.tsv"),
+        ];
+        let striped: Vec<Kind> = Kind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| kind.takes_traits())
+            .collect();
+        assert_eq!(
+            striped,
+            lines.map(|(kind, _)| kind),
+            "a track that takes --traits is not drawn here"
+        );
+        let mut unchosen: Vec<String> = Vec::new();
+        for (kind, line) in lines {
+            let line = format!("{line} --traits s.tsv --colors lineage=L1:#aa0000,L2:#00aa00");
+            let svg = drawn_from(&line, STRIPPED).unwrap_or_else(|error| panic!("{line}: {error}"));
+            for row in ["A", "C"] {
+                assert_eq!(
+                    painted(&svg, &format!("{row}; lineage L1")),
+                    ["#aa0000"],
+                    "{kind:?} paints L1 its own colour"
+                );
+            }
+            assert_eq!(painted(&svg, "B; lineage L2"), ["#00aa00"], "{kind:?}");
+            assert_eq!(key_colour(&svg, "lineage: L1"), "#aa0000", "{kind:?}");
+            unchosen.extend(painted(&svg, "D; lineage L3"));
+        }
+        // L3 was given no colour and takes the palette's, one in every track.
+        assert_eq!(unchosen.len(), lines.len(), "{unchosen:?}");
+        assert!(
+            unchosen.iter().all(|colour| *colour == unchosen[0]),
+            "{unchosen:?}"
+        );
+        assert_eq!(unchosen[0], crate::Theme::light().color(2));
+    }
+
+    /// The colours are the figure's: a tree and a matrix with sheets of their
+    /// own paint a country alike, and the branches coloured by a column drawn
+    /// as no strip take its colours too.
+    #[test]
+    fn colors_reach_every_sheet_of_a_figure_and_branches_with_no_strip() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet =
+            "sample\tlineage\tcountry\na\tL4\tKenya\nb\tL4\tSpain\nc\tL2\tKenya\nd\tL1\tPeru\n";
+        // The matrix's sheet has no lineage, and says nothing of Peru.
+        let other = "sample\tcountry\na\tKenya\nb\tSpain\nc\tKenya\nd\tSpain\n";
+        let matrix = "sample\t100\t200\na\t1\t0\nb\t0\t1\nc\t1\t1\nd\t0\t0\n";
+        let held = [
+            ("t.nwk", tree),
+            ("s.tsv", sheet),
+            ("o.tsv", other),
+            ("m.tsv", matrix),
+        ];
+        let colors = "--colors country=Kenya:#aa0000,Peru:#0000aa --colors lineage=L4:#00aa00";
+        let svg = drawn_from(
+            &format!(
+                "chr:1-300 --tree t.nwk --traits s.tsv --matrix m.tsv --traits o.tsv {colors}"
+            ),
+            &held,
+        )
+        .unwrap();
+        assert_eq!(painted(&svg, "a; country Kenya"), ["#aa0000", "#aa0000"]);
+        assert_eq!(painted(&svg, "d; country Peru"), ["#0000aa"]);
+        assert_eq!(painted(&svg, "a; lineage L4"), ["#00aa00"]);
+        // Branches by a column the tree draws no strip of.
+        let svg = drawn_from(
+            &format!("--tree t.nwk --traits s.tsv --columns lineage --color-by country {colors}"),
+            &held,
+        )
+        .unwrap();
+        assert!(svg.contains("stroke=\"#aa0000\""), "no branch is Kenya's");
+        assert!(svg.contains("stroke=\"#0000aa\""), "no branch is Peru's");
+        assert_eq!(key_colour(&svg, "country: Kenya"), "#aa0000");
+    }
+
+    /// Seven countries in six colours are drawn as shapes, and the tree says
+    /// so with the way out; given colours of their own they stay a strip, and
+    /// the tree has nothing to say.
+    #[test]
+    fn colors_keep_a_column_of_seven_values_a_strip() {
+        let names = ["a", "b", "c", "d", "e", "f", "g"];
+        let tree = format!("({});", names.map(|name| format!("{name}:1")).join(","));
+        let rows: String = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| format!("{name}\tC{i}\n"))
+            .collect();
+        let sheet = format!("sample\tcountry\n{rows}");
+        let held = [("t.nwk", tree.as_str()), ("s.tsv", sheet.as_str())];
+        let (svg, notes) = drawn_noting("--tree t.nwk --traits s.tsv", &held);
+        let said = "country: 7 values for 6 colours, so each is a shape as well; \
+                    --colors gives them colours of their own";
+        assert_eq!(notes, [format!("--tree t.nwk: {said}")]);
+        assert!(svg.unwrap().contains(said), "the figure does not say it");
+        let chosen: Vec<String> = (0..7).map(|i| format!("C{i}:#{i}{i}0000")).collect();
+        let line = format!(
+            "--tree t.nwk --traits s.tsv --colors country={}",
+            chosen.join(",")
+        );
+        let (svg, notes) = drawn_noting(&line, &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        let svg = svg.unwrap();
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(
+                painted(&svg, &format!("{name}; country C{i}")),
+                [format!("#{i}{i}0000")]
+            );
+        }
+        assert!(!svg.contains("<polygon"), "a country is drawn as a shape");
+    }
+
+    /// A `--colors` that would paint nothing is refused, and says what the
+    /// sheets hold instead.
+    #[test]
+    fn colors_that_would_paint_nothing_are_refused() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet = "sample\tlineage\tyear\na\tL4\t2019\nb\tL4\t2020\nc\tL2\t2021\nd\tL1\t2020\n";
+        let held = [("t.nwk", tree), ("s.tsv", sheet)];
+        let refused = |colors: &str| {
+            drawn_from(&format!("--tree t.nwk --traits s.tsv {colors}"), &held)
+                .unwrap_err()
+                .to_string()
+        };
+        assert_eq!(
+            refused("--colors linage=L4:#aa0000"),
+            "--colors names a column called linage, and s.tsv has none; it has lineage, year"
+        );
+        assert_eq!(
+            refused("--colors lineage=L3:#aa0000"),
+            "--colors names L3 in lineage, and no row of s.tsv holds it; lineage holds L1, L2, L4"
+        );
+        assert_eq!(
+            refused("--colors year=2020:#aa0000"),
+            "--colors names year, a column of numbers, which is drawn as a ramp; --colors \
+             paints a column of words"
+        );
+        let undrawn = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns year --colors lineage=L4:#aa0000",
+            &held,
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            undrawn,
+            "--colors paints lineage, and no track draws it: name it in --columns, or colour \
+             a tree's branches by it with --color-by lineage"
+        );
+        // Drawn as the branches' colour, it is drawn.
+        assert!(drawn_from(
+            "--tree t.nwk --traits s.tsv --columns year --color-by lineage \
+             --colors lineage=L4:#aa0000",
+            &held
+        )
+        .is_ok());
     }
 
     /// A phylogram draws its scale bar by default, and --no-scale-bar is how

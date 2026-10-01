@@ -8,6 +8,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A tree that says under it that a column of its sheet ran out of colours,
+  drawn in shapes as well, two strips painting two values one colour, or
+  branches of two values sharing one, says how to part them when drawn from
+  the command line: `; --colors gives them colours of their own`. Branches
+  coloured by an annotation of the Newick are out of reach of `--colors`, and
+  their line is as it was. `docs/assets/start/tree.svg` and its dark copy
+  change.
+- `--color` refuses a value holding `=`, which is `--colors` with a letter
+  lost, and names `--colors`; taken as a paint, `country=Peru:#e7298a` went
+  into the fill as written, which is no colour at all.
+
 - A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
   through its introns, with arrows along the line, and the untranslated ends
   of the exons at half height. It was a solid bar from end to end, which for a
@@ -326,6 +337,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--colors COLUMN=VALUE:#rrggbb,...` gives the values of a `--traits` column
+  colours of your own, the ones a field already knows its lineages or
+  countries by: in its strips, in the key and along the branches
+  `--color-by` paints. Values are joined by commas, and the flag is written
+  again for more of them or for another column. It is a figure option, so
+  every sheet of the figure that has the column paints its values alike, and
+  a column of seven countries stays a strip rather than a column of shapes.
+  A colour that would paint nothing is refused: with no `--traits` on the
+  line, for a column no sheet has, for a column of numbers, for a value no
+  row holds, for a column no track draws, and for a value given two colours.
+  It takes the written form only; a colour file, as Nextstrain's colors.tsv,
+  would be the one figure option that reads a file.
+- `--palette`, `--colormap` and the like are answered with `--colors`, and
+  `--tss`, `--operons` and `--terminators` with `--features`: a BED12 whose
+  thick span is the part that codes, or a GFF3 or GTF with UTR or CDS rows,
+  already draws each RNA with its 5' leader at half height. No common format
+  says how an RNA stops, so `TranscriptionUnitTrack` stays library only, and
+  the annotation reference says what does reach the command line.
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of
   scale, windows about the same baseline, scans of the same statistic. Each
@@ -970,6 +999,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `Traits::colors` reaches every column of its key, the ones made after the
+  call as well as before it: given before `Traits::strips` it touched no
+  column, and the strips came out in the palette. It reaches the branches of
+  a phylogeny coloured by the key with no strip of it too, which were dealt
+  the palette whatever colours the sheet's column was given, so a country was
+  one colour beside a matrix and another along the tree above it.
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the
   panel lacked put every row after that tip beside the branch of the tip

@@ -40,7 +40,7 @@ use crate::style::LinePattern;
 use crate::svg::{finite_within, fit_text, num, text_rounded, text_width};
 use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::traits::{
-    binary_state, draw_column, Dealt, Join, Stretch, TraitDomain, TraitRow, Traits,
+    binary_state, draw_column, Dealt, Join, SheetDealing, TraitDomain, TraitRow, Traits,
 };
 use crate::track::{DrawContext, Rect, Track};
 use crate::tree::{AnnotationValue, NodeRef, Placement, TimeDirection, Tree};
@@ -971,7 +971,11 @@ pub struct TreeTrack {
     joined: Option<Join>,
     /// How a strip of each key of the joined sheet would deal the palette,
     /// which the branches take for that key with or without the strip.
-    sheet_dealing: BTreeMap<String, (Vec<String>, Stretch)>,
+    sheet_dealing: BTreeMap<String, SheetDealing>,
+    /// How the caller gives the values of a sheet's column colours of their
+    /// own, said after each warning that the palette ran out over one, as
+    /// the command line says `--colors`. See [`TreeTrack::recolour`].
+    recolour: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1097,6 +1101,7 @@ impl TreeTrack {
             refused: Vec::new(),
             joined: None,
             sheet_dealing: BTreeMap::new(),
+            recolour: None,
         }
     }
 
@@ -1970,6 +1975,30 @@ impl TreeTrack {
         self.joined.as_ref()
     }
 
+    /// Says how a caller gives the values of a column of the joined sheet
+    /// colours of their own, after each warning that the palette ran out over
+    /// one: a strip drawn as shapes for want of colours, branches of two
+    /// values sharing one, two strips painting two values one colour.
+    ///
+    /// For the command line, which says `--colors`, and crate-private because
+    /// the words name a flag of a front end rather than anything of this
+    /// type. Only where the colours would reach: branches coloured by an
+    /// annotation the Newick carries, and by no column of the sheet, take no
+    /// chosen colour, and the warning about them is left as it was.
+    pub(crate) fn recolour(mut self, said: impl Into<String>) -> Self {
+        self.recolour = Some(said.into());
+        self
+    }
+
+    /// A warning, with how to give the values it is about colours of their
+    /// own where `key` is a column of the joined sheet and a caller said how.
+    fn with_recolour(&self, warning: String, key: &str) -> String {
+        match &self.recolour {
+            Some(said) if self.sheet_dealing.contains_key(key) => format!("{warning}; {said}"),
+            _ => warning,
+        }
+    }
+
     /// Adds a categorical metadata strip.
     pub fn trait_categorical(self, key: impl Into<String>) -> Self {
         self.trait_column(TraitColumn::categorical(key))
@@ -2234,7 +2263,7 @@ impl TreeTrack {
                 .or_else(|| {
                     self.sheet_dealing
                         .get(key)
-                        .map(|(_, stretch)| stretch.start(colors))
+                        .map(|dealing| dealing.stretch.start(colors))
                 })
                 .or_else(|| {
                     order
@@ -2255,20 +2284,23 @@ impl TreeTrack {
             .collect();
         // Branches coloured by a key of the sheet with no strip of it deal the
         // palette as that strip would, in the order the sheet gives the
-        // levels, so a lineage is one colour whether its strip is drawn or
-        // not. They took the order the tree meets the levels in, and L1 was
-        // blue in one figure of a set and ochre in the next.
+        // levels and in the colours chosen for them, so a lineage is one
+        // colour whether its strip is drawn or not. They took the order the
+        // tree meets the levels in, and L1 was blue in one figure of a set and
+        // ochre in the next; and they took none of the colours chosen, so a
+        // country given one of its own was that colour in the strip beside a
+        // matrix and a palette colour along the branches of the tree above.
         let branches = match self.branch_key() {
             Some(key) => match covering(key) {
                 Some(index) => columns[index],
-                None => Dealt {
-                    levels: self
-                        .sheet_dealing
-                        .get(key)
-                        .map_or(&[][..], |(levels, _)| levels.as_slice()),
-                    first: start(key),
-                    colors: &[],
-                },
+                None => {
+                    let dealing = self.sheet_dealing.get(key);
+                    Dealt {
+                        levels: dealing.map_or(&[][..], |dealing| dealing.levels.as_slice()),
+                        first: start(key),
+                        colors: dealing.map_or(&[][..], |dealing| dealing.colors.as_slice()),
+                    }
+                }
             },
             None => Dealt::default(),
         };
@@ -2470,10 +2502,13 @@ impl TreeTrack {
                         self.dealing(theme.palette.len()).branches,
                     );
                     if domain.colors_repeat(theme) {
-                        said.push(format!(
-                            "{key} has {} values and the palette {} colours, so some branches of two values share one",
-                            domain.keyed().len(),
-                            theme.palette.len()
+                        said.push(self.with_recolour(
+                            format!(
+                                "{key} has {} values and the palette {} colours, so some branches of two values share one",
+                                domain.keyed().len(),
+                                theme.palette.len()
+                            ),
+                            key,
                         ));
                     }
                 }
@@ -2506,9 +2541,10 @@ impl TreeTrack {
         let colors = theme.palette.len().max(1);
         let most = colors * 4;
         // Each colour a filled strip paints, with the column and the level it
-        // paints, to find two strips that paint two things one colour.
-        let mut painted: Vec<(String, &str, String)> = Vec::new();
-        let mut shared: Vec<String> = Vec::new();
+        // paints, to find two strips that paint two things one colour, and
+        // the key of each column of such a pair.
+        let mut painted: Vec<(String, &str, String, &str)> = Vec::new();
+        let mut shared: Vec<(String, [&str; 2])> = Vec::new();
         for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
             let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
             let levels = domain.keyed().len();
@@ -2521,9 +2557,12 @@ impl TreeTrack {
             } else if style == TraitStyle::Symbol && column.style == TraitStyle::Strip {
                 // Asked for a strip and drawn as shapes, which the figure
                 // should say rather than the reader find out.
-                said.push(format!(
-                    "{}: {levels} values for {colors} colours, so each is a shape as well",
-                    column.label
+                said.push(self.with_recolour(
+                    format!(
+                        "{}: {levels} values for {colors} colours, so each is a shape as well",
+                        column.label
+                    ),
+                    &column.key,
                 ));
             }
             if style != TraitStyle::Strip || column.scale != TraitScale::Categorical {
@@ -2532,20 +2571,28 @@ impl TreeTrack {
             for (level, color) in domain.painted(theme) {
                 let other = painted
                     .iter()
-                    .find(|(_, named, had)| *had == color && *named != column.label.as_str());
-                if let Some((was, named, _)) = other {
-                    shared.push(format!("{named} {was} and {} {level}", column.label));
+                    .find(|(_, named, had, _)| *had == color && *named != column.label.as_str());
+                if let Some((was, named, _, key)) = other {
+                    shared.push((
+                        format!("{named} {was} and {} {level}", column.label),
+                        [key, &column.key],
+                    ));
                 }
-                painted.push((level, &column.label, color));
+                painted.push((level, &column.label, color, &column.key));
             }
         }
-        if let Some(first) = shared.first() {
+        if let Some((first, keys)) = shared.first() {
             let others = match shared.len() {
                 1 => String::new(),
                 2 => ", and 1 other pair is too".to_string(),
                 more => format!(", and {} other pairs are too", more - 1),
             };
-            said.push(format!("{first} are one colour{others}"));
+            // Either column of the pair parts them, given colours of its own.
+            let key = keys
+                .iter()
+                .find(|key| self.sheet_dealing.contains_key(**key))
+                .unwrap_or(&keys[0]);
+            said.push(self.with_recolour(format!("{first} are one colour{others}"), key));
         }
         said
     }

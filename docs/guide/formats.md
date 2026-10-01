@@ -1178,11 +1178,12 @@ S004    L1       human   NA     false
 A field is a number when it parses as one, `true` or `false` when it spells one,
 and text otherwise. A column whose every value is a number is drawn on a colour
 ramp; any other column gets a colour per level, and a shape as well once it has
-more than six levels. An empty field (tab-separated files only), `.`, `NA` and
-`NaN` are missing and drawn as an empty outline, so a column whose levels
-really include `NA`, a continent code for instance, loses them to missing. The
-first line is always the header, and the join to the track's rows is by exact
-name.
+more than six levels, unless `--colors` gives its levels colours of your own
+(see [Sample sheets beside the rows](cli.md#what-is-known-about-the-rows)). An
+empty field (tab-separated files only), `.`, `NA` and `NaN` are missing and
+drawn as an empty outline, so a column whose levels really include `NA`, a
+continent code for instance, loses them to missing. The first line is always
+the header, and the join to the track's rows is by exact name.
 
 ## Where next
 

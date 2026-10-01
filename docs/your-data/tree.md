@@ -19,7 +19,8 @@ karyon tree.nwk --traits samples.tsv --columns lineage,country -o tree.svg
 
 Each column you name is drawn beside the tips, and the key underneath says
 which colour is which. A column with more values than colours uses shapes as
-well, and the figure says so under the tree. A tree needs no place.
+well, and the figure says so under the tree, with the way out: `--colors`
+gives the values colours of your own. A tree needs no place.
 
 In Rust, the same figure and the others a tree takes, its support, coloured
 branches, a folded clade, a circle, an alignment beside it and a time axis,
@@ -30,6 +31,7 @@ are a few lines each in [Phylogenetics](../guide/phylogenetics.md#from-your-file
 | To | Write |
 |:--|:--|
 | Colour the branches too | `--color-by lineage` |
+| Give the countries colours of your own, which keeps them a strip | `--colors 'country=China:#1b9e77,India:#d95f02,...'`, a colour for each of the seven |
 | Draw it as a circle | `--projection circular` |
 | Show the support values of 70 and over | `--support-style labels --threshold 70` |
 | Fold a large tree to fit | `--max-rows 60` |
