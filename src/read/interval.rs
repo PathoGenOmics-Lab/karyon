@@ -35,7 +35,7 @@
 //! interval from where either coordinate put it, or a band would vanish while
 //! its end still set the length of the chromosome.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::{Band, Feature, Region, Stain, Strand};
 
@@ -64,11 +64,46 @@ pub(crate) enum Flavour {
 /// failing that `ID=` in the GFF3 attributes. A strand comes from BED column
 /// six or GFF3 column seven.
 ///
+/// A gene comes back once, with the exons of all its transcripts and the
+/// stretches any of them codes, and says how many transcripts it merged; a
+/// BED12 row comes back with its blocks and its thick span. [`transcripts`]
+/// reads each transcript as a feature of its own instead.
+///
 /// Rows on another sequence than `region.seq()` are skipped.
 pub fn features(
     text: &str,
     region: &Region,
     format: Option<Format>,
+) -> Result<Vec<Feature>, ReadError> {
+    models(text, region, format, Level::Gene)
+}
+
+/// Reads gene models one transcript at a time: each isoform a feature of
+/// its own, named for itself and naming the gene it belongs to.
+///
+/// Everything else is read as [`features`] reads it. A gene with no
+/// transcripts under it, as a bacterial gene written over its CDS, is one
+/// feature either way, and so is every BED row.
+pub fn transcripts(
+    text: &str,
+    region: &Region,
+    format: Option<Format>,
+) -> Result<Vec<Feature>, ReadError> {
+    models(text, region, format, Level::Transcript)
+}
+
+/// Whether a gene is drawn once or each of its transcripts is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Level {
+    Gene,
+    Transcript,
+}
+
+fn models(
+    text: &str,
+    region: &Region,
+    format: Option<Format>,
+    level: Level,
 ) -> Result<Vec<Feature>, ReadError> {
     let flavour = flavour(text, format);
     // The sequence is checked before the rest of the line is understood, so
@@ -90,29 +125,387 @@ pub fn features(
     // A GFF3 or GTF annotation writes a gene once for every level of it, the
     // gene, each transcript, each exon and each CDS, and a feature track drew
     // every one as a feature of its own: five rows for one gene, the gene
-    // beside its own CDS. So a row whose parent is in the file is left out,
-    // and the parent stands for it. A row whose parent is not here, because
-    // the file was cut down to exons or never had genes, is still drawn.
+    // beside its own CDS. So the levels are put back together: the exons and
+    // the CDS of a transcript become its structure, and the transcripts of a
+    // gene become the gene, or each a feature of its own.
     let rows: Vec<(usize, Vec<&str>)> = rows.collect();
-    let declared: BTreeSet<(&str, &str)> = rows
-        .iter()
-        .filter(|(_, cols)| !describes_sequence(cols))
-        .filter_map(|(_, cols)| declared_as(cols))
-        .collect();
-    for (at, cols) in &rows {
-        // Read before it is set aside, so a broken row stops the file on its
-        // line whether or not it would have been drawn.
-        let feature = gff3(cols, *at)?;
-        if describes_sequence(cols)
-            || parents_of(cols)
-                .iter()
-                .any(|parent| declared.contains(parent))
-        {
-            continue;
-        }
+    for feature in assemble(&rows, level)? {
         keep(feature, region, &mut features);
     }
     Ok(features)
+}
+
+/// What a row is to the transcript it belongs to, for the rows that are
+/// pieces of one rather than things of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// An exon, whatever its kind: `exon`, `noncoding_exon`, `pseudogenic_exon`.
+    Exon,
+    /// What codes: a CDS, and the start and stop codons GTF writes apart
+    /// from it, the stop outside it.
+    Coding,
+    /// An untranslated region, which is part of an exon.
+    Untranslated,
+}
+
+/// The part a row of this type is, if it is one.
+fn part(kind: &str) -> Option<Part> {
+    let kind = kind.to_ascii_lowercase();
+    match kind.as_str() {
+        "exon" => Some(Part::Exon),
+        "cds" | "start_codon" | "stop_codon" => Some(Part::Coding),
+        "five_prime_utr" | "three_prime_utr" | "utr" | "5utr" | "3utr" | "utr5" | "utr3" => {
+            Some(Part::Untranslated)
+        }
+        _ if kind.ends_with("_exon") => Some(Part::Exon),
+        _ => None,
+    }
+}
+
+/// Whether a row of this type is a gene, and so not a transcript of anything:
+/// a gene under an operon makes the operon a cluster of genes, which has no
+/// exons of its own to draw.
+fn gene_level(kind: &str) -> bool {
+    let kind = kind.to_ascii_lowercase();
+    kind == "gene" || kind == "pseudogene" || kind.ends_with("_gene")
+}
+
+/// What a node is known by: the name a row declares or a part names, or,
+/// for a row that declares none, where it is in the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Key<'a> {
+    Named(&'static str, &'a str),
+    Row(usize),
+}
+
+/// A gene, a transcript, or something else a row declares, with what the
+/// file says is under it.
+#[derive(Debug)]
+struct Node<'a> {
+    /// Its own row, read, or none for a parent only its parts name.
+    row: Option<Feature>,
+    /// Its row's type, empty for a parent with no row.
+    kind: &'a str,
+    /// The first row that mentions it, which is the order genes come back in.
+    first: usize,
+    /// The pieces under it: exons, coding stretches, untranslated ones.
+    parts: Vec<(Part, u64, u64)>,
+    /// What is under it that is not a piece: the transcripts of a gene.
+    children: Vec<Key<'a>>,
+    /// What it is under.
+    parents: Vec<Key<'a>>,
+    /// For a parent with no row: where its members reach, their strand, and
+    /// the names they give it.
+    reach: Option<(u64, u64)>,
+    strand: Strand,
+    names: Vec<String>,
+}
+
+impl<'a> Node<'a> {
+    fn new(first: usize) -> Self {
+        Node {
+            row: None,
+            kind: "",
+            first,
+            parts: Vec::new(),
+            children: Vec::new(),
+            parents: Vec::new(),
+            reach: None,
+            strand: Strand::Unknown,
+            names: Vec::new(),
+        }
+    }
+
+    /// Takes in a member's span and strand, for a node with no row of its own.
+    fn reaches(&mut self, start: u64, end: u64, strand: Strand) {
+        self.reach = Some(match self.reach {
+            Some((from, to)) => (from.min(start), to.max(end)),
+            None => (start, end),
+        });
+        if self.strand == Strand::Unknown {
+            self.strand = strand;
+        }
+    }
+
+    /// The node as a feature with nothing under it yet: its own row, or, for
+    /// a parent only its members name, their reach under the name they agree
+    /// on, or the one they call it by.
+    fn feature(&self, key: Key<'_>) -> Feature {
+        if let Some(row) = &self.row {
+            return row.clone();
+        }
+        let (start, end) = self.reach.unwrap_or((0, 1));
+        let mut feature = Feature::new(start, end).strand(self.strand);
+        let agreed = self
+            .names
+            .first()
+            .filter(|first| self.names.iter().all(|name| name == *first));
+        match (agreed, key) {
+            (Some(name), _) => feature = feature.name(name.clone()),
+            (None, Key::Named(_, id)) => feature = feature.name(percent_decode(id)),
+            (None, Key::Row(_)) => {}
+        }
+        feature
+    }
+}
+
+/// The exons and the coding stretches of one transcript, from its parts.
+///
+/// Exons come from its exon rows. A transcript written without any, as a
+/// gene over its CDS alone, is made of its coding and untranslated pieces,
+/// reaching out to its own ends, which are untranslated where nothing says
+/// otherwise rather than introns: a gene row longer than its CDS is a gene
+/// with ends that do not code.
+/// The exons of a transcript and the stretches of it that code.
+struct Shape {
+    exons: Vec<(u64, u64)>,
+    coding: Vec<(u64, u64)>,
+}
+
+fn structure(node: &Node<'_>, span: (u64, u64)) -> Shape {
+    let of = |which: &[Part]| -> Vec<(u64, u64)> {
+        node.parts
+            .iter()
+            .filter(|(part, _, _)| which.contains(part))
+            .map(|&(_, start, end)| (start, end))
+            .collect()
+    };
+    let coding = of(&[Part::Coding]);
+    let mut exons = of(&[Part::Exon]);
+    if exons.is_empty() {
+        let mut pieces = of(&[Part::Coding, Part::Untranslated]);
+        pieces.sort_unstable();
+        for (start, end) in pieces {
+            match exons.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => exons.push((start, end)),
+            }
+        }
+        if let Some(first) = exons.first_mut() {
+            first.0 = first.0.min(span.0);
+        }
+        if let Some(last) = exons.last_mut() {
+            last.1 = last.1.max(span.1);
+        }
+    }
+    Shape { exons, coding }
+}
+
+/// A feature with nothing to show in its structure is left as one piece: one
+/// exon from end to end, and a coding stretch from end to end or none.
+fn one_piece(mut feature: Feature) -> Feature {
+    if feature.exons[..] == [(feature.start, feature.end)] {
+        feature.exons.clear();
+    }
+    if feature.exons.is_empty() && feature.coding[..] == [(feature.start, feature.end)] {
+        feature.coding.clear();
+    }
+    feature
+}
+
+/// Puts the levels of a GFF3 or GTF annotation back together into features.
+///
+/// A row that is a part (an exon, a CDS, an untranslated region) belongs to
+/// the transcript it names, and a transcript to the gene it names, whether or
+/// not the file has a row for either: a GTF of exons alone, as a table browser
+/// writes it, names its transcript and its gene in every row, and those two
+/// are what it draws. A GFF3 names parents with `Parent=` and `Derives_from=`,
+/// a GTF with `transcript_id` and `gene_id`.
+///
+/// A gene is its own row with the exons of every transcript under it, or at
+/// [`Level::Transcript`] each transcript is. Anything deeper than a transcript
+/// that is not a part, a polypeptide or an intron row, is under it and not
+/// drawn, as it was not before. A row under nothing is drawn as it stands.
+fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, ReadError> {
+    let mut nodes: BTreeMap<Key<'_>, Node<'_>> = BTreeMap::new();
+    for (index, (at, cols)) in rows.iter().enumerate() {
+        // Read before anything else, so a broken row stops the file on its
+        // line whether or not it would have been drawn.
+        let feature = gff3(cols, *at)?;
+        if describes_sequence(cols) {
+            continue;
+        }
+        let kind = cols.get(2).map_or("", |kind| kind.trim());
+        let parents: Vec<Key<'_>> = parents_of(cols)
+            .into_iter()
+            .map(|(space, name)| Key::Named(space, name))
+            .collect();
+        let attributes = cols.get(8).copied().unwrap_or_default();
+
+        if let (Some(part), false) = (part(kind), parents.is_empty()) {
+            // A part belongs to every transcript a GFF3 row names, and to the
+            // transcript of a GTF row, or its gene where it names none.
+            let owners: Vec<Key<'_>> =
+                if parents.iter().any(|key| matches!(key, Key::Named("id", _))) {
+                    parents.clone()
+                } else {
+                    parents.iter().take(1).copied().collect()
+                };
+            for owner in owners {
+                let node = nodes.entry(owner).or_insert_with(|| Node::new(index));
+                node.parts.push((part, feature.start, feature.end));
+                if node.row.is_none() {
+                    node.reaches(feature.start, feature.end, feature.strand);
+                    // What the part calls its transcript, where it says: a
+                    // GTF row always does, a GFF3 exon mostly does not.
+                    let name = match owner {
+                        Key::Named("transcript", id) => Some(
+                            gtf_attribute(attributes, "transcript_name")
+                                .unwrap_or(id)
+                                .to_string(),
+                        ),
+                        Key::Named("gene", id) => Some(
+                            gtf_attribute(attributes, "gene_name")
+                                .unwrap_or(id)
+                                .to_string(),
+                        ),
+                        _ => feature.name.clone(),
+                    };
+                    node.names.extend(name);
+                    // A GTF transcript with no row still belongs to its gene.
+                    if let Key::Named("transcript", _) = owner {
+                        for parent in parents.iter().skip(1) {
+                            if !node.parents.contains(parent) {
+                                node.parents.push(*parent);
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        let key =
+            declared_as(cols).map_or(Key::Row(index), |(space, name)| Key::Named(space, name));
+        let node = nodes.entry(key).or_insert_with(|| Node::new(index));
+        node.first = node.first.min(index);
+        node.kind = kind;
+        node.row = Some(feature);
+        node.names.clear();
+        node.reach = None;
+        node.parents = parents;
+    }
+
+    // Each node under the ones it names. A GTF gene the file never writes is
+    // made from its transcripts, since every GTF row names its gene and a
+    // file without gene rows still has genes. A GFF3 parent the file never
+    // writes is only a word, and the row naming it stands on its own, as it
+    // always did: a gene under an operon that is not in the file is a gene.
+    let keys: Vec<Key<'_>> = nodes.keys().copied().collect();
+    for key in keys {
+        let parents: Vec<Key<'_>> = nodes[&key]
+            .parents
+            .iter()
+            .copied()
+            .filter(|parent| nodes.contains_key(parent) || matches!(parent, Key::Named("gene", _)))
+            .collect();
+        if let Some(node) = nodes.get_mut(&key) {
+            node.parents = parents.clone();
+        }
+        let first = nodes[&key].first;
+        let (start, end, strand, name) = {
+            let feature = nodes[&key].feature(key);
+            (feature.start, feature.end, feature.strand, feature.name)
+        };
+        for parent in parents {
+            let node = nodes.entry(parent).or_insert_with(|| Node::new(first));
+            node.first = node.first.min(first);
+            node.children.push(key);
+            if node.row.is_none() {
+                node.reaches(start, end, strand);
+                let named = match (parent, rows.get(first)) {
+                    (Key::Named("gene", id), Some((_, cols))) => Some(
+                        gtf_attribute(cols.get(8).copied().unwrap_or_default(), "gene_name")
+                            .unwrap_or(id)
+                            .to_string(),
+                    ),
+                    _ => name.clone(),
+                };
+                node.names.extend(named);
+            }
+        }
+    }
+
+    let mut tops: Vec<(usize, Key<'_>)> = nodes
+        .iter()
+        .filter(|(_, node)| node.parents.is_empty())
+        .map(|(key, node)| (node.first, *key))
+        .collect();
+    tops.sort_unstable();
+
+    let mut out = Vec::new();
+    for (_, key) in tops {
+        let top = &nodes[&key];
+        let feature = top.feature(key);
+        // A cluster of genes, as an operon over the genes it holds, has no
+        // exons of its own, and neither has anything with no parts under it.
+        let children: Vec<(usize, Key<'_>)> = {
+            let mut children: Vec<(usize, Key<'_>)> = top
+                .children
+                .iter()
+                .map(|child| (nodes[child].first, *child))
+                .collect();
+            children.sort_unstable();
+            children.dedup();
+            children
+        };
+        if children
+            .iter()
+            .any(|(_, child)| gene_level(nodes[child].kind))
+        {
+            out.push(feature);
+            continue;
+        }
+        let mut transcripts: Vec<(Feature, Shape)> = Vec::new();
+        if !top.parts.is_empty() {
+            let shape = structure(top, (feature.start, feature.end));
+            transcripts.push((feature.clone(), shape));
+        }
+        for (_, child) in &children {
+            let node = &nodes[child];
+            let own = node.feature(*child);
+            let shape = structure(node, (own.start, own.end));
+            transcripts.push((own, shape));
+        }
+        if transcripts.is_empty() {
+            out.push(feature);
+            continue;
+        }
+        match level {
+            Level::Gene => {
+                let count = transcripts.len();
+                let mut exons = Vec::new();
+                let mut coding = Vec::new();
+                for (own, mut shape) in transcripts {
+                    // A transcript with nothing under it is all exon.
+                    if shape.exons.is_empty() {
+                        shape.exons.push((own.start, own.end));
+                    }
+                    exons.extend(shape.exons);
+                    coding.extend(shape.coding);
+                }
+                let mut gene = feature.exons(exons).coding(coding);
+                if count > 1 {
+                    gene = gene.transcripts(count);
+                }
+                out.push(one_piece(gene));
+            }
+            Level::Transcript => {
+                let gene = feature.name.clone();
+                for (own, shape) in transcripts {
+                    let mut transcript = own.exons(shape.exons).coding(shape.coding);
+                    if let Some(gene) = gene
+                        .clone()
+                        .filter(|gene| Some(gene) != transcript.name.as_ref())
+                    {
+                        transcript = transcript.gene(gene);
+                    }
+                    out.push(one_piece(transcript));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Keeps a feature that touches the window.
@@ -395,7 +788,58 @@ pub(crate) fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     if let Some(strand) = cols.get(5) {
         feature = feature.strand(strand_of(strand));
     }
-    Ok(feature)
+    Ok(one_piece(
+        feature
+            .exons(blocks(cols, start, end))
+            .coding(thick(cols, start, end)),
+    ))
+}
+
+/// The coding stretch of a BED row of eight columns or more: its thickStart
+/// and thickEnd, where they are a stretch of the row.
+///
+/// Read only where they make sense, because narrowPeak and the other formats
+/// grown out of BED spend the same two columns on a signal and a p-value, and a
+/// peak coloured as if it coded is a claim nobody made. A thickStart equal to
+/// the thickEnd is how BED says nothing codes, so it is no stretch at all.
+fn thick(cols: &[&str], start: u64, end: u64) -> Option<(u64, u64)> {
+    let at = |index: usize| cols.get(index)?.trim().parse::<u64>().ok();
+    let (from, to) = (at(6)?, at(7)?);
+    (start <= from && from < to && to <= end).then_some((from, to))
+}
+
+/// The exons of a BED12 row: blockCount, blockSizes and blockStarts, the
+/// starts counted from the row's own start.
+///
+/// All or nothing, and only where every block lies inside the row: a list
+/// one short, or a block past the end, is a file this reader cannot vouch for,
+/// and the row is drawn as the one interval its first three columns say.
+fn blocks(cols: &[&str], start: u64, end: u64) -> Vec<(u64, u64)> {
+    let list = |index: usize| -> Option<Vec<u64>> {
+        cols.get(index)?
+            .trim()
+            .split(',')
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().parse::<u64>().ok())
+            .collect()
+    };
+    let read = || -> Option<Vec<(u64, u64)>> {
+        let count = cols.get(9)?.trim().parse::<usize>().ok()?;
+        let (sizes, starts) = (list(10)?, list(11)?);
+        if count == 0 || sizes.len() != count || starts.len() != count {
+            return None;
+        }
+        starts
+            .iter()
+            .zip(&sizes)
+            .map(|(&offset, &size)| {
+                let from = start.checked_add(offset)?;
+                let to = from.checked_add(size)?;
+                (to <= end).then_some((from, to))
+            })
+            .collect()
+    };
+    read().unwrap_or_default()
 }
 
 /// One GFF3 row, whose start counts from one and whose end is included.
@@ -829,6 +1273,195 @@ chr1\tRefSeq\tpseudogene\t5000\t6000\t.\t-\t.\tID=gene-B;Name=geneB
         let features = read(text, "chr1:1-20000", None);
         assert_eq!(names(&features), ["geneA", "geneB"]);
         assert_eq!((features[0].start, features[0].end), (1_499, 2_900));
+        // Drawn once, and with what the other levels said about it: two
+        // exons, and the CDS inside them.
+        assert_eq!(features[0].exons, [(1_499, 1_900), (2_299, 2_900)]);
+        assert_eq!(features[0].coding, [(1_549, 1_900), (2_299, 2_800)]);
+        assert_eq!(features[0].transcripts, 0);
+        assert!(features[1].exons.is_empty() && features[1].coding.is_empty());
+    }
+
+    /// Ensembl writes a gene, its transcripts, and each transcript's exons,
+    /// CDS and untranslated regions. A gene is drawn once with every exon any
+    /// transcript uses, or each transcript is, naming its gene.
+    const ENSEMBL: &str = "\
+##gff-version 3
+7\tensembl\tgene\t1001\t9000\t.\t+\t.\tID=gene:G1;Name=GENE1
+7\tensembl\tmRNA\t1001\t9000\t.\t+\t.\tID=transcript:T1;Parent=gene:G1;Name=GENE1-201
+7\tensembl\tfive_prime_UTR\t1001\t1200\t.\t+\t.\tParent=transcript:T1
+7\tensembl\texon\t1001\t1500\t.\t+\t.\tParent=transcript:T1
+7\tensembl\tCDS\t1201\t1500\t.\t+\t0\tID=CDS:P1;Parent=transcript:T1
+7\tensembl\texon\t4001\t4500\t.\t+\t.\tParent=transcript:T1
+7\tensembl\tCDS\t4001\t4500\t.\t+\t0\tID=CDS:P1;Parent=transcript:T1
+7\tensembl\texon\t8001\t9000\t.\t+\t.\tParent=transcript:T1
+7\tensembl\tCDS\t8001\t8600\t.\t+\t1\tID=CDS:P1;Parent=transcript:T1
+7\tensembl\tmRNA\t1001\t9000\t.\t+\t.\tID=transcript:T2;Parent=gene:G1;Name=GENE1-202
+7\tensembl\texon\t1001\t1500\t.\t+\t.\tParent=transcript:T2
+7\tensembl\texon\t6001\t6300\t.\t+\t.\tParent=transcript:T2
+7\tensembl\texon\t8001\t9000\t.\t+\t.\tParent=transcript:T2
+7\tensembl\tncRNA_gene\t12001\t15000\t.\t-\t.\tID=gene:G2;Name=LINC1
+7\tensembl\tlnc_RNA\t12001\t15000\t.\t-\t.\tID=transcript:T3;Parent=gene:G2;Name=LINC1-201
+7\tensembl\texon\t12001\t12500\t.\t-\t.\tParent=transcript:T3
+7\tensembl\texon\t14001\t15000\t.\t-\t.\tParent=transcript:T3
+";
+
+    #[test]
+    fn a_gene_is_drawn_once_with_every_exon_its_transcripts_use() {
+        let genes = read(ENSEMBL, "7:1-20000", None);
+        assert_eq!(names(&genes), ["GENE1", "LINC1"]);
+        let gene = &genes[0];
+        assert_eq!((gene.start, gene.end), (1_000, 9_000));
+        assert_eq!(
+            gene.exons,
+            [
+                (1_000, 1_500),
+                (4_000, 4_500),
+                (6_000, 6_300),
+                (8_000, 9_000)
+            ]
+        );
+        assert_eq!(
+            gene.coding,
+            [(1_200, 1_500), (4_000, 4_500), (8_000, 8_600)]
+        );
+        assert_eq!(gene.transcripts, 2);
+        assert_eq!(gene.strand, Strand::Forward);
+        // Nothing codes in a long non-coding RNA, so its exons are drawn at
+        // full height rather than as one long untranslated region.
+        assert_eq!(genes[1].exons, [(12_000, 12_500), (14_000, 15_000)]);
+        assert!(genes[1].coding.is_empty());
+        assert_eq!(genes[1].transcripts, 0);
+    }
+
+    #[test]
+    fn each_transcript_is_a_feature_naming_its_gene_when_asked_for() {
+        let each = transcripts(ENSEMBL, &region("7:1-20000"), None).unwrap();
+        assert_eq!(names(&each), ["GENE1-201", "GENE1-202", "LINC1-201"]);
+        assert_eq!(
+            each[0].exons,
+            [(1_000, 1_500), (4_000, 4_500), (8_000, 9_000)]
+        );
+        assert_eq!(
+            each[0].coding,
+            [(1_200, 1_500), (4_000, 4_500), (8_000, 8_600)]
+        );
+        assert_eq!(
+            each[1].exons,
+            [(1_000, 1_500), (6_000, 6_300), (8_000, 9_000)]
+        );
+        assert!(each[1].coding.is_empty());
+        assert_eq!(each[0].gene.as_deref(), Some("GENE1"));
+        assert_eq!(each[2].gene.as_deref(), Some("LINC1"));
+        assert_eq!(each[0].transcripts, 0);
+    }
+
+    /// A bacterial gene is written over its CDS, and is the arrow it always
+    /// was: this is what keeps every figure without introns as it was.
+    #[test]
+    fn a_gene_over_its_own_cds_is_one_piece() {
+        let text = "\
+##gff-version 3
+NC_000962.3\tRefSeq\tgene\t759807\t763325\t.\t+\t.\tID=gene-Rv0667;Name=rpoB
+NC_000962.3\tRefSeq\tCDS\t759807\t763325\t.\t+\t0\tID=cds-1;Parent=gene-Rv0667;Name=NP_1
+NC_000962.3\tRefSeq\tgene\t763370\t767320\t.\t+\t.\tID=gene-Rv0668;Name=rpoC
+NC_000962.3\tRefSeq\tCDS\t763370\t767000\t.\t+\t0\tID=cds-2;Parent=gene-Rv0668
+";
+        let genes = read(text, "NC_000962.3:759,000-768,000", None);
+        assert_eq!(
+            genes[0],
+            Feature::new(759_806, 763_325)
+                .name("rpoB")
+                .strand(Strand::Forward)
+        );
+        // A gene longer than its CDS has an end that does not code, and not an
+        // intron: one piece, drawn thinner past the CDS.
+        assert!(genes[1].exons.is_empty());
+        assert_eq!(genes[1].coding, [(763_369, 767_000)]);
+    }
+
+    #[test]
+    fn exons_whose_transcript_is_not_in_the_file_are_still_one_transcript() {
+        let text = "\
+##gff-version 3
+chr2\t.\texon\t100\t300\t.\t-\t.\tParent=tx9
+chr2\t.\texon\t701\t900\t.\t-\t.\tParent=tx9
+";
+        let genes = read(text, "chr2:1-1000", None);
+        assert_eq!(names(&genes), ["tx9"]);
+        assert_eq!(genes[0].exons, [(99, 300), (700, 900)]);
+        assert_eq!(genes[0].strand, Strand::Reverse);
+    }
+
+    #[test]
+    fn a_gene_under_an_operon_leaves_the_operon_drawn_as_it_was() {
+        let text = "\
+##gff-version 3
+chr1\t.\toperon\t100\t2000\t.\t+\t.\tID=op1;Name=opA
+chr1\t.\tgene\t100\t900\t.\t+\t.\tID=g1;Parent=op1;Name=a
+chr1\t.\tCDS\t100\t900\t.\t+\t0\tParent=g1
+chr1\t.\tgene\t1000\t2000\t.\t+\t.\tID=g2;Parent=op1;Name=b
+";
+        let genes = read(text, "chr1:1-3000", None);
+        assert_eq!(names(&genes), ["opA"]);
+        assert!(genes[0].exons.is_empty());
+    }
+
+    #[test]
+    fn a_gtf_codes_through_its_stop_codon() {
+        // GTF writes the stop codon outside the CDS, and it codes.
+        let text = "\
+chr1\tensembl\ttranscript\t101\t1000\t.\t+\t.\tgene_id \"G\"; transcript_id \"T\"; gene_name \"abc\";
+chr1\tensembl\texon\t101\t400\t.\t+\t.\tgene_id \"G\"; transcript_id \"T\";
+chr1\tensembl\tCDS\t201\t400\t.\t+\t0\tgene_id \"G\"; transcript_id \"T\";
+chr1\tensembl\texon\t601\t1000\t.\t+\t.\tgene_id \"G\"; transcript_id \"T\";
+chr1\tensembl\tCDS\t601\t797\t.\t+\t2\tgene_id \"G\"; transcript_id \"T\";
+chr1\tensembl\tstop_codon\t798\t800\t.\t+\t0\tgene_id \"G\"; transcript_id \"T\";
+";
+        let genes = read(text, "chr1:1-2000", None);
+        assert_eq!(names(&genes), ["abc"]);
+        assert_eq!(genes[0].exons, [(100, 400), (600, 1_000)]);
+        assert_eq!(genes[0].coding, [(200, 400), (600, 800)]);
+    }
+
+    /// UCSC writes a transcript per BED12 row: exons as blocks counted from
+    /// the row's start, and the coding stretch as its thick span.
+    #[test]
+    fn a_bed12_row_is_read_with_its_blocks_and_its_thick_span() {
+        let bed12 = "chr1\t1000\t9000\tNM_1\t0\t-\t1200\t8600\t0\t3\t500,500,1000,\t0,3000,7000,\n";
+        let feature = &read(bed12, "chr1:1-10000", None)[0];
+        assert_eq!(
+            feature.exons,
+            [(1_000, 1_500), (4_000, 4_500), (8_000, 9_000)]
+        );
+        assert_eq!(feature.coding, [(1_200, 8_600)]);
+        assert_eq!(feature.strand, Strand::Reverse);
+
+        // UCSC's default thick span is the whole row, which is one piece.
+        let bed9 = "chr7\t100\t900\tPos1\t0\t+\t100\t900\t255,0,0\n";
+        assert_eq!(
+            read(bed9, "chr7:1-1000", None)[0],
+            Feature::new(100, 900).name("Pos1").strand(Strand::Forward)
+        );
+        // Equal ends are how BED says nothing codes.
+        let noncoding = "chr7\t100\t900\tx\t0\t+\t900\t900\n";
+        assert!(read(noncoding, "chr7:1-1000", None)[0].coding.is_empty());
+        // A narrowPeak spends the same columns on a signal and a p-value,
+        // whole numbers as often as not, and they are no stretch of the row.
+        for peak in [
+            "chr7\t100\t900\tpeak1\t0\t.\t5.38\t12\t-1\t350\n",
+            "chr7\t100\t900\tpeak2\t0\t.\t12\t30\t-1\t350\n",
+        ] {
+            let feature = &read(peak, "chr7:1-1000", None)[0];
+            assert!(
+                feature.coding.is_empty() && feature.exons.is_empty(),
+                "{peak}"
+            );
+        }
+        // Block lists one short, or a block past the row, are not read.
+        let short = "chr1\t1000\t9000\tx\t0\t+\t1000\t9000\t0\t3\t500,500,\t0,3000,7000,\n";
+        assert!(read(short, "chr1:1-10000", None)[0].exons.is_empty());
+        let past = "chr1\t1000\t9000\tx\t0\t+\t1000\t9000\t0\t2\t500,5000,\t0,7000,\n";
+        assert!(read(past, "chr1:1-10000", None)[0].exons.is_empty());
     }
 
     #[test]
@@ -890,18 +1523,27 @@ chr1\tStringTie\texon\t100\t300\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"ST
 chr1\tStringTie\ttranscript\t100\t700\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.2\";
 chr1\tStringTie\texon\t500\t700\t.\t+\t.\tgene_id \"STRG.1\"; transcript_id \"STRG.1.2\";
 ";
-        assert_eq!(
-            names(&read(stringtie, "chr1:1-1000", None)),
-            ["STRG.1.1", "STRG.1.2"]
-        );
+        // Its two transcripts are one gene, which says it merged them, and
+        // each is a feature of its own when they are asked for one at a time.
+        let genes = read(stringtie, "chr1:1-1000", None);
+        assert_eq!(names(&genes), ["STRG.1"]);
+        assert_eq!(genes[0].transcripts, 2);
+        assert_eq!(genes[0].exons, [(99, 300), (499, 700)]);
+        let each = transcripts(stringtie, &region("chr1:1-1000"), None).unwrap();
+        assert_eq!(names(&each), ["STRG.1.1", "STRG.1.2"]);
+        assert_eq!(each[0].gene.as_deref(), Some("STRG.1"));
 
-        // A table browser GTF has exons and nothing above them, so each exon
-        // is drawn, under the gene it belongs to.
+        // A table browser GTF has exons and nothing above them, and every row
+        // names its transcript and its gene: one gene of two exons, drawn
+        // once, where each exon was drawn as a gene of its own.
         let exons = "\
 chr1\thg38\texon\t100\t300\t.\t+\t.\tgene_id \"NM_1\"; transcript_id \"NM_1\"; gene_name \"abc\";
 chr1\thg38\texon\t500\t700\t.\t+\t.\tgene_id \"NM_1\"; transcript_id \"NM_1\"; gene_name \"abc\";
 ";
-        assert_eq!(names(&read(exons, "chr1:1-1000", None)), ["abc", "abc"]);
+        let genes = read(exons, "chr1:1-1000", None);
+        assert_eq!(names(&genes), ["abc"]);
+        assert_eq!(genes[0].exons, [(99, 300), (499, 700)]);
+        assert_eq!((genes[0].start, genes[0].end), (99, 700));
     }
 
     #[test]

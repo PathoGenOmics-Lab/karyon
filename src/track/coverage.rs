@@ -36,7 +36,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::Theme;
-use crate::track::{unbroken, DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// How a coverage track is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -479,13 +479,9 @@ impl Track for CoverageTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
-        if !self.show_max {
-            return 0.0;
-        }
         // Room for the widest label this track could print. The data it holds
         // bounds every region it can be shown over, so the ends it would
         // round to over all of it bound the labels over any part of it.
-        let size = theme.font_size - 1.0;
         let whole = self
             .runs
             .iter()
@@ -494,24 +490,29 @@ impl Track for CoverageTrack {
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
             });
-        let widest = match self
-            .axis
-            .max
-            .or(self.max)
-            .or(whole)
-            .filter(|m| m.is_finite() && *m > 0.0)
-        {
-            Some(ceiling) => {
-                let (floor, ceiling, _) = self.ends(ceiling);
-                self.tick_values(floor, ceiling)
-                    .iter()
-                    .zip(self.tick_labels(floor, ceiling))
-                    .map(|(_, label)| text_width(&label, size))
-                    .fold(0.0f64, f64::max)
-            }
-            None => text_width("0", size),
-        };
-        widest + 8.0
+        self.axis_room(theme, whole)
+    }
+
+    fn y_axis_width_over(&self, theme: &Theme, _low: f64, high: f64) -> f64 {
+        self.axis_room(theme, Some(high))
+    }
+
+    /// Its depth, its units and its kind of scale: two profiles read off one
+    /// ceiling are the same quantity drawn the same way.
+    fn extent(&self, region: &Region) -> Option<Extent> {
+        if self.max.is_some() || self.axis.max.is_some() {
+            return None;
+        }
+        let high = self.visible_max(region)?;
+        let mut measure = String::from("coverage");
+        if let Some(title) = &self.title {
+            measure.push_str(" in ");
+            measure.push_str(title);
+        }
+        if self.log_scale {
+            measure.push_str(", log");
+        }
+        Some(Extent::new(measure, 0.0, high))
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -535,10 +536,14 @@ impl Track for CoverageTrack {
             ctx.theme.tokens.hairline,
         );
 
+        // A pin first, then the ceiling a figure of several shares, then the
+        // largest value in view. A shared ceiling is rounded as a free one is,
+        // so every profile reading it rounds it to the same top.
         let data_ceiling = self
             .axis
             .max
             .or(self.max)
+            .or(ctx.extent.map(|(_, high)| high))
             .or_else(|| self.visible_max(ctx.region))
             .filter(|m| m.is_finite() && *m > 0.0);
         let Some(data_ceiling) = data_ceiling else {
@@ -638,6 +643,33 @@ impl Track for CoverageTrack {
 }
 
 impl CoverageTrack {
+    /// The room the value axis takes when its labels run up to `ceiling`, or
+    /// to the pinned maximum, which wins.
+    fn axis_room(&self, theme: &Theme, ceiling: Option<f64>) -> f64 {
+        if !self.show_max {
+            return 0.0;
+        }
+        let size = theme.font_size - 1.0;
+        let widest = match self
+            .axis
+            .max
+            .or(self.max)
+            .or(ceiling)
+            .filter(|m| m.is_finite() && *m > 0.0)
+        {
+            Some(ceiling) => {
+                let (floor, ceiling, _) = self.ends(ceiling);
+                self.tick_values(floor, ceiling)
+                    .iter()
+                    .zip(self.tick_labels(floor, ceiling))
+                    .map(|(_, label)| text_width(&label, size))
+                    .fold(0.0f64, f64::max)
+            }
+            None => text_width("0", size),
+        };
+        widest + 8.0
+    }
+
     /// The floor, the labelled ceiling and the ceiling the band is scaled to.
     ///
     /// A free ceiling is rounded up to a value worth labelling, which is also

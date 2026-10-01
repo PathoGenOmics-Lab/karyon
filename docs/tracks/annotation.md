@@ -12,7 +12,7 @@ The Rust snippets use `?`, so they belong in a function that returns `Result<(),
 
 ## FeatureTrack { #featuretrack }
 
-Annotated intervals from BED or GFF3, packed onto as few rows as they need without touching: genes, exons, repeats, primers. Strand is an arrowhead, and a feature's colour follows its strand unless you give it one.
+Annotated intervals from BED or GFF3, packed onto as few rows as they need without touching: genes, exons, repeats, primers. Strand is an arrowhead, and a feature's colour follows its strand unless you give it one. A gene with introns is drawn as a gene model, [its exons over a line](#exons-and-isoforms).
 
 <figure class="k-plate" markdown>
 ![The rpoB gene running off both edges of a two kilobase window, with the resistance determining region boxed in a colour of its own, under a depth profile and the reference and above the variant calls](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
@@ -21,8 +21,8 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
 | | |
 |:--|:--|
 | Rust | `.add_features(features)` on `plot()`; `FeatureTrack::new(features)` |
-| Command line | `--features FILE`, with `--row-height`, `--no-names`, `--color`, `--format` |
-| Reads | BED, GFF3 or GTF, told apart by their columns, with a gene drawn once rather than again for each transcript, exon and CDS (`read::interval::features`) |
+| Command line | `--features FILE`, with `--isoforms`, `--row-height`, `--no-names`, `--color`, `--format` |
+| Reads | BED, GFF3 or GTF, told apart by their columns: a gene once with the exons of all its transcripts (`read::interval::features`), or each transcript on its own with `--isoforms` (`read::interval::transcripts`); a BED12 row with its blocks and its thick span |
 
 === "Rust"
 
@@ -44,6 +44,39 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
     ```bash
     karyon NC_000962.3:761,001-763,000 --features genes.gff3 --label genes -o genes.svg
     ```
+
+#### Exons and isoforms { #exons-and-isoforms }
+
+A feature that carries its exons is drawn the way a genome browser draws a gene: each exon a box, a line through the introns with arrows along it that point the way the gene runs, and the untranslated ends of the exons at half the height of the part that codes. The arrowhead sits on the exon the transcript ends in.
+
+<figure class="k-plate" markdown>
+![An illustrative thirty kilobase locus: RNA-seq depth over the exons of two genes, the splice junctions as arcs weighted by their reads, the two genes drawn once each with every exon their transcripts use, and then the four transcripts one to a row, one of which skips the third exon of the first gene and one of which starts at an exon of its own and codes nothing](../assets/figures/example-gene-models.svg){ width="880" height="317" loading="lazy" }
+</figure>
+
+From a GFF3 or GTF, a gene is drawn once with every exon any of its transcripts uses and the stretches any of them codes, and its tooltip says how many transcripts it merged. `--isoforms` draws each transcript on a row of its own instead, named as the file names it, with its gene in the tooltip. The exons come from the exon rows, or from the CDS and untranslated rows where a file writes none; a CDS is what codes, with a GTF's start and stop codons, and a transcript with no CDS, a non-coding RNA, is drawn at full height throughout. A BED12 row is one transcript: its blocks are the exons and its thick span what codes.
+
+=== "Rust"
+
+    ```rust
+    use karyon::{plot, Feature, Strand};
+
+    plot("chr2:1-30,000")?
+        .add_features(vec![Feature::new(2_000, 16_000)
+            .name("geneA")
+            .strand(Strand::Forward)
+            .exons([(2_000, 2_600), (5_200, 5_450), (14_600, 16_000)])
+            .coding([(2_350, 15_100)])])
+        .label("genes")
+        .save("gene.svg")?;
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon geneA annotation.gff3 --isoforms -o isoforms.svg
+    ```
+
+A coding span given from its first base to its last, as BED writes one, is drawn only where it falls on an exon. An intron narrower than a pixel is no gap on the page, so exons that close are drawn as one, and a gene too small on screen to show an intron is the arrow it would be without its exons. A gene over its own CDS, which is every gene of a bacterial annotation, is exactly that arrow.
 
 #### Options
 

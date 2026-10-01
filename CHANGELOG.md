@@ -8,6 +8,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
+  through its introns, with arrows along the line, and the untranslated ends
+  of the exons at half height. It was a solid bar from end to end, which for a
+  gene with introns says the opposite of the annotation about most of it. A
+  gene with several transcripts is drawn once with every exon any of them
+  uses, and its tooltip says how many it merged. A gene over its own CDS, as
+  in a bacterial annotation, is the arrow it was, so no committed figure
+  changes.
+- The depth of two samples on the "A whole sequence" page is drawn on one
+  scale (`--same-scale`): each on its own made the second sample, sequenced
+  deeper, look as deep as the first. `docs/assets/start/genome.svg` and its
+  dark copy change.
+- A GTF of exons alone, as a table browser writes one, draws a gene once with
+  its exons, where each exon was drawn as a gene of its own; StringTie's
+  transcripts with no gene row are one gene of two transcripts, each with
+  `--isoforms`.
+
 - A second place on the command line is a panel of its own, where it was
   refused as "one region per figure"; `ArgError::ExtraRegion` is gone.
 - The message for a figure with no place names every track that goes
@@ -309,6 +326,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
+  the same thing on one scale: coverage in the same units on the same kind of
+  scale, windows about the same baseline, scans of the same statistic. Each
+  profile was scaled to its own largest value, so two samples side by side
+  were two scales the eye reads as one. A track whose maximum was pinned keeps
+  it. `Track::extent`, `Track::y_axis_width_over` and `DrawContext::extent`
+  are how a track takes part, and `Figure::extents` with
+  `Figure::share_extents` share a scale across the panels of a sheet.
+- `--same-scale` on the command line does the same, across every panel of a
+  figure of several places, and `--max` pins the top of a coverage, a
+  recombination rate or a scan, for figures drawn apart. `--ymax` and
+  `--autoscale`, as other tools spell them, are answered with these two.
+- `Feature::exons`, `Feature::coding`, `Feature::transcripts` and
+  `Feature::gene`, and `FeatureTrack` draws a feature that carries them as a
+  gene model. Exons closer than a pixel are drawn as one, and a model too
+  small on screen to show an intron is drawn as the plain arrow.
+- `--isoforms` after an annotation draws each transcript on a row of its own,
+  named as the file names it, with its gene in the tooltip;
+  `read::interval::transcripts` is the reader behind it.
+- A BED12 row is read with its blocks as exons and its thick span as what
+  codes, where they lie inside the row: a narrowPeak spends the same columns
+  on other numbers, and those are not read.
+- `example-gene-models.svg`, an illustrative locus of RNA-seq depth, splice
+  junctions, two genes drawn once and their four transcripts, in the
+  annotation reference.
 - A scan with no place is drawn across the whole genome: `karyon trait.assoc`
   lays every sequence the `--manhattan` tables name end to end, in the order
   chromosomes are counted (the numbered ones, X, Y, the mitochondrion, then

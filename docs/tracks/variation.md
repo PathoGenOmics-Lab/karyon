@@ -350,7 +350,7 @@ Association statistics: one point per test, height by significance, a line where
 | | |
 |:--|:--|
 | Rust | `.add_manhattan(points)` on `plot()`; `ManhattanTrack::new(points)` |
-| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--with-recombination`, `--height` |
+| Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--with-recombination`, `--max`, `--height`; `--same-scale` puts several scans on one scale |
 | Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`) |
 
 === "Rust"
@@ -390,7 +390,7 @@ Association statistics: one point per test, height by significance, a line where
 | `.threshold_label("FDR 5%")` | Words on the line in place of its value; `""` for none | the value |
 | `.bands(genome.boundaries())` | Alternates the point colour at each position, for sequences laid end to end | none |
 | `.radius(3.0)` | Radius of a point | `2.2` |
-| `.max(12.0)` | Pins the top of the axis | the tallest point or the threshold, rounded up |
+| `.max(12.0)` | Pins the top of the axis (`--max`) | the tallest point or the threshold, rounded up |
 | `.axis(QuantitativeAxis::new())` | Replaces the value axis | automatic |
 | `.color("#9ca3af")` | Colour of points below the line | theme muted grey |
 | `.significant_color("#d55e00")` | Colour of points at or above it | a palette colour |

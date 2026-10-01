@@ -161,6 +161,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--focus", "a"),
     ("--compare-to", "r"),
     ("--min-reads", "2"),
+    ("--max", "100"),
     ("--growth", "0.1"),
     ("--center", "0"),
     ("--min-total", "5"),
@@ -404,8 +405,9 @@ TRACKS
                          crossed them, an aligner's SJ.out.tab
     --sequence <FILE>    the reference bases, FASTA
     --features <FILE>    genes and other intervals, BED, GFF3 or GTF; a gene
-                         is drawn once, not again for its transcripts, exons
-                         and CDS
+                         is drawn once, with the exons its transcripts use
+                         over a line through its introns, and the ends that
+                         do not code at half height
     --variants <FILE>    point calls, VCF
     --windows <FILE>     a statistic in windows, bedGraph
     --manhattan <FILE>   association statistics, a table of position and value;
@@ -618,6 +620,9 @@ TRACK OPTIONS, each describing the track before it, once
     --no-names           leave out the name written on or beside each thing a
                          track draws, which is not the track's own name in the
                          gutter: that one is --label
+    --isoforms           draw each transcript of an annotation on a row of its
+                         own, named as the file names it, rather than each gene
+                         once with every exon any of its transcripts uses
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants, differences
@@ -625,6 +630,9 @@ TRACK OPTIONS, each describing the track before it, once
                          frequencies, triangle or arcs for pairs
     --log                a log scale, for coverage, for an estimate over time
                          and for the colours of pairs, as a contact map is read
+    --max <V>            the top of the scale of a coverage, a recombination
+                         rate or a scan, pinned, as 100 for a depth, so figures
+                         drawn apart are read off one ceiling
     --color <HEX>        as in '#d55e00'
     --format <NAME>      bedgraph, depth or values for coverage, bed or gff3
                          for features and loci, when the file cannot be told
@@ -642,6 +650,10 @@ FIGURE OPTIONS
                          the strips of a --traits sheet are painted in, and
                          to the bases where they are blocks too narrow for
                          their letters
+    --same-scale         draw the tracks that measure the same thing on one
+                         scale, as the depths of several samples, in every
+                         panel, so the same height is the same value; a track
+                         given --max keeps its own
     --rename <FROM=TO>   read a sequence a file calls FROM as the figure's TO,
                          as --rename 1=NC_000962.3 for a PLINK table beside a
                          FASTA; several joined by commas, or the flag again
@@ -848,15 +860,29 @@ mod tests {
         answered.sort_unstable();
         assert_eq!(listed, answered, "args::FLAGS and the parse loop disagree");
         for flag in &flags {
-            assert!(
-                HELP.contains(flag.as_str()),
-                "{flag} is not in the help text"
-            );
-            assert!(
-                GUIDE.contains(flag.as_str()),
-                "{flag} is not in docs/guide/cli.md"
-            );
+            assert!(names(HELP, flag), "{flag} is not in the help text");
+            assert!(names(GUIDE, flag), "{flag} is not in docs/guide/cli.md");
         }
+    }
+
+    /// Whether `text` writes `flag` as a word of its own, and not only as the
+    /// start of a longer one: `--max` is in `--max-rows`, and `--color` in
+    /// `--color-by`, so a flag missing from the help was found inside its
+    /// neighbour's name and the check passed.
+    fn names(text: &str, flag: &str) -> bool {
+        let part = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-');
+        text.match_indices(flag).any(|(at, _)| {
+            !part(text[..at].chars().next_back()) && !part(text[at + flag.len()..].chars().next())
+        })
+    }
+
+    #[test]
+    fn a_flag_is_named_as_a_word_and_not_inside_a_longer_one() {
+        assert!(names("--max <V> the top", "--max"));
+        assert!(names("`--max`, and", "--max"));
+        assert!(!names("--max-rows <N>", "--max"));
+        assert!(!names("--no-max", "--max"));
+        assert!(names("--color-by KEY, or --color", "--color"));
     }
 
     /// Every option that takes a value takes one: given twice, to one track or

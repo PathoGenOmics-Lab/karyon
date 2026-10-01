@@ -420,9 +420,17 @@ can sit anywhere in the chain.
 | `track_gap(f64)` | `12.0` | the vertical gap between tracks |
 | `remove_region_label()` | shown | leaves out the locus at the top right |
 | `remove_axis()` | appended | leaves out the automatic ruler |
+| `same_scale()` | each track to its own values | draws the tracks that measure the same thing on one scale: several depths read off one ceiling (`--same-scale`) |
 
 - **The height is not a setting.** It follows from the tracks, each of which
   says how tall it wants to be. See [How the layout works](#how-the-layout-works).
+- **`same_scale` shares a scale between tracks that measure one thing**:
+  coverage in the same units on the same kind of scale, windows about the
+  same baseline, scans of the same statistic. A track whose maximum you
+  pinned keeps it. Across the panels of a sheet, join what each figure
+  measures with `Extent::join` over `Figure::extents`, and hand the result to
+  each one's `Figure::share_extents`; the command line does this for a
+  figure of several places.
 - **`profile` replaces the theme, the visual scale and the density**, so call it
   before any of the three you want to set yourself. The profiles are on
   [Styling](theming.md).

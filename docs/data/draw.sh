@@ -25,7 +25,7 @@ draw genome-scan trait.assoc --threshold genome-wide
 draw tree tree.nwk --traits samples.tsv --columns lineage,country
 draw alignment --msa aln.fasta --with-tree tree.nwk
 draw assemblies asm1_chr1 assemblies.paf
-draw genome NC_000962.3 sampleA.bedgraph sampleB.bedgraph
+draw genome NC_000962.3 sampleA.bedgraph sampleB.bedgraph --same-scale
 draw locus 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
   --with-recombination genetic_map.txt
 draw heatmap NC_000962.3 --heatmap depths.tsv --relative --with-tree tree.nwk --label depth

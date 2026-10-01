@@ -21,7 +21,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | | |
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
-| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb |
+| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--max`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb; `--same-scale` puts several on one scale |
 | Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a genetic map as HapMap writes one (`read::recombination::rates`) |
 
 === "Rust"
@@ -54,7 +54,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | `.aggregate(Aggregate::Min)` | How a pixel column covering many bases is reduced: `Max`, `Mean` or `Min` (`--aggregate`) | `Max` |
 | `.style(CoverageStyle::Line)` | `Area`, `Line` or `Bars` (`--style area`, `line` or `bars`) | `Area` |
 | `.axis_title("cM/Mb")` | What the value axis measures, under the track's name | none; `cM/Mb` from `--recombination` |
-| `.max(120.0)` | Pins the top of the axis, taken literally | the largest value on screen, plus six per cent |
+| `.max(120.0)` | Pins the top of the axis, taken literally (`--max`) | the largest value on screen, plus six per cent |
 | `.log_scale(true)` | Plots `log10(1 + value)`, still labelled in the original units (`--log`) | off |
 | `.color("#0072b2")` | Colour of the profile (`--color`) | theme accent |
 | `.fill_opacity(0.4)` | Fill opacity, from 0 to 1 | `0.18` for an area, solid for bars |
@@ -65,7 +65,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 
 When a pixel covers many bases, the aggregate is a claim about what you are looking for. `Max`, the default, keeps a one-base spike visible across a megabase, which is what you want when hunting duplications; across the same view it draws a 300 bp deletion flat. `Min` shows the dropout. Whatever the region, the SVG holds at most one point per pixel column.
 
-The ceiling moves with the view unless it is pinned, so pin `max` whenever two samples sit side by side, or the eye reads two scales as one. `log_scale` is the other way to fit a thousandfold range into one band.
+The ceiling moves with the view unless it is pinned, and each profile has its own, so two samples side by side are two scales the eye reads as one. Put them on one scale with `same_scale()` on the plot (`--same-scale`), which reads every profile in the same units off the ceiling of the deepest, or pin `max` (`--max`) for figures drawn apart. `log_scale` is the other way to fit a thousandfold range into one band.
 
 `CoverageTrack::new` draws only the values it holds: bases outside them are not drawn, and non-finite values are missing, so a gap in the input stays a gap. `from_spans` and `from_pairs` span the region, not the genome, and leave every base they are not given at nought, which is what a bedGraph means by leaving it out. The command line reads the same way.
 

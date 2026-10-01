@@ -1,13 +1,14 @@
-//! Renders the four figures whose shape belongs to genomics and nowhere else.
+//! Renders the five figures whose shape belongs to genomics and nowhere else.
 //!
 //! ```text
 //! cargo run --example shapes -- assets
 //! ```
 //!
 //! Structural variants as arcs between their breakpoints, the six reading
-//! frames with their stops, two trees face to face, and methylation one
-//! molecule at a time. Four organisms, because the forms are not about any of
-//! them.
+//! frames with their stops, two trees face to face, methylation one molecule
+//! at a time, and genes with their introns, once a gene and once a transcript.
+//! Four organisms and an illustrative locus, because the forms are not about
+//! any of them.
 
 use std::env;
 use std::fs;
@@ -44,6 +45,10 @@ fn main() -> std::io::Result<()> {
         (
             "example-bisulfite.svg",
             figures::example_bisulfite(&light, None, None),
+        ),
+        (
+            "example-gene-models.svg",
+            figures::example_gene_models(&light, None, None),
         ),
     ] {
         fs::write(out.join(file), figure.to_svg_with_id_prefix(""))?;

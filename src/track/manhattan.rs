@@ -36,11 +36,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis, Symbol};
 use crate::svg::Anchor;
 use crate::theme::{mix, Theme};
-use crate::track::{DrawContext, Track};
+use crate::track::{DrawContext, Extent, Track};
 
 /// One tested position and what the test said about it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -416,7 +417,13 @@ impl ManhattanTrack {
         if self.axis.max.or(self.max).is_some() {
             return self.axis.resolve(0.0, self.ceiling());
         }
-        let (floor, ceiling) = self.axis.resolve(0.0, self.tallest().max(1e-9));
+        self.range_to(self.tallest())
+    }
+
+    /// The floor and ceiling when the tallest point, or the threshold, is at
+    /// `tallest`: the scale of this scan alone, or the one several share.
+    fn range_to(&self, tallest: f64) -> (f64, f64) {
+        let (floor, ceiling) = self.axis.resolve(0.0, tallest.max(1e-9));
         self.axis.nice(floor, ceiling)
     }
 
@@ -501,6 +508,29 @@ impl Track for ManhattanTrack {
         self.axis.label_room(floor, ceiling, theme.font_size - 1.0) + 8.0
     }
 
+    fn y_axis_width_over(&self, theme: &Theme, _low: f64, high: f64) -> f64 {
+        if !self.show_scale || self.points.is_empty() {
+            return 0.0;
+        }
+        let (floor, ceiling) = self.range_to(high);
+        self.axis.label_room(floor, ceiling, theme.font_size - 1.0) + 8.0
+    }
+
+    /// Its statistic, by the title of its axis: two scans of p-values read
+    /// off one ceiling, and a scan of p-values never off the scale of a
+    /// statistic drawn as it stands.
+    fn extent(&self, _region: &Region) -> Option<Extent> {
+        if self.axis.max.or(self.max).is_some() || self.points.is_empty() {
+            return None;
+        }
+        let mut measure = String::from("association");
+        if let Some(title) = &self.title {
+            measure.push_str(" in ");
+            measure.push_str(title);
+        }
+        Some(Extent::new(measure, 0.0, self.tallest()))
+    }
+
     /// Room on the right for the scale the recombination rate is read off,
     /// and its unit over it.
     fn right_axis_width(&self, theme: &Theme) -> f64 {
@@ -531,7 +561,10 @@ impl Track for ManhattanTrack {
         if self.points.is_empty() {
             return;
         }
-        let (floor, ceiling) = self.range();
+        let (floor, ceiling) = match ctx.extent {
+            Some((_, high)) => self.range_to(high),
+            None => self.range(),
+        };
         let y_of =
             |value: f64| baseline - ((value - floor) / (ceiling - floor)).clamp(0.0, 1.0) * band.h;
         let size = ctx.theme.font_size - 1.0;
@@ -888,6 +921,27 @@ mod tests {
 
     fn region() -> Region {
         Region::new("chr1", 0, 10_000).unwrap()
+    }
+
+    #[test]
+    fn two_scans_share_one_ceiling_when_asked() {
+        let low = ManhattanTrack::new(vec![
+            Association::new(2_000, 3.0),
+            Association::new(6_000, 7.3),
+        ]);
+        let high = ManhattanTrack::new(vec![Association::new(3_000, 12.5)]);
+        let (_, top) = high.range_to(12.5);
+        let shared = Figure::new(region())
+            .push(low.clone())
+            .push(high.clone())
+            .same_scale()
+            .to_svg();
+        let pinned = Figure::new(region())
+            .push(low.clone().max(top))
+            .push(high.clone().max(top))
+            .to_svg();
+        assert_eq!(shared, pinned);
+        assert_ne!(shared, Figure::new(region()).push(low).push(high).to_svg());
     }
 
     /// A recombination rate laid over a scan is a line under the points, read
