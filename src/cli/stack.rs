@@ -258,6 +258,48 @@ pub enum BuildError {
     },
 }
 
+/// The kind of system a message that names a command is written for.
+///
+/// It is the program's target and not the shell that decides, because what
+/// differs is what the program can open. `<(command)` hands the command's
+/// output over as a path to a pipe, `/dev/fd/63`, which a program built for
+/// Linux or macOS opens like a file and a program built for Windows cannot,
+/// whether cmd, PowerShell or Git Bash started it. A pipe into standard input
+/// works in every one of those shells, and `-` is where karyon reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shell {
+    /// bash or zsh on Linux, macOS or WSL, which runs the Linux build.
+    Posix,
+    /// A Windows build, in any Windows shell.
+    Windows,
+}
+
+/// The system this build of the program runs on.
+///
+/// `cfg!` and not `#[cfg]`, so that both wordings are compiled, linted and
+/// tested on every system rather than one of them only where it ships. A
+/// page in a browser is wasm32, not Windows, and keeps the `<(...)` wording.
+const HOST: Shell = if cfg!(windows) {
+    Shell::Windows
+} else {
+    Shell::Posix
+};
+
+/// What to write so a command's output is read in place of a file, as a
+/// message says it to `shell`.
+///
+/// Every message that offers a command in place of a file's name says it
+/// through here, so none can offer a Windows user a `<(...)` that their
+/// shell cannot hand over.
+fn in_place(shell: Shell, command: &str) -> String {
+    match shell {
+        Shell::Posix => format!("write <({command}) where its name is"),
+        Shell::Windows => {
+            format!("pipe what {command} writes into karyon, with - where its name is")
+        }
+    }
+}
+
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -348,8 +390,8 @@ impl fmt::Display for BuildError {
             } => match instead {
                 Some(command) => write!(
                     f,
-                    "--{track} {path}: {binary}; write <({command}) where its name is, \
-                     or turn it into text first"
+                    "--{track} {path}: {binary}; {}, or turn it into text first",
+                    in_place(HOST, command)
                 ),
                 None => match binary.advice() {
                     Some(advice) => write!(f, "--{track} {path}: {binary}; {advice}"),
@@ -1878,8 +1920,16 @@ fn chosen(
 /// figure. The last component is what distinguishes two trees in practice and
 /// is still exactly what was typed, rather than something made up for the
 /// caption.
+///
+/// The cut is at the separator the system writes, which on Windows is `\` as
+/// well as `/`. Cut at `/` alone, `C:\runs\before.nwk` was printed whole over
+/// its tree, folders and all, while on Linux a `\` is a letter a file's name
+/// may hold and stays in it.
 fn shortened(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
 }
 
 /// Opens what a command line names, the way a shell would.
@@ -1926,7 +1976,7 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
     } else {
         bytes
     };
-    String::from_utf8(bytes).map_err(|error| {
+    let mut text = String::from_utf8(bytes).map_err(|error| {
         // What a genomics file is when it is not text is nearly always one of
         // a few formats, and naming it is what turns "stream did not contain
         // valid UTF-8" into the command that reads it.
@@ -1934,7 +1984,20 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
             Some(binary) => io::Error::new(io::ErrorKind::InvalidData, binary),
             None => io::Error::new(io::ErrorKind::InvalidData, error),
         }
-    })
+    })?;
+    // A byte order mark is a mark on the file and not its first character.
+    // Windows PowerShell's `Out-File -Encoding utf8` and a spreadsheet saved
+    // as UTF-8 CSV both write one, and it went on to the reader: the line
+    // readers drop it, but a Newick tree was "more than one root" at
+    // character 2 and a SLOW5 file had "a raw sample is not a number" on
+    // line 1. Dropped here, after the bytes are decoded, it is dropped once
+    // for every reader the command line and the playground reach, for text
+    // out of a gzip wrapper as for plain text, and for any text a later
+    // reader takes through this function.
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
+    Ok(text)
 }
 
 /// Where a figure's files come from.
@@ -4586,9 +4649,14 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         assert_eq!(disk.text(&file).unwrap(), "chr1\t0\t10\n");
         assert!(disk.kept.is_empty(), "a file on disk was kept");
         fs::remove_file(&path).unwrap();
-        let device = Source::Path("/dev/null".into());
-        assert_eq!(disk.text(&device).unwrap(), "");
-        assert!(disk.kept.contains_key(&device), "a device was not kept");
+        // Windows has no /dev, and no shell there names a pipe by a path a
+        // Windows program can open, so there is no device to read twice.
+        // `/dev/null` there is a file on the current drive that is not there.
+        if cfg!(unix) {
+            let device = Source::Path("/dev/null".into());
+            assert_eq!(disk.text(&device).unwrap(), "");
+            assert!(disk.kept.contains_key(&device), "a device was not kept");
+        }
     }
 
     /// A dynseq draws letters from a reference, and the reference has to be the
@@ -5809,6 +5877,11 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
 
     /// "stream did not contain valid UTF-8" was the whole of what a first try
     /// with a compressed VCF or a BAM was told.
+    ///
+    /// The table holds the bare command, and the message is checked for it as
+    /// the system the test runs on should word it: `<(...)` on Linux and
+    /// macOS, a pipe into `-` on Windows. `cfg!` rather than `HOST`, so a
+    /// `HOST` that picked the wrong wording fails here as well.
     #[test]
     fn a_file_that_is_not_text_is_answered_with_the_command_that_reads_it() {
         let line = |text: &str| -> Invocation {
@@ -5818,38 +5891,73 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 other => panic!("expected a figure, got {other:?}"),
             }
         };
-        for (command, binary, wanted) in [
+        let refused = |text: &str, binary: Binary| {
+            build(&line(text), |_| {
+                Err(io::Error::new(io::ErrorKind::InvalidData, binary))
+            })
+            .unwrap_err()
+            .to_string()
+        };
+        for (text, binary, command) in [
             (
                 "chr1:1-5000 --variants calls.vcf.gz",
                 Binary::Gzip,
-                "<(gzip -dc calls.vcf.gz)",
+                "gzip -dc calls.vcf.gz",
             ),
             (
                 "chr1:1-5000 --pileup reads.bam",
                 Binary::Bam,
-                "<(samtools view -h reads.bam chr1:1-5000)",
+                "samtools view -h reads.bam chr1:1-5000",
             ),
             (
                 "chr1:1-5000 --coverage reads.bam",
                 Binary::Bam,
-                "<(samtools depth -a -r chr1:1-5000 reads.bam)",
+                "samtools depth -a -r chr1:1-5000 reads.bam",
             ),
             (
                 "chr1:1-5000 --variants calls.bcf",
                 Binary::Bcf,
-                "<(bcftools view calls.bcf)",
+                "bcftools view calls.bcf",
             ),
             (
                 "chr1:1-5000 --coverage depth.bw",
                 Binary::BigWig,
-                "<(bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout)",
+                "bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout",
             ),
             (
                 "chr1:1-5000 contacts.cool",
                 Binary::Cool,
-                "<(cooler dump --join -r chr1:1-5000 contacts.cool)",
+                "cooler dump --join -r chr1:1-5000 contacts.cool",
             ),
-            // No one command: the resolution has to be picked first.
+        ] {
+            let error = refused(text, binary);
+            assert!(error.contains(&in_place(HOST, command)), "{text}: {error}");
+            assert_eq!(
+                error.contains(&format!("<({command})")),
+                !cfg!(windows),
+                "{text}: {error}"
+            );
+            assert!(error.contains("karyon reads text"), "{error}");
+        }
+        // The messages the guide prints, to the letter, each where it is
+        // printed.
+        let bcf = refused("chr1:1-5000 --variants calls.bcf", Binary::Bcf);
+        if cfg!(windows) {
+            assert_eq!(
+                bcf,
+                "--variants calls.bcf: the file is BCF, and karyon reads text; pipe what \
+                 bcftools view calls.bcf writes into karyon, with - where its name is, or turn \
+                 it into text first"
+            );
+        } else {
+            assert_eq!(
+                bcf,
+                "--variants calls.bcf: the file is BCF, and karyon reads text; \
+                 write <(bcftools view calls.bcf) where its name is, or turn it into text first"
+            );
+        }
+        // No one command: the resolution has to be picked first.
+        for (text, binary, advice) in [
             (
                 "chr1:1-5000 contacts.mcool",
                 Binary::Mcool,
@@ -5861,21 +5969,62 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 "hic2cool convert FILE.hic FILE.cool -r N",
             ),
         ] {
-            let error = build(&line(command), |_| {
-                Err(io::Error::new(io::ErrorKind::InvalidData, binary))
-            })
-            .unwrap_err()
-            .to_string();
-            assert!(error.contains(wanted), "{command}: {error}");
-            assert!(error.contains("karyon reads text"), "{error}");
+            let error = refused(text, binary);
+            assert!(error.contains(advice), "{text}: {error}");
+            assert!(!error.contains("<("), "{text}: {error}");
         }
         // A pipe has no name to write a command in place of.
-        let error = build(&line("chr1:1-5000 --pileup -"), |_| {
-            Err(io::Error::new(io::ErrorKind::InvalidData, Binary::Bam))
-        })
-        .unwrap_err()
-        .to_string();
+        let error = refused("chr1:1-5000 --pileup -", Binary::Bam);
         assert!(error.contains("pipe it through the tool"), "{error}");
+    }
+
+    /// A Windows build offers a pipe into `-`, which every Windows shell has,
+    /// and never `<(...)`, which hands over a path no Windows program can
+    /// open. Both wordings are checked on every system, since `cfg!` compiles
+    /// both, so a run on Linux catches the Windows one going wrong as well.
+    #[test]
+    fn a_windows_build_pipes_the_command_in_rather_than_naming_it() {
+        let command = "bcftools view calls.bcf";
+        let windows = in_place(Shell::Windows, command);
+        assert_eq!(
+            windows,
+            "pipe what bcftools view calls.bcf writes into karyon, with - where its name is"
+        );
+        assert!(!windows.contains("<("), "{windows}");
+        let posix = in_place(Shell::Posix, command);
+        assert_eq!(posix, "write <(bcftools view calls.bcf) where its name is");
+        assert_eq!(HOST == Shell::Windows, cfg!(windows));
+    }
+
+    /// A tanglegram names its trees after their files, less the folders,
+    /// whichever separator the system writes. The paths are built with
+    /// `join`, so on Windows they are `trees\run 7\before.nwk`, which a cut
+    /// at `/` alone printed whole over the tree.
+    #[test]
+    fn a_tanglegram_names_its_trees_after_the_files_and_not_their_folders() {
+        let folder = Path::new("trees").join("run 7");
+        let before = folder.join("before.nwk").display().to_string();
+        let after = folder.join("after.nwk").display().to_string();
+        let mut held = Held::new();
+        held.insert(before.as_str(), "((a,b),(c,d));");
+        held.insert(after.as_str(), "((a,c),(b,d));");
+        let args = vec![
+            "--tanglegram".to_string(),
+            before,
+            "--against".to_string(),
+            after,
+        ];
+        let Request::Draw(invocation) = parse(&args).unwrap() else {
+            unreachable!("a figure")
+        };
+        let svg = build_files(&invocation, &mut held, |_, _| None).unwrap();
+        assert!(svg.contains(">before.nwk<"), "{svg}");
+        assert!(svg.contains(">after.nwk<"), "{svg}");
+        assert!(!svg.contains("run 7"), "a folder was printed over a tree");
+        // A `\` is a separator on Windows and a letter of a name elsewhere.
+        let typed = r"C:\runs\before.nwk";
+        let wanted = if cfg!(windows) { "before.nwk" } else { typed };
+        assert_eq!(shortened(typed), wanted);
     }
 
     /// The usual reason a window holds nothing is a file that names its
@@ -6065,6 +6214,33 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(error.to_string().contains("BAM"), "{error}");
         assert!(held.text(&Source::Stdin).is_err());
         assert!(held.contains("genes.gff3") && !held.contains("calls.vcf"));
+    }
+
+    /// A byte order mark is dropped where a file is decoded, so no reader
+    /// ever sees one: held in memory or read from disk, plain or out of a
+    /// gzip wrapper. Only the one at the start is a mark; a second is the
+    /// file's own text and is left for the reader to refuse.
+    #[test]
+    fn a_byte_order_mark_is_dropped_where_a_file_is_decoded() {
+        const ROW: &str = "chr1\t0\t10\n";
+        // "\u{feff}chr1\t0\t10\n" as `gzip` writes it.
+        const GZIPPED: [u8; 33] = [
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x13, 0x7b, 0xbf, 0x7b, 0x7f,
+            0x72, 0x46, 0x91, 0x21, 0xa7, 0x01, 0xa7, 0xa1, 0x01, 0x17, 0x00, 0x1b, 0x49, 0x84,
+            0x93, 0x0d, 0x00, 0x00, 0x00,
+        ];
+        let mut held = Held::new();
+        held.insert("marked.bed", format!("\u{feff}{ROW}"));
+        held.insert("twice.bed", format!("\u{feff}\u{feff}{ROW}"));
+        held.insert("marked.bed.gz", GZIPPED);
+        let text = |held: &mut Held, name: &str| held.text(&Source::Path(name.into())).unwrap();
+        assert_eq!(text(&mut held, "marked.bed"), ROW);
+        assert_eq!(text(&mut held, "twice.bed"), format!("\u{feff}{ROW}"));
+        assert_eq!(text(&mut held, "marked.bed.gz"), ROW);
+        let dir = Scratch::new("bom");
+        let path = dir.write("marked.bed", format!("\u{feff}{ROW}").as_bytes());
+        let mut disk = Disk::default();
+        assert_eq!(disk.text(&Source::Path(path.into())).unwrap(), ROW);
     }
 
     /// A BAM named on its own is its depth, and over a window a few reads

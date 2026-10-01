@@ -623,6 +623,13 @@ karyon Chr1:1-50,000 --manhattan gwas.tsv --label association > scan.svg
 `-o` always names a file: `-o -` writes a file called `-`. Leave `-o` out to
 write to standard output.
 
+On Windows, name the figure with `-o` rather than saving it with `>`. Windows
+PowerShell 5.1, the one Windows ships, reads what karyon writes through the
+console's code page and saves it as UTF-16, so the figure on disk is not the
+bytes karyon wrote: the superscript 2 of an r² comes out as two other
+characters. cmd, PowerShell 7.4 or newer and Git Bash keep the bytes, and
+`-o` writes the same file in all of them.
+
 The figure is SVG whatever the file is called, so a name that promises another
 format, such as `fig.png` or `fig.pdf`, is refused rather than written as SVG
 under it. Write `fig.svg` and convert it with `rsvg-convert`, Inkscape or a
@@ -667,6 +674,27 @@ karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
   --pileup <(samtools view -h -T ecoli.fa aln.cram NC_000913.3:3423000-3424000) \
   --variants <(bcftools view calls.bcf) -o reads.svg
 ```
+
+!!! note "On Windows"
+    cmd and PowerShell have no `<(command)`, and Git Bash's hands over a
+    `/dev/fd` path that only its own programs can open, not a Windows build
+    of karyon. So the Windows build says to pipe the command in, with `-`
+    where the file's name was:
+
+    ```text
+    $ karyon chr1:1-5,000 --variants calls.bcf
+    karyon: --variants calls.bcf: the file is BCF, and karyon reads text; pipe what bcftools view calls.bcf writes into karyon, with - where its name is, or turn it into text first
+    ```
+
+    ```bash
+    bcftools view calls.bcf | karyon chr1:1-5,000 --variants - -o calls.svg
+    ```
+
+    That line runs as it is in all three shells. Only one track can read
+    standard input, so a second file is written to a file of its own first,
+    with the tool's own output option, as `bcftools view calls.bcf -o
+    calls.vcf`, and named. Under WSL the Linux build runs, and `<(command)`
+    works as above.
 
 !!! tip "Secondary and supplementary alignments"
     `--pileup` draws every mapped record it is given, secondary and
