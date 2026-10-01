@@ -64,7 +64,7 @@ not reach:
 |:--|:--|:--|
 | The oldest supported compiler, 1.74, still builds everything | Oldest supported compiler | `cargo +1.74 check --all-targets --locked`, with that toolchain installed through rustup |
 | The playground's WebAssembly bridge, a crate of its own in `playground/` | Check & Test | the same format, lint and test commands with `--manifest-path playground/Cargo.toml`, and a `--target wasm32-unknown-unknown` release build |
-| The tree viewer's scripts | Check & Test | `node tests/tree-canvas.test.js` and `node tests/tree-radio.test.js` |
+| The tree viewer's scripts, and the bridge every page runs the program through | Check & Test | `node tests/tree-canvas.test.js`, `node tests/tree-radio.test.js` and `node tests/karyon-wasm.test.js` |
 | Every figure is current | Example renders | see [the figures are part of the build](#the-figures-are-part-of-the-build) |
 | Every tracked file has a label | Every file has a label | `python3 .github/scripts/labeler-coverage.py` |
 

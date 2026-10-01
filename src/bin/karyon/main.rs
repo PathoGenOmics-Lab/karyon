@@ -284,6 +284,28 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          known about them
 "
         }
+        (Kind::Coverage | Kind::Recombination | Kind::Manhattan, "--max") => {
+            "    --max <V>            the top of the scale, pinned, as 100 for a depth, so
+                         figures drawn apart are read off one ceiling
+"
+        }
+        (Kind::Windows, "--max") => {
+            "    --max <V>            the top of the scale, and the bottom as far below the
+                         line, as 2 for a scale from -2 to 2, so figures drawn
+                         apart are read off one scale
+"
+        }
+        (Kind::Matrix | Kind::Heatmap, "--max") => {
+            "    --max <V>            the value drawn at full colour, as 150 for a depth;
+                         read either side of a centre, the full gain, above
+                         the centre, and the loss keeps its own end
+"
+        }
+        (Kind::Pairs, "--max") => {
+            "    --max <V>            the value drawn at full colour, as 0.5 to read weak
+                         linkage; an r² is read against 1 until told
+"
+        }
         (_, "--max-rows") => {
             "    --max-rows <N|all>   how deep the track is drawn before it stops and
                          counts the rest; 40 by default, and all lifts it
@@ -353,8 +375,8 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     out.push_str(
-        "\nFIGURE OPTIONS, anywhere on the line: --title, --width, --theme,\n\
-         --background, --no-axis, --no-region-label, --no-legend, --rename and -o.\n",
+        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --no-axis,\n\
+         --no-region-label, --no-legend, --same-scale, --shade, --rename and -o.\n",
     );
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
@@ -372,10 +394,10 @@ USAGE
 
 The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
-file named on its own is a track of the kind its name says: BAM and CRAM
-draw their depth, SAM its reads, VCF its calls, GFF3, GTF and BED features,
-bedGraph a signal, FASTA the reference, Newick a tree, PAF synteny, and a
-PLINK or REGENIE table a scan; a .gz is read as the file inside. Each track
+file named on its own is a track of the kind its name says: BAM draws its
+depth, SAM its reads, VCF its calls, GFF3, GTF and BED features, bedGraph a
+signal, FASTA the reference, Newick a tree, PAF synteny, and a PLINK or
+REGENIE table a scan; a .gz is read as the file inside. Each track
 flag starts a track of its own kind, and the flags after a track describe
 that one, so the order of the words is the order of the stack. A coordinate
 ruler is added under the last track laid on the coordinates unless --axis
@@ -630,9 +652,12 @@ TRACK OPTIONS, each describing the track before it, once
                          frequencies, triangle or arcs for pairs
     --log                a log scale, for coverage, for an estimate over time
                          and for the colours of pairs, as a contact map is read
-    --max <V>            the top of the scale of a coverage, a recombination
-                         rate or a scan, pinned, as 100 for a depth, so figures
-                         drawn apart are read off one ceiling
+    --max <V>            the top of the scale, pinned, so figures drawn apart
+                         are read off one ceiling: of a coverage, a
+                         recombination rate or a scan, as 100 for a depth; of
+                         windows, with the bottom as far below the line; and
+                         the value a matrix, a heatmap or pairs draw at full
+                         colour, as 1 for an r²
     --color <HEX>        as in '#d55e00'
     --format <NAME>      bedgraph, depth or values for coverage, bed or gff3
                          for features and loci, when the file cannot be told
@@ -654,6 +679,13 @@ FIGURE OPTIONS
                          scale, as the depths of several samples, in every
                          panel, so the same height is the same value; a track
                          given --max keeps its own
+    --shade <PLACE[=NAME]>
+                         shade a stretch across every track laid on the
+                         coordinates, behind them, with its NAME at the head
+                         of the column: a span, as chr1:1,001-2,000, one base,
+                         as chr1:1,500, a gene the annotation names, or a span
+                         with no sequence, as 120-180, on the figure's own
+                         axis; the flag again for another
     --rename <FROM=TO>   read a sequence a file calls FROM as the figure's TO,
                          as --rename 1=NC_000962.3 for a PLINK table beside a
                          FASTA; several joined by commas, or the flag again
@@ -979,6 +1011,39 @@ mod tests {
         let scan = help_on("manhattan").unwrap();
         assert!(!scan.contains("phylogeny"), "{scan}");
         assert!(scan.contains("p = 5e-8"), "{scan}");
+        // `--max` is a top on one track, both ends on another and a colour on
+        // a third, and each is told only its own.
+        let windows = help_on("windows").unwrap();
+        assert!(windows.contains("-2 to 2"), "{windows}");
+        assert!(!windows.contains("full colour"), "{windows}");
+        let pairs = help_on("pairs").unwrap();
+        assert!(pairs.contains("an r² is read against 1"), "{pairs}");
+        let heatmap = help_on("heatmap").unwrap();
+        assert!(heatmap.contains("the loss keeps its own end"), "{heatmap}");
+        let coverage = help_on("coverage").unwrap();
+        assert!(coverage.contains("--max <V>"), "{coverage}");
+        assert!(!coverage.contains("full colour"), "{coverage}");
+    }
+
+    /// A CRAM named on its own is taken for a depth and refused with the
+    /// command that writes one, since reading it takes its codecs and a
+    /// reference. The help said it was drawn.
+    #[test]
+    fn the_help_never_says_a_cram_named_on_its_own_is_drawn() {
+        let said = HELP
+            .split_once("is a track of the kind its name says:")
+            .expect("the sentence on files named on their own")
+            .1
+            .split_once("a .gz is read")
+            .expect("the end of that sentence")
+            .0;
+        assert!(said.contains("BAM draws its"), "{said}");
+        assert!(!said.contains("CRAM"), "{said}");
+        // And the help on a track lists every figure option, --shade and
+        // --same-scale among them, which the line had left out.
+        let coverage = help_on("coverage").unwrap();
+        assert!(coverage.contains("--same-scale,"), "{coverage}");
+        assert!(coverage.contains("--shade,"), "{coverage}");
     }
 
     #[test]

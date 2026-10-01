@@ -34,7 +34,7 @@ use crate::{
 };
 
 use crate::cli::args::{
-    Invocation, Kind, Palette, Place, Source, Style, Threshold, TrackSpec, TreeSupport,
+    Invocation, Kind, Palette, Place, ShadePlace, Source, Style, Threshold, TrackSpec, TreeSupport,
 };
 use crate::read;
 use crate::track::traits::Traits;
@@ -256,6 +256,42 @@ pub enum BuildError {
         /// Why it is not a tree.
         cause: crate::Error,
     },
+    /// A `--shade` the figure has nowhere to draw.
+    ///
+    /// Refused rather than left out, as a file with nothing in the window is:
+    /// a figure drawn without the stretch it was asked to mark looks like one
+    /// where nothing is there to mark. Only a stretch on the right sequence
+    /// and outside the window is let go with a note, since a page that moves
+    /// the window runs the same command again at every step.
+    Unshaded {
+        /// The value as it was written.
+        given: String,
+        /// Why there is nowhere to draw it.
+        why: ShadeRefusal,
+    },
+}
+
+/// Why a `--shade` has nowhere to go.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShadeRefusal {
+    /// Nothing in the figure is laid on the coordinates.
+    NothingToShade,
+    /// The stretch is on a sequence no place of the figure is on.
+    Elsewhere {
+        /// The sequence it is on.
+        sequence: String,
+        /// The places the figure is drawn over.
+        places: Vec<String>,
+    },
+    /// A gene to shade, and no annotation to look it up in.
+    NoAnnotation,
+    /// A gene to shade that the annotation does not name.
+    NoSuchGene {
+        /// Names it does give that are nearly the same.
+        near: Vec<String>,
+    },
+    /// A span with no sequence, on a scan whose axis is every sequence.
+    WholeGenome,
 }
 
 impl fmt::Display for BuildError {
@@ -440,7 +476,56 @@ impl fmt::Display for BuildError {
                 "a {track} track is drawn from two files, and only one was given"
             ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
+            BuildError::Unshaded { given, why } => match why {
+                ShadeRefusal::NothingToShade => write!(
+                    f,
+                    "--shade {given}: nothing in this figure is laid on the coordinates to \
+                     shade; a phylogeny's x is a branch length, and an ideogram's the whole \
+                     chromosome"
+                ),
+                ShadeRefusal::Elsewhere { sequence, places } => write!(
+                    f,
+                    "--shade {given} is on {sequence}, and the figure is drawn over {}",
+                    joined(places)
+                ),
+                ShadeRefusal::NoAnnotation => write!(
+                    f,
+                    "--shade {given}: a gene is looked up in the figure's annotation, and it \
+                     has none; add the GFF3, GTF or BED, or write the span"
+                ),
+                ShadeRefusal::NoSuchGene { near } => match near.as_slice() {
+                    [] => write!(f, "--shade {given}: no gene of that name in the annotation"),
+                    _ => write!(
+                        f,
+                        "--shade {given}: no gene of that name; did you mean {}?",
+                        joined_or(near)
+                    ),
+                },
+                ShadeRefusal::WholeGenome => write!(
+                    f,
+                    "--shade {given}: a scan across the whole genome is shaded on one of its \
+                     sequences, as 7:1,001-2,000"
+                ),
+            },
         }
+    }
+}
+
+/// Places, as a sentence lists them: `a`, `a and b`, `a, b and c`.
+fn joined(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [many @ .., last] => format!("{} and {last}", many.join(", ")),
+    }
+}
+
+/// Names, as a question offers them: `a`, `a or b`, `a, b or c`.
+fn joined_or(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [many @ .., last] => format!("{} or {last}", many.join(", ")),
     }
 }
 
@@ -538,6 +623,12 @@ pub fn build_sheet(
         sheet = sheet.title(title);
     }
     let mut legend = crate::track::legend::Legend::new();
+    // Each shade is settled across every panel, once they are all drawn.
+    let mut fates: Vec<ShadeFate> = invocation
+        .shades
+        .iter()
+        .map(|_| ShadeFate::default())
+        .collect();
     let mut names = Vec::with_capacity(places.len());
     let mut figures = Vec::with_capacity(places.len());
     for place in &places {
@@ -557,10 +648,18 @@ pub fn build_sheet(
                 names.push(name.clone());
             }
         }
-        let built = build_one(&one, &mut kept, &mut parsed, theme.clone(), None, true)?;
+        let built = build_one(
+            &one,
+            &mut kept,
+            &mut parsed,
+            theme.clone(),
+            None,
+            Some(&mut fates),
+        )?;
         gather(&mut legend, &built.legend);
         figures.push(built.figure);
     }
+    settle_shades(invocation, &fates, &mut kept)?;
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
     if invocation.same_scale {
@@ -624,20 +723,22 @@ pub fn build_figure(
     theme: Theme,
     window: Option<&Region>,
 ) -> Result<Built, BuildError> {
-    build_one(invocation, files, parsed, theme, window, false)
+    build_one(invocation, files, parsed, theme, window, None)
 }
 
-/// The same, where `tolerant` draws a track with nothing in the place as a
-/// band that says so rather than refusing the figure, for a panel of a sheet
-/// of several places.
+/// The same, for a panel of a sheet of several places where `sheet` is
+/// given: a track with nothing in the place is drawn as a band that says so
+/// rather than refusing the figure, and what became of each shade is put in
+/// `sheet` for the sheet to settle once every panel has had it.
 fn build_one(
     invocation: &Invocation,
     files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
     theme: Theme,
     window: Option<&Region>,
-    tolerant: bool,
+    sheet: Option<&mut [ShadeFate]>,
 ) -> Result<Built, BuildError> {
+    let tolerant = sheet.is_some();
     let mut kept = KeptStdin { files, stdin: None };
     let files: &mut dyn Files = &mut kept;
     if invocation.genome_wide() && window.is_none() {
@@ -828,6 +929,24 @@ fn build_one(
                 .label(&counting.unit),
         );
     }
+    // The stretches asked to be shaded, on the panel's own sequence, settled
+    // here for a figure of one place and by the sheet for one of several.
+    let over = known.unwrap_or(region);
+    figure = match sheet {
+        Some(fates) => shaded(figure, invocation, files, region, over, decimals, fates)?,
+        None => {
+            let mut fates: Vec<ShadeFate> = invocation
+                .shades
+                .iter()
+                .map(|_| ShadeFate::default())
+                .collect();
+            let figure = shaded(
+                figure, invocation, files, region, over, decimals, &mut fates,
+            )?;
+            settle_shades(invocation, &fates, files)?;
+            figure
+        }
+    };
     // What the tracks need explained at the zoom the figure is drawn at, as
     // the colours of bases too narrow for their letters.
     let key = figure.key();
@@ -1032,7 +1151,8 @@ fn build_genome(
         let label = spec.label.clone().or_else(|| default_label(spec));
         plot = plot.add_track(named(track, label, ManhattanTrack::label));
     }
-    let mut figure = plot.add_genome(genome).into_figure();
+    let mut figure = plot.add_genome(genome.clone()).into_figure();
+    figure = shaded_genome(figure, invocation, &genome, files)?;
     if invocation.same_scale {
         figure = figure.same_scale();
     }
@@ -1045,6 +1165,287 @@ fn build_genome(
         along: None,
         legend,
     })
+}
+
+/// What became of one `--shade` across the panels of a figure, which is one
+/// panel unless several places were written.
+///
+/// Settled once every panel is drawn, since a stretch on one place of a
+/// sheet is no fault of the others: `--shade c2:1-100` over `c1` and `c2`
+/// shades the second panel and is refused only where no panel is on `c2`.
+#[derive(Debug, Default)]
+struct ShadeFate {
+    /// Whether some panel drew it.
+    drawn: bool,
+    /// The windows on its sequence it fell outside of.
+    outside: Vec<String>,
+    /// Every window it was looked for in.
+    windows: Vec<String>,
+    /// The sequence it is on, for the refusal of one no panel is on.
+    sequence: String,
+}
+
+/// A window as a reader writes one, `chr1:1-4,000`, for the messages a shade
+/// is answered with.
+fn written(region: &Region) -> String {
+    use crate::track::axis::group_thousands;
+    format!(
+        "{}:{}-{}",
+        region.seq(),
+        group_thousands(region.display_start()),
+        group_thousands(region.display_end())
+    )
+}
+
+/// Shades on `figure`, drawn over `region` and written as `over`, every
+/// stretch `--shade` asks for that is on its sequence, and says in `fates`
+/// what became of each.
+///
+/// A place on the sequence under any name `--rename` gives it, and a span with
+/// no sequence on whatever the figure is drawn over. A gene over its own span
+/// as the annotation gives it, without the margin a figure placed on it gets,
+/// and over each of its places where it has several. On a continuous time,
+/// each is moved into the thousandths the tables are read in, as the place is.
+fn shaded(
+    figure: Figure,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    region: &Region,
+    over: &Region,
+    decimals: u32,
+    fates: &mut [ShadeFate],
+) -> Result<Figure, BuildError> {
+    let Some(first) = invocation.shades.first() else {
+        return Ok(figure);
+    };
+    if !figure.takes_shades() {
+        return Err(BuildError::Unshaded {
+            given: first.given.clone(),
+            why: ShadeRefusal::NothingToShade,
+        });
+    }
+    let aliases = called_by(invocation, region.seq());
+    let scale = (decimals > 0 && all_times(invocation)).then(|| 10u64.pow(decimals));
+    // A time is said in its own units, as the place is written, rather than
+    // in the thousandths it is drawn at, and a year is never grouped.
+    let timed = |(start, end): (u64, u64)| match scale {
+        Some(scale) => (
+            start.saturating_add(1).saturating_mul(scale),
+            end.saturating_mul(scale).saturating_add(1),
+            Some(format!("{} to {end}", start.saturating_add(1))),
+        ),
+        None => (start, end, None),
+    };
+    let mut figure = figure;
+    for (shading, fate) in invocation.shades.iter().zip(fates.iter_mut()) {
+        let (spans, sequence): (Vec<(u64, u64, Option<String>)>, String) = match &shading.place {
+            ShadePlace::Locus(at) => {
+                let here = aliases.contains(&at.seq());
+                let spans = if here {
+                    vec![timed((at.start(), at.end()))]
+                } else {
+                    Vec::new()
+                };
+                (spans, at.seq().to_string())
+            }
+            ShadePlace::Along(start, end) => {
+                (vec![timed((*start, *end))], region.seq().to_string())
+            }
+            ShadePlace::Gene(name) => {
+                let places = gene_places(name, &shading.given, invocation, files)?;
+                let mut sequences: Vec<String> = Vec::new();
+                for (sequence, _, _) in &places {
+                    if !sequences.contains(sequence) {
+                        sequences.push(sequence.clone());
+                    }
+                }
+                let here = places
+                    .iter()
+                    .filter(|(sequence, _, _)| sequence == region.seq())
+                    .map(|(_, start, end)| (*start, *end, None))
+                    .collect();
+                (here, joined(&sequences))
+            }
+        };
+        fate.windows.push(written(over));
+        if spans.is_empty() {
+            fate.sequence = sequence;
+            continue;
+        }
+        let mut seen = false;
+        for (start, end, said) in spans {
+            let mut shade = crate::Shade::new(start, end);
+            if let Some(name) = &shading.name {
+                shade = shade.name(name);
+            }
+            if let Some(said) = said {
+                shade = shade.described(said);
+            }
+            seen |= shade.touches(region);
+            figure = figure.shade(shade);
+        }
+        if seen {
+            fate.drawn = true;
+        } else {
+            fate.outside.push(written(over));
+        }
+    }
+    Ok(figure)
+}
+
+/// Every place the figure's annotations put the gene `name`, each once: one
+/// gene written as a gene, a transcript and a CDS overlaps itself and is one
+/// place, merged as [`place`] merges the place a figure is drawn over.
+fn gene_places(
+    name: &str,
+    given: &str,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+) -> Result<Vec<(String, u64, u64)>, BuildError> {
+    let refuse = |why: ShadeRefusal| BuildError::Unshaded {
+        given: given.to_string(),
+        why,
+    };
+    let mut annotated = false;
+    let mut spans: Vec<(String, u64, u64)> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    for spec in &invocation.tracks {
+        if !matches!(spec.kind, Kind::Features | Kind::Loci) {
+            continue;
+        }
+        let Some(source) = spec.source.as_ref() else {
+            continue;
+        };
+        // A file that will not open has already been refused by its track.
+        let Ok(text) = files.text(source) else {
+            continue;
+        };
+        annotated = true;
+        let found = read::interval::named(&text, name);
+        spans.extend(
+            found
+                .spans
+                .into_iter()
+                .map(|(sequence, start, end)| (renamed(invocation, sequence), start, end)),
+        );
+        names.extend(found.names);
+    }
+    if !annotated {
+        return Err(refuse(ShadeRefusal::NoAnnotation));
+    }
+    spans.sort();
+    let mut places: Vec<(String, u64, u64)> = Vec::new();
+    for (sequence, start, end) in spans {
+        match places.last_mut() {
+            Some(last) if last.0 == sequence && start <= last.2 => last.2 = last.2.max(end),
+            _ => places.push((sequence, start, end)),
+        }
+    }
+    if places.is_empty() {
+        return Err(refuse(ShadeRefusal::NoSuchGene {
+            near: near_names(&names, name),
+        }));
+    }
+    Ok(places)
+}
+
+/// Says what became of each shade once every panel has had it: nothing for
+/// one some panel drew, a note for one only outside the windows, and a
+/// refusal for one on a sequence no panel is on.
+fn settle_shades(
+    invocation: &Invocation,
+    fates: &[ShadeFate],
+    files: &mut dyn Files,
+) -> Result<(), BuildError> {
+    for (shading, fate) in invocation.shades.iter().zip(fates) {
+        if fate.drawn {
+            continue;
+        }
+        if !fate.outside.is_empty() {
+            files.note(&format!(
+                "--shade {} is outside {}, so it is not drawn",
+                shading.given,
+                joined(&fate.outside)
+            ));
+            continue;
+        }
+        return Err(BuildError::Unshaded {
+            given: shading.given.clone(),
+            why: ShadeRefusal::Elsewhere {
+                sequence: fate.sequence.clone(),
+                places: fate.windows.clone(),
+            },
+        });
+    }
+    Ok(())
+}
+
+/// Shades on a scan across the whole genome, through the offsets its
+/// sequences are laid end to end at.
+///
+/// Its own function because the layout of a whole genome is its own: a place
+/// is on one sequence, found by the name the tables give it or by the one a
+/// `--rename` makes it, and held to the furthest marker on it, which is where
+/// that sequence ends in the figure, so a shade never runs into the next one.
+/// The tooltip and the alt text name the place as it was written, since the
+/// shared axis counts through every sequence before it.
+fn shaded_genome(
+    figure: Figure,
+    invocation: &Invocation,
+    genome: &crate::Genome,
+    files: &mut dyn Files,
+) -> Result<Figure, BuildError> {
+    let mut figure = figure;
+    for shading in &invocation.shades {
+        let refuse = |why: ShadeRefusal| BuildError::Unshaded {
+            given: shading.given.clone(),
+            why,
+        };
+        let at = match &shading.place {
+            ShadePlace::Locus(at) => at,
+            ShadePlace::Along(..) => return Err(refuse(ShadeRefusal::WholeGenome)),
+            ShadePlace::Gene(_) => return Err(refuse(ShadeRefusal::NoAnnotation)),
+        };
+        let found = std::iter::once(at.seq())
+            .chain(
+                invocation
+                    .renames
+                    .iter()
+                    .filter(|(_, to)| to == at.seq())
+                    .map(|(from, _)| from.as_str()),
+            )
+            .find_map(|name| {
+                genome
+                    .sequences()
+                    .iter()
+                    .find(|sequence| sequence.name == name)
+            });
+        let Some(sequence) = found else {
+            return Err(refuse(ShadeRefusal::Elsewhere {
+                sequence: at.seq().to_string(),
+                places: genome
+                    .sequences()
+                    .iter()
+                    .map(|sequence| sequence.name.clone())
+                    .collect(),
+            }));
+        };
+        let Some(start) = genome.at(&sequence.name, at.start()) else {
+            files.note(&format!(
+                "--shade {} is past the furthest marker on {}, so it is not drawn",
+                shading.given, sequence.name
+            ));
+            continue;
+        };
+        let offset = start - at.start();
+        let end = offset.saturating_add(at.end().min(sequence.length));
+        let mut shade = crate::Shade::new(start, end).described(written(at));
+        if let Some(name) = &shading.name {
+            shade = shade.name(name);
+        }
+        figure = figure.shade(shade);
+    }
+    Ok(figure)
 }
 
 /// Files that name the same sequences, and those sequences, each with how
@@ -1296,20 +1697,7 @@ fn nowhere(
             None => {}
         }
     }
-    // Names within two edits, or the same letters in another case.
-    let mut near: Vec<(usize, &String)> = names
-        .iter()
-        .filter_map(|candidate| {
-            let distance = if candidate.eq_ignore_ascii_case(name) {
-                0
-            } else {
-                crate::cli::args::edits(&candidate.to_ascii_lowercase(), &name.to_ascii_lowercase())
-            };
-            (distance <= 2).then_some((distance, candidate))
-        })
-        .collect();
-    near.sort();
-    near.dedup_by(|a, b| a.1 == b.1);
+    let near = near_names(names, name);
     // A name the files hold under another spelling is most likely that one.
     // Where no annotation is there to look genes up in, a word that is no
     // sequence is most likely the one sequence the files do name.
@@ -1330,13 +1718,31 @@ fn nowhere(
         name: name.to_string(),
         rename,
         held,
-        near: near
-            .into_iter()
-            .take(3)
-            .map(|(_, candidate)| candidate.clone())
-            .collect(),
+        near,
         annotated,
     }
+}
+
+/// The three of `names` nearest `name`: within two edits, or the same
+/// letters in another case, closest first.
+fn near_names(names: &[String], name: &str) -> Vec<String> {
+    let mut near: Vec<(usize, &String)> = names
+        .iter()
+        .filter_map(|candidate| {
+            let distance = if candidate.eq_ignore_ascii_case(name) {
+                0
+            } else {
+                crate::cli::args::edits(&candidate.to_ascii_lowercase(), &name.to_ascii_lowercase())
+            };
+            (distance <= 2).then_some((distance, candidate))
+        })
+        .collect();
+    near.sort();
+    near.dedup_by(|a, b| a.1 == b.1);
+    near.into_iter()
+        .take(3)
+        .map(|(_, candidate)| candidate.clone())
+        .collect()
 }
 
 /// The sequences a text file says the lengths of: FASTA records, a SAM
@@ -3014,6 +3420,12 @@ fn track(
                     .and_then(|s| s.window())
                     .unwrap_or(WindowStyle::Steps),
             );
+            // The band is symmetric about its line, so the top is the one
+            // number to pin, and the bottom is as far below.
+            if let Some(max) = spec.max {
+                let baseline = track.baseline_value();
+                track = track.extent(max - baseline);
+            }
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -3880,6 +4292,9 @@ fn track(
             }
             let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
             let mut track = MatrixTrack::new(sites, rows);
+            if let Some(max) = spec.max {
+                track = track.max(max);
+            }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
             }
@@ -3940,6 +4355,11 @@ fn track(
             if correlation {
                 track = track.ceiling(1.0);
             }
+            // After the default, so a ceiling asked for wins over the one an
+            // r² is read against until told.
+            if let Some(max) = spec.max {
+                track = track.ceiling(max);
+            }
             if let Some(line) = spec.threshold.map(Threshold::drawn) {
                 track = track.threshold(line);
             }
@@ -3996,6 +4416,11 @@ fn track(
                     center,
                     spread: None,
                 });
+            }
+            // The end of the ramp, or of its gain where it is read either
+            // side of a centre; the parser has seen to it being above that.
+            if let Some(max) = spec.max {
+                track = track.max(max);
             }
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
@@ -7235,6 +7660,332 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_eq!(refused("c1:1-10 --manhattan g.assoc --max 12"), None);
         assert_eq!(refused("c1:1-10 --recombination m.txt --max 50"), None);
         assert_eq!(refused("c1:1-10 d.bedgraph --same-scale"), None);
+        for track in [
+            "--windows w.bg",
+            "--matrix m.tsv",
+            "--heatmap h.tsv",
+            "--pairs p.ld",
+        ] {
+            assert_eq!(
+                refused(&format!("c1:1-10 {track} --max 2")),
+                None,
+                "{track}"
+            );
+        }
+    }
+
+    /// Windows either side of a line of nought, with the furthest at 1.4.
+    const SCORES: &str = "c1\t0\t2000\t1.4\nc1\t2000\t4000\t-0.6\nc1\t4000\t6000\t0.3\n\
+                          c1\t6000\t8000\t-1.1\nc1\t8000\t10000\t0.9\n";
+
+    /// The tick labels a document writes, in the order it writes them.
+    fn texts(svg: &str) -> Vec<String> {
+        svg.split("<text")
+            .skip(1)
+            .filter_map(|piece| piece.split_once('>'))
+            .filter_map(|(_, rest)| rest.split_once("</text>"))
+            .map(|(text, _)| text.to_string())
+            .collect()
+    }
+
+    /// The top is the one number a band symmetric about its line has free,
+    /// so `--max 2` reads -2 to 2, and it is what the library draws when its
+    /// reach is pinned by hand.
+    #[test]
+    fn windows_take_a_maximum_either_side_of_their_line() {
+        let held = [("w.bg", SCORES)];
+        let own = drawn_from("c1:1-10,000 --windows w.bg", &held).unwrap();
+        let pinned = drawn_from("c1:1-10,000 --windows w.bg --max 2", &held).unwrap();
+        let ticks = texts(&pinned);
+        for tick in ["2", "0", "-2"] {
+            assert!(ticks.iter().any(|text| text == tick), "{tick}: {ticks:?}");
+        }
+        let own_ticks = texts(&own);
+        for tick in ["1.5", "0", "-1.5"] {
+            assert!(
+                own_ticks.iter().any(|text| text == tick),
+                "{tick}: {own_ticks:?}"
+            );
+        }
+        assert!(!own_ticks.iter().any(|text| text == "-2"), "{own}");
+        let windows =
+            read::signal::windows(SCORES, &Region::new("c1", 0, 10_000).unwrap()).unwrap();
+        let by_hand = Plot::over(Region::new("c1", 0, 10_000).unwrap())
+            .add_track(
+                WindowTrack::new(windows)
+                    .style(WindowStyle::Steps)
+                    .extent(2.0)
+                    .label("w"),
+            )
+            .to_svg();
+        assert_eq!(pinned, by_hand);
+    }
+
+    /// A heatmap read against each sample's usual depth runs from a full loss
+    /// at nought to a gain at the pin, and a plain one from nought to it.
+    #[test]
+    fn a_heatmap_pinned_reads_its_colours_off_the_maximum() {
+        let table = "chrom\tstart\tend\tS1\tS2\nc1\t0\t5000\t40\t60\nc1\t5000\t10000\t0\t131.4\n";
+        let held = [("h.tsv", table)];
+        let relative = drawn_from("c1:1-10,000 --heatmap h.tsv --relative --max 3", &held).unwrap();
+        let ticks = texts(&relative);
+        for end in ["0×", "1×", "3×"] {
+            assert!(ticks.iter().any(|text| text == end), "{end}: {ticks:?}");
+        }
+        let own = texts(&drawn_from("c1:1-10,000 --heatmap h.tsv --relative", &held).unwrap());
+        assert!(!own.iter().any(|text| text == "3×"), "{own:?}");
+        let plain = texts(&drawn_from("c1:1-10,000 --heatmap h.tsv --max 200", &held).unwrap());
+        assert!(plain.iter().any(|text| text == "200"), "{plain:?}");
+        assert!(!plain.iter().any(|text| text == "131.4"), "{plain:?}");
+        // A matrix of sites takes it the same way.
+        let sites = "sample\t100\t900\nS1\t0.2\t0.4\nS2\t0.1\t0.3\n";
+        let matrix =
+            texts(&drawn_from("c1:1-1,000 --matrix m.tsv --max 1", &[("m.tsv", sites)]).unwrap());
+        assert!(matrix.iter().any(|text| text == "1"), "{matrix:?}");
+        assert!(!matrix.iter().any(|text| text == "0.4"), "{matrix:?}");
+    }
+
+    /// Linkage is read against an r² of one until told otherwise, and a
+    /// pin is told otherwise: weak linkage read on a scale of its own.
+    #[test]
+    fn pairs_take_their_full_colour_from_max_even_for_linkage() {
+        let ld = " CHR_A BP_A SNP_A CHR_B BP_B SNP_B R2\n\
+                   c1 100 a c1 400 b 0.31\n\
+                   c1 100 a c1 700 c 0.12\n\
+                   c1 400 b c1 700 c 0.44\n";
+        let held = [("linkage.ld", ld)];
+        let own = texts(&drawn_from("c1:1-1,000 linkage.ld", &held).unwrap());
+        assert!(own.iter().any(|text| text == "1"), "{own:?}");
+        let pinned = texts(&drawn_from("c1:1-1,000 linkage.ld --max 0.5", &held).unwrap());
+        assert!(pinned.iter().any(|text| text == "0.5"), "{pinned:?}");
+        assert!(!pinned.iter().any(|text| text == "1"), "{pinned:?}");
+    }
+
+    /// Two places in one region of chr1, and a gene on another sequence.
+    const SHADED_GENES: &str = "##gff-version 3\n\
+        c1\t.\tgene\t2001\t3000\t.\t+\t.\tID=g1;Name=GENE1\n\
+        c1\t.\tCDS\t2001\t2997\t.\t+\t0\tID=cds1;Parent=g1;gene=GENE1\n\
+        c2\t.\tgene\t501\t900\t.\t-\t.\tID=g2;Name=GENE2\n";
+
+    /// A flat depth over two sequences.
+    const SHADED_DEPTH: &str = "c1\t0\t10000\t30\nc2\t0\t10000\t20\n";
+
+    /// The left and right of every wash rectangle under `said`.
+    fn wash_of(svg: &str, said: &str) -> Vec<(f64, f64)> {
+        let title = format!("<g><title>{said}</title>");
+        let Some(at) = svg.find(&title) else {
+            return Vec::new();
+        };
+        let group = &svg[at + title.len()..];
+        let group = &group[..group.find("</g>").unwrap()];
+        group
+            .split("<rect")
+            .skip(1)
+            .map(|rect| {
+                let number = |name: &str| -> f64 {
+                    let key = format!(" {name}=\"");
+                    let at = rect.find(&key).unwrap() + key.len();
+                    rect[at..].split('"').next().unwrap().parse().unwrap()
+                };
+                (number("x"), number("x") + number("width"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_shade_on_another_sequence_is_refused_and_names_the_places() {
+        let held = [("d.bg", SHADED_DEPTH)];
+        let said = drawn_from("c1:1-1,000 d.bg --shade c2:100-200", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            said,
+            "--shade c2:100-200 is on c2, and the figure is drawn over c1:1-1,000"
+        );
+    }
+
+    #[test]
+    fn a_shade_outside_the_window_is_a_note_and_draws_the_plain_figure() {
+        let held = [("d.bg", SHADED_DEPTH)];
+        let (svg, notes) = drawn_noting("c1:1-4,000 d.bg --shade c1:5,001-6,000=later", &held);
+        let (plain, _) = drawn_noting("c1:1-4,000 d.bg", &held);
+        assert_eq!(svg.unwrap(), plain.unwrap());
+        assert_eq!(
+            notes,
+            ["--shade c1:5,001-6,000=later is outside c1:1-4,000, so it is not drawn"]
+        );
+        // In view, it is drawn and nothing is said of it.
+        let (svg, notes) = drawn_noting("c1:1-6,000 d.bg --shade c1:5,001-6,000=later", &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(wash_of(&svg.unwrap(), "later, 5,001 to 6,000").len(), 1);
+    }
+
+    /// A gene is shaded from its own start to its own end: the figure placed
+    /// on it has a margin either side, and the shade does not.
+    #[test]
+    fn a_gene_shade_covers_the_gene_and_not_its_margin() {
+        let held = [("genes.gff3", SHADED_GENES), ("d.bg", SHADED_DEPTH)];
+        let built = built_from(
+            "GENE1 genes.gff3 d.bg --shade GENE1",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let region = built.figure.region().clone();
+        assert!(region.start() < 2_000 && region.end() > 3_000, "{region}");
+        let shades = built.figure.shades();
+        assert_eq!(shades.len(), 1);
+        // The gene row and its CDS are one place, at the gene's own ends.
+        assert_eq!((shades[0].start(), shades[0].end()), (2_000, 3_000));
+        let svg = built.figure.to_svg();
+        let columns = wash_of(&svg, "2,001 to 3,000");
+        assert_eq!(columns.len(), 1, "{svg}");
+    }
+
+    #[test]
+    fn a_gene_to_shade_needs_an_annotation_and_a_name_it_has() {
+        let said = drawn_from("c1:1-10,000 d.bg --shade GENE1", &[("d.bg", SHADED_DEPTH)])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            said.contains("it has none; add the GFF3, GTF or BED"),
+            "{said}"
+        );
+        let held = [("genes.gff3", SHADED_GENES), ("d.bg", SHADED_DEPTH)];
+        let said = drawn_from("c1:1-10,000 genes.gff3 d.bg --shade GENE3", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("did you mean GENE1 or GENE2?"), "{said}");
+        // A gene the annotation puts on another sequence is elsewhere.
+        let said = drawn_from("c1:1-10,000 genes.gff3 d.bg --shade GENE2", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            said,
+            "--shade GENE2 is on c2, and the figure is drawn over c1:1-10,000"
+        );
+    }
+
+    /// An alignment is its own place, named after its file, and a span with
+    /// no sequence is on its columns whatever the file is called.
+    #[test]
+    fn a_bare_span_shades_an_alignment_s_columns() {
+        let held = [("aln.fa", ALIGNMENT)];
+        let built = built_from("--msa aln.fa --shade 3-5", &held, Theme::light(), None);
+        let shades = built.figure.shades();
+        assert_eq!((shades[0].start(), shades[0].end()), (2, 5));
+        assert_eq!(wash_of(&built.figure.to_svg(), "3 to 5").len(), 1);
+    }
+
+    /// A place in decimal years is read in years, and so is a shade on it.
+    #[test]
+    fn a_shade_on_a_continuous_time_is_rescaled_with_the_place() {
+        let skyline = "year\tmedian\tlower\tupper\n2010.25\t100\t50\t200\n\
+                       2012.5\t400\t300\t600\n2015.75\t900\t700\t1200\n";
+        let held = [("sky.tsv", skyline)];
+        for line in [
+            "--phylodynamics sky.tsv --shade 2012-2013",
+            "year:2010-2016 --phylodynamics sky.tsv --shade year:2012-2013",
+        ] {
+            let built = built_from(line, &held, Theme::light(), None);
+            let shades = built.figure.shades();
+            assert_eq!(
+                (shades[0].start(), shades[0].end()),
+                (2_012_000, 2_013_001),
+                "{line}"
+            );
+            assert_eq!(
+                wash_of(&built.figure.to_svg(), "2012 to 2013").len(),
+                1,
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sheet_shades_each_panel_on_its_own_sequence() {
+        let held = [("d.bg", SHADED_DEPTH)];
+        let (svg, notes) = drawn_noting("c1:1-1,000 c2:1-1,000 d.bg --shade c2:100-200", &held);
+        let svg = svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(svg.matches("<title>100 to 200</title>").count(), 1, "{svg}");
+        // The wash is in the second panel, after the first one's locus.
+        let first = svg.find("c1:1-1000").unwrap();
+        assert!(svg.find("<title>100 to 200</title>").unwrap() > first);
+        let said = drawn_from("c1:1-1,000 c2:1-1,000 d.bg --shade c3:1-10", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            said,
+            "--shade c3:1-10 is on c3, and the figure is drawn over c1:1-1,000 and c2:1-1,000"
+        );
+        // On the right sequences and in neither window is a note.
+        let (svg, notes) = drawn_noting("c1:1-1,000 c2:1-1,000 d.bg --shade c2:5,000", &held);
+        assert!(svg.is_ok());
+        assert_eq!(
+            notes,
+            ["--shade c2:5,000 is outside c2:1-1,000, so it is not drawn"]
+        );
+    }
+
+    #[test]
+    fn a_genome_wide_scan_shades_through_the_offsets() {
+        let table = "CHR\tSNP\tBP\tP\n1\ta\t1000\t0.01\n1\tb\t900000\t0.2\n\
+                     2\tc\t5000\t1e-9\n2\td\t1000000\t0.5\n";
+        let held = [("gwas.assoc", table)];
+        let built = built_from(
+            "gwas.assoc --shade 2:1-1,000,000=peak",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let shades = built.figure.shades();
+        // Sequence 2 starts where 1 ends, at its furthest marker, and each is
+        // as long as its furthest marker reaches.
+        let genome = crate::Genome::new([("1", 900_000u64), ("2", 1_000_000)]);
+        let start = genome.offset("2").unwrap();
+        assert_eq!(shades[0].start(), start);
+        assert_eq!(shades[0].end(), start + 1_000_000);
+        let svg = built.figure.to_svg();
+        assert!(svg.contains("<title>peak, 2:1-1,000,000</title>"), "{svg}");
+        // Past the furthest marker is a note, and a bare span is refused.
+        let (_, notes) = drawn_noting("gwas.assoc --shade 2:2,000,001-2,000,100", &held);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("past the furthest marker on 2"),
+            "{notes:?}"
+        );
+        let said = drawn_from("gwas.assoc --shade 1-1,000", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("a scan across the whole genome"), "{said}");
+    }
+
+    #[test]
+    fn a_renamed_sequence_is_shaded_by_either_name() {
+        let held = [("d.bg", "1\t0\t10000\t30\n")];
+        for shade in ["NC_1:101-200", "1:101-200"] {
+            let built = built_from(
+                &format!("NC_1:1-1,000 d.bg --rename 1=NC_1 --shade {shade}"),
+                &held,
+                Theme::light(),
+                None,
+            );
+            let shades = built.figure.shades();
+            assert_eq!((shades[0].start(), shades[0].end()), (100, 200), "{shade}");
+        }
+    }
+
+    #[test]
+    fn a_figure_with_nothing_on_the_coordinates_refuses_a_shade() {
+        let held = [("tree.nwk", "((a:1,b:1):1,c:2);")];
+        let said = drawn_from("tree.nwk --shade c1:1-10", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            said.starts_with("--shade c1:1-10: nothing in this figure is laid on the coordinates"),
+            "{said}"
+        );
     }
 
     #[test]
