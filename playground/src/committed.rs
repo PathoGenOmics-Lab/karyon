@@ -86,6 +86,7 @@ pub(crate) const FIGURES: &[(&str, Builder)] = &[
         evolutionary_surveillance::example_evolutionary_surveillance,
     ),
     ("example-frames", shapes::example_frames),
+    ("example-gene-models", shapes::example_gene_models),
     ("example-genomewide", genomewide::example_genomewide),
     ("example-ideogram", ideogram::example_ideogram),
     (

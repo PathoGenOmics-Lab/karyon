@@ -1533,6 +1533,7 @@ mod tests {
             name: Some("dnaA".to_string()),
             strand: Strand::Forward,
             color: None,
+            ..Feature::new(0, 1)
         };
         let svg = Rings::new(4_411_532)
             .push(FeatureRing::new(vec![wrapped]).show_names(true))

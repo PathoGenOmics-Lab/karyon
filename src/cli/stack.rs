@@ -2934,11 +2934,14 @@ fn track(
             Box::new(named(track, label, SequenceTrack::label))
         }
         Kind::Features => {
-            let features = wrap(
-                name,
-                &path,
-                read::interval::features(&text, region, spec.format),
-            )?;
+            // Each gene once, with the exons all its transcripts use, unless
+            // each transcript was asked for.
+            let read = if spec.isoforms {
+                read::interval::transcripts
+            } else {
+                read::interval::features
+            };
+            let features = wrap(name, &path, read(&text, region, spec.format))?;
             if features.is_empty() {
                 return Err(empty("features"));
             }
@@ -7107,6 +7110,45 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
     }
 
     /// What is piped in is read once, for every panel of a sheet.
+    /// A gene of two transcripts, as Ensembl writes one.
+    const ISOFORMS: &str = "##gff-version 3
+7\t.\tgene\t1001\t9000\t.\t+\t.\tID=g1;Name=GENE1
+7\t.\tmRNA\t1001\t9000\t.\t+\t.\tID=t1;Parent=g1;Name=GENE1-201
+7\t.\texon\t1001\t1500\t.\t+\t.\tParent=t1
+7\t.\texon\t4001\t4500\t.\t+\t.\tParent=t1
+7\t.\texon\t8001\t9000\t.\t+\t.\tParent=t1
+7\t.\tCDS\t1201\t8600\t.\t+\t0\tParent=t1
+7\t.\tmRNA\t1001\t9000\t.\t+\t.\tID=t2;Parent=g1;Name=GENE1-202
+7\t.\texon\t1001\t1500\t.\t+\t.\tParent=t2
+7\t.\texon\t8001\t9000\t.\t+\t.\tParent=t2
+";
+
+    #[test]
+    fn a_gene_is_drawn_once_with_its_exons_or_each_transcript_on_request() {
+        let held = [("genes.gff3", ISOFORMS)];
+        let once = drawn_from("7:1-10,000 genes.gff3", &held).unwrap();
+        assert!(
+            once.contains(
+                "<title>GENE1, 1,001 to 9,000, forward, 3 exons from 2 transcripts</title>"
+            ),
+            "{once}"
+        );
+        assert!(!once.contains("GENE1-20"), "{once}");
+        let each = drawn_from("7:1-10,000 genes.gff3 --isoforms", &held).unwrap();
+        assert!(each.contains("<title>GENE1-201 (GENE1), 1,001 to 9,000, forward, 3 exons</title>"));
+        assert!(each.contains("<title>GENE1-202 (GENE1), 1,001 to 9,000, forward, 2 exons</title>"));
+        // Placed by the gene's name, the transcripts are what is drawn there.
+        let placed = drawn_from("GENE1 genes.gff3 --isoforms", &held).unwrap();
+        assert_eq!(placed.matches("<title>GENE1-20").count(), 2, "{placed}");
+        // Anywhere but after an annotation it is refused, by the track it was
+        // written after.
+        let args: Vec<String> = "7:1-10,000 --coverage genes.gff3 --isoforms"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        assert!(parse(&args).is_err());
+    }
+
     #[test]
     fn a_sheet_reads_what_is_piped_in_once() {
         let svg = drawn_piped("rpoB katG --features -", GENES, &[]).unwrap();

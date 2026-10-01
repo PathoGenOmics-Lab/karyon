@@ -6,6 +6,22 @@
 //! converted first. The track's work is then to get a lot of them onto a few
 //! rows without any two of them touching.
 //!
+//! # A gene with introns is not a bar
+//!
+//! A feature can carry its exons and the stretches that code, as a BED12 row
+//! writes them in its blocks and its thick span, and is then drawn the way a
+//! genome browser draws a gene model: each exon a box, a line with arrows along
+//! it through the introns, and the untranslated ends of the exons at half the
+//! height of the coding part. A gene of a hundred kilobases whose exons cover
+//! three was a solid bar from end to end, which says the opposite of what the
+//! annotation says about nearly all of it.
+//!
+//! Only what can be seen is drawn that way. An intron narrower than a pixel is
+//! no gap at all on the page, so exons closer than that are joined, and a gene
+//! too small on screen to show a gap is drawn as one piece, the way it always
+//! was. A feature that is one piece and codes from end to end is exactly the
+//! arrow it was before any of this, which is every gene of a bacterial genome.
+//!
 //! # Rows follow the zoom, not the data
 //!
 //! Packing is first fit, leftmost first, and it is done in pixels rather than
@@ -86,11 +102,26 @@ pub(crate) fn strand_label(strand: Strand) -> &'static str {
 /// `what it is, where it is`, and a name is what fills the first slot when
 /// there is one; the fallback has to fill it too, or one glyph in a figure of
 /// thirty answers a pointer in a different grammar from the rest.
+///
+/// A gene model says what it is made of after that: how many exons, and for a
+/// gene drawn once for several transcripts, how many it merged, since the
+/// figure shows the exons all of them use and none of them alone. A transcript
+/// names its gene beside its own name.
 pub(crate) fn feature_title(feature: &Feature) -> String {
     let mut title = String::new();
-    match feature.name.as_deref().filter(|name| !name.is_empty()) {
+    let name = feature.name.as_deref().filter(|name| !name.is_empty());
+    match name {
         Some(name) => title.push_str(name),
         None => title.push_str("feature"),
+    }
+    if let Some(gene) = feature
+        .gene
+        .as_deref()
+        .filter(|gene| !gene.is_empty() && Some(*gene) != name)
+    {
+        title.push_str(" (");
+        title.push_str(gene);
+        title.push(')');
     }
     title.push_str(", ");
     title.push_str(&span_label(feature.start, feature.end));
@@ -98,6 +129,14 @@ pub(crate) fn feature_title(feature: &Feature) -> String {
     if !strand.is_empty() {
         title.push_str(", ");
         title.push_str(strand);
+    }
+    let exons = feature.exons.len();
+    if exons > 1 {
+        title.push_str(&format!(", {exons} exons"));
+    }
+    if feature.transcripts > 1 {
+        let joint = if exons > 1 { " from" } else { "," };
+        title.push_str(&format!("{joint} {} transcripts", feature.transcripts));
     }
     title
 }
@@ -146,6 +185,21 @@ impl Strand {
 ///
 /// A GFF file counts from 1 and includes its end, so a GFF line `start..end`
 /// becomes `Feature::new(start - 1, end)`.
+///
+/// A gene model is a feature with its exons and the stretches that code for
+/// protein, [`Feature::exons`] and [`Feature::coding`]:
+///
+/// ```
+/// use karyon::{Feature, Strand};
+///
+/// // Three exons, coding from inside the first to inside the last.
+/// let gene = Feature::new(1_000, 9_000)
+///     .name("GENE1")
+///     .strand(Strand::Forward)
+///     .exons([(1_000, 1_500), (4_000, 4_500), (8_000, 9_000)])
+///     .coding([(1_200, 8_600)]);
+/// assert_eq!(gene.exons.len(), 3);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Feature {
     /// First base, 0-based.
@@ -158,6 +212,26 @@ pub struct Feature {
     pub strand: Strand,
     /// Colour override, otherwise the track colour is used.
     pub color: Option<String>,
+    /// The pieces the feature is made of, each `(start, end)`, in order and
+    /// apart: the exons of a transcript, or the blocks of a BED12 row. Empty
+    /// for a feature that is one piece from end to end, which is what most
+    /// features are. Set it through [`Feature::exons`], which sorts and joins.
+    pub exons: Vec<(u64, u64)>,
+    /// The stretches that code for protein, each `(start, end)`, drawn at the
+    /// full height of the row while the rest of each exon is drawn at half of
+    /// it, as untranslated. Empty when nothing is known to code, and then every
+    /// exon is drawn at full height: a non-coding RNA is not an untranslated
+    /// region from end to end.
+    pub coding: Vec<(u64, u64)>,
+    /// How many transcripts the feature stands for, when it is a gene drawn
+    /// once for all of them, with every exon any of them uses. Its tooltip
+    /// says so, since merging isoforms is a choice a figure should not make
+    /// in silence. Nought or one says nothing.
+    pub transcripts: usize,
+    /// The gene a transcript belongs to, which its tooltip names beside its
+    /// own name: isoforms are named for themselves, and `NM_000546.6` alone
+    /// does not say which gene it is.
+    pub gene: Option<String>,
 }
 
 impl Feature {
@@ -174,6 +248,10 @@ impl Feature {
             name: None,
             strand: Strand::Unknown,
             color: None,
+            exons: Vec::new(),
+            coding: Vec::new(),
+            transcripts: 0,
+            gene: None,
         }
     }
 
@@ -195,6 +273,47 @@ impl Feature {
         self
     }
 
+    /// Sets the exons, or the blocks of a BED12 row, each `(start, end)`,
+    /// 0-based and half-open.
+    ///
+    /// They are sorted, and joined where they touch or overlap, since two
+    /// exons with no intron between them are one stretch of the transcript.
+    /// An empty span is left out. The feature is widened to hold them where it
+    /// did not, so an exon is never cut off by the span it belongs to.
+    pub fn exons(mut self, exons: impl IntoIterator<Item = (u64, u64)>) -> Self {
+        self.exons = joined(exons);
+        if let (Some(first), Some(last)) = (self.exons.first(), self.exons.last()) {
+            self.start = self.start.min(first.0);
+            self.end = self.end.max(last.1);
+        }
+        self
+    }
+
+    /// Sets the stretches that code for protein, each `(start, end)`: a
+    /// transcript's CDS, or a BED12 row's thick span.
+    ///
+    /// Sorted and joined as the exons are. Only where they fall on an exon
+    /// are they drawn, so a CDS given as one span from its first base to its
+    /// last, as BED writes it, is drawn over the exons and not over the
+    /// introns between them.
+    pub fn coding(mut self, coding: impl IntoIterator<Item = (u64, u64)>) -> Self {
+        self.coding = joined(coding);
+        self
+    }
+
+    /// Says how many transcripts the feature stands for, as a gene drawn once
+    /// for all of them.
+    pub fn transcripts(mut self, count: usize) -> Self {
+        self.transcripts = count;
+        self
+    }
+
+    /// Names the gene a transcript belongs to.
+    pub fn gene(mut self, gene: impl Into<String>) -> Self {
+        self.gene = Some(gene.into());
+        self
+    }
+
     /// Length in bases.
     pub fn len(&self) -> u64 {
         self.end - self.start
@@ -204,6 +323,21 @@ impl Feature {
     pub fn is_empty(&self) -> bool {
         false
     }
+}
+
+/// Spans sorted by start and joined where they touch or overlap, with the
+/// empty ones left out.
+fn joined(spans: impl IntoIterator<Item = (u64, u64)>) -> Vec<(u64, u64)> {
+    let mut spans: Vec<(u64, u64)> = spans.into_iter().filter(|(s, e)| e > s).collect();
+    spans.sort_unstable();
+    let mut out: Vec<(u64, u64)> = Vec::with_capacity(spans.len());
+    for (start, end) in spans {
+        match out.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => out.push((start, end)),
+        }
+    }
+    out
 }
 
 /// A row of features, packed so that nothing overlaps on screen.
@@ -413,8 +547,10 @@ impl FeatureTrack {
                     let width = text_width(name, theme.font_size);
                     // A name that does not fit inside is drawn to the right,
                     // so it has to be reserved here or the next feature will
-                    // sit on top of it.
-                    if width + 6.0 > right - left {
+                    // sit on top of it. Inside a gene model means inside its
+                    // widest coding stretch, which is where `draw` puts it.
+                    let room = Self::model(feature, scale).map_or(right - left, |model| model.room);
+                    if width + 6.0 > room {
                         right += width + 6.0;
                     }
                 }
@@ -430,6 +566,302 @@ impl FeatureTrack {
         }
 
         (rows, row_ends.len().max(1))
+    }
+}
+
+/// A stretch of an exon as it is drawn, in pixels, and whether it codes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Piece {
+    left: f64,
+    right: f64,
+    full: bool,
+}
+
+/// A feature drawn as a gene model, worked out in pixels at one zoom.
+#[derive(Debug)]
+struct Model {
+    /// Each exon as it is drawn, left to right, cut where it starts or stops
+    /// coding.
+    exons: Vec<Vec<Piece>>,
+    /// Where the line through the introns runs: the whole feature.
+    line: (f64, f64),
+    /// The widest stretch drawn at full height, which is where a name fits
+    /// inside the feature or does not, and its middle.
+    room: f64,
+    room_at: f64,
+}
+
+/// Pieces joined where they are drawn alike, and a piece under half a pixel
+/// drawn as the one beside it, since a step nobody can see is only a longer
+/// document.
+fn settle(pieces: Vec<Piece>) -> Vec<Piece> {
+    let mut out: Vec<Piece> = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        match out.last_mut() {
+            Some(last) if last.full == piece.full || piece.right - piece.left < 0.5 => {
+                last.right = piece.right;
+            }
+            Some(last) if last.right - last.left < 0.5 => {
+                last.right = piece.right;
+                last.full = piece.full;
+            }
+            _ => out.push(piece),
+        }
+    }
+    out
+}
+
+impl FeatureTrack {
+    /// The gene model `feature` is drawn as at this zoom, or `None` for a
+    /// feature drawn as one piece.
+    ///
+    /// One piece is a feature with neither exons nor a coding stretch, and
+    /// also one whose exons join into one on screen and code from end to end:
+    /// an intron under a pixel is no gap on the page, and a gene too small to
+    /// show one is the arrow it always was. Exons are cut to the feature,
+    /// since the fields are public and a span outside it would be drawn over
+    /// its neighbour's row room.
+    fn model(feature: &Feature, scale: &Scale) -> Option<Model> {
+        if feature.exons.is_empty() && feature.coding.is_empty() {
+            return None;
+        }
+        let (start, end) = (feature.start, feature.end);
+        let mut exons: Vec<(u64, u64)> = if feature.exons.is_empty() {
+            vec![(start, end)]
+        } else {
+            feature
+                .exons
+                .iter()
+                .map(|&(s, e)| (s.max(start), e.min(end)))
+                .filter(|(s, e)| e > s)
+                .collect()
+        };
+        if exons.is_empty() {
+            return None;
+        }
+        exons.sort_unstable();
+        let mut blocks: Vec<(u64, u64)> = Vec::with_capacity(exons.len());
+        for (s, e) in exons {
+            match blocks.last_mut() {
+                Some(last) if scale.x(s) - scale.x(last.1) < 1.0 => last.1 = last.1.max(e),
+                _ => blocks.push((s, e)),
+            }
+        }
+        let mut coding = feature.coding.clone();
+        coding.sort_unstable();
+
+        let mut drawn = Vec::with_capacity(blocks.len());
+        let (mut room, mut room_at) = (0.0f64, 0.0f64);
+        for &(s, e) in &blocks {
+            let piece = |from: u64, to: u64, full: bool| Piece {
+                left: scale.x(from),
+                right: scale.x(to),
+                full,
+            };
+            let mut pieces = Vec::new();
+            if coding.is_empty() {
+                pieces.push(piece(s, e, true));
+            } else {
+                let mut at = s;
+                for &(from, to) in &coding {
+                    let (from, to) = (from.max(s), to.min(e));
+                    if to <= from {
+                        continue;
+                    }
+                    if from > at {
+                        pieces.push(piece(at, from, false));
+                    }
+                    pieces.push(piece(from, to, true));
+                    at = to;
+                }
+                if at < e {
+                    pieces.push(piece(at, e, false));
+                }
+            }
+            let pieces = settle(pieces);
+            for piece in pieces.iter().filter(|piece| piece.full) {
+                if piece.right - piece.left > room {
+                    room = piece.right - piece.left;
+                    room_at = (piece.left + piece.right) / 2.0;
+                }
+            }
+            drawn.push(pieces);
+        }
+
+        let (left, right) = (scale.x(start), scale.x(end));
+        if let [pieces] = &drawn[..] {
+            if let [only] = pieces[..] {
+                if only.full && only.left - left < 0.5 && right - only.right < 0.5 {
+                    return None;
+                }
+            }
+        }
+        Some(Model {
+            exons: drawn,
+            line: (left, right),
+            room,
+            room_at,
+        })
+    }
+
+    /// Draws a gene model in the row whose top is `top`: the line through its
+    /// introns with arrows along it, then each exon over the line, the coding
+    /// stretches at the height of the row and the rest at half of it.
+    ///
+    /// The arrowhead is on the exon the transcript ends in, so a gene model
+    /// points the way the arrow it replaces pointed, and the arrows along the
+    /// introns say it again where the exons are too narrow to.
+    fn draw_model(
+        ctx: &mut DrawContext<'_>,
+        feature: &Feature,
+        model: &Model,
+        top: f64,
+        height: f64,
+        color: &str,
+    ) {
+        let middle = top + height / 2.0;
+        let edge = ctx.theme.tokens.hairline;
+        // Only what is in the band is drawn. A gene of a megabase seen through
+        // a window of a hundred bases is millions of pixels of line, and as
+        // many arrows along it as would fit, every one of them cut off by the
+        // clip and every one of them written into the document first.
+        let (shown_from, shown_to) = (ctx.band.x - 1.0, ctx.band.right() + 1.0);
+        let (line_from, line_to) = (model.line.0.max(shown_from), model.line.1.min(shown_to));
+        if line_to > line_from {
+            ctx.svg
+                .line(line_from, middle, line_to, middle, color, edge);
+        }
+
+        // The arrows go where the line shows: between the exons, and between
+        // the ends of the feature and its outermost exons where it runs on.
+        let mut gaps = Vec::with_capacity(model.exons.len() + 1);
+        let mut from = model.line.0;
+        for pieces in &model.exons {
+            if let (Some(first), Some(last)) = (pieces.first(), pieces.last()) {
+                gaps.push((from, first.left));
+                from = last.right;
+            }
+        }
+        gaps.push((from, model.line.1));
+        let gaps: Vec<(f64, f64)> = gaps
+            .into_iter()
+            .map(|(from, to)| (from.max(shown_from), to.min(shown_to)))
+            .collect();
+        let pointing = match feature.strand {
+            Strand::Forward => 1.0,
+            Strand::Reverse => -1.0,
+            Strand::Unknown => 0.0,
+        };
+        if pointing != 0.0 {
+            let (half_wide, half_tall) = (ctx.px(2.0), ctx.px(2.5).min(height * 0.3));
+            let spacing = ctx.px(20.0);
+            let mut d = String::new();
+            for (from, to) in gaps {
+                let gap = to - from;
+                if gap < ctx.px(10.0) {
+                    continue;
+                }
+                let count = (gap / spacing).floor().max(1.0) as usize;
+                for k in 0..count {
+                    let x = from + gap * (k as f64 + 0.5) / count as f64;
+                    let back = x - half_wide * pointing;
+                    let tip = x + half_wide * pointing;
+                    d.push_str(&format!(
+                        "M{} {}L{} {}L{} {}",
+                        crate::svg::num(back),
+                        crate::svg::num(middle - half_tall),
+                        crate::svg::num(tip),
+                        crate::svg::num(middle),
+                        crate::svg::num(back),
+                        crate::svg::num(middle + half_tall)
+                    ));
+                }
+            }
+            if !d.is_empty() {
+                ctx.svg.path_stroked(&d, color, edge);
+            }
+        }
+
+        let inset = edge / 2.0;
+        let full = height / 2.0 - inset;
+        let thin = height / 4.0;
+        let ends_here = |index: usize| match feature.strand {
+            Strand::Forward => index + 1 == model.exons.len(),
+            Strand::Reverse => index == 0,
+            Strand::Unknown => false,
+        };
+        for (index, pieces) in model.exons.iter().enumerate() {
+            let (Some(first), Some(last)) = (pieces.first(), pieces.last()) else {
+                continue;
+            };
+            if last.right < shown_from || first.left > shown_to {
+                continue;
+            }
+            let half = |piece: &Piece| if piece.full { full } else { thin };
+            let left = first.left + inset;
+            let right = (last.right - inset).max(left);
+            // A third of a short end piece, never more than the arrow of a
+            // whole feature, as the arrow it replaces was sized.
+            let head = if ends_here(index) {
+                let piece = if feature.strand == Strand::Forward {
+                    last
+                } else {
+                    first
+                };
+                ((piece.right - piece.left) * 0.35).min(ctx.theme.tokens.arrow_size)
+            } else {
+                0.0
+            };
+            let mut points = Vec::with_capacity(pieces.len() * 4 + 2);
+            // The top edge left to right, stepping where coding starts or
+            // stops, then the bottom edge back.
+            for (i, piece) in pieces.iter().enumerate() {
+                let y = middle - half(piece);
+                let x0 = if i == 0 { left } else { piece.left };
+                let x1 = if i + 1 == pieces.len() {
+                    right
+                } else {
+                    piece.right
+                };
+                if i == 0 && feature.strand == Strand::Reverse && head > 1.0 {
+                    points.push((x0, middle));
+                    points.push((x0 + head, y));
+                } else {
+                    points.push((x0, y));
+                }
+                if i + 1 == pieces.len() && feature.strand == Strand::Forward && head > 1.0 {
+                    points.push((x1 - head, y));
+                    points.push((x1, middle));
+                } else {
+                    points.push((x1, y));
+                }
+            }
+            for (i, piece) in pieces.iter().enumerate().rev() {
+                let y = middle + half(piece);
+                let x0 = if i == 0 { left } else { piece.left };
+                let x1 = if i + 1 == pieces.len() {
+                    right
+                } else {
+                    piece.right
+                };
+                if i + 1 == pieces.len() && feature.strand == Strand::Forward && head > 1.0 {
+                    points.push((x1 - head, y));
+                } else {
+                    points.push((x1, y));
+                }
+                if i == 0 && feature.strand == Strand::Reverse && head > 1.0 {
+                    points.push((x0 + head, y));
+                } else {
+                    points.push((x0, y));
+                }
+            }
+            if right - left >= ctx.px(4.0) {
+                ctx.svg
+                    .polygon_edged(&points, &wash(color, ctx.theme), color, edge);
+            } else {
+                ctx.svg.polygon(&points, color);
+            }
+        }
     }
 }
 
@@ -573,74 +1005,86 @@ impl Track for FeatureTrack {
                 ctx.svg.begin_titled(&feature_title(feature));
             }
 
-            // The arrowhead eats a third of a short feature but never more
-            // than 8 pixels of a long one, so an interval stays a bar with a
-            // point rather than becoming a triangle.
-            let head = ((right - left) * 0.35).min(ctx.theme.tokens.arrow_size);
-            // The hue goes in the edge and a wash of it in the body, as it does
-            // for the genes of a locus. A gene is the largest filled shape on
-            // most figures, and at full saturation it outweighs the variants
-            // and the depth it is there to give a place to. A mark too narrow
-            // to show a body is all edge, so it keeps the full colour.
-            let body = if right - left >= ctx.px(4.0) {
-                wash(&color, ctx.theme)
-            } else {
-                color.clone()
-            };
-            let edge = ctx.theme.tokens.hairline;
-            let inset = edge / 2.0;
-            let (top_in, bottom_in) = (top + inset, bottom - inset);
-            let (left_in, right_in) = (left + inset, (right - inset).max(left + inset));
-            let outline: Option<Vec<(f64, f64)>> = match feature.strand {
-                Strand::Forward if head > 1.0 => Some(vec![
-                    (left_in, top_in),
-                    (right_in - head, top_in),
-                    (right_in, middle),
-                    (right_in - head, bottom_in),
-                    (left_in, bottom_in),
-                ]),
-                Strand::Reverse if head > 1.0 => Some(vec![
-                    (right_in, top_in),
-                    (left_in + head, top_in),
-                    (left_in, middle),
-                    (left_in + head, bottom_in),
-                    (right_in, bottom_in),
-                ]),
-                _ => None,
-            };
-            match outline {
-                Some(points) if body != color => {
-                    ctx.svg.polygon_edged(&points, &body, &color, edge);
+            // A gene model draws itself; everything else is the one glyph
+            // this track always drew, untouched, so no figure without exons
+            // changes by a byte.
+            let (body, room, room_at) = match Self::model(feature, ctx.scale) {
+                Some(model) => {
+                    Self::draw_model(ctx, feature, &model, top, row_height, &color);
+                    (wash(&color, ctx.theme), model.room, model.room_at)
                 }
-                Some(points) => ctx.svg.polygon(&points, &body),
-                None if body != color => ctx.svg.rect_rounded_edged(
-                    left,
-                    top,
-                    right - left,
-                    row_height,
-                    ctx.theme.corner_radius,
-                    &body,
-                    &color,
-                    edge,
-                ),
-                None => ctx.svg.rect_rounded(
-                    left,
-                    top,
-                    right - left,
-                    row_height,
-                    ctx.theme.corner_radius,
-                    &body,
-                ),
-            }
+                None => {
+                    // The arrowhead eats a third of a short feature but never more
+                    // than 8 pixels of a long one, so an interval stays a bar with a
+                    // point rather than becoming a triangle.
+                    let head = ((right - left) * 0.35).min(ctx.theme.tokens.arrow_size);
+                    // The hue goes in the edge and a wash of it in the body, as it does
+                    // for the genes of a locus. A gene is the largest filled shape on
+                    // most figures, and at full saturation it outweighs the variants
+                    // and the depth it is there to give a place to. A mark too narrow
+                    // to show a body is all edge, so it keeps the full colour.
+                    let body = if right - left >= ctx.px(4.0) {
+                        wash(&color, ctx.theme)
+                    } else {
+                        color.clone()
+                    };
+                    let edge = ctx.theme.tokens.hairline;
+                    let inset = edge / 2.0;
+                    let (top_in, bottom_in) = (top + inset, bottom - inset);
+                    let (left_in, right_in) = (left + inset, (right - inset).max(left + inset));
+                    let outline: Option<Vec<(f64, f64)>> = match feature.strand {
+                        Strand::Forward if head > 1.0 => Some(vec![
+                            (left_in, top_in),
+                            (right_in - head, top_in),
+                            (right_in, middle),
+                            (right_in - head, bottom_in),
+                            (left_in, bottom_in),
+                        ]),
+                        Strand::Reverse if head > 1.0 => Some(vec![
+                            (right_in, top_in),
+                            (left_in + head, top_in),
+                            (left_in, middle),
+                            (left_in + head, bottom_in),
+                            (right_in, bottom_in),
+                        ]),
+                        _ => None,
+                    };
+                    match outline {
+                        Some(points) if body != color => {
+                            ctx.svg.polygon_edged(&points, &body, &color, edge);
+                        }
+                        Some(points) => ctx.svg.polygon(&points, &body),
+                        None if body != color => ctx.svg.rect_rounded_edged(
+                            left,
+                            top,
+                            right - left,
+                            row_height,
+                            ctx.theme.corner_radius,
+                            &body,
+                            &color,
+                            edge,
+                        ),
+                        None => ctx.svg.rect_rounded(
+                            left,
+                            top,
+                            right - left,
+                            row_height,
+                            ctx.theme.corner_radius,
+                            &body,
+                        ),
+                    }
+                    (body, right - left, (left + right) / 2.0)
+                }
+            };
 
             // One exit from here on, so the group opened above is closed
             // exactly once however the name turns out.
             if let (true, Some(name)) = (self.show_names, &feature.name) {
                 let width = text_width(name, font);
                 let baseline = middle + font * 0.35;
-                if width + 6.0 <= right - left {
+                if width + 6.0 <= room {
                     ctx.svg.text(
-                        (left + right) / 2.0,
+                        room_at,
                         baseline,
                         name,
                         contrast_ink(&body),
@@ -1041,5 +1485,171 @@ mod tests {
             "{svg}"
         );
         assert_eq!(svg.matches("<title>").count(), 3);
+    }
+
+    /// A gene with three exons and two isoforms, coding from inside the first
+    /// exon to inside the last.
+    fn model() -> Feature {
+        Feature::new(1_000, 9_000)
+            .name("GENE1")
+            .strand(Strand::Forward)
+            .exons([(1_000, 1_500), (8_000, 9_000), (4_000, 4_500)])
+            .coding([(1_200, 8_600)])
+            .transcripts(2)
+    }
+
+    fn drawn(feature: Feature, region: Region) -> String {
+        Figure::new(region)
+            .show_region_label(false)
+            .push(FeatureTrack::new(vec![feature]))
+            .to_svg()
+    }
+
+    #[test]
+    fn exons_are_sorted_joined_and_hold_the_feature_open() {
+        let gene = Feature::new(500, 600).exons([(900, 1_000), (100, 200), (150, 300), (300, 350)]);
+        assert_eq!(gene.exons, [(100, 350), (900, 1_000)]);
+        assert_eq!((gene.start, gene.end), (100, 1_000));
+        assert!(Feature::new(0, 10).exons([(5, 5)]).exons.is_empty());
+    }
+
+    #[test]
+    fn a_gene_model_says_its_exons_its_transcripts_and_its_gene() {
+        let svg = drawn(model(), Region::new("chr1", 0, 10_000).unwrap());
+        assert!(
+            svg.contains(
+                "<title>GENE1, 1,001 to 9,000, forward, 3 exons from 2 transcripts</title>"
+            ),
+            "{svg}"
+        );
+        let transcript = Feature::new(1_000, 9_000)
+            .name("GENE1-201")
+            .gene("GENE1")
+            .exons([(1_000, 1_500), (8_000, 9_000)]);
+        let svg = drawn(transcript, Region::new("chr1", 0, 10_000).unwrap());
+        assert!(
+            svg.contains("<title>GENE1-201 (GENE1), 1,001 to 9,000, 2 exons</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn a_gene_model_is_exons_over_a_line_with_arrows_through_its_introns() {
+        let svg = drawn(model(), Region::new("chr1", 0, 10_000).unwrap());
+        // One box per exon, where a plain feature is one outline.
+        assert_eq!(svg.matches("<polygon").count(), 3, "{svg}");
+        // The line runs the length of the gene, under the exons.
+        assert_eq!(svg.matches("<line").count(), 1, "{svg}");
+        // Arrows along the introns, pointing the way the gene runs.
+        let arrows = svg.split("<path d=\"").nth(1).expect("no arrows");
+        assert!(arrows.starts_with('M'), "{arrows}");
+        assert!(arrows.split('"').next().unwrap().matches('M').count() >= 4);
+        // The first exon is untranslated for its first 200 bases, and drawn
+        // at half the height there: its outline steps.
+        let first = svg.split("<polygon points=\"").nth(1).unwrap();
+        let ys: std::collections::BTreeSet<String> = first
+            .split('"')
+            .next()
+            .unwrap()
+            .split(' ')
+            .filter_map(|pair| pair.split(',').nth(1).map(str::to_string))
+            .collect();
+        assert_eq!(ys.len(), 4, "the first exon has two heights: {first}");
+    }
+
+    #[test]
+    fn a_gene_whose_introns_are_under_a_pixel_is_the_arrow_it_was() {
+        // Two exons a base apart, across a whole chromosome.
+        let gene = Feature::new(0, 2_000)
+            .name("g")
+            .strand(Strand::Forward)
+            .exons([(0, 1_000), (1_001, 2_000)]);
+        let plain = Feature::new(0, 2_000).name("g").strand(Strand::Forward);
+        let region = Region::new("chr1", 0, 4_000_000).unwrap();
+        assert_eq!(
+            drawn(gene.clone(), region.clone()).replace(", 2 exons", ""),
+            drawn(plain, region)
+        );
+        // Close enough to see the intron, it is drawn as one.
+        let near = drawn(gene, Region::new("chr1", 900, 1_100).unwrap());
+        assert_eq!(near.matches("<polygon").count(), 2, "{near}");
+    }
+
+    #[test]
+    fn a_name_sits_inside_the_widest_coding_stretch_or_beside_the_gene() {
+        let region = Region::new("chr1", 0, 10_000).unwrap();
+        let x = |svg: &str, name: &str| -> f64 {
+            let at = svg.find(&format!(">{name}</text>")).unwrap();
+            let open = svg[..at].rfind("<text").unwrap();
+            svg[open..at]
+                .split("x=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        // The coding part of the last exon is the widest stretch drawn at
+        // full height, and the name is centred on it, not on the introns.
+        let svg = drawn(model(), region.clone());
+        let at = x(&svg, "GENE1");
+        assert!(at > 709.0 && at < 761.0, "{svg}");
+
+        // A name too wide for any exon goes after the gene, and the packing
+        // keeps the room for it there: a feature just past the gene moves
+        // down a row for a long name and not for one that fits inside.
+        let long = "a_name_far_wider_than_any_exon";
+        let mut gene = model();
+        gene.name = Some(long.to_string());
+        let svg = drawn(gene.clone(), region.clone());
+        assert!(x(&svg, long) > 795.0, "{svg}");
+        let next = Feature::new(9_100, 9_400).name("x");
+        let scale = scale(&region);
+        let rows = |first: Feature| {
+            FeatureTrack::new(vec![first, next.clone()])
+                .pack(&scale, &Theme::default())
+                .0
+        };
+        assert_eq!(rows(gene), [0, 1]);
+        assert_eq!(rows(model()), [0, 0]);
+    }
+
+    #[test]
+    fn a_gene_far_wider_than_the_window_draws_only_what_is_in_it() {
+        // A megabase gene seen through a hundred bases of its intron: one
+        // line across the band and the arrows that fit in it, not a million
+        // pixels of them drawn and then clipped away.
+        let gene = Feature::new(0, 1_000_000)
+            .name("long")
+            .strand(Strand::Reverse)
+            .exons([(0, 100), (999_900, 1_000_000)]);
+        let svg = drawn(gene, Region::new("chr1", 500_000, 500_100).unwrap());
+        assert!(svg.len() < 6_000, "{} bytes", svg.len());
+        assert_eq!(svg.matches("<line").count(), 1);
+        assert_eq!(svg.matches("<polygon").count(), 0, "{svg}");
+        let arrows = svg
+            .split("<path d=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        let count = arrows.matches('M').count();
+        assert!((30..=50).contains(&count), "{count} arrows: {arrows}");
+    }
+
+    #[test]
+    fn a_coding_span_with_no_exons_draws_its_untranslated_ends_thinner() {
+        let svg = drawn(
+            Feature::new(1_000, 9_000)
+                .name("g")
+                .coding([(2_000, 8_000)]),
+            Region::new("chr1", 0, 10_000).unwrap(),
+        );
+        assert_eq!(svg.matches("<polygon").count(), 1, "{svg}");
+        // No introns, so no line under it and no arrows along one.
+        assert!(!svg.contains("<path d=\"M"), "{svg}");
     }
 }

@@ -7,8 +7,8 @@
 
 use karyon::tree::Tree;
 use karyon::{
-    BisulfiteTrack, Drawing, Legend, Molecule, OrfTrack, Plot, Region, StructuralTrack,
-    StructuralVariant, SvKind, TanglegramTrack, Theme,
+    BisulfiteTrack, Drawing, Feature, Junction, Legend, Molecule, OrfTrack, Plot, Region, Strand,
+    StructuralTrack, StructuralVariant, SvKind, TanglegramTrack, Theme,
 };
 
 /// `example-structural.svg`: arcs between breakpoints, over the depth that
@@ -262,6 +262,137 @@ pub fn example_bisulfite(
 
 /// A linear congruential generator, so the figures are reproducible without a
 /// dependency.
+/// `example-gene-models.svg`: two genes with introns, drawn once a gene and
+/// then once a transcript, under the reads that tell the transcripts apart.
+///
+/// An illustrative locus rather than a real one. The first gene has three
+/// transcripts: one uses every exon, one skips the third, and one starts at
+/// an exon of its own and codes nothing. The depth and the junctions are what
+/// an RNA-seq experiment over them would show, the skipped exon covered by
+/// fewer reads and crossed by an arc of its own.
+///
+/// `theme`, `width` and `region` replace the light theme, the 880 pixels and
+/// the thirty kilobases the committed figure is drawn over.
+pub fn example_gene_models(
+    theme: &Theme,
+    width: Option<f64>,
+    region: Option<&Region>,
+) -> Box<dyn Drawing> {
+    let a = [
+        (2_000, 2_600),
+        (5_200, 5_450),
+        (8_100, 8_300),
+        (11_000, 11_250),
+        (14_600, 16_000),
+    ];
+    let own_exon = (6_900, 7_300);
+    let b = [(19_000, 20_200), (22_400, 22_600), (26_800, 27_500)];
+    let a_coding = (2_350, 15_100);
+    let b_coding = (19_700, 27_100);
+
+    let transcript = |name: &str, gene: &str, strand: Strand, exons: Vec<(u64, u64)>| {
+        let (start, end) = (exons[0].0, exons[exons.len() - 1].1);
+        Feature::new(start, end)
+            .name(name)
+            .gene(gene)
+            .strand(strand)
+            .exons(exons)
+    };
+    let transcripts = vec![
+        transcript("geneA-201", "geneA", Strand::Forward, a.to_vec()).coding([a_coding]),
+        transcript(
+            "geneA-202",
+            "geneA",
+            Strand::Forward,
+            vec![a[0], a[1], a[3], a[4]],
+        )
+        .coding([a_coding]),
+        transcript(
+            "geneA-203",
+            "geneA",
+            Strand::Forward,
+            vec![own_exon, a[3], a[4]],
+        ),
+        transcript("geneB-201", "geneB", Strand::Reverse, b.to_vec()).coding([b_coding]),
+    ];
+    // Each gene once: every exon a transcript of it uses, and the stretches
+    // that code in any of them, which is what the reader makes of the same
+    // annotation when it is not asked for each transcript.
+    let coding_on = |exons: &[(u64, u64)], (from, to): (u64, u64)| -> Vec<(u64, u64)> {
+        exons
+            .iter()
+            .map(|&(s, e)| (s.max(from), e.min(to)))
+            .filter(|(s, e)| e > s)
+            .collect()
+    };
+    let genes = vec![
+        Feature::new(2_000, 16_000)
+            .name("geneA")
+            .strand(Strand::Forward)
+            .exons(a.iter().copied().chain([own_exon]))
+            .coding(coding_on(&a, a_coding))
+            .transcripts(3),
+        Feature::new(19_000, 27_500)
+            .name("geneB")
+            .strand(Strand::Reverse)
+            .exons(b)
+            .coding([b_coding]),
+    ];
+
+    // Reads over the exons, as many as the transcripts using each would give,
+    // and a trickle through the introns.
+    let span = 30_000usize;
+    let mut rng = Lcg::new(1_618);
+    let level = |pos: u64| -> f64 {
+        let within = |exons: &[(u64, u64)]| exons.iter().any(|&(s, e)| (s..e).contains(&pos));
+        if within(&[a[0], a[1], a[4]]) {
+            150.0
+        } else if within(&[a[3]]) {
+            175.0
+        } else if within(&[a[2]]) {
+            95.0
+        } else if within(&[own_exon]) {
+            25.0
+        } else if within(&b) {
+            70.0
+        } else {
+            1.5
+        }
+    };
+    let depth: Vec<f64> = (0..span as u64)
+        .map(|pos| {
+            let noise = (rng.next() % 1_000) as f64 / 1_000.0;
+            (level(pos) * (0.85 + 0.3 * noise)).round()
+        })
+        .collect();
+    let junctions = vec![
+        Junction::new(2_600, 5_200, 148),
+        Junction::new(5_450, 8_100, 92),
+        Junction::new(8_300, 11_000, 90),
+        Junction::new(5_450, 11_000, 55),
+        Junction::new(7_300, 11_000, 24),
+        Junction::new(11_250, 14_600, 171),
+        Junction::new(20_200, 22_400, 68),
+        Junction::new(22_600, 26_800, 66),
+    ];
+
+    let own = Region::new("chr2", 0, span as u64).unwrap();
+    let figure = Plot::over(region.cloned().unwrap_or(own))
+        .title("Gene models: each gene once, then each of its transcripts")
+        .theme(theme.clone())
+        .width(width.unwrap_or(880.0))
+        .add_coverage_at(0, depth)
+        .label("RNA-seq")
+        .add_junctions(junctions)
+        .label("junctions")
+        .add_features(genes)
+        .label("genes")
+        .add_features(transcripts)
+        .label("transcripts")
+        .into_figure();
+    Box::new(figure)
+}
+
 struct Lcg(u64);
 
 impl Lcg {

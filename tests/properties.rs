@@ -291,9 +291,29 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
                 .map(|_| {
                     let a = rng.position(span);
                     let b = rng.position(span);
-                    Feature::new(a.min(b), a.max(b))
+                    let feature = Feature::new(a.min(b), a.max(b))
                         .name(rng.name())
-                        .strand(rng.strand())
+                        .strand(rng.strand());
+                    if rng.chance(2) {
+                        return feature;
+                    }
+                    // A gene model, with exons and coding stretches anywhere:
+                    // inside, overlapping, touching, empty, or off its ends.
+                    let spans = |rng: &mut Lcg, most: u64| -> Vec<(u64, u64)> {
+                        (0..rng.below(most))
+                            .map(|_| (rng.position(span), rng.position(span)))
+                            .collect()
+                    };
+                    let exons = spans(rng, 6);
+                    let coding = spans(rng, 3);
+                    let mut feature = feature.exons(exons).coding(coding);
+                    if rng.chance(3) {
+                        // Past the builder, as a caller holding the public
+                        // fields may leave them: unsorted and out of the span.
+                        feature.exons.reverse();
+                        feature.exons.push((0, u64::MAX));
+                    }
+                    feature
                 })
                 .collect();
             Box::new(FeatureTrack::new(features))

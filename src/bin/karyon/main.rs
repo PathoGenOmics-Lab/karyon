@@ -404,8 +404,9 @@ TRACKS
                          crossed them, an aligner's SJ.out.tab
     --sequence <FILE>    the reference bases, FASTA
     --features <FILE>    genes and other intervals, BED, GFF3 or GTF; a gene
-                         is drawn once, not again for its transcripts, exons
-                         and CDS
+                         is drawn once, with the exons its transcripts use
+                         over a line through its introns, and the ends that
+                         do not code at half height
     --variants <FILE>    point calls, VCF
     --windows <FILE>     a statistic in windows, bedGraph
     --manhattan <FILE>   association statistics, a table of position and value;
@@ -618,6 +619,9 @@ TRACK OPTIONS, each describing the track before it, once
     --no-names           leave out the name written on or beside each thing a
                          track draws, which is not the track's own name in the
                          gutter: that one is --label
+    --isoforms           draw each transcript of an annotation on a row of its
+                         own, named as the file names it, rather than each gene
+                         once with every exon any of its transcripts uses
     --aggregate <HOW>    max, mean or min, when a pixel covers many bases
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants, differences

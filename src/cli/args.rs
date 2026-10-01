@@ -1352,6 +1352,9 @@ pub struct TrackSpec {
     /// `--relative`, which reads each sample of a heatmap against its own
     /// median, so one is its usual value.
     pub relative: bool,
+    /// `--isoforms`, which draws each transcript of an annotation as a
+    /// feature of its own rather than each gene once.
+    pub isoforms: bool,
     /// `--growth`, the rise in frequency from one time to the next that a
     /// table of counts flags.
     pub growth: Option<f64>,
@@ -1423,6 +1426,7 @@ impl TrackSpec {
             min_reads: None,
             fade_by_mapq: false,
             relative: false,
+            isoforms: false,
             growth: None,
             min_total: None,
             counts: false,
@@ -1649,6 +1653,7 @@ pub const FLAGS: &[&str] = &[
     "--traits",
     "--columns",
     "--no-names",
+    "--isoforms",
     "--threshold",
     "--max-rows",
     "--projection",
@@ -2157,6 +2162,16 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.no_names = true;
+            }
+            "--isoforms" => {
+                let track = last(&mut tracks, "--isoforms")?;
+                if track.kind != Kind::Features {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--isoforms",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.isoforms = true;
             }
             "--threshold" => {
                 let text = value("--threshold")?;
