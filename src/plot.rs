@@ -470,6 +470,13 @@ impl<T: Slot> Plot<T> {
         self
     }
 
+    /// Draws the tracks that measure the same thing on one scale, as
+    /// [`Figure::same_scale`] does: several depths read off one ceiling.
+    pub fn same_scale(mut self) -> Self {
+        self.figure = self.figure.same_scale();
+        self
+    }
+
     /// Leaves out the locus string printed at the top right.
     ///
     /// Worth doing when the horizontal axis is not genomic coordinates, as it

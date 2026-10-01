@@ -113,7 +113,8 @@ self.karyon = self.karyon || (function () {
   // drag then rewrote the label and left the figure where it was.
   var ALONE = ["--axis", "--counts", "--fade-by-mapq", "--isoforms", "--log",
                "--no-axis", "--no-counts", "--no-legend", "--no-names",
-               "--no-region-label", "--no-scale-bar", "--relative"];
+               "--no-region-label", "--no-scale-bar", "--relative",
+               "--same-scale"];
 
   // The flags that open a track. Everything between one of these and the next
   // describes that track, which is what makes a command a stack rather than a

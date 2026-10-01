@@ -579,6 +579,14 @@ impl Kind {
         matches!(self, Kind::Coverage | Kind::Phylodynamics | Kind::Pairs)
     }
 
+    /// Whether `--max` means anything here: a track drawn up from nought to
+    /// a ceiling its data sets, which a reader comparing figures made apart
+    /// wants pinned. A statistic either side of a baseline has no one top to
+    /// pin, and is put on one scale with others by `--same-scale` instead.
+    fn takes_max(self) -> bool {
+        matches!(self, Kind::Coverage | Kind::Recombination | Kind::Manhattan)
+    }
+
     /// Whether a sheet of metadata means anything to this track.
     ///
     /// The tracks drawn as a row per named thing, which are the ones a strip
@@ -1355,6 +1363,8 @@ pub struct TrackSpec {
     /// `--isoforms`, which draws each transcript of an annotation as a
     /// feature of its own rather than each gene once.
     pub isoforms: bool,
+    /// `--max`, the top of the track's scale, pinned.
+    pub max: Option<f64>,
     /// `--growth`, the rise in frequency from one time to the next that a
     /// table of counts flags.
     pub growth: Option<f64>,
@@ -1427,6 +1437,7 @@ impl TrackSpec {
             fade_by_mapq: false,
             relative: false,
             isoforms: false,
+            max: None,
             growth: None,
             min_total: None,
             counts: false,
@@ -1541,6 +1552,9 @@ pub struct Invocation {
     /// each is drawn as a panel of its own under the one before, with the
     /// same tracks, and the key once under them all.
     pub more: Vec<Place>,
+    /// `--same-scale`: the tracks that measure the same thing, as the depths
+    /// of several samples, drawn on one scale, across every panel.
+    pub same_scale: bool,
 }
 
 impl Invocation {
@@ -1680,6 +1694,7 @@ pub const FLAGS: &[&str] = &[
     "--aggregate",
     "--style",
     "--log",
+    "--max",
     "--color",
     "--against",
     "--with-tree",
@@ -1701,6 +1716,7 @@ pub const FLAGS: &[&str] = &[
     "--no-axis",
     "--no-region-label",
     "--no-legend",
+    "--same-scale",
     "--rename",
     "-o",
     "--output",
@@ -1778,6 +1794,22 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     (
         &["dark", "light"],
         "the theme is --theme dark or --theme light",
+    ),
+    (
+        &["ymax", "y-max", "max-value", "maxvalue", "ylim", "y-limit"],
+        "the top of a track's scale is --max after its file, as in reads.bam --max 100",
+    ),
+    (
+        &[
+            "autoscale",
+            "group-autoscale",
+            "shared-scale",
+            "share-y",
+            "sharey",
+            "same-y",
+            "same-axis",
+        ],
+        "--same-scale draws the tracks that measure the same thing on one scale",
     ),
     (
         &["scale-bar", "scalebar"],
@@ -1997,6 +2029,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut named: Option<String> = None;
     let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
+    let mut same_scale = false;
     let mut renames: Vec<(String, String)> = Vec::new();
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
@@ -2162,6 +2195,26 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.no_names = true;
+            }
+            "--max" => {
+                let text = value("--max")?;
+                let max = text
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|max| max.is_finite() && *max > 0.0)
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--max",
+                        given: text.clone(),
+                        expected: "a number above nought, the top of the track's scale, as in 100",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--max")?;
+                if !track.kind.takes_max() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--max",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.max = Some(max);
             }
             "--isoforms" => {
                 let track = last(&mut tracks, "--isoforms")?;
@@ -2956,6 +3009,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--no-axis" => axis = false,
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
+            "--same-scale" => same_scale = true,
             "-o" | "--output" => {
                 figure_once(&mut given, "-o")?;
                 let path = PathBuf::from(value("-o")?);
@@ -3092,6 +3146,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         legend,
         renames,
         more,
+        same_scale,
     })))
 }
 

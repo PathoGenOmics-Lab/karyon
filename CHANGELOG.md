@@ -16,6 +16,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   uses, and its tooltip says how many it merged. A gene over its own CDS, as
   in a bacterial annotation, is the arrow it was, so no committed figure
   changes.
+- The depth of two samples on the "A whole sequence" page is drawn on one
+  scale (`--same-scale`): each on its own made the second sample, sequenced
+  deeper, look as deep as the first. `docs/assets/start/genome.svg` and its
+  dark copy change.
 - A GTF of exons alone, as a table browser writes one, draws a gene once with
   its exons, where each exon was drawn as a gene of its own; StringTie's
   transcripts with no gene row are one gene of two transcripts, each with
@@ -322,6 +326,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
+  the same thing on one scale: coverage in the same units on the same kind of
+  scale, windows about the same baseline, scans of the same statistic. Each
+  profile was scaled to its own largest value, so two samples side by side
+  were two scales the eye reads as one. A track whose maximum was pinned keeps
+  it. `Track::extent`, `Track::y_axis_width_over` and `DrawContext::extent`
+  are how a track takes part, and `Figure::extents` with
+  `Figure::share_extents` share a scale across the panels of a sheet.
+- `--same-scale` on the command line does the same, across every panel of a
+  figure of several places, and `--max` pins the top of a coverage, a
+  recombination rate or a scan, for figures drawn apart. `--ymax` and
+  `--autoscale`, as other tools spell them, are answered with these two.
 - `Feature::exons`, `Feature::coding`, `Feature::transcripts` and
   `Feature::gene`, and `FeatureTrack` draws a feature that carries them as a
   gene model. Exons closer than a pixel are drawn as one, and a model too

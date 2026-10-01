@@ -53,7 +53,7 @@ use crate::svg::{
     fit_text_by, mono_width, text_width, text_width_strong, Anchor, SvgWriter, TextStyle,
 };
 use crate::theme::{mix, Theme};
-use crate::track::{DrawContext, Rect, Track};
+use crate::track::{DrawContext, Extent, Rect, Track};
 
 const DEFAULT_LABEL_WIDTH: f64 = 84.0;
 const MIN_AUTO_LABEL_WIDTH: f64 = 48.0;
@@ -119,6 +119,11 @@ pub struct Figure {
     density: Density,
     show_region_label: bool,
     description: Option<String>,
+    /// Whether tracks that measure the same thing share one scale.
+    same_scale: bool,
+    /// What the tracks of other figures measured, for a sheet whose panels
+    /// share their scales; widens this figure's own.
+    shared: Vec<Extent>,
 }
 
 impl Figure {
@@ -137,6 +142,8 @@ impl Figure {
             density: Density::Balanced,
             show_region_label: true,
             description: None,
+            same_scale: false,
+            shared: Vec::new(),
         }
     }
 
@@ -297,6 +304,75 @@ impl Figure {
     /// or holding a track that [shows where it is](Track::shows_region).
     fn names_region(&self) -> bool {
         self.tracks.is_empty() || self.tracks.iter().any(|track| track.shows_region())
+    }
+
+    /// Draws the tracks that measure the same thing on one scale.
+    ///
+    /// Left alone, each track's value axis runs to the largest value it
+    /// holds, so the depth of a sample sequenced to fifty and of one
+    /// sequenced to a hundred fill their bands alike, and a reader comparing
+    /// the two bands compares two scales. On one scale the axis of each runs
+    /// as far as the largest of them, and the same height is the same depth.
+    ///
+    /// Tracks share a scale where [`Track::extent`] says they measure one
+    /// thing, which for the tracks the crate ships is the same kind of track
+    /// in the same units on the same kind of scale; a track whose maximum was
+    /// pinned keeps its pin.
+    pub fn same_scale(mut self) -> Self {
+        self.same_scale = true;
+        self
+    }
+
+    /// What each thing measured in this figure spans over its region, one
+    /// extent for each, for a sheet whose panels share their scales: join
+    /// the extents of every panel with [`Extent::join`] and hand them to each
+    /// panel's [`Figure::share_extents`].
+    pub fn extents(&self) -> Vec<Extent> {
+        Extent::join(self.tracks.iter().filter_map(|t| t.extent(&self.region)))
+    }
+
+    /// Draws the tracks that measure the same thing on one scale, as
+    /// [`Figure::same_scale`] does, widened to take in these extents too: the
+    /// ones the other panels of a sheet measured.
+    pub fn share_extents(mut self, extents: impl IntoIterator<Item = Extent>) -> Self {
+        self.same_scale = true;
+        self.shared.extend(extents);
+        self
+    }
+
+    /// The span each track's value axis is drawn over, where the figure draws
+    /// its tracks on one scale: the joined span of every track measuring
+    /// what it measures. `None` for a track drawn over its own values.
+    fn scales(&self) -> Vec<Option<(f64, f64)>> {
+        if !self.same_scale {
+            return vec![None; self.tracks.len()];
+        }
+        let own: Vec<Option<Extent>> = self.tracks.iter().map(|t| t.extent(&self.region)).collect();
+        let joined = Extent::join(
+            own.iter()
+                .flatten()
+                .cloned()
+                .chain(self.shared.iter().cloned()),
+        );
+        own.iter()
+            .map(|extent| {
+                let extent = extent.as_ref()?;
+                joined
+                    .iter()
+                    .find(|j| j.measure == extent.measure)
+                    .map(|j| (j.low, j.high))
+            })
+            .collect()
+    }
+
+    /// The room a track asks for its value axis, over the span it is drawn
+    /// over.
+    fn axis_room(track: &dyn Track, theme: &Theme, scale: Option<(f64, f64)>) -> f64 {
+        match scale {
+            Some((low, high)) => track.y_axis_width_over(theme, low, high),
+            None => track.y_axis_width(theme),
+        }
+        .max(0.0)
     }
 
     /// Appends a track below the ones already added.
@@ -512,7 +588,12 @@ impl Figure {
         }
 
         let mut y = layout.margin_top + layout.header_height;
-        for (track, height) in self.tracks.iter().zip(&layout.track_heights) {
+        for ((track, height), shared) in self
+            .tracks
+            .iter()
+            .zip(&layout.track_heights)
+            .zip(&layout.scales)
+        {
             let band = Rect {
                 x: layout.plot_x,
                 y,
@@ -524,7 +605,7 @@ impl Figure {
             // area, and not the widest strip in the figure: a track that asked
             // for no axis gets none, and is clipped to its band alone rather
             // than to a neighbour's room.
-            let axis_width = track.y_axis_width(&theme).max(0.0);
+            let axis_width = Self::axis_room(track.as_ref(), &theme, *shared);
             let axis = Rect {
                 x: band.x - axis_width,
                 y,
@@ -610,6 +691,7 @@ impl Figure {
                 right_axis,
                 region: &self.region,
                 visual_scale: self.visual_scale * self.density.scale(),
+                extent: *shared,
             };
             track.draw(&mut ctx);
             svg.end_group();
@@ -710,11 +792,14 @@ impl Figure {
             0.0
         };
         // The widest axis any track asks for, reserved for all of them, so that
-        // every plotting area still starts at the same x.
+        // every plotting area still starts at the same x. A track drawn on a
+        // shared scale asks for the room that scale's labels take.
+        let scales = self.scales();
         let axis_width = self
             .tracks
             .iter()
-            .map(|t| t.y_axis_width(theme).max(0.0))
+            .zip(&scales)
+            .map(|(t, scale)| Self::axis_room(t.as_ref(), theme, *scale))
             .fold(0.0f64, f64::max);
         let plot_x = margin_left + gutter + axis_width;
         // And the widest strip any track asks for on the right, taken from
@@ -756,6 +841,7 @@ impl Figure {
         Layout {
             width,
             scale,
+            scales,
             plot_x,
             axis_width,
             plot_width,
@@ -830,6 +916,8 @@ struct Layout {
     /// floor.
     width: f64,
     scale: Scale,
+    /// The span each track's value axis is drawn over, where it shares one.
+    scales: Vec<Option<(f64, f64)>>,
     plot_x: f64,
     axis_width: f64,
     plot_width: f64,
@@ -846,7 +934,7 @@ struct Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::track::{AxisTrack, CoverageTrack, Feature, FeatureTrack};
+    use crate::track::{AxisTrack, CoverageTrack, Extent, Feature, FeatureTrack};
 
     /// A track that answers with whatever height it was built with.
     struct Tall(f64);
@@ -1547,5 +1635,108 @@ mod tests {
         // And an empty figure is a window with nothing in it yet, which is
         // still a window.
         assert_eq!(Drawing::region(&Figure::new(region())), Some(&region()));
+    }
+
+    /// Two depths of one region: one reaching 97, one 48.
+    fn depths() -> (CoverageTrack, CoverageTrack) {
+        let deep: Vec<f64> = (0..1_000).map(|i| 60.0 + (i % 38) as f64).collect();
+        let shallow: Vec<f64> = (0..1_000).map(|i| 30.0 + (i % 19) as f64).collect();
+        (
+            CoverageTrack::new(0, deep).label("deep"),
+            CoverageTrack::new(0, shallow).label("shallow"),
+        )
+    }
+
+    fn depth_region() -> Region {
+        Region::new("chr1", 0, 1_000).unwrap()
+    }
+
+    #[test]
+    fn tracks_measuring_one_thing_share_one_scale_when_asked() {
+        let (deep, shallow) = depths();
+        let shared = Figure::new(depth_region())
+            .push(deep.clone())
+            .push(shallow.clone())
+            .same_scale()
+            .to_svg();
+        // Both read off the ceiling the deeper one rounds to, as if each had
+        // been pinned there by hand.
+        let pinned = Figure::new(depth_region())
+            .push(deep.clone().max(100.0))
+            .push(shallow.clone().max(100.0))
+            .to_svg();
+        assert_eq!(shared, pinned);
+        // And not otherwise: each to its own.
+        let own = Figure::new(depth_region())
+            .push(deep)
+            .push(shallow)
+            .to_svg();
+        assert_ne!(own, shared);
+    }
+
+    #[test]
+    fn a_pinned_track_keeps_its_pin_and_another_measure_its_own_scale() {
+        let (deep, shallow) = depths();
+        let figure = |same: bool, deep: CoverageTrack, shallow: CoverageTrack| {
+            let figure = Figure::new(depth_region()).push(deep).push(shallow);
+            if same { figure.same_scale() } else { figure }.to_svg()
+        };
+        // A pin is a decision about one track, and the other has nothing
+        // left to share with.
+        assert_eq!(
+            figure(true, deep.clone().max(200.0), shallow.clone()),
+            figure(false, deep.clone().max(200.0), shallow.clone())
+        );
+        // A log scale and a linear one are not one scale.
+        assert_eq!(
+            figure(true, deep.clone().log_scale(true), shallow.clone()),
+            figure(false, deep.clone().log_scale(true), shallow.clone())
+        );
+        // Nor are a depth and a rate.
+        assert_eq!(
+            figure(true, deep.clone().axis_title("cM/Mb"), shallow.clone()),
+            figure(false, deep.axis_title("cM/Mb"), shallow)
+        );
+    }
+
+    #[test]
+    fn the_panels_of_a_sheet_share_a_scale_through_their_extents() {
+        let (deep, shallow) = depths();
+        let left = Figure::new(depth_region()).push(deep);
+        let right = Figure::new(depth_region()).push(shallow.clone());
+        let joined = Extent::join(left.extents().into_iter().chain(right.extents()));
+        assert_eq!(joined.len(), 1, "{joined:?}");
+        assert_eq!((joined[0].low, joined[0].high), (0.0, 97.0));
+        assert_eq!(
+            right.share_extents(joined).to_svg(),
+            Figure::new(depth_region())
+                .push(shallow.max(100.0))
+                .to_svg()
+        );
+    }
+
+    #[test]
+    fn a_shared_scale_makes_room_for_labels_wider_than_a_track_own() {
+        let theme = Theme::light();
+        let small = CoverageTrack::new(0, vec![9.0; 100]);
+        assert!(small.y_axis_width_over(&theme, 0.0, 12_000.0) > small.y_axis_width(&theme));
+        // And the figure gives it that room: the strip a track's ticks are
+        // written in, inside its clip, is as wide over the small depth as
+        // over the large one, so `10k` is not cut off on the left.
+        let big = CoverageTrack::new(0, vec![12_000.0; 100]);
+        let svg = Figure::new(Region::new("chr1", 0, 100).unwrap())
+            .push(small)
+            .push(big)
+            .same_scale()
+            .to_svg();
+        assert_eq!(svg.matches(">10k</text>").count(), 2, "{svg}");
+        // The left edge of each track's clip, in the order they are drawn.
+        let clips: Vec<f64> = svg
+            .split("<clipPath id=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split("x=\"").nth(1)?.split('"').next()?.parse().ok())
+            .collect();
+        assert_eq!(clips.len(), 2, "{svg}");
+        assert_eq!(clips[0], clips[1], "{svg}");
     }
 }

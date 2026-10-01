@@ -42,7 +42,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, LinePattern, QuantitativeAxis};
 use crate::svg::{Anchor, SvgWriter};
 use crate::theme::Theme;
-use crate::track::{unbroken, DrawContext, Track};
+use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// One window and the value computed in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -288,33 +288,65 @@ impl WindowTrack {
     /// you. A statistic is read by comparing one stretch of sequence with
     /// another, and that comparison needs the axis to hold still.
     pub fn range(&self) -> (f64, f64) {
-        let data_range = if let Some(extent) = self.extent {
-            (self.baseline - extent, self.baseline + extent)
+        match self.extent {
+            Some(extent) => self
+                .axis
+                .resolve(self.baseline - extent, self.baseline + extent),
+            None => {
+                let (lo, hi) = self.reach();
+                self.range_over(lo, hi)
+            }
+        }
+    }
+
+    /// The least and the greatest value over every window, the baseline
+    /// among them.
+    fn reach(&self) -> (f64, f64) {
+        let mut lo = self.baseline;
+        let mut hi = self.baseline;
+        for window in &self.windows {
+            if window.value.is_finite() {
+                lo = lo.min(window.value);
+                hi = hi.max(window.value);
+            }
+        }
+        (lo, hi)
+    }
+
+    /// The values the axis spans when the windows reach from `lo` to `hi`.
+    ///
+    /// The free ends are rounded out to values worth labelling, which is also
+    /// the headroom a peak wants. A symmetric band rounds its half width
+    /// instead, so the baseline stays in the middle.
+    fn range_over(&self, lo: f64, hi: f64) -> (f64, f64) {
+        let (lo, hi) = (lo.min(self.baseline), hi.max(self.baseline));
+        if self.symmetric {
+            let extent = (hi - self.baseline).max(self.baseline - lo);
+            let extent = if extent > 0.0 { extent } else { 1.0 };
+            let extent = QuantitativeAxis::new().nice(0.0, extent).1;
+            self.axis
+                .resolve(self.baseline - extent, self.baseline + extent)
+        } else if hi - lo <= 0.0 {
+            self.axis.resolve(self.baseline - 1.0, self.baseline + 1.0)
         } else {
-            let mut lo = self.baseline;
-            let mut hi = self.baseline;
-            for window in &self.windows {
-                if window.value.is_finite() {
-                    lo = lo.min(window.value);
-                    hi = hi.max(window.value);
-                }
-            }
-            // The free ends are rounded out to values worth labelling, which
-            // is also the headroom a peak wants. A symmetric band rounds its
-            // half width instead, so the baseline stays in the middle.
-            if self.symmetric {
-                let extent = (hi - self.baseline).max(self.baseline - lo);
-                let extent = if extent > 0.0 { extent } else { 1.0 };
-                let extent = QuantitativeAxis::new().nice(0.0, extent).1;
-                (self.baseline - extent, self.baseline + extent)
-            } else if hi - lo <= 0.0 {
-                (self.baseline - 1.0, self.baseline + 1.0)
-            } else {
-                let (lo, hi) = self.axis.resolve(lo, hi);
-                return self.axis.nice(lo, hi);
-            }
-        };
-        self.axis.resolve(data_range.0, data_range.1)
+            let (lo, hi) = self.axis.resolve(lo, hi);
+            self.axis.nice(lo, hi)
+        }
+    }
+
+    /// The room the value axis takes when it spans `lo..hi`.
+    fn axis_room(&self, theme: &Theme, (lo, hi): (f64, f64)) -> f64 {
+        if !self.show_scale || self.windows.is_empty() {
+            return 0.0;
+        }
+        let size = theme.font_size - 1.0;
+        let ticks = self.tick_values(lo, hi);
+        self.axis
+            .labels(&ticks)
+            .iter()
+            .map(|label| crate::svg::text_width(label, size))
+            .fold(0.0f64, f64::max)
+            + 8.0
     }
 
     /// Where the value axis puts its ticks.
@@ -422,23 +454,41 @@ impl Track for WindowTrack {
     }
 
     fn y_axis_width(&self, theme: &Theme) -> f64 {
-        if !self.show_scale || self.windows.is_empty() {
-            return 0.0;
+        self.axis_room(theme, self.range())
+    }
+
+    fn y_axis_width_over(&self, theme: &Theme, low: f64, high: f64) -> f64 {
+        self.axis_room(theme, self.range_over(low, high))
+    }
+
+    /// Its statistic, its units and where its baseline sits: two tracks
+    /// drawn either side of different lines are not one scale.
+    fn extent(&self, _region: &Region) -> Option<Extent> {
+        if self.extent.is_some()
+            || self.axis.min.is_some()
+            || self.axis.max.is_some()
+            || self.windows.is_empty()
+        {
+            return None;
         }
-        let (lo, hi) = self.range();
-        let size = theme.font_size - 1.0;
-        let ticks = self.tick_values(lo, hi);
-        self.axis
-            .labels(&ticks)
-            .iter()
-            .map(|label| crate::svg::text_width(label, size))
-            .fold(0.0f64, f64::max)
-            + 8.0
+        let (low, high) = self.reach();
+        let mut measure = format!("windows about {}", self.baseline);
+        if !self.axis.unit.is_empty() {
+            measure.push_str(" in ");
+            measure.push_str(&self.axis.unit);
+        }
+        if self.symmetric {
+            measure.push_str(", symmetric");
+        }
+        Some(Extent::new(measure, low, high))
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
-        let (lo, hi) = self.range();
+        let (lo, hi) = match ctx.extent {
+            Some((low, high)) => self.range_over(low, high),
+            None => self.range(),
+        };
         let y_of = |value: f64| band.bottom() - ((value - lo) / (hi - lo)).clamp(0.0, 1.0) * band.h;
         let base_y = y_of(self.baseline);
 
@@ -691,6 +741,34 @@ mod tests {
             Window::new(1_000, 2_000, -0.5),
             Window::new(2_000, 3_000, 0.25),
         ]
+    }
+
+    #[test]
+    fn two_statistics_about_one_baseline_share_a_scale_when_asked() {
+        let wide = WindowTrack::new(vec![
+            Window::new(0, 1_500, 2.7),
+            Window::new(1_500, 3_000, -1.0),
+        ]);
+        let narrow = WindowTrack::new(windows());
+        assert_eq!(wide.range(), (-3.0, 3.0));
+        let shared = Figure::new(region())
+            .push(wide.clone())
+            .push(narrow.clone())
+            .same_scale()
+            .to_svg();
+        let pinned = Figure::new(region())
+            .push(wide.clone().extent(3.0))
+            .push(narrow.clone().extent(3.0))
+            .to_svg();
+        assert_eq!(shared, pinned);
+        // About another baseline, they are not one scale.
+        let apart = |same: bool| {
+            let figure = Figure::new(region())
+                .push(wide.clone())
+                .push(narrow.clone().baseline(0.5));
+            if same { figure.same_scale() } else { figure }.to_svg()
+        };
+        assert_eq!(apart(true), apart(false));
     }
 
     #[test]

@@ -226,6 +226,69 @@ pub(crate) fn unbroken<T>(points: impl IntoIterator<Item = Option<T>>) -> Vec<Ve
     runs
 }
 
+/// What a value axis measures and the values it spans, for a figure that
+/// draws several tracks on one scale.
+///
+/// Two tracks share a scale only where they measure one thing: the same kind
+/// of track, in the same units, on the same kind of scale, which `measure`
+/// says as a key. `low` and `high` are the values the track would span on its
+/// own, before it rounds them to ticks: each track rounds the shared span for
+/// itself, and tracks that measure one thing round it alike.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extent {
+    /// What is measured: the kind of track and its units.
+    pub measure: String,
+    /// The least value the axis spans.
+    pub low: f64,
+    /// The greatest value the axis spans.
+    pub high: f64,
+}
+
+impl Extent {
+    /// The span `low..high` of what `measure` names.
+    pub fn new(measure: impl Into<String>, low: f64, high: f64) -> Self {
+        Extent {
+            measure: measure.into(),
+            low,
+            high,
+        }
+    }
+
+    /// One extent for each thing measured, spanning every extent of it, in
+    /// the order each measure first appears.
+    ///
+    /// A value that is not a number is left out rather than spread to the
+    /// span it joins, since `NaN` compared with anything is neither more nor
+    /// less, and an extent with nothing left in it is not one.
+    pub fn join(extents: impl IntoIterator<Item = Extent>) -> Vec<Extent> {
+        let mut joined: Vec<Extent> = Vec::new();
+        for extent in extents {
+            let (low, high) = (extent.low, extent.high);
+            match joined.iter_mut().find(|j| j.measure == extent.measure) {
+                Some(j) => {
+                    if low.is_finite() {
+                        j.low = if j.low.is_finite() {
+                            j.low.min(low)
+                        } else {
+                            low
+                        };
+                    }
+                    if high.is_finite() {
+                        j.high = if j.high.is_finite() {
+                            j.high.max(high)
+                        } else {
+                            high
+                        };
+                    }
+                }
+                None => joined.push(extent),
+            }
+        }
+        joined.retain(|j| j.low.is_finite() && j.high.is_finite() && j.low <= j.high);
+        joined
+    }
+}
+
 /// Everything a track needs in order to draw one band.
 pub struct DrawContext<'a> {
     /// Where to write the SVG elements.
@@ -254,6 +317,10 @@ pub struct DrawContext<'a> {
     /// Use [`DrawContext::px`] for fixed pixel measurements owned by a custom
     /// track. Genomic x coordinates still come exclusively from `scale`.
     pub visual_scale: f64,
+    /// The values the figure has this track's value axis span, low first,
+    /// when it draws its tracks on one scale: the span of every track that
+    /// measures what this one does. `None` to span its own values.
+    pub extent: Option<(f64, f64)>,
 }
 
 impl DrawContext<'_> {
@@ -364,6 +431,28 @@ pub trait Track {
         0.0
     }
 
+    /// What this track's value axis measures and the values it spans over
+    /// `region`, for a figure that draws its tracks on one scale
+    /// ([`Figure::same_scale`](crate::Figure::same_scale)), which hands the
+    /// shared span back in [`DrawContext::extent`].
+    ///
+    /// `None`, the default, for a track with no value axis, and for one whose
+    /// caller pinned its axis: a pin is a decision about that one track, and a
+    /// scale shared with others does not overrule it.
+    fn extent(&self, _region: &Region) -> Option<Extent> {
+        None
+    }
+
+    /// How much room [`Track::y_axis_width`] asks for when the figure draws
+    /// this track's axis over `low..high` rather than over its own values.
+    ///
+    /// A track that answers [`Track::extent`] answers this too, since the
+    /// labels of a shared scale can be wider than its own: a depth of fifty
+    /// read off a scale that runs to a thousand.
+    fn y_axis_width_over(&self, theme: &Theme, _low: f64, _high: f64) -> f64 {
+        self.y_axis_width(theme)
+    }
+
     /// Whether this track is drawn against the shared coordinate axis.
     ///
     /// Nearly every track is, which is what makes a figure a figure: the ruler
@@ -423,6 +512,24 @@ mod tests {
         assert_eq!(runs, vec![vec![1, 2], vec![3]]);
         assert_eq!(unbroken([Some(1), Some(2)]), vec![vec![1, 2]]);
         assert!(unbroken::<u8>([None, None]).is_empty());
+    }
+
+    #[test]
+    fn extents_join_by_what_they_measure_in_the_order_met() {
+        let joined = Extent::join([
+            Extent::new("coverage", 0.0, 40.0),
+            Extent::new("windows about 0", -1.0, 2.0),
+            Extent::new("coverage", 0.0, 90.0),
+            Extent::new("windows about 0", f64::NAN, 3.0),
+            Extent::new("nothing", f64::NAN, f64::NAN),
+        ]);
+        assert_eq!(
+            joined,
+            [
+                Extent::new("coverage", 0.0, 90.0),
+                Extent::new("windows about 0", -1.0, 3.0),
+            ]
+        );
     }
 
     #[test]

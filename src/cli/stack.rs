@@ -539,6 +539,7 @@ pub fn build_sheet(
     }
     let mut legend = crate::track::legend::Legend::new();
     let mut names = Vec::with_capacity(places.len());
+    let mut figures = Vec::with_capacity(places.len());
     for place in &places {
         let mut one = invocation.clone();
         one.more = Vec::new();
@@ -558,7 +559,19 @@ pub fn build_sheet(
         }
         let built = build_one(&one, &mut kept, &mut parsed, theme.clone(), None, true)?;
         gather(&mut legend, &built.legend);
-        sheet = sheet.push_bare(&built.figure);
+        figures.push(built.figure);
+    }
+    // One scale across the panels as well as down each: the depth over rpoB
+    // and the depth over katG read off one ceiling, or the eye compares two.
+    if invocation.same_scale {
+        let extents = crate::Extent::join(figures.iter().flat_map(Figure::extents));
+        figures = figures
+            .into_iter()
+            .map(|figure| figure.share_extents(extents.clone()))
+            .collect();
+    }
+    for figure in &figures {
+        sheet = sheet.push_bare(figure);
     }
     if invocation.legend && !legend.is_empty() {
         let key = crate::Figure::new(Region::new("key", 0, 1).expect("a one-base window"))
@@ -804,6 +817,9 @@ fn build_one(
     // After the ruler, which closing the plot puts in, so the key is not taken
     // for a track measured against it.
     let mut figure = plot.into_figure();
+    if invocation.same_scale {
+        figure = figure.same_scale();
+    }
     if let Some(counting) = counting.as_ref().filter(|_| invocation.axis) {
         figure = figure.push_ruler(
             crate::AxisTrack::new()
@@ -885,12 +901,17 @@ impl Track for Nothing {
 
 /// A scan's threshold line, where the command line draws one: as a p-value
 /// wherever the file held p-values, and in the file's own units otherwise.
+/// And the top of its scale, where `--max` pins one.
 fn thresholded(
     track: ManhattanTrack,
     spec: &TrackSpec,
     p_values: bool,
     path: &str,
 ) -> Result<ManhattanTrack, BuildError> {
+    let track = match spec.max {
+        Some(max) => track.max(max),
+        None => track,
+    };
     Ok(match spec.threshold {
         None => track,
         Some(Threshold::GenomeWide) => track.genome_wide_threshold(),
@@ -1012,6 +1033,9 @@ fn build_genome(
         plot = plot.add_track(named(track, label, ManhattanTrack::label));
     }
     let mut figure = plot.add_genome(genome).into_figure();
+    if invocation.same_scale {
+        figure = figure.same_scale();
+    }
     let legend = figure.key();
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
@@ -2834,6 +2858,9 @@ fn track(
             if spec.log {
                 track = track.log_scale(true);
             }
+            if let Some(max) = spec.max {
+                track = track.max(max);
+            }
             if let Some(color) = &spec.color {
                 track = track.color(color);
             }
@@ -3880,6 +3907,9 @@ fn track(
                 .aggregate(Aggregate::Max)
                 .style(crate::CoverageStyle::Line)
                 .axis_title("cM/Mb");
+            if let Some(max) = spec.max {
+                track = track.max(max);
+            }
             if let Some(color) = &spec.color {
                 track = track.color(color);
             }
@@ -7147,6 +7177,64 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .map(String::from)
             .collect();
         assert!(parse(&args).is_err());
+    }
+
+    /// The depth of two samples, one reaching 97 and one 48, over the first
+    /// kilobase, and the second sample alone over the next.
+    const DEEP: &str = "c1\t0\t500\t97\nc1\t500\t1000\t60\nc1\t1000\t2000\t30\n";
+    const SHALLOW: &str = "c1\t0\t1000\t48\nc1\t1000\t2000\t40\n";
+
+    #[test]
+    fn several_depths_share_one_scale_when_asked() {
+        let held = [("deep.bedgraph", DEEP), ("shallow.bedgraph", SHALLOW)];
+        let line = "c1:1-1,000 deep.bedgraph shallow.bedgraph";
+        let own = drawn_from(line, &held).unwrap();
+        let same = drawn_from(&format!("{line} --same-scale"), &held).unwrap();
+        // As if each had been pinned by hand to the ceiling the deeper one
+        // rounds to.
+        let pinned = drawn_from(
+            "c1:1-1,000 deep.bedgraph --max 100 shallow.bedgraph --max 100",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(same, pinned);
+        assert_ne!(same, own);
+        // A pinned track keeps its pin, and the other has its own scale.
+        let one_pinned = "c1:1-1,000 deep.bedgraph --max 200 shallow.bedgraph";
+        assert_eq!(
+            drawn_from(&format!("{one_pinned} --same-scale"), &held).unwrap(),
+            drawn_from(one_pinned, &held).unwrap()
+        );
+    }
+
+    #[test]
+    fn the_panels_of_several_places_share_one_scale_when_asked() {
+        let held = [("deep.bedgraph", DEEP)];
+        // Over the first place the depth reaches 97, over the second 30: on
+        // one scale the second panel reads off the first one's ceiling.
+        let line = "c1:1-1,000 c1:1,001-2,000 deep.bedgraph";
+        let same = drawn_from(&format!("{line} --same-scale"), &held).unwrap();
+        let pinned = drawn_from(&format!("{line} --max 100"), &held).unwrap();
+        assert_eq!(same, pinned);
+        assert_ne!(same, drawn_from(line, &held).unwrap());
+    }
+
+    #[test]
+    fn a_maximum_is_a_number_above_nought_for_a_track_with_a_ceiling() {
+        let refused = |line: &str| {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            parse(&args).err().map(|error| error.to_string())
+        };
+        assert!(refused("c1:1-10 --features g.gff3 --max 5")
+            .unwrap()
+            .contains("--max means nothing to a features track"));
+        for bad in ["0", "-4", "NaN", "ten"] {
+            let said = refused(&format!("c1:1-10 --coverage d.bedgraph --max {bad}")).unwrap();
+            assert!(said.contains("a number above nought"), "{said}");
+        }
+        assert_eq!(refused("c1:1-10 --manhattan g.assoc --max 12"), None);
+        assert_eq!(refused("c1:1-10 --recombination m.txt --max 50"), None);
+        assert_eq!(refused("c1:1-10 d.bedgraph --same-scale"), None);
     }
 
     #[test]

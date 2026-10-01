@@ -290,6 +290,7 @@ takes.
 | `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
+| `--max <V>` | a number above nought, the top of the scale, as `100` for a depth | `--coverage`, `--recombination`, `--manhattan` | the largest value in view, rounded up |
 | `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
@@ -562,6 +563,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-axis` | leaves out the automatic ruler; an `--axis` track stays | a ruler under the tracks |
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
+| `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
