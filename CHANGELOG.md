@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A name ending in `.png`, `.tiff` or another image format is still refused
+  by `-o`, and the message now names the two files karyon would write instead:
+  `rpoB.png names a PNG file, and karyon writes SVG and PDF: write rpoB.pdf and
+  convert it with pdftoppm, or rpoB.svg with rsvg-convert, Inkscape or a
+  browser`. `--pdf` is answered with `-o figure.pdf`, and `--png`, `--jpg`
+  and `--dpi` with the tools that make an image from either.
+- `Plot::save` writes PDF when the name it is given ends in `.pdf`, where it
+  wrote SVG into a file of that name, which no PDF reader opens.
+
 - A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
   through its introns, with arrows along the line, and the untranslated ends
   of the exons at half height. It was a solid bar from end to end, which for a
@@ -325,6 +334,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- PDF: `-o figure.pdf` writes the figure as a one-page PDF, and every drawing,
+  `Figure`, `Panels`, `Rings`, `Map` and `PhyloMap`, has `to_pdf` and
+  `save_pdf` beside `to_svg` and `save_svg`, with `Plot::to_pdf` for a plot.
+  The PDF is the SVG read back by `Pdf::from_svg`, not a second way of
+  drawing, so a track written outside the crate gets one for nothing. A pixel
+  is three quarters of a point, the size Inkscape and `rsvg-convert` give the
+  SVG; text is set in Helvetica, Courier and Symbol with no font embedded, and
+  stays text; a coverage fade is an image with its opacity in a mask, which
+  Ghostscript, poppler, Quartz, Chrome and Inkscape all draw in full; and the
+  figure's title and description are the document's title, subject and alt
+  text. `Pdf::notes` names anything the page could not carry, as a character
+  no base font has, and the command line prints it. The reference has a page
+  on how the PDF is made.
 
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of

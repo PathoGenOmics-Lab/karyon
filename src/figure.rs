@@ -46,6 +46,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::pdf::Pdf;
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{Density, RenderProfile};
@@ -718,6 +719,21 @@ impl Figure {
     /// Returns whatever [`fs::write`] returns.
     pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
         fs::write(path, self.to_svg())
+    }
+
+    /// Renders the figure as a one-page PDF, converted from
+    /// [`Figure::to_svg`]; see [`Pdf`] for what carries over.
+    pub fn to_pdf(&self) -> Pdf {
+        crate::pdf::drawn(&self.to_svg())
+    }
+
+    /// Renders the figure as PDF and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_pdf(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        self.to_pdf().save(path)
     }
 
     /// How many pixels one base is drawn across, once the gutter and the

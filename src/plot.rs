@@ -541,7 +541,19 @@ impl<T: Slot> Plot<T> {
         self.into_figure().to_svg()
     }
 
-    /// Writes the SVG to `path`, and gives the plot back.
+    /// Renders the figure as a one-page PDF, converted from its SVG; see
+    /// [`Pdf`](crate::Pdf) for what carries over.
+    pub fn to_pdf(self) -> crate::Pdf {
+        self.into_figure().to_pdf()
+    }
+
+    /// Writes the figure to `path`, and gives the plot back: as PDF when the
+    /// name ends in `.pdf`, in any case, and as SVG otherwise.
+    ///
+    /// The name decides because it is what the file will be opened as. An
+    /// SVG saved as `figure.pdf` is a file every PDF reader refuses, which is
+    /// what this wrote until it could write PDF, and the command line
+    /// decides by the name of its `-o` in the same way.
     ///
     /// Handing the plot back is what lets one stack be rendered twice:
     ///
@@ -566,7 +578,12 @@ impl<T: Slot> Plot<T> {
     /// Returns whatever the write returned.
     pub fn save(self, path: impl AsRef<Path>) -> io::Result<Plot<Empty>> {
         let figure = self.into_figure();
-        figure.save_svg(path)?;
+        let path = path.as_ref();
+        if crate::pdf::named_pdf(path) {
+            figure.save_pdf(path)?;
+        } else {
+            figure.save_svg(path)?;
+        }
         Ok(Plot::resume(figure))
     }
 

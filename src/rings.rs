@@ -53,6 +53,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::pdf::Pdf;
 use crate::region::Region;
 use crate::style::{Density, LinePattern, RenderProfile};
 use crate::svg::{fit_text, num, text_rounded, Anchor, SvgWriter};
@@ -710,6 +711,21 @@ impl Rings {
     /// Returns whatever [`fs::write`] returns.
     pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
         fs::write(path, self.to_svg())
+    }
+
+    /// Renders the plot as a one-page PDF, converted from
+    /// [`Rings::to_svg`]; see [`Pdf`] for what carries over.
+    pub fn to_pdf(&self) -> Pdf {
+        crate::pdf::drawn(&self.to_svg())
+    }
+
+    /// Renders the plot as PDF and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_pdf(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        self.to_pdf().save(path)
     }
 }
 

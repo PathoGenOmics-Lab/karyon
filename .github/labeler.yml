@@ -128,10 +128,16 @@ readers:
 # reading, but the label set has nothing closer and region.rs, genome.rs and
 # scale.rs are three files, which is not enough to carry a label of their own, so
 # they are filed with the layout they feed.
+#
+# src/pdf/ is the one folder of it. The PDF writer reads what the SVG writer
+# wrote, element for element, so a change to either is a change to how a figure
+# is drawn, and it was split into files by what it reads (path data, colours,
+# text) rather than moved out of this label.
 rendering:
   - changed-files:
       - any-glob-to-any-file:
           - "src/*.rs"
+          - "src/pdf/**"
 
 # examples/ and assets/ are here rather than anywhere else because neither is
 # code the crate ships. Every example writes one of the committed SVG figures,

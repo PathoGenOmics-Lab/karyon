@@ -160,9 +160,12 @@ pub enum ArgError {
     },
     /// An output file named for a format karyon does not write.
     ///
-    /// The figure is SVG whatever the name says, and a file called `fig.png`
-    /// holding SVG opens as a broken image, or not at all, everywhere a PNG is
-    /// expected, after the command has said nothing and exited nought.
+    /// The figure is PDF when the name ends in `.pdf` and SVG under any other
+    /// name, and a file called `fig.png` holding SVG opens as a broken image,
+    /// or not at all, everywhere a PNG is expected, after the command has said
+    /// nothing and exited nought. The name keeps its old spelling: it is part
+    /// of the library's interface, and what it means, a name karyon would
+    /// write the wrong thing under, has not changed.
     NotSvg {
         /// The path as it was written.
         path: String,
@@ -319,11 +322,21 @@ impl fmt::Display for ArgError {
                 "{file}: its name does not say what it holds; put its track before it, as \
                  --matrix {file} or --manhattan {file}, or give it to a track as --traits {file}"
             ),
-            ArgError::NotSvg { path, format } => write!(
-                f,
-                "{path} names a {format} file, and karyon writes SVG: write the figure to a \
-                 file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser"
-            ),
+            ArgError::NotSvg { path, format } => {
+                // The names to write instead are the one given with another
+                // ending, so the advice can be pasted back as it stands.
+                let named = std::path::Path::new(path);
+                let pdf = named.with_extension("pdf");
+                let svg = named.with_extension("svg");
+                write!(
+                    f,
+                    "{path} names a {format} file, and karyon writes SVG and PDF: write {} \
+                     and convert it with pdftoppm, or {} with rsvg-convert, Inkscape or a \
+                     browser",
+                    pdf.display(),
+                    svg.display()
+                )
+            }
             ArgError::Twice { flag, track: Some(track) } => write!(
                 f,
                 "{flag} is given twice to one {track} track, which takes one; \
@@ -1558,6 +1571,24 @@ pub struct Invocation {
 }
 
 impl Invocation {
+    /// Whether the figure is written as PDF: `-o` names a file ending in
+    /// `.pdf`, in any case. Standard output is always SVG, since a PDF on a
+    /// terminal is of no use to anyone and a pipe of SVG is one of the
+    /// commonest ways a figure leaves this program.
+    ///
+    /// ```
+    /// use karyon::cli::args::{parse, Request};
+    ///
+    /// let argv = ["rpoB", "reads.bam", "-o", "out/rpoB.PDF"].map(String::from);
+    /// let Request::Draw(invocation) = parse(&argv).unwrap() else {
+    ///     unreachable!("a command line that draws")
+    /// };
+    /// assert!(invocation.writes_pdf());
+    /// ```
+    pub fn writes_pdf(&self) -> bool {
+        self.output.as_deref().is_some_and(crate::pdf::named_pdf)
+    }
+
     /// Whether the figure is a scan across a whole genome: no place written,
     /// and every track a `--manhattan` table read on its own, which is then
     /// laid over every sequence the tables name, end to end.
@@ -1784,12 +1815,16 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     ),
     (
         &["out", "outfile", "save", "svg"],
-        "the figure is written to the file -o names, as -o figure.svg",
+        "the figure is written to the file -o names, as -o figure.svg or -o figure.pdf",
     ),
     (
-        &["png", "pdf"],
-        "karyon writes SVG, to the file -o names; rsvg-convert, Inkscape or a browser \
-         converts it",
+        &["pdf"],
+        "a PDF is written when the file -o names ends in .pdf, as -o figure.pdf",
+    ),
+    (
+        &["png", "jpg", "jpeg", "tiff", "dpi"],
+        "karyon writes SVG and PDF, to the file -o names; pdftoppm, rsvg-convert, Inkscape \
+         or a browser converts either one to an image",
     ),
     (
         &["dark", "light"],
@@ -3204,9 +3239,9 @@ fn stdin_taken(tracks: &[TrackSpec]) -> bool {
 
 /// The format a file name promises when it is one karyon does not write.
 ///
-/// Only names that promise something: a path ending in `.svg`, with no
-/// extension, or with one that names no image format is written as asked. A
-/// compressed SVG is on the list, since a reader of `.svgz` expects gzip.
+/// Only names that promise something: a path ending in `.svg` or `.pdf`, with
+/// no extension, or with one that names no image format is written as asked.
+/// A compressed SVG is on the list, since a reader of `.svgz` expects gzip.
 fn named_format(path: &std::path::Path) -> Option<&'static str> {
     const OTHERS: &[(&str, &str)] = &[
         ("png", "PNG"),
@@ -3219,7 +3254,6 @@ fn named_format(path: &std::path::Path) -> Option<&'static str> {
         ("webp", "WebP"),
         ("avif", "AVIF"),
         ("heic", "HEIC"),
-        ("pdf", "PDF"),
         ("eps", "EPS"),
         ("ps", "PostScript"),
         ("emf", "EMF"),
@@ -3544,11 +3578,11 @@ mod tests {
 
     #[test]
     fn an_output_named_for_another_format_is_refused_rather_than_written_as_svg() {
-        // The figure is SVG whatever the name says, and a `fig.png` holding
-        // SVG is a broken image everywhere a PNG is opened.
+        // The figure is SVG or PDF, and a `fig.png` holding either is a
+        // broken image everywhere a PNG is opened.
         for (name, format) in [
             ("fig.png", "PNG"),
-            ("fig.PDF", "PDF"),
+            ("FIG.PNG", "PNG"),
             ("out/fig.jpeg", "JPEG"),
             ("fig.tiff", "TIFF"),
             ("fig.eps", "EPS"),
@@ -3559,7 +3593,12 @@ mod tests {
                 matches!(&error, ArgError::NotSvg { format: said, .. } if *said == format),
                 "{name}: {error:?}"
             );
-            assert!(error.to_string().contains(".svg"), "{error}");
+            // The advice names the two files karyon would write instead, in
+            // the folder and under the name that was asked for.
+            let stem = &name[..name.rfind('.').unwrap()];
+            let said = error.to_string();
+            assert!(said.contains(&format!("write {stem}.pdf ")), "{said}");
+            assert!(said.contains(&format!("or {stem}.svg ")), "{said}");
         }
         // A name that promises SVG, or nothing, is written as asked.
         for name in ["fig.svg", "FIG.SVG", "fig", "fig.v2", "-"] {
@@ -3567,6 +3606,26 @@ mod tests {
                 draw(&format!("chr1:1-10 --output {name}")).output.is_some(),
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn an_output_ending_in_pdf_is_written_as_pdf() {
+        for name in ["fig.pdf", "FIG.PDF", "fig.Pdf", "out/fig.pdf"] {
+            let it = draw(&format!("chr1:1-10 -o {name}"));
+            assert_eq!(it.output.as_deref(), Some(std::path::Path::new(name)));
+            assert!(it.writes_pdf(), "{name}");
+        }
+        // Any other name is SVG, and so is standard output, which a PDF is
+        // never written to.
+        for line in [
+            "chr1:1-10 -o fig.svg",
+            "chr1:1-10 -o pdf",
+            "chr1:1-10 -o fig.pdf.svg",
+            "chr1:1-10 -o -",
+            "chr1:1-10",
+        ] {
+            assert!(!draw(line).writes_pdf(), "{line}");
         }
     }
 
@@ -4667,7 +4726,9 @@ mod tests {
             ("--GFF3", "--features FILE"),
             ("--legend", "--no-legend"),
             ("--sample_sheet", "--traits FILE"),
-            ("--png", "karyon writes SVG"),
+            ("--png", "karyon writes SVG and PDF"),
+            ("--dpi", "pdftoppm"),
+            ("--pdf", "-o figure.pdf"),
         ] {
             let error = parse(&args(&format!("chr1:1-10 {typed} x"))).unwrap_err();
             let error = error.to_string();
