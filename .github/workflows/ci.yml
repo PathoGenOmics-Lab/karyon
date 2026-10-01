@@ -172,10 +172,16 @@ jobs:
       # The program as a person runs it, from paths written the way the system
       # writes them: on Windows a drive letter and backslashes, which no test
       # above hands it, since the tests name files the way tests are written.
-      # The BAM has to be found with the index beside it by a backslashed
-      # name, -o has to write to one, and a tanglegram has to name each tree
-      # after its file rather than print the folders over it, as it did on
-      # Windows until this step was written.
+      # The BAM has to be found by a backslashed name, -o has to write to
+      # one, and a tanglegram has to name each tree after its file rather than
+      # print the folders over it, as it did on Windows until this step was
+      # written.
+      #
+      # The index beside the BAM does not show in the figure: without one the
+      # BAM is read from its start and draws the same bytes. So a file that is
+      # not an index is put beside a copy of the BAM, and the program has to
+      # refuse it, which it can only do once it has found it by the
+      # backslashed name.
       #
       # The figure is the reads figure of the "Start here" page, and it is
       # compared with the committed file rather than with a second drawing
@@ -193,6 +199,18 @@ jobs:
           "$karyon" rpoB "${data}reads.bam" "${data}genes.gff3" "${data}calls.vcf.gz" \
             --width 720 --background '#fbfaff' -o "${out}reads.svg"
           cmp target/reads.svg docs/assets/start/reads.svg
+          mkdir -p target/bad-index
+          cp docs/data/reads.bam target/bad-index/reads.bam
+          printf 'not an index' > target/bad-index/reads.bam.bai
+          if "$karyon" rpoB "${out}bad-index${sep}reads.bam" "${data}genes.gff3" \
+            -o "${out}bad-index${sep}reads.svg" 2> target/bad-index/said; then
+            echo "the index beside ${out}bad-index${sep}reads.bam was not read" >&2
+            exit 1
+          fi
+          grep -q 'not a BAI index' target/bad-index/said || {
+            cat target/bad-index/said >&2
+            exit 1
+          }
           "$karyon" --tanglegram "${data}tree.nwk" --against "${data}tree2.nwk" \
             -o "${out}trees.svg"
           grep -q '>tree.nwk<' target/trees.svg

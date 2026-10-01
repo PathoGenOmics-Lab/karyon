@@ -675,6 +675,12 @@ karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
   --variants <(bcftools view calls.bcf) -o reads.svg
 ```
 
+A file named on its own, with no flag in front of it, was given its track by
+its name, and `<(command)` has no name to give one: on its own it is looked
+for as a gene or a sequence called `/dev/fd/63`. So for `karyon chr1:1-5,000
+calls.bcf` the message writes the flag in front, `write --variants
+<(bcftools view calls.bcf) where its name is`.
+
 !!! note "On Windows"
     cmd and PowerShell have no `<(command)`, and Git Bash's hands over a
     `/dev/fd` path that only its own programs can open, not a Windows build
@@ -695,6 +701,10 @@ karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
     with the tool's own output option, as `bcftools view calls.bcf -o
     calls.vcf`, and named. Under WSL the Linux build runs, and `<(command)`
     works as above.
+
+    A file named on its own is answered with its flag in front of the `-`,
+    as `with --variants - where its name is`, since a bare `-` has no name
+    to say which track reads it.
 
 !!! tip "Secondary and supplementary alignments"
     `--pileup` draws every mapped record it is given, secondary and

@@ -144,6 +144,10 @@ pub enum BuildError {
         binary: Binary,
         /// The command to write in place of its name, where there is a name.
         instead: Option<String>,
+        /// Whether the file was named on its own, its track read off its
+        /// name, so that what goes in its place has to bring the flag: a
+        /// `<(...)` or a `-` has no name to read a track off.
+        alone: bool,
     },
     /// A threshold given as a number no p-value can be, for a scan whose file
     /// held p-values.
@@ -286,16 +290,21 @@ const HOST: Shell = if cfg!(windows) {
 };
 
 /// What to write so a command's output is read in place of a file, as a
-/// message says it to `shell`.
+/// message says it to `shell`, with the track's flag where the file was named
+/// on its own.
 ///
 /// Every message that offers a command in place of a file's name says it
 /// through here, so none can offer a Windows user a `<(...)` that their
-/// shell cannot hand over.
-fn in_place(shell: Shell, command: &str) -> String {
+/// shell cannot hand over. A file named on its own was given its track by its
+/// name, and what replaces it has none to go by: a bare `<(...)` is read as a
+/// place called `/dev/fd/63`, and a bare `-` is refused for want of a track.
+/// So `flag`, the track the file was given, is written in front of either.
+fn in_place(shell: Shell, command: &str, flag: Option<&str>) -> String {
+    let flag = flag.map(|track| format!("--{track} ")).unwrap_or_default();
     match shell {
-        Shell::Posix => format!("write <({command}) where its name is"),
+        Shell::Posix => format!("write {flag}<({command}) where its name is"),
         Shell::Windows => {
-            format!("pipe what {command} writes into karyon, with - where its name is")
+            format!("pipe what {command} writes into karyon, with {flag}- where its name is")
         }
     }
 }
@@ -387,11 +396,12 @@ impl fmt::Display for BuildError {
                 path,
                 binary,
                 instead,
+                alone,
             } => match instead {
                 Some(command) => write!(
                     f,
                     "--{track} {path}: {binary}; {}, or turn it into text first",
-                    in_place(HOST, command)
+                    in_place(HOST, command, alone.then_some(*track))
                 ),
                 None => match binary.advice() {
                     Some(advice) => write!(f, "--{track} {path}: {binary}; {advice}"),
@@ -2662,11 +2672,16 @@ fn explained(
                     let instead = matches!(spec.source, Some(Source::Path(_)))
                         .then(|| binary.reader(spec.kind, &path, region))
                         .flatten();
+                    // The file named on its own, and not another file its
+                    // track reads, which came with a flag of its own.
+                    let alone =
+                        spec.guessed && spec.source.as_ref().is_some_and(|own| called(own) == path);
                     BuildError::NotText {
                         track,
                         path,
                         binary,
                         instead,
+                        alone,
                     }
                 }
                 None => BuildError::Open { track, path, cause },
@@ -5898,40 +5913,70 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             .unwrap_err()
             .to_string()
         };
-        for (text, binary, command) in [
+        // The flag is the one a file named on its own has to be given in
+        // front of what replaces it, and `None` where the line gave it.
+        for (text, binary, command, flag) in [
             (
                 "chr1:1-5000 --variants calls.vcf.gz",
                 Binary::Gzip,
                 "gzip -dc calls.vcf.gz",
+                None,
             ),
             (
                 "chr1:1-5000 --pileup reads.bam",
                 Binary::Bam,
                 "samtools view -h reads.bam chr1:1-5000",
+                None,
             ),
             (
                 "chr1:1-5000 --coverage reads.bam",
                 Binary::Bam,
                 "samtools depth -a -r chr1:1-5000 reads.bam",
+                None,
             ),
             (
                 "chr1:1-5000 --variants calls.bcf",
                 Binary::Bcf,
                 "bcftools view calls.bcf",
+                None,
+            ),
+            (
+                "chr1:1-5000 calls.bcf",
+                Binary::Bcf,
+                "bcftools view calls.bcf",
+                Some("variants"),
             ),
             (
                 "chr1:1-5000 --coverage depth.bw",
                 Binary::BigWig,
                 "bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout",
+                None,
+            ),
+            (
+                "chr1:1-5000 depth.bw",
+                Binary::BigWig,
+                "bigWigToBedGraph -chrom=chr1 -start=0 -end=5000 depth.bw /dev/stdout",
+                Some("coverage"),
             ),
             (
                 "chr1:1-5000 contacts.cool",
                 Binary::Cool,
                 "cooler dump --join -r chr1:1-5000 contacts.cool",
+                Some("pairs"),
             ),
         ] {
             let error = refused(text, binary);
-            assert!(error.contains(&in_place(HOST, command)), "{text}: {error}");
+            assert!(
+                error.contains(&in_place(HOST, command, flag)),
+                "{text}: {error}"
+            );
+            // Named on its own, the file's replacement carries its flag, and
+            // given with one, it needs none.
+            assert_eq!(
+                error.contains("; write --") || error.contains(", with --"),
+                flag.is_some(),
+                "{text}: {error}"
+            );
             assert_eq!(
                 error.contains(&format!("<({command})")),
                 !cfg!(windows),
@@ -5985,15 +6030,115 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
     #[test]
     fn a_windows_build_pipes_the_command_in_rather_than_naming_it() {
         let command = "bcftools view calls.bcf";
-        let windows = in_place(Shell::Windows, command);
+        let windows = in_place(Shell::Windows, command, None);
         assert_eq!(
             windows,
             "pipe what bcftools view calls.bcf writes into karyon, with - where its name is"
         );
         assert!(!windows.contains("<("), "{windows}");
-        let posix = in_place(Shell::Posix, command);
+        let posix = in_place(Shell::Posix, command, None);
         assert_eq!(posix, "write <(bcftools view calls.bcf) where its name is");
+        // A file named on its own, as the guide prints it for each.
+        assert_eq!(
+            in_place(Shell::Windows, command, Some("variants")),
+            "pipe what bcftools view calls.bcf writes into karyon, with --variants - where \
+             its name is"
+        );
+        assert_eq!(
+            in_place(Shell::Posix, command, Some("variants")),
+            "write --variants <(bcftools view calls.bcf) where its name is"
+        );
         assert_eq!(HOST == Shell::Windows, cfg!(windows));
+    }
+
+    /// The advice, done as it says, is a command line karyon draws from.
+    ///
+    /// A file named on its own was given its track by its name, and neither
+    /// `-` nor the `/dev/fd/63` a shell hands over for `<(...)` has a name to
+    /// give one: told to put a bare `-` where `calls.bcf` was, a Windows user
+    /// was refused for want of a track, and a bare `<(...)` was looked for as
+    /// a gene or a sequence called `/dev/fd/63`. Each line here is refused,
+    /// the message's words put where the file's name was, and the line parsed
+    /// again; it has to come back as the same track reading the command's
+    /// output.
+    #[test]
+    fn the_command_a_file_that_is_not_text_is_answered_with_runs_as_written() {
+        let words =
+            |text: &str| -> Vec<String> { text.split_whitespace().map(String::from).collect() };
+        for (text, path, binary, kind) in [
+            (
+                "chr1:1-5000 calls.bcf",
+                "calls.bcf",
+                Binary::Bcf,
+                Kind::Variants,
+            ),
+            (
+                "chr1:1-5000 --variants calls.bcf",
+                "calls.bcf",
+                Binary::Bcf,
+                Kind::Variants,
+            ),
+            (
+                "chr1:1-5000 contacts.cool -o map.svg",
+                "contacts.cool",
+                Binary::Cool,
+                Kind::Pairs,
+            ),
+            (
+                "chr1:1-5000 depth.bw",
+                "depth.bw",
+                Binary::BigWig,
+                Kind::Coverage,
+            ),
+        ] {
+            let Request::Draw(invocation) = parse(&words(text)).unwrap() else {
+                unreachable!("{text} draws a figure")
+            };
+            let BuildError::NotText {
+                track,
+                instead: Some(command),
+                alone,
+                ..
+            } = (match build(&invocation, |_| {
+                Err(io::Error::new(io::ErrorKind::InvalidData, binary))
+            }) {
+                Err(error) => error,
+                Ok(_) => panic!("{text} drew from a file that is not text"),
+            })
+            else {
+                panic!("{text} was not answered as a file that is not text")
+            };
+            let flag = alone.then_some(track);
+            for shell in [Shell::Posix, Shell::Windows] {
+                let advice = in_place(shell, &command, flag);
+                // What goes where the name was, as karyon is handed it: the
+                // shell turns `<(...)` into a path to a pipe, and the pipe
+                // into a Windows build arrives on standard input.
+                let put = match shell {
+                    Shell::Posix => advice
+                        .strip_prefix("write ")
+                        .map(|rest| rest.replace(&format!("<({command})"), "/dev/fd/63")),
+                    Shell::Windows => advice
+                        .strip_prefix(&format!("pipe what {command} writes into karyon, with "))
+                        .map(String::from),
+                }
+                .and_then(|rest| rest.strip_suffix(" where its name is").map(String::from))
+                .unwrap_or_else(|| panic!("{text}: {advice}"));
+                let followed = text.replace(path, &put);
+                let parsed = match parse(&words(&followed)) {
+                    Ok(Request::Draw(invocation)) => invocation,
+                    other => panic!("{text}: {advice}: {followed} gave {other:?}"),
+                };
+                let reads = match shell {
+                    Shell::Posix => Source::Path(std::path::PathBuf::from("/dev/fd/63")),
+                    Shell::Windows => Source::Stdin,
+                };
+                assert_eq!(parsed.tracks.len(), 1, "{followed}: {parsed:?}");
+                assert_eq!(parsed.tracks[0].kind, kind, "{followed}");
+                assert_eq!(parsed.tracks[0].source, Some(reads), "{followed}");
+                assert_eq!(parsed.region, invocation.region, "{followed}");
+            }
+        }
     }
 
     /// A tanglegram names its trees after their files, less the folders,
@@ -6143,6 +6288,35 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let scanned =
             drawn_from_disk(&format!("chr1:10-35 --coverage {bam} --pileup {bam}")).unwrap();
         assert_eq!(scanned, svg);
+    }
+
+    /// The index beside a BAM is found by the path as the system writes it,
+    /// with backslashes on Windows, under either of its two names.
+    ///
+    /// A figure cannot tell: without its index a BAM is read from its start
+    /// and draws the same bytes, so a run that drew the right figure from a
+    /// backslashed path says nothing of the index. This asks for it instead,
+    /// and an index that is found is read, so one that is not an index is
+    /// refused rather than passed over.
+    #[test]
+    fn the_index_beside_a_bam_is_found_by_the_path_the_system_writes() {
+        use crate::read::bam::fixture::{BAI, BAM};
+        let dir = Scratch::new("bai");
+        let bam = dir.write("tiny.bam", &BAM);
+        if cfg!(windows) {
+            assert!(bam.contains('\\'), "{bam}");
+        }
+        assert!(bam_index(Path::new(&bam)).unwrap().is_none());
+        for name in ["tiny.bam.bai", "tiny.bai"] {
+            let index = dir.write(name, &BAI);
+            assert!(
+                bam_index(Path::new(&bam)).unwrap().is_some(),
+                "{index} was not found beside {bam}"
+            );
+            fs::remove_file(&index).unwrap();
+        }
+        dir.write("tiny.bam.bai", b"not an index");
+        assert!(bam_index(Path::new(&bam)).is_err());
     }
 
     /// Files held in memory draw what the same files on disk draw: a BAM a
