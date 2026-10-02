@@ -399,6 +399,10 @@ pub(crate) mod fixture {
     /// Numbers written in one byte order, big-endian where it says so.
     pub(crate) struct Numbers(pub(crate) bool);
 
+    /// A block of a file of several sequences: the sequence and base it
+    /// starts at, the sequence and base it ends at, and its bytes.
+    pub(crate) type Block = ((u32, u32), (u32, u32), Vec<u8>);
+
     impl Numbers {
         pub(crate) fn u16(&self, out: &mut Vec<u8>, value: u16) {
             out.extend(if self.0 {
@@ -440,20 +444,46 @@ pub(crate) mod fixture {
             length: u32,
             blocks: &[(u32, u32, Vec<u8>)],
         ) -> Vec<u8> {
+            let blocks: Vec<Block> = blocks
+                .iter()
+                .map(|(first, last, block)| ((0, *first), (0, *last), block.clone()))
+                .collect();
+            self.genome(magic, defined, &[(name, length)], &blocks)
+        }
+
+        /// A file of `sequences`, each its name and its length, numbered
+        /// from nought in the order given as kent numbers them in the order
+        /// of their names, and all under one leaf of the index of names,
+        /// holding `blocks`.
+        pub(crate) fn genome(
+            &self,
+            magic: u32,
+            defined: u16,
+            sequences: &[(&str, u32)],
+            blocks: &[Block],
+        ) -> Vec<u8> {
             // The sequence index sits after the header, then the data, then
             // the block index.
             let names_at = 64u64;
+            let key = sequences
+                .iter()
+                .map(|(name, _)| name.len())
+                .max()
+                .unwrap_or(1);
             let mut names = Vec::new();
-            for number in [0x78CA_8C91, 1, name.len() as u32, 8] {
+            for number in [0x78CA_8C91, sequences.len() as u32, key as u32, 8] {
                 self.u32(&mut names, number);
             }
-            self.u64(&mut names, 1);
+            self.u64(&mut names, sequences.len() as u64);
             self.u64(&mut names, 0);
             names.extend([1, 0]);
-            self.u16(&mut names, 1);
-            names.extend(name.as_bytes());
-            self.u32(&mut names, 0);
-            self.u32(&mut names, length);
+            self.u16(&mut names, sequences.len() as u16);
+            for (id, (name, length)) in sequences.iter().enumerate() {
+                names.extend(name.as_bytes());
+                names.extend(std::iter::repeat(0).take(key - name.len()));
+                self.u32(&mut names, id as u32);
+                self.u32(&mut names, *length);
+            }
             let data_at = names_at + names.len() as u64;
             let mut data = Vec::new();
             self.u64(&mut data, blocks.len() as u64);
@@ -472,12 +502,11 @@ pub(crate) mod fixture {
             self.u32(&mut index, 0x2468_ACE0);
             self.u32(&mut index, leaves.len() as u32);
             self.u64(&mut index, leaves.len() as u64);
-            for number in [
-                0,
-                leaves.first().map_or(0, |leaf| leaf.0),
-                0,
-                leaves.last().map_or(0, |leaf| leaf.1),
-            ] {
+            let (first, last) = (
+                leaves.first().map_or((0, 0), |leaf| leaf.0),
+                leaves.last().map_or((0, 0), |leaf| leaf.1),
+            );
+            for number in [first.0, first.1, last.0, last.1] {
                 self.u32(&mut index, number);
             }
             self.u64(&mut index, index_at);
@@ -486,7 +515,7 @@ pub(crate) mod fixture {
             index.extend([1, 0]);
             self.u16(&mut index, leaves.len() as u16);
             for (first, last, offset, size) in &leaves {
-                for number in [0, *first, 0, *last] {
+                for number in [first.0, first.1, last.0, last.1] {
                     self.u32(&mut index, number);
                 }
                 self.u64(&mut index, *offset);

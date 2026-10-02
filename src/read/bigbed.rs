@@ -83,13 +83,16 @@ pub fn bed<R: Read + Seek>(reader: R, region: Option<&Region>) -> Result<String,
             };
             (Some(over), vec![(named.id, named.name)])
         }
-        None => (
-            None,
-            file.sequences()?
+        None => {
+            let mut names: Vec<(u32, String)> = file
+                .sequences()?
                 .into_iter()
                 .map(|named| (named.id, named.name))
-                .collect(),
-        ),
+                .collect();
+            // In order of their numbers, for each row to find its own by.
+            names.sort_by_key(|(id, _)| *id);
+            (None, names)
+        }
     };
     let full = file.full;
     let mut out = String::new();
@@ -102,7 +105,7 @@ pub fn bed<R: Read + Seek>(reader: R, region: Option<&Region>) -> Result<String,
 
 /// The rows of one block over `over`, or all of them for `None`, as BED on
 /// `out`, each named by the sequence `names` gives its number and cut to
-/// `extra` columns after its end.
+/// `extra` columns after its end. `names` is in order of the numbers.
 ///
 /// A row on a sequence `names` does not give is left out: for a window,
 /// `names` is the window's sequence alone, which leaves out the rows of a
@@ -122,7 +125,7 @@ fn rows<R: Read + Seek>(
         let start = bytes.u32()?;
         let end = bytes.u32()?;
         let rest = bytes.until_nought()?;
-        let Some((_, name)) = names.iter().find(|(known, _)| *known == id) else {
+        let Some(name) = name_of(names, id) else {
             continue;
         };
         if over.is_some_and(|over| start >= over.end || end <= over.start) {
@@ -140,6 +143,24 @@ fn rows<R: Read + Seek>(
     Ok(())
 }
 
+/// The name of the sequence numbered `id` among `names`, which are in order
+/// of their numbers, or `None` where none is.
+///
+/// kent numbers a file's sequences from nought in the order of their names,
+/// so the one numbered `id` is the `id`th, and any other writer's is found by
+/// halves. Read whole to find a gene by its name, a bigBed of 200,000
+/// sequences holding three rows each looked each row's sequence up among all
+/// of them, and took 16 seconds where its BED took a third of one.
+fn name_of(names: &[(u32, String)], id: u32) -> Option<&str> {
+    match usize::try_from(id).ok().and_then(|at| names.get(at)) {
+        Some((known, name)) if *known == id => Some(name),
+        _ => names
+            .binary_search_by_key(&id, |(known, _)| *known)
+            .ok()
+            .map(|at| names[at].1.as_str()),
+    }
+}
+
 /// A bigBed written by hand, for rows kent's own tools would not write.
 #[cfg(test)]
 pub(crate) mod fixture {
@@ -153,23 +174,37 @@ pub(crate) mod fixture {
         rows: &[(u32, u32, &str)],
         defined: u16,
     ) -> Vec<u8> {
+        let rows: Vec<(u32, u32, u32, &str)> = rows
+            .iter()
+            .map(|(start, end, rest)| (0, *start, *end, *rest))
+            .collect();
+        genome(&[(name, length)], &rows, defined)
+    }
+
+    /// A bigBed of `sequences`, each its name and its length, numbered in
+    /// the order given, holding `rows`, each the number of its sequence, its
+    /// start, its end and the rest of it as text, in one block.
+    pub(crate) fn genome(
+        sequences: &[(&str, u32)],
+        rows: &[(u32, u32, u32, &str)],
+        defined: u16,
+    ) -> Vec<u8> {
         let n = Numbers(false);
         let mut block = Vec::new();
-        for (start, end, rest) in rows {
-            for number in [0, *start, *end] {
+        for (id, start, end, rest) in rows {
+            for number in [*id, *start, *end] {
                 n.u32(&mut block, number);
             }
             block.extend(rest.as_bytes());
             block.push(0);
         }
-        let first = rows.iter().map(|row| row.0).min().unwrap_or(0);
-        let last = rows.iter().map(|row| row.1).max().unwrap_or(0);
-        n.file(
+        let first = rows.iter().map(|row| (row.0, row.1)).min();
+        let last = rows.iter().map(|row| (row.0, row.2)).max();
+        n.genome(
             super::BIGBED,
             defined,
-            name,
-            length,
-            &[(first, last, block)],
+            sequences,
+            &[(first.unwrap_or((0, 0)), last.unwrap_or((0, 0)), block)],
         )
     }
 }
@@ -266,6 +301,45 @@ mod tests {
         );
         let error = bed(Cursor::new(include_bytes!("fixtures/signal.bw")), None).unwrap_err();
         assert!(error.to_string().contains("not a bigBed"), "{error}");
+    }
+
+    /// Each row's sequence is looked up by its number, not searched for
+    /// among every sequence the file names: read whole to find a gene by its
+    /// name, a bigBed of 200,000 sequences holding three rows each took 16
+    /// seconds, where its BED took a third of one. Timed against walking the
+    /// index of names, which is linear, so a machine that is slow, or busy,
+    /// is slow at both.
+    #[test]
+    fn the_rows_of_many_sequences_are_named_in_linear_time() {
+        let count = 40_000u32;
+        let names: Vec<String> = (0..count).map(|n| format!("s{n:05}")).collect();
+        let held: Vec<(&str, u32)> = names.iter().map(|name| (name.as_str(), 100)).collect();
+        let rows: Vec<(u32, u32, u32, &str)> = (0..count).map(|id| (id, 10, 20, "r")).collect();
+        let bytes = fixture::genome(&held, &rows, 4);
+        let started = std::time::Instant::now();
+        assert_eq!(sequences(Cursor::new(&bytes)).unwrap().len(), names.len());
+        let listing = started.elapsed();
+        let started = std::time::Instant::now();
+        let text = bed(Cursor::new(&bytes), None).unwrap();
+        let reading = started.elapsed();
+        assert_eq!(text.lines().count(), names.len());
+        assert!(
+            text.starts_with("s00000\t10\t20\tr\ns00001\t"),
+            "{}",
+            &text[..40]
+        );
+        assert!(text.ends_with("s39999\t10\t20\tr\n"));
+        assert!(
+            reading < listing * 10 + std::time::Duration::from_millis(100),
+            "read in {reading:?}, the names listed in {listing:?}"
+        );
+        // Numbers another writer gives, with gaps between them, are found
+        // by halves.
+        let names = [(3, "c".to_string()), (9, "x".to_string())];
+        assert_eq!(name_of(&names, 3), Some("c"));
+        assert_eq!(name_of(&names, 9), Some("x"));
+        assert_eq!(name_of(&names, 1), None);
+        assert_eq!(name_of(&names, u32::MAX), None);
     }
 
     /// A block may run from one sequence on to the next, and a window keeps

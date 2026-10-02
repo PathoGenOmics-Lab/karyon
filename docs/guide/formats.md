@@ -250,7 +250,12 @@ UCSC's `bedGraphToBigWig` and `wigToBigWig` write it, and so does deepTools'
 | What is read | the blocks over the window, through the index: its bedGraph, variable-step and fixed-step sections alike, as `bigWigToBedGraph` prints them |
 | Coordinates | 0-based and half-open, as bedGraph, passed through |
 | A base no value covers | 0, as in a bedGraph |
-| Refused | a sequence the file does not name, with the ones it does; a file damaged or cut short; `--format`, since the file says what it holds; the file on standard input, since it is read out of order |
+| Refused | a place on a sequence the file does not name, with the ones it does, where it is the figure's one place; a file damaged or cut short; the file compressed with gzip, with the `gunzip -k` that gives it back; `--format`, since the file says what it holds; the file on standard input, since it is read out of order |
+
+kent indexes only the sequences that hold data, so a bigWig written against a
+genome's lengths names those and no others. Over several places, one on a
+sequence it does not name holds none of its values and says so there, as the
+bedGraph it was written from does.
 
 `--coverage` reads it at the scale it is drawn at. Where a pixel holds two bins
 or more of a zoom level, the coarsest such level is read instead of the values
@@ -262,7 +267,9 @@ bases, with the bases no value covers counted as 0 in each. A chromosome of
 takes 0.95 s and 216 MB. The figure is the one the values as written draw, but
 for a bin that straddles two columns and lends its highest value to both, so a
 peak may be drawn a column wider than it is, as in UCSC's browser: over that
-chromosome 154 of 792 columns came out higher and none lower. A window of
+chromosome 154 of 792 columns came out higher and none lower. The scale is
+theirs too, up to the highest value under the window, whether the bins are
+drawn by their highest value, their lowest or their mean. A window of
 10 kb of it reads 189 spans as written and draws byte for byte what the
 bedGraph draws. A file written without zoom levels is read as written at any
 scale.
@@ -372,7 +379,7 @@ writes them, with an autoSql description of any columns of its own.
 | Read by | `--features`, or a `.bb` or `.bigbed` named on its own; `read::bigbed::bed`, which writes the rows over a window back out as BED for `read::interval::features` |
 | Columns | the ones the header says are BED's own (`definedFieldCount`), and none after: all twelve of a BED12, so a gene keeps its exons and the stretch that codes; six of a narrowPeak, which is BED6 and four columns of its own |
 | Coordinates | 0-based and half-open, as BED, passed through |
-| Refused | a sequence the file does not name, with the ones it does; a file damaged or cut short; `--format`; the file on standard input |
+| Refused | a place on a sequence the file does not name, with the ones it does, where it is the figure's one place; a file damaged or cut short; the file compressed with gzip, with the `gunzip -k` that gives it back; `--format`; the file on standard input |
 
 The columns past BED's own are left out because they are the file's own: a
 narrowPeak's seventh is a signal value, and read as BED it would be a BED12's
@@ -383,7 +390,13 @@ A gene a bigBed names is a place a figure can be drawn over, as `karyon geneA
 genes.bb`, and so is a `--shade` by its name. The window is read through the
 index, but a name is found by reading every row, so a bigBed larger than 64 MB
 is not read for one; the figure says so, and its place is written as a span
-instead.
+instead. Each row's sequence is looked up by its number, so a file of many
+sequences costs no more: placed by a name in one of 20.9 MB naming 200,000
+sequences, a figure is drawn in 0.9 s, where it took 16 s.
+
+Like a bigWig, a bigBed names only the sequences that hold rows, and over
+several places, one on a sequence it does not name says it has no features
+there, as the BED it was written from does.
 
 ### GFF3 { #gff3 }
 
@@ -892,7 +905,7 @@ where each sequence starts.
 | What is read | the index, the one sequence's lists of runs, and the bases over the window, a quarter of a byte each: a window of ten thousand bases reads 2,500 bytes of bases, where a FASTA is read whole for it |
 | Bases | as `twoBitToFa` writes them: N over a run of N, lower case over a soft-masked run, and `n` where the two meet |
 | Coordinates | none: base n of a sequence is 0-based position n, as in a FASTA |
-| Refused | a sequence the file does not name, or names twice; a window holding no base of the sequence; a file damaged or cut short; the file on standard input |
+| Refused | a sequence the file does not name, or names twice; a window holding no base of the sequence; a file damaged or cut short; the file compressed with gzip, with the `gunzip -k` that gives it back; the file on standard input |
 
 Both versions of the format are read, the 32-bit offsets nearly every file has
 and the 64-bit ones `faToTwoBit -long` writes, in either byte order. As with a

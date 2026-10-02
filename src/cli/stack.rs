@@ -71,6 +71,25 @@ pub enum BuildError {
         /// What was expected in it.
         wanted: &'static str,
     },
+    /// A bigWig or a bigBed whose index names no sequence the window is on.
+    ///
+    /// kent's writers index only the sequences that hold data, so a file
+    /// written against a whole genome's lengths names only those, and holds
+    /// no rows on the rest, as the text it was written from holds none
+    /// there. One place of several is drawn as a band saying so, as it is
+    /// from that text, where the whole figure was refused; a figure of one
+    /// place is refused naming the sequences the file has, with the
+    /// `--rename` that would draw it where one plainly would.
+    Absent {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What it was called.
+        path: String,
+        /// What was expected in it.
+        wanted: &'static str,
+        /// What the file said, naming the sequences it has.
+        said: String,
+    },
     /// A file held what was wanted, somewhere the figure is not.
     ///
     /// Separate from [`BuildError::Empty`] because the two are different
@@ -409,6 +428,9 @@ impl fmt::Display for BuildError {
                 path,
                 wanted,
             } => write!(f, "--{track} {path}: no {wanted} in the region"),
+            BuildError::Absent {
+                track, path, said, ..
+            } => write!(f, "--{track} {path}: {said}"),
             BuildError::Elsewhere {
                 track,
                 path,
@@ -1124,7 +1146,10 @@ fn build_one(
                     // One place of several with nothing on it is a finding,
                     // a gene with no calls, and refused it took every other
                     // panel of the figure with it.
-                    (None, BuildError::Empty { wanted, .. }) if tolerant => Box::new(Nothing {
+                    (
+                        None,
+                        BuildError::Empty { wanted, .. } | BuildError::Absent { wanted, .. },
+                    ) if tolerant => Box::new(Nothing {
                         label: spec.label.clone().or_else(|| default_label(spec)),
                         said: format!("no {wanted} here"),
                     }),
@@ -1988,6 +2013,9 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
 /// read a window at a time, and only a name has to be found in every row: one
 /// of 29.6 MB holding 4.7 million rows of BED6 was read whole in 1.9 s, as
 /// 187 MB of BED, so this bound is about four seconds and 400 MB of rows.
+/// Many sequences cost no more, since each row's is looked up by its number:
+/// one of 20.9 MB naming 200,000 sequences places a figure in 0.9 s, where
+/// looking each row's sequence up among them all took 16 s.
 const WHOLE_BIGBED: u64 = 64 << 20;
 
 /// The rows of an annotation a gene is looked up in by its name: a file's
@@ -2466,6 +2494,14 @@ struct Slurped {
     /// The bases over the window of a 2bit, read straight into the reference
     /// a FASTA is read into, where `text` holds nothing.
     reference: Option<Reference>,
+    /// The most of a bigWig's values under the window, which the bins of a
+    /// zoom level painted with their mean or their least do not reach, for
+    /// the track's scale to reach instead.
+    most: Option<f64>,
+    /// What a bigWig or a bigBed said of a window on a sequence its index
+    /// does not name, where `text` holds no rows: a track that finds none
+    /// says this, rather than that the region holds none.
+    absent: Option<String>,
 }
 
 /// A track's own file, read as much of it as the track needs.
@@ -2507,6 +2543,8 @@ fn slurp(
             probe: None,
             held: None,
             reference: None,
+            most: None,
+            absent: None,
         });
     };
     let bam = match spec.kind {
@@ -2527,6 +2565,8 @@ fn slurp(
             probe: None,
             held: None,
             reference: None,
+            most: None,
+            absent: None,
         });
     }
     let opened = native(files, source).map_err(|cause| BuildError::Open {
@@ -2549,6 +2589,8 @@ fn slurp(
         probe: None,
         held: None,
         reference: None,
+        most: None,
+        absent: None,
     })
 }
 
@@ -2598,7 +2640,8 @@ fn natively(
             format: true,
         });
     }
-    let (text, reference) = match (binary, spec.kind) {
+    let mut absent = None;
+    let (text, reference, most) = match (binary, spec.kind) {
         (Binary::BigWig, Kind::Coverage | Kind::Windows | Kind::Dynseq)
         | (Binary::BigBed, Kind::Features) => {
             let written = match binary {
@@ -2609,23 +2652,33 @@ fn natively(
                         Kind::Coverage => (per_pixel, spec.aggregate.unwrap_or(Aggregate::Max)),
                         _ => (1.0, Aggregate::Max),
                     };
-                    read::bigwig::window(&mut file, region, per_pixel, aggregate)
-                        .map(|signal| read::bigwig::bedgraph(region.seq(), &signal.spans))
+                    read::bigwig::window(&mut file, region, per_pixel, aggregate).map(|signal| {
+                        (
+                            read::bigwig::bedgraph(region.seq(), &signal.spans),
+                            signal.most,
+                        )
+                    })
                 }
-                _ => read::bigbed::bed(&mut file, Some(region)),
+                _ => read::bigbed::bed(&mut file, Some(region)).map(|text| (text, None)),
             };
-            let text = written
-                .map_err(|error| refused_window(error, binary, file.as_mut(), region))
-                .map_err(|cause| BuildError::Open {
-                    track,
-                    path: path.clone(),
-                    cause,
-                })?;
-            (text, None)
+            match written {
+                Ok((text, most)) => (text, None, most),
+                Err(error) => {
+                    let (cause, unnamed) = refused_window(error, binary, file.as_mut(), region);
+                    if !unnamed {
+                        return Err(BuildError::Open { track, path, cause });
+                    }
+                    // A sequence the index does not name holds no rows in
+                    // the file, and the track says it found none.
+                    absent = Some(cause.to_string());
+                    (String::new(), None, None)
+                }
+            }
         }
         (Binary::TwoBit, Kind::Sequence | Kind::Orfs) => (
             String::new(),
             Some(two_bit(track, &path, file.as_mut(), region)?),
+            None,
         ),
         _ => {
             return Err(BuildError::OtherTrack {
@@ -2643,6 +2696,8 @@ fn natively(
         probe: None,
         held: None,
         reference,
+        most,
+        absent,
     })
 }
 
@@ -2656,7 +2711,7 @@ fn two_bit(
     region: &Region,
 ) -> Result<Reference, BuildError> {
     let read = read::twobit::bases(&mut *file, region)
-        .map_err(|error| refused_window(error, Binary::TwoBit, file, region))
+        .map_err(|error| refused_window(error, Binary::TwoBit, file, region).0)
         .map_err(|cause| BuildError::Open {
             track,
             path: path.to_string(),
@@ -2685,12 +2740,14 @@ fn two_bit(
 /// A window a binary file would not give, as the error a source gives, with
 /// the `--rename` that would draw it where the file plainly calls the
 /// figure's sequence otherwise: `1` for `chr1`, or the one sequence it has.
+/// Beside it, whether the file's index names sequences and none of them is
+/// the window's, which is why the window was not given.
 fn refused_window(
     error: read::ReadError,
     binary: Binary,
     file: &mut dyn Seekable,
     region: &Region,
-) -> io::Error {
+) -> (io::Error, bool) {
     let names = file.seek(io::SeekFrom::Start(0)).ok().and_then(|_| {
         match binary {
             Binary::BigWig => read::bigwig::sequences(&mut *file),
@@ -2705,12 +2762,16 @@ fn refused_window(
         .map(|(name, _)| (name, 0))
         .collect();
     let named = held.iter().any(|(name, _)| name == region.seq());
-    let hint = (!named && !held.is_empty())
+    let unnamed = !named && !held.is_empty();
+    let hint = unnamed
         .then(|| rename_for(&held, region.seq(), true))
         .flatten()
         .map(|(from, to)| format!("; if {from} is {to}, add --rename {from}={to}"))
         .unwrap_or_default();
-    io::Error::new(io::ErrorKind::InvalidData, format!("{error}{hint}"))
+    (
+        io::Error::new(io::ErrorKind::InvalidData, format!("{error}{hint}")),
+        unnamed,
+    )
 }
 
 /// The tree a file holds, Newick or NEXUS, read once and kept by `parsed`
@@ -3090,6 +3151,15 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
             }
         }
+        if let Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit)) =
+            Binary::of(&inside, None)
+        {
+            let gzipped = Gzipped {
+                binary,
+                path: path.map(|path| path.display().to_string()),
+            };
+            return Err(io::Error::new(io::ErrorKind::InvalidData, gzipped));
+        }
         inside
     } else {
         bytes
@@ -3117,6 +3187,51 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
     }
     Ok(text)
 }
+
+/// A bigWig, a bigBed or a 2bit compressed with gzip, which karyon reads as
+/// it is once it is not.
+///
+/// Each is read where its index says a block is, and compressed, every byte
+/// of it is somewhere else. Answered as a file that is not text, a gzipped
+/// bigWig was told that karyon reads text and given the `bigWigToBedGraph`
+/// that writes it as text, which refuses a gzipped file as well. Carried
+/// inside the [`io::Error`] [`open_from_disk`] returns, as [`Binary`] is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Gzipped {
+    /// What the gzip holds.
+    binary: Binary,
+    /// What the file is called, where it has a name.
+    path: Option<String>,
+}
+
+impl fmt::Display for Gzipped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let called = self.binary.called();
+        write!(
+            f,
+            "the file is {called} compressed with gzip, and a {called} is read through the \
+             index it holds, which the compression hides; "
+        )?;
+        // gunzip takes the `.gz` off the name and keeps the file it was
+        // given, and with any other name it refuses the file.
+        match self.path.as_deref().and_then(|path| {
+            path.strip_suffix(".gz")
+                .filter(|plain| !plain.is_empty())
+                .map(|plain| (path, plain))
+        }) {
+            Some((path, plain)) => write!(
+                f,
+                "gunzip -k {path} writes {plain}, which karyon reads as it is"
+            ),
+            None => write!(
+                f,
+                "decompress it into a file and name that file, which karyon reads as it is"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Gzipped {}
 
 /// Bytes a reader can go back and forth in, as a file on disk or a buffer can
 /// be read and a pipe cannot: what a reader of a binary format, or of a
@@ -4125,6 +4240,8 @@ fn track(
         probe,
         held: counted,
         reference: native_reference,
+        most,
+        absent,
     } = slurp(spec, region, context.width, files)?;
     // A file named on its own was placed by its name, and a few names hide
     // another format: modkit writes its bedMethyl as `.bed`. Lines written
@@ -4151,10 +4268,18 @@ fn track(
     let label = spec.label.clone().or_else(|| default_label(spec));
     let height = spec.height;
 
-    let empty = |wanted: &'static str| BuildError::Empty {
-        track: name,
-        path: path.clone(),
-        wanted,
+    let empty = |wanted: &'static str| match &absent {
+        Some(said) => BuildError::Absent {
+            track: name,
+            path: path.clone(),
+            wanted,
+            said: said.clone(),
+        },
+        None => BuildError::Empty {
+            track: name,
+            path: path.clone(),
+            wanted,
+        },
     };
     // Read before the match rather than inside the arms, because two arms
     // shadow `text` with a second file of their own and a sheet fetched after
@@ -4199,6 +4324,12 @@ fn track(
                 return Err(empty("values"));
             }
             let mut track = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
+            // A bigWig's zoom level painted with its bins' means or least,
+            // scaled to the most of the values under them, as the values as
+            // written scale it.
+            if let Some(most) = most {
+                track = track.reaching(most);
+            }
             if let Some(style) = spec.style.and_then(|style| style.coverage()) {
                 track = track.style(style);
             }
@@ -10682,6 +10813,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
     const GENES_BB: &[u8] = include_bytes!("../read/fixtures/genes.bb");
     const SCORES_BB: &[u8] = include_bytes!("../read/fixtures/scores.bb");
     const REF_2BIT: &[u8] = include_bytes!("../read/fixtures/ref.2bit");
+    const STEPS_BW: &[u8] = include_bytes!("../read/fixtures/steps.bw");
 
     /// Two reads on `chr1` of `ref.fa`, one over its run of N.
     const REF_READS: &str = "@SQ\tSN:chr1\tLN:120\n\
@@ -10934,6 +11066,219 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_eq!(
             renamed,
             held_figure(&mut held, "chr1:1-100 numbered.bedgraph").unwrap()
+        );
+    }
+
+    /// kent indexes only the sequences that hold data, so a bigWig or a
+    /// bigBed written against every sequence's length can name one of them
+    /// alone. Over several places, the place on a sequence it does not name
+    /// holds none of its rows and says so there, as the text it was written
+    /// from does, where the whole figure was refused; over that place alone,
+    /// it is refused naming the sequences the file has.
+    #[test]
+    fn a_place_a_binary_file_does_not_name_holds_none_of_its_rows() {
+        let mut held = binaries();
+        let fixtures = [
+            (
+                "sparse.bw",
+                &include_bytes!("../read/fixtures/sparse.bw")[..],
+            ),
+            ("sparse.bb", include_bytes!("../read/fixtures/sparse.bb")),
+            (
+                "sparse.bedgraph",
+                include_bytes!("../read/fixtures/sparse.bedgraph"),
+            ),
+            ("sparse.bed", include_bytes!("../read/fixtures/sparse.bed")),
+        ];
+        for (name, bytes) in fixtures {
+            held.insert(name, bytes);
+        }
+        let named = |bytes: &[u8]| -> Vec<String> {
+            let names = match Binary::of(bytes, None) {
+                Some(Binary::BigWig) => read::bigwig::sequences(io::Cursor::new(bytes)),
+                _ => read::bigbed::sequences(io::Cursor::new(bytes)),
+            };
+            names.unwrap().into_iter().map(|(name, _)| name).collect()
+        };
+        assert_eq!(named(fixtures[0].1), ["chr1"]);
+        assert_eq!(named(fixtures[1].1), ["chr1"]);
+        for (binary, text) in [
+            (
+                "chr1:1-1000 chr2:1-500 sparse.bw sparse.bb --windows sparse.bw",
+                "chr1:1-1000 chr2:1-500 sparse.bedgraph sparse.bed --windows sparse.bedgraph",
+            ),
+            (
+                "geneA geneC genes.bed sparse.bw",
+                "geneA geneC genes.bed sparse.bedgraph",
+            ),
+        ] {
+            let drawn = held_figure(&mut held, binary).unwrap();
+            assert_eq!(drawn, held_figure(&mut held, text).unwrap(), "{binary}");
+        }
+        let drawn = held_figure(
+            &mut held,
+            "chr1:1-1000 chr2:1-500 sparse.bw sparse.bb --windows sparse.bw",
+        )
+        .unwrap();
+        for said in ["no values here", "no features here", "no windows here"] {
+            assert_eq!(
+                drawn.matches(&format!(">{said}</text>")).count(),
+                1,
+                "{said}"
+            );
+        }
+        for (line, said) in [
+            (
+                "chr2:1-500 sparse.bw",
+                "--coverage sparse.bw: the bigWig has no sequence called chr2; it has chr1; if \
+                 chr1 is chr2, add --rename chr1=chr2",
+            ),
+            (
+                "chr2:1-500 sparse.bb",
+                "--features sparse.bb: the bigBed has no sequence called chr2; it has chr1; if \
+                 chr1 is chr2, add --rename chr1=chr2",
+            ),
+        ] {
+            let error = held_figure(&mut held, line).unwrap_err();
+            assert!(matches!(error, BuildError::Absent { .. }), "{error:?}");
+            assert_eq!(error.to_string(), said, "{line}");
+        }
+        // A file that names the sequence and holds nothing in the window is
+        // refused as it was.
+        assert!(matches!(
+            held_figure(&mut held, "chr1:31-99 sparse.bw").unwrap_err(),
+            BuildError::Empty { .. }
+        ));
+    }
+
+    /// Drawn from a zoom level by its bins' means or their least, a bigWig
+    /// is scaled to the most of its values under the window, as its values
+    /// as written scale it. Scaled to what the bins were painted with, the
+    /// top of this file's scale came down from 30 to 5 by their means, and
+    /// by their least, every one of which has a gap and so is nought or
+    /// less, there was no scale and no profile at all.
+    #[test]
+    fn a_bigwig_drawn_from_its_zoom_level_is_scaled_as_its_values_are() {
+        let mut held = Held::new();
+        held.insert("steps.bw", STEPS_BW);
+        held.insert(
+            "steps.bedgraph",
+            include_str!("../read/fixtures/steps.bedgraph"),
+        );
+        // 6,000,000 bases over 900 pixels is 6,667 to a pixel, which holds
+        // two of the finest level's bins of 3,184.
+        let region = Region::parse("chr1:1-6,000,000").unwrap();
+        let signal =
+            read::bigwig::window(io::Cursor::new(STEPS_BW), &region, 6_667.0, Aggregate::Mean)
+                .unwrap();
+        assert_eq!(signal.zoom, Some(3_184));
+        let scale = |svg: &str| -> Vec<String> {
+            svg.split("<text")
+                .filter_map(|text| text.split_once('>'))
+                .filter_map(|(_, rest)| rest.split_once("</text>"))
+                .map(|(label, _)| label.to_string())
+                .filter(|label| label.parse::<f64>().is_ok())
+                .collect()
+        };
+        for aggregate in ["max", "mean", "min"] {
+            let line = |file: &str| {
+                format!("chr1:1-6,000,000 --coverage {file} --aggregate {aggregate} --label steps")
+            };
+            let zoomed = held_figure(&mut held, &line("steps.bw")).unwrap();
+            let written = held_figure(&mut held, &line("steps.bedgraph")).unwrap();
+            assert_eq!(scale(&zoomed), scale(&written), "{aggregate}");
+            assert!(scale(&zoomed).contains(&"30".to_string()), "{aggregate}");
+            assert!(zoomed.contains("<path"), "{aggregate}: no profile");
+        }
+    }
+
+    /// A value a bigWig holds as not a number, or as infinite, is read back
+    /// as one, so it is drawn as the bedGraph that holds it draws it: as no
+    /// value, a gap in the profile. Dropped, the bases under it were nought.
+    #[test]
+    fn a_bigwig_value_that_is_not_a_number_is_drawn_as_its_bedgraph_draws_it() {
+        use crate::read::bigwig::fixture::{written, Items};
+        let spans = vec![
+            (0, 10, 1.0),
+            (10, 20, f32::NAN),
+            (20, 30, f32::INFINITY),
+            (30, 40, 2.0),
+        ];
+        let bytes = written(false, "chr1", 100, &[Items::BedGraph(spans)]);
+        let region = Region::parse("chr1:1-100").unwrap();
+        let signal =
+            read::bigwig::window(io::Cursor::new(&bytes), &region, 1.0, Aggregate::Max).unwrap();
+        assert_eq!(
+            read::bigwig::bedgraph("chr1", &signal.spans),
+            "chr1\t0\t10\t1\nchr1\t10\t20\tNaN\nchr1\t20\t30\tinf\nchr1\t30\t40\t2\n"
+        );
+        let mut held = Held::new();
+        held.insert("n.bw", bytes);
+        held.insert(
+            "n.bedgraph",
+            "chr1\t0\t10\t1\nchr1\t10\t20\tnan\nchr1\t20\t30\tinf\nchr1\t30\t40\t2\n",
+        );
+        held.insert("dropped.bedgraph", "chr1\t0\t10\t1\nchr1\t30\t40\t2\n");
+        let drawn = held_figure(&mut held, "chr1:1-100 n.bw").unwrap();
+        assert_eq!(
+            drawn,
+            held_figure(&mut held, "chr1:1-100 n.bedgraph").unwrap()
+        );
+        assert_ne!(
+            drawn,
+            held_figure(&mut held, "chr1:1-100 dropped.bedgraph --label n").unwrap()
+        );
+    }
+
+    /// A bigWig, a bigBed or a 2bit compressed with gzip is read as it is
+    /// once it is out of the wrapper, and says so, with the `gunzip` that
+    /// takes it out. It was told it was not text and given the UCSC command
+    /// that writes its text, which refuses a compressed file too.
+    #[test]
+    fn a_gzipped_bigwig_bigbed_or_2bit_is_answered_with_the_gunzip_that_reads_it() {
+        let mut held = binaries();
+        for (name, bytes, line, said) in [
+            (
+                "signal.bw",
+                SIGNAL_BW,
+                "chr1:1-1000 signal.bw.gz",
+                "--coverage signal.bw.gz: the file is bigWig compressed with gzip, and a bigWig \
+                 is read through the index it holds, which the compression hides; gunzip -k \
+                 signal.bw.gz writes signal.bw, which karyon reads as it is",
+            ),
+            (
+                "genes.bb",
+                GENES_BB,
+                "chr1:1-1000 --features genes.bb.gz",
+                "--features genes.bb.gz: the file is bigBed compressed with gzip, and a bigBed \
+                 is read through the index it holds, which the compression hides; gunzip -k \
+                 genes.bb.gz writes genes.bb, which karyon reads as it is",
+            ),
+            (
+                "ref.2bit",
+                REF_2BIT,
+                "chr1:1-60 ref.2bit.gz",
+                "--sequence ref.2bit.gz: the file is 2bit compressed with gzip, and a 2bit is \
+                 read through the index it holds, which the compression hides; gunzip -k \
+                 ref.2bit.gz writes ref.2bit, which karyon reads as it is",
+            ),
+        ] {
+            held.insert(format!("{name}.gz"), gzip_of(bytes));
+            let error = held_figure(&mut held, line).unwrap_err().to_string();
+            assert_eq!(error, said, "{line}");
+            // Done as it says, the file it names draws.
+            assert!(held_figure(&mut held, &line.replace(".gz", "")).is_ok());
+        }
+        let piped = build(&over("chr1:1-100", "--coverage", "-"), |_: &Source| {
+            decoded(gzip_of(SIGNAL_BW), None)
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            piped,
+            "--coverage standard input: the file is bigWig compressed with gzip, and a bigWig \
+             is read through the index it holds, which the compression hides; decompress it \
+             into a file and name that file, which karyon reads as it is"
         );
     }
 

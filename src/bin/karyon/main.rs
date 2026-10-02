@@ -739,7 +739,8 @@ COMPRESSED AND BINARY FILES
     summary it keeps at the scale it is drawn at, and by --windows and
     --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
     --with-sequence. Each is told by its first bytes, and is named rather than
-    piped, since it is read out of order. CRAM and BCF are not read here; a
+    piped, since it is read out of order; compressed with gzip, it is refused
+    with the gunzip -k that gives it back. CRAM and BCF are not read here; a
     track handed one says which command writes what it reads, and a pipe
     brings that in:
 

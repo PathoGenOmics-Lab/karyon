@@ -797,9 +797,16 @@ millions of spans. Each bin is drawn with what `--aggregate` takes of a pixel,
 its most, its least or its mean, with the bases no value covers counted as
 nought, so the figure is the one the values as written would draw, but for a
 bin that straddles two columns and is drawn in both: a peak may come out a
-column wider than it is. A whole chromosome of 4.7 million spans draws that
-way in a hundredth of a second and 4 MB. A bigWig written without zoom levels
-is read as written at any scale.
+column wider than it is. Its scale runs to the most of the values under the
+window, as theirs does, whichever of the three draws the columns. A whole
+chromosome of 4.7 million spans draws that way in a hundredth of a second and
+4 MB. A bigWig written without zoom levels is read as written at any scale.
+
+kent's tools index only the sequences that hold data, so a bigWig or a bigBed
+written against a whole genome's lengths may name a few of its sequences. Over
+several places, one on a sequence the file does not name says it has nothing
+there, as the text the file was written from would; drawn alone, that place is
+refused naming the sequences the file does have.
 
 A bigBed keeps the columns its header says are BED's own: all twelve of a
 BED12, so a gene keeps its exons, and the first six of a narrowPeak, whose
@@ -807,8 +814,10 @@ seventh is a signal value and not where a gene starts coding. A 2bit keeps its
 runs of N, and its soft-masked runs in lower case, as `twoBitToFa` writes them.
 
 These three are read out of order, which a pipe cannot be, so each is named
-rather than piped in; from standard input each is refused with that said. A
-bigWig needs a place: across a whole genome it is not drawn yet.
+rather than piped in; from standard input each is refused with that said.
+Compressed with gzip, each is refused with the `gunzip -k` that gives the file
+back, since its index says where each block is in the file as it is. A bigWig
+needs a place: across a whole genome it is not drawn yet.
 
 CRAM and BCF are not read. Hand a track one and it says what the file
 is and what to write in place of its name:

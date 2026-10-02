@@ -29,6 +29,12 @@
 //! and 154 higher, read in 2.6 ms and 2.6 MB where the values as written took
 //! 1.34 s and 298 MB.
 //!
+//! The scale is theirs too: [`Signal::most`] is the most of the values under
+//! the window, which a bin painted with its mean or its least does not reach.
+//! Scaled to the bins alone, values up to 25.5 were drawn on a scale up to 5
+//! by their means, and by their least, each nought where a bin has a gap, on
+//! none.
+//!
 //! The levels are read from the file rather than assumed, since kent picks
 //! them from the data: 3,184 bases for the finest of one file these tests
 //! read, 1,904 for another, and 119 for that one's values written stored
@@ -63,6 +69,7 @@
 //! let signal = read::bigwig::window(Cursor::new(bytes), &region, 1.0, Aggregate::Max)?;
 //! assert_eq!(signal.spans[0], (10, 20, 1.5));
 //! assert_eq!(signal.zoom, None);
+//! assert_eq!(signal.most, Some(7.0));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -81,6 +88,17 @@ pub struct Signal {
     /// The bin size of the zoom level the spans were read from, or `None`
     /// where they are the values as written.
     pub zoom: Option<u32>,
+    /// The most of the values under the window, as the values as written
+    /// give it, or `None` where there are none.
+    ///
+    /// Read as written, it is the most of `spans`. Read from a zoom level, it
+    /// is the most of each bin, or nought for a bin with bases no value
+    /// covers, which spans painted with a bin's mean or its least do not
+    /// reach: a track scaled to those is drawn on a lower axis than the
+    /// values as written draw, or on none, where every bin's least is nought.
+    /// A bin that runs past the window lends its most to it, as it does to
+    /// both columns it straddles.
+    pub most: Option<f64>,
 }
 
 /// The sequences a bigWig names, each with its length, in the order of its
@@ -130,11 +148,12 @@ pub fn window<R: Read + Seek>(
         .find(|zoom| zoom.reduction > 0 && f64::from(zoom.reduction) * 2.0 <= bases_per_pixel)
         .copied();
     let mut spans = Vec::new();
+    let mut most = None;
     match zoom {
         Some(zoom) => {
             for (offset, size) in file.blocks(zoom.index, Some(over))? {
                 let block = file.block(offset, size)?;
-                summaries(&file, &block, over, aggregate, &mut spans)?;
+                summaries(&file, &block, over, aggregate, &mut spans, &mut most)?;
             }
         }
         None => {
@@ -143,12 +162,23 @@ pub fn window<R: Read + Seek>(
                 let block = file.block(offset, size)?;
                 section(&file, &block, over, &mut spans)?;
             }
+            for (_, _, value) in &spans {
+                raise(&mut most, *value);
+            }
         }
     }
     Ok(Signal {
         spans,
         zoom: zoom.map(|zoom| zoom.reduction),
+        most,
     })
+}
+
+/// Lifts `most` to `value` where it is finite and higher.
+fn raise(most: &mut Option<f64>, value: f64) {
+    if value.is_finite() {
+        *most = Some(most.map_or(value, |most| most.max(value)));
+    }
 }
 
 /// Spans as bedGraph, on `sequence`: what the command line hands the readers
@@ -224,13 +254,15 @@ fn section<R: Read + Seek>(
 }
 
 /// The bins of one block of a zoom level that overlap `over`, each painted
-/// with what `aggregate` takes of a pixel.
+/// with what `aggregate` takes of a pixel, and `most` lifted to the most of
+/// the values under each.
 fn summaries<R: Read + Seek>(
     file: &Bbi<R>,
     block: &[u8],
     over: Over,
     aggregate: Aggregate,
     spans: &mut Vec<(u64, u64, f64)>,
+    most: &mut Option<f64>,
 ) -> Result<(), ReadError> {
     let mut bytes = file.bytes(block);
     while bytes.left() > 0 {
@@ -239,7 +271,7 @@ fn summaries<R: Read + Seek>(
         let end = u64::from(bytes.u32()?);
         let covered = u64::from(bytes.u32()?);
         let least = f64::from(bytes.f32()?);
-        let most = f64::from(bytes.f32()?);
+        let highest = f64::from(bytes.f32()?);
         let sum = f64::from(bytes.f32()?);
         let _squares = bytes.f32()?;
         if id != over.id
@@ -252,9 +284,10 @@ fn summaries<R: Read + Seek>(
         // A base of the bin no value covers is nought, as it is in a track
         // painted from spans.
         let gaps = covered < end - start;
+        let highest = if gaps { highest.max(0.0) } else { highest };
+        raise(most, highest);
         let value = match aggregate {
-            Aggregate::Max if gaps => most.max(0.0),
-            Aggregate::Max => most,
+            Aggregate::Max => highest,
             Aggregate::Min if gaps => least.min(0.0),
             Aggregate::Min => least,
             Aggregate::Mean => sum / (end - start) as f64,
@@ -484,8 +517,11 @@ mod tests {
                 let signal = read(bytes, locus, per_pixel, aggregate);
                 assert!(signal.zoom.is_some());
                 assert!(!signal.spans.is_empty());
+                // The most under every bin, whatever each is painted with.
+                let mut most = f64::MIN;
                 for (start, end, painted) in &signal.spans {
                     let values: Vec<f64> = (*start..*end).map(value_at).collect();
+                    most = values.iter().copied().fold(most, f64::max);
                     let expected = match aggregate {
                         Aggregate::Max => values.iter().copied().fold(f64::MIN, f64::max),
                         Aggregate::Min => values.iter().copied().fold(f64::MAX, f64::min),
@@ -498,6 +534,7 @@ mod tests {
                          {expected}"
                     );
                 }
+                assert_eq!(signal.most, Some(most), "{locus} {per_pixel} {aggregate:?}");
             }
         }
         // The bin over all of chr3 has values under nought and gaps between
@@ -580,9 +617,10 @@ mod tests {
                 block.extend(number.to_le_bytes());
             }
         }
-        let mut spans = Vec::new();
-        summaries(&file, &block, over, Aggregate::Max, &mut spans).unwrap();
+        let (mut spans, mut most) = (Vec::new(), None);
+        summaries(&file, &block, over, Aggregate::Max, &mut spans, &mut most).unwrap();
         assert_eq!(spans, [(10, 20, 2.0)]);
+        assert_eq!(most, Some(2.0));
     }
 
     #[test]

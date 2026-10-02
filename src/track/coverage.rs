@@ -97,6 +97,10 @@ pub struct CoverageTrack {
     style: CoverageStyle,
     aggregate: Aggregate,
     max: Option<f64>,
+    /// The most of the values the runs summarise, where they summarise them
+    /// rather than hold them, which the automatic ceiling reaches as though
+    /// it were in view.
+    reach: Option<f64>,
     log_scale: bool,
     fill_opacity: Option<f64>,
     show_max: bool,
@@ -125,6 +129,7 @@ impl CoverageTrack {
             style: CoverageStyle::Area,
             aggregate: Aggregate::Max,
             max: None,
+            reach: None,
             log_scale: false,
             fill_opacity: None,
             show_max: true,
@@ -319,6 +324,17 @@ impl CoverageTrack {
         self
     }
 
+    /// Lifts the automatic ceiling to `value` at least, as though a value
+    /// that high were in view, for runs painted with summaries of the values
+    /// rather than the values: a bigWig read from a zoom level and drawn by
+    /// each bin's mean or least is scaled to the most of the values under
+    /// it, as the values as written would scale it. A pinned ceiling still
+    /// wins, and a value that is not finite is none.
+    pub(crate) fn reaching(mut self, value: f64) -> Self {
+        self.reach = value.is_finite().then_some(value);
+        self
+    }
+
     /// Uses a shared quantitative-axis contract for range, ticks, units and
     /// reference lines.
     pub fn axis(mut self, axis: QuantitativeAxis) -> Self {
@@ -352,10 +368,13 @@ impl CoverageTrack {
     }
 
     /// Largest finite value inside `region`, or `None` when nothing overlaps.
+    /// A track painted with summaries of its values counts the most of the
+    /// values it was told they summarise as in view.
     pub fn visible_max(&self, region: &Region) -> Option<f64> {
         let (lo, hi) = self.visible_slice(region)?;
         self.overlapping(lo, hi)
             .map(|(_, _, value)| value)
+            .chain(self.reach)
             .filter(|v| v.is_finite())
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
@@ -486,6 +505,7 @@ impl Track for CoverageTrack {
             .runs
             .iter()
             .map(|run| run.value)
+            .chain(self.reach)
             .filter(|v| v.is_finite())
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
@@ -876,6 +896,26 @@ mod tests {
         let track = CoverageTrack::new(0, vec![f64::NAN, f64::NAN]);
         assert_eq!(track.sample(0.0, 2.0), None);
         assert_eq!(track.visible_max(&region()), None);
+    }
+
+    /// Runs painted with summaries of the values, as a zoomed bigWig's bins
+    /// drawn by their means are, scale to the most of the values they were
+    /// told, and to nothing that is not a number. A pinned ceiling wins.
+    #[test]
+    fn a_track_of_summaries_reaches_the_most_it_was_told() {
+        let means = CoverageTrack::new(0, vec![1.0, 2.0, 0.0]);
+        assert_eq!(means.visible_max(&region()), Some(2.0));
+        let told = means.clone().reaching(9.5);
+        assert_eq!(told.visible_max(&region()), Some(9.5));
+        assert_eq!(told.extent(&region()).map(|extent| extent.high), Some(9.5));
+        let lower = means.clone().reaching(1.0);
+        assert_eq!(lower.visible_max(&region()), Some(2.0));
+        let nan = means.clone().reaching(f64::NAN);
+        assert_eq!(nan.visible_max(&region()), Some(2.0));
+        assert!(told.max(4.0).extent(&region()).is_none());
+        // Nothing in view still has nothing to scale.
+        let elsewhere = Region::new("chr1", 5000, 6000).unwrap();
+        assert_eq!(means.reaching(9.5).visible_max(&elsewhere), None);
     }
 
     #[test]
