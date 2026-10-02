@@ -540,6 +540,11 @@ pub fn build_sheet(
     let mut legend = crate::track::legend::Legend::new();
     let mut names = Vec::with_capacity(places.len());
     let mut figures = Vec::with_capacity(places.len());
+    // The width that letters the bases of every panel, said once under them
+    // all. Said a panel at a time, each panel named the width its own span
+    // needed, and a reader who took the first width still had the panels of
+    // longer places in blocks, which said so again.
+    let mut letters = None;
     for place in &places {
         let mut one = invocation.clone();
         one.more = Vec::new();
@@ -557,10 +562,12 @@ pub fn build_sheet(
                 names.push(name.clone());
             }
         }
-        let built = build_one(&one, &mut kept, &mut parsed, theme.clone(), None, true)?;
+        let (built, wanted) = build_one(&one, &mut kept, &mut parsed, theme.clone(), None, true)?;
+        letters = letters.max(wanted);
         gather(&mut legend, &built.legend);
         figures.push(built.figure);
     }
+    note_letters(&mut kept, letters);
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
     if invocation.same_scale {
@@ -624,12 +631,30 @@ pub fn build_figure(
     theme: Theme,
     window: Option<&Region>,
 ) -> Result<Built, BuildError> {
-    build_one(invocation, files, parsed, theme, window, false)
+    let (built, letters) = build_one(invocation, files, parsed, theme, window, false)?;
+    note_letters(files, letters);
+    Ok(built)
+}
+
+/// Says how wide a figure would have to be for its bases to be letters, where
+/// they are blocks of colour too narrow for them and a figure that wide is one
+/// worth drawing.
+fn note_letters(files: &mut dyn Files, letters: Option<u64>) {
+    if let Some(width) = letters.filter(|width| *width <= 100_000) {
+        files.note(&format!(
+            "the bases are blocks of colour at this width, too narrow for their \
+             letters; --width {width} draws the letters"
+        ));
+    }
 }
 
 /// The same, where `tolerant` draws a track with nothing in the place as a
 /// band that says so rather than refusing the figure, for a panel of a sheet
 /// of several places.
+///
+/// Beside the figure, the width it would letter its bases at, where it draws
+/// a reference as blocks too narrow for their letters, for the caller to say
+/// once: a sheet says the widest any of its panels needs.
 fn build_one(
     invocation: &Invocation,
     files: &mut dyn Files,
@@ -637,11 +662,11 @@ fn build_one(
     theme: Theme,
     window: Option<&Region>,
     tolerant: bool,
-) -> Result<Built, BuildError> {
+) -> Result<(Built, Option<u64>), BuildError> {
     let mut kept = KeptStdin { files, stdin: None };
     let files: &mut dyn Files = &mut kept;
     if invocation.genome_wide() && window.is_none() {
-        return build_genome(invocation, files, theme);
+        return build_genome(invocation, files, theme).map(|built| (built, None));
     }
     // A figure of phylogenies and variable-site panels names no region, and
     // none of its tracks asks the window anything. The figure still wants
@@ -839,31 +864,28 @@ fn build_one(
         .tracks
         .iter()
         .any(|spec| spec.kind == Kind::Sequence);
-    if sequence && bases.items().iter().all(|item| key.items().contains(item)) {
-        // And how wide the figure would have to be for the letters, which a
-        // reader asked to show a sequence came for.
-        let px = figure.px_per_bp();
-        let span = region.len() as f64;
-        let now = figure.dimensions().0;
-        let wanted =
-            ((now + (crate::track::sequence::LETTER_PX - px) * span) / 100.0).ceil() * 100.0;
-        if wanted <= 100_000.0 {
-            files.note(&format!(
-                "the bases are blocks of colour at this width, too narrow for their \
-                 letters; --width {} draws the letters",
-                wanted as u64
-            ));
-        }
-    }
+    // And how wide the figure would have to be for the letters, which a
+    // reader asked to show a sequence came for.
+    let letters = (sequence && bases.items().iter().all(|item| key.items().contains(item)))
+        .then(|| {
+            let px = figure.px_per_bp();
+            let span = region.len() as f64;
+            let now = figure.dimensions().0;
+            ((now + (crate::track::sequence::LETTER_PX - px) * span) / 100.0).ceil() * 100.0
+        })
+        .map(|wanted| wanted as u64);
     gather(&mut legend, &key);
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
-    Ok(Built {
-        figure,
-        along,
-        legend,
-    })
+    Ok((
+        Built {
+            figure,
+            along,
+            legend,
+        },
+        letters,
+    ))
 }
 
 /// A track of one place of several that has nothing there: the band it would
@@ -6479,6 +6501,45 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(notes.is_empty(), "{notes:?}");
         let letters = svg.unwrap().matches(">A</text>").count();
         assert_eq!(letters, 100, "a hundred As in four hundred bases of ACGT");
+    }
+
+    /// A figure of several places says once the width that letters the bases
+    /// of every panel. Each panel said the width its own span needed, so two
+    /// places of different lengths gave two widths, and a reader who drew the
+    /// figure at the first still had the longer place in blocks.
+    #[test]
+    fn bases_in_several_panels_say_the_one_width_all_their_letters_need() {
+        let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));
+        let held = [("ref.fa", fasta.as_str())];
+        let widths = |line: &str| -> Vec<u64> {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap_or_else(|error| panic!("{line}: {error}"));
+            notes
+                .iter()
+                .filter(|note| note.starts_with("the bases are blocks of colour"))
+                .map(|note| {
+                    let rest = note.rsplit("--width ").next().unwrap_or_default();
+                    let number = rest.split_whitespace().next().unwrap_or_default();
+                    number.parse().unwrap_or_else(|_| panic!("{note}"))
+                })
+                .collect()
+        };
+        let shorter = widths("chr1:1-400 ref.fa");
+        let longer = widths("chr1:1001-1600 ref.fa");
+        assert!(
+            shorter.len() == 1 && longer.len() == 1,
+            "{shorter:?} {longer:?}"
+        );
+        assert!(longer[0] > shorter[0], "{shorter:?} {longer:?}");
+        // The longer place's width, whichever panel it is.
+        assert_eq!(widths("chr1:1-400 chr1:1001-1600 ref.fa"), longer);
+        assert_eq!(widths("chr1:1001-1600 chr1:1-400 ref.fa"), longer);
+        // And at that width both panels are letters, and nothing is said.
+        let line = format!("chr1:1-400 chr1:1001-1600 ref.fa --width {}", longer[0]);
+        let (svg, notes) = drawn_noting(&line, &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        let letters = svg.unwrap().matches(">A</text>").count();
+        assert_eq!(letters, 100 + 150, "the As of four and six hundred bases");
     }
 
     /// A compressed file is text in a wrapper, and is read as the text.

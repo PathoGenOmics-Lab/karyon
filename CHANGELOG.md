@@ -1013,6 +1013,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that is not UTF-8.
 - A figure says each thing it should say once: a BAM a few reads wide over
   two places said it was drawn as its depth once a panel, word for word.
+  Bases too narrow for their letters in panels of different lengths said a
+  `--width` for each panel, and the first left the longer places in blocks;
+  a figure of several places now says the one width that letters them all.
 
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the

@@ -684,7 +684,8 @@ exits with 0, and the something goes to standard error, after `karyon:` too:
 a sequence no file gives the length of, drawn only as far as its rows reach; a
 BAM named on its own over a window of reads, drawn as its depth; and bases too
 narrow for their letters, with the `--width` that would letter them. Each is
-said once, however many panels of a figure of several places it is true of:
+said once, however many panels of a figure of several places it is true of,
+and the `--width` said is the one that letters the bases of every panel:
 
 ```text
 $ karyon NC_000962.3:761,100-761,500 aln.bam H37Rv.fa -o reads.svg
