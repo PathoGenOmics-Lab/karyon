@@ -21,8 +21,8 @@
 use crate::{Region, Strand};
 
 use super::{
-    align, bigbed, bigwig, bisulfite, clade, domain, interval, locus, methyl, point, signal, split,
-    structural, table, twobit,
+    align, bcf, bigbed, bigwig, bisulfite, clade, domain, interval, locus, methyl, point, signal,
+    split, structural, table, twobit,
 };
 
 /// 0-based 99, which every fixture in this file is written to land on.
@@ -268,6 +268,37 @@ fn audit_twobit_one_base() {
     assert_eq!((read.start, read.bases.as_slice()), (TARGET, &b"G"[..]));
     let fasta = include_str!("fixtures/ref.fa").replace('\n', "");
     assert_eq!(fasta.as_bytes()[5 + TARGET as usize], b'G');
+}
+
+#[test]
+fn audit_bcf_one_base() {
+    // A BCF stores a record 0-based, 99 for the call a VCF writes at 100,
+    // and writes it as VCF at 100, which the reader of calls reads at 99.
+    let bytes = include_bytes!("fixtures/bcf/tiny.raw.bcf");
+    let window = |locus: &str| {
+        bcf::window(
+            std::io::Cursor::new(&bytes[..]),
+            None,
+            &region(locus),
+            bcf::Fields::Sites,
+        )
+        .unwrap()
+    };
+    let text = window("chrM:100-100");
+    assert!(
+        text.ends_with("chrM\t100\tv7\tA\tT\t.\tPASS\t.\n"),
+        "{text}"
+    );
+    let calls = point::variants(&text, &region("chrM:1-200")).unwrap();
+    assert_eq!(calls[0].pos, TARGET);
+    assert!(window("chrM:101-101").ends_with("INFO\n"));
+    // The record itself: chrM, the third sequence, then its position.
+    let stored = |pos: i32| {
+        let mut words = 2i32.to_le_bytes().to_vec();
+        words.extend(pos.to_le_bytes());
+        bytes.windows(8).any(|window| window == words)
+    };
+    assert!(stored(99) && !stored(100));
 }
 
 #[test]

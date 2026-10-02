@@ -410,27 +410,26 @@ USAGE
 The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
 file named on its own is a track of the kind its name says: BAM draws its
-depth, SAM its reads, VCF its calls, GFF3, GTF, BED and bigBed features,
-bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick a tree,
-PAF synteny, and a PLINK or REGENIE table a scan; a .gz is read as the file
-inside. Each track flag starts a track of its own kind, and the flags after
-a track describe that one, so the order of the words is the order of the
-stack. A coordinate ruler is added under the last track laid on the
+depth, SAM its reads, VCF and BCF their calls, GFF3, GTF, BED and bigBed
+features, bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick
+a tree, PAF synteny, and a PLINK or REGENIE table a scan; a .gz is read as
+the file inside. Each track flag starts a track of its own kind, and the
+flags after a track describe that one, so the order of the words is the order
+of the stack. A coordinate ruler is added under the last track laid on the
 coordinates unless --axis puts one elsewhere or --no-axis leaves it out, and
 unless nothing in the figure is laid on the coordinates: a phylogeny is not,
 so a stack of trees gets no ruler measuring a window it is not drawn in, and
 a figure made only of --tree, --tanglegram and --snps tracks takes no region
 at all. An alignment, a table over time or over the sites of a gene, and a
-read's signal are their own place: named nowhere, the figure is laid over
-all of it, and its ruler counts columns, weeks, sites or samples rather than
+read's signal are their own place: named nowhere, the figure is laid over all
+of it, and its ruler counts columns, weeks, sites or samples rather than
 bases. A --manhattan table with no place is drawn across the whole genome:
 every sequence it names, end to end, in the order chromosomes are counted,
-each as long as its furthest marker and named under the scan. Several
-places, as karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each,
-one under the other, the same tracks over each and the key once under them;
-a track with nothing in one of them says so there rather than refusing the
-figure. Any track file may be - for standard input, and one track may take
-it.
+each as long as its furthest marker and named under the scan. Several places,
+as karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each, one under
+the other, the same tracks over each and the key once under them; a track
+with nothing in one of them says so there rather than refusing the figure.
+Any track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
@@ -446,10 +445,10 @@ TRACKS
                          a gene is drawn once, with the exons its transcripts
                          use over a line through its introns, and the ends
                          that do not code at half height
-    --variants <FILE>    point calls, VCF
-    --genotypes <FILE>   the call of each sample at each site of a VCF, a row
-                         per sample: reference, heterozygous, alternate or
-                         not called, at its position
+    --variants <FILE>    point calls, VCF or BCF
+    --genotypes <FILE>   the call of each sample at each site of a VCF or BCF,
+                         a row per sample: reference, heterozygous, alternate
+                         or not called, at its position
     --windows <FILE>     a statistic in windows, bedGraph or bigWig
     --manhattan <FILE>   association statistics, a table of position and value;
                          a column headed P, pvalue or p_wald is drawn as -log10
@@ -486,7 +485,7 @@ TRACKS
     --methylation <FILE> modified bases per strand, bedMethyl from modkit;
                          --modification says which one when a file holds several
     --structural <FILE>  structural calls as arcs between their breakpoints, a
-                         VCF carrying symbolic alleles or SVTYPE
+                         VCF or BCF carrying symbolic alleles or SVTYPE
     --pairs <FILE>       pairs of places and a value between them: linkage as
                          PLINK writes it in a .ld table, contacts or loops as
                          BEDPE, or a table headed pos1, pos2 and a value.
@@ -738,18 +737,22 @@ COMPRESSED AND BINARY FILES
     --dynseq, --junctions, --manhattan, --heatmap and --features, and for
     --methylation given --modification. Rows outside the region are not read,
     so the figure is the whole file's wherever the whole file draws one, and
-    an index older than its file is not trusted. A BAM is read by
-    --coverage, --pileup and --split-reads, through the .bai beside it when
-    there is one, so only the reads over the region are read. A bigWig, a
-    bigBed and a 2bit are read through the index each one holds, so
-    only the blocks over the region are read: a bigWig by --coverage, from the
-    summary it keeps at the scale it is drawn at, and by --windows and
-    --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
-    --with-sequence. Each is told by its first bytes, and is named rather than
-    piped, since it is read out of order; compressed with gzip, it is refused
-    with the gunzip -k that gives it back. CRAM and BCF are not read here; a
-    track handed one says which command writes what it reads, and a pipe
-    brings that in:
+    an index older than its file is not trusted. A BAM is read by --coverage,
+    --pileup and --split-reads, through the .csi or the .bai beside it,
+    looked for in that order as samtools looks, so only the reads over the
+    region are read. A BCF is read by --variants, --genotypes and
+    --structural as the VCF bcftools view writes for it, through the .csi
+    bcftools index writes beside it, so only the records over the region are
+    read, and only --genotypes reads its samples' columns. A bigWig, a bigBed
+    and a 2bit are read through the index each one holds, so only the blocks
+    over the region are read: a bigWig by --coverage, from the summary it
+    keeps at the scale it is drawn at, and by --windows and --dynseq; a
+    bigBed by --features; and a 2bit by --sequence, --orfs and
+    --with-sequence. Each of these is told by its first bytes, and is named
+    rather than piped, since it is read out of order; a bigWig, a bigBed or
+    a 2bit compressed with gzip is refused with the gunzip -k that gives it
+    back. CRAM is not read here; a track handed one says which command
+    writes what it reads, and a pipe brings that in:
 
     samtools depth -a -r NC_000962.3:761000-763000 aln.cram \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg

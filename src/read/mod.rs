@@ -12,9 +12,11 @@
 //! [`bigbed`] and [`twobit`] read UCSC's own formats a window at a time
 //! through the index each one holds, and hand the window over as what the
 //! text readers take or a track is built from: a bigWig's values as spans, a
-//! bigBed's rows as BED, and a 2bit's bases. CRAM and BCF come in through a
-//! pipe, as `samtools view` and `bcftools view` already write exactly what
-//! these readers take.
+//! bigBed's rows as BED, and a 2bit's bases. [`bcf`] reads a BCF the same
+//! way, through the CSI beside it, and hands its records over as the VCF text
+//! `bcftools view` prints for them, which the readers of calls take as they
+//! take a VCF. CRAM comes in through a pipe, as `samtools view` already writes
+//! exactly what these readers take.
 //!
 //! # Text in, values out, and no path anywhere
 //!
@@ -59,6 +61,9 @@
 //! Inclusive and 1-based, so one is taken off the start on the way in: GFF3,
 //! VCF, SAM and the output of `samtools depth`.
 //!
+//! Stored 0-based and written out 1-based, as the VCF it stands for, which
+//! is then read as a VCF is: BCF.
+//!
 //! # Silence is for rows that were never ours
 //!
 //! A whole file is handed over and one locus is asked for, so a row naming
@@ -74,6 +79,7 @@ pub mod align_pairs;
 mod audit;
 pub mod bam;
 mod bbi;
+pub mod bcf;
 pub mod bgzf;
 pub mod bigbed;
 pub mod bigwig;

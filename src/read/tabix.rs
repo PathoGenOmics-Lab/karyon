@@ -100,7 +100,7 @@ fn comment_byte(columns: &Columns) -> u8 {
 
 /// Where a virtual offset is, in words: the compressed offset of a block and,
 /// where it is not the block's first byte, how far into it.
-fn at(offset: u64) -> String {
+pub(crate) fn at(offset: u64) -> String {
     match (offset >> 16, offset & 0xffff) {
         (block, 0) => format!("at byte {block}"),
         (block, within) => format!("{within} bytes into the block at byte {block}"),

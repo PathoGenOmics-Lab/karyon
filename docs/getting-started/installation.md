@@ -124,7 +124,7 @@ figure saves the view you are looking at.
 | Dependencies | None. The `[dependencies]` table in `Cargo.toml` is empty. |
 | System libraries | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
 | Platforms | Any target with Rust's standard library, WebAssembly included. Linux, macOS and Windows are built and tested on every pull request, and the Windows release archive needs no Visual C++ runtime installed. |
-| Input | Text formats, gzipped or not, and BAM read directly through its index. CRAM and BCF come in through `samtools` or `bcftools`, piped. |
+| Input | Text formats, gzipped or not, and BAM, BCF, bigWig, bigBed and 2bit read directly through their indexes. CRAM comes in through `samtools`, piped. |
 | Output | Standalone SVG that names its fonts rather than embedding them. |
 
 ## Next

@@ -1,0 +1,27 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=q10,Description="Quality below 10">
+##FILTER=<ID=s50,Description="Less than half of the samples have data">
+##contig=<ID=chr1,length=2000000>
+##contig=<ID=chr2,length=90000>
+##contig=<ID=chrM>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total depth">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP membership">
+##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations, longer than fifteen bytes">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant">
+##INFO=<ID=BIG,Number=1,Type=Integer,Description="A number past sixteen bits">
+##INFO=<ID=NEG,Number=2,Type=Integer,Description="Numbers below nought">
+##INFO=<ID=MANY,Number=.,Type=Integer,Description="More values than a descriptor counts">
+##INFO=<ID=CH,Number=1,Type=Character,Description="A character">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B	C
+chr1	10	rs1	A	G	29.5	PASS	DP=14;AF=0.5;DB;ANN=G|missense_variant|MODERATE|geneA|geneA_long_annotation_text	GT	0/1	1|1	./.
+chr1	16380	.	ACGTACGTACGTACGTACGT	A	.	q10;s50	DP=300;AF=0.25;BIG=70000;NEG=-5,-200;MANY=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17	GT	0/1	0/0	0
+chr1	16390	v3	C	T,G	1e+06	.	AF=0.333333,0.1;CH=x	GT	1/2	0|2	2
+chr1	50000	sv1	N	<DEL>	50	PASS	SVTYPE=DEL;END=50500	GT	0/1	./.	.
+chr1	60000	v4	G	A	12	PASS	AF=.	.	.	.	.
+chr2	5	v5	T	C	.	.	.	GT	1	0/1/1	.
+chr2	70000	v6	G	GA	3	PASS	DP=0;AF=1	.	.	.	.
+chrM	100	v7	A	T	.	PASS	.	.	.	.	.

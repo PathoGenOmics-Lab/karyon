@@ -22,7 +22,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
 | Command line | `--variants FILE`, with `--style`, `--height` |
-| Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`) |
+| Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
 
 === "Rust"
 
@@ -84,7 +84,7 @@ The call of each sample at each site of a cohort's VCF: one row per sample and o
 |:--|:--|
 | Rust | `.add_genotypes(samples, sites)` on `plot()`; `GenotypeTrack::new(samples, sites)` |
 | Command line | `--genotypes FILE`, with `--sample`, `--with-tree`, `--traits`, `--columns`, `--row-height`, `--max-rows`, `--no-names` |
-| Reads | a VCF with samples: `GT` from the column of each sample the `#CHROM` line names (`read::point::genotypes`); bgzipped with a `.tbi` or `.csi` beside it, its header and the rows over the window (`read::tabix`) |
+| Reads | a VCF with samples: `GT` from the column of each sample the `#CHROM` line names (`read::point::genotypes`); bgzipped with a `.tbi` or `.csi` beside it, its header and the rows over the window (`read::tabix`); a BCF, each sample's `GT` alone over the window through the `.csi` beside it, the samples named by its header (`read::bcf::window`) |
 
 === "Rust"
 
@@ -162,7 +162,7 @@ Structural variant calls as arcs between their two breakpoints, springing from t
 |:--|:--|
 | Rust | `.add_structural(variants)` on `plot()`; `StructuralTrack::new(variants)` |
 | Command line | `--structural FILE`, with `--no-names`, `--height` |
-| Reads | VCF with symbolic alleles or `SVTYPE`, breakend pairs read from the `ALT` (`read::structural::variants`), whole even with an index beside it, since an arc is drawn from a breakend outside a window it crosses |
+| Reads | VCF or BCF with symbolic alleles or `SVTYPE`, breakend pairs read from the `ALT` (`read::structural::variants`, `read::bcf::whole`), whole even with an index beside it, since an arc is drawn from a breakend outside a window it crosses |
 
 === "Rust"
 

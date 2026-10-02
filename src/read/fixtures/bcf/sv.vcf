@@ -1,0 +1,19 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=1000000>
+##contig=<ID=chr2,length=500000>
+##ALT=<ID=DEL,Description="Deletion">
+##ALT=<ID=DUP,Description="Duplication">
+##ALT=<ID=INV,Description="Inversion">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the variant">
+##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Length of the variant">
+##INFO=<ID=MATEID,Number=.,Type=String,Description="ID of the mate breakend">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	3000	bnd1	N	N[chr1:800000[	50	PASS	SVTYPE=BND;MATEID=bnd2
+chr1	120000	dup1	N	<DUP>	40	PASS	SVTYPE=DUP;END=125000;SVLEN=5000
+chr1	400500	del1	N	<DEL>	50	PASS	SVTYPE=DEL;END=401500;SVLEN=-1000
+chr1	600000	inv1	N	<INV>	35.5	PASS	SVTYPE=INV;END=650000
+chr1	700000	bnd3	G	G]chr2:20000]	50	PASS	SVTYPE=BND;MATEID=bnd4
+chr1	800000	bnd2	N	]chr1:3000]N	50	PASS	SVTYPE=BND;MATEID=bnd1
+chr2	20000	bnd4	T	T]chr1:700000]	50	PASS	SVTYPE=BND;MATEID=bnd3
+chr2	300000	del2	N	<DEL>	.	PASS	SVTYPE=DEL;END=300900

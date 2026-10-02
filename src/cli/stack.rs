@@ -515,6 +515,14 @@ impl fmt::Display for BuildError {
                     "--{track} {path}: {binary}; {}, or turn it into text first",
                     in_place(HOST, command, alone.then_some(*track))
                 ),
+                // A BCF is read from its bytes, which a pipe of text gives
+                // none of, and the text bcftools writes is what a pipe takes.
+                None if *binary == Binary::Bcf => write!(
+                    f,
+                    "--{track} {path}: the file is BCF, which karyon reads from a file \
+                     named on the command line and not from a pipe; name the file instead, \
+                     or pipe in the text bcftools view writes"
+                ),
                 // A pipe is read once, front to back, and these are read by
                 // going to where their index says.
                 None if binary.drawn_by().is_some() => write!(
@@ -1867,6 +1875,20 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
         let sources = [spec.source.as_ref(), spec.second.as_ref()];
         for source in sources.into_iter().flatten() {
             let own = spec.source.as_ref() == Some(source);
+            // A BCF names its sequences, and the lengths of some, in its
+            // header, and its records are read for how far they reach only
+            // where nothing else places the figure, as a file read through
+            // its index is.
+            if let Some((header, _)) = own.then(|| bcf(files, source)).flatten() {
+                lengths.extend(
+                    header
+                        .contigs
+                        .into_iter()
+                        .filter_map(|(name, length)| Some((renamed(invocation, name), length?))),
+                );
+                reaches.push(Reach::Later(spec, source));
+                continue;
+            }
             let text = match files
                 .sequences(source)
                 .map_err(|cause| open_error(spec, source, cause))?
@@ -2006,7 +2028,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
     for reach in reaches {
         let (reach, file) = match reach {
             Reach::Read(reach, file) => (reach, file),
-            Reach::Later(spec, source) => match files.text(source) {
+            Reach::Later(spec, source) => match whole_text(files, source) {
                 Ok(text) => (reached_by(spec.kind, &text, &aliases), called(source)),
                 Err(_) => continue,
             },
@@ -2126,6 +2148,17 @@ fn nowhere(
                 sequences.extend(found.index.names().iter().map(|name| (name.clone(), 0)));
                 sequences
             });
+        // A BCF names every sequence in its header, whatever its index says.
+        let named = match bcf(files, source) {
+            Some((header, _)) => Some(
+                header
+                    .contigs
+                    .into_iter()
+                    .map(|(name, _)| (name, 0))
+                    .collect(),
+            ),
+            None => named,
+        };
         let mut sequences: Vec<(String, usize)> = match (files.sequences(source), named) {
             (Ok(Some(lengths)), _) => lengths.into_iter().map(|(name, _)| (name, 0)).collect(),
             (_, Some(named)) => named,
@@ -2554,7 +2587,8 @@ struct Slurped {
     origin: Origin,
     /// The lines that tell what the file is, for [`refine`], where `text`
     /// holds only some of the file's own lines and may hold none of them:
-    /// its header and its first row. `None` where `text` is the file, which
+    /// its header and its first row, or a BCF's whole header, which names the
+    /// samples its sites leave out. `None` where `text` is the file, which
     /// says it itself.
     probe: Option<String>,
     /// How many rows the file holds, where something other than `text`
@@ -2588,13 +2622,14 @@ struct Slurped {
 /// 4. The whole text, through [`Files::text`].
 ///
 /// Each comes before the next because the next would misread its file or
-/// read more of it. A BAM is not text, and is read through the `.bai` beside
-/// it. A BCF has a `.csi` beside it as a bgzipped VCF does, and only its own
-/// reader can read the blocks it points into. A window through an index reads
+/// read more of it. A BAM is not text, and is read through the `.csi` or the
+/// `.bai` beside it. A BCF has a `.csi` beside it as a bgzipped VCF does, and
+/// only its own reader can read the blocks it points into. A window through an index reads
 /// a few blocks of a file the whole text reads all of.
 ///
 /// The second is a bigWig, a bigBed or a 2bit, told by its first bytes and
-/// read through [`Files::seekable`] by [`natively`]. The third is a file
+/// read through [`Files::seekable`] by [`natively`], or a BCF, read by
+/// [`calls`] through the `.csi` beside it. The third is a file
 /// compressed with bgzip with a `.csi` or a `.tbi` beside it, read by
 /// [`windowed`] for a track [`through_index`] says draws only the rows over
 /// the window, and only where `whole` is false: a track whose window was
@@ -2646,6 +2681,9 @@ fn slurp(
         cause,
     })?;
     if let Some((binary, file)) = opened {
+        if binary == Binary::Bcf {
+            return calls(spec, region, files, source, file);
+        }
         // As many bases to a pixel as the whole figure is wide, which is a
         // few more than the plot inside its gutter holds: a zoom level is
         // never coarser than the drawing for it.
@@ -2676,8 +2714,8 @@ fn slurp(
 }
 
 /// A source that is a binary format a track reads as it is, a bigWig, a
-/// bigBed or a 2bit, by its first bytes, opened at its start. `None` for any
-/// other source, and for one the files cannot give as bytes, which
+/// bigBed, a 2bit or a BCF, by its first bytes, opened at its start. `None`
+/// for any other source, and for one the files cannot give as bytes, which
 /// [`Files::text`] then reads or says why not.
 fn native<F: Files + ?Sized>(
     files: &mut F,
@@ -2686,13 +2724,39 @@ fn native<F: Files + ?Sized>(
     let Some(mut file) = files.seekable(source)? else {
         return Ok(None);
     };
-    let mut first = Vec::with_capacity(8);
-    file.by_ref().take(8).read_to_end(&mut first)?;
-    file.seek(io::SeekFrom::Start(0))?;
-    Ok(match Binary::of(&first, None) {
-        Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit)) => Some((binary, file)),
+    Ok(match sniffed(&mut file)? {
+        Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit | Binary::Bcf)) => {
+            Some((binary, file))
+        }
         _ => None,
     })
+}
+
+/// What a file's first bytes say it is, and for a file bgzip wrote, what its
+/// first block says is inside it: a BAM and a BCF are BGZF on the outside, as
+/// a bgzipped VCF is, and their names need not say so. Left at its start.
+///
+/// The first block is at most 64 KiB, inflated once for each file a figure
+/// asks this of. A BCF written bare, as gzip leaves `-Ou`'s BGZF, is told by
+/// its magic alone.
+fn sniffed<S: io::Read + io::Seek + ?Sized>(file: &mut S) -> io::Result<Option<Binary>> {
+    let mut first = Vec::with_capacity(18);
+    io::Read::take(&mut *file, 18).read_to_end(&mut first)?;
+    file.seek(io::SeekFrom::Start(0))?;
+    let mut binary = Binary::of(&first, None);
+    if read::bgzf::is_bgzf(&first) {
+        let mut inside = [0u8; 4];
+        let got = read::bgzf::Bgzf::new(&mut *file)
+            .fill(&mut inside)
+            .unwrap_or(0);
+        file.seek(io::SeekFrom::Start(0))?;
+        match &inside[..got] {
+            b"BAM\x01" => binary = Some(Binary::Bam),
+            b"BCF\x02" => binary = Some(Binary::Bcf),
+            _ => {}
+        }
+    }
+    Ok(binary)
 }
 
 /// A bigWig, a bigBed or a 2bit, read over the window as the track that
@@ -2780,6 +2844,197 @@ fn natively(
         most,
         absent,
     })
+}
+
+/// A BCF, read as the VCF text `bcftools view` prints for it, which the
+/// track's reader takes as it takes a VCF's, or refused, naming the tracks
+/// that draw it.
+///
+/// `--variants` and `--structural` read the sites alone, and leave the
+/// samples' columns undecoded, which are most of a cohort's file and nothing
+/// either track draws; `--genotypes` reads each sample's `GT` alone. The rows
+/// over the window are read through the `.csi` beside the file where there is
+/// one it trusts, as a bgzipped VCF's are through its index, and from every
+/// record of the file where there is not. Structural calls are read whole, as
+/// they are from a VCF, since an arc is drawn from the lower of its two
+/// breakends.
+///
+/// The header goes with the text as [`Slurped::probe`], whole: the sites
+/// alone name no sample, and a cohort's calls named on their own say how many
+/// samples `--genotypes` would draw.
+fn calls(
+    spec: &TrackSpec,
+    region: &Region,
+    files: &mut dyn Files,
+    source: &Source,
+    mut file: Box<dyn Seekable>,
+) -> Result<Slurped, BuildError> {
+    use read::bcf::Fields;
+    let track = spec.kind.flag();
+    let path = called(source);
+    let other = |format: bool| BuildError::OtherTrack {
+        track,
+        path: path.clone(),
+        binary: Binary::Bcf,
+        format,
+    };
+    if spec.format.is_some() {
+        return Err(other(true));
+    }
+    let fields = match spec.kind {
+        Kind::Variants | Kind::Structural => Fields::Sites,
+        Kind::Genotypes => Fields::Genotypes,
+        _ => return Err(other(false)),
+    };
+    let open = |error: read::ReadError| BuildError::Open {
+        track,
+        path: path.clone(),
+        cause: unreadable(error),
+    };
+    let header = read::bcf::header_of(&mut file).map_err(open)?;
+    let text = if spec.kind == Kind::Structural {
+        read::bcf::whole(&mut file, fields)
+    } else {
+        match trusted_csi(files, source, &path) {
+            Some(index) => match read::bcf::window(&mut file, Some(&index), region, fields) {
+                Ok(text) => Ok(text),
+                // A file that reads whole, read past an index that does not
+                // fit it, says so; a damaged file is refused either way.
+                Err(error) => {
+                    let text = read::bcf::window(&mut file, None, region, fields);
+                    if text.is_ok() {
+                        let name = csi_name(files, source);
+                        files.note(&format!(
+                            "{name} does not describe {path}: {error}, so the file was read \
+                             whole; bcftools index -f {path} writes it again"
+                        ));
+                    }
+                    text
+                }
+            },
+            None => read::bcf::window(&mut file, None, region, fields),
+        }
+    }
+    .map_err(open)?;
+    Ok(Slurped {
+        text,
+        path,
+        origin: Origin::Native(Binary::Bcf),
+        probe: Some(header.text),
+        held: None,
+        reference: None,
+        most: None,
+        absent: None,
+    })
+}
+
+/// What the `.csi` beside a source is called, as a note names it.
+fn csi_name(files: &mut dyn Files, source: &Source) -> String {
+    files.beside(source, ".csi").ok().flatten().map_or_else(
+        || format!("the index beside {}", called(source)),
+        |found| found.name,
+    )
+}
+
+/// The `.csi` beside a BCF, where there is one and it is trusted, looked for as
+/// htslib looks: `calls.bcf.csi`, then `calls.csi`. A BCF has no other index.
+///
+/// Not trusted, each said in a note, and the file read whole, which draws the
+/// same figure: an index older than its file, in whole seconds, as a
+/// bgzipped VCF's is not trusted; one that does not read as an index; and one
+/// that is not a CSI written for a BCF, as a tabix index renamed would be.
+fn trusted_csi(files: &mut dyn Files, source: &Source, path: &str) -> Option<read::index::Index> {
+    let again = format!("bcftools index -f {path} writes it again");
+    let beside = match files.beside(source, ".csi") {
+        Ok(Some(beside)) => beside,
+        Ok(None) => return None,
+        Err(error) => {
+            files.note(&format!(
+                "the index beside {path} could not be read ({error}), so the file was read whole"
+            ));
+            return None;
+        }
+    };
+    let name = beside.name;
+    if beside.older {
+        files.note(&format!(
+            "{name} is older than {path}, so it was not trusted and the file was read whole; \
+             {again}"
+        ));
+        return None;
+    }
+    match read::index::parse(&beside.bytes) {
+        Ok(index) if index.kind() == read::index::Kind::Csi && index.columns().is_none() => {
+            Some(index)
+        }
+        Ok(_) => {
+            files.note(&format!(
+                "{name} is not the CSI bcftools index writes for a BCF, so {path} was read \
+                 whole; {again}"
+            ));
+            None
+        }
+        Err(error) => {
+            files.note(&format!(
+                "{name} cannot be read as an index ({error}), so {path} was read whole; {again}"
+            ));
+            None
+        }
+    }
+}
+
+/// A source that is a BCF, with its header, opened at its start. `None` for
+/// any other source, and for a BCF whose header will not read, which its
+/// track reports.
+fn bcf(files: &mut dyn Files, source: &Source) -> Option<(read::bcf::Header, Box<dyn Seekable>)> {
+    match native(files, source) {
+        Ok(Some((Binary::Bcf, mut file))) => {
+            let header = read::bcf::header_of(&mut file).ok()?;
+            file.seek(io::SeekFrom::Start(0)).ok()?;
+            Some((header, file))
+        }
+        _ => None,
+    }
+}
+
+/// How many records a BCF holds on each of its sequences, for the message of
+/// a window that held none: from the counts the `.csi` beside it keeps, where
+/// it keeps them, and otherwise from the file's records, each read as far as
+/// the number of its sequence. `None` for a source that is not a BCF.
+fn bcf_rows(files: &mut dyn Files, source: &Source) -> Option<Vec<(String, usize)>> {
+    let (header, file) = bcf(files, source)?;
+    let counted = files
+        .beside(source, ".csi")
+        .ok()
+        .flatten()
+        .filter(|beside| !beside.older)
+        .and_then(|beside| read::index::parse(&beside.bytes).ok())
+        .and_then(|index| {
+            let mut counted = Vec::new();
+            for (name, _) in &header.contigs {
+                let number = header.sequence(name)?;
+                let rows = match index.summary(number) {
+                    Some(summary) => usize::try_from(summary.placed).ok()?,
+                    None if number >= index.references() => 0,
+                    None => return None,
+                };
+                if rows > 0 {
+                    counted.push((name.clone(), rows));
+                }
+            }
+            Some(counted)
+        });
+    counted.or_else(|| read::bcf::counted(file).ok())
+}
+
+/// The whole text of a source: [`Files::text`], or for a BCF, every record's
+/// site as `bcftools view -G` prints it, which is what a VCF of the same calls
+/// would be read for when a figure is placed and its places named.
+fn whole_text(files: &mut dyn Files, source: &Source) -> io::Result<String> {
+    if let Some((_, file)) = bcf(files, source) {
+        return read::bcf::whole(file, read::bcf::Fields::Sites).map_err(unreadable);
+    }
+    files.text(source)
 }
 
 /// The bases of a 2bit over the window, as the reference a FASTA's record is
@@ -3046,11 +3301,13 @@ fn indexed(files: &mut dyn Files, source: &Source) -> Result<Indexed, Option<Unt
             .map_err(|_| None)?;
     }
     // A BAM and a BCF are bgzip on the outside too, and are named for what
-    // they are by their own reader or by the whole text's refusal.
+    // they are by their own reader or by the whole text's refusal, by their
+    // names or by what their first block holds.
     if matches!(
         Binary::of(&first, Some(path)),
         Some(Binary::Bam | Binary::Bcf)
-    ) {
+    ) || matches!(sniffed(&mut file), Ok(Some(Binary::Bam | Binary::Bcf)))
+    {
         return Err(None);
     }
     let beside = match files.beside(source, ".csi") {
@@ -3848,8 +4105,8 @@ pub struct Beside {
 ///
 /// The questions about a BAM are answered from those two unless a type
 /// answers them itself: the depth and the reads over a window, through the
-/// `.bai` beside it, the sequences its header names, and one read by its
-/// name.
+/// `.csi` or the `.bai` beside it, the sequences its header names, and one
+/// read by its name.
 pub trait Files {
     /// The text a source holds.
     ///
@@ -3907,7 +4164,8 @@ pub trait Files {
 
     /// The sequences a binary file names, each with its length, or `None`
     /// for a source that is not one this can read: a BAM's header, and the
-    /// index a bigWig, a bigBed or a 2bit holds.
+    /// index a bigWig, a bigBed or a 2bit holds. A BCF's header is read where
+    /// a figure is placed, since it may name a sequence with no length.
     ///
     /// # Errors
     ///
@@ -3917,7 +4175,11 @@ pub trait Files {
             return match binary {
                 Binary::BigWig => read::bigwig::sequences(file),
                 Binary::BigBed => read::bigbed::sequences(file),
-                _ => read::twobit::sequences(file),
+                Binary::TwoBit => read::twobit::sequences(file),
+                // A BCF's header may name a sequence with no length, and its
+                // records are read for how far they reach, as a VCF's rows
+                // are, where the figure is placed.
+                _ => return Ok(None),
             }
             .map(Some)
             .map_err(unreadable);
@@ -3985,8 +4247,16 @@ fn opened_bam<F: Files + ?Sized>(
 }
 
 /// The header and the reads over `region`, for a source that is a BAM, read
-/// through the `.bai` beside it where there is one and from its start where
+/// through the index beside it where there is one and from its start where
 /// there is not.
+///
+/// The index is looked for as htslib looks for it, a `.csi` before a `.bai`,
+/// each after the whole name and then in place of its last extension:
+/// `reads.bam.csi`, `reads.csi`, `reads.bam.bai`, `reads.bai`. `samtools
+/// index -c` writes the first, for a sequence longer than a BAI has room for,
+/// and samtools reads it before a `.bai` beside it, so a BAM with both is read
+/// through the index samtools reads. Either one, damaged, is refused, as
+/// samtools refuses it.
 fn bam_window<F: Files + ?Sized>(
     files: &mut F,
     source: &Source,
@@ -3995,9 +4265,20 @@ fn bam_window<F: Files + ?Sized>(
     let Some(file) = opened_bam(files, source)? else {
         return Ok(None);
     };
-    let index = match files.beside(source, ".bai")? {
-        Some(found) => Some(read::bam::index(&found.bytes).map_err(unreadable)?),
-        None => None,
+    let index = match files.beside(source, ".csi")? {
+        Some(found) => match read::index::parse(&found.bytes).map_err(unreadable)? {
+            index if index.kind() == read::index::Kind::Csi => Some(index),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{} is not the CSI samtools index -c writes", found.name),
+                ))
+            }
+        },
+        None => match files.beside(source, ".bai")? {
+            Some(found) => Some(read::bam::index(&found.bytes).map_err(unreadable)?),
+            None => None,
+        },
     };
     read::bam::window(file, index.as_ref(), region)
         .map(Some)
@@ -4126,10 +4407,11 @@ fn keep_once(notes: &mut Vec<String>, message: &str) {
 /// The files a command line names, read from disk.
 ///
 /// Text is read whole, and compressed text is taken out of its wrapper, by
-/// [`open_from_disk`]. A BAM is read a window at a time, through the `.bai`
-/// beside it where there is one, so a figure of one gene reads the blocks that
-/// gene is in, and so is a bgzipped text file through the `.csi` or `.tbi`
-/// beside it, for a track that draws only the rows over its window.
+/// [`open_from_disk`]. A BAM is read a window at a time, through the `.csi`
+/// or the `.bai` beside it where there is one, so a figure of one gene reads
+/// the blocks that gene is in, and so is a BCF through its `.csi`, and a
+/// bgzipped text file through the `.csi` or `.tbi` beside it, for a track that
+/// draws only the rows over its window.
 ///
 /// A pipe the shell named, as `<(zcat genes.gff3.gz)`, cannot be read twice,
 /// so it is read whole the first time anything asks and its bytes are kept,
@@ -4216,8 +4498,8 @@ impl Files for Disk {
 /// What [`Disk`] reads from a path, read from bytes a caller already has: a
 /// page that fetched them, a service that was sent them, a test. Compressed
 /// text is taken out of its wrapper, a BAM is read a window at a time through
-/// the `.bai` held beside it, and a bgzipped text file through the `.csi` or
-/// `.tbi` held beside it, and one read is found by its name, so a figure
+/// the `.csi` or the `.bai` held beside it, a BCF through its `.csi`, and a
+/// bgzipped text file through the `.csi` or `.tbi` held beside it, and one read is found by its name, so a figure
 /// drawn from these files is the figure a shell draws from the same files on
 /// disk. Bytes held say nothing of when they were written, so an index held
 /// for an earlier version of its file is told only by not describing it. A
@@ -4348,7 +4630,9 @@ pub enum Binary {
     Bam,
     /// CRAM.
     Cram,
-    /// BCF, which is bgzip by its bytes and BCF by its name.
+    /// BCF, which is bgzip by its first bytes and BCF by its name or by what
+    /// its first block holds, or BCF by its first bytes where it is written
+    /// bare.
     Bcf,
     /// bigWig.
     BigWig,
@@ -4389,6 +4673,8 @@ impl Binary {
             } else {
                 Binary::Gzip
             }
+        } else if magic(b"BCF\x02") {
+            Binary::Bcf
         } else if magic(b"CRAM") {
             Binary::Cram
         } else if magic(b"BZh") {
@@ -4445,6 +4731,10 @@ impl Binary {
             Binary::TwoBit => (
                 "the bases of a reference",
                 "--sequence and --orfs draw and --with-sequence reads",
+            ),
+            Binary::Bcf => (
+                "calls along the sequence",
+                "--variants, --genotypes and --structural draw",
             ),
             _ => return None,
         })
@@ -4642,10 +4932,13 @@ fn explained(
             // usual way this fails, a file that says 1 where the figure says
             // chr1, answered without inflating a whole genome's calls.
             let held = match (region, spec.source.as_ref()) {
-                (Some(_), Some(source @ Source::Path(_))) => through_index(spec.kind)
-                    .then(|| indexed(files, source).ok())
-                    .flatten()
-                    .and_then(|found| found.counted())
+                (Some(_), Some(source @ Source::Path(_))) => bcf_rows(files, source)
+                    .or_else(|| {
+                        through_index(spec.kind)
+                            .then(|| indexed(files, source).ok())
+                            .flatten()
+                            .and_then(|found| found.counted())
+                    })
                     .unwrap_or_else(|| {
                         files
                             .text(source)
@@ -5093,7 +5386,11 @@ fn built(
             Box::new(named(track, label, FeatureTrack::label))
         }
         Kind::Variants => {
-            let variants = wrap(name, &path, read::point::variants(&text, region))?;
+            let variants = wrap(
+                name,
+                &path,
+                recorded(origin, &text, read::point::variants(&text, region)),
+            )?;
             if variants.is_empty() {
                 return Err(empty("variants"));
             }
@@ -5115,8 +5412,9 @@ fn built(
             // nothing said they could be drawn. Said once the track is built, so
             // a first attempt that fails and is read again under a --rename
             // says nothing twice, and not where the figure draws them already.
+            // A BCF's sites name no sample, and its header, the probe, does.
             let held = if spec.guessed && !context.genotyped {
-                read::point::samples(&text).len()
+                read::point::samples(probe.as_deref().unwrap_or(&text)).len()
             } else {
                 0
             };
@@ -5160,7 +5458,11 @@ fn built(
             let found = wrap(
                 name,
                 &path,
-                read::point::genotypes(&text, region, wanted.as_deref()),
+                recorded(
+                    origin,
+                    &text,
+                    read::point::genotypes(&text, region, wanted.as_deref()),
+                ),
             )?;
             // A cohort's text is the larger of the two by far, and the calls
             // are all of it the track needs.
@@ -5590,7 +5892,11 @@ fn built(
         // Calls as arcs between their breakpoints. Every refusal in the reader
         // stands between a broken record and an arc drawn at full confidence.
         Kind::Structural => {
-            let found = wrap(name, &path, read::structural::variants(&text, region))?;
+            let found = wrap(
+                name,
+                &path,
+                recorded(origin, &text, read::structural::variants(&text, region)),
+            )?;
             if found.records == 0 {
                 return Err(empty("variant calls"));
             }
@@ -6426,6 +6732,39 @@ fn wrap<T>(
         track,
         path: path.to_string(),
         cause,
+    })
+}
+
+/// A refusal of a row of the text written from a BCF, which is no line of the
+/// file, as a refusal of the record it was written from: named by its
+/// sequence and position, as `bcftools view -r` would find it, where a VCF's
+/// is named by its line. A refusal of the header loses its line alone.
+fn recorded<T>(
+    origin: Origin,
+    text: &str,
+    result: Result<T, read::ReadError>,
+) -> Result<T, read::ReadError> {
+    if origin != Origin::Native(Binary::Bcf) {
+        return result;
+    }
+    result.map_err(|error| {
+        let row = error
+            .line
+            .checked_sub(1)
+            .and_then(|at| text.lines().nth(at))
+            .filter(|row| !row.starts_with('#'));
+        let mut fields = row.unwrap_or_default().split('\t');
+        match (
+            fields.next(),
+            fields.next().and_then(|pos| pos.parse::<u64>().ok()),
+        ) {
+            (Some(sequence), Some(pos)) => read::ReadError::whole(format!(
+                "the record at {sequence}:{}: {}",
+                crate::track::axis::group_thousands(pos),
+                error.reason
+            )),
+            _ => read::ReadError::whole(error.reason),
+        }
     })
 }
 
@@ -8048,6 +8387,9 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
         assert_eq!(of(&gzip, "calls.vcf.gz"), Some(Binary::Gzip));
         assert_eq!(of(&gzip, "reads.BAM"), Some(Binary::Bam));
         assert_eq!(of(&gzip, "calls.bcf"), Some(Binary::Bcf));
+        // A BCF written bare, as gzip leaves what `bcftools view -Ou` writes,
+        // whatever it is called.
+        assert_eq!(of(b"BCF  ", "calls.data"), Some(Binary::Bcf));
         assert_eq!(of(b"CRAM\x03\x01", "reads.cram"), Some(Binary::Cram));
         assert_eq!(of(b"BZh91AY", "a.bz2"), Some(Binary::Bzip2));
         assert_eq!(
@@ -8167,22 +8509,33 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             assert!(error.contains("karyon reads text"), "{error}");
         }
         // The messages the guide prints, to the letter, each where it is
-        // printed.
-        let bcf = refused("chr1:1-5000 --variants calls.bcf", Binary::Bcf);
+        // printed. A BCF is read as it is where its files give its bytes,
+        // and is answered so only where they give text alone.
+        let cram = refused("chr1:1-5000 --pileup aln.cram", Binary::Cram);
         if cfg!(windows) {
             assert_eq!(
-                bcf,
-                "--variants calls.bcf: the file is BCF, and karyon reads text; pipe what \
-                 bcftools view calls.bcf writes into karyon, with - where its name is, or turn \
-                 it into text first"
+                cram,
+                "--pileup aln.cram: the file is CRAM, and karyon reads text; pipe what \
+                 samtools view -h aln.cram chr1:1-5000 writes into karyon, with - where its \
+                 name is, or turn it into text first"
             );
         } else {
             assert_eq!(
-                bcf,
-                "--variants calls.bcf: the file is BCF, and karyon reads text; \
-                 write <(bcftools view calls.bcf) where its name is, or turn it into text first"
+                cram,
+                "--pileup aln.cram: the file is CRAM, and karyon reads text; write \
+                 <(samtools view -h aln.cram chr1:1-5000) where its name is, or turn it into \
+                 text first"
             );
         }
+        let alone = refused("chr1:1-5000 aln.cram", Binary::Cram);
+        assert!(
+            alone.contains(&in_place(
+                HOST,
+                "samtools depth -a -r chr1:1-5000 aln.cram",
+                Some("coverage")
+            )),
+            "{alone}"
+        );
         // No one command: the resolution has to be picked first.
         for (text, binary, advice) in [
             (
@@ -8211,24 +8564,29 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
     /// both, so a run on Linux catches the Windows one going wrong as well.
     #[test]
     fn a_windows_build_pipes_the_command_in_rather_than_naming_it() {
-        let command = "bcftools view calls.bcf";
+        let command = "samtools view -h aln.cram chr1:1-5000";
         let windows = in_place(Shell::Windows, command, None);
         assert_eq!(
             windows,
-            "pipe what bcftools view calls.bcf writes into karyon, with - where its name is"
+            "pipe what samtools view -h aln.cram chr1:1-5000 writes into karyon, with - where \
+             its name is"
         );
         assert!(!windows.contains("<("), "{windows}");
         let posix = in_place(Shell::Posix, command, None);
-        assert_eq!(posix, "write <(bcftools view calls.bcf) where its name is");
-        // A file named on its own, as the guide prints it for each.
         assert_eq!(
-            in_place(Shell::Windows, command, Some("variants")),
-            "pipe what bcftools view calls.bcf writes into karyon, with --variants - where \
-             its name is"
+            posix,
+            "write <(samtools view -h aln.cram chr1:1-5000) where its name is"
+        );
+        // A file named on its own, as the guide prints it for each.
+        let depth = "samtools depth -a -r chr1:1-5000 aln.cram";
+        assert_eq!(
+            in_place(Shell::Windows, depth, Some("coverage")),
+            "pipe what samtools depth -a -r chr1:1-5000 aln.cram writes into karyon, with \
+             --coverage - where its name is"
         );
         assert_eq!(
-            in_place(Shell::Posix, command, Some("variants")),
-            "write --variants <(bcftools view calls.bcf) where its name is"
+            in_place(Shell::Posix, depth, Some("coverage")),
+            "write --coverage <(samtools depth -a -r chr1:1-5000 aln.cram) where its name is"
         );
         assert_eq!(HOST == Shell::Windows, cfg!(windows));
     }
@@ -12982,6 +13340,299 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
                  and index it again to read it a window at a time"
             )]
         );
+    }
+
+    /// Each BCF of the fixtures, with its CSI, beside the text `bcftools view`
+    /// prints for it under the same name as a VCF.
+    fn calls_held(with_index: bool) -> Held {
+        use crate::read::bcf::fixture as bcf;
+        let mut held = Held::new();
+        for (name, bytes, index, view) in [
+            ("cohort", bcf::COHORT, bcf::COHORT_CSI, bcf::COHORT_VIEW),
+            ("tiny", bcf::TINY, bcf::TINY_CSI, bcf::TINY_VIEW),
+            ("sv", bcf::SV, bcf::SV_CSI, bcf::SV_VIEW),
+        ] {
+            held.insert(format!("{name}.bcf"), bytes);
+            held.insert(format!("{name}.vcf"), view);
+            if with_index {
+                held.insert(format!("{name}.bcf.csi"), index);
+            }
+        }
+        held
+    }
+
+    /// What `line` draws from BCF and from the same calls as VCF, `.bcf`
+    /// written as `.vcf` for the second, each with the notes it made, those
+    /// of the VCF said of the BCF.
+    fn both(held: &mut Held, line: &str) -> [(String, Vec<String>); 2] {
+        [line.to_string(), line.replace(".bcf", ".vcf")].map(|line| {
+            held.notes.clear();
+            let drawn =
+                held_figure(held, &line).unwrap_or_else(|error| format!("refused: {error}"));
+            let notes = held
+                .notes
+                .iter()
+                .map(|note| note.replace(".vcf", ".bcf"))
+                .collect();
+            (drawn.replace(".vcf", ".bcf"), notes)
+        })
+    }
+
+    /// A BCF draws the figure the text `bcftools view` prints for it draws,
+    /// byte for byte, through the CSI beside it and without one: its calls,
+    /// its samples' genotypes, both of one file in one figure, structural
+    /// calls whose mates lie outside the window, windows over every sequence
+    /// with a record across two blocks, and a value of every type and every
+    /// way of being missing. A cohort's calls named on their own say how many
+    /// samples `--genotypes` draws, from the header, which the sites read for
+    /// them do not name.
+    #[test]
+    fn a_bcf_draws_the_figure_its_vcf_draws() {
+        for with_index in [true, false] {
+            let mut held = calls_held(with_index);
+            let mut drawn = 0;
+            for window in [
+                "chr1:1-200,000",
+                "chr1:6,647-6,647",
+                "chr1:1,000,000-1,400,000",
+                "chr2:1-1,000,000",
+                "chr3:50,000-60,000",
+            ] {
+                for tracks in [
+                    "cohort.bcf",
+                    "--genotypes cohort.bcf",
+                    "--variants cohort.bcf --genotypes cohort.bcf --sample S3,S1",
+                ] {
+                    let [bcf, vcf] = both(&mut held, &format!("{window} {tracks}"));
+                    assert_eq!(bcf, vcf, "{window} {tracks}");
+                    drawn += usize::from(bcf.0.starts_with("<svg"));
+                }
+            }
+            assert!(drawn >= 12, "{drawn}");
+            for line in [
+                "chr1:1-55,000 tiny.bcf",
+                "chr1:1-100,000 --genotypes tiny.bcf",
+                "chr2:1-90,000 --genotypes tiny.bcf",
+                "chr1:1-1,000,000 --structural sv.bcf",
+                "chr2:1-500,000 --structural sv.bcf",
+                "chr1:390,000-410,000 --structural sv.bcf",
+            ] {
+                let [bcf, vcf] = both(&mut held, line);
+                assert!(bcf.0.starts_with("<svg"), "{line}: {}", bcf.0);
+                assert_eq!(bcf, vcf, "{line}");
+            }
+            // The VCF's refusal names its line, and the BCF's the record.
+            let [(bcf, _), _] = both(&mut held, "chr1:1-100,000 tiny.bcf");
+            assert_eq!(
+                bcf,
+                "refused: --variants tiny.bcf: the record at chr1:60,000: AF is not a number: \
+                 \".\""
+            );
+            let [(_, notes), _] = both(&mut held, "chr1:1-200,000 cohort.bcf");
+            assert_eq!(
+                notes,
+                ["cohort.bcf is drawn as its calls; --genotypes cohort.bcf draws its 3 samples, \
+                  a row each"]
+            );
+        }
+    }
+
+    /// A BCF's empty window says what the file holds, from the counts its CSI
+    /// keeps or from its records, as a VCF's does from its rows; a place is
+    /// a sequence its header names, as long as the header says or as far as
+    /// its records reach; and a name no file has is answered with the
+    /// sequences the header names.
+    #[test]
+    fn a_bcf_is_placed_and_its_empty_windows_explained_as_its_vcf_is() {
+        for with_index in [true, false] {
+            let mut held = calls_held(with_index);
+            for line in [
+                "chr9:1-100 --variants cohort.bcf",
+                "chr1:1-5 --genotypes cohort.bcf",
+                "chr1:2,999,000-3,000,000 cohort.bcf",
+                "chr2 cohort.bcf",
+                "chrM tiny.bcf",
+                "chr9 cohort.bcf",
+                "chr1:20,000,000-20,001,000 --structural sv.bcf",
+            ] {
+                let [bcf, vcf] = both(&mut held, line);
+                assert_eq!(bcf, vcf, "{line}");
+            }
+            let [(refused, _), _] = both(&mut held, "chr9:1-100 --variants cohort.bcf");
+            assert_eq!(
+                refused,
+                "refused: --variants cohort.bcf: no variants in chr9:1-100, though the file \
+                 holds 450 on chr1, chr2 and chr3"
+            );
+            let [(_, notes), _] = both(&mut held, "chrM tiny.bcf");
+            assert!(
+                notes[0].starts_with("chrM is drawn to 100, as far as tiny.bcf reaches"),
+                "{notes:?}"
+            );
+        }
+    }
+
+    /// A BCF is read over the window through its CSI: a block far from the
+    /// window, damaged, is never read through the index, and refuses the
+    /// figure read without one.
+    #[test]
+    fn a_bcf_window_reads_only_the_blocks_its_csi_points_to() {
+        use crate::read::bcf::fixture::{COHORT, COHORT_CSI};
+        let mut starts = Vec::new();
+        let mut at = 0;
+        while at + 18 <= COHORT.len() {
+            starts.push(at);
+            at += usize::from(u16::from_le_bytes([COHORT[at + 16], COHORT[at + 17]])) + 1;
+        }
+        let mut bent = COHORT.to_vec();
+        bent[starts[starts.len() - 2] + 30] ^= 0xff;
+        let mut held = Held::new();
+        held.insert("cohort.bcf", bent);
+        held.insert("cohort.vcf", crate::read::bcf::fixture::COHORT_VIEW);
+        held.insert("cohort.bcf.csi", COHORT_CSI);
+        let [bcf, vcf] = both(&mut held, "chr1:1-200,000 cohort.bcf");
+        assert_eq!(bcf, vcf);
+        let mut whole = Held::new();
+        whole.insert("cohort.bcf", held.files["cohort.bcf"].as_ref().to_vec());
+        assert!(held_figure(&mut whole, "chr1:1-200,000 cohort.bcf").is_err());
+    }
+
+    /// An index beside a BCF that does not fit it is read past, the file read
+    /// whole, which draws the same figure, and the note says why and the
+    /// command that writes it again: the index of another file, one that
+    /// does not read as an index, and a tabix index named as a CSI.
+    #[test]
+    fn a_csi_that_does_not_fit_its_bcf_is_read_past_and_said() {
+        use crate::read::bcf::fixture::{COHORT, COHORT_VIEW, TINY_CSI};
+        for (index, said) in [
+            (
+                TINY_CSI,
+                "cohort.bcf.csi does not describe cohort.bcf: the index puts the first record",
+            ),
+            (
+                &b"not an index"[..],
+                "cohort.bcf.csi cannot be read as an index (not an index: it starts with none \
+                 of BAI's, TBI's and CSI's magic), so cohort.bcf was read whole; bcftools \
+                 index -f cohort.bcf writes it again",
+            ),
+            (
+                &crate::read::index::fixture::ROWS_TBI[..],
+                "cohort.bcf.csi is not the CSI bcftools index writes for a BCF, so cohort.bcf \
+                 was read whole; bcftools index -f cohort.bcf writes it again",
+            ),
+        ] {
+            let mut held = Held::new();
+            held.insert("cohort.bcf", COHORT);
+            held.insert("cohort.bcf.csi", index);
+            held.insert("cohort.vcf", COHORT_VIEW);
+            let [bcf, vcf] = both(&mut held, "chr1:1-200,000 --variants cohort.bcf");
+            assert_eq!(bcf.0, vcf.0);
+            assert_eq!(bcf.1.len(), 1, "{:?}", bcf.1);
+            assert!(bcf.1[0].starts_with(said), "{:?}", bcf.1);
+            assert!(bcf.1[0].ends_with("bcftools index -f cohort.bcf writes it again"));
+        }
+    }
+
+    /// A CSI older than its BCF is not trusted, as a tabix index older than
+    /// its file is not, and the figure is the one the file draws read whole.
+    #[cfg(unix)]
+    #[test]
+    fn a_csi_older_than_its_bcf_is_not_trusted() {
+        use crate::read::bcf::fixture::{COHORT, COHORT_CSI};
+        let dir = Scratch::new("bcf-older");
+        let bcf = dir.write("cohort.bcf", COHORT);
+        let csi = dir.write("cohort.bcf.csi", COHORT_CSI);
+        let line = format!("chr1:1-200,000 --variants {bcf}");
+        let (sound, _, notes) = watched(&line);
+        assert!(sound.starts_with("<svg") && notes.is_empty(), "{notes:?}");
+        made_older(std::slice::from_ref(&csi));
+        let (drawn, _, notes) = watched(&line);
+        assert_eq!(drawn, sound);
+        assert_eq!(
+            notes,
+            [format!(
+                "{csi} is older than {bcf}, so it was not trusted and the file was read \
+                 whole; bcftools index -f {bcf} writes it again"
+            )]
+        );
+    }
+
+    /// A BCF handed to a track that draws no calls is refused naming the
+    /// tracks that do, as is one given a `--format`; one on standard input
+    /// is refused asking for its name; and one whose record a reader refuses
+    /// names the record by its place, since it is no line of the file.
+    #[test]
+    fn a_bcf_where_its_calls_cannot_be_drawn_says_why() {
+        let mut held = calls_held(true);
+        for (line, said) in [
+            (
+                "chr1:1-100 --coverage cohort.bcf",
+                "--coverage cohort.bcf: the file is BCF, calls along the sequence, which \
+                 --variants, --genotypes and --structural draw",
+            ),
+            (
+                "chr1:1-100 --coverage cohort.bcf --format bedgraph",
+                "--coverage cohort.bcf: --format says what the columns of a text file are, and \
+                 the file is BCF, which says what it holds itself",
+            ),
+        ] {
+            assert_eq!(held_figure(&mut held, line).unwrap_err().to_string(), said);
+        }
+        let piped = build(&over("chr1:1-100", "--variants", "-"), |_: &Source| {
+            decoded(crate::read::bcf::fixture::COHORT.to_vec(), None)
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            piped,
+            "--variants standard input: the file is BCF, which karyon reads from a file named \
+             on the command line and not from a pipe; name the file instead, or pipe in the \
+             text bcftools view writes"
+        );
+        // Sample A's 0/1 at chr1:10 made 0/3, on a site of one alternate.
+        let mut odd = crate::read::bcf::fixture::TINY_RAW.to_vec();
+        let at = odd
+            .windows(5)
+            .position(|bytes| bytes == [0x11, 0x0d, 0x21, 0x02, 0x04])
+            .unwrap();
+        odd[at + 4] = 0x08;
+        held.insert("odd.bcf", odd);
+        assert_eq!(
+            held_figure(&mut held, "chr1:1-100 --genotypes odd.bcf")
+                .unwrap_err()
+                .to_string(),
+            "--genotypes odd.bcf: the record at chr1:10: sample A's GT 0/3 names allele 3, \
+             and the line has 1 alternate allele"
+        );
+    }
+
+    /// A BAM is read through the CSI `samtools index -c` writes as through
+    /// its BAI, and the CSI is looked for first, as htslib looks: a BAI
+    /// beside it that is not one is never read, by either name the CSI goes
+    /// by, and a CSI that is not one is refused.
+    #[test]
+    fn a_bam_is_read_through_the_csi_beside_it_before_a_bai() {
+        use crate::read::bam::fixture::{BAI, BAM, CSI};
+        let line = "chr1:10-35 --coverage reads.bam --pileup reads.bam";
+        let mut through_bai = Held::new();
+        through_bai.insert("reads.bam", BAM);
+        through_bai.insert("reads.bam.bai", BAI);
+        let drawn = held_figure(&mut through_bai, line).unwrap();
+        for name in ["reads.bam.csi", "reads.csi"] {
+            let mut held = Held::new();
+            held.insert("reads.bam", BAM);
+            held.insert(name, CSI);
+            held.insert("reads.bam.bai", "not an index");
+            assert_eq!(held_figure(&mut held, line).unwrap(), drawn, "{name}");
+        }
+        let mut held = Held::new();
+        held.insert("reads.bam", BAM);
+        held.insert("reads.bam.csi", BAI);
+        held.insert("reads.bam.bai", BAI);
+        let error = held_figure(&mut held, line).unwrap_err().to_string();
+        assert!(error.contains("reads.bam.csi is not the CSI"), "{error}");
+        held.insert("reads.bam.csi", &CSI[..40]);
+        assert!(held_figure(&mut held, line).is_err());
     }
 
     /// The figure the documentation's Start here page shows, drawn from

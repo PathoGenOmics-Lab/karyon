@@ -1362,6 +1362,39 @@ mod tests {
         assert_eq!(draw(&["seven.vcf.gz"]), (None, None));
     }
 
+    /// A BCF a page holds, with its CSI beside it, is read as it is, as a
+    /// shell reads it from disk, and draws what the text `bcftools view`
+    /// prints for it draws: its calls, and its samples' genotypes. A page
+    /// that did not pass on the bytes of a file would refuse it as a file
+    /// that is not text.
+    #[test]
+    fn a_page_draws_a_held_bcf() {
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/read/fixtures/bcf");
+        let mut held = stack::Held::new();
+        for (name, file) in [
+            ("cohort.bcf", "cohort.bcf"),
+            ("cohort.bcf.csi", "cohort.bcf.csi"),
+            ("cohort.vcf", "cohort.bcf.vcf"),
+        ] {
+            held.insert(name, std::fs::read(fixtures.join(file)).unwrap());
+        }
+        let mut page = Page(held);
+        let mut draw = |line: &str| {
+            let argv: Vec<String> = line.split_whitespace().map(String::from).collect();
+            stack::build_files(&invocation(&argv).unwrap(), &mut page, |_, _| None).unwrap()
+        };
+        for tracks in ["cohort.bcf", "--genotypes cohort.bcf"] {
+            assert_eq!(
+                draw(&format!("chr1:1-300,000 {tracks}")),
+                draw(&format!(
+                    "chr1:1-300,000 {}",
+                    tracks.replace(".bcf", ".vcf")
+                ))
+            );
+        }
+    }
+
     #[test]
     fn a_file_the_page_is_not_holding_says_what_it_is_holding() {
         // A shell can be told to go and look. A page cannot, so the error names

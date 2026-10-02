@@ -37,10 +37,11 @@ are the half-strength blue.
 - **A big one**: compress it with `bgzip` and index it with
   `tabix -p vcf cohort.vcf.gz`, and the `.tbi` beside it is read for the rows
   over the place and the header that names the samples, with no other row of
-  the file read. A BCF is cut to the place on the way in, with
-  `<(bcftools view -r chr1:1-100000 cohort.bcf)` where its name goes.
-- **Named on its own**, a VCF is drawn as its calls, one lollipop per site,
-  and a cohort's says that `--genotypes` draws its samples.
+  the file read. A BCF is read as it is, through the `.csi` that
+  `bcftools index cohort.bcf` writes beside it, and its samples are the ones
+  its header names.
+- **Named on its own**, a VCF or a BCF is drawn as its calls, one lollipop
+  per site, and a cohort's says that `--genotypes` draws its samples.
 
 ## Change it
 

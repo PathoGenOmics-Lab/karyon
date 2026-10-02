@@ -63,8 +63,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Plot::save` writes PDF when the name it is given ends in `.pdf`, where it
   wrote SVG into a file of that name, which no PDF reader opens.
 - A Windows build answers a file that is not text with the command piped
-  into `-`, as `pipe what bcftools view calls.bcf writes into karyon, with -
-  where its name is`, where it offered `<(bcftools view calls.bcf)`: cmd and
+  into `-`, as `pipe what samtools view -h aln.cram chr1:1-5000 writes into
+  karyon, with - where its name is`, where it offered `<(samtools view -h
+  aln.cram chr1:1-5000)`: cmd and
   PowerShell have no such thing, and Git Bash's hands over a path to a pipe
   that a Windows program cannot open. Linux, macOS, WSL and the playground
   keep the `<(...)`.
@@ -399,6 +400,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::bcf` reads a BCF a window at a time, through the CSI `bcftools index`
+  writes beside it, from anything that reads and seeks, and hands its records
+  over as the VCF text `bcftools view` prints for them, byte for byte, floats
+  rounded as htslib rounds them and a `GT` under VCF 4.4 prefixed as htslib
+  prefixes it: `window` the records over a window, through an index or by
+  reading every record, `whole` every record, `counted` the records on each
+  sequence, and `header_of` the header, with its sequences and its samples.
+  `Fields` says how much of each record to write: its site alone, as
+  `bcftools view -G` prints it, which leaves its samples' bytes undecoded; its
+  site and each sample's `GT`; or every field. The command line reads a BCF
+  as it is, named on its own or after `--variants`, `--genotypes` or
+  `--structural`, and draws from it the figure the same calls draw as VCF:
+  `--variants` and `--structural` read sites alone and `--genotypes` `GT`
+  alone, and a cohort's BCF named on its own says how many samples
+  `--genotypes` draws from the names its header gives. It was refused with
+  the `bcftools view` that writes it as text. Over a chromosome of 248,956,422
+  bases, a million records of 200 samples, a BCF of 69 MB draws a window of
+  2,000 bases through its `.csi` in 10 ms and 6 MB, as the VCF of the same
+  calls does through its `.tbi`, and without an index in 2.9 s and 4 MB,
+  where the VCF's 841 MB of text took 5.9 s and 851 MB read whole. A `.csi`
+  older than its file, one that does not read as an index and one whose first
+  record is not where the file's header ends is read past, with a note and
+  the `bcftools index -f` that writes it again; an empty window says what the
+  file holds from the counts the `.csi` keeps; a sequence its header names is
+  a place, as long as the header says or as far as its records reach; and a
+  record a track refuses is named by its place, since a BCF has no lines.
+  Compressed as `bcftools view -Ob` writes it, uncompressed as `-Ou` does, or
+  bare, BCF 2.2 is read, as htslib reads it; `Binary::of` names a bare one by
+  its magic, and one piped into standard input is refused asking for its
+  name, or for the text `bcftools view` writes. Each is held to `bcftools
+  view` 1.24 on small files it wrote, kept in `src/read/fixtures/bcf` with the
+  script that writes them again.
 - A file compressed with bgzip and indexed by `tabix` or `bcftools index` is
   read a window at a time through the `.csi` or `.tbi` beside it, looked for
   as htslib looks, a `.csi` first: its header, which is where a VCF names its
@@ -504,8 +537,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are the rows `tabix` 1.24 prints.
 - `read::bgzf::is_bgzf` tells a file bgzip wrote, which an index can point
   into, from plain gzip, which has to be read from its start.
-- `read::bam::window` reads a BAM through a CSI as through a BAI. The command
-  line still looks for the `.bai` alone.
+- `read::bam::window` reads a BAM through a CSI as through a BAI, and the
+  command line looks for one before a `.bai`, as samtools does:
+  `reads.bam.csi`, `reads.csi`, `reads.bam.bai`, then `reads.bai`. A BAM with
+  both is read through the one samtools reads, and a `.csi` that is not one is
+  refused, as samtools refuses it.
 - `Files::seekable`, a file's bytes to read out of order, and `Files::beside`,
   the file beside it under an ending, as an index is, with its name and
   whether it was written before the file. `Disk` and `Held` answer both, and

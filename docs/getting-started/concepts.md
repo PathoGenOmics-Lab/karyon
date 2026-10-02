@@ -186,10 +186,10 @@ does the same for a phylogeny. Every reader takes the text as a `&str`, never a
 path, so the library opens no files and the same code runs in a shell, in a
 test and in a web page. The command line uses the same readers.
 
-A file compressed with gzip or bgzip is read as the text inside it, and a BAM
-is read a window at a time through its index, both with the crate's own
-decoders, so neither brings in a dependency. CRAM, BCF and bigWig come in
-through the tool that writes them as text. [File formats](../guide/formats.md)
+A file compressed with gzip or bgzip is read as the text inside it, and a
+BAM, a BCF, a bigWig, a bigBed and a 2bit are read a window at a time through
+an index, all with the crate's own decoders, so none brings in a dependency.
+CRAM comes in through the tool that writes it as text. [File formats](../guide/formats.md)
 lists every format, the columns read and the coordinate convention of each.
 
 ## Coordinates in one paragraph { #coordinates }

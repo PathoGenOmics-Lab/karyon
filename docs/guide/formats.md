@@ -27,12 +27,14 @@ compressed with gzip or bgzip is read as the text inside it, and one
 compressed with bgzip with the `.tbi` or `.csi` of `tabix` beside it is read a
 window at a time through it, its header and the rows over the window, for the
 formats whose table below says so. A BAM is read by `--coverage`, `--pileup`
-and `--split-reads` a window at a time through its `.bai`, as [Compressed and
-binary files](cli.md#binary-formats) shows. Three of
-UCSC's binary formats are read a window at a time through the index each
-holds, by readers that take anything that reads and seeks rather than a
-string: [bigWig](#bigwig), [bigBed](#bigbed) and [2bit](#2bit). CRAM and BCF
-come in through the tool that writes them as text.
+and `--split-reads` a window at a time through its `.csi` or its `.bai`, as
+[Compressed and binary files](cli.md#binary-formats) shows, and a
+[BCF](#bcf) by `--variants`, `--genotypes` and `--structural` through its
+`.csi`, as the VCF it stands for. Three of UCSC's binary formats are read a
+window at a time through the index each holds: [bigWig](#bigwig),
+[bigBed](#bigbed) and [2bit](#2bit). The readers of all of them take anything
+that reads and seeks rather than a string. CRAM comes in through the tool
+that writes it as text.
 
 ## Formats at a glance
 
@@ -50,6 +52,7 @@ come in through the tool that writes them as text.
 | [VCF](#vcf) | small variant calls | `--variants` | 1-based | `VariantTrack` |
 | [VCF with samples](#vcf-genotypes) | the genotype of each sample at each site | `--genotypes` | 1-based | `GenotypeTrack` |
 | [Structural VCF](#structural-vcf) | structural variant calls | `--structural` | `POS` is the base before the event | `StructuralTrack` |
+| [BCF](#bcf) | a VCF's records, binary, indexed | `--variants`, `--genotypes`, `--structural` | 0-based, written out 1-based as VCF | `VariantTrack`, `GenotypeTrack`, `StructuralTrack` |
 | [Association table](#the-association-table) | a statistic per tested position | `--manhattan` | 1-based | `ManhattanTrack` |
 | [Matrix table](#the-matrix-table) | a value per sample per site | `--matrix` | 1-based, in the header | `MatrixTrack` |
 | [Table of windows](#the-table-of-windows) | a value per sample per window | `--heatmap` | 0-based, half-open | `MatrixTrack` |
@@ -500,7 +503,7 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
 | Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
-| With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window |
+| With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window. The same calls as [BCF](#bcf) are read through theirs and draw the same figure |
 | Skipped | a gVCF's reference blocks, rows whose ALT is `.` or only a placeholder, `<NON_REF>` as GATK writes one and `<*>` as bcftools does; and the placeholder of a variant row written `T,<NON_REF>`, which draws its `T` alone |
 | Refused | fewer than 8 columns; a POS of 0; an `AF` whose count is neither 1 nor the number of alternate alleles |
 
@@ -592,6 +595,36 @@ positive number since VCF 4.3 writes a deletion's as negative; failing that
 from `END`; and for a call spelled out in full, from the length of REF. An
 insertion has one breakpoint and no footprint. A breakend pair is one arc: the mate is read from the ALT itself, and
 only the record at the lower position draws it.
+
+### BCF { #bcf }
+
+A VCF's records in binary, as `bcftools view -Ob` writes them: each number
+stored as a number, and each name a VCF spells out on every row, a sequence,
+a filter, an INFO or a FORMAT key, stored as its place in a dictionary the
+header keeps. It is BGZF, as a bgzipped VCF is, and `bcftools index` writes
+the `.csi` beside it.
+
+| | |
+|:--|:--|
+| Read by | `--variants`, `--genotypes` and `--structural`, or a `.bcf` named on its own, as its calls; `read::bcf::window` |
+| What is read | the header, and the records over the window, written as the VCF text `bcftools view` prints for them, byte for byte, which the [VCF](#vcf), [VCF genotypes](#vcf-genotypes) and [structural VCF](#structural-vcf) readers then read |
+| Of each sample | nothing for `--variants` and `--structural`, whose records' samples' columns are passed by undecoded, as `bcftools view -G` prints them; `GT` alone for `--genotypes` |
+| Coordinates | stored 0-based, written out 1-based as VCF: a record stored at 99 is written at 100, and read at 99 |
+| With an index | read a window at a time through the `.csi` beside it, `calls.bcf.csi` or `calls.csi`: only the blocks that hold records over the window. Without one, every record is read and those over the window kept, since a file with no index need not be sorted. Structural calls are read whole either way |
+| Not trusted | a `.csi` older than its file, one that does not read as an index, and one whose first record is not where the file's header ends, as the index of another file: the file is read whole, which draws the same figure, and a note says why |
+| Refused | a file of another version than 2.2, which is all htslib reads; a record whose parts do not fit the bytes it says it holds; a value of a type BCF does not have; a sequence or a key the header does not name; a record of more or fewer samples than the header names; the file on standard input, since it is read from its bytes, where the text `bcftools view` writes is what a pipe takes; `--format` |
+
+A record is over the window where the bases it spans touch it: from its
+position as far as its reference allele spells or as its `END` says,
+whichever is further, which keeps every record the readers of VCF keep, and
+they drop the rest by their own rule, as they drop a VCF's rows outside the
+window. A record a reader refuses is named by its place, as `the record at
+chr1:60,000`, since a BCF has no line to number.
+
+A float is written as htslib writes it, six significant digits rounded its
+own way, so a value is the number `bcftools view` prints for it: `AF`
+stored as 0.3333333 is drawn at 0.333333, as bcftools prints it. Under VCF
+4.4 a `GT` keeps the `/` or `|` before its first allele that bcftools prints.
 
 ### The association table { #the-association-table }
 
