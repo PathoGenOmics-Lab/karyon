@@ -1502,7 +1502,19 @@ impl Spread {
         let spec = &spec;
         let name = spec.kind.flag();
         let label = spec.label.clone().or_else(|| default_label(spec));
-        let offset = |sequence: &str| genome.offset(sequence).unwrap_or(0);
+        // Where each sequence starts, by name: an assembly can be a hundred
+        // thousand scaffolds, and a walk along the genome from its first to
+        // find each of them is billions of comparisons, which with the same
+        // walk in `gathered` took fourteen seconds to draw their windows.
+        let mut starts: std::collections::HashMap<&str, u64> =
+            std::collections::HashMap::with_capacity(genome.len());
+        for (sequence, start, _) in genome.spans() {
+            starts.entry(sequence).or_insert(start);
+        }
+        let offset = |sequence: &str| starts.get(sequence).copied().unwrap_or(0);
+        // Every position is laid with a saturating sum, as the genome's own
+        // lengths are: a length is whatever a file said it was, and two of
+        // them can sum past what a u64 holds, where a plain sum panics.
         Ok(match held {
             Spreading::Scan {
                 sequences,
@@ -1513,7 +1525,7 @@ impl Spread {
                     .flat_map(|(sequence, points)| {
                         let offset = offset(sequence);
                         points.iter().map(move |point| {
-                            crate::Association::new(offset + point.pos, point.value)
+                            crate::Association::new(offset.saturating_add(point.pos), point.value)
                         })
                     })
                     .collect();
@@ -1567,12 +1579,12 @@ impl Spread {
                             cause: unreadable(cause),
                         }
                     })?;
-                let figured = |own: &str| {
-                    sequences
-                        .iter()
-                        .find(|(_, called, _)| called == own)
-                        .map(|(figure, _, _)| figure.clone())
-                };
+                // The figure's name for each of the file's, by the file's.
+                let names: std::collections::HashMap<&str, &str> = sequences
+                    .iter()
+                    .map(|(figure, own, _)| (own.as_str(), figure.as_str()))
+                    .collect();
+                let figured = |own: &str| names.get(own).map(|figure| figure.to_string());
                 if read.iter().all(|(_, _, signal)| signal.spans.is_empty()) {
                     return Err(BuildError::Empty {
                         track: name,
@@ -1588,7 +1600,11 @@ impl Spread {
                         };
                         let offset = offset(&sequence);
                         windows.extend(signal.spans.iter().map(|(start, end, value)| {
-                            crate::Window::new(offset + start, offset + end, *value)
+                            crate::Window::new(
+                                offset.saturating_add(*start),
+                                offset.saturating_add(*end),
+                                *value,
+                            )
                         }));
                     }
                     return Ok(Box::new(named(
@@ -1632,8 +1648,8 @@ impl Spread {
                         let offset = offset(sequence);
                         windows.iter().map(move |window| {
                             crate::Window::new(
-                                offset + window.start,
-                                offset + window.end,
+                                offset.saturating_add(window.start),
+                                offset.saturating_add(window.end),
                                 window.value,
                             )
                         })
@@ -1658,8 +1674,8 @@ impl Spread {
                         segments
                             .iter()
                             .map(move |segment| crate::CopyNumberSegment {
-                                start: offset + segment.start,
-                                end: offset + segment.end,
+                                start: offset.saturating_add(segment.start),
+                                end: offset.saturating_add(segment.end),
                                 copy: segment.copy,
                             })
                     })
@@ -1736,6 +1752,7 @@ fn spread_of(
             crate::cli::args::ArgError::NotGenomeWide {
                 track: spec.kind.flag(),
                 file: Some(path),
+                tied: None,
             }
         }));
     }
@@ -1839,13 +1856,22 @@ fn spread_of(
 /// Each sequence of a file read whole, under the name the figure gives it,
 /// with what two of the file's names `--rename` makes one sequence hold
 /// joined, in the order the file first names them.
+///
+/// Each name is looked up where it has been put, rather than looked for
+/// among the names before it, which across an assembly of a hundred thousand
+/// scaffolds is five billion comparisons.
 fn gathered<T>(invocation: &Invocation, sequences: Vec<(String, Vec<T>)>) -> Vec<(String, Vec<T>)> {
     let mut joined: Vec<(String, Vec<T>)> = Vec::with_capacity(sequences.len());
+    let mut at: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::with_capacity(sequences.len());
     for (own, rows) in sequences {
         let figure = renamed(invocation, own);
-        match joined.iter_mut().find(|(name, _)| *name == figure) {
-            Some((_, held)) => held.extend(rows),
-            None => joined.push((figure, rows)),
+        match at.get(&figure) {
+            Some(index) => joined[*index].1.extend(rows),
+            None => {
+                at.insert(figure.clone(), joined.len());
+                joined.push((figure, rows));
+            }
         }
     }
     joined
@@ -10788,6 +10814,185 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         ];
         let svg = drawn_from("d.bg --style line --windows w.bg", &held).unwrap();
         assert_eq!(crate::track::polylines(&svg).len(), 1, "{svg}");
+    }
+
+    /// Sequences whose lengths sum past what a u64 holds lay every track
+    /// with a saturating sum, as the genome's lengths are laid: a scan,
+    /// windows, a segment table and a bigWig's windows each panicked on a
+    /// plain sum, where a depth over the same rows was drawn.
+    #[test]
+    fn sequences_longer_together_than_a_u64_are_drawn_not_a_panic() {
+        let far = u64::MAX - 615;
+        let windows = format!("chr1\t0\t{far}\t1\nchr2\t0\t1000\t2\n");
+        let segments =
+            format!("chromosome\tstart\tend\tlog2\nchr1\t0\t{far}\t0\nchr2\t0\t1000\t1\n");
+        let scan = format!("CHR\tBP\tP\nchr1\t{far}\t0.5\nchr2\t1000\t0.01\n");
+        let held = [
+            ("w.bg", windows.as_str()),
+            ("t.cns", segments.as_str()),
+            ("gwas.assoc", scan.as_str()),
+        ];
+        for line in [
+            "w.bg",
+            "--windows w.bg",
+            "t.cns --ploidy 2",
+            "gwas.assoc",
+            "w.bg --windows w.bg t.cns --ploidy 2",
+        ] {
+            let svg = drawn_from(line, &held).unwrap_or_else(|error| panic!("{line}: {error}"));
+            // chr2 is a sliver at the end of the axis, too thin to be named.
+            let under = sequences_under(&svg);
+            assert_eq!(
+                under.first().map(|(name, _)| name.as_str()),
+                Some("chr1"),
+                "{line}"
+            );
+        }
+        // A bigWig's windows after a sequence that long: chr3 starts where
+        // the axis has run out, and its windows are laid there.
+        let mut held = binaries();
+        held.insert("far.bg", format!("chr1\t0\t{}\t1\n", u64::MAX - 100));
+        held_figure(&mut held, "--windows signal.bw --windows far.bg").unwrap();
+    }
+
+    /// A bigWig with no place is drawn across every sequence its index
+    /// names, each as long as the index says rather than as far as its
+    /// values reach, painted from the zoom level the whole figure wants and
+    /// read under the names `--rename` gives. A sequence another file names
+    /// and the bigWig does not is a gap in its line.
+    #[test]
+    fn a_bigwig_alone_is_drawn_across_the_sequences_its_index_names() {
+        let mut held = binaries();
+        // The bigWig's own values, reaching as far as its index says each
+        // sequence runs, so the text lays out the genome the bigWig does.
+        let sizes = "chr1\t999\t1000\t0\nchr2\t499\t500\t0\nchr3\t59\t60\t0\n";
+        held.insert("sizes.bg", sizes);
+        held.insert("w.bg", "chr4\t0\t1000\t1\n");
+        for (binary, text) in [
+            (
+                "signal.bw --windows sizes.bg",
+                "signal.bedgraph --windows sizes.bg",
+            ),
+            (
+                "--windows signal.bw --windows sizes.bg",
+                "--windows signal.bedgraph --windows sizes.bg",
+            ),
+        ] {
+            let drawn = held_figure(&mut held, binary).unwrap();
+            assert_eq!(drawn, held_figure(&mut held, text).unwrap(), "{binary}");
+            assert_eq!(
+                sequences_under(&drawn),
+                [
+                    ("chr1".to_string(), "1,000".to_string()),
+                    ("chr2".to_string(), "500".to_string()),
+                    ("chr3".to_string(), "60".to_string()),
+                ],
+                "{binary}"
+            );
+        }
+        // Alone, each sequence is as long as the index says, which is past
+        // the furthest value on chr1 and chr3.
+        let alone = held_figure(&mut held, "signal.bw --style line").unwrap();
+        assert_eq!(
+            sequences_under(&alone),
+            [
+                ("chr1".to_string(), "1,000".to_string()),
+                ("chr2".to_string(), "500".to_string()),
+                ("chr3".to_string(), "60".to_string()),
+            ]
+        );
+        assert_eq!(crate::track::polylines(&alone).len(), 1, "{alone}");
+        // chr3, renamed past chr4, which only the windows name: the line
+        // breaks over chr4 and goes on over chrX, the bigWig's chr3.
+        let svg = held_figure(
+            &mut held,
+            "signal.bw --style line --windows w.bg --rename chr3=chrX",
+        )
+        .unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("chr1".to_string(), "1,000".to_string()),
+                ("chr2".to_string(), "500".to_string()),
+                ("chr4".to_string(), "1,000".to_string()),
+                ("chrX".to_string(), "60".to_string()),
+            ]
+        );
+        assert_eq!(
+            crate::track::polylines(&svg).len(),
+            2,
+            "one line either side of chr4: {svg}"
+        );
+        // Across 301,560 bases a pixel holds two of the finest level's bins
+        // of 119, so that level is read, as it is over a window as long. One
+        // of its bins made 99 where no base under it is past 7, and the
+        // scale goes past 7.5 when the level is read and only then.
+        let mut bent = STORED_BW.to_vec();
+        let most = 920 + 20;
+        assert_eq!(bent[most..most + 4], 7.0f32.to_le_bytes());
+        bent[most..most + 4].copy_from_slice(&99.0f32.to_le_bytes());
+        held.insert("most.bw", bent);
+        held.insert("far.bg", "chr4\t0\t300000\t1\n");
+        let seven = |svg: &str| svg.contains(">7.5</text>");
+        let few = held_figure(&mut held, "most.bw --windows sizes.bg").unwrap();
+        assert!(seven(&few), "a figure of few bases read the level");
+        let many = held_figure(&mut held, "most.bw --windows far.bg").unwrap();
+        assert!(
+            !seven(&many),
+            "a figure of many bases did not read the level"
+        );
+        // Read from a level of means, the scale still reaches the most any
+        // base holds, as the bedGraph's does: a bin's mean is less.
+        held.insert("steps.bw", STEPS_BW);
+        held.insert(
+            "steps.bedgraph",
+            include_str!("../read/fixtures/steps.bedgraph"),
+        );
+        held.insert("farther.bg", "chr9\t0\t6000000\t1\n");
+        let scale = |svg: &str| -> Vec<String> {
+            svg.split("<text")
+                .filter_map(|text| text.split_once('>'))
+                .filter_map(|(_, rest)| rest.split_once("</text>"))
+                .map(|(label, _)| label.to_string())
+                .filter(|label| label.parse::<f64>().is_ok())
+                .collect()
+        };
+        let line = |file: &str| format!("--coverage {file} --aggregate mean --windows farther.bg");
+        let zoomed = held_figure(&mut held, &line("steps.bw")).unwrap();
+        let written = held_figure(&mut held, &line("steps.bedgraph")).unwrap();
+        assert_eq!(scale(&zoomed), scale(&written));
+        assert!(scale(&zoomed).contains(&"30".to_string()), "{zoomed}");
+    }
+
+    /// Windows and segments across an assembly of many scaffolds are laid
+    /// out looking each scaffold up by its name, as a depth is: a walk along
+    /// every name before it for each of them took 14 seconds for windows and
+    /// 20 for segments at 100,000 scaffolds, where the depth took a tenth of
+    /// one. Timed against the depth, which is linear, so a machine that is
+    /// slow, or busy, is slow at both.
+    #[test]
+    fn many_scaffolds_are_laid_out_in_linear_time() {
+        let count = 50_000;
+        let mut rows = String::new();
+        let mut segments = String::from("chromosome\tstart\tend\tcn\n");
+        for n in 0..count {
+            rows.push_str(&format!("s{n}\t0\t1000\t{}\n", n % 5));
+            segments.push_str(&format!("s{n}\t0\t1000\t{}\n", n % 5));
+        }
+        let held = [("d.bg", rows.as_str()), ("t.cns", segments.as_str())];
+        let timed = |line: &str| {
+            let started = std::time::Instant::now();
+            drawn_from(line, &held).unwrap();
+            started.elapsed()
+        };
+        let depth = timed("d.bg");
+        for line in ["--windows d.bg", "t.cns --ploidy 2"] {
+            let taken = timed(line);
+            assert!(
+                taken < depth * 10 + std::time::Duration::from_millis(100),
+                "{line} in {taken:?}, the depth in {depth:?}"
+            );
+        }
     }
 
     /// A segment table with no place is drawn across every sequence it

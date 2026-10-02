@@ -236,6 +236,16 @@ pub enum ArgError {
         track: &'static str,
         /// Its file, as it was written, where it has one.
         file: Option<String>,
+        /// Where the track is of a kind drawn across a genome, the option
+        /// that ties this one to a place, and why it does: `--ld` and
+        /// `--with-recombination` read one stretch of one sequence, and
+        /// `--format values` names no sequence at all.
+        ///
+        /// Said in place of the tracks drawn across a genome, since
+        /// `--manhattan gwas.assoc is drawn over a place` beside a list that
+        /// holds `--manhattan` says the opposite of itself and hides the
+        /// option that is the cause.
+        tied: Option<(&'static str, &'static str)>,
     },
     /// A place given to `--highlight` where no tree is there to take it.
     ///
@@ -382,11 +392,19 @@ impl fmt::Display for ArgError {
                      sample.regions.bed.gz it writes"
                 )
             }
-            ArgError::NotGenomeWide { track, file } => {
+            ArgError::NotGenomeWide { track, file, tied } => {
                 let named = match file {
                     Some(file) => format!("--{track} {file}"),
                     None => format!("--{track}"),
                 };
+                if let Some((option, why)) = tied {
+                    return write!(
+                        f,
+                        "{named} is drawn over a place with {option}, since {why}: write the \
+                         place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 \
+                         for a stretch of it"
+                    );
+                }
                 write!(
                     f,
                     "{named} is drawn over a place, and with none a figure is drawn across the \
@@ -1709,6 +1727,28 @@ impl TrackSpec {
             Kind::Windows | Kind::CopyNumber => true,
             Kind::Features => self.guessed && named_as(self.source.as_ref(), &[".bed"]),
             _ => false,
+        }
+    }
+
+    /// The option that keeps a track of a kind drawn across a whole genome
+    /// over a place, and why, where one does: a scan read against a lead's
+    /// linkage or a genetic map, or a bare column of values. A BAM's depth is
+    /// refused before this is asked.
+    fn tied(&self) -> Option<(&'static str, &'static str)> {
+        match self.kind {
+            Kind::Manhattan if self.second.is_some() => Some((
+                "--ld",
+                "the linkage to a lead is read over one stretch of one sequence",
+            )),
+            Kind::Manhattan if self.recombination.is_some() => Some((
+                "--with-recombination",
+                "a genetic map is read over one stretch of one sequence",
+            )),
+            Kind::Coverage if self.format == Some(Format::Values) => Some((
+                "--format values",
+                "a column of values names no sequence to lay them on",
+            )),
+            _ => None,
         }
     }
 
@@ -3710,8 +3750,9 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
 /// bigWig on a track that draws one over a place, since a file that names its
 /// own sequences needing one is worth saying in so many words. Then a track
 /// drawn over a place beside tracks that alone would be drawn across the
-/// genome, named, since that line is right but for it. Otherwise, what the
-/// first argument is.
+/// genome, named, since that line is right but for it, and where it is of a
+/// kind drawn across a genome itself, with the option that keeps it over a
+/// place. Otherwise, what the first argument is.
 fn placeless(tracks: &[TrackSpec]) -> ArgError {
     let file = |track: &TrackSpec| match &track.source {
         Some(Source::Path(path)) => Some(path.display().to_string()),
@@ -3742,6 +3783,7 @@ fn placeless(tracks: &[TrackSpec]) -> ArgError {
         Some(track) if spread => ArgError::NotGenomeWide {
             track: track.kind.flag(),
             file: file(track),
+            tied: track.tied(),
         },
         _ => ArgError::NoRegion,
     }
@@ -4797,7 +4839,7 @@ mod tests {
         assert!(
             matches!(
                 &error,
-                ArgError::NotGenomeWide { track: "features", file: Some(file) }
+                ArgError::NotGenomeWide { track: "features", file: Some(file), tied: None }
                     if file == "genes.gff3"
             ),
             "{error:?}"
@@ -4868,7 +4910,7 @@ mod tests {
             assert!(
                 matches!(
                     &error,
-                    ArgError::NotGenomeWide { track: named, file: given }
+                    ArgError::NotGenomeWide { track: named, file: given, tied: None }
                         if *named == track && given.as_deref() == file
                 ),
                 "{line}: {error:?}"
@@ -4883,6 +4925,60 @@ mod tests {
              --manhattan tracks alone are: write the place first, as chr1 for a sequence \
              drawn whole or chr1:1-2,000,000 for a stretch of it"
         );
+    }
+
+    /// A scan or a signal beside a genome is drawn across it too, but for an
+    /// option that keeps it over a place, and that option is what is said:
+    /// told that `--manhattan` is drawn over a place beside a list of the
+    /// tracks drawn across a genome that holds `--manhattan`, a reader of
+    /// `karyon trait.assoc gwas.assoc --ld lead.ld` was told the opposite of
+    /// the list and not why.
+    #[test]
+    fn a_genome_wide_track_kept_over_a_place_says_by_which_option() {
+        for (line, track, file, option, why) in [
+            (
+                "trait.assoc gwas.assoc --ld lead.ld",
+                "manhattan",
+                "gwas.assoc",
+                "--ld",
+                "the linkage to a lead is read over one stretch of one sequence",
+            ),
+            (
+                "d.bg --manhattan gwas.assoc --with-recombination map.txt",
+                "manhattan",
+                "gwas.assoc",
+                "--with-recombination",
+                "a genetic map is read over one stretch of one sequence",
+            ),
+            (
+                "tumour.bedgraph --coverage v.txt --format values",
+                "coverage",
+                "v.txt",
+                "--format values",
+                "a column of values names no sequence to lay them on",
+            ),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(
+                    &error,
+                    ArgError::NotGenomeWide { track: named, file: Some(given), tied: Some(tie) }
+                        if *named == track && given == file && *tie == (option, why)
+                ),
+                "{line}: {error:?}"
+            );
+            let said = error.to_string();
+            assert_eq!(
+                said,
+                format!(
+                    "--{track} {file} is drawn over a place with {option}, since {why}: write \
+                     the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 \
+                     for a stretch of it"
+                )
+            );
+            // The track is not named beside a list that holds its own flag.
+            assert!(!said.contains("tracks alone are"), "{said}");
+        }
     }
 
     /// A BAM or a CRAM with no place is every read it holds, and is refused

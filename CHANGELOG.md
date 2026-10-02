@@ -16,8 +16,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ArgError::NotGenomeWide`, as `--features genes.gff3 is drawn over a place,
   and with none a figure is drawn across the whole genome, which --coverage,
   --copy-number, --windows and --manhattan tracks alone are`, where the line
-  was answered with what the first argument is. That answer now names the
-  four tracks drawn across the genome, worked out from the tracks.
+  was answered with what the first argument is. A scan read with `--ld` or
+  `--with-recombination`, or a signal with `--format values`, is named with
+  the option that keeps it over a place, as `--manhattan gwas.assoc is drawn
+  over a place with --ld, since the linkage to a lead is read over one stretch
+  of one sequence`, rather than beside a list that holds its own flag. That
+  answer now names the four tracks drawn across the genome, worked out from
+  the tracks.
 - A `--shade` on a figure across the whole genome is refused, as a bare span
   or a gene, saying a figure across the genome rather than a scan, and one
   past the end of its sequence says it is past the furthest any file reaches
@@ -438,7 +443,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   had been written as the place, ruler and all, which a page can move along;
   so does a scan of one chromosome, which was a genome of one under a bar of
   one name. Painted a sequence at a time, a bedGraph of 2.9 million rows over
-  22 chromosomes in the order `sort -k1,1` leaves them draws in 0.3 s.
+  22 chromosomes in the order `sort -k1,1` leaves them draws in 0.3 s, and
+  with each sequence looked up by its name, an assembly of 100,000 scaffolds
+  draws its windows in 0.07 s and its segments in 0.2 s. Sequences whose
+  lengths sum past what a u64 holds are laid to the end of the axis, as a
+  depth over them is, where a scan, windows and segments panicked.
   `read::signal::genome_spans`, `read::signal::genome_windows`,
   `read::segments::genome_copy_numbers` and `read::bigwig::genome` read every
   sequence of a file, and `Invocation::genome_wide`, through

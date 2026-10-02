@@ -31,9 +31,11 @@ Four rules cover every command:
     coverage file names no row on is a gap in its track, not a depth of nought,
     and files that name one sequence draw it as though it were the place
     written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls. A BAM or a CRAM, whose depth across a
-    genome is every read it holds, is refused with the `mosdepth --by` that
-    counts it in windows instead.
+    name: a FASTA, an annotation, calls. So does a scan read with `--ld` or
+    `--with-recombination`, or a signal with `--format values`, and the option
+    is what is named. A BAM or a CRAM, whose depth across a genome is every
+    read it holds, is refused with the `mosdepth --by` that counts it in
+    windows instead.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
@@ -1072,6 +1074,9 @@ karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a
 
 $ karyon trait.assoc genes.gff3
 karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows and --manhattan tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
+
+$ karyon trait.assoc gwas.assoc --ld lead.ld
+karyon: --manhattan gwas.assoc is drawn over a place with --ld, since the linkage to a lead is read over one stretch of one sequence: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
 
 $ karyon reads.bam
 karyon: reads.bam is a BAM, which is drawn over a place, as karyon chr1 reads.bam: across a whole genome its depth is every read it holds, so count it in windows with mosdepth --by 100000 sample reads.bam and draw the sample.regions.bed.gz it writes

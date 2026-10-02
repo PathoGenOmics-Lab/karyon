@@ -410,11 +410,25 @@ impl CopyNumberTrack {
 
     /// Where a segment is, as a tooltip says it: on its own sequence, where
     /// the axis is several.
+    ///
+    /// The sequence is found among the starts kept beside the genome, as
+    /// [`Genome::locate`] finds it but without walking every sequence before
+    /// it for each segment, which across a hundred thousand scaffolds was
+    /// most of twenty seconds spent drawing.
     fn place_of(&self, segment: &CopyNumberSegment) -> String {
-        if let Some((genome, _)) = &self.genome {
-            if let Some((name, start)) = genome.locate(segment.start) {
-                let end = start.saturating_add(segment.len());
-                return format!("{name}:{}", span_label(start, end));
+        if let Some((genome, starts)) = &self.genome {
+            let index = self.sequence_of(segment.start);
+            if let (Some(sequence), Some(first)) =
+                (genome.sequences().get(index), starts.get(index))
+            {
+                // Past its sequence's end is in a gap between two, or past
+                // the last, which `locate` says is on none.
+                if *first <= segment.start && segment.start < first.saturating_add(sequence.length)
+                {
+                    let start = segment.start - first;
+                    let end = start.saturating_add(segment.len());
+                    return format!("{}:{}", sequence.name, span_label(start, end));
+                }
             }
         }
         span_label(segment.start, segment.end)
@@ -1064,6 +1078,36 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    /// A segment's sequence is found among the starts kept beside the
+    /// genome, and is the one [`Genome::locate`] finds by walking it: in a
+    /// gap between two sequences, past the last, and on an axis that has run
+    /// out of coordinates, a segment is on none.
+    #[test]
+    fn a_segment_is_placed_where_the_genome_locates_it() {
+        let place = |genome: &Genome, start: u64| {
+            let track = CopyNumberTrack::diploid(Vec::new()).across(genome);
+            let end = start.saturating_add(3);
+            let found = track.place_of(&CopyNumberSegment::total(start, end, 2.0));
+            let walked = match genome.locate(start) {
+                Some((name, at)) => format!("{name}:{}", span_label(at, at.saturating_add(3))),
+                None => span_label(start, end),
+            };
+            assert_eq!(found, walked, "{start}");
+            found
+        };
+        let gapped = Genome::new([("chrA", 30u64), ("chrB", 20), ("chrC", 10)]).gap(5);
+        for start in 0..gapped.total() + 3 {
+            place(&gapped, start);
+        }
+        assert!(place(&gapped, 35).starts_with("chrB:1 "));
+        assert!(!place(&gapped, 32).contains(':'), "in the gap");
+        let far = Genome::new([("a", u64::MAX), ("b", 10u64)]);
+        for start in [0, u64::MAX - 1, u64::MAX] {
+            place(&far, start);
+        }
+        assert!(!place(&far, u64::MAX).contains(':'), "past the axis");
     }
 
     /// Two sequences laid end to end share the pixel column their join
