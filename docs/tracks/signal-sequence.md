@@ -22,7 +22,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
 | Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--max`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb; `--same-scale` puts several on one scale |
-| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a genetic map as HapMap writes one (`read::recombination::rates`) |
+| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a bigWig, through its index, from the zoom level of which a pixel holds two bins where it has one (`read::bigwig::window`); a genetic map as HapMap writes one (`read::recombination::rates`) |
 
 === "Rust"
 
@@ -85,7 +85,7 @@ A statistic computed in windows, drawn either side of a baseline it can fall bel
 |:--|:--|
 | Rust | `.add_windows(windows)` on `plot()`; `WindowTrack::new(windows)`, `WindowTrack::ratios(windows)`, `WindowTrack::gc_skew(start, &seq, window)`, `WindowTrack::gc_content(start, &seq, window)` |
 | Command line | `--windows FILE`, with `--style`, `--max`, `--height`; `--same-scale` puts several on one scale |
-| Reads | bedGraph, one window per row (`read::signal::windows`) |
+| Reads | bedGraph, one window per row (`read::signal::windows`), or a bigWig's values as written (`read::bigwig::window`) |
 
 === "Rust"
 
@@ -215,7 +215,7 @@ The reference bases, drawn the way a genome browser draws them: coloured letters
 |:--|:--|
 | Rust | `.add_sequence(seq)` or `.add_sequence_at(start, seq)` on `plot()`; `SequenceTrack::new(start, seq)` |
 | Command line | `--sequence FILE`, with `--height` |
-| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region (`read::seq::fasta`) |
+| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region (`read::seq::fasta`); or a 2bit, of which only the window's bases are read (`read::twobit::bases`) |
 
 === "Rust"
 
@@ -352,7 +352,7 @@ Per-base model attribution, drawn as the bases themselves at a height proportion
 |:--|:--|
 | Rust | `.add_dynseq(start, seq, scores)` on `plot()`; `DynseqTrack::new(start, seq, scores)`, `DynseqTrack::from_pairs(start, seq, pairs)`, `DynseqTrack::from_spans(start, seq, spans)` |
 | Command line | `--dynseq FILE --with-sequence FASTA`, with `--height` |
-| Reads | bedGraph of per-base scores (`read::dynseq::scores`), with the letters from the FASTA |
+| Reads | bedGraph or bigWig of per-base scores (`read::dynseq::scores`, `read::bigwig::window`), with the letters from the FASTA or 2bit |
 
 === "Rust"
 

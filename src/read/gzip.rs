@@ -19,6 +19,10 @@
 //! that seeks to a block through an index, which is
 //! [`Bgzf`](super::bgzf::Bgzf).
 //!
+//! A zlib stream (RFC 1950) is the same DEFLATE with a two byte header in
+//! front and an Adler-32 behind, and it is what a bigWig and a bigBed compress
+//! each block of their data with; [`zlib`] reads one.
+//!
 //! # What is refused
 //!
 //! Anything that is not what it says: a member that does not start with the
@@ -27,7 +31,9 @@
 //! length does not match what it decompressed to. A damaged file is an error
 //! naming what was wrong, never a panic and never a figure drawn from half of
 //! it. The padding of zeros some writers leave after the last member is not
-//! damage, and is read past.
+//! damage, and is read past. A zlib stream that asks for a preset dictionary
+//! is refused, since it cannot be read without one and none of the formats
+//! here writes one.
 
 use super::ReadError;
 
@@ -74,6 +80,66 @@ pub fn member(data: &[u8]) -> Result<(Vec<u8>, usize), ReadError> {
     Ok((out, used))
 }
 
+/// Decompresses one zlib stream (RFC 1950): DEFLATE with a two byte header
+/// in front and the Adler-32 of what it holds behind, which is how a bigWig
+/// and a bigBed compress each block of their data.
+///
+/// `most` is the most it may inflate to. A bigWig or a bigBed says in its
+/// header how large its largest block is once inflated, so a block that comes
+/// out larger is damaged, and without the bound a damaged block could ask for
+/// far more memory than the file is long: DEFLATE writes a run of 258 bytes in
+/// as little as a byte.
+///
+/// # Errors
+///
+/// A header that is not zlib's, or that asks for a preset dictionary; a stream
+/// that does not decode, ends early or inflates past `most`; and an Adler-32
+/// that does not match what it inflated to.
+pub fn zlib(data: &[u8], most: usize) -> Result<Vec<u8>, ReadError> {
+    let refused = |reason: &str| ReadError::whole(format!("zlib: {reason}"));
+    let (Some(&method), Some(&flags)) = (data.first(), data.get(1)) else {
+        return Err(refused("the header is cut short"));
+    };
+    // DEFLATE is method 8, with a window of at most 32 KiB, and the two bytes
+    // read as one number are a multiple of 31, which is the header's check.
+    if method & 0x0f != 8
+        || method >> 4 > 7
+        || (u16::from(method) << 8 | u16::from(flags)) % 31 != 0
+    {
+        return Err(refused("not zlib: the header is not DEFLATE's"));
+    }
+    if flags & 0x20 != 0 {
+        return Err(refused("the stream asks for a preset dictionary"));
+    }
+    let mut out = Vec::new();
+    let used = inflate(&data[2..], &mut out, most).map_err(|reason| refused(&reason))?;
+    let trailer = data
+        .get(2 + used..2 + used + 4)
+        .ok_or_else(|| refused("the stream ends before its Adler-32"))?;
+    if adler32(&out) != u32::from_be_bytes([trailer[0], trailer[1], trailer[2], trailer[3]]) {
+        return Err(refused("the Adler-32 does not match what it inflated to"));
+    }
+    Ok(out)
+}
+
+/// The Adler-32 a zlib stream ends with: two sums modulo the largest prime
+/// under 2^16, kept apart and joined at the end.
+fn adler32(data: &[u8]) -> u32 {
+    const PRIME: u32 = 65_521;
+    let (mut a, mut b) = (1u32, 0u32);
+    // 5,552 bytes is the most that can be added before b could pass 2^32, so
+    // the remainder is taken once a run of them rather than once a byte.
+    for run in data.chunks(5_552) {
+        for byte in run {
+            a += u32::from(*byte);
+            b += a;
+        }
+        a %= PRIME;
+        b %= PRIME;
+    }
+    b << 16 | a
+}
+
 /// One member appended to `out`, and the bytes of `data` it took.
 fn member_into(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
     if !is_gzip(data) {
@@ -101,7 +167,7 @@ fn member_into(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
     }
     let body = data.get(at..).ok_or("the header is cut short")?;
     let before = out.len();
-    let used = inflate(body, out)?;
+    let used = inflate(body, out, usize::MAX)?;
     at += used;
     let trailer = data
         .get(at..at + 8)
@@ -292,18 +358,28 @@ const DISTANCE_EXTRA: [u8; 30] = [
     13,
 ];
 
-/// One block's literals and copies, until its end code.
+/// What a stream that inflates past the most it may is refused with.
+const TOO_LARGE: &str = "the stream inflates to more than its file says a block holds";
+
+/// One block's literals and copies, until its end code, into at most `most`
+/// bytes of output from `start`.
 fn codes(
     bits: &mut Bits<'_>,
     out: &mut Vec<u8>,
     start: usize,
+    most: usize,
     literal: &Huffman,
     distance: &Huffman,
 ) -> Result<(), String> {
     loop {
         let value = literal.decode(bits)?;
         match value {
-            0..=255 => out.push(value as u8),
+            0..=255 => {
+                if out.len() - start >= most {
+                    return Err(TOO_LARGE.to_string());
+                }
+                out.push(value as u8);
+            }
             256 => return Ok(()),
             _ => {
                 let at = usize::from(value - 257);
@@ -323,6 +399,9 @@ fn codes(
                 if back > out.len() - start {
                     return Err("a distance reaches before the start of the output".to_string());
                 }
+                if length > most - (out.len() - start) {
+                    return Err(TOO_LARGE.to_string());
+                }
                 // One byte at a time, since a copy may overlap what it writes,
                 // which is how DEFLATE writes a run.
                 let from = out.len() - back;
@@ -335,9 +414,9 @@ fn codes(
     }
 }
 
-/// Inflates one raw DEFLATE stream onto `out`, and says how many bytes of
-/// `data` it took.
-fn inflate(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
+/// Inflates one raw DEFLATE stream onto `out`, at most `most` bytes of it,
+/// and says how many bytes of `data` it took.
+fn inflate(data: &[u8], out: &mut Vec<u8>, most: usize) -> Result<usize, String> {
     let start = out.len();
     let mut bits = Bits::new(data);
     loop {
@@ -355,6 +434,9 @@ fn inflate(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
                 let stored = data
                     .get(at + 4..at + 4 + length)
                     .ok_or("a stored block is cut short")?;
+                if length > most - (out.len() - start) {
+                    return Err(TOO_LARGE.to_string());
+                }
                 out.extend_from_slice(stored);
                 bits.at = at + 4 + length;
             }
@@ -366,7 +448,7 @@ fn inflate(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
                 lengths[280..].fill(8);
                 let literal = Huffman::new(&lengths)?;
                 let distance = Huffman::new(&[5u8; 30])?;
-                codes(&mut bits, out, start, &literal, &distance)?;
+                codes(&mut bits, out, start, most, &literal, &distance)?;
             }
             2 => {
                 let literals = bits.take(5)? as usize + 257;
@@ -410,7 +492,7 @@ fn inflate(data: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
                 }
                 let literal = Huffman::new(&lengths[..literals])?;
                 let distance = Huffman::new(&lengths[literals..])?;
-                codes(&mut bits, out, start, &literal, &distance)?;
+                codes(&mut bits, out, start, most, &literal, &distance)?;
             }
             _ => return Err("a block has a type DEFLATE does not define".to_string()),
         }
@@ -585,6 +667,80 @@ mod tests {
         }
         let error = decompress(b"not compressed").unwrap_err();
         assert!(error.to_string().contains("gzip magic"), "{error}");
+    }
+
+    /// `zlib.compress(text, 9)` from Python 3, of `ZLIB_TEXT`.
+    const ZLIB: [u8; 34] = [
+        0x78, 0xda, 0x4b, 0xce, 0x28, 0x32, 0xe4, 0x34, 0x34, 0xe0, 0x34, 0x32, 0xe0, 0x34, 0xd4,
+        0x33, 0xe5, 0x4a, 0x06, 0x71, 0x81, 0x6c, 0x63, 0x20, 0x82, 0x70, 0xa8, 0x2c, 0x07, 0x00,
+        0xf7, 0xb0, 0x15, 0xd5,
+    ];
+
+    fn zlib_text() -> Vec<u8> {
+        b"chr1\t10\t20\t1.5\nchr1\t20\t30\t3\n".repeat(4)
+    }
+
+    #[test]
+    fn zlib_reads_what_python_zlib_wrote_and_checks_its_adler32() {
+        assert_eq!(zlib(&ZLIB, usize::MAX).unwrap(), zlib_text());
+        // The last byte is the Adler-32's, and the stream decodes without it.
+        let mut wrong = ZLIB;
+        wrong[33] ^= 1;
+        let error = zlib(&wrong, usize::MAX).unwrap_err();
+        assert!(
+            error.to_string().contains("Adler-32 does not match"),
+            "{error}"
+        );
+        // A stream with nothing after its DEFLATE has no check to compare.
+        let error = zlib(&ZLIB[..30], usize::MAX).unwrap_err();
+        assert!(error.to_string().contains("before its Adler-32"), "{error}");
+        // A gzip member is not a zlib stream, and the header check says so.
+        let error = zlib(&SMALL, usize::MAX).unwrap_err();
+        assert!(error.to_string().contains("not zlib"), "{error}");
+        for cut in 0..ZLIB.len() {
+            assert!(zlib(&ZLIB[..cut], usize::MAX).is_err(), "cut at {cut}");
+        }
+        for at in 0..ZLIB.len() {
+            let mut bent = ZLIB;
+            bent[at] ^= 0x55;
+            if let Ok(text) = zlib(&bent, usize::MAX) {
+                assert_eq!(text, zlib_text(), "byte {at} changed the text");
+            }
+        }
+    }
+
+    #[test]
+    fn a_zlib_stream_with_a_preset_dictionary_is_refused() {
+        // Python's zlib.compressobj(zdict=b"chr1") over "chr1 chr1".
+        let preset = [
+            0x78, 0xf9, 0x03, 0xdd, 0x01, 0x6f, 0x4b, 0x06, 0x62, 0x05, 0x10, 0x01, 0x00, 0x0f,
+            0x81, 0x02, 0xfd,
+        ];
+        let error = zlib(&preset, usize::MAX).unwrap_err();
+        assert!(error.to_string().contains("preset dictionary"), "{error}");
+    }
+
+    /// A block may inflate to no more than its file says, so a damaged one
+    /// cannot ask for more memory than that, whichever kind of block it is.
+    #[test]
+    fn a_stream_inflating_past_its_bound_is_refused() {
+        let text = zlib_text();
+        assert_eq!(zlib(&ZLIB, text.len()).unwrap(), text);
+        let error = zlib(&ZLIB, text.len() - 1).unwrap_err();
+        assert!(
+            error.to_string().contains("more than its file says"),
+            "{error}"
+        );
+        // A literal past the bound, and a stored block past it.
+        let error = zlib(&ZLIB, 3).unwrap_err();
+        assert!(
+            error.to_string().contains("more than its file says"),
+            "{error}"
+        );
+        let mut out = Vec::new();
+        let error = inflate(&STORED[10..], &mut out, 399).unwrap_err();
+        assert!(error.contains("more than its file says"), "{error}");
+        assert_eq!(inflate(&STORED[10..], &mut out, 400).unwrap(), 405);
     }
 
     #[test]

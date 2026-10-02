@@ -50,8 +50,11 @@ Four rules cover every command:
 | `.sam` | its reads (`--pileup`) |
 | `.vcf`, `.bcf` | its calls (`--variants`); a cohort's says that `--genotypes` draws its samples |
 | `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
+| `.bb`, `.bigbed` | features (`--features`), read through its index |
 | `.bedgraph`, `.bg`, `.bdg` | a signal (`--coverage`) |
+| `.bw`, `.bigwig` | a signal (`--coverage`), read through its index and its zoom levels |
 | `.fa`, `.fasta`, `.fna` | the reference (`--sequence`) |
+| `.2bit` | the reference (`--sequence`), read through its index |
 | `.aln`, `.afa` | an alignment (`--msa`) |
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
@@ -60,9 +63,11 @@ Four rules cover every command:
 | `.slow5` | a read's signal (`--squiggle`) |
 | a name holding `genetic_map` | a recombination map (`--recombination`) |
 
-Any of these may end in `.gz`. A name that could be several things, `.tsv` or
-`.txt`, needs its track's flag, except the genetic maps HapMap and the
-imputation panels ship, whose names say what they are.
+Any of these may end in `.gz`, except the three read through their index,
+which are read as they are written and not out of a `.gz`. A name that could
+be several things, `.tsv` or `.txt`, needs its track's flag, except the
+genetic maps HapMap and the imputation panels ship, whose names say what they
+are.
 
 An option and its value may be written as two words or joined by `=`, as
 `--label depth` or `--label=depth`.
@@ -165,15 +170,15 @@ reads nothing.
 
 | Flag | Draws | Reads | Track |
 |:--|:--|:--|:--|
-| `--coverage <FILE>` | per-base signal | [bedGraph](formats.md#bedgraph), [`samtools depth`](formats.md#samtools-depth), [a bare column of values](formats.md#a-bare-column-of-values) or [a BAM](#binary-formats), whose depth it counts | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
+| `--coverage <FILE>` | per-base signal | [bedGraph](formats.md#bedgraph), [bigWig](formats.md#bigwig), [`samtools depth`](formats.md#samtools-depth), [a bare column of values](formats.md#a-bare-column-of-values) or [a BAM](#binary-formats), whose depth it counts | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
 | `--copy-number <FILE>` | segmented copy number | [a segment table](formats.md#the-segment-table): CNVkit `.cns`, ASCAT or `.seg` | [CopyNumberTrack](../tracks/variation.md#copynumbertrack) |
-| `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
+| `--dynseq <FILE>` | per-base model attribution, drawn as the bases themselves | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig), with the reference from `--with-sequence` | [DynseqTrack](../tracks/signal-sequence.md#dynseqtrack) |
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
-| `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
-| `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
+| `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
+| `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
 | `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
-| `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
+| `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
 | `--recombination <FILE>` | recombination rates, as a line in cM/Mb | [a genetic map, or a bedGraph of rates](formats.md#a-recombination-map) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
 | `--tree <FILE>` | a phylogeny | [Newick or NEXUS](formats.md#newick) | [TreeTrack](../tracks/phylogeny.md#treetrack) |
@@ -185,7 +190,7 @@ reads nothing.
 | `--pileup <FILE>` | aligned reads | [SAM text](formats.md#sam) from `samtools view`, or [a BAM](#binary-formats) | [PileupTrack](../tracks/reads-molecules.md#pileuptrack) |
 | `--synteny <FILE>` | alignment ribbons between two sequences | [PAF](formats.md#paf) from minimap2 | [SyntenyTrack](../tracks/comparison.md#syntenytrack) |
 | `--dotplot <FILE>` | the same alignments as a dot plot | [PAF](formats.md#paf) | [DotplotTrack](../tracks/comparison.md#dotplottrack) |
-| `--orfs <FILE>` | open reading frames in six frames | [FASTA](formats.md#fasta), the file `--sequence` takes | [OrfTrack](../tracks/annotation.md#orftrack) |
+| `--orfs <FILE>` | open reading frames in six frames | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit), the file `--sequence` takes | [OrfTrack](../tracks/annotation.md#orftrack) |
 | `--logo <FILE>` | a sequence logo | [aligned FASTA](formats.md#aligned-fasta), the file `--msa` takes | [LogoTrack](../tracks/signal-sequence.md#logotrack) |
 | `--tanglegram <FILE>` | two phylogenies face to face | [Newick](formats.md#newick), the left tree; `--against` names the right | [TanglegramTrack](../tracks/phylogeny.md#tanglegramtrack) |
 | `--clades <FILE>` | spans carried by named taxa, painted onto a phylogeny | [GFF3 with a `taxa` attribute](formats.md#gubbins-clade-blocks), as Gubbins writes it; `--with-tree` names the tree | [CladeTrack](../tracks/phylogeny.md#cladetrack) |
@@ -248,7 +253,7 @@ takes.
 |:--|:--|:--|:--|
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
-| `--with-sequence <FILE>` | a FASTA file, or `-` | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
+| `--with-sequence <FILE>` | a FASTA or 2bit file, or `-` for a FASTA | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--ld <FILE>` | [PLINK's `.ld`](formats.md#pairs-of-positions) of the lead against its neighbours, or `-` | `--manhattan` | every point in one colour |
@@ -288,7 +293,7 @@ takes.
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--genotypes`, `--bisulfite`, `--tree` | 40 for the first five; no cap on a tree |
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--isoforms` | nothing | `--features` | each gene once, with every exon its transcripts use |
-| `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
+| `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
@@ -769,7 +774,52 @@ quality checks or duplicates left out, and a deletion not counted as covered.
 karyon NC_000962.3:761,000-763,000 --coverage aln.bam --pileup aln.bam -o rpoB.svg
 ```
 
-CRAM, BCF and bigWig are not read. Hand a track one and it says what the file
+A bigWig, a bigBed and a 2bit are read as they are, each through the index it
+holds, so a window of a whole genome's file reads the few blocks over it. A
+bigWig is drawn by `--coverage`, `--windows` and `--dynseq`, a bigBed by
+`--features`, and a 2bit is the reference to `--sequence`, `--orfs` and
+`--with-sequence`. Each is told by its first bytes, so one given its track's
+flag is read whatever it is called. A sequence each one names is a place a
+figure can be drawn over whole, as a FASTA's or a BAM's is, and a gene a
+bigBed names is a place too:
+
+```bash
+karyon chr1:1-2,000,000 signal.bw genes.bb -o signal.svg
+karyon geneA genes.bb --sequence genome.2bit -o geneA.svg
+karyon chr2 signal.bw -o chr2.svg
+```
+
+Drawn over many bases to a pixel, a bigWig is read from the zoom level of
+which a pixel holds two bins or more, the coarsest such, rather than from its
+values as written: a chromosome 900 pixels wide is a few thousand bins of the
+summary the file keeps for that scale, where its values as written may be
+millions of spans. Each bin is drawn with what `--aggregate` takes of a pixel,
+its most, its least or its mean, with the bases no value covers counted as
+nought, so the figure is the one the values as written would draw, but for a
+bin that straddles two columns and is drawn in both: a peak may come out a
+column wider than it is. Its scale runs to the most of the values under the
+window, as theirs does, whichever of the three draws the columns. A whole
+chromosome of 4.7 million spans draws that way in a hundredth of a second and
+4 MB. A bigWig written without zoom levels is read as written at any scale.
+
+kent's tools index only the sequences that hold data, so a bigWig or a bigBed
+written against a whole genome's lengths may name a few of its sequences. Over
+several places, one on a sequence the file does not name says it has nothing
+there, as the text the file was written from would; drawn alone, that place is
+refused naming the sequences the file does have.
+
+A bigBed keeps the columns its header says are BED's own: all twelve of a
+BED12, so a gene keeps its exons, and the first six of a narrowPeak, whose
+seventh is a signal value and not where a gene starts coding. A 2bit keeps its
+runs of N, and its soft-masked runs in lower case, as `twoBitToFa` writes them.
+
+These three are read out of order, which a pipe cannot be, so each is named
+rather than piped in; from standard input each is refused with that said.
+Compressed with gzip, each is refused with the `gunzip -k` that gives the file
+back, since its index says where each block is in the file as it is. A bigWig
+needs a place: across a whole genome it is not drawn yet.
+
+CRAM and BCF are not read. Hand a track one and it says what the file
 is and what to write in place of its name:
 
 ```text

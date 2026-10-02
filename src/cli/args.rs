@@ -191,6 +191,16 @@ pub enum ArgError {
     },
     /// A file named on its own whose name does not say what it holds.
     Unplaced(String),
+    /// A bigWig and no place to draw it over.
+    ///
+    /// A bigWig is read a window at a time, and across a whole genome it would
+    /// be drawn from the coarsest of the summaries it keeps, which the command
+    /// line does not do yet. It was answered with what the first argument is,
+    /// which did not say why a file that names its own sequences needed one.
+    PlacelessBigWig {
+        /// The bigWig, as it was written.
+        file: String,
+    },
     /// A place given to `--highlight` where no tree is there to take it.
     ///
     /// `--highlight` is a phylogeny's, and marks its clades. A locus after it
@@ -315,6 +325,12 @@ impl fmt::Display for ArgError {
                     rest.join(", ")
                 )
             }
+            ArgError::PlacelessBigWig { file } => write!(
+                f,
+                "{file} is a bigWig, which is drawn over a place: write one first, as chr1 \
+                 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; a bigWig \
+                 across a whole genome is not drawn yet"
+            ),
             ArgError::RenamedTwice {
                 from,
                 first,
@@ -903,11 +919,11 @@ impl Kind {
     ///
     /// By the extension a tool writes, under any `.gz`: a BAM is drawn as
     /// its depth, and `--pileup` draws its reads; a SAM as its
-    /// reads; a VCF as its calls; GFF3, GTF and BED as features; bedGraph as
-    /// a signal; FASTA as the reference; a Newick file as a tree; PAF as
-    /// synteny; a PLINK or REGENIE association table as a scan. A name that
-    /// could be several things, `.tsv` or `.txt`, says nothing, and the file
-    /// has to be given its flag.
+    /// reads; a VCF as its calls; GFF3, GTF, BED and bigBed as features;
+    /// bedGraph and bigWig as a signal; FASTA and 2bit as the reference; a
+    /// Newick file as a tree; PAF as synteny; a PLINK or REGENIE association
+    /// table as a scan. A name that could be several things, `.tsv` or
+    /// `.txt`, says nothing, and the file has to be given its flag.
     pub fn for_file(name: &str) -> Option<Kind> {
         let lower = name.to_ascii_lowercase();
         let lower = lower
@@ -1927,14 +1943,23 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
          --genotypes FILE draws each sample's calls, a row per sample",
     ),
     (
-        &["gff", "gff3", "gtf", "bed", "genes"],
-        "genes and other features are --features FILE, or the GFF3, GTF or BED named \
-         on its own",
+        &["gff", "gff3", "gtf", "bed", "genes", "bigbed", "bb"],
+        "genes and other features are --features FILE, or the GFF3, GTF, BED or bigBed \
+         named on its own",
     ),
     (
-        &["fasta", "fa", "fna", "reference", "ref", "genome"],
-        "a reference is --sequence FILE, or the FASTA named on its own, and a --pileup \
-         reads its mismatches against it",
+        &[
+            "fasta",
+            "fa",
+            "fna",
+            "reference",
+            "ref",
+            "genome",
+            "2bit",
+            "twobit",
+        ],
+        "a reference is --sequence FILE, or the FASTA or 2bit named on its own, and a \
+         --pileup reads its mismatches against it",
     ),
     (
         &["newick", "nwk", "phylogeny", "phylo"],
@@ -1957,8 +1982,8 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     ),
     (
         &["depth", "bedgraph", "bigwig", "bw", "wig", "signal"],
-        "a signal along the sequence is --coverage FILE, from a bedGraph, samtools \
-         depth or a BAM",
+        "a signal along the sequence is --coverage FILE, from a bedGraph, a bigWig, \
+         samtools depth or a BAM, or the file named on its own",
     ),
     (
         &["out", "outfile", "save", "svg"],
@@ -3522,7 +3547,25 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         && !genome_wide
         && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
     {
-        return Err(ArgError::NoRegion);
+        // A bigWig names its sequences and still needs a place, which is
+        // worth saying in so many words.
+        let bigwig = tracks.iter().find_map(|track| match &track.source {
+            Some(Source::Path(path))
+                if path
+                    .extension()
+                    .and_then(|ending| ending.to_str())
+                    .is_some_and(|ending| {
+                        ending.eq_ignore_ascii_case("bw") || ending.eq_ignore_ascii_case("bigwig")
+                    }) =>
+            {
+                Some(path.display().to_string())
+            }
+            _ => None,
+        });
+        return Err(match bigwig {
+            Some(file) => ArgError::PlacelessBigWig { file },
+            None => ArgError::NoRegion,
+        });
     }
     Ok(Request::Draw(Box::new(Invocation {
         region,
@@ -4510,6 +4553,40 @@ mod tests {
         assert!(matches!(error, ArgError::BadRegion(_)), "{error:?}");
         let error = parse(&args("rpoB chr1:5000 reads.bam")).unwrap_err();
         assert!(matches!(error, ArgError::OnePosition { .. }), "{error:?}");
+    }
+
+    /// A bigWig with no place is refused saying it needs one, whatever track
+    /// reads it, rather than told what the first argument is; with a place
+    /// it is drawn.
+    #[test]
+    fn a_bigwig_with_no_place_is_refused_saying_so() {
+        for (line, file) in [
+            ("signal.bw", "signal.bw"),
+            (
+                "genes.gff3 --coverage data/Signal.BigWig",
+                "data/Signal.BigWig",
+            ),
+            ("--windows w.bw --tree t.nwk", "w.bw"),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::PlacelessBigWig { file: named } if named == file),
+                "{line}: {error:?}"
+            );
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "{file} is a bigWig, which is drawn over a place: write one first, as chr1 \
+                     for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; a \
+                     bigWig across a whole genome is not drawn yet"
+                )
+            );
+        }
+        assert!(matches!(
+            parse(&args("signal.bedgraph")).unwrap_err(),
+            ArgError::NoRegion
+        ));
+        assert!(draw("chr1 signal.bw").named.is_some());
     }
 
     /// A scan read on its own is drawn across the whole genome, and needs no

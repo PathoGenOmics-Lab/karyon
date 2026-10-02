@@ -8,6 +8,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A bigWig, a bigBed or a 2bit handed to a track that does not draw what it
+  holds is refused naming the tracks that do, as `BuildError::OtherTrack`:
+  `--pileup signal.bw` was answered with the `bigWigToBedGraph` command that
+  writes bedGraph, which `--pileup` would have refused next. A `--format`
+  given with one is refused the same way, since the file says what it holds,
+  and one piped into standard input is refused asking for its name, since it
+  is read out of order. A bigWig with no place is refused saying it needs one,
+  as `ArgError::PlacelessBigWig`, where it was told what the first argument
+  is; across a whole genome a bigWig is not drawn yet.
+- `Files::sequences` answers for a bigWig, a bigBed and a 2bit from the index
+  each holds, as it does for a BAM from its header, so a sequence any of them
+  names is a place drawn whole, as long as the file says.
 - `read::bam::Bgzf` lives in `read::bgzf`, and `read::bam` still names it.
   `Bgzf::tell` says the end of a block as the next block at offset nought,
   as htslib writes that place into an index, so a stretch an index says ends
@@ -382,6 +394,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::bigwig`, `read::bigbed` and `read::twobit` read UCSC's bigWig, bigBed
+  and 2bit a window at a time, through the index each one holds, from anything
+  that reads and seeks, and the command line reads all three as they are,
+  named on their own or after a flag: a bigWig by `--coverage`, `--windows`
+  and `--dynseq`, a bigBed by `--features`, and a 2bit by `--sequence`,
+  `--orfs`, `--with-sequence` and a pileup reading against the figure's
+  reference. Over a window many bases to a pixel, `--coverage` reads a bigWig
+  from the coarsest zoom level of which a pixel holds two bins, each bin
+  painted with what `--aggregate` takes of a pixel and the bases no value
+  covers counted as nought, and the scale running to the most of the values
+  under the window, `read::bigwig::Signal::most`, whichever of the three
+  paints the bins: scaled to the bins, values up to 25.5 were drawn on a scale
+  up to 5 by their means, and on none by their least. A chromosome of
+  248,956,422 bases in 4,684,581 spans, a 38 MB bigWig, draws 900 pixels wide
+  in 0.01 s and 4 MB, where its bedGraph took 0.95 s and 216 MB; 154 of the
+  792 columns come out higher, from a bin straddling two columns, and none
+  lower. A window of 10 kb draws byte for byte what the bedGraph draws. A
+  bigWig written without zoom levels is read as written, and a value it holds
+  as not a number, or as infinite, is read as one and drawn as the bedGraph
+  holding it draws it, as a gap. kent indexes only the sequences that hold
+  data, so over several places, one on a sequence a bigWig or a bigBed does
+  not name says it has nothing there, as `BuildError::Absent`, where the whole
+  figure was refused; drawn alone, that place is refused naming the sequences
+  the file has. Compressed with gzip, any of the three is refused with the
+  `gunzip -k` that gives it back, where it was told that karyon reads text and
+  given the UCSC command that writes its text, which refuses a compressed file
+  too. A bigBed keeps the columns its header says are BED's own, so a BED12
+  keeps its exons and a narrowPeak's signal value is not read as a coding
+  start, and a 2bit gives its runs of N and its soft-masked runs as
+  `twoBitToFa` writes them. Each reader is held to the UCSC tool that undoes
+  its file, `bigWigToBedGraph`, `bigBedToBed` and `twoBitToFa`, on small files
+  kent's own tools wrote, kept in `src/read/fixtures` with the commands.
+- A gene a bigBed names is a place a figure is drawn over, and a stretch a
+  `--shade` names, found by reading its rows; a bigBed of more than 64 MB is
+  not read whole for a name, and the figure says so. Each row's sequence is
+  looked up by its number, so one of 20.9 MB naming 200,000 sequences places
+  a figure in 0.9 s, where looking it up among them all took 16 s.
+- `read::gzip::zlib`, a zlib stream with its Adler-32 checked and a bound on
+  what it may inflate to, which is how a bigWig and a bigBed compress their
+  blocks.
 - `read::index` reads the three indexes htslib writes, BAI, TBI and CSI,
   into one `Index`: the tree of bins at the depth the file says, which for a
   CSI was 0 from samtools, 6 from bcftools and 8 from `tabix -C`, and

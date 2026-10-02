@@ -410,46 +410,47 @@ USAGE
 The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
 file named on its own is a track of the kind its name says: BAM draws its
-depth, SAM its reads, VCF its calls, GFF3, GTF and BED features, bedGraph a
-signal, FASTA the reference, Newick a tree, PAF synteny, and a PLINK or
-REGENIE table a scan; a .gz is read as the file inside. Each track
-flag starts a track of its own kind, and the flags after a track describe
-that one, so the order of the words is the order of the stack. A coordinate
-ruler is added under the last track laid on the coordinates unless --axis
-puts one elsewhere or --no-axis leaves it out, and unless nothing in the
-figure is laid on the coordinates: a phylogeny is not, so a stack of trees
-gets no ruler measuring a window it is not drawn in, and a figure made only
-of --tree, --tanglegram and --snps tracks takes no region at all. An
-alignment, a table over time or over the sites of a gene, and a read's
-signal are their own place: named nowhere, the figure is laid over all of
-it, and its ruler counts columns, weeks, sites or samples rather than bases.
-A --manhattan table with no place is drawn across the whole genome: every
-sequence it names, end to end, in the order chromosomes are counted, each as
-long as its furthest marker and named under the scan. Several places, as
-karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each, one under
-the other, the same tracks over each and the key once under them; a track
-with nothing in one of them says so there rather than refusing the figure.
-Any track file may be - for standard input, and one track may take it.
+depth, SAM its reads, VCF its calls, GFF3, GTF, BED and bigBed features,
+bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick a tree,
+PAF synteny, and a PLINK or REGENIE table a scan; a .gz is read as the file
+inside. Each track flag starts a track of its own kind, and the flags after
+a track describe that one, so the order of the words is the order of the
+stack. A coordinate ruler is added under the last track laid on the
+coordinates unless --axis puts one elsewhere or --no-axis leaves it out, and
+unless nothing in the figure is laid on the coordinates: a phylogeny is not,
+so a stack of trees gets no ruler measuring a window it is not drawn in, and
+a figure made only of --tree, --tanglegram and --snps tracks takes no region
+at all. An alignment, a table over time or over the sites of a gene, and a
+read's signal are their own place: named nowhere, the figure is laid over
+all of it, and its ruler counts columns, weeks, sites or samples rather than
+bases. A --manhattan table with no place is drawn across the whole genome:
+every sequence it names, end to end, in the order chromosomes are counted,
+each as long as its furthest marker and named under the scan. Several
+places, as karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each,
+one under the other, the same tracks over each and the key once under them;
+a track with nothing in one of them says so there rather than refusing the
+figure. Any track file may be - for standard input, and one track may take
+it.
 
 TRACKS
-    --coverage <FILE>    per-base signal: bedGraph, samtools depth, values, or
-                         the depth of a BAM's reads
+    --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
+                         values, or the depth of a BAM's reads
     --copy-number <FILE> segmented copy number, a caller's segment table;
                          the ploidy is a track option and is required
-    --dynseq <FILE>      per-base model attribution, bedGraph, drawn as the
-                         bases themselves; takes --with-sequence
+    --dynseq <FILE>      per-base model attribution, bedGraph or bigWig, drawn
+                         as the bases themselves; takes --with-sequence
     --junctions <FILE>   splice junctions as arcs weighted by the reads that
                          crossed them, an aligner's SJ.out.tab
-    --sequence <FILE>    the reference bases, FASTA
-    --features <FILE>    genes and other intervals, BED, GFF3 or GTF; a gene
-                         is drawn once, with the exons its transcripts use
-                         over a line through its introns, and the ends that
-                         do not code at half height
+    --sequence <FILE>    the reference bases, FASTA or 2bit
+    --features <FILE>    genes and other intervals, BED, GFF3, GTF or bigBed;
+                         a gene is drawn once, with the exons its transcripts
+                         use over a line through its introns, and the ends
+                         that do not code at half height
     --variants <FILE>    point calls, VCF
     --genotypes <FILE>   the call of each sample at each site of a VCF, a row
                          per sample: reference, heterozygous, alternate or
                          not called, at its position
-    --windows <FILE>     a statistic in windows, bedGraph
+    --windows <FILE>     a statistic in windows, bedGraph or bigWig
     --manhattan <FILE>   association statistics, a table of position and value;
                          a column headed P, pvalue or p_wald is drawn as -log10
     --recombination <FILE>
@@ -518,8 +519,8 @@ TRACKS
 TRACK OPTIONS, each describing the track before it, once
     --label <TEXT>       the name in the left gutter
     --against <FILE>     the right-hand tree of a tanglegram
-    --with-sequence <FILE> the reference, FASTA. A dynseq track draws its
-                         letters from it and cannot do without one; a pileup
+    --with-sequence <FILE> the reference, FASTA or 2bit. A dynseq track draws
+                         its letters from it and cannot do without one; a pileup
                          colours the bases that disagree with it, and draws
                          every read agreeing when it is not given
     --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
@@ -666,7 +667,8 @@ TRACK OPTIONS, each describing the track before it, once
     --isoforms           draw each transcript of an annotation on a row of its
                          own, named as the file names it, rather than each gene
                          once with every exon any of its transcripts uses
-    --aggregate <HOW>    max, mean or min, when a pixel covers many bases
+    --aggregate <HOW>    max, mean or min, when a pixel covers many bases; of
+                         a bigWig, also which summary of a zoom level is drawn
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants, differences
                          or all for an alignment, stacked or line for
@@ -731,11 +733,18 @@ COORDINATES
 COMPRESSED AND BINARY FILES
     A file compressed with gzip or bgzip is read as the text inside it. A BAM
     is read by --coverage, --pileup and --split-reads, through the .bai beside
-    it when there is one, so only the reads over the region are read. CRAM,
-    BCF and bigWig are not read here; a track handed one says which command
-    writes what it reads, and a pipe brings that in:
+    it when there is one, so only the reads over the region are read. A
+    bigWig, a bigBed and a 2bit are read through the index each one holds, so
+    only the blocks over the region are read: a bigWig by --coverage, from the
+    summary it keeps at the scale it is drawn at, and by --windows and
+    --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
+    --with-sequence. Each is told by its first bytes, and is named rather than
+    piped, since it is read out of order; compressed with gzip, it is refused
+    with the gunzip -k that gives it back. CRAM and BCF are not read here; a
+    track handed one says which command writes what it reads, and a pipe
+    brings that in:
 
-    samtools depth -a -r NC_000962.3:761000-763000 aln.bam \\
+    samtools depth -a -r NC_000962.3:761000-763000 aln.cram \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg
 
 EXAMPLE

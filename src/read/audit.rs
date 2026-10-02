@@ -21,8 +21,8 @@
 use crate::{Region, Strand};
 
 use super::{
-    align, bisulfite, clade, domain, interval, locus, methyl, point, signal, split, structural,
-    table,
+    align, bigbed, bigwig, bisulfite, clade, domain, interval, locus, methyl, point, signal, split,
+    structural, table, twobit,
 };
 
 /// 0-based 99, which every fixture in this file is written to land on.
@@ -236,6 +236,38 @@ fn audit_sam_one_base() {
     assert_eq!(reads[0].start, TARGET);
     assert_eq!(reads[0].end(), TARGET + 1);
     assert_eq!(reads[0].base_at(TARGET), Some(b'A'));
+}
+
+#[test]
+fn audit_bigwig_one_base() {
+    // A bigWig keeps bedGraph's spans, 0-based and half-open, and the one
+    // written from `chr1 99 100 4.25` is the base at 1-based 100, alone: the
+    // span from 100 on starts at the next base.
+    let bytes = std::io::Cursor::new(include_bytes!("fixtures/signal.bw"));
+    let signal =
+        bigwig::window(bytes, &region("chr1:100-100"), 1.0, crate::Aggregate::Max).unwrap();
+    assert_eq!(signal.spans, vec![(TARGET, TARGET + 1, 4.25)]);
+}
+
+#[test]
+fn audit_bigbed_one_base() {
+    // A bigBed's rows are BED's, 0-based and half-open, and come out as BED.
+    let bytes = std::io::Cursor::new(include_bytes!("fixtures/genes.bb"));
+    let text = bigbed::bed(bytes, Some(&region("chr1:100-100"))).unwrap();
+    let features = interval::features(&text, &region("chr1:1-200"), None).unwrap();
+    assert_eq!((features[0].start, features[0].end), (TARGET, TARGET + 1));
+    assert_eq!(features[0].name.as_deref(), Some("one"));
+}
+
+#[test]
+fn audit_twobit_one_base() {
+    // A sequence starts at its own first base, so 1-based 100 is byte 99 of
+    // it, the G the FASTA it was written from has there.
+    let bytes = std::io::Cursor::new(include_bytes!("fixtures/ref.2bit"));
+    let read = twobit::bases(bytes, &region("chr1:100-100")).unwrap();
+    assert_eq!((read.start, read.bases.as_slice()), (TARGET, &b"G"[..]));
+    let fasta = include_str!("fixtures/ref.fa").replace('\n', "");
+    assert_eq!(fasta.as_bytes()[5 + TARGET as usize], b'G');
 }
 
 #[test]
