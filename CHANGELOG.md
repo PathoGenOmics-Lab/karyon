@@ -371,7 +371,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   out at its size with its drawing scaled to fit, and names a percentage or an
   `em` in the notes rather than dropping it. The reference has a page on how
   the PDF is made.
-
+- `Figure::shade` and `Plot::shade` shade a stretch of the axis down every
+  band laid on it, a `Shade` each, as a genome browser marks a region of
+  interest; `Shade::name` writes its name at the head of the column and
+  `Shade::color` gives it a colour of its own. The figure draws it, since a
+  track is clipped to its band: the wash behind every track, so no data colour
+  changes, and dashed edges over them, so a heatmap that hides the wash still
+  shows where the stretch is. A tree, an ideogram or the key breaks the column,
+  and `Track::shows_shades` is how a track says no, which synteny does for its
+  lower bar. A named shade in view adds one row of 19.5 pixels at the plain
+  scale; a figure with none in view writes the bytes it wrote before, and no
+  committed figure changes. The alt text names every stretch shaded.
+- `--shade PLACE[=NAME]` on the command line, once for each stretch, anywhere
+  on the line: a span, one base, a gene the annotation names, shaded over its
+  own ends rather than with a margin, or a span with no sequence, as
+  `120-180`, on an alignment's columns or a table's weeks. A gene of `--loci`
+  is shaded in whichever genome's row draws it, and every gene is looked up
+  in one read of each annotation for the whole figure, however many panels it
+  has. A time is said as its ruler says it, `2012 to 2013`, and never in the
+  thousandths a table with fractions is drawn at. Each panel of a sheet
+  shades what is on its own sequence and a scan across the genome through its
+  offsets. A stretch on a sequence no place is on is refused, and one outside
+  the window is a note, so a page moving the figure keeps drawing.
+  It reads no file: `--shade genes.bed` points at `--features`. `--highlight`
+  with a place, and `--roi`, `--vhighlight` and `--axvspan` as other tools
+  spell it, are answered with `--shade`.
+- `MatrixTrack::max` pins the value a colour ramp ends at: the top of a
+  sequential one, whichever of it and `CellScale::Sequential`'s `max` comes
+  last, or the end of the gain of a diverging one, whose loss keeps its own
+  reach. `--max` takes it after `--matrix` and `--heatmap`, where the key of
+  `--heatmap depths.tsv --relative --max 3` ends at 3× rather than at the
+  2.19× the table reached, and a top at or under the centre is refused. After
+  `--pairs` it is the ceiling, and wins over the r² of 1 linkage is read
+  against, and after `--windows` it is the top with the bottom as far below
+  the line: windows reaching 1.4 read -1.5 to 1.5, and -2 to 2 with `--max 2`.
+- `node tests/karyon-wasm.test.js` checks how the pages rewrite a command, in
+  CI beside the tree viewer's scripts.
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of
   scale, windows about the same baseline, scans of the same statistic. Each
@@ -1016,6 +1051,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The help and the guide said a CRAM named on its own is drawn as its depth.
+  It is taken for one and refused with the `samtools depth` command that
+  writes the depth as text, since reading a CRAM takes its codecs and a
+  reference; the sentence now names the BAM alone.
+- A page moving a figure rewrote the first stretch of its command spelled like
+  the place, so a `--shade` or another value written before the place with
+  the same spelling was what moved. It rewrites the place where it stands.
 - A file that is not text, named on its own with no flag in front of it, is
   answered with its track's flag in what to write in its place, as `write
   --variants <(bcftools view calls.bcf) where its name is` for `karyon

@@ -165,6 +165,8 @@ jobs:
         run: node tests/tree-canvas.test.js
       - name: Check the page's controls
         run: node tests/tree-radio.test.js
+      - name: Check the page's bridge
+        run: node tests/karyon-wasm.test.js
       - name: Docs
         run: cargo doc --no-deps
         env:

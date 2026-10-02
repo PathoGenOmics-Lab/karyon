@@ -421,6 +421,7 @@ can sit anywhere in the chain.
 | `remove_region_label()` | shown | leaves out the locus at the top right |
 | `remove_axis()` | appended | leaves out the automatic ruler |
 | `same_scale()` | each track to its own values | draws the tracks that measure the same thing on one scale: several depths read off one ceiling (`--same-scale`) |
+| `shade(Shade)` | none | shades a stretch down every band laid on the coordinates, as `.shade(Shade::new(1_450_000, 1_510_000).name("deletion"))`; once for each stretch (`--shade`) |
 
 - **The height is not a setting.** It follows from the tracks, each of which
   says how tall it wants to be. See [How the layout works](#how-the-layout-works).
@@ -431,6 +432,16 @@ can sit anywhere in the chain.
   measures with `Extent::join` over `Figure::extents`, and hand the result to
   each one's `Figure::share_extents`; the command line does this for a
   figure of several places.
+- **`shade` marks a stretch down the whole stack**, 0-based and half-open as
+  every track's coordinates are. The wash goes behind the tracks, so no colour
+  in them changes, and its two ends are dashed lines drawn over them, so a
+  heatmap whose cells hide the wash still shows where the stretch is. It is
+  drawn only across bands on the coordinates: a tree, an ideogram or the key
+  breaks the column and it goes on under them, and synteny is left out
+  because its lower bar is the other sequence. A name, `Shade::name`, is
+  written at the head of the column, and the alt text says every stretch in
+  view. One colour for every shade is the default, since a shade says look
+  here and not which category; `Shade::color` gives one its own.
 - **`profile` replaces the theme, the visual scale and the density**, so call it
   before any of the three you want to set yourself. The profiles are on
   [Styling](theming.md).
@@ -619,9 +630,20 @@ The figure settles the pieces in this order:
    into its neighbour: a feature that starts before the window is drawn whole
    and the clip cuts it. A hairline separates two labelled tracks that follow
    each other, when the gap between them is at least 6 pixels.
-5. **The height**, computed rather than configured:
-   `margin.top + header + sum of the track heights + track_gap * (n - 1) + margin.bottom`.
+5. **The row of shade names**, one line of type plus 8 pixels, 19.5 at the
+   plain scale, directly above the first band that shows shades, and only
+   while a named [shade](#figure-settings) is in view. A shade outside the
+   window takes no room at all, and an unnamed one none either.
+6. **The height**, computed rather than configured:
+   `margin.top + header + sum of the track heights + track_gap * (n - 1) + name row + margin.bottom`.
    That is why `dimensions()` has to lay the figure out to answer.
+
+A shade is the one mark the figure draws across bands, since no track can
+reach outside its own. Its wash is drawn before any track, down each run of
+bands in a row whose track shows shades, across the gaps between them, from
+the plotting area's left edge at most, so never into the gutter or an axis
+strip. Its edges are drawn after every track. A shade under 2 pixels wide is
+widened to 2, and one under 6 has a single edge down its middle.
 
 Every length in that list is multiplied by the visual scale, and the track
 heights by the density as well. A track's height comes from
@@ -685,7 +707,8 @@ println!("{}", figure.region());
 asking for it means laying the figure out. `region()` prints in the 1-based
 inclusive form, the same string as the region label. `measures_coordinates()`
 says whether a ruler would measure anything, which is what `plot()` asks before
-appending one.
+appending one, and `shades()` gives back the stretches shaded, in the order
+they were given.
 
 ### Render a figure
 

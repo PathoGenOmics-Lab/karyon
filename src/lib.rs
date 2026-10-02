@@ -62,6 +62,9 @@
 //! assert!(svg.starts_with("<svg"));
 //! ```
 //!
+//! A stretch worth pointing at, a deletion or the gene a scan peaks over, is
+//! shaded down the whole stack by [`Plot::shade`] with a [`Shade`].
+//!
 //! # A PDF is the SVG, read back
 //!
 //! Every drawing has `to_pdf` and `save_pdf` beside `to_svg` and `save_svg`,
@@ -155,6 +158,7 @@ pub mod read;
 pub mod region;
 pub mod rings;
 pub mod scale;
+pub mod shade;
 pub mod style;
 pub mod svg;
 pub mod theme;
@@ -177,6 +181,7 @@ pub use crate::rings::{
     AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,
 };
 pub use crate::scale::Scale;
+pub use crate::shade::Shade;
 pub use crate::style::{
     AxisFormat, Density, Emphasis, LinePattern, MarkStyle, QuantitativeAxis, ReferenceLine,
     RenderProfile, Symbol, VisualTokens,

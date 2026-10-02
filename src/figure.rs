@@ -41,6 +41,25 @@
 //! drawn by the figure outside the clip and to the left of the widest axis
 //! strip in the figure, so names line up whether or not a track drew an axis,
 //! and cut down to the gutter when there is not room for the whole of it.
+//!
+//! # A shade crosses every band, so the figure draws it
+//!
+//! A [`Shade`] is the one other mark the figure owns. It marks a stretch of the
+//! axis down the whole stack, and no track could draw that, since each is
+//! clipped to its own band. The clip still holds for every track. The figure
+//! draws the wash of a shade before any track, as one column from the first
+//! band of a run to the last across the gaps between them, and the dashed
+//! edges after every track, so the stretch stays visible over a band that
+//! fills itself without a data colour changing under it. A run is the bands in
+//! a row whose track [shows shades](Track::shows_shades), which a tree, an
+//! ideogram or a key breaks, and both are held to the plotting area: never in
+//! the label gutter, never in an axis strip, where a tree beside a matrix's
+//! rows is drawn.
+//!
+//! A named shade in view adds the one row to the layout no track asked for:
+//! one line of type directly above the first band on the coordinates, which
+//! the names are written in. A figure with no shade in view writes exactly the
+//! bytes it wrote before shades existed, down to the ids of its clips.
 
 use std::fs;
 use std::io;
@@ -49,6 +68,7 @@ use std::path::Path;
 use crate::pdf::Pdf;
 use crate::region::Region;
 use crate::scale::Scale;
+use crate::shade::{self, Shade};
 use crate::style::{Density, RenderProfile};
 use crate::svg::{
     fit_text_by, mono_width, text_width, text_width_strong, Anchor, SvgWriter, TextStyle,
@@ -125,6 +145,8 @@ pub struct Figure {
     /// What the tracks of other figures measured, for a sheet whose panels
     /// share their scales; widens this figure's own.
     shared: Vec<Extent>,
+    /// The stretches shaded across every band that shows them.
+    shades: Vec<Shade>,
 }
 
 impl Figure {
@@ -145,6 +167,7 @@ impl Figure {
             description: None,
             same_scale: false,
             shared: Vec::new(),
+            shades: Vec::new(),
         }
     }
 
@@ -376,6 +399,47 @@ impl Figure {
         .max(0.0)
     }
 
+    /// Shades a stretch of the axis across every band laid on it: the region
+    /// of interest of a genome browser. Call it once for each stretch.
+    ///
+    /// The wash goes behind every band whose track
+    /// [shows shades](Track::shows_shades), as one column from the first band
+    /// of a run to the last, across the gaps, and its edges are dashed
+    /// hairlines drawn over the tracks, so the stretch reads across a heatmap
+    /// whose cells hide the wash without a data colour changing. It is never
+    /// drawn in the label gutter, in an axis strip, or across a band off the
+    /// coordinates, so a phylogeny or an ideogram breaks the column and it
+    /// goes on under them. A named shade in view writes its name at the head
+    /// of the column, in a row one line tall above the first band on the
+    /// coordinates. A shade outside the window draws nothing and takes no
+    /// room, so a figure panned past it is the figure without it.
+    ///
+    /// The alt text says what is shaded, by name and span, after what the
+    /// figure is made of; a [`Figure::description`] of your own is kept as you
+    /// wrote it.
+    ///
+    /// ```
+    /// use karyon::{AxisTrack, CoverageTrack, Figure, Region, Shade};
+    ///
+    /// let svg = Figure::new(Region::parse("chr1:1-10,000").unwrap())
+    ///     .push(CoverageTrack::new(0, vec![30.0; 10_000]).label("depth"))
+    ///     .push(AxisTrack::new())
+    ///     .shade(Shade::new(1_000, 2_000).name("deletion"))
+    ///     .to_svg();
+    ///
+    /// assert!(svg.contains("<title>deletion, 1,001 to 2,000</title>"));
+    /// assert!(svg.contains("Shaded: deletion, 1,001 to 2,000.</desc>"));
+    /// ```
+    pub fn shade(mut self, shade: Shade) -> Self {
+        self.shades.push(shade);
+        self
+    }
+
+    /// The stretches shaded, in the order they were given.
+    pub fn shades(&self) -> &[Shade] {
+        &self.shades
+    }
+
     /// Appends a track below the ones already added.
     pub fn push(mut self, track: impl Track + 'static) -> Self {
         self.tracks.push(Box::new(track));
@@ -488,7 +552,7 @@ impl Figure {
         } else {
             String::new()
         };
-        match named.as_slice() {
+        let made = match named.as_slice() {
             [] => format!("A karyon figure{over}, with no tracks."),
             [one] => format!("A karyon figure{over}, with one track: {one}."),
             [first @ .., last] => format!(
@@ -496,6 +560,15 @@ impl Figure {
                 named.len(),
                 first.join(", ")
             ),
+        };
+        // A shade is a stretch someone chose to point at, which is a thing
+        // the figure knows for certain and a reader who cannot see the wash
+        // would otherwise never hear of.
+        let shaded: Vec<String> = self.shaded().iter().map(|shade| shade.said()).collect();
+        if shaded.is_empty() {
+            made
+        } else {
+            format!("{made} Shaded: {}.", shaded.join("; "))
         }
     }
 
@@ -588,13 +661,34 @@ impl Figure {
             );
         }
 
-        let mut y = layout.margin_top + layout.header_height;
-        for ((track, height), shared) in self
+        // The shades first, behind every track, and nothing at all where none
+        // is in view: an empty group here was one more id taken, and every
+        // clip after it moved, in every figure that shades nothing.
+        let plot_right = layout.plot_x + layout.plot_width;
+        let columns = shade::columns(
+            &self.shades,
+            &self.region,
+            &layout.scale,
+            layout.plot_x,
+            plot_right,
+        );
+        let runs = if columns.is_empty() {
+            Vec::new()
+        } else {
+            self.shade_runs(&layout)
+        };
+        if !runs.is_empty() {
+            shade::wash(&mut svg, &columns, &runs, &theme);
+        }
+
+        for (((track, height), shared), top) in self
             .tracks
             .iter()
             .zip(&layout.track_heights)
             .zip(&layout.scales)
+            .zip(&layout.track_tops)
         {
+            let y = *top;
             let band = Rect {
                 x: layout.plot_x,
                 y,
@@ -696,12 +790,16 @@ impl Figure {
             };
             track.draw(&mut ctx);
             svg.end_group();
+        }
 
-            // No rule between one track and the next. The gap separates them
-            // and each name sits level with the middle of its own band; a
-            // hairline across the full width was one more line in a figure
-            // made of lines, and the one that measured nothing.
-            y += height + layout.track_gap;
+        // The edges over every track, from under the row of names, and the
+        // names in it: an edge drawn from the top of the row struck through
+        // the name it stood beside.
+        if let Some(&(top, _)) = runs.first() {
+            shade::edges(&mut svg, &columns, &runs, top + layout.name_row, &theme);
+            if layout.name_row > 0.0 {
+                shade::names(&mut svg, &columns, top, layout.name_row, plot_right, &theme);
+            }
         }
 
         svg.finish(
@@ -854,6 +952,38 @@ impl Figure {
         // if something were willing to draw it.
         const TALLEST: f64 = (1u64 << 53) as f64;
 
+        // The row the names of the shades are written in, directly above the
+        // first band they are drawn across, and only while one with a name is
+        // in view: 19.5 pixels at the plain scale, which a figure shading
+        // nothing it names does not pay.
+        let first_shaded = self.tracks.iter().position(|track| track.shows_shades());
+        let name_row = match first_shaded {
+            Some(_) if shade::any_named(&self.shades, &self.region) => {
+                theme.font_size + 8.0 * spacing
+            }
+            _ => 0.0,
+        };
+        // Where each band starts, worked out here once rather than counted up
+        // as the tracks are drawn, so the shades drawn before them know where
+        // the bands will be. No rule between one track and the next: the gap
+        // separates them and each name sits level with the middle of its own
+        // band, and a hairline across the full width was one more line in a
+        // figure made of lines, and the one that measured nothing.
+        let mut track_tops = Vec::with_capacity(track_heights.len());
+        let mut y = margin_top + header_height;
+        for (index, height) in track_heights.iter().enumerate() {
+            if name_row > 0.0 && first_shaded == Some(index) {
+                y += name_row;
+            }
+            track_tops.push(y);
+            y += height + track_gap;
+        }
+        let content_height = if name_row > 0.0 {
+            content_height + name_row
+        } else {
+            content_height
+        };
+
         Layout {
             width,
             scale,
@@ -861,16 +991,59 @@ impl Figure {
             plot_x,
             axis_width,
             plot_width,
-            header_height,
             header_baseline,
-            margin_top,
             margin_right,
             margin_left,
-            track_gap,
             track_heights,
+            track_tops,
+            name_row,
             total_height: (margin_top + header_height + content_height + margin_bottom)
                 .min(TALLEST),
         }
+    }
+
+    /// Each run of bands in a row whose track shows shades, top and bottom,
+    /// the first reaching up over the row of names. A band that does not show
+    /// them ends a run, and the gap after it is not shaded.
+    fn shade_runs(&self, layout: &Layout) -> Vec<(f64, f64)> {
+        let mut runs: Vec<(f64, f64)> = Vec::new();
+        let mut open: Option<(f64, f64)> = None;
+        for ((track, top), height) in self
+            .tracks
+            .iter()
+            .zip(&layout.track_tops)
+            .zip(&layout.track_heights)
+        {
+            if track.shows_shades() {
+                let bottom = top + height;
+                open = Some(open.map_or((*top, bottom), |(from, _)| (from, bottom)));
+            } else if let Some(run) = open.take() {
+                runs.push(run);
+            }
+        }
+        runs.extend(open);
+        if let Some(first) = runs.first_mut() {
+            first.0 -= layout.name_row;
+        }
+        runs
+    }
+
+    /// The shades a reader is shown: those touching the window, where some
+    /// band shows them.
+    fn shaded(&self) -> Vec<&Shade> {
+        if !self.takes_shades() {
+            return Vec::new();
+        }
+        self.shades
+            .iter()
+            .filter(|shade| shade.touches(&self.region))
+            .collect()
+    }
+
+    /// Whether any band of the figure would show a shade: whether
+    /// [`Figure::shade`] can mark anything in it at all.
+    pub(crate) fn takes_shades(&self) -> bool {
+        self.tracks.iter().any(|track| track.shows_shades())
     }
 
     /// Room for the widest label plus the quiet gap between labels and axes.
@@ -937,13 +1110,15 @@ struct Layout {
     plot_x: f64,
     axis_width: f64,
     plot_width: f64,
-    header_height: f64,
     header_baseline: f64,
-    margin_top: f64,
     margin_right: f64,
     margin_left: f64,
-    track_gap: f64,
     track_heights: Vec<f64>,
+    /// Where each band starts.
+    track_tops: Vec<f64>,
+    /// How tall the row of shade names is, above the first band that shows
+    /// shades, or nought where no named shade is in view.
+    name_row: f64,
     total_height: f64,
 }
 
@@ -1754,5 +1929,370 @@ mod tests {
             .collect();
         assert_eq!(clips.len(), 2, "{svg}");
         assert_eq!(clips[0], clips[1], "{svg}");
+    }
+
+    /// A number out of an attribute of the element at the start of `tag`.
+    fn attribute(tag: &str, name: &str) -> f64 {
+        let key = format!(" {name}=\"");
+        let at = tag
+            .find(&key)
+            .unwrap_or_else(|| panic!("no {name} in {tag}"))
+            + key.len();
+        tag[at..].split('"').next().unwrap().parse().unwrap()
+    }
+
+    /// Every rectangle of the wash titled `said`, as x, y, width and height,
+    /// and where in the document the group of them starts.
+    fn washes(svg: &str, said: &str) -> (usize, Vec<(f64, f64, f64, f64)>) {
+        let title = format!("<g><title>{said}</title>");
+        let at = svg
+            .find(&title)
+            .unwrap_or_else(|| panic!("no wash titled {said} in {svg}"));
+        let group = &svg[at + title.len()..];
+        let group = &group[..group.find("</g>").unwrap()];
+        let rects = group
+            .split("<rect")
+            .skip(1)
+            .map(|rect| {
+                assert!(rect.contains(r#"fill-opacity="0.08""#), "{rect}");
+                (
+                    attribute(rect, "x"),
+                    attribute(rect, "y"),
+                    attribute(rect, "width"),
+                    attribute(rect, "height"),
+                )
+            })
+            .collect();
+        (at, rects)
+    }
+
+    /// The dashed edges drawn over the tracks, as x, top and bottom.
+    fn edges(svg: &str) -> Vec<(f64, f64, f64)> {
+        let Some(at) = svg.find(r#"<g pointer-events="none"><line"#) else {
+            return Vec::new();
+        };
+        let group = &svg[at..];
+        let group = &group[..group.find("</g>").unwrap()];
+        group
+            .split("<line")
+            .skip(1)
+            .map(|line| {
+                assert!(line.contains("stroke-dasharray"), "{line}");
+                (
+                    attribute(line, "x1"),
+                    attribute(line, "y1"),
+                    attribute(line, "y2"),
+                )
+            })
+            .collect()
+    }
+
+    fn shaded_region() -> Region {
+        Region::new("chr1", 0, 10_000).unwrap()
+    }
+
+    /// A depth, a gene and a ruler over ten kilobases.
+    fn stack() -> Figure {
+        Figure::new(shaded_region())
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]).label("depth"))
+            .push(FeatureTrack::new(vec![
+                Feature::new(2_000, 6_000).name("geneA")
+            ]))
+            .push(AxisTrack::new())
+    }
+
+    fn tree() -> crate::TreeTrack {
+        crate::TreeTrack::new(crate::Tree::parse_newick("((a:1,b:1):1,c:2);").unwrap())
+    }
+
+    /// Nothing is drawn for a shade the window does not reach, not even an
+    /// empty group: one took an id, and every clip after it in the document
+    /// moved, in every figure that shaded nothing.
+    #[test]
+    fn a_shade_outside_the_window_draws_exactly_what_no_shade_draws() {
+        let plain = stack();
+        let away = stack()
+            .shade(Shade::new(20_000, 30_000).name("elsewhere"))
+            .shade(Shade::new(10_000, 10_500));
+        assert_eq!(plain.to_svg(), away.to_svg());
+        assert_eq!(plain.dimensions(), away.dimensions());
+        // Nor for one ending where the window starts: half-open, its last
+        // base is the one before the first drawn, and counted in view it drew
+        // an edge and a name row over a stretch with no base on the page.
+        let later = |figure: Figure| {
+            figure
+                .push(CoverageTrack::new(1_000, vec![30.0; 1_000]).label("depth"))
+                .push(AxisTrack::new())
+        };
+        let window = Region::new("chr1", 1_000, 2_000).unwrap();
+        let plain = later(Figure::new(window.clone()));
+        let before = later(Figure::new(window)).shade(Shade::new(0, 1_000).name("before"));
+        assert_eq!(plain.to_svg(), before.to_svg());
+        assert_eq!(plain.dimensions(), before.dimensions());
+        // And nothing for a shade in view of a figure no band of which
+        // shows it.
+        let trees = Figure::new(shaded_region())
+            .push(tree())
+            .shade(Shade::new(1_000, 2_000).name("deletion"));
+        assert_eq!(
+            trees.to_svg(),
+            Figure::new(shaded_region()).push(tree()).to_svg()
+        );
+    }
+
+    #[test]
+    fn a_shade_is_drawn_behind_every_band_on_the_coordinates() {
+        let figure = stack().shade(Shade::new(1_000, 2_000));
+        let layout = figure.layout();
+        let svg = figure.to_svg();
+        let (at, rects) = washes(&svg, "1,001 to 2,000");
+        // Behind: written before the first track's clip.
+        assert!(at < svg.find("<g clip-path=").unwrap(), "{svg}");
+        assert_eq!(rects.len(), 1, "one column down the whole run: {rects:?}");
+        let (x, y, width, height) = rects[0];
+        let first = layout.track_tops[0];
+        let last = layout.track_tops[2] + layout.track_heights[2];
+        assert!((y - first).abs() < 1e-3, "{y} against {first}");
+        assert!(
+            (y + height - last).abs() < 1e-3,
+            "{} against {last}",
+            y + height
+        );
+        assert!((x - layout.scale.x(1_000)).abs() < 1e-3, "{x}");
+        assert!((x + width - layout.scale.x(2_000)).abs() < 1e-3, "{width}");
+        // An edge each side, over the tracks, after the last of them.
+        assert_eq!(edges(&svg).len(), 2, "{svg}");
+        assert!(svg.rfind("<g clip-path=").unwrap() < svg.find("pointer-events").unwrap());
+    }
+
+    #[test]
+    fn a_shade_breaks_at_a_track_that_is_not_on_the_coordinates() {
+        let figure = Figure::new(shaded_region())
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]))
+            .push(tree())
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]))
+            .shade(Shade::new(1_000, 2_000));
+        let layout = figure.layout();
+        let (_, rects) = washes(&figure.to_svg(), "1,001 to 2,000");
+        assert_eq!(rects.len(), 2, "{rects:?}");
+        let (top, bottom) = (
+            layout.track_tops[1],
+            layout.track_tops[1] + layout.track_heights[1],
+        );
+        for (_, y, _, height) in &rects {
+            assert!(
+                y + height <= top + 1e-3 || *y >= bottom - 1e-3,
+                "a wash from {y} to {} crosses the tree from {top} to {bottom}",
+                y + height
+            );
+        }
+    }
+
+    #[test]
+    fn a_shade_never_reaches_into_the_gutter_or_an_axis() {
+        // A labelled depth with a value axis, and a stretch that starts
+        // before the window and ends after it.
+        let figure = Figure::new(Region::new("chr1", 1_000, 2_000).unwrap())
+            .push(CoverageTrack::new(1_000, vec![40.0; 1_000]).label("depth"))
+            .shade(Shade::new(0, 5_000));
+        let layout = figure.layout();
+        assert!(layout.axis_width > 0.0);
+        let svg = figure.to_svg();
+        let (_, rects) = washes(&svg, "1 to 5,000");
+        let (x, _, width, _) = rects[0];
+        assert!(
+            (x - layout.plot_x).abs() < 1e-3,
+            "{x} against {}",
+            layout.plot_x
+        );
+        assert!((x + width - (layout.plot_x + layout.plot_width)).abs() < 1e-3);
+        // Both ends are outside the window, so neither has an edge.
+        assert!(edges(&svg).is_empty(), "{svg}");
+        // A base at the window's first, widened to be seen, is widened into
+        // the plotting area and not over the axis beside it.
+        let first = Figure::new(Region::new("chr1", 1_000, 2_000).unwrap())
+            .width(300.0)
+            .push(CoverageTrack::new(1_000, vec![40.0; 1_000]).label("depth"))
+            .shade(Shade::new(1_000, 1_001));
+        let layout = first.layout();
+        assert!(
+            layout.scale.px_per_bp() < 2.0,
+            "{}",
+            layout.scale.px_per_bp()
+        );
+        let (_, rects) = washes(&first.to_svg(), "1,001 to 1,001");
+        assert!(
+            rects[0].0 >= layout.plot_x - 1e-3,
+            "{} against {}",
+            rects[0].0,
+            layout.plot_x
+        );
+    }
+
+    #[test]
+    fn a_named_shade_in_view_adds_one_row_and_an_unnamed_one_adds_none() {
+        let (_, plain) = stack().dimensions();
+        let (_, named) = stack()
+            .shade(Shade::new(1_000, 2_000).name("deletion"))
+            .dimensions();
+        assert_eq!(named - plain, 19.5, "a line of type and eight pixels");
+        let (_, unnamed) = stack().shade(Shade::new(1_000, 2_000)).dimensions();
+        assert_eq!(unnamed, plain);
+        let (_, away) = stack()
+            .shade(Shade::new(20_000, 21_000).name("deletion"))
+            .dimensions();
+        assert_eq!(away, plain);
+        // Two named shades share the one row.
+        let (_, two) = stack()
+            .shade(Shade::new(1_000, 2_000).name("one"))
+            .shade(Shade::new(5_000, 6_000).name("two"))
+            .dimensions();
+        assert_eq!(two, named);
+    }
+
+    #[test]
+    fn the_name_row_sits_above_the_first_band_on_the_coordinates() {
+        let figure = Figure::new(shaded_region())
+            .push(tree())
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]))
+            .shade(Shade::new(1_000, 2_000).name("deletion"));
+        let layout = figure.layout();
+        let svg = figure.to_svg();
+        let at = svg.find(">deletion</text>").expect("the name is written");
+        let tag = &svg[svg[..at].rfind("<text").unwrap()..at];
+        let y = attribute(tag, "y");
+        let tree_bottom = layout.track_tops[0] + layout.track_heights[0];
+        let depth_top = layout.track_tops[1];
+        assert!(
+            y > tree_bottom && y < depth_top,
+            "the name at {y}, the tree ending at {tree_bottom}, the depth starting at {depth_top}"
+        );
+        // The tree stays where it was, and the depth moves down by the row.
+        let plain = Figure::new(shaded_region())
+            .push(tree())
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]))
+            .layout();
+        assert_eq!(layout.track_tops[0], plain.track_tops[0]);
+        assert_eq!(layout.track_tops[1] - plain.track_tops[1], layout.name_row);
+        // The wash goes up over the row and the edges start under it.
+        let (_, rects) = washes(&svg, "deletion, 1,001 to 2,000");
+        assert!((rects[0].1 - (depth_top - layout.name_row)).abs() < 1e-3);
+        let drawn = edges(&svg);
+        assert_eq!(drawn.len(), 2);
+        for (_, top, _) in drawn {
+            assert!((top - depth_top).abs() < 1e-3, "an edge from {top}");
+        }
+    }
+
+    #[test]
+    fn a_shade_narrower_than_two_pixels_is_two_pixels_with_one_edge() {
+        let svg = stack()
+            .width(900.0)
+            .shade(Shade::new(5_000, 5_001))
+            .to_svg();
+        let (_, rects) = washes(&svg, "5,001 to 5,001");
+        assert!((rects[0].2 - 2.0).abs() < 1e-3, "{rects:?}");
+        let drawn = edges(&svg);
+        assert_eq!(drawn.len(), 1, "{drawn:?}");
+        let middle = rects[0].0 + 1.0;
+        assert!(
+            (drawn[0].0 - middle).abs() < 1e-3,
+            "{drawn:?} against {middle}"
+        );
+    }
+
+    /// Every value of one attribute of every `tag` element in `svg`.
+    fn attributes<'a>(svg: &'a str, tag: &str, name: &str) -> Vec<&'a str> {
+        let key = format!(" {name}=\"");
+        svg.split(&format!("<{tag}"))
+            .skip(1)
+            .filter_map(|element| {
+                let element = &element[..element.find('>').unwrap_or(element.len())];
+                let at = element.find(&key)? + key.len();
+                element[at..].split('"').next()
+            })
+            .collect()
+    }
+
+    /// A shade of its own colour takes it on the wash and on both edges, and
+    /// one of none takes the foreground ink for the wash and the muted ink
+    /// for the edges.
+    #[test]
+    fn a_shade_s_colour_is_its_wash_and_its_edges() {
+        let theme = Theme::light();
+        for (shade, wash, edge) in [
+            (
+                Shade::new(1_000, 2_000).color("#d55e00"),
+                "#d55e00",
+                "#d55e00",
+            ),
+            (
+                Shade::new(1_000, 2_000),
+                theme.foreground.as_str(),
+                theme.muted.as_str(),
+            ),
+        ] {
+            let svg = stack().theme(theme.clone()).shade(shade).to_svg();
+            let title = "<g><title>1,001 to 2,000</title>";
+            let group = &svg[svg.find(title).unwrap() + title.len()..];
+            let group = &group[..group.find("</g>").unwrap()];
+            assert_eq!(attributes(group, "rect", "fill"), [wash], "{group}");
+            let inert = &svg[svg.find(r#"<g pointer-events="none"><line"#).unwrap()..];
+            let inert = &inert[..inert.find("</g>").unwrap()];
+            assert_eq!(attributes(inert, "line", "stroke"), [edge, edge], "{inert}");
+        }
+    }
+
+    #[test]
+    fn the_edges_are_inert_and_the_wash_answers_hover() {
+        let svg = stack()
+            .shade(Shade::new(1_000, 2_000).name("deletion"))
+            .to_svg();
+        assert!(svg.contains("<g><title>deletion, 1,001 to 2,000</title><rect"));
+        let inert = svg
+            .find(r#"<g pointer-events="none"><line"#)
+            .expect("inert edges");
+        let group = &svg[inert..];
+        let group = &group[..group.find("</g>").unwrap()];
+        assert!(!group.contains("<title>"), "{group}");
+        assert_eq!(group.matches("<line").count(), 2);
+    }
+
+    #[test]
+    fn two_names_that_would_collide_are_cut_to_the_room_between_them() {
+        // Starting 85 bases apart, under seven pixels at 900 wide over ten
+        // kilobases, which is no room for the first name.
+        let svg = stack()
+            .shade(Shade::new(1_000, 1_040).name("first stretch"))
+            .shade(Shade::new(1_085, 1_100).name("second stretch"))
+            .to_svg();
+        let written = drawn_text(&svg);
+        assert!(!written.contains("first"), "{written}");
+        assert!(written.contains("second stretch"), "{written}");
+        // Both are still said where a reader can find them.
+        assert!(svg.contains("<title>first stretch, 1,001 to 1,040</title>"));
+        assert!(svg.contains("<title>second stretch, 1,086 to 1,100</title>"));
+    }
+
+    #[test]
+    fn the_alt_text_names_the_shaded_stretches() {
+        let svg = stack()
+            .shade(Shade::new(1_000, 2_000).name("deletion"))
+            .shade(Shade::new(5_000, 6_000))
+            .shade(Shade::new(50_000, 60_000).name("not in view"))
+            .to_svg();
+        assert!(
+            svg.contains(" Shaded: deletion, 1,001 to 2,000; 5,001 to 6,000.</desc>"),
+            "{svg}"
+        );
+        // A description of one's own is kept as it was written.
+        let own = stack()
+            .description("Depth falls across the deletion.")
+            .shade(Shade::new(1_000, 2_000).name("deletion"))
+            .to_svg();
+        assert!(
+            own.contains(">Depth falls across the deletion.</desc>"),
+            "{own}"
+        );
     }
 }
