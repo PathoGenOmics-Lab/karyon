@@ -46,7 +46,7 @@ Four rules cover every command:
 
 | A file named | Is drawn as |
 |:--|:--|
-| `.bam`, `.cram` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
+| `.bam` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
 | `.sam` | its reads (`--pileup`) |
 | `.vcf`, `.bcf` | its calls (`--variants`) |
 | `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
@@ -290,7 +290,7 @@ takes.
 | `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
-| `--max <V>` | a number above nought, the top of the scale, as `100` for a depth | `--coverage`, `--recombination`, `--manhattan` | the largest value in view, rounded up |
+| `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
 | `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
@@ -564,6 +564,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
+| `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
@@ -588,6 +589,52 @@ karyon NC_000962.3:761,000-762,999 \
 ![The rpoB locus with depth, reference, annotation and variant bands](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 <figcaption>Drawn in this page's theme; switch the page to dark with the button at the top to see what `--theme dark` draws.</figcaption>
 </figure>
+
+### Shading a stretch
+
+`--shade` marks a stretch down the whole figure, behind every track laid on the
+coordinates, as a genome browser marks a region of interest. The place is
+written as the figure's place is, and a name after `=` is written at the head
+of the column:
+
+```bash
+karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
+  --shade NC_000962.3:761,082-761,162=RRDR --shade rpoC -o rpoB.svg
+```
+
+- **A span, one base, a gene or a span with no sequence.** `chr1:1,001-2,000`
+  is a span and `chr1:1,500` one base, which marks one column. A gene the
+  annotation names, as `--shade katG`, is shaded from its own start to its
+  own end, without the margin a figure placed on the gene is drawn with; a
+  gene of `--loci` where its row draws it, whichever genome its first column
+  names. A span with no sequence, as `120-180`, is on whatever axis the figure
+  has: an alignment's columns, a table's weeks or years, said as its ruler
+  says them, or the one sequence it is drawn over.
+- **Behind the tracks, edged over them.** The wash is under every track, so no
+  colour in the figure changes, and its two ends are dashed lines drawn over
+  the tracks, so a heatmap whose cells hide the wash still shows where the
+  stretch starts and stops.
+- **Only what is on the coordinates.** A phylogeny, a tanglegram, a
+  variable-site panel, an ideogram and the key are not, and the column stops
+  at them and goes on under them. Synteny is not shaded either, since its
+  lower bar is the other sequence on a scale of its own.
+- **Each panel its own.** With several places, each panel shades what is on
+  its sequence. A stretch on a sequence no place is on is refused; one on the
+  right sequence and outside the window is drawn as nothing, with a note on
+  standard error, so a figure moved past it is still drawn. A scan across the
+  whole genome is shaded on one of its sequences, as `7:1,001-2,000`, since it
+  reads no annotation to find a gene in.
+- **Never a file.** Many intervals from a BED are what `--features` draws, and
+  `--shade genes.bed` is refused with that.
+
+```text
+$ karyon chr1:1-1,000 depth.bedgraph --shade chr2:100-200
+karyon: --shade chr2:100-200 is on chr2, and the figure is drawn over chr1:1-1,000
+```
+
+Other tools call this highlighting. Here `--highlight` marks the clades of a
+`--tree`, and a place written after it is answered with the `--shade` that
+draws it.
 
 ## Standard input
 

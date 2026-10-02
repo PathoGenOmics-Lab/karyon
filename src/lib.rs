@@ -61,6 +61,9 @@
 //! assert!(svg.starts_with("<svg"));
 //! ```
 //!
+//! A stretch worth pointing at, a deletion or the gene a scan peaks over, is
+//! shaded down the whole stack by [`Plot::shade`] with a [`Shade`].
+//!
 //! # Neither layer draws what the other cannot
 //!
 //! [`plot()`] is the short way to write a figure down: one call per track, in
@@ -144,6 +147,7 @@ pub mod read;
 pub mod region;
 pub mod rings;
 pub mod scale;
+pub mod shade;
 pub mod style;
 pub mod svg;
 pub mod theme;
@@ -165,6 +169,7 @@ pub use crate::rings::{
     AxisRing, Drawing, FeatureRing, MarkerRing, Polar, Ring, RingContext, Rings, SignalRing,
 };
 pub use crate::scale::Scale;
+pub use crate::shade::Shade;
 pub use crate::style::{
     AxisFormat, Density, Emphasis, LinePattern, MarkStyle, QuantitativeAxis, ReferenceLine,
     RenderProfile, Symbol, VisualTokens,

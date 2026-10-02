@@ -618,10 +618,37 @@ pub struct Named {
 /// BED row by its fourth column. The name is matched exactly, and failing
 /// that in any case, so `RPOB` finds `rpoB` where nothing is called `RPOB`.
 pub fn named(text: &str, name: &str) -> Named {
+    let mut each = named_each(text, &[name]);
+    Named {
+        spans: each.spans.pop().unwrap_or_default(),
+        names: each.names,
+        spelled: each.spelled.pop().flatten(),
+    }
+}
+
+/// Where an annotation names each of several genes, found in one pass.
+#[derive(Debug, Default)]
+pub(crate) struct NamedEach {
+    /// For each name asked for, in the order asked, the rows that go by it,
+    /// as [`Named::spans`] gives them for one.
+    pub(crate) spans: Vec<Vec<(String, u64, u64)>>,
+    /// Every name the annotation gives, each once.
+    pub(crate) names: Vec<String>,
+    /// For each name asked for, the name as the annotation spells it.
+    pub(crate) spelled: Vec<Option<String>>,
+}
+
+/// The rows that go by each of `wanted`, as [`named`] finds them for one,
+/// in one pass over the annotation.
+///
+/// One pass for all of them because the pass is the cost: a figure that
+/// shaded eight genes of a 63 MB GFF3 read it eight times, a second each.
+pub(crate) fn named_each(text: &str, wanted: &[&str]) -> NamedEach {
     let flavour = flavour(text, None);
-    let mut found = Named::default();
+    let mut names = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
-    let mut loose = Vec::new();
+    let mut exact: Vec<Vec<(String, u64, u64)>> = vec![Vec::new(); wanted.len()];
+    let mut loose: Vec<Vec<(String, u64, u64, String)>> = vec![Vec::new(); wanted.len()];
     for (_, line) in lines(text) {
         let cols = columns(line);
         let (start, end, calls): (Option<u64>, Option<u64>, Vec<String>) = match flavour {
@@ -660,29 +687,37 @@ pub fn named(text: &str, name: &str) -> Named {
         }
         for call in &calls {
             if seen.insert(call.clone()) {
-                found.names.push(call.clone());
+                names.push(call.clone());
             }
         }
-        if calls.iter().any(|call| call == name) {
-            found
-                .spans
-                .push((sequence.to_string(), start, end.max(start + 1)));
-            found.spelled = Some(name.to_string());
-        } else if let Some(call) = calls.iter().find(|call| call.eq_ignore_ascii_case(name)) {
-            loose.push((
-                sequence.to_string(),
-                start,
-                end.max(start + 1),
-                call.clone(),
-            ));
+        let end = end.max(start + 1);
+        for (index, name) in wanted.iter().enumerate() {
+            if calls.iter().any(|call| call == name) {
+                exact[index].push((sequence.to_string(), start, end));
+            } else if let Some(call) = calls.iter().find(|call| call.eq_ignore_ascii_case(name)) {
+                loose[index].push((sequence.to_string(), start, end, call.clone()));
+            }
         }
     }
-    if found.spans.is_empty() {
-        found.spelled = loose.first().map(|(_, _, _, call)| call.clone());
-        found.spans = loose
-            .into_iter()
-            .map(|(sequence, start, end, _)| (sequence, start, end))
-            .collect();
+    let mut found = NamedEach {
+        names,
+        ..NamedEach::default()
+    };
+    for ((name, exact), loose) in wanted.iter().zip(exact).zip(loose) {
+        if exact.is_empty() {
+            found
+                .spelled
+                .push(loose.first().map(|(_, _, _, call)| call.clone()));
+            found.spans.push(
+                loose
+                    .into_iter()
+                    .map(|(sequence, start, end, _)| (sequence, start, end))
+                    .collect(),
+            );
+        } else {
+            found.spelled.push(Some((*name).to_string()));
+            found.spans.push(exact);
+        }
     }
     found
 }
@@ -1604,5 +1639,26 @@ chr1\t.\tCDS\tten\t900\t.\t+\t0\tID=c1;Parent=g1
         let short = cytoband("chr21\t0\n", "chr21").unwrap_err();
         assert_eq!(short.line, 1);
         assert!(short.to_string().contains("chrom start end"), "{short}");
+    }
+
+    /// Several names looked up in one pass find what each looked up alone
+    /// finds, the loose match in any case included, in the order asked.
+    #[test]
+    fn several_names_in_one_pass_are_each_what_one_name_finds() {
+        let each = named_each(GFF3, &["rpoC", "RPOB", "katG"]);
+        assert_eq!(each.spans.len(), 3);
+        for (index, name) in ["rpoC", "RPOB", "katG"].into_iter().enumerate() {
+            let one = named(GFF3, name);
+            assert_eq!(each.spans[index], one.spans, "{name}");
+            assert_eq!(each.spelled[index], one.spelled, "{name}");
+            assert_eq!(each.names, one.names, "{name}");
+        }
+        assert_eq!(
+            each.spans[1],
+            [("NC_000962.3".to_string(), 759_806, 763_325)]
+        );
+        assert_eq!(each.spelled[1].as_deref(), Some("rpoB"));
+        assert!(each.spans[2].is_empty());
+        assert_eq!(named_each(BED, &[]).spans.len(), 0);
     }
 }

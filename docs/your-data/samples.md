@@ -48,6 +48,8 @@ value to a row.
 | What is known about each sample, beside the rows | `--traits samples.tsv` |
 | Thinner rows | `--row-height 6` |
 | One stretch of the genome | `NC_000962.3:1,300,000-1,600,000` as the place |
+| Read several heatmaps off one colour scale, the gain ending at three times the usual depth | `--max 3` after `--relative` |
+| Shade the stretch the clade lost, down the whole figure | `--shade NC_000962.3:1,400,001-1,500,000=lost` |
 
 The example file: [depths.tsv](../data/depths.tsv), with
 [tree.nwk](../data/tree.nwk). Every option: `karyon help heatmap`, or the
