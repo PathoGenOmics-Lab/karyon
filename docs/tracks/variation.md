@@ -130,7 +130,7 @@ The call of each sample at each site of a cohort's VCF: one row per sample and o
 | `.min_cell_width(4.0)` | Narrowest a cell is drawn, which is also how close two sites can be before they are pooled | `3` |
 | `.max_rows(Some(100))` | Caps the sample rows drawn; `None` lifts the cap (`--max-rows`) | `Some(40)` |
 | `.show_names(false)` | Shows or hides sample names (`--no-names`) | shown |
-| `.color("#d55e00")` | The hue of an alternate call | theme accent |
+| `.color("#d55e00")` | The hue of an alternate call | the theme's ink, a colour no category of a strip takes |
 | `.tree(tree)` | Draws a phylogeny beside the rows and puts them in the order of its tips (`--with-tree`) | none |
 | `.tree_width(120.0)` | Width of the tree strip in pixels | `90` |
 | `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |

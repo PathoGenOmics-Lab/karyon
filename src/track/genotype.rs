@@ -506,7 +506,14 @@ impl GenotypeTrack {
         self
     }
 
-    /// Sets the hue of an alternate call, the theme accent by default.
+    /// Sets the hue of an alternate call, the theme's ink by default.
+    ///
+    /// The ink rather than the accent, because the accent is the first colour
+    /// of the palette a `--traits` strip deals from: beside a strip of
+    /// lineages, the alternate calls were the colour of one lineage, and a
+    /// reader matching colours read a genotype as a lineage. A call is a
+    /// quantity, how many copies are not the reference, and is drawn in the
+    /// one colour no category takes.
     pub fn color(mut self, color: impl Into<String>) -> Self {
         self.color = Some(color.into());
         self
@@ -758,7 +765,9 @@ impl GenotypeTrack {
     }
 
     fn hue(&self, theme: &Theme) -> String {
-        self.color.clone().unwrap_or_else(|| theme.accent.clone())
+        self.color
+            .clone()
+            .unwrap_or_else(|| theme.foreground.clone())
     }
 
     /// Paints one run of a row, `x` and `width` in the figure's pixels.
@@ -1262,7 +1271,7 @@ mod tests {
             .unwrap();
         let cells: Vec<Mark> = marks(&svg)
             .into_iter()
-            .filter(|mark| mark.fill == theme.accent && mark.h == 11.0)
+            .filter(|mark| mark.fill == theme.foreground && mark.h == 11.0)
             .collect();
         assert_eq!(cells.len(), 1, "{cells:?}");
         let cell = &cells[0];
@@ -1296,7 +1305,7 @@ mod tests {
         assert!(rest.iter().all(|mark| mark.h == 11.0), "{rest:?}");
 
         for theme in [Theme::light(), Theme::dark()] {
-            let hue = theme.accent.clone();
+            let hue = theme.foreground.clone();
             let colors = [
                 GenotypeTrack::reference_color(&theme),
                 GenotypeTrack::step_color(LEVELS / 2, &hue, &theme),
@@ -1355,7 +1364,7 @@ mod tests {
         };
         let carrying = pooled("0/1");
         assert!(!carrying.is_empty());
-        let first = GenotypeTrack::step_color(1, &theme.accent, &theme);
+        let first = GenotypeTrack::step_color(1, &theme.foreground, &theme);
         assert!(
             carrying
                 .iter()
