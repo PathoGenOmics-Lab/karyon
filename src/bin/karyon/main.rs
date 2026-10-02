@@ -19,7 +19,9 @@
 //!
 //! The figure goes to standard output unless `-o` names a file, since a track
 //! plot is usually one step of a pipeline rather than the end of one, and the
-//! same is true on the way in: any track may read `-`, and one of them may.
+//! same is true on the way in: any track may read `-`, and one of them may. A
+//! file whose name ends in `.pdf` gets the figure as PDF, converted from the
+//! SVG by [`karyon::Pdf`]; any other name, and standard output, get the SVG.
 
 use karyon::cli::{args, stack};
 
@@ -49,7 +51,7 @@ need none, and a scan alone is drawn across every chromosome. Each file is a
 track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA,
 Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is its
 depth, and a track flag chooses another kind, as --pileup reads.bam. The
-figure is SVG, on standard output unless -o names one.
+figure is SVG, on standard output unless -o names one, and PDF for -o x.pdf.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -67,7 +69,7 @@ TRACKS, by what they draw
     scales                --axis
 
 FIGURE OPTIONS, anywhere on the line
-    --title <TEXT>   --width <PX>   --theme light|dark   -o <FILE>
+    --title <TEXT>   --width <PX>   --theme light|dark   -o fig.svg|fig.pdf
 
 MORE
     karyon help <track>   what one track reads and the options it takes,
@@ -695,8 +697,10 @@ FIGURE OPTIONS
                          --color-by paints, as country=Peru:#e7298a; values
                          joined by commas, and the flag again for another
                          column. Every sheet of the figure takes them
-    -o, --output <FILE>  standard output by default. The figure is SVG, so a
-                         name ending in .png, .pdf or another format is refused
+    -o, --output <FILE>  standard output by default. A name ending in .pdf is
+                         written as PDF and any other as SVG; one ending in
+                         .png, .eps or another format is refused, and the
+                         message names a tool that makes it from one of them
     -h, --help
     -V, --version
 
@@ -771,6 +775,17 @@ fn run(args: &[String]) -> Result<(), String> {
         eprintln!("karyon: {note}");
     }
     match &invocation.output {
+        Some(path) if invocation.writes_pdf() => {
+            let pdf = karyon::Pdf::from_svg(&svg)
+                .ok_or_else(|| format!("{}: the figure has no size", path.display()))?;
+            // The same rule as the notes above: the PDF is written, and what
+            // it could not carry over from the SVG is said, not refused.
+            for note in &pdf.notes {
+                eprintln!("karyon: {}: {note}", path.display());
+            }
+            pdf.save(path)
+                .map_err(|error| format!("{}: {error}", path.display()))?
+        }
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?
         }
@@ -792,6 +807,32 @@ mod tests {
     #[test]
     fn help_is_printed_rather_than_a_figure() {
         assert!(run(&["--help".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn an_output_named_pdf_is_written_as_pdf_and_any_other_as_svg() {
+        let folder = std::env::temp_dir().join(format!("karyon-pdf-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let fasta = folder.join("ref.fa");
+        fs::write(&fasta, ">chr1\nACGTACGTACGTACGTACGT\n").unwrap();
+        let draw = |name: &str| {
+            let out = folder.join(name);
+            let argv: Vec<String> = ["chr1:1-20", fasta.to_str().unwrap(), "-o"]
+                .iter()
+                .map(|word| word.to_string())
+                .chain([out.display().to_string()])
+                .collect();
+            run(&argv).unwrap();
+            fs::read(out).unwrap()
+        };
+        for name in ["fig.pdf", "FIG.PDF"] {
+            let pdf = draw(name);
+            assert!(pdf.starts_with(b"%PDF-1.4\n"), "{name}");
+            assert!(pdf.ends_with(b"%%EOF\n"), "{name}");
+        }
+        let svg = draw("fig.svg");
+        assert!(svg.starts_with(b"<svg "));
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

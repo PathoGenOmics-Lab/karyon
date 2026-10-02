@@ -29,6 +29,7 @@ use std::io;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use crate::pdf::Pdf;
 use crate::rings::Drawing;
 use crate::style::{RenderProfile, Symbol};
 use crate::svg::{finite_within, fit_text, num, Anchor, SvgWriter};
@@ -568,6 +569,21 @@ impl Map {
     /// Saves the SVG document to `path`.
     pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
         fs::write(path, self.to_svg())
+    }
+
+    /// Renders the map as a one-page PDF, converted from
+    /// [`Map::to_svg`]; see [`Pdf`] for what carries over.
+    pub fn to_pdf(&self) -> Pdf {
+        crate::pdf::drawn(&self.to_svg())
+    }
+
+    /// Renders the map as PDF and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_pdf(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        self.to_pdf().save(path)
     }
 
     fn document_name(&self) -> String {

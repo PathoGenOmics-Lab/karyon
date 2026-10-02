@@ -21,6 +21,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--color` refuses a value holding `=`, which is `--colors` with a letter
   lost, and names `--colors`; taken as a paint, `country=Peru:#e7298a` went
   into the fill as written, which is no colour at all.
+- A name ending in `.png`, `.eps` or another format is still refused by
+  `-o`, and the message now names the file karyon would write instead and a
+  tool that makes the format asked for from it: `rpoB.png names a PNG file,
+  and karyon writes SVG and PDF: write rpoB.pdf and convert it with pdftoppm,
+  or rpoB.svg with rsvg-convert, Inkscape or a browser`. An EPS is answered
+  with `pdftops -eps`, an EMF with Inkscape and a `.svgz` with gzip, since
+  pdftoppm writes none of them. `--pdf` is answered with `-o figure.pdf`, and
+  `--png`, `--jpg` and `--dpi` with the tools that make an image from either.
+- `Plot::save` writes PDF when the name it is given ends in `.pdf`, where it
+  wrote SVG into a file of that name, which no PDF reader opens.
 - A Windows build answers a file that is not text with the command piped
   into `-`, as `pipe what bcftools view calls.bcf writes into karyon, with -
   where its name is`, where it offered `<(bcftools view calls.bcf)`: cmd and
@@ -378,6 +388,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   already draws each RNA with its 5' leader at half height. No common format
   says how an RNA stops, so `TranscriptionUnitTrack` stays library only, and
   the annotation reference says what does reach the command line.
+- PDF: `-o figure.pdf` writes the figure as a one-page PDF, and every drawing,
+  `Figure`, `Panels`, `Rings`, `Map` and `PhyloMap`, has `to_pdf` and
+  `save_pdf` beside `to_svg` and `save_svg`, with `Plot::to_pdf` for a plot.
+  The PDF is the SVG read back by `Pdf::from_svg`, not a second way of
+  drawing, so a track written outside the crate gets one for nothing. A pixel
+  is three quarters of a point, the size Inkscape and `rsvg-convert` give the
+  SVG; text is set in Helvetica, Courier and Symbol with no font embedded, and
+  stays text; a coverage fade is an image with its opacity in a mask, which
+  Ghostscript, poppler, Quartz, Chrome and Inkscape all draw in full; and the
+  figure's title and description are the document's title, subject and alt
+  text. `Pdf::notes` names anything the page could not carry, as a character
+  no base font has, and the command line prints it. `Pdf::from_svg` reads a
+  length in pixels or any absolute unit, so an SVG sized in millimetres comes
+  out at its size with its drawing scaled to fit, and names a percentage or an
+  `em` in the notes rather than dropping it. The reference has a page on how
+  the PDF is made.
 - `Figure::shade` and `Plot::shade` shade a stretch of the axis down every
   band laid on it, a `Shade` each, as a genome browser marks a region of
   interest; `Shade::name` writes its name at the head of the column and

@@ -4,10 +4,21 @@
 # drawn twice, for the light page and the dark one.
 #
 #   sh docs/data/draw.sh path/to/karyon
+#   sh docs/data/draw.sh path/to/karyon pdf some/folder
+#
+# The second form draws the same figures with the same commands as PDF, into
+# a folder of its own, for CI to read back with Ghostscript and poppler. It
+# goes through the command line's own `-o`, which is the way a reader of the
+# site gets one; no PDF is committed.
 set -e
 karyon="${1:-karyon}"
+kind="${2:-svg}"
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$here/../assets/start"
+if [ "$kind" = pdf ]; then
+  mkdir -p "${3:?a folder to draw the PDFs into}"
+  out="$(cd "$3" && pwd)"
+fi
 mkdir -p "$out"
 cd "$here"
 # Each is drawn on the colour of the page it sits on, light or dark, so it is
@@ -16,6 +27,11 @@ cd "$here"
 # playground holds the two to one figure.
 draw() {
   name="$1"; shift
+  if [ "$kind" = pdf ]; then
+    "$karyon" "$@" --width 720 --background '#fbfaff' -o "$out/$name.pdf"
+    "$karyon" "$@" --width 720 --theme dark --background '#0d0822' -o "$out/$name-dark.pdf"
+    return
+  fi
   "$karyon" "$@" --width 720 --background '#fbfaff' 2>/dev/null > "$out/$name.svg"
   "$karyon" "$@" --width 720 --theme dark --background '#0d0822' 2>/dev/null > "$out/$name-dark.svg"
 }

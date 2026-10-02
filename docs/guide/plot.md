@@ -306,7 +306,7 @@ The pending track goes into the figure when the plot moves on:
 | `add_track`, `add_boxed` | is added, then the track you pass | `Plot<Empty>` |
 | `done()` | is added | `Plot<Empty>` |
 | `save(path)` | is added, and the ruler appended | `Plot<Empty>` |
-| `into_figure()`, `to_svg()` | is added, and the ruler appended | the `Figure`, or the SVG |
+| `into_figure()`, `to_svg()`, `to_pdf()` | is added, and the ruler appended | the `Figure`, the SVG, or the PDF |
 
 **A stack built in a loop.** Every arm of a loop or an `if` must have one type,
 and a plot's type changes with every `add_`. `done()` puts the pending track
@@ -453,9 +453,10 @@ can sit anywhere in the chain.
 
 ### Render and save
 
-`to_svg()` returns the figure as a standalone SVG document in a `String`.
-`save(path)` writes it and hands the plot back, which lets one stack be drawn
-twice:
+`to_svg()` returns the figure as a standalone SVG document in a `String`, and
+`to_pdf()` the same drawing as a [PDF](#pdf). `save(path)` writes it, as PDF
+when the name ends in `.pdf` and as SVG under any other, and hands the plot
+back, which lets one stack be drawn twice:
 
 ```rust
 use karyon::{plot, Theme};
@@ -464,7 +465,7 @@ plot("plasmid:1-2000")?
     .add_coverage(depth)
     .save("light.svg")?
     .theme(Theme::dark())
-    .save("dark.svg")?;
+    .save("dark.pdf")?;
 ```
 
 A save closes the stack: it puts the pending track away and appends the ruler.
@@ -498,7 +499,7 @@ returns a `Result`, and rendering never fails.
 | `Genome::checked(sequences)` | `Error::DuplicateSequence` when two sequences share a name |
 | `Tree::parse`, `Tree::parse_all`, `Tree::parse_newick`, `Tree::parse_annotated_newick`, `Tree::parse_nexus` | `Error::InvalidNewick`, `Error::InvalidNexus` |
 | the readers in `karyon::read` | `ReadError`, with the line number and the reason: see [File formats](formats.md) |
-| `save`, `save_svg` | the `std::io::Error` of the write |
+| `save`, `save_svg`, `save_pdf`, `Pdf::save` | the `std::io::Error` of the write |
 
 `karyon::Error` converts into `std::io::Error`, so a function that returns
 `std::io::Result` can use `?` on the locus and on the file alike, as the
@@ -713,8 +714,9 @@ they were given.
 
 `to_svg()` returns a standalone SVG 1.1 document as a `String`, and
 `save_svg(path)` renders and writes it, returning whatever the write returns.
-The `save` and `save_svg` methods are the only calls in the library that write a
-file.
+`to_pdf()` and `save_pdf(path)` do the same as [PDF](#pdf). The `save`,
+`save_svg` and `save_pdf` methods, and `Pdf::save`, are the only calls in the
+library that write a file.
 
 Every document names and describes itself for screen readers. Its `<title>` is
 the title and the locus, or the locus alone, and its `<desc>` defaults to a list
@@ -742,6 +744,31 @@ generates starting with `prefix`, for nesting it inside another SVG by hand.
     first one's bands. A prefixed render also leaves out its own `<title>` and
     `<desc>`, since a nested drawing must not name itself: the document it goes
     into does that.
+
+### PDF
+
+`to_pdf()` returns a `Pdf`: its `bytes`, from `%PDF` to `%%EOF`, and its
+`notes`, each way the page differs from the SVG it was converted from, for a
+person to read. The notes are empty for everything the crate draws unless a
+label holds a character no base font has, such as a sample name in Cyrillic,
+which is drawn as a question mark and named.
+
+```rust
+use karyon::{plot, Pdf};
+
+let figure = plot("chr1:1-1000")?.add_coverage(depth).into_figure();
+let pdf = figure.to_pdf();
+assert!(pdf.notes.is_empty());
+pdf.save("depth.pdf")?;
+
+// Any SVG written in the same terms converts, such as a drawing of your own.
+let pdf = Pdf::from_svg(&figure.to_svg()).expect("a root <svg> with a size");
+```
+
+The PDF is read from the SVG rather than drawn a second time, its text is set
+in Helvetica, Courier and Symbol with no font embedded, and a pixel is three
+quarters of a point. [How the PDF is made](../how-it-works/pdf.md) says what
+that keeps and what it changes.
 
 ## Panels: several drawings on one sheet
 
@@ -785,8 +812,9 @@ the drawing does not reach the sheet.
 | `visual_scale(f64)` | `1.0` | scales the panels, letters, captions, gaps and margins together, panels already added included |
 | `align_plot_areas(bool)` | `true` | starts the data of every linear figure at the same x |
 
-`len()`, `is_empty()` and `dimensions()` read the sheet back; `to_svg()` and
-`save_svg(path)` render it.
+`len()`, `is_empty()` and `dimensions()` read the sheet back; `to_svg()`,
+`save_svg(path)`, `to_pdf()` and `save_pdf(path)` render it, the PDF as one page
+with each panel clipped to its own box.
 
 - **Column by column.** Panels fill each column top to bottom before starting
   the next, so the letters still read in order, as they do down the columns of a
@@ -917,10 +945,10 @@ arbitrary. `origin_gap(0.0)` closes it.
 
 `length()`, `ring_count()`, `dimensions()` and `inner_radius()` read the plot
 back, the last being the radius where chords start. `push_boxed`, `to_svg`,
-`to_svg_with_id_prefix` and `save_svg` work as they do on `Figure`. A ring type
-of your own implements the `Ring` trait: `thickness()`, an optional `gap()`
-(5 pixels by default) and `draw(ctx)`, which draws between the two radii in the
-`RingContext` it is given.
+`to_svg_with_id_prefix`, `save_svg`, `to_pdf` and `save_pdf` work as they do on
+`Figure`. A ring type of your own implements the `Ring` trait: `thickness()`,
+an optional `gap()` (5 pixels by default) and `draw(ctx)`, which draws between
+the two radii in the `RingContext` it is given.
 
 ## Genome: several sequences on one axis
 
