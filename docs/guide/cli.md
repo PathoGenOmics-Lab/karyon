@@ -782,8 +782,11 @@ a GFF3 beside the calls took 8.9 seconds and 1.3 GB, since the calls were read
 whole while the gene was looked for and again to draw it, and takes 7 ms: only
 their header is read while the gene is looked for, for the lengths it states.
 
-The figure is the one the whole file draws, byte for byte, since the same
-rows reach the same reader. These tracks read through an index, each written
+The figure is the one the whole file draws, byte for byte, wherever the whole
+file draws one, since the same rows reach the same reader. Rows outside the
+region are not read at all, so a row the whole file is refused for, as a VCF
+line of seven columns, refuses only a region it lies over, and a figure of
+any other region is drawn. These tracks read through an index, each written
 as the command beside it writes one:
 
 | Track | The file, and its index |
@@ -793,8 +796,17 @@ as the command beside it writes one:
 | `--features` | a BED: `tabix -p bed genes.bed.gz`; a GFF3 that says `##gff-version 3`, sorted with `sort -k1,1 -k4,4n`: `tabix -p gff genes.gff3.gz` |
 | `--junctions` | an SJ.out.tab: `tabix -s1 -b2 -e3 SJ.out.tab.gz` |
 | `--methylation`, with `--modification` | a bedMethyl: `tabix -p bed calls.bed.gz` |
-| `--manhattan`, over a place | an association table: `tabix -s1 -b2 -e2 scan.tsv.gz` for PLINK 2's `#CHROM` line or no header, and `-S1` with the columns where they are for a plain header line, as `-S1 -s1 -b3 -e3` for PLINK 1 |
+| `--manhattan`, over a place | an association table: `tabix -s1 -b2 -e2 scan.tsv.gz` for PLINK 2's `#CHROM` line or no header, and `-S1` with the columns where they are for a plain header line, as `-S1 -s1 -b3 -e3` for PLINK 1 once its spaces are tabs |
 | `--heatmap` | a table of windows with a header: `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` |
+
+PLINK 1 pads its columns with spaces, and tabix splits a row on tabs alone,
+so it refuses PLINK 1's table as it is written. Turned into tabs first, it
+indexes:
+
+```bash
+awk -v OFS='\t' '{$1 = $1; print}' plink.assoc | bgzip > plink.assoc.gz
+tabix -S1 -s1 -b3 -e3 plink.assoc.gz
+```
 
 A GFF3 is read over the region and then over as far as the genes over it
 reach, so a gene whose intron covers the window comes with every exon. The
@@ -808,6 +820,12 @@ rest are read whole with an index beside them, each for a reason:
   CDS rows only, so a window inside an intron holds no row of its gene.
   GENCODE and Ensembl ship the same genes as GFF3, which is read through its
   index.
+- **A GFF3 whose exons name a transcript it has no row for**, as a GTF turned
+  into GFF3 line by line is written: the transcript reaches from its first
+  exon to its last, and no row says so. The rows the file opens with show
+  it, or the rows over the region; a file that writes its transcripts' rows
+  where it opens and leaves them out further on is drawn through its index
+  without the transcripts that have no exon over the region.
 - **A bedMethyl with no `--modification`**: the codes it offers to choose from
   are every code in the file.
 - **A long table of windows**, which names its samples on its rows.
@@ -824,7 +842,10 @@ The index is looked for where htslib looks for it: `calls.vcf.gz.csi`,
 `Held`, it is read the same way.
 
 An index that does not fit its file is not read: the file is read whole, which
-draws the same figure, and a note says why:
+draws the same figure, and a note says why, where the file would have been
+read through a sound index. Beside a GTF, or any other file read whole with
+its index beside it, the note is left out, since an index written again
+would leave it read whole:
 
 ```text
 karyon: calls.vcf.gz.tbi is older than calls.vcf.gz, so it was not trusted and the file was read whole; tabix -f -p vcf calls.vcf.gz writes it again

@@ -1890,10 +1890,11 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 // only where nothing else places the figure. Read whole here
                 // and again by its track, the calls beside the annotation a
                 // gene is found in cost 8.9 s and 1.3 GB for one gene of a
-                // VCF of 825 MB, which now takes 7 ms.
+                // VCF of 825 MB, which now takes 7 ms. An index that is not
+                // trusted is said by the track, as `slurp` reads it.
                 None if own && through_index(spec.kind) && spec.kind != Kind::Features => {
                     match indexed(files, source) {
-                        Some(found) => {
+                        Ok(found) => {
                             lengths.extend(
                                 sequence_lengths(&found.head.text)
                                     .into_iter()
@@ -1902,7 +1903,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                             reaches.push(Reach::Later(spec, source));
                             continue;
                         }
-                        None => match files.text(source) {
+                        Err(_) => match files.text(source) {
                             Ok(text) => text,
                             Err(_) => continue,
                         },
@@ -2115,7 +2116,7 @@ fn nowhere(
         // A file read through its index names its sequences in the index,
         // and the lengths of some in its header, so neither is read whole.
         let named = through_index(spec.kind)
-            .then(|| indexed(files, source))
+            .then(|| indexed(files, source).ok())
             .flatten()
             .map(|found| {
                 let mut sequences: Vec<(String, usize)> = sequence_lengths(&found.head.text)
@@ -2651,12 +2652,17 @@ fn slurp(
         let per_pixel = region.len() as f64 / width.max(1.0);
         return natively(spec, region, per_pixel, binary, file, called(source));
     }
+    let mut untrusted = None;
     if !whole && through_index(spec.kind) {
-        if let Some(window) = windowed(spec, region, files, source) {
-            return Ok(window);
+        match windowed(spec, region, files, source) {
+            Ok(window) => return Ok(window),
+            Err(why) => untrusted = why,
         }
     }
     let (text, path) = fetch(spec.kind.flag(), source, files)?;
+    if let Some(untrusted) = untrusted {
+        untrusted.say(spec, region, &text, files);
+    }
     Ok(Slurped {
         text,
         path,
@@ -2857,9 +2863,10 @@ fn refused_window(
 /// is drawn only where it lies, and is read without the rows around it, so
 /// the rows over the window are every row it draws. A reader that comes to
 /// draw a row away from where it lies, or to read the rows of a whole file
-/// for something, takes its kind off this list. [`windowed`] asks a few more
-/// of a file whose kind is here: a GFF3 has to say it is one, since its
-/// window is widened to its genes; a bedMethyl is read through the index only
+/// for something, takes its kind off this list. [`windowable`] asks a few
+/// more of a file whose kind is here: a GFF3 has to say it is one, since its
+/// window is widened to its genes, and [`windowed`] has it write a row for
+/// every transcript its exons name; a bedMethyl is read through the index only
 /// with `--modification`, since the codes a file holds are offered from all
 /// its rows; and a table of windows has to be the wide one, since the long
 /// one names its samples on its rows. A scan with no header is read as
@@ -2881,6 +2888,9 @@ fn refused_window(
 ///   and CDS rows, so a window inside an intron holds no row of its gene even
 ///   widened, and 328 of 400 drew differently. GENCODE and Ensembl ship the
 ///   same genes as GFF3, which with its gene rows drew none differently.
+/// - A GFF3 whose exons name a transcript it has no row for, for the same
+///   reason: the transcript reaches from its first exon to its last, and no
+///   row says so.
 /// - Pairs, LD tables and PAF, which name a second place the index was not
 ///   built on; SAM text, which has the BAM's own index; the Bismark extractor
 ///   file, which is not sorted by position; cytoBand, whose sequence is as
@@ -2918,25 +2928,78 @@ struct Indexed {
 impl Indexed {
     /// The sequences the file has rows on, each with how many, in the order
     /// the file first names them, as the index counts them. `None` where the
-    /// index leaves a count out, which the format allows.
+    /// index leaves a count out, which the format allows, and where the
+    /// counts add up to more than a count can hold, which only a damaged
+    /// index says. Added up as they came, such counts stopped the program
+    /// with an overflow; an index that counts nothing has the file read
+    /// whole where its count is wanted.
     fn counted(&self) -> Option<Vec<(String, usize)>> {
         let names = self.index.names();
-        let counted: Option<Vec<(String, usize)>> = names
+        let counted: Vec<(String, usize)> = names
             .iter()
             .enumerate()
             .map(|(at, name)| {
                 let rows = self.index.summary(at)?.placed;
                 Some((name.clone(), usize::try_from(rows).ok()?))
             })
-            .collect();
-        counted.map(|all| all.into_iter().filter(|(_, rows)| *rows > 0).collect())
+            .collect::<Option<_>>()?;
+        counted
+            .iter()
+            .try_fold(0usize, |all, (_, rows)| all.checked_add(*rows))?;
+        Some(counted.into_iter().filter(|(_, rows)| *rows > 0).collect())
+    }
+}
+
+/// An index beside a file that was not trusted, and why, for the note
+/// [`Untrusted::say`] writes once the file is read whole.
+struct Untrusted {
+    /// The note, which ends with what writes the index again.
+    note: String,
+    /// The columns the index says the file has, where it reads as an index.
+    columns: Option<read::index::Columns>,
+}
+
+impl Untrusted {
+    /// Why an index was not trusted, as [`indexed`] gives it, with the
+    /// columns of `index` where it read as one.
+    fn new(note: String, index: Option<&read::index::Index>) -> Option<Self> {
+        Some(Untrusted {
+            note,
+            columns: index.and_then(read::index::Index::columns),
+        })
+    }
+
+    /// Says why the index was not trusted, where `text`, the whole file read
+    /// in its place, shows that a sound one would have been read over
+    /// `region`: by the file's header and first row, as [`windowable`] tells
+    /// them, and for a GFF3 by every transcript its exons on the region's
+    /// sequence name having a row. A GTF, a bedMethyl with no code named and
+    /// the other files read whole with an index beside them are read whole
+    /// however sound their index, so the note is left out: written again as
+    /// it asked, the index changed nothing.
+    fn say(self, spec: &TrackSpec, region: &Region, text: &str, files: &mut dyn Files) {
+        let header = text
+            .split_inclusive('\n')
+            .take_while(|line| line.starts_with('#'))
+            .map(str::len)
+            .sum();
+        let zero_based = self.columns.map_or(true, |columns| columns.zero_based);
+        let sequence = Region::new(region.seq(), 0, u64::MAX).ok();
+        let through = match windowable(spec, &text[..header], text, zero_based) {
+            Some((_, models)) => !models || !read::interval::parentless(text, sequence.as_ref()),
+            None => false,
+        };
+        if through {
+            files.note(&self.note);
+        }
     }
 }
 
 /// The tabix index beside a bgzipped text file, read and checked against the
-/// file: `None` for a file that is not gzip or has no index beside it, and
-/// for one whose index is not trusted, which is said, and the file is read
-/// whole as though there were none.
+/// file. `Err(None)` for a file that is not gzip or has no index beside it,
+/// and `Err` with why for one whose index is not trusted: the file is read
+/// whole as though there were none, and [`Untrusted::say`] says why where
+/// the index would have been read.
 ///
 /// The index is looked for as htslib looks for it, a `.csi` before a `.tbi`,
 /// each after the whole name and then in place of its last extension:
@@ -2955,21 +3018,32 @@ impl Indexed {
 /// note asking for the index again; a copy that did not keep the times, `cp`
 /// without `-p`, `rsync` without `-t` or an archive unpacked without them, is
 /// reason enough for it.
-fn indexed(files: &mut dyn Files, source: &Source) -> Option<Indexed> {
+///
+/// The note waits for the whole read because the header and the first row
+/// that say whether the file is read through its index at all are read
+/// through the index: written here, an index older than a GTF asked to be
+/// written again, and the GTF was read whole as before once it was.
+fn indexed(files: &mut dyn Files, source: &Source) -> Result<Indexed, Option<Untrusted>> {
     let Source::Path(path) = source else {
-        return None;
+        return Err(None);
     };
-    let mut file = files.seekable(source).ok()??;
+    let mut file = files.seekable(source).ok().flatten().ok_or(None)?;
     // The gzip header, and the extra field bgzip writes the size of each
     // block in, which is what an index needs to point into the file.
     let mut first = Vec::with_capacity(18);
-    file.by_ref().take(12).read_to_end(&mut first).ok()?;
+    file.by_ref()
+        .take(12)
+        .read_to_end(&mut first)
+        .map_err(|_| None)?;
     if !read::gzip::is_gzip(&first) {
-        return None;
+        return Err(None);
     }
     if first.len() == 12 && first[3] & 0x04 != 0 {
         let extra = u64::from(u16::from_le_bytes([first[10], first[11]]));
-        file.by_ref().take(extra).read_to_end(&mut first).ok()?;
+        file.by_ref()
+            .take(extra)
+            .read_to_end(&mut first)
+            .map_err(|_| None)?;
     }
     // A BAM and a BCF are bgzip on the outside too, and are named for what
     // they are by their own reader or by the whole text's refusal.
@@ -2977,7 +3051,7 @@ fn indexed(files: &mut dyn Files, source: &Source) -> Option<Indexed> {
         Binary::of(&first, Some(path)),
         Some(Binary::Bam | Binary::Bcf)
     ) {
-        return None;
+        return Err(None);
     }
     let beside = match files.beside(source, ".csi") {
         Ok(None) => files.beside(source, ".tbi"),
@@ -2986,52 +3060,62 @@ fn indexed(files: &mut dyn Files, source: &Source) -> Option<Indexed> {
     let file_name = called(source);
     let beside = match beside {
         Ok(Some(beside)) => beside,
-        Ok(None) => return None,
+        Ok(None) => return Err(None),
         Err(error) => {
-            files.note(&format!(
-                "the index beside {file_name} could not be read ({error}), so the file was \
-                 read whole"
-            ));
-            return None;
+            return Err(Untrusted::new(
+                format!(
+                    "the index beside {file_name} could not be read ({error}), so the file \
+                     was read whole"
+                ),
+                None,
+            ))
         }
     };
     let name = beside.name.clone();
     let parsed = read::index::parse(&beside.bytes);
     let again = rewritten(&name, parsed.as_ref().ok(), &file_name);
     if !read::bgzf::is_bgzf(&first) {
-        files.note(&format!(
-            "{file_name} is compressed with gzip rather than bgzip, so {name} beside it has \
-             no blocks to point to, and the file was read whole; gunzip it, bgzip it and \
-             index it again to read it a window at a time"
+        return Err(Untrusted::new(
+            format!(
+                "{file_name} is compressed with gzip rather than bgzip, so {name} beside it \
+                 has no blocks to point to, and the file was read whole; gunzip it, bgzip it \
+                 and index it again to read it a window at a time"
+            ),
+            parsed.as_ref().ok(),
         ));
-        return None;
     }
     if beside.older {
-        files.note(&format!(
-            "{name} is older than {file_name}, so it was not trusted and the file was read \
-             whole; {again}"
+        return Err(Untrusted::new(
+            format!(
+                "{name} is older than {file_name}, so it was not trusted and the file was \
+                 read whole; {again}"
+            ),
+            parsed.as_ref().ok(),
         ));
-        return None;
     }
     let index = match parsed {
         Ok(index) => index,
         Err(error) => {
-            files.note(&format!(
-                "{name} cannot be read as an index ({error}), so {file_name} was read whole; \
-                 {again}"
-            ));
-            return None;
+            return Err(Untrusted::new(
+                format!(
+                    "{name} cannot be read as an index ({error}), so {file_name} was read \
+                     whole; {again}"
+                ),
+                None,
+            ))
         }
     };
-    file.seek(io::SeekFrom::Start(0)).ok()?;
+    file.seek(io::SeekFrom::Start(0)).map_err(|_| None)?;
     let head = match read::tabix::head(&mut file, &index) {
         Ok(head) => head,
         Err(error) => {
-            files.note(&not_described(&name, &file_name, &error, &again));
-            return None;
+            return Err(Untrusted::new(
+                not_described(&name, &file_name, &error, &again),
+                Some(&index),
+            ))
         }
     };
-    Some(Indexed {
+    Ok(Indexed {
         file,
         index,
         head,
@@ -3092,10 +3176,82 @@ fn rewritten(name: &str, index: Option<&read::index::Index>, file: &str) -> Stri
     format!("tabix -f{csi} {options} {file} writes it again")
 }
 
+/// What a track's file is read as through the index beside it, and whether
+/// its window is widened to the gene models over it, by the file's header and
+/// `probe`, which holds its first row; `None` for a file read whole whatever
+/// its index. `zero_based` is whether the index counts from nought, as a
+/// BED's does.
+///
+/// A file named on its own is the kind its first row says. A feature file is
+/// a GFF3 that says it is one, whose window is widened, or a BED indexed as
+/// one; a GTF, and a GFF3 that does not say it is one, are read whole. So is
+/// a bedMethyl with no `--modification` and a long table of windows, as
+/// [`through_index`] says why.
+fn windowable(
+    spec: &TrackSpec,
+    header: &str,
+    probe: &str,
+    zero_based: bool,
+) -> Option<(Kind, bool)> {
+    let kind = spec
+        .guessed
+        .then(|| refine(spec.kind, probe))
+        .flatten()
+        .unwrap_or(spec.kind);
+    let gff3 = header.lines().any(|line| {
+        line.strip_prefix("##gff-version")
+            .is_some_and(|version| version.trim_start().starts_with('3'))
+    });
+    let models = match kind {
+        Kind::Features => match (gff3, spec.format) {
+            (true, None | Some(crate::Format::Gff3)) => true,
+            (false, None | Some(crate::Format::Bed)) if zero_based => false,
+            _ => return None,
+        },
+        Kind::Methylation if spec.selects.is_none() => return None,
+        Kind::Heatmap if read::table::is_long(probe) => return None,
+        kind if through_index(kind) => false,
+        _ => return None,
+    };
+    Some((kind, models))
+}
+
+/// How far past its first row a GFF3 read through its index is read for
+/// exons naming a transcript it never writes, which [`opens_parentless`]
+/// looks for.
+const OPENING: u64 = 100_000;
+
+/// Whether the rows a GFF3 opens with, over [`OPENING`] bases from its first
+/// row, hold a model with no row of its own, as
+/// [`read::interval::parentless`] tells one: every exon of a file written
+/// without its transcripts' rows does, wherever the window is. `true` where
+/// they cannot be read, for the file to be read whole, and `false` for a
+/// file of no rows.
+fn opens_parentless(found: &mut Indexed, files: &mut dyn Files, path: &str) -> bool {
+    let Some(first) = found.head.first_row.clone() else {
+        return false;
+    };
+    let opening = found
+        .index
+        .columns()
+        .and_then(|columns| read::tabix::placed(&first, &columns))
+        .and_then(|(sequence, start)| {
+            Region::new(sequence, start, start.saturating_add(OPENING)).ok()
+        });
+    let Some(opening) = opening else {
+        return true;
+    };
+    rows_over(found, &opening, files, path).map_or(true, |text| {
+        read::interval::parentless(&text, Some(&opening))
+    })
+}
+
 /// A track's own file read over the window through the tabix index beside
 /// it, where [`through_index`] lists its kind, the index is trusted and the
-/// file is one the kind reads the same from its window; `None` otherwise,
-/// for the whole text to be read.
+/// file is one the kind reads the same from its window. `Err(None)` for the
+/// whole text to be read, and `Err` with why the index was not trusted, for
+/// [`Untrusted::say`] to say once the whole text shows whether it would have
+/// been read.
 ///
 /// The text is the header and the rows over the window, which the readers
 /// take as they take the whole file. Beside it, the header and the first row
@@ -3105,54 +3261,52 @@ fn rewritten(name: &str, index: Option<&read::index::Index>, file: &str) -> Stri
 /// index that left it out. A GFF3 is read twice: over the window, and then
 /// over as far as the gene models over it reach, so a gene whose intron
 /// covers the window comes with its exons.
+///
+/// A GFF3 whose exons name a transcript it never writes is read whole, as a
+/// GTF is: the transcript is drawn from its first exon to its last, and a
+/// window between two of them holds neither, so it was left out of the
+/// figure, and a window over one drew that exon alone, where the whole file
+/// draws the transcript across it. Every row over the window that names its
+/// transcript has it among the rows read, since a transcript's row spans its
+/// exons, so one that does not is such a file; and the rows the file opens
+/// with say the same of a file that writes no transcript's row at all, which
+/// is how such files are written. A file that writes its transcripts' rows
+/// at its start and leaves them out further on is drawn through its index
+/// without the transcripts that leave no row over the window.
 fn windowed(
     spec: &TrackSpec,
     region: &Region,
     files: &mut dyn Files,
     source: &Source,
-) -> Option<Slurped> {
+) -> Result<Slurped, Option<Untrusted>> {
     let mut found = indexed(files, source)?;
-    let columns = found.index.columns()?;
+    let columns = found.index.columns().ok_or(None)?;
     let head = &found.head;
     let probe = format!(
         "{}{}\n",
         head.text,
         head.first_row.as_deref().unwrap_or_default()
     );
-    // Named on its own, the file is read as the kind its first row says.
-    let kind = spec
-        .guessed
-        .then(|| refine(spec.kind, &probe))
-        .flatten()
-        .unwrap_or(spec.kind);
-    let gff3 = head.text.lines().any(|line| {
-        line.strip_prefix("##gff-version")
-            .is_some_and(|version| version.trim_start().starts_with('3'))
-    });
-    let models = match kind {
-        Kind::Features => match (gff3, spec.format) {
-            (true, None | Some(crate::Format::Gff3)) => true,
-            (false, None | Some(crate::Format::Bed)) if columns.zero_based => false,
-            _ => return None,
-        },
-        Kind::Methylation if spec.selects.is_none() => return None,
-        Kind::Heatmap if read::table::is_long(&probe) => return None,
-        kind if through_index(kind) => false,
-        _ => return None,
-    };
+    let (kind, models) = windowable(spec, &head.text, &probe, columns.zero_based).ok_or(None)?;
     let held = found
         .counted()
         .map(|counted| counted.iter().map(|(_, rows)| rows).sum());
     if held.is_none() && matches!(kind, Kind::Junctions | Kind::Dynseq | Kind::Methylation) {
-        return None;
+        return Err(None);
     }
     let path = called(source);
-    let mut text = rows_over(&mut found, region, files, &path)?;
+    let mut text = rows_over(&mut found, region, files, &path).ok_or(None)?;
     if models {
         let (from, to) = read::interval::reach(&text, region, spec.format);
+        let mut over = region.clone();
         if from < region.start() || to > region.end() {
-            let wider = Region::new(region.seq(), from, to).ok()?;
-            text = rows_over(&mut found, &wider, files, &path)?;
+            over = Region::new(region.seq(), from, to).map_err(|_| None)?;
+            text = rows_over(&mut found, &over, files, &path).ok_or(None)?;
+        }
+        if read::interval::parentless(&text, Some(&over))
+            || opens_parentless(&mut found, files, &path)
+        {
+            return Err(None);
         }
     } else if kind == Kind::Features
         && read::interval::flavour(&text, spec.format)
@@ -3160,9 +3314,9 @@ fn windowed(
     {
         // A BED tells itself from a GFF3 by its first row, and the window's
         // first row has to say what the file's does.
-        return None;
+        return Err(None);
     }
-    Some(Slurped {
+    Ok(Slurped {
         text,
         path,
         origin: Origin::Window,
@@ -4489,7 +4643,7 @@ fn explained(
             // chr1, answered without inflating a whole genome's calls.
             let held = match (region, spec.source.as_ref()) {
                 (Some(_), Some(source @ Source::Path(_))) => through_index(spec.kind)
-                    .then(|| indexed(files, source))
+                    .then(|| indexed(files, source).ok())
                     .flatten()
                     .and_then(|found| found.counted())
                     .unwrap_or_else(|| {
@@ -12170,11 +12324,12 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     /// file, over windows wide and narrow, empty, on a sequence the file does
     /// not name and on one it calls otherwise, and refuses what it refuses in
     /// the same words; and it is read through the index, which a figure
-    /// cannot show, so the files read whole are counted too. A GTF, a
-    /// bedMethyl with no code named, structural calls, a long table of
-    /// windows and a BED its first row calls GFF3 are read whole with their
-    /// index beside them, and so is a scan with no header over a window whose
-    /// values all look like p-values, and each draws the same.
+    /// cannot show, so the files read whole are counted too. A GTF, a GFF3
+    /// whose exons name transcripts it has no row for, a bedMethyl with no
+    /// code named, structural calls, a long table of windows and a BED its
+    /// first row calls GFF3 are read whole with their index beside them, and
+    /// so is a scan with no header over a window whose values all look like
+    /// p-values, and each draws the same.
     #[test]
     fn an_indexed_file_draws_what_the_whole_file_draws() {
         let dir = Scratch::new("tabix-parity");
@@ -12184,6 +12339,7 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
             "genes.gff3.gz",
             "genes.bed.gz",
             "exons.gtf.gz",
+            "exons.gff3.gz",
             "methyl.bed.gz",
             "sj.tab.gz",
             "scan1.tsv.gz",
@@ -12283,6 +12439,10 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
                 &chromosomes,
             ),
             (at("exons.gtf.gz"), false, &chromosomes),
+            // The same exons as GFF3, naming transcripts it has no row for:
+            // through the index, a window inside an intron drew nothing and
+            // one over an exon drew it alone.
+            (at("exons.gff3.gz"), false, &chromosomes),
             (
                 format!("--methylation {}", at("methyl.bed.gz")),
                 false,
@@ -12567,13 +12727,12 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     fn an_index_older_than_its_file_is_not_trusted() {
         let dir = Scratch::new("tabix-older");
         let paths = indexed_into(&dir, &["seven.vcf.gz", "cohort.vcf.gz"], &[".tbi"]);
-        for path in &paths {
-            let touched = std::process::Command::new("touch")
-                .args(["-t", "200001010000", &format!("{path}.tbi")])
-                .status()
-                .unwrap();
-            assert!(touched.success());
-        }
+        made_older(
+            &paths
+                .iter()
+                .map(|path| format!("{path}.tbi"))
+                .collect::<Vec<_>>(),
+        );
         // Read whole, the row of seven columns is refused.
         assert!(drawn_from_disk(&format!("chr1:1-1,000 {}", paths[0])).is_err());
         let line = format!("chr1:1-2,000 chr1:400,001-460,000 --variants {}", paths[1]);
@@ -12589,6 +12748,182 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
         );
         fs::remove_file(format!("{}.tbi", paths[1])).unwrap();
         assert_eq!(watched(&line).0, drawn);
+    }
+
+    /// Dates each index in `paths` to the year 2000, older than the file
+    /// beside it.
+    #[cfg(unix)]
+    fn made_older(paths: &[String]) {
+        for path in paths {
+            let touched = std::process::Command::new("touch")
+                .args(["-t", "200001010000", path])
+                .status()
+                .unwrap();
+            assert!(touched.success());
+        }
+    }
+
+    /// The note for an index older than its file gives the command that
+    /// writes it as it was written: `-C` for a `.csi`, which is looked for
+    /// before a `.tbi`, so one written again without it left the older `.csi`
+    /// found first and the same note said again; tabix's word for a GFF3; and
+    /// the columns of a table tabix has no word for.
+    #[cfg(unix)]
+    #[test]
+    fn an_older_index_is_asked_for_as_it_was_written() {
+        let dir = Scratch::new("tabix-again");
+        let csi = indexed_into(&dir, &["cohort.vcf.gz"], &[".csi"]);
+        let tbi = indexed_into(
+            &dir,
+            &["genes.gff3.gz", "windows.tsv.gz", "sj.tab.gz"],
+            &[".tbi"],
+        );
+        made_older(&[
+            format!("{}.csi", csi[0]),
+            format!("{}.tbi", tbi[0]),
+            format!("{}.tbi", tbi[1]),
+            format!("{}.tbi", tbi[2]),
+        ]);
+        for (line, index, options) in [
+            (
+                format!("chr1:400,001-460,000 --variants {}", csi[0]),
+                "csi",
+                "-C -p vcf",
+            ),
+            (format!("chr1:400,001-460,000 {}", tbi[0]), "tbi", "-p gff"),
+            (
+                format!("chr1:400,001-460,000 --heatmap {}", tbi[1]),
+                "tbi",
+                "-s1 -b2 -e3 -0 -S1",
+            ),
+            (
+                format!("chr1:1-20,000 --junctions {}", tbi[2]),
+                "tbi",
+                "-s1 -b2 -e3",
+            ),
+        ] {
+            let file = line.split_whitespace().last().unwrap().to_string();
+            let (_, whole, notes) = watched(&line);
+            assert_eq!(whole, std::slice::from_ref(&file), "{line}");
+            assert_eq!(
+                notes,
+                [format!(
+                    "{file}.{index} is older than {file}, so it was not trusted and the file \
+                     was read whole; tabix -f {options} {file} writes it again"
+                )],
+                "{line}"
+            );
+        }
+    }
+
+    /// An index older than a file read whole whatever its index, a GTF, a
+    /// GFF3 whose exons name transcripts it has no row for, or a bedMethyl
+    /// drawn with no code named, is not asked for again: written again, it
+    /// left the file read whole as before, and the note came back on the
+    /// next figure of a GFF3 that has the same rows. The same index beside a
+    /// bedMethyl drawn with a code named is asked for.
+    #[cfg(unix)]
+    #[test]
+    fn an_older_index_beside_a_file_read_whole_anyway_is_not_asked_for() {
+        let dir = Scratch::new("tabix-older-whole");
+        let paths = indexed_into(
+            &dir,
+            &["exons.gtf.gz", "exons.gff3.gz", "methyl.bed.gz"],
+            &[".tbi"],
+        );
+        made_older(
+            &paths
+                .iter()
+                .map(|path| format!("{path}.tbi"))
+                .collect::<Vec<_>>(),
+        );
+        let place = "chr1:400,001-460,000";
+        for track in [
+            paths[0].clone(),
+            paths[1].clone(),
+            format!("--methylation {}", paths[2]),
+        ] {
+            let (_, whole, notes) = watched(&format!("{place} {track}"));
+            assert_eq!(whole.len(), 1, "{track}: {whole:?}");
+            assert!(notes.is_empty(), "{track}: {notes:?}");
+        }
+        let line = format!("{place} --methylation {} --modification m", paths[2]);
+        let (_, _, notes) = watched(&line);
+        assert_eq!(
+            notes,
+            [format!(
+                "{0}.tbi is older than {0}, so it was not trusted and the file was read \
+                 whole; tabix -f -p bed {0} writes it again",
+                paths[2]
+            )]
+        );
+    }
+
+    /// A GFF3 whose exons name a transcript it has no row for is read whole
+    /// where the rows over the window show one, though its first rows have
+    /// every transcript's: through the index the transcript was drawn as the
+    /// one exon over the window, where the whole file draws it from its
+    /// first exon to its last with the line of its intron. A window whose
+    /// rows have their transcripts is read through the index still.
+    #[test]
+    fn exons_naming_no_row_over_the_window_send_the_file_whole() {
+        let text = "##gff-version 3\n\
+            chr1\t.\tgene\t1001\t9000\t.\t+\t.\tID=g1\n\
+            chr1\t.\tmRNA\t1001\t9000\t.\t+\t.\tID=t1;Parent=g1\n\
+            chr1\t.\texon\t1001\t2000\t.\t+\t.\tParent=t1\n\
+            chr1\t.\texon\t8001\t9000\t.\t+\t.\tParent=t1\n\
+            chr1\t.\texon\t300001\t301000\t.\t+\t.\tParent=t9\n\
+            chr1\t.\texon\t330001\t331000\t.\t+\t.\tParent=t9\n";
+        let data = crate::read::bgzf::fixture::blocks(text.as_bytes(), &[]);
+        let end = ((data.len() as u64) - 31) << 16;
+        // Generic columns counted from one, as `tabix -p gff` writes them.
+        let index = crate::read::index::fixture::rooted(&["chr1"], [0, 1, 4, 5], (0, end));
+        let dir = Scratch::new("tabix-parentless");
+        let gff = dir.write("mixed.gff3.gz", &data);
+        dir.write("mixed.gff3.gz.tbi", &index);
+        for (place, through) in [("chr1:300,501-300,600", false), ("chr1:1-9,000", true)] {
+            let line = format!("{place} {gff}");
+            let (indexed, whole, notes) = watched(&line);
+            fs::rename(format!("{gff}.tbi"), format!("{gff}.aside")).unwrap();
+            let (from_whole, _, _) = watched(&line);
+            fs::rename(format!("{gff}.aside"), format!("{gff}.tbi")).unwrap();
+            assert!(indexed == from_whole, "{line}:\n{indexed}\n{from_whole}");
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+            assert_eq!(whole.is_empty(), through, "{line}: read whole {whole:?}");
+        }
+    }
+
+    /// An index whose counts add up to more than a count holds, which only a
+    /// damaged one says, is read as one that counts nothing: added up, they
+    /// stopped the program with an overflow, over a window and over an empty
+    /// one alike. Each figure, and each refusal, is the whole file's.
+    #[test]
+    fn an_index_whose_counts_overflow_is_read_as_one_that_counts_none() {
+        let dir = Scratch::new("tabix-overflow");
+        let cohort = &indexed_into(&dir, &["cohort.vcf.gz"], &[])[0];
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/read/fixtures/indexed");
+        let packed = fs::read(fixtures.join("cohort.vcf.gz.tbi")).unwrap();
+        let mut tbi = crate::read::gzip::decompress(&packed).unwrap();
+        // The pseudo-bin of each sequence, bin 37450 with two pairs, the
+        // second of which opens with how many rows the sequence has.
+        let pseudo = [0x4a, 0x92, 0, 0, 2, 0, 0, 0];
+        let found: Vec<usize> = (0..tbi.len().saturating_sub(8))
+            .filter(|at| tbi[*at..*at + 8] == pseudo)
+            .collect();
+        assert_eq!(found.len(), 3, "one for each sequence");
+        for at in found {
+            tbi[at + 24..at + 32].copy_from_slice(&(1u64 << 63).to_le_bytes());
+        }
+        dir.write("cohort.vcf.gz.tbi", &tbi);
+        for place in ["chr1:400,001-460,000", "chr9:1-100"] {
+            let line = format!("{place} --variants {cohort}");
+            let (through, _, notes) = watched(&line);
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+            fs::rename(format!("{cohort}.tbi"), format!("{cohort}.aside")).unwrap();
+            let (from_whole, _, _) = watched(&line);
+            fs::rename(format!("{cohort}.aside"), format!("{cohort}.tbi")).unwrap();
+            assert_eq!(through, from_whole, "{line}");
+        }
     }
 
     /// An index for another file, one that is not an index, and one beside a

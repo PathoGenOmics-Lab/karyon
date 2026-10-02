@@ -407,19 +407,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--junctions`, `--heatmap`, `--manhattan` over a place, `--features` of a
   BED or of a GFF3 that says it is one, and `--methylation` given
   `--modification`. The figure is the one the whole file draws, byte for
-  byte. On a VCF of 200 samples and 983,840 rows, 825 MB of text in 82 MB of
-  bgzip, a window of 2,000 bases took 4.35 s and 869 MB and takes 5 ms and
-  4 MB; `--genotypes` over it took 2.84 s and takes 8 ms; a megabase took
-  4.49 s and 882 MB and takes 0.22 s and 70 MB. A figure placed by a gene in
-  a GFF3 beside those calls took 8.85 s and 1.30 GB, the calls read whole
-  once to look the gene up and again to draw it, and takes 7 ms and 4.5 MB:
-  while a place is looked for, such a file is read for its header alone, and
-  for how far its rows reach only where no file says how long the sequence
-  is and no gene is called that. A GFF3 is read over the window and then
-  over as far as the genes over it reach, so a gene whose intron covers the
-  window keeps every exon. Structural calls, a recombination map, a GTF, a
+  byte, wherever the whole file draws one: rows outside the window are not
+  read, so a row the whole file is refused for, as a VCF line of seven
+  columns, refuses only a window it lies over. On a VCF of 200 samples and
+  983,840 rows, 825 MB of text in 82 MB of bgzip, a window of 2,000 bases
+  took 4.35 s and 869 MB and takes 5 ms and 4 MB; `--genotypes` over it took
+  2.84 s and takes 8 ms; a megabase took 4.49 s and 882 MB and takes 0.22 s
+  and 70 MB. A figure placed by a gene in a GFF3 beside those calls took
+  8.85 s and 1.30 GB, the calls read whole once to look the gene up and again
+  to draw it, and takes 7 ms and 4.5 MB: while a place is looked for, such a
+  file is read for its header alone, and for how far its rows reach only where
+  no file says how long the sequence is and no gene is called that. A GFF3 is
+  read over the window and then over as far as the genes over it reach, so a
+  gene whose intron covers the window keeps every exon. Structural calls, a
+  recombination map, a GTF, a GFF3 whose exons name a transcript it has no row
+  for, which the rows it opens with or the rows over the window show, a
   bedMethyl with no code named and a long table of windows are read whole,
-  each for a reason `docs/guide/cli.md` gives.
+  each for a reason `docs/guide/cli.md` gives. The guide turns PLINK 1's
+  table, padded with spaces, into the tabs tabix splits a row on.
 - An empty window of a file read through its index says what the file holds
   from the counts the index keeps, without reading the file whole, and a
   window a reader refuses is read again whole: a row is refused on its line
@@ -432,14 +437,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `-p`, `rsync` without `-t` or an archive unpacked without its times; one
   that does not read as an index; one written for another file, by where its
   rows begin and where it puts them; and one beside a file compressed with
-  gzip rather than bgzip. Files held by `Held` or a playground page, the
-  index beside its file by name, are read the same way.
+  gzip rather than bgzip. The note is written where the file would have
+  been read through a sound index, and not beside a GTF or any other file
+  read whole whatever its index, which an index written again would leave
+  as it was. An index whose counts add up to more than a count holds, which
+  only a damaged one says, is read as one that counts none. Files held by
+  `Held` or a playground page, the index beside its file by name, are read
+  the same way.
 - `read::tabix` reads the rows of a bgzipped text file over a window through
   its index: `head` is the header and the first row, checked against where
   the index says the rows begin, `rows` the rows over a window, stopping at
   the first past its end, and `window` the two together, which every reader
   of text takes as it takes the whole file. `read::interval::reach` is how
-  far the gene models over a window reach either side of it.
+  far the gene models over a window reach either side of it, and
+  `read::interval::parentless` whether rows hold a model with no row of its
+  own, exons naming a transcript the file never writes, which no reach
+  holds.
 - `read::bigwig`, `read::bigbed` and `read::twobit` read UCSC's bigWig, bigBed
   and 2bit a window at a time, through the index each one holds, from anything
   that reads and seeks, and the command line reads all three as they are,

@@ -422,7 +422,7 @@ NC_000962.3  RefSeq  gene  763370  767320  .  +  .  ID=gene-Rv0668;Name=rpoC
 | Columns | 1 sequence, 3 type, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
 | Ignored | 2 source, 6 score, 8 phase |
 | Coordinates | 1-based and inclusive: the start moves back one and the end stays, so `759807 763325` is 0-based `759806..763325` |
-| With an index | read a window at a time where its first line is `##gff-version 3`, through the `.tbi` that `tabix -p gff genes.gff3.gz` writes once the file is sorted with `sort -k1,1 -k4,4n`; read over the window, then over as far as the genes over it reach, so a gene whose intron covers the window keeps every exon. A GTF is read whole: UCSC's has no gene or transcript rows, and a window inside an intron holds no row of its gene |
+| With an index | read a window at a time where its first line is `##gff-version 3`, through the `.tbi` that `tabix -p gff genes.gff3.gz` writes once the file is sorted with `sort -k1,1 -k4,4n`; read over the window, then over as far as the genes over it reach, so a gene whose intron covers the window keeps every exon. A GTF is read whole: UCSC's has no gene or transcript rows, and a window inside an intron holds no row of its gene. So is a GFF3 whose exons name a transcript it has no row for, which the rows it opens with or the rows over the window show |
 | Skipped | a trailing `##FASTA` section, whose lines name no sequence; a row describing the whole sequence; a row whose parent is in the file |
 | Refused | fewer than 5 columns; a start of 0; an end before its start |
 
@@ -609,7 +609,7 @@ Pf3D7_07_v3   4150  0.40
 | Read by | `--manhattan`; `read::point::associations` |
 | Columns | two or three: an optional sequence name, then a position and a value; or an association tool's own table, read by its header |
 | Coordinates | 1-based: position 4100 is 0-based 4099 |
-| With an index | read a window at a time over a place: through the `.tbi` that `tabix -s1 -b2 -e2 scan.tsv.gz` writes for PLINK 2's `#CHROM` line or a table of three columns, and `-S1` with the table's own columns for a plain header, as `-S1 -s1 -b3 -e3` for PLINK 1. A table with no header whose values over the window all lie between 0 and 1 is read whole, since every value it holds says whether they are p-values |
+| With an index | read a window at a time over a place: through the `.tbi` that `tabix -s1 -b2 -e2 scan.tsv.gz` writes for PLINK 2's `#CHROM` line or a table of three columns, and `-S1` with the table's own columns for a plain header, as `-S1 -s1 -b3 -e3` for PLINK 1 once its columns, padded with spaces, are turned into tabs, [as the guide shows](cli.md#tabix). A table with no header whose values over the window all lie between 0 and 1 is read whole, since every value it holds says whether they are p-values |
 | Skipped | a header on the first line; a two-column table names no sequence; in a tool's table, a test written `NA` |
 | Refused | in a table of two or three columns, a line of any other number; a tool's table whose header names no position or no p-value; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
 

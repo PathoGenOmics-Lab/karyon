@@ -115,7 +115,7 @@ fn text_of(line: &[u8]) -> Result<&str, ReadError> {
 /// The sequence a row names and where it starts, 0-based, by the columns the
 /// index keeps. `None` where the row has no such columns or no number in the
 /// start's, which a row tabix indexed always has.
-fn placed<'a>(line: &'a str, columns: &Columns) -> Option<(&'a str, u64)> {
+pub(crate) fn placed<'a>(line: &'a str, columns: &Columns) -> Option<(&'a str, u64)> {
     let line = line.trim_end_matches('\r');
     let mut sequence = None;
     let mut start = None;

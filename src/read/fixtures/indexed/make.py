@@ -173,6 +173,11 @@ def genes(rng):
         gtf.append("\t".join(cols))
     bgzip("\n".join(gtf) + "\n", "exons.gtf.gz")
     run("tabix", "-f", "-p", "gff", "exons.gtf.gz")
+    # And as GFF3 with the exons alone, each naming a transcript the file has
+    # no row for, as a GTF of exons turned into GFF3 line by line is written.
+    exons = ["##gff-version 3"] + [row[2] for row in rows if row[2].split("\t")[2] == "exon"]
+    bgzip("\n".join(exons) + "\n", "exons.gff3.gz")
+    run("tabix", "-f", "-p", "gff", "exons.gff3.gz")
 
 
 def methylation(rng):
@@ -210,7 +215,9 @@ def junctions(rng):
 
 def scans(rng):
     """An association scan as PLINK 2 writes it, its header behind a `#`, and
-    as PLINK 1 does, with a plain header, which tabix is told to skip."""
+    as PLINK 1 does, with a plain header, which tabix is told to skip. PLINK 1
+    pads its columns with spaces, which tabix does not split on, so its table
+    is here as it is once turned into tabs, which the guide says how to do."""
     two = ["#CHROM\tPOS\tID\tREF\tALT\tA1\tTEST\tOBS_CT\tBETA\tSE\tT_STAT\tP"]
     one = ["CHR\tSNP\tBP\tA1\tTEST\tNMISS\tBETA\tSTAT\tP"]
     for name, length in (("1", 2_000_000), ("2", 800_000)):

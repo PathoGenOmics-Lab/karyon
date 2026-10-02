@@ -736,8 +736,9 @@ COMPRESSED AND BINARY FILES
     calls.vcf.gz.tbi beside it, a window at a time: its header and the rows
     over the region, for --variants, --genotypes, --coverage, --windows,
     --dynseq, --junctions, --manhattan, --heatmap and --features, and for
-    --methylation given --modification. The figure is the one the whole file
-    draws, and an index older than its file is not trusted. A BAM is read by
+    --methylation given --modification. Rows outside the region are not read,
+    so the figure is the whole file's wherever the whole file draws one, and
+    an index older than its file is not trusted. A BAM is read by
     --coverage, --pileup and --split-reads, through the .bai beside it when
     there is one, so only the reads over the region are read. A bigWig, a
     bigBed and a 2bit are read through the index each one holds, so
