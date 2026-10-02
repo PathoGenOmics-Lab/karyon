@@ -377,8 +377,8 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     out.push_str(
-        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --no-axis,\n\
-         --no-region-label, --no-legend, --same-scale, --shade, --rename and -o.\n",
+        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
+         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --rename, -o.\n",
     );
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
@@ -691,6 +691,12 @@ FIGURE OPTIONS
     --rename <FROM=TO>   read a sequence a file calls FROM as the figure's TO,
                          as --rename 1=NC_000962.3 for a PLINK table beside a
                          FASTA; several joined by commas, or the flag again
+    --colors <COLUMN=VALUE:#HEX,...>
+                         colours of your own for the values of a --traits
+                         column, in its strips, its key and the branches
+                         --color-by paints, as country=Peru:#e7298a; values
+                         joined by commas, and the flag again for another
+                         column. Every sheet of the figure takes them
     -o, --output <FILE>  standard output by default. A name ending in .pdf is
                          written as PDF and any other as SVG; one ending in
                          .png, .eps or another format is refused, and the

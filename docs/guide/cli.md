@@ -291,7 +291,7 @@ takes.
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
-| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
+| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
@@ -459,6 +459,39 @@ $ karyon NC_000962.3:1-4,411,532 --matrix genotypes.tsv --traits samples.tsv --c
 karyon: --matrix samples.tsv has no column called linage; it has lineage, host, depth, drug
 ```
 
+Each column of words starts on a stretch of the palette's six colours of its
+own. A column of more than six values is drawn in shapes as well, and one that
+runs past its stretch shares colours with the column after it; a tree says
+either under it. `--colors` gives the values colours of your own, the ones
+your field already knows them by:
+
+```bash
+karyon tree.nwk --traits samples.tsv --columns lineage,country \
+  --colors 'country=China:#1b9e77,India:#d95f02,Kenya:#7570b3,Peru:#e7298a' \
+  --colors 'country=Portugal:#66a61e,Spain:#e6ab02,Vietnam:#666666'
+```
+
+The column comes first, then each value and its colour, joined by commas, and
+the flag again for more values or another column. A colour is `#` and six hex
+digits, and quoting the whole word keeps a shell from reading the `#`. Each
+pair ends at its colour, so a value may hold a colon, or a comma with no colon
+before it, as in `'country=Korea, Rep.:#aa0000'`. A value not named keeps the
+palette. The colours are the figure's: every sheet of it that has the column
+paints those values so, in its strips, in the key and along the branches
+`--color-by` colours by the column, drawn as a strip or not. Two values given
+one colour, or one given the colour the palette deals another, are drawn in
+shapes as well, and a tree names the two and the colour under it.
+
+A colour that would paint nothing is refused rather than passed over: a
+`--colors` with no `--traits` anywhere, a column no sheet has, a column of
+numbers (drawn on a ramp), a value no row holds, a column no track draws, and a
+value given two colours:
+
+```text
+$ karyon tree.nwk --traits samples.tsv --colors 'country=Peu:#e7298a'
+karyon: --colors names Peu in country, and no row of samples.tsv holds it; country holds China, India, Kenya, Peru, Portugal, Spain, Vietnam
+```
+
 ### Phylogenies
 
 A `--tree` track has the most options of any track. A typical figure:
@@ -475,7 +508,9 @@ karyon --tree big.nwk --max-rows 60 \
   by when the branch lengths are noise or absent.
 - `--color-by` colours each branch by a column of the `--traits` sheet or by an
   annotation the Newick carries. A clade whose tips all agree takes the colour
-  too, so a lineage comes out as a coloured clade.
+  too, so a lineage comes out as a coloured clade. A column of the sheet takes
+  the colours `--colors` gives it; an annotation of the Newick keeps the
+  palette.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
@@ -566,6 +601,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
 | `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
+| `--colors <COLUMN=VALUE:#HEX,...>` | colours of your own for the values of a `--traits` column, as `--colors 'country=Peru:#e7298a,Kenya:#7570b3'`, in its strips, its key and the branches `--color-by` paints; the flag again for another column. [Sample sheets](#what-is-known-about-the-rows) has the rules | the palette, a stretch of it per column |
 | `-o`, `--output <FILE>` | writes the figure to a file: PDF when the name ends in `.pdf`, SVG under any other name | standard output, as SVG |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
