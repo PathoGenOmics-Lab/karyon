@@ -22,10 +22,18 @@ Four rules cover every command:
     - a sequence's name is the whole sequence.
 
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
-    place, since none of them is drawn in a window, and neither does a scan:
-    `--manhattan` tables with no place are drawn across the whole genome, every
-    sequence they name end to end, in the order chromosomes are counted, each
-    as long as its furthest marker and named under the scan.
+    place, since none of them is drawn in a window, and neither does a figure
+    across the whole genome: with no place, `--manhattan`, `--coverage`,
+    `--windows` and `--copy-number` files are drawn over every sequence they
+    name end to end, in the order chromosomes are counted, each as long as the
+    furthest any file reaches on it, or as a bigWig says, and named under the
+    tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`. A sequence a
+    coverage file names no row on is a gap in its track, not a depth of nought,
+    and files that name one sequence draw it as though it were the place
+    written. Anything else needs a place, and one beside them is refused by
+    name: a FASTA, an annotation, calls. A BAM or a CRAM, whose depth across a
+    genome is every read it holds, is refused with the `mosdepth --by` that
+    counts it in windows instead.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
@@ -59,6 +67,7 @@ Four rules cover every command:
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
+| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; `--ploidy` is still required |
 | `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
 | `.slow5` | a read's signal (`--squiggle`) |
 | a name holding `genetic_map` | a recombination map (`--recombination`) |
@@ -666,9 +675,10 @@ karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
 - **Each panel its own.** With several places, each panel shades what is on
   its sequence. A stretch on a sequence no place is on is refused; one on the
   right sequence and outside the window is drawn as nothing, with a note on
-  standard error, so a figure moved past it is still drawn. A scan across the
-  whole genome is shaded on one of its sequences, as `7:1,001-2,000`, since it
-  reads no annotation to find a gene in.
+  standard error, so a figure moved past it is still drawn. A figure across
+  the whole genome is shaded on one of its sequences, as `7:1,001-2,000`, by
+  the name the figure or the file gives it, since it reads no annotation to
+  find a gene in.
 - **Never a file.** Many intervals from a BED are what `--features` draws, and
   `--shade genes.bed` is refused with that.
 
@@ -928,8 +938,11 @@ runs of N, and its soft-masked runs in lower case, as `twoBitToFa` writes them.
 These three are read out of order, which a pipe cannot be, so each is named
 rather than piped in; from standard input each is refused with that said.
 Compressed with gzip, each is refused with the `gunzip -k` that gives the file
-back, since its index says where each block is in the file as it is. A bigWig
-needs a place: across a whole genome it is not drawn yet.
+back, since its index says where each block is in the file as it is. With no
+place, a bigWig after `--coverage` or `--windows`, or named on its own, is
+drawn across the whole genome, each sequence as long as its index says and read
+from the zoom level of which a pixel of the whole genome holds two bins; after
+`--dynseq` it needs a place.
 
 A BCF is read by `--variants`, `--genotypes` and `--structural` as the VCF
 `bcftools view` prints for it, so each draws from a BCF the figure it draws
@@ -1054,8 +1067,14 @@ karyon: the bases are blocks of colour at this width, too narrow for their lette
 The command line is checked before any file is opened:
 
 ```text
-$ karyon --coverage depth.bedgraph
-karyon: the first argument is the region, as in NC_000962.3:761,000-763,000; only a figure of --tree, --tanglegram, --snps, --msa and --logo tracks goes without one
+$ karyon --features genes.gff3
+karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows and --manhattan tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
+
+$ karyon trait.assoc genes.gff3
+karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows and --manhattan tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
+
+$ karyon reads.bam
+karyon: reads.bam is a BAM, which is drawn over a place, as karyon chr1 reads.bam: across a whole genome its depth is every read it holds, so count it in windows with mosdepth --by 100000 sample reads.bam and draw the sample.regions.bed.gz it writes
 
 $ karyon NC_000962.3:0-1000 --coverage depth.bedgraph
 karyon: invalid locus "NC_000962.3:0-1000": 1-based coordinates start at 1, not 0

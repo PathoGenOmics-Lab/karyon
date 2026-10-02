@@ -343,6 +343,12 @@ pub enum BuildError {
         /// Why there is nowhere to draw it.
         why: ShadeRefusal,
     },
+    /// A track drawn over a place, in a figure that names none, found once
+    /// its file is read: a `.bed` named on its own that holds features, where
+    /// mosdepth's depth in windows, a bedGraph by another name, would have
+    /// been drawn across the genome. Said as the parser says it of a track
+    /// whose name tells it, so `karyon genes.bed` is answered as it always was.
+    Placeless(crate::cli::args::ArgError),
 }
 
 /// Why a `--shade` has nowhere to go.
@@ -364,10 +370,10 @@ pub enum ShadeRefusal {
         /// Names it does give that are nearly the same.
         near: Vec<String>,
     },
-    /// A span with no sequence, on a scan whose axis is every sequence.
+    /// A span with no sequence, on a figure whose axis is every sequence.
     WholeGenome,
-    /// A gene, on a scan across the whole genome, which reads no annotation
-    /// to look one up in: a GFF3 beside it makes the figure one of a place.
+    /// A gene, on a figure across the whole genome, which reads no
+    /// annotation to look one up in: a GFF3 beside it needs a place.
     GenomeGene,
 }
 
@@ -540,6 +546,7 @@ impl fmt::Display for BuildError {
                     ),
                 },
             },
+            BuildError::Placeless(said) => write!(f, "{said}"),
             BuildError::OtherTrack {
                 track,
                 path,
@@ -713,13 +720,13 @@ impl fmt::Display for BuildError {
                 },
                 ShadeRefusal::WholeGenome => write!(
                     f,
-                    "--shade {given}: a scan across the whole genome is shaded on one of its \
-                     sequences, as 7:1,001-2,000"
+                    "--shade {given}: a figure across the whole genome is shaded on one of \
+                     its sequences, as 7:1,001-2,000"
                 ),
                 ShadeRefusal::GenomeGene => write!(
                     f,
-                    "--shade {given}: a scan across the whole genome reads no annotation to \
-                     look a gene up in; write the gene's span on its sequence, as \
+                    "--shade {given}: a figure across the whole genome reads no annotation \
+                     to look a gene up in; write the gene's span on its sequence, as \
                      7:1,001-2,000"
                 ),
             },
@@ -1323,48 +1330,55 @@ fn chromosome_order(a: &str, b: &str) -> std::cmp::Ordering {
         .then_with(|| crate::track::traits::natural(a, b))
 }
 
-/// A scan across a whole genome: every sequence the `--manhattan` tables
-/// name, end to end, in the order a reader counts chromosomes, with the
-/// bands a genome-wide plot is read by and each sequence named under the
-/// scan in place of a ruler of positions no file uses.
+/// A figure with no place: every sequence its files name, end to end, in the
+/// order a reader counts chromosomes, with the bands a genome-wide plot is
+/// read by and each sequence named under the tracks in place of a ruler of
+/// positions no file uses.
 ///
-/// Each sequence is as long as the furthest position a table tests on it,
-/// which is how a scan is drawn: an association table says where its
-/// markers are and not how long the chromosomes they are on run.
+/// A scan, a signal, windows and a segment table are each read whole, every
+/// row on the sequence it names, under the name `--rename` gives it, so a
+/// table that calls a chromosome `1` and a bedGraph that calls it `chr1` are
+/// laid on one sequence where `--rename 1=chr1` says they are the same.
+///
+/// Each sequence is as long as the furthest any file reaches on it, which is
+/// how a scan is drawn: an association table says where its markers are and
+/// not how long the chromosomes they are on run, and a bedGraph says where
+/// its depth was counted. A bigWig says how long each sequence it names is,
+/// and is taken at its word. A figure whose files name one sequence is that
+/// sequence drawn whole, ruler and all, as though it had been written.
 fn build_genome(
     invocation: &Invocation,
     files: &mut dyn Files,
     theme: Theme,
 ) -> Result<Built, BuildError> {
-    let mut scans = Vec::with_capacity(invocation.tracks.len());
+    let width = invocation.width.unwrap_or(900.0);
+    let mut spread = Vec::with_capacity(invocation.tracks.len());
     for spec in &invocation.tracks {
-        let name = spec.kind.flag();
-        let Some(source) = spec.source.as_ref() else {
-            continue;
-        };
-        let (text, path) = fetch(name, source, files)?;
-        let read = wrap(name, &path, read::point::genome_associations(&text))?;
-        if read.sequences.iter().all(|(_, points)| points.is_empty()) {
-            return Err(BuildError::Empty {
-                track: name,
-                path,
-                wanted: "association statistics",
-            });
+        if spec.source.is_some() {
+            spread.push(spread_of(spec, invocation, files)?);
         }
-        scans.push((spec, path, read));
     }
     let mut lengths: Vec<(String, u64)> = Vec::new();
-    for (_, _, read) in &scans {
-        for (sequence, points) in &read.sequences {
-            let end = points
-                .iter()
-                .map(|point| point.pos.saturating_add(1))
-                .max()
-                .unwrap_or(1);
-            match lengths.iter_mut().find(|(named, _)| named == sequence) {
-                Some((_, length)) => *length = (*length).max(end),
-                None => lengths.push((sequence.clone(), end)),
+    let mut found: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for track in &spread {
+        for (sequence, reach) in track.reaches() {
+            match found.get(&sequence) {
+                Some(at) => lengths[*at].1 = lengths[*at].1.max(reach),
+                None => {
+                    found.insert(sequence.clone(), lengths.len());
+                    lengths.push((sequence, reach));
+                }
             }
+        }
+    }
+    // One sequence is no genome to lay out, and is the figure of it, as long
+    // as the files reach on it: written as a place, it has a ruler in its own
+    // bases and a page can move along it.
+    if let [(sequence, length)] = &lengths[..] {
+        if let Ok(whole) = Region::new(sequence, 0, (*length).max(1)) {
+            let mut one = invocation.clone();
+            one.region = Some(whole);
+            return build_one(&one, files, |_, _| None, theme, None, None).map(|(built, _)| built);
         }
     }
     lengths.sort_by(|a, b| chromosome_order(&a.0, &b.0));
@@ -1380,27 +1394,8 @@ fn build_genome(
     if let Some(width) = invocation.width {
         plot = plot.width(width);
     }
-    for (spec, path, read) in scans {
-        let points: Vec<crate::Association> = read
-            .sequences
-            .iter()
-            .flat_map(|(sequence, points)| {
-                let offset = genome.offset(sequence).unwrap_or(0);
-                points
-                    .iter()
-                    .map(move |point| crate::Association::new(offset + point.pos, point.value))
-            })
-            .collect();
-        let mut track = ManhattanTrack::new(points).bands(genome.boundaries());
-        if read.p_values {
-            track = track.axis_title("-log10 p");
-        }
-        let mut track = thresholded(track, spec, read.p_values, &path)?;
-        if let Some(height) = spec.height {
-            track = track.height(height);
-        }
-        let label = spec.label.clone().or_else(|| default_label(spec));
-        plot = plot.add_track(named(track, label, ManhattanTrack::label));
+    for track in spread {
+        plot = plot.add_boxed(track.laid(&genome, width)?);
     }
     let mut figure = plot.add_genome(genome.clone()).into_figure();
     figure = shaded_genome(figure, invocation, &genome, files)?;
@@ -1416,6 +1411,520 @@ fn build_genome(
         along: None,
         legend,
     })
+}
+
+/// One track of a figure across a whole genome, read: what it draws on each
+/// sequence its file names, each under the name the figure gives it.
+struct Spread {
+    /// The track, as its file turned out to be where its name was a guess.
+    spec: TrackSpec,
+    /// What its file is called in a message.
+    path: String,
+    /// What it holds.
+    held: Spreading,
+}
+
+/// What a track across a whole genome holds, by its kind.
+enum Spreading {
+    /// A scan's points on each sequence, 0-based on it.
+    Scan {
+        sequences: Vec<(String, Vec<crate::Association>)>,
+        p_values: bool,
+    },
+    /// A signal painted on each sequence from its base nought, and how far
+    /// its rows reach there.
+    Signal(Vec<(String, CoverageTrack, u64)>),
+    /// A bigWig, read once the genome is laid out, at the zoom level its
+    /// length over the figure's width wants: each sequence it names under the
+    /// figure's name and its own, and the length its index gives it.
+    BigWig {
+        file: Box<dyn Seekable>,
+        sequences: Vec<(String, String, u64)>,
+    },
+    /// Windows on each sequence.
+    Windows(Vec<(String, Vec<crate::Window>)>),
+    /// The segments called on each sequence, at the track's ploidy.
+    Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>),
+}
+
+impl Spread {
+    /// Each sequence the track names, under the figure's name for it, and
+    /// how far along it the track reaches.
+    fn reaches(&self) -> Vec<(String, u64)> {
+        match &self.held {
+            Spreading::Scan { sequences, .. } => sequences
+                .iter()
+                .map(|(name, points)| {
+                    let end = points
+                        .iter()
+                        .map(|point| point.pos.saturating_add(1))
+                        .max()
+                        .unwrap_or(1);
+                    (name.clone(), end)
+                })
+                .collect(),
+            Spreading::Signal(sequences) => sequences
+                .iter()
+                .map(|(name, _, reach)| (name.clone(), *reach))
+                .collect(),
+            Spreading::BigWig { sequences, .. } => sequences
+                .iter()
+                .map(|(name, _, length)| (name.clone(), *length))
+                .collect(),
+            Spreading::Windows(sequences) => sequences
+                .iter()
+                .map(|(name, windows)| {
+                    (
+                        name.clone(),
+                        windows.iter().map(|window| window.end).max().unwrap_or(1),
+                    )
+                })
+                .collect(),
+            Spreading::Copies(sequences) => sequences
+                .iter()
+                .map(|(name, segments)| {
+                    (
+                        name.clone(),
+                        segments
+                            .iter()
+                            .map(|segment| segment.end)
+                            .max()
+                            .unwrap_or(1),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// The track, laid over `genome`, in a figure `width` pixels wide.
+    fn laid(self, genome: &crate::Genome, width: f64) -> Result<Box<dyn Track>, BuildError> {
+        let Spread { spec, path, held } = self;
+        let spec = &spec;
+        let name = spec.kind.flag();
+        let label = spec.label.clone().or_else(|| default_label(spec));
+        let offset = |sequence: &str| genome.offset(sequence).unwrap_or(0);
+        Ok(match held {
+            Spreading::Scan {
+                sequences,
+                p_values,
+            } => {
+                let points: Vec<crate::Association> = sequences
+                    .iter()
+                    .flat_map(|(sequence, points)| {
+                        let offset = offset(sequence);
+                        points.iter().map(move |point| {
+                            crate::Association::new(offset + point.pos, point.value)
+                        })
+                    })
+                    .collect();
+                let mut track = ManhattanTrack::new(points).bands(genome.boundaries());
+                if p_values {
+                    track = track.axis_title("-log10 p");
+                }
+                let mut track = thresholded(track, spec, p_values, &path)?;
+                if let Some(height) = spec.height {
+                    track = track.height(height);
+                }
+                Box::new(named(track, label, ManhattanTrack::label))
+            }
+            Spreading::Signal(sequences) => {
+                let mut parts: std::collections::HashMap<String, CoverageTrack> = sequences
+                    .into_iter()
+                    .map(|(sequence, track, _)| (sequence, track))
+                    .collect();
+                let track = CoverageTrack::end_to_end(
+                    genome
+                        .sequences()
+                        .iter()
+                        .map(|sequence| (parts.remove(&sequence.name), sequence.length)),
+                );
+                Box::new(named(
+                    dressed_coverage(track, spec, None),
+                    label,
+                    CoverageTrack::label,
+                ))
+            }
+            Spreading::BigWig {
+                mut file,
+                sequences,
+            } => {
+                // As many bases to a pixel as the whole figure is wide, as a
+                // window of one sequence is read: a zoom level is never
+                // coarser than the drawing for it. Windows and the scores
+                // under bases are read as written, as they are over a window.
+                let (per_pixel, aggregate) = match spec.kind {
+                    Kind::Coverage => (
+                        genome.total() as f64 / width.max(1.0),
+                        spec.aggregate.unwrap_or(Aggregate::Max),
+                    ),
+                    _ => (1.0, Aggregate::Max),
+                };
+                let read =
+                    read::bigwig::genome(&mut file, per_pixel, aggregate).map_err(|cause| {
+                        BuildError::Open {
+                            track: name,
+                            path: path.clone(),
+                            cause: unreadable(cause),
+                        }
+                    })?;
+                let figured = |own: &str| {
+                    sequences
+                        .iter()
+                        .find(|(_, called, _)| called == own)
+                        .map(|(figure, _, _)| figure.clone())
+                };
+                if read.iter().all(|(_, _, signal)| signal.spans.is_empty()) {
+                    return Err(BuildError::Empty {
+                        track: name,
+                        path,
+                        wanted: "values",
+                    });
+                }
+                if spec.kind == Kind::Windows {
+                    let mut windows = Vec::new();
+                    for (own, _, signal) in &read {
+                        let Some(sequence) = figured(own) else {
+                            continue;
+                        };
+                        let offset = offset(&sequence);
+                        windows.extend(signal.spans.iter().map(|(start, end, value)| {
+                            crate::Window::new(offset + start, offset + end, *value)
+                        }));
+                    }
+                    return Ok(Box::new(named(
+                        dressed_windows(windows, spec),
+                        label,
+                        WindowTrack::label,
+                    )));
+                }
+                let mut most: Option<f64> = None;
+                let mut parts: std::collections::HashMap<String, CoverageTrack> =
+                    std::collections::HashMap::new();
+                for (own, _, signal) in read {
+                    let Some(sequence) = figured(&own) else {
+                        continue;
+                    };
+                    if let Some(high) = signal.most {
+                        most = Some(most.map_or(high, |most| most.max(high)));
+                    }
+                    let mut painted = CoverageTrack::unbounded(0);
+                    for (start, end, value) in signal.spans {
+                        painted.paint(start, end, value);
+                    }
+                    parts.insert(sequence, painted);
+                }
+                let track = CoverageTrack::end_to_end(
+                    genome
+                        .sequences()
+                        .iter()
+                        .map(|sequence| (parts.remove(&sequence.name), sequence.length)),
+                );
+                Box::new(named(
+                    dressed_coverage(track, spec, most),
+                    label,
+                    CoverageTrack::label,
+                ))
+            }
+            Spreading::Windows(sequences) => {
+                let windows: Vec<crate::Window> = sequences
+                    .iter()
+                    .flat_map(|(sequence, windows)| {
+                        let offset = offset(sequence);
+                        windows.iter().map(move |window| {
+                            crate::Window::new(
+                                offset + window.start,
+                                offset + window.end,
+                                window.value,
+                            )
+                        })
+                    })
+                    .collect();
+                Box::new(named(
+                    dressed_windows(windows, spec),
+                    label,
+                    WindowTrack::label,
+                ))
+            }
+            Spreading::Copies(sequences) => {
+                // Checked by the parser, so this is reached only from an
+                // Invocation built by hand.
+                let Some(ploidy) = spec.ploidy else {
+                    return Err(BuildError::MissingPloidy { track: name });
+                };
+                let segments: Vec<crate::CopyNumberSegment> = sequences
+                    .iter()
+                    .flat_map(|(sequence, segments)| {
+                        let offset = offset(sequence);
+                        segments
+                            .iter()
+                            .map(move |segment| crate::CopyNumberSegment {
+                                start: offset + segment.start,
+                                end: offset + segment.end,
+                                copy: segment.copy,
+                            })
+                    })
+                    .collect();
+                let mut track = CopyNumberTrack::at_ploidy(segments, ploidy).across(genome);
+                if let Some(height) = spec.height {
+                    track = track.height(height);
+                }
+                Box::new(named(track, label, CopyNumberTrack::label))
+            }
+        })
+    }
+}
+
+/// Reads one track of a figure across a whole genome: every row of its file,
+/// each on the sequence it names, under the name the figure gives it.
+fn spread_of(
+    spec: &TrackSpec,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+) -> Result<Spread, BuildError> {
+    let name = spec.kind.flag();
+    let source = spec.source.as_ref().expect("a track with a file");
+    let opened = native(files, source).map_err(|cause| BuildError::Open {
+        track: name,
+        path: called(source),
+        cause,
+    })?;
+    if let Some((binary, mut file)) = opened {
+        let path = called(source);
+        let refused = |format: bool| BuildError::OtherTrack {
+            track: name,
+            path: path.clone(),
+            binary,
+            format,
+        };
+        // `--format` says what the columns of a text file are, and a bigWig
+        // says it itself.
+        if spec.format.is_some() {
+            return Err(refused(true));
+        }
+        if binary != Binary::BigWig || !matches!(spec.kind, Kind::Coverage | Kind::Windows) {
+            return Err(refused(false));
+        }
+        let sequences = read::bigwig::sequences(&mut file)
+            .map_err(|cause| BuildError::Open {
+                track: name,
+                path: path.clone(),
+                cause: unreadable(cause),
+            })?
+            .into_iter()
+            .map(|(own, length)| (renamed(invocation, own.clone()), own, length))
+            .collect();
+        return Ok(Spread {
+            spec: spec.clone(),
+            path,
+            held: Spreading::BigWig { file, sequences },
+        });
+    }
+    let (text, path) =
+        fetch(name, source, files).map_err(|error| explained(error, spec, None, files))?;
+    // A `.bed` named on its own is told once it is read: mosdepth's depth in
+    // windows is a bedGraph by another name, and features need a place.
+    let mut spec = spec.clone();
+    if spec.guessed {
+        if let Some(kind) = refine(spec.kind, &text) {
+            spec.kind = kind;
+        }
+    }
+    if !spec.kind.genome_wide() {
+        return Err(BuildError::Placeless(if invocation.tracks.len() == 1 {
+            crate::cli::args::ArgError::NoRegion
+        } else {
+            crate::cli::args::ArgError::NotGenomeWide {
+                track: spec.kind.flag(),
+                file: Some(path),
+            }
+        }));
+    }
+    let name = spec.kind.flag();
+    let held = match spec.kind {
+        Kind::Manhattan => {
+            let read = wrap(name, &path, read::point::genome_associations(&text))?;
+            if read.sequences.iter().all(|(_, points)| points.is_empty()) {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "association statistics",
+                });
+            }
+            Spreading::Scan {
+                sequences: gathered(invocation, read.sequences),
+                p_values: read.p_values,
+            }
+        }
+        Kind::Coverage => {
+            // Painted as each row is read, a sequence at a time, each on a
+            // profile of its own from its base nought: the rows of one
+            // sequence come together, and a profile across the whole genome
+            // painted in the file's order, where it is not the order the
+            // genome is laid out in, splices runs into the middle of millions.
+            let mut sequences: Vec<(String, CoverageTrack, u64)> = Vec::new();
+            let mut at: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            let mut last: Option<(String, usize)> = None;
+            let painted = wrap(
+                name,
+                &path,
+                read::signal::fold_genome_spans(&text, spec.format, |own, start, end, value| {
+                    let index = match &last {
+                        Some((called, index)) if called == own => *index,
+                        _ => {
+                            let figure = renamed(invocation, own.to_string());
+                            let index = *at.entry(figure.clone()).or_insert_with(|| {
+                                sequences.push((figure, CoverageTrack::unbounded(0), 0));
+                                sequences.len() - 1
+                            });
+                            last = Some((own.to_string(), index));
+                            index
+                        }
+                    };
+                    let (_, track, reach) = &mut sequences[index];
+                    track.paint(start, end, value);
+                    *reach = (*reach).max(end);
+                }),
+            )?;
+            if painted == 0 {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "values",
+                });
+            }
+            Spreading::Signal(sequences)
+        }
+        Kind::Windows => {
+            let read = wrap(name, &path, read::signal::genome_windows(&text))?;
+            if read.iter().all(|(_, windows)| windows.is_empty()) {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "windows",
+                });
+            }
+            Spreading::Windows(gathered(invocation, read))
+        }
+        Kind::CopyNumber => {
+            let Some(ploidy) = spec.ploidy else {
+                return Err(BuildError::MissingPloidy { track: name });
+            };
+            one_sample(&spec, &path, &text)?;
+            let read = wrap(
+                name,
+                &path,
+                read::segments::genome_copy_numbers(&text, ploidy, spec.sample.as_deref()),
+            )?;
+            if read.records == 0 {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "segments",
+                });
+            }
+            if read.sequences.is_empty() {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "called segments",
+                });
+            }
+            Spreading::Copies(gathered(invocation, read.sequences))
+        }
+        _ => unreachable!("only the kinds drawn across a genome are read across one"),
+    };
+    Ok(Spread { spec, path, held })
+}
+
+/// Each sequence of a file read whole, under the name the figure gives it,
+/// with what two of the file's names `--rename` makes one sequence hold
+/// joined, in the order the file first names them.
+fn gathered<T>(invocation: &Invocation, sequences: Vec<(String, Vec<T>)>) -> Vec<(String, Vec<T>)> {
+    let mut joined: Vec<(String, Vec<T>)> = Vec::with_capacity(sequences.len());
+    for (own, rows) in sequences {
+        let figure = renamed(invocation, own);
+        match joined.iter_mut().find(|(name, _)| *name == figure) {
+            Some((_, held)) => held.extend(rows),
+            None => joined.push((figure, rows)),
+        }
+    }
+    joined
+}
+
+/// Refuses a segment table that names no sample where one was asked for, or
+/// several where none was, before its segments are read.
+fn one_sample(spec: &TrackSpec, path: &str, text: &str) -> Result<(), BuildError> {
+    let name = spec.kind.flag();
+    let held = wrap(name, path, read::segments::samples(text))?;
+    if spec.sample.is_some() && held.is_empty() {
+        // A flag accepted and then ignored gives a figure that is not the one
+        // asked for and does not look wrong: this table names no samples, so
+        // the whole of it would be drawn under a name the command asked to
+        // pick out of it.
+        return Err(BuildError::Ambiguous {
+            track: name,
+            path: path.to_string(),
+            flag: "--sample",
+            choices: vec!["no sample column".to_string()],
+        });
+    }
+    if held.len() > 1 && spec.sample.is_none() {
+        return Err(BuildError::Ambiguous {
+            track: name,
+            path: path.to_string(),
+            flag: "--sample",
+            choices: held,
+        });
+    }
+    Ok(())
+}
+
+/// A coverage track as the options after it ask: how a column of many bases
+/// is summed up, its style, its scale and its colour. `most` lifts the scale
+/// to the most of the values a bigWig's zoom level summarises.
+fn dressed_coverage(painted: CoverageTrack, spec: &TrackSpec, most: Option<f64>) -> CoverageTrack {
+    let mut track = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
+    // A bigWig's zoom level painted with its bins' means or least, scaled to
+    // the most of the values under them, as the values as written scale it.
+    if let Some(most) = most {
+        track = track.reaching(most);
+    }
+    if let Some(style) = spec.style.and_then(|style| style.coverage()) {
+        track = track.style(style);
+    }
+    if spec.log {
+        track = track.log_scale(true);
+    }
+    if let Some(max) = spec.max {
+        track = track.max(max);
+    }
+    if let Some(color) = &spec.color {
+        track = track.color(color);
+    }
+    if let Some(height) = spec.height {
+        track = track.height(height);
+    }
+    track
+}
+
+/// A window track as the options after it ask: its style, its scale and its
+/// height.
+fn dressed_windows(windows: Vec<crate::Window>, spec: &TrackSpec) -> WindowTrack {
+    let mut track = WindowTrack::new(windows).style(
+        spec.style
+            .and_then(|s| s.window())
+            .unwrap_or(WindowStyle::Steps),
+    );
+    // The band is symmetric about its line, so the top is the one number to
+    // pin, and the bottom is as far below.
+    if let Some(max) = spec.max {
+        let baseline = track.baseline_value();
+        track = track.extent(max - baseline);
+    }
+    if let Some(height) = spec.height {
+        track = track.height(height);
+    }
+    track
 }
 
 /// What became of one `--shade` across the panels of a figure, which is one
@@ -1739,13 +2248,14 @@ fn settle_shades(
     Ok(())
 }
 
-/// Shades on a scan across the whole genome, through the offsets its
+/// Shades on a figure across the whole genome, through the offsets its
 /// sequences are laid end to end at.
 ///
 /// Its own function because the layout of a whole genome is its own: a place
-/// is on one sequence, found by the name the tables give it or by the one a
-/// `--rename` makes it, and held to the furthest marker on it, which is where
-/// that sequence ends in the figure, so a shade never runs into the next one.
+/// is on one sequence, found by the name the figure gives it, which is the one
+/// a `--rename` makes it, or by the name its files give it, and held to the
+/// furthest any file reaches on it, which is where that sequence ends in the
+/// figure, so a shade never runs into the next one.
 /// The tooltip and the alt text name the place as it was written, since the
 /// shared axis counts through every sequence before it.
 fn shaded_genome(
@@ -1765,7 +2275,9 @@ fn shaded_genome(
             ShadePlace::Along(..) => return Err(refuse(ShadeRefusal::WholeGenome)),
             ShadePlace::Gene(_) => return Err(refuse(ShadeRefusal::GenomeGene)),
         };
+        let figured = renamed(invocation, at.seq().to_string());
         let found = std::iter::once(at.seq())
+            .chain(std::iter::once(figured.as_str()))
             .chain(
                 invocation
                     .renames
@@ -1791,7 +2303,7 @@ fn shaded_genome(
         };
         let Some(start) = genome.at(&sequence.name, at.start()) else {
             files.note(&format!(
-                "--shade {} is past the furthest marker on {}, so it is not drawn",
+                "--shade {} is past the furthest any file reaches on {}, so it is not drawn",
                 shading.given, sequence.name
             ));
             continue;
@@ -5234,29 +5746,11 @@ fn built(
             if spans == 0 {
                 return Err(empty("values"));
             }
-            let mut track = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
-            // A bigWig's zoom level painted with its bins' means or least,
-            // scaled to the most of the values under them, as the values as
-            // written scale it.
-            if let Some(most) = most {
-                track = track.reaching(most);
-            }
-            if let Some(style) = spec.style.and_then(|style| style.coverage()) {
-                track = track.style(style);
-            }
-            if spec.log {
-                track = track.log_scale(true);
-            }
-            if let Some(max) = spec.max {
-                track = track.max(max);
-            }
-            if let Some(color) = &spec.color {
-                track = track.color(color);
-            }
-            if let Some(height) = height {
-                track = track.height(height);
-            }
-            Box::new(named(track, label, CoverageTrack::label))
+            Box::new(named(
+                dressed_coverage(painted, spec, most),
+                label,
+                CoverageTrack::label,
+            ))
         }
         Kind::Dynseq => {
             let Some(source) = spec.second.as_ref() else {
@@ -5496,21 +5990,11 @@ fn built(
             if windows.is_empty() {
                 return Err(empty("windows"));
             }
-            let mut track = WindowTrack::new(windows).style(
-                spec.style
-                    .and_then(|s| s.window())
-                    .unwrap_or(WindowStyle::Steps),
-            );
-            // The band is symmetric about its line, so the top is the one
-            // number to pin, and the bottom is as far below.
-            if let Some(max) = spec.max {
-                let baseline = track.baseline_value();
-                track = track.extent(max - baseline);
-            }
-            if let Some(height) = height {
-                track = track.height(height);
-            }
-            Box::new(named(track, label, WindowTrack::label))
+            Box::new(named(
+                dressed_windows(windows, spec),
+                label,
+                WindowTrack::label,
+            ))
         }
         Kind::Manhattan => {
             let table = wrap(name, &path, read::point::association_table(&text, region))?;
@@ -6325,27 +6809,7 @@ fn built(
             let Some(ploidy) = spec.ploidy else {
                 return Err(BuildError::MissingPloidy { track: name });
             };
-            let held = wrap(name, &path, read::segments::samples(&text))?;
-            if spec.sample.is_some() && held.is_empty() {
-                // A flag accepted and then ignored gives a figure that is not
-                // the one asked for and does not look wrong: this table names
-                // no samples, so the whole of it would be drawn under a name
-                // the command asked to pick out of it.
-                return Err(BuildError::Ambiguous {
-                    track: name,
-                    path: path.clone(),
-                    flag: "--sample",
-                    choices: vec!["no sample column".to_string()],
-                });
-            }
-            if held.len() > 1 && spec.sample.is_none() {
-                return Err(BuildError::Ambiguous {
-                    track: name,
-                    path: path.clone(),
-                    flag: "--sample",
-                    choices: held,
-                });
-            }
+            one_sample(spec, &path, &text)?;
             let found = wrap(
                 name,
                 &path,
@@ -10247,6 +10711,268 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert!(error.to_string().contains("names no sequence"), "{error}");
     }
 
+    /// Where each sequence of a genome-wide figure is named under it, in the
+    /// order they are drawn, and how long it is said to be.
+    fn sequences_under(svg: &str) -> Vec<(String, String)> {
+        svg.split("<title>")
+            .skip(1)
+            .filter_map(|title| title.split("</title>").next())
+            .filter_map(|title| {
+                let (name, length) = title.split_once(", ")?;
+                let length = length.strip_suffix(" bp")?;
+                Some((name.to_string(), length.to_string()))
+            })
+            .collect()
+    }
+
+    /// A bedGraph with no place is drawn across every sequence it names,
+    /// end to end in the order chromosomes are counted, each as long as its
+    /// furthest row, named under it in place of a ruler. It was refused for
+    /// having no region.
+    #[test]
+    fn coverage_across_a_genome_lays_sequences_end_to_end_in_chromosome_order() {
+        let depth = "chr10\t0\t500\t3\nchr2\t0\t1000\t4\nchr2\t1000\t1500\t9\n\
+                     chr1\t200\t900\t5\nchrX\t0\t100\t1\n";
+        let held = [("d.bg", depth)];
+        let svg = drawn_from("d.bg", &held).unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("chr1".to_string(), "900".to_string()),
+                ("chr2".to_string(), "1,500".to_string()),
+                ("chr10".to_string(), "500".to_string()),
+                ("chrX".to_string(), "100".to_string()),
+            ]
+        );
+        assert!(svg.contains("genome:1-3000"), "{svg}");
+        assert!(svg.contains(">d</text>"), "the track keeps its file's name");
+        for unit in [" kb</text>", " bp</text>"] {
+            assert!(!svg.contains(unit), "a ruler of positions: {svg}");
+        }
+        // Painted where each sequence is laid: chr2's last row from 900 on
+        // the shared axis, after chr1's 900 bases.
+        let built = built_from("d.bg", &held, Theme::light(), None);
+        assert_eq!(built.along, None, "a genome is no window to move along");
+        // samtools depth, and windows, are laid out the same way.
+        let positions = "chr2\t5\t7\nchr1\t10\t4\n";
+        let windows = "chr2\t0\t2000\t0.5\nchr1\t0\t3000\t-0.25\n";
+        let held = [("d.depth", positions), ("w.bg", windows)];
+        let svg = drawn_from("--coverage d.depth --format depth --windows w.bg", &held).unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("chr1".to_string(), "3,000".to_string()),
+                ("chr2".to_string(), "2,000".to_string()),
+            ]
+        );
+    }
+
+    /// A sequence one file names and another does not is drawn as missing in
+    /// the second, a gap in its line, rather than as a depth of nought, which
+    /// would say every sequence a sample's file left out was lost. A gap
+    /// between rows on a sequence the file does name stays nought.
+    #[test]
+    fn a_sequence_a_file_does_not_name_is_missing_not_zero() {
+        // The windows name chr2, which the depth leaves out between chr1 and
+        // chr3, and the windows draw blocks, so every line is the depth's.
+        let depth = "chr1\t0\t1000\t20\nchr3\t0\t1000\t30\n";
+        let windows = "chr2\t0\t1000\t1\n";
+        let held = [("d.bg", depth), ("w.bg", windows)];
+        let svg = drawn_from("d.bg --style line --windows w.bg", &held).unwrap();
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 2, "one line either side of chr2: {svg}");
+        // A gap inside chr1 is nought, and the line runs down to it.
+        let held = [
+            ("d.bg", "chr1\t0\t100\t20\nchr1\t900\t1000\t20\n"),
+            ("w.bg", windows),
+        ];
+        let svg = drawn_from("d.bg --style line --windows w.bg", &held).unwrap();
+        assert_eq!(crate::track::polylines(&svg).len(), 1, "{svg}");
+    }
+
+    /// A segment table with no place is drawn across every sequence it
+    /// calls, at the ploidy it was given, for the one sample asked for, and
+    /// no riser joins the level one sequence ends on to the next one's.
+    #[test]
+    fn copy_number_across_a_genome_needs_its_ploidy_and_one_sample() {
+        let seg = "ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean\n\
+                   T1\t2\t1\t3000\t9\t1.0\nT1\t1\t1\t2000\t9\t-1.0\n\
+                   T2\t1\t1\t2000\t9\t0.0\nT2\t2\t1\t3000\t9\t0.0\n";
+        let held = [("t.seg", seg)];
+        let said = drawn_from("t.seg --ploidy 2", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("holds T1, T2, and --sample says"), "{said}");
+        let svg = drawn_from("t.seg --ploidy 2 --sample T1", &held).unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("1".to_string(), "2,000".to_string()),
+                ("2".to_string(), "3,000".to_string()),
+            ]
+        );
+        // Each segment where it is on its own sequence, and none of them a
+        // riser from one copy at the end of 1 to four at the start of 2.
+        assert!(svg.contains("<title>1:1 to 2,000, 1 copies"), "{svg}");
+        assert!(svg.contains("<title>2:1 to 3,000, 4 copies"), "{svg}");
+        let vertical = svg
+            .split("<line ")
+            .skip(1)
+            .filter(|line| {
+                let at = |name: &str| {
+                    line.split(&format!("{name}=\""))
+                        .nth(1)
+                        .and_then(|rest| rest.split('"').next())
+                };
+                at("x1") == at("x2") && at("y1") != at("y2")
+            })
+            .count();
+        assert_eq!(vertical, 0, "a riser across the join: {svg}");
+        // A table of no calls at all has nothing to draw.
+        let none = "chromosome\tstart\tend\tcn\n1\t0\t100\tNA\n";
+        let said = drawn_from("--copy-number n.cns --ploidy 2", &[("n.cns", none)])
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("called segments"), "{said}");
+    }
+
+    /// mosdepth's depth in windows is named `.regions.bed.gz`, a bedGraph by
+    /// another name, and alone it is drawn across the genome; a `.bed` of
+    /// genes alone is still refused for want of a place, as it always was,
+    /// and beside a scan it is the file named.
+    #[test]
+    fn a_mosdepth_regions_file_alone_is_a_genome_wide_depth() {
+        let regions = "chr1\t0\t500\t31.20\nchr1\t500\t1000\t29.80\nchr2\t0\t400\t30.05\n";
+        let held = [("s.regions.bed", regions)];
+        let svg = drawn_from("s.regions.bed", &held).unwrap();
+        assert_eq!(sequences_under(&svg).len(), 2, "{svg}");
+        assert!(svg.contains("genome:1-1400"), "{svg}");
+    }
+
+    #[test]
+    fn a_bed_of_genes_alone_is_still_refused_for_want_of_a_place() {
+        let genes = "chr1\t100\t900\tgeneA\t0\t+\nchr2\t50\t300\tgeneB\t0\t-\n";
+        let alone = drawn_from("genes.bed", &[("genes.bed", genes)]).unwrap_err();
+        assert!(matches!(
+            alone,
+            BuildError::Placeless(crate::cli::args::ArgError::NoRegion)
+        ));
+        assert_eq!(
+            alone.to_string(),
+            crate::cli::args::ArgError::NoRegion.to_string()
+        );
+        let table = "CHR\tBP\tP\n1\t100\t0.5\n";
+        let beside = drawn_from(
+            "gwas.assoc genes.bed",
+            &[("genes.bed", genes), ("gwas.assoc", table)],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            beside.starts_with("--features genes.bed is drawn over a place"),
+            "{beside}"
+        );
+    }
+
+    /// Files that name one sequence are that sequence drawn whole, as long as
+    /// they reach, with a ruler in its own bases: the figure the place
+    /// written out draws, which a page can move along. A scan of one
+    /// chromosome is drawn so too.
+    #[test]
+    fn one_sequence_alone_is_that_sequence_drawn_whole() {
+        let depth = "NC_1\t0\t5000\t12\nNC_1\t5000\t9000\t30\n";
+        let held = [("a.bg", depth), ("b.bg", "NC_1\t0\t9500\t20\n")];
+        let alone = drawn_from("a.bg b.bg --same-scale", &held).unwrap();
+        let written = drawn_from("NC_1:1-9,500 a.bg b.bg --same-scale", &held).unwrap();
+        assert_eq!(alone, written);
+        assert_eq!(
+            built_from("a.bg b.bg", &held, Theme::light(), None)
+                .along
+                .map(|region| region.to_string())
+                .as_deref(),
+            Some("NC_1:1-9500")
+        );
+        let table = "CHR\tBP\tP\n3\t100\t0.5\n3\t4000\t1e-9\n";
+        let held = [("gwas.assoc", table)];
+        assert_eq!(
+            drawn_from("gwas.assoc", &held).unwrap(),
+            drawn_from("3:1-4,000 gwas.assoc", &held).unwrap()
+        );
+    }
+
+    /// A scan and a depth whose files name a chromosome differently are laid
+    /// on one sequence where `--rename` says they are one, named as the
+    /// figure names it, and a shade there falls where both are drawn.
+    #[test]
+    fn a_scan_and_a_depth_share_one_genome() {
+        let table = "CHR\tBP\tP\n1\t1000\t0.01\n1\t900000\t0.2\n2\t5000\t1e-9\n";
+        let depth = "chr1\t0\t1000000\t30\nchr2\t0\t600000\t25\n";
+        let held = [("gwas.assoc", table), ("d.bg", depth)];
+        let apart = drawn_from("gwas.assoc d.bg", &held).unwrap();
+        assert_eq!(sequences_under(&apart).len(), 4, "{apart}");
+        let built = built_from(
+            "gwas.assoc d.bg --rename 1=chr1 --rename 2=chr2 --shade chr2:1-100,000=start",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let svg = built.figure.to_svg();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("chr1".to_string(), "1,000,000".to_string()),
+                ("chr2".to_string(), "600,000".to_string()),
+            ]
+        );
+        let shades = built.figure.shades();
+        assert_eq!((shades[0].start(), shades[0].end()), (1_000_000, 1_100_000));
+        assert!(
+            svg.contains("<title>start, chr2:1-100,000</title>"),
+            "{svg}"
+        );
+        // Named by the table's own name for it, it is found too.
+        let built = built_from(
+            "gwas.assoc d.bg --rename 1=chr1 --rename 2=chr2 --shade 2:1-100,000",
+            &held,
+            Theme::light(),
+            None,
+        );
+        assert_eq!(built.figure.shades()[0].start(), 1_000_000);
+        // And the depth's names are read under the figure's as the table's are.
+        let svg = drawn_from("gwas.assoc d.bg --rename chr1=1 --rename chr2=2", &held).unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("1".to_string(), "1,000,000".to_string()),
+                ("2".to_string(), "600,000".to_string()),
+            ]
+        );
+    }
+
+    /// A shade on a depth across the genome is laid through the offsets the
+    /// sequences are laid at, and held to the sequence it is on.
+    #[test]
+    fn a_shade_on_a_genome_wide_depth_falls_on_its_own_sequence() {
+        let depth = "1\t0\t2000\t30\n2\t0\t3000\t25\n3\t0\t1000\t20\n";
+        let held = [("d.bg", depth)];
+        let built = built_from(
+            "d.bg --shade 2:1,001-5,000=loss",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let shades = built.figure.shades();
+        assert_eq!((shades[0].start(), shades[0].end()), (3_000, 5_000));
+        assert!(built
+            .figure
+            .to_svg()
+            .contains("<title>loss, 2:1,001-5,000</title>"));
+        let said = drawn_from("d.bg --shade 4:1-10", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(said.contains("is on 4"), "{said}");
+    }
+
     /// Several places are one panel each, the same tracks over each, the
     /// title over them all and the key once under them. A track with nothing
     /// in one place is a band there that says so, where it refused the whole
@@ -10667,13 +11393,13 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let (_, notes) = drawn_noting("gwas.assoc --shade 2:2,000,001-2,000,100", &held);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].contains("past the furthest marker on 2"),
+            notes[0].contains("past the furthest any file reaches on 2"),
             "{notes:?}"
         );
         let said = drawn_from("gwas.assoc --shade 1-1,000", &held)
             .unwrap_err()
             .to_string();
-        assert!(said.contains("a scan across the whole genome"), "{said}");
+        assert!(said.contains("a figure across the whole genome"), "{said}");
         // A stretch past where a sequence ends in the figure stops there,
         // at its furthest marker, rather than running on into the next.
         let built = built_from(
@@ -10708,8 +11434,8 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
     }
 
     /// A scan across the whole genome reads no annotation, and one beside it
-    /// makes the figure a figure of a place, so a gene is answered with the
-    /// one form that shades it: its span on its sequence.
+    /// needs a place, so a gene is answered with the one form that shades
+    /// it: its span on its sequence.
     #[test]
     fn a_gene_shade_on_a_genome_wide_scan_is_answered_with_its_span() {
         let table = "CHR\tSNP\tBP\tP\n1\ta\t1000\t0.01\n2\tc\t5000\t1e-9\n";
@@ -10718,7 +11444,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .to_string();
         assert_eq!(
             said,
-            "--shade GENE1: a scan across the whole genome reads no annotation to look a \
+            "--shade GENE1: a figure across the whole genome reads no annotation to look a \
              gene up in; write the gene's span on its sequence, as 7:1,001-2,000"
         );
     }

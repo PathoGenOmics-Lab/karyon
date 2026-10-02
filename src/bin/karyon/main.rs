@@ -46,11 +46,11 @@ USAGE
     karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
-names, or a sequence drawn whole; several places draw a panel each. Trees
-need none, and a scan alone is drawn across every chromosome. Each file is a
-track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA,
-Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is its
-depth, and a track flag chooses another kind, as --pileup reads.bam. The
+names, or a sequence drawn whole; several places draw a panel each. Trees need
+none, and a scan, bedGraph or segment table alone spans the genome. Each file
+is a track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph,
+FASTA, Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is
+its depth, and a track flag chooses another kind, as --pileup reads.bam. The
 figure is SVG, on standard output unless -o names one, and PDF for -o x.pdf.
 
 TRACKS, by what they draw
@@ -411,25 +411,29 @@ The place comes first: a 1-based inclusive locus string, a gene the figure's
 annotation names, drawn with a margin, or a sequence's name, drawn whole. A
 file named on its own is a track of the kind its name says: BAM draws its
 depth, SAM its reads, VCF and BCF their calls, GFF3, GTF, BED and bigBed
-features, bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick
-a tree, PAF synteny, and a PLINK or REGENIE table a scan; a .gz is read as
-the file inside. Each track flag starts a track of its own kind, and the
-flags after a track describe that one, so the order of the words is the order
-of the stack. A coordinate ruler is added under the last track laid on the
-coordinates unless --axis puts one elsewhere or --no-axis leaves it out, and
-unless nothing in the figure is laid on the coordinates: a phylogeny is not,
-so a stack of trees gets no ruler measuring a window it is not drawn in, and
-a figure made only of --tree, --tanglegram and --snps tracks takes no region
-at all. An alignment, a table over time or over the sites of a gene, and a
-read's signal are their own place: named nowhere, the figure is laid over all
-of it, and its ruler counts columns, weeks, sites or samples rather than
-bases. A --manhattan table with no place is drawn across the whole genome:
-every sequence it names, end to end, in the order chromosomes are counted,
-each as long as its furthest marker and named under the scan. Several places,
-as karyon rpoB katG inhA reads.bam genes.gff3, draw one panel each, one under
-the other, the same tracks over each and the key once under them; a track
-with nothing in one of them says so there rather than refusing the figure.
-Any track file may be - for standard input, and one track may take it.
+features, bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick a
+tree, PAF synteny, a PLINK or REGENIE table a scan, and CNVkit's .cns and a
+.seg copy number; a .gz is read as the file inside. Each track flag starts a
+track of its own kind, and the flags after a track describe that one, so the
+order of the words is the order of the stack. A coordinate ruler is added
+under the last track laid on the coordinates unless --axis puts one elsewhere
+or --no-axis leaves it out, and unless nothing in the figure is laid on the
+coordinates: a phylogeny is not, so a stack of trees gets no ruler measuring a
+window it is not drawn in, and a figure made only of --tree, --tanglegram and
+--snps tracks takes no region at all. An alignment, a table over time or over
+the sites of a gene, and a read's signal are their own place: named nowhere,
+the figure is laid over all of it, and its ruler counts columns, weeks, sites
+or samples rather than bases. With no place, --manhattan, --coverage,
+--windows and --copy-number tracks are drawn across the whole genome: every
+sequence they name, end to end, in the order chromosomes are counted, each as
+long as the furthest any file reaches on it, or as long as a bigWig says, and
+named underneath. A sequence a file names no row on is a gap in its track, not
+a depth of nought, and a BAM, whose depth there is every read it holds, needs
+a place. Several places, as karyon rpoB katG inhA reads.bam genes.gff3, draw
+one panel each, one under the other, the same tracks over each and the key
+once under them; a track with nothing in one of them says so there rather than
+refusing the figure. Any track file may be - for standard input, and one track
+may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,

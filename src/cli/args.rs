@@ -204,15 +204,38 @@ pub enum ArgError {
         /// `calls.vcf.gz.tbi`, and `reads.bam` for `reads.bai`.
         file: Option<String>,
     },
-    /// A bigWig and no place to draw it over.
+    /// A bigWig and no place to draw it over, on a track that is not drawn
+    /// across a whole genome.
     ///
-    /// A bigWig is read a window at a time, and across a whole genome it would
-    /// be drawn from the coarsest of the summaries it keeps, which the command
-    /// line does not do yet. It was answered with what the first argument is,
-    /// which did not say why a file that names its own sequences needed one.
+    /// After `--coverage` or `--windows` a bigWig with no place is drawn
+    /// across the whole genome; after `--dynseq` its scores are drawn as the
+    /// bases under them, which need a place. It was answered with what the
+    /// first argument is, which did not say why a file that names its own
+    /// sequences needed one.
     PlacelessBigWig {
         /// The bigWig, as it was written.
         file: String,
+    },
+    /// A BAM or a CRAM and no place to draw it over.
+    ///
+    /// Its depth across a whole genome is every read it holds: a human
+    /// genome's at thirty-fold is about a hundred million reads, and its
+    /// depth written out a base a line is billions of lines. mosdepth counts
+    /// it in windows in a few minutes, and those are drawn across the genome.
+    GenomeWideReads {
+        /// The file, as it was written.
+        file: String,
+    },
+    /// A track drawn over a place, in a figure that names none and whose
+    /// other tracks would be drawn across the whole genome.
+    ///
+    /// Answered with the track, since the reader of `karyon trait.assoc
+    /// genes.gff3` wrote a figure that is right but for one file.
+    NotGenomeWide {
+        /// The track's flag.
+        track: &'static str,
+        /// Its file, as it was written, where it has one.
+        file: Option<String>,
     },
     /// A place given to `--highlight` where no tree is there to take it.
     ///
@@ -332,18 +355,46 @@ impl fmt::Display for ArgError {
                 write!(
                     f,
                     "the first argument is the place, as in NC_000962.3:761,000-763,000, or \
-                     a gene or a sequence drawn whole; --manhattan tables alone are drawn \
-                     across the whole genome, and a figure of {} or {last} tracks goes \
-                     without one",
+                     a gene or a sequence drawn whole; {} tracks alone are drawn across the \
+                     whole genome, and a figure of {} or {last} tracks goes without one",
+                    across_genome(),
                     rest.join(", ")
                 )
             }
             ArgError::PlacelessBigWig { file } => write!(
                 f,
-                "{file} is a bigWig, which is drawn over a place: write one first, as chr1 \
-                 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; a bigWig \
-                 across a whole genome is not drawn yet"
+                "{file} is a bigWig, which is drawn over a place here: write one first, as \
+                 chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; with \
+                 none, a bigWig after --coverage or --windows is drawn across the whole genome"
             ),
+            ArgError::GenomeWideReads { file } => {
+                let cram = file.to_ascii_lowercase().ends_with(".cram");
+                let (format, fasta) = if cram {
+                    ("CRAM", " --fasta ref.fa")
+                } else {
+                    ("BAM", "")
+                };
+                write!(
+                    f,
+                    "{file} is a {format}, which is drawn over a place, as karyon chr1 {file}: \
+                     across a whole genome its depth is every read it holds, so count it in \
+                     windows with mosdepth --by 100000{fasta} sample {file} and draw the \
+                     sample.regions.bed.gz it writes"
+                )
+            }
+            ArgError::NotGenomeWide { track, file } => {
+                let named = match file {
+                    Some(file) => format!("--{track} {file}"),
+                    None => format!("--{track}"),
+                };
+                write!(
+                    f,
+                    "{named} is drawn over a place, and with none a figure is drawn across the \
+                     whole genome, which {} tracks alone are: write the place first, as chr1 \
+                     for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it",
+                    across_genome()
+                )
+            }
             ArgError::RenamedTwice {
                 from,
                 first,
@@ -472,6 +523,21 @@ impl fmt::Display for ArgError {
 }
 
 impl std::error::Error for ArgError {}
+
+/// The tracks drawn across a whole genome where no place is written, as a
+/// message names them: worked out from the tracks, as [`ArgError::NoRegion`]
+/// works out the ones that need no place.
+fn across_genome() -> String {
+    let flags: Vec<&str> = Kind::ALL
+        .iter()
+        .filter(|kind| kind.genome_wide())
+        .map(|kind| kind.dashed())
+        .collect();
+    match flags.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => flags.join(""),
+    }
+}
 
 /// Where a track's data comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -945,8 +1011,9 @@ impl Kind {
     /// reads; a VCF as its calls; GFF3, GTF, BED and bigBed as features;
     /// bedGraph and bigWig as a signal; FASTA and 2bit as the reference; a
     /// Newick file as a tree; PAF as synteny; a PLINK or REGENIE association
-    /// table as a scan. A name that could be several things, `.tsv` or
-    /// `.txt`, says nothing, and the file has to be given its flag.
+    /// table as a scan; CNVkit's `.cns` and a `.seg` as copy number, which
+    /// still needs its `--ploidy`. A name that could be several things, `.tsv`
+    /// or `.txt`, says nothing, and the file has to be given its flag.
     pub fn for_file(name: &str) -> Option<Kind> {
         let lower = name.to_ascii_lowercase();
         let lower = lower
@@ -990,6 +1057,8 @@ impl Kind {
             | "trees" => Kind::Tree,
             "paf" => Kind::Synteny,
             "assoc" | "qassoc" | "regenie" => Kind::Manhattan,
+            // CNVkit's segments, and the table IGV and GISTIC2 read.
+            "cns" | "seg" => Kind::CopyNumber,
             "bedmethyl" => Kind::Methylation,
             "slow5" => Kind::Squiggle,
             // A contact map in cooler's or Juicer's own format is not text,
@@ -1034,6 +1103,18 @@ impl Kind {
                 | Kind::Phylodynamics
                 | Kind::Selection
                 | Kind::Squiggle
+        )
+    }
+
+    /// Whether a track of this kind is drawn across a whole genome where the
+    /// command line writes no place: a scan, a signal, windows and a segment
+    /// table, each on the sequences its rows name, laid end to end. What a
+    /// particular track of the kind reads may still need a place, which
+    /// [`TrackSpec::genome_wide`] says.
+    pub fn genome_wide(self) -> bool {
+        matches!(
+            self,
+            Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan
         )
     }
 
@@ -1610,6 +1691,34 @@ impl TrackSpec {
         }
     }
 
+    /// Whether this track is drawn across a whole genome where the command
+    /// line writes no place, every sequence its rows name laid end to end.
+    ///
+    /// A scan, unless it is read against a lead's linkage or a genetic map,
+    /// which are read over one stretch of one sequence. A signal, unless it
+    /// is a BAM's or a CRAM's depth, which across a genome is every read the
+    /// file holds, or a bare column of values, which names no sequence to lay
+    /// its values on. Windows and a segment table. And a `.bed` named on its
+    /// own, which may be mosdepth's depth in windows, a bedGraph by another
+    /// name, as is told once it is read: one that holds features is refused
+    /// then, as a figure of features with no place always was.
+    pub fn genome_wide(&self) -> bool {
+        match self.kind {
+            Kind::Manhattan => self.second.is_none() && self.recombination.is_none(),
+            Kind::Coverage => !self.reads_alignments() && self.format != Some(Format::Values),
+            Kind::Windows | Kind::CopyNumber => true,
+            Kind::Features => self.guessed && named_as(self.source.as_ref(), &[".bed"]),
+            _ => false,
+        }
+    }
+
+    /// Whether the track reads a BAM or a CRAM, by its name: its depth or
+    /// its reads, either way read through its index a window at a time.
+    fn reads_alignments(&self) -> bool {
+        matches!(self.kind, Kind::Coverage | Kind::Pileup | Kind::SplitReads)
+            && named_as(self.source.as_ref(), &[".bam", ".cram"])
+    }
+
     /// Every source the track reads: its data, its other file, its sample
     /// sheet and its recombination rates, where it names them.
     pub fn sources(&self) -> impl Iterator<Item = &Source> + '_ {
@@ -1770,19 +1879,16 @@ impl Invocation {
         self.output.as_deref().is_some_and(crate::pdf::named_pdf)
     }
 
-    /// Whether the figure is a scan across a whole genome: no place written,
-    /// and every track a `--manhattan` table read on its own, which is then
-    /// laid over every sequence the tables name, end to end.
+    /// Whether the figure is drawn across a whole genome: no place written,
+    /// and every track one [`TrackSpec::genome_wide`] says is, a scan, a
+    /// signal, windows or a segment table, which are then laid over every
+    /// sequence their files name, end to end.
     pub fn genome_wide(&self) -> bool {
         self.region.is_none()
             && self.named.is_none()
             && self.more.is_empty()
             && !self.tracks.is_empty()
-            && self.tracks.iter().all(|track| {
-                track.kind == Kind::Manhattan
-                    && track.second.is_none()
-                    && track.recombination.is_none()
-            })
+            && self.tracks.iter().all(TrackSpec::genome_wide)
     }
 
     /// The files the command line names, each once, in the order it names
@@ -3567,35 +3673,15 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     // holds a single track that is drawn in one needs it: a tree beside a
     // coverage track is still measured against the coverage's window. A place
     // named by a word is a window too, found once the files are read.
-    // A scan read on its own is a place too: every sequence it names.
-    let genome_wide = !tracks.is_empty()
-        && tracks.iter().all(|track| {
-            track.kind == Kind::Manhattan && track.second.is_none() && track.recombination.is_none()
-        });
+    // A scan, a signal, windows or a segment table read on their own are a
+    // place too: every sequence they name.
+    let genome_wide = !tracks.is_empty() && tracks.iter().all(TrackSpec::genome_wide);
     if region.is_none()
         && named.is_none()
         && !genome_wide
         && (tracks.is_empty() || tracks.iter().any(|track| track.kind.needs_region()))
     {
-        // A bigWig names its sequences and still needs a place, which is
-        // worth saying in so many words.
-        let bigwig = tracks.iter().find_map(|track| match &track.source {
-            Some(Source::Path(path))
-                if path
-                    .extension()
-                    .and_then(|ending| ending.to_str())
-                    .is_some_and(|ending| {
-                        ending.eq_ignore_ascii_case("bw") || ending.eq_ignore_ascii_case("bigwig")
-                    }) =>
-            {
-                Some(path.display().to_string())
-            }
-            _ => None,
-        });
-        return Err(match bigwig {
-            Some(file) => ArgError::PlacelessBigWig { file },
-            None => ArgError::NoRegion,
-        });
+        return Err(placeless(&tracks));
     }
     Ok(Request::Draw(Box::new(Invocation {
         region,
@@ -3615,6 +3701,67 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         colors,
         shades,
     })))
+}
+
+/// Why a figure that names no place needs one, said of the file that needs
+/// it where one does.
+///
+/// A BAM first, whose depth across a genome is every read it holds. Then a
+/// bigWig on a track that draws one over a place, since a file that names its
+/// own sequences needing one is worth saying in so many words. Then a track
+/// drawn over a place beside tracks that alone would be drawn across the
+/// genome, named, since that line is right but for it. Otherwise, what the
+/// first argument is.
+fn placeless(tracks: &[TrackSpec]) -> ArgError {
+    let file = |track: &TrackSpec| match &track.source {
+        Some(Source::Path(path)) => Some(path.display().to_string()),
+        Some(Source::Stdin) => Some("-".to_string()),
+        None => None,
+    };
+    if let Some(file) = tracks
+        .iter()
+        .filter(|track| track.reads_alignments())
+        .find_map(file)
+    {
+        return ArgError::GenomeWideReads { file };
+    }
+    if let Some(file) = tracks
+        .iter()
+        .filter(|track| {
+            !track.genome_wide() && named_as(track.source.as_ref(), &[".bw", ".bigwig"])
+        })
+        .find_map(file)
+    {
+        return ArgError::PlacelessBigWig { file };
+    }
+    let spread = tracks.iter().any(TrackSpec::genome_wide);
+    match tracks
+        .iter()
+        .find(|track| track.kind.needs_region() && !track.genome_wide())
+    {
+        Some(track) if spread => ArgError::NotGenomeWide {
+            track: track.kind.flag(),
+            file: file(track),
+        },
+        _ => ArgError::NoRegion,
+    }
+}
+
+/// Whether a source is a file whose name ends in one of `endings`, in any
+/// case, under any `.gz`.
+fn named_as(source: Option<&Source>, endings: &[&str]) -> bool {
+    let Some(Source::Path(path)) = source else {
+        return false;
+    };
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let lower = name.to_ascii_lowercase();
+    let lower = lower
+        .strip_suffix(".gz")
+        .or_else(|| lower.strip_suffix(".bgz"))
+        .unwrap_or(&lower);
+    endings.iter().any(|ending| lower.ends_with(ending))
 }
 
 /// Whether a word is a colour written `#rrggbb`, the one spelling a figure
@@ -4620,42 +4767,50 @@ mod tests {
         assert!(matches!(error, ArgError::OnePosition { .. }), "{error:?}");
     }
 
-    /// A bigWig with no place is refused saying it needs one, whatever track
-    /// reads it, rather than told what the first argument is; with a place
-    /// it is drawn.
+    /// A bigWig with no place is drawn across the whole genome after
+    /// `--coverage` and `--windows`, and refused saying it needs one after a
+    /// track that draws it over a place, rather than told what the first
+    /// argument is; with a place it is drawn.
     #[test]
-    fn a_bigwig_with_no_place_is_refused_saying_so() {
-        for (line, file) in [
-            ("signal.bw", "signal.bw"),
-            (
-                "genes.gff3 --coverage data/Signal.BigWig",
-                "data/Signal.BigWig",
-            ),
-            ("--windows w.bw --tree t.nwk", "w.bw"),
+    fn a_bigwig_with_no_place_is_refused_only_where_it_needs_one() {
+        for line in [
+            "signal.bw",
+            "--windows w.bw",
+            "--coverage data/Signal.BigWig",
         ] {
-            let error = parse(&args(line)).unwrap_err();
-            assert!(
-                matches!(&error, ArgError::PlacelessBigWig { file: named } if named == file),
-                "{line}: {error:?}"
-            );
-            assert_eq!(
-                error.to_string(),
-                format!(
-                    "{file} is a bigWig, which is drawn over a place: write one first, as chr1 \
-                     for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; a \
-                     bigWig across a whole genome is not drawn yet"
-                )
-            );
+            assert!(draw(line).genome_wide(), "{line}");
         }
-        assert!(matches!(
-            parse(&args("signal.bedgraph")).unwrap_err(),
-            ArgError::NoRegion
-        ));
+        let line = "--dynseq s.bw --with-sequence ref.fa";
+        let error = parse(&args(line)).unwrap_err();
+        assert!(
+            matches!(&error, ArgError::PlacelessBigWig { file } if file == "s.bw"),
+            "{line}: {error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            "s.bw is a bigWig, which is drawn over a place here: write one first, as chr1 \
+             for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it; with none, \
+             a bigWig after --coverage or --windows is drawn across the whole genome"
+        );
+        // Beside a track drawn over a place, that track is the one named.
+        let error = parse(&args("genes.gff3 --coverage data/Signal.BigWig")).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                ArgError::NotGenomeWide { track: "features", file: Some(file) }
+                    if file == "genes.gff3"
+            ),
+            "{error:?}"
+        );
+        // A tree beside it needs no place, and windows beside a tree do.
+        let error = parse(&args("--windows w.bw --tree t.nwk")).unwrap_err();
+        assert!(matches!(error, ArgError::NoRegion), "{error:?}");
         assert!(draw("chr1 signal.bw").named.is_some());
     }
 
-    /// A scan read on its own is drawn across the whole genome, and needs no
-    /// place; one read against linkage or a recombination map is read over a
+    /// A scan, a signal, windows and a segment table read on their own are
+    /// drawn across the whole genome, and need no place, alone or together;
+    /// a scan read against linkage or a recombination map is read over a
     /// region, and does. What goes without a place is said from the tracks.
     #[test]
     fn a_scan_alone_is_drawn_across_the_genome() {
@@ -4665,9 +4820,23 @@ mod tests {
         assert!(two.genome_wide());
         assert!(!draw("1 gwas.assoc").genome_wide());
         for line in [
+            "gwas.assoc d.bg",
+            "d.bg",
+            "--coverage depth.txt --format depth",
+            "--coverage -",
+            "--windows w.bg",
+            "--copy-number t.cns --ploidy 2",
+            "t.seg --ploidy 2 --sample S1",
+            "sample.regions.bed.gz",
+            "gwas.assoc d.bg --windows w.bg t.cns --ploidy 2",
+        ] {
+            assert!(draw(line).genome_wide(), "{line}");
+        }
+        for line in [
             "gwas.assoc --ld lead.ld",
             "gwas.assoc --with-recombination map.txt",
-            "gwas.assoc d.bg",
+            "--coverage values.txt --format values",
+            "--tree t.nwk --coverage d.bg",
         ] {
             let error = parse(&args(line)).unwrap_err();
             assert!(matches!(error, ArgError::NoRegion), "{line}: {error:?}");
@@ -4677,11 +4846,91 @@ mod tests {
                 "--msa",
                 "--frequencies",
                 "--squiggle",
-                "whole genome",
+                "--coverage, --copy-number, --windows and --manhattan tracks alone are drawn \
+                 across the whole genome",
             ] {
                 assert!(said.contains(alone), "{alone} not in: {said}");
             }
         }
+    }
+
+    /// A track drawn over a place beside tracks that alone would be drawn
+    /// across the genome is named, since the line is right but for it.
+    #[test]
+    fn a_track_that_needs_a_place_beside_a_genome_is_named() {
+        for (line, track, file) in [
+            ("trait.assoc genes.gff3", "features", Some("genes.gff3")),
+            ("d.bg calls.vcf.gz", "variants", Some("calls.vcf.gz")),
+            ("--axis d.bg", "axis", None),
+            ("t.cns --ploidy 2 --sequence -", "sequence", Some("-")),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(
+                    &error,
+                    ArgError::NotGenomeWide { track: named, file: given }
+                        if *named == track && given.as_deref() == file
+                ),
+                "{line}: {error:?}"
+            );
+        }
+        assert_eq!(
+            parse(&args("trait.assoc genes.gff3"))
+                .unwrap_err()
+                .to_string(),
+            "--features genes.gff3 is drawn over a place, and with none a figure is drawn \
+             across the whole genome, which --coverage, --copy-number, --windows and \
+             --manhattan tracks alone are: write the place first, as chr1 for a sequence \
+             drawn whole or chr1:1-2,000,000 for a stretch of it"
+        );
+    }
+
+    /// A BAM or a CRAM with no place is every read it holds, and is refused
+    /// with the command that counts its depth in windows, alone or beside
+    /// files that would be drawn across the genome.
+    #[test]
+    fn a_bam_alone_is_refused_with_how_to_make_windows() {
+        for (line, file) in [
+            ("reads.bam", "reads.bam"),
+            ("reads.bam genes.gff3", "reads.bam"),
+            ("trait.assoc --coverage runs/Reads.BAM", "runs/Reads.BAM"),
+            ("--pileup reads.bam", "reads.bam"),
+            ("aln.cram", "aln.cram"),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::GenomeWideReads { file: named } if named == file),
+                "{line}: {error:?}"
+            );
+        }
+        assert_eq!(
+            parse(&args("reads.bam")).unwrap_err().to_string(),
+            "reads.bam is a BAM, which is drawn over a place, as karyon chr1 reads.bam: across \
+             a whole genome its depth is every read it holds, so count it in windows with \
+             mosdepth --by 100000 sample reads.bam and draw the sample.regions.bed.gz it writes"
+        );
+        assert!(parse(&args("aln.cram")).unwrap_err().to_string().contains(
+            "is a CRAM, which is drawn over a place, as karyon chr1 aln.cram: across \
+                       a whole genome its depth is every read it holds, so count it in windows \
+                       with mosdepth --by 100000 --fasta ref.fa sample aln.cram"
+        ));
+        assert!(draw("chr1 reads.bam").named.is_some());
+    }
+
+    /// CNVkit's segments and a `.seg` are copy number by their names, and
+    /// still need the ploidy where balanced sits.
+    #[test]
+    fn a_segment_table_is_copy_number_by_its_name() {
+        for name in ["tumour.cns", "cohort.seg", "T1.CNS.gz"] {
+            assert_eq!(Kind::for_file(name), Some(Kind::CopyNumber), "{name}");
+        }
+        assert!(matches!(
+            parse(&args("tumour.cns")).unwrap_err(),
+            ArgError::MissingPloidy
+        ));
+        let invocation = draw("tumour.cns --ploidy 2");
+        assert_eq!(invocation.tracks[0].ploidy, Some(2.0));
+        assert!(invocation.tracks[0].guessed);
     }
 
     /// The grammar gives one path per flag, and a tanglegram is two trees. The
@@ -5759,7 +6008,7 @@ mod tests {
         let two = draw("rpoB katG reads.bam");
         assert_eq!(two.more, [Place::Named("katG".to_string())]);
         // No place at all, and a track that is drawn in one.
-        let error = parse(&args("reads.bam genes.gff3")).unwrap_err();
+        let error = parse(&args("calls.vcf genes.gff3")).unwrap_err();
         assert!(matches!(error, ArgError::NoRegion), "{error:?}");
     }
 
@@ -5771,7 +6020,7 @@ mod tests {
 
     #[test]
     fn a_missing_region_is_its_own_message() {
-        let err = parse(&args("--coverage d.bg")).unwrap_err();
+        let err = parse(&args("--features genes.gff3")).unwrap_err();
         assert!(err.to_string().contains("the first argument is the place"));
     }
 

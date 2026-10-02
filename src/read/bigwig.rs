@@ -45,6 +45,11 @@
 //! A bigWig written without zoom levels, as some writers allow, is read as
 //! written over any window, which is all of it for a whole chromosome.
 //!
+//! [`genome`] reads every sequence the file names the same way, whole, for a
+//! signal drawn across a whole genome: three billion bases over 900 pixels
+//! is millions of bases to a pixel, which the coarsest level answers in a few
+//! thousand bins, and each sequence is as long as the index says.
+//!
 //! # What is read
 //!
 //! Each of the three kinds of section a bigWig holds its values in: bedGraph
@@ -141,6 +146,67 @@ pub fn window<R: Read + Seek>(
         start: clamp(region.start()),
         end: clamp(region.end()),
     };
+    read_over(&mut file, over, bases_per_pixel, aggregate)
+}
+
+/// Every sequence a bigWig names, each with the length its index gives it
+/// and its values, read whole as [`window`] reads one: from the zoom level a
+/// pixel of `bases_per_pixel` bases holds two bins of where there is one, and
+/// as written otherwise. In the order of its index, which is the order of
+/// their names.
+///
+/// For a signal drawn across a whole genome, which is a genome's length over
+/// a few hundred pixels, millions of bases to a pixel: the file is opened
+/// once, and each sequence is a walk down the index of the level read. kent's
+/// tools index only the sequences that hold data, so one written against a
+/// whole genome's lengths may name a few of its sequences, each as long as it
+/// was written against.
+///
+/// # Errors
+///
+/// A file that is not a bigWig, or is damaged.
+///
+/// ```
+/// use std::io::Cursor;
+/// use karyon::{read, Aggregate};
+///
+/// # let bytes = include_bytes!("fixtures/signal.bw").to_vec();
+/// let genome = read::bigwig::genome(Cursor::new(bytes), 1.0, Aggregate::Max)?;
+/// let lengths: Vec<(&str, u64)> = genome
+///     .iter()
+///     .map(|(name, length, _)| (name.as_str(), *length))
+///     .collect();
+/// assert_eq!(lengths, [("chr1", 1000), ("chr2", 500), ("chr3", 60)]);
+/// assert_eq!(genome[1].2.spans, [(5, 10, 2.0)]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn genome<R: Read + Seek>(
+    reader: R,
+    bases_per_pixel: f64,
+    aggregate: Aggregate,
+) -> Result<Vec<(String, u64, Signal)>, ReadError> {
+    let mut file = Bbi::open(reader, BIGWIG, "bigWig")?;
+    let mut read = Vec::new();
+    for named in file.sequences()? {
+        let over = Over {
+            id: named.id,
+            start: 0,
+            end: named.length,
+        };
+        let signal = read_over(&mut file, over, bases_per_pixel, aggregate)?;
+        read.push((named.name, u64::from(named.length), signal));
+    }
+    Ok(read)
+}
+
+/// The values over `over` of a bigWig whose header is read, as [`window`]
+/// gives them.
+fn read_over<R: Read + Seek>(
+    file: &mut Bbi<R>,
+    over: Over,
+    bases_per_pixel: f64,
+    aggregate: Aggregate,
+) -> Result<Signal, ReadError> {
     let zoom = file
         .zooms
         .iter()
@@ -153,14 +219,14 @@ pub fn window<R: Read + Seek>(
         Some(zoom) => {
             for (offset, size) in file.blocks(zoom.index, Some(over))? {
                 let block = file.block(offset, size)?;
-                summaries(&file, &block, over, aggregate, &mut spans, &mut most)?;
+                summaries(file, &block, over, aggregate, &mut spans, &mut most)?;
             }
         }
         None => {
             let full = file.full;
             for (offset, size) in file.blocks(full, Some(over))? {
                 let block = file.block(offset, size)?;
-                section(&file, &block, over, &mut spans)?;
+                section(file, &block, over, &mut spans)?;
             }
             for (_, _, value) in &spans {
                 raise(&mut most, *value);
@@ -621,6 +687,42 @@ mod tests {
         summaries(&file, &block, over, Aggregate::Max, &mut spans, &mut most).unwrap();
         assert_eq!(spans, [(10, 20, 2.0)]);
         assert_eq!(most, Some(2.0));
+    }
+
+    /// The whole of each sequence, read as a window over all of it is, at
+    /// the zoom level the scale picks and as written where it picks none,
+    /// each with the length the file's index gives it.
+    #[test]
+    fn a_genome_is_every_sequence_read_whole() {
+        for (bytes, per_pixel, aggregate) in [
+            (SIGNAL, 1.0, Aggregate::Max),
+            (SIGNAL, 1e6, Aggregate::Mean),
+            (STEPS, 100.0, Aggregate::Max),
+            (STEPS, 30_000.0, Aggregate::Min),
+            (STEPS, 1e9, Aggregate::Mean),
+        ] {
+            let genome = genome(Cursor::new(bytes), per_pixel, aggregate).unwrap();
+            let held = sequences(Cursor::new(bytes)).unwrap();
+            assert_eq!(
+                genome
+                    .iter()
+                    .map(|(name, length, _)| (name.clone(), *length))
+                    .collect::<Vec<_>>(),
+                held
+            );
+            for (name, length, signal) in &genome {
+                let whole = Region::new(name, 0, *length).unwrap();
+                let alone = window(Cursor::new(bytes), &whole, per_pixel, aggregate).unwrap();
+                assert_eq!(*signal, alone, "{name} at {per_pixel}");
+            }
+        }
+        // The levels are the window's: the stepped file's coarsest at a
+        // genome's scale, and its values as written at a gene's.
+        let coarse = genome(Cursor::new(STEPS), 1e9, Aggregate::Max).unwrap();
+        assert_eq!(coarse[0].2.zoom, Some(203_776));
+        let fine = genome(Cursor::new(STEPS), 100.0, Aggregate::Max).unwrap();
+        assert_eq!(fine[0].2.zoom, None);
+        assert_eq!(fine[0].2.spans.len(), 300);
     }
 
     #[test]

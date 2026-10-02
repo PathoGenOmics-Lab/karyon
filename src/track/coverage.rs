@@ -174,6 +174,61 @@ impl CoverageTrack {
         track
     }
 
+    /// A profile of nought from base `start` on, with no end, for a reader
+    /// that learns how far its rows reach only once it has read them all: a
+    /// bedGraph laid across a whole genome, whose sequences are as long as the
+    /// furthest row of any file names on them. Painted as it is read, and cut
+    /// to length by [`CoverageTrack::end_to_end`].
+    pub(crate) fn unbounded(start: u64) -> Self {
+        let mut track = CoverageTrack::new(start, Vec::new());
+        track.runs.push(Run {
+            end: u64::MAX,
+            value: 0.0,
+        });
+        track
+    }
+
+    /// One profile across several sequences laid end to end with no gap, as
+    /// [`Genome`](crate::Genome) lays them: each part `length` bases of the
+    /// shared axis, read from its own base nought, and cut where it ends.
+    ///
+    /// A part of `None` is a sequence the file never names, missing over all
+    /// of it rather than nought, so it is a gap in the profile and not a
+    /// stretch of no depth: a bedGraph says nothing of a sequence it has no
+    /// row on, and drawn as nought, every sequence one sample's file left out
+    /// read as lost. A base a part holds no value for, before its first span
+    /// or past its last, is nought, as a bedGraph leaves out a depth of
+    /// nought.
+    pub(crate) fn end_to_end(
+        parts: impl IntoIterator<Item = (Option<CoverageTrack>, u64)>,
+    ) -> Self {
+        let mut runs: Vec<Run> = Vec::new();
+        let mut at = 0u64;
+        for (part, length) in parts {
+            let end = at.saturating_add(length);
+            match part {
+                Some(part) => {
+                    let mut reached = 0u64;
+                    for (from, to, value) in part.overlapping(0, length) {
+                        if from > reached {
+                            push_run(&mut runs, at.saturating_add(from), 0.0);
+                        }
+                        push_run(&mut runs, at.saturating_add(to), value);
+                        reached = to;
+                    }
+                    if reached < length {
+                        push_run(&mut runs, end, 0.0);
+                    }
+                }
+                None => push_run(&mut runs, end, f64::NAN),
+            }
+            at = end;
+        }
+        let mut track = CoverageTrack::new(0, Vec::new());
+        track.runs = runs;
+        track
+    }
+
     /// Writes `value` over the bases from `start` up to `end`, clamped to what
     /// this track covers.
     ///
@@ -1206,5 +1261,37 @@ mod tests {
                 assert_eq!(areas(&svg).len(), 1, "and fills under it");
             }
         }
+    }
+
+    /// Profiles laid end to end, each cut to its sequence's length: a
+    /// sequence with no profile is missing over all of it, and a base a
+    /// profile holds nothing for, past its last span, is nought.
+    #[test]
+    fn profiles_end_to_end_keep_a_sequence_with_none_missing() {
+        let mut first = CoverageTrack::unbounded(0);
+        first.paint(10, 20, 5.0);
+        first.paint(20, 30, 7.0);
+        let mut third = CoverageTrack::unbounded(0);
+        third.paint(0, 40, 3.0);
+        let joined = CoverageTrack::end_to_end([(Some(first), 50), (None, 100), (Some(third), 40)]);
+        assert_eq!(joined.at(0), Some(0.0));
+        assert_eq!(joined.at(15), Some(5.0));
+        assert_eq!(joined.at(29), Some(7.0));
+        // Past its last span the first sequence is nought, to its length.
+        assert_eq!(joined.at(49), Some(0.0));
+        // The second, which no span names, is missing, not nought.
+        assert!(joined.at(50).is_some_and(f64::is_nan));
+        assert!(joined.at(149).is_some_and(f64::is_nan));
+        assert_eq!(joined.at(150), Some(3.0));
+        assert_eq!(joined.at(189), Some(3.0));
+        assert_eq!(joined.at(190), None);
+        // A missing stretch is a gap in the drawing, and no nought is drawn.
+        let svg = drawn(Region::new("genome", 0, 190).unwrap(), joined);
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 2, "one line either side of the gap: {svg}");
+        // An unbounded profile reaches as far as anything was painted.
+        let mut open = CoverageTrack::unbounded(0);
+        open.paint(5, 8, 1.0);
+        assert_eq!(open.at(1 << 40), Some(0.0));
     }
 }

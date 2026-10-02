@@ -1,6 +1,6 @@
 ---
 title: A whole sequence
-description: Draw the depth of reads along a whole chromosome in windows, for one sample or several, to see what stands out at a glance.
+description: Draw the depth of reads along a whole chromosome in windows, for one sample or several, or across every chromosome at once with its copy number, to see what stands out at a glance.
 ---
 
 # A whole sequence
@@ -37,6 +37,41 @@ draws as far as the files reach and says so; write the span, as
 | Make depth windows from a BAM | `mosdepth --by 10000 sample reads.bam`, then draw `sample.regions.bed.gz`, read a window at a time through the `.csi` mosdepth writes beside it |
 | Draw a bigWig, as deepTools or UCSC's tools write one | `sampleA.bw` in place of `sampleA.bedgraph`: it says how long each sequence is, and a whole one is read from the summary it keeps at that scale |
 
-The example files: [sampleA.bedgraph](../data/sampleA.bedgraph) and
-[sampleB.bedgraph](../data/sampleB.bedgraph). Every option:
-`karyon help coverage`, or the [command line reference](../guide/cli.md).
+## Every sequence at once
+
+With no place, the depth in windows and the segments a copy-number caller
+fitted are drawn across every chromosome they name, end to end, in the order
+chromosomes are counted, each named under them:
+
+```bash
+karyon tumour.bedgraph --label depth tumour.cns --ploidy 2 --label copies -o copies.svg
+```
+
+<figure class="k-start" markdown>
+![A sample's depth in windows and its copy number across twelve chromosomes in alternating shades, each named under them: the depth rises over a gain on the second half of chromosome 3 and over all of 11, stands up in a tower over an amplification on 5, and falls over losses on 8 and 9, and the copies step the same way on a ladder of whole copies, with the loss of one allele marked along its foot on 7, 8 and 9](../assets/start/genome-copies.svg){ .k-light width="720" height="208" }
+![The same figure on the dark page](../assets/start/genome-copies-dark.svg){ .k-dark width="720" height="208" }
+</figure>
+
+`tumour.bedgraph` is the depth `mosdepth --by 500000` counts, and `tumour.cns`
+the segments `cnvkit.py call` writes, read on a ladder of whole copies with
+balanced at `--ploidy 2`. Each chromosome is as long as the furthest either
+file reaches on it, since neither says how long the chromosomes run. The depth
+follows the copies, and the lane along the foot of the copies says where one
+allele was lost: on 8 and 9 with the copy it took, and on 7 with the other
+allele doubled in its place, which the depth cannot show, since the copies
+there still add up to two. A chromosome a depth file has no row on would be a
+gap in its line, not a depth of nought.
+
+| To | Write |
+|:--|:--|
+| Draw one chromosome alone | `5` in front, as `karyon 5 tumour.bedgraph tumour.cns --ploidy 2` |
+| Draw a BAM's depth this way | `mosdepth --by 500000 tumour reads.bam`, then `tumour.regions.bed.gz` in place of `tumour.bedgraph`; a BAM itself needs a place |
+| Shade the amplification, down both tracks | `--shade 5:12,000,001-13,500,000=amplified` |
+| Lay a scan over the same chromosomes | `trait.assoc` in front, from [the scan page](scan.md); `--rename 1=chr1` where the files call a chromosome differently |
+| Draw a bigWig across the genome | `tumour.bw` in place of `tumour.bedgraph`: each chromosome as long as it says, read from the summary it keeps at that scale |
+
+The example files: [sampleA.bedgraph](../data/sampleA.bedgraph),
+[sampleB.bedgraph](../data/sampleB.bedgraph),
+[tumour.bedgraph](../data/tumour.bedgraph) and
+[tumour.cns](../data/tumour.cns). Every option: `karyon help coverage` and
+`karyon help copy-number`, or the [command line reference](../guide/cli.md).

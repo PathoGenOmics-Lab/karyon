@@ -8,6 +8,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A BAM or a CRAM with no place is refused as `ArgError::GenomeWideReads`,
+  saying that its depth across a whole genome is every read it holds and
+  giving the `mosdepth --by 100000` that counts it in windows, which are drawn
+  there: `karyon reads.bam` was told what the first argument is. A track drawn
+  over a place beside files that would be drawn across the genome is named as
+  `ArgError::NotGenomeWide`, as `--features genes.gff3 is drawn over a place,
+  and with none a figure is drawn across the whole genome, which --coverage,
+  --copy-number, --windows and --manhattan tracks alone are`, where the line
+  was answered with what the first argument is. That answer now names the
+  four tracks drawn across the genome, worked out from the tracks.
+- A `--shade` on a figure across the whole genome is refused, as a bare span
+  or a gene, saying a figure across the genome rather than a scan, and one
+  past the end of its sequence says it is past the furthest any file reaches
+  there rather than the furthest marker.
 - An index named on its own, a `.tbi`, `.csi`, `.bai`, `.crai`, `.fai` or
   `.gzi`, is refused before anything is read, naming the file it indexes, as
   `ArgError::IndexNamed`: `calls.vcf.gz.tbi is an index, and karyon reads it
@@ -19,9 +33,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes bedGraph, which `--pileup` would have refused next. A `--format`
   given with one is refused the same way, since the file says what it holds,
   and one piped into standard input is refused asking for its name, since it
-  is read out of order. A bigWig with no place is refused saying it needs one,
-  as `ArgError::PlacelessBigWig`, where it was told what the first argument
-  is; across a whole genome a bigWig is not drawn yet.
+  is read out of order. A bigWig with no place after `--dynseq` is refused
+  saying it needs one, as `ArgError::PlacelessBigWig`, where it was told what
+  the first argument is; after `--coverage` and `--windows` it is drawn
+  across the whole genome.
 - `Files::sequences` answers for a bigWig, a bigBed and a 2bit from the index
   each holds, as it does for a BAM from its header, so a sequence any of them
   names is a place drawn whole, as long as the file says.
@@ -400,6 +415,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A figure with no place is drawn across the whole genome from coverage,
+  windows and copy number as well as from a scan: `karyon tumour.bedgraph
+  tumour.cns --ploidy 2` lays every sequence a bedGraph, a `samtools depth`
+  file, a bigWig, a `--windows` file or a segment table names end to end, in
+  the order chromosomes are counted, each as long as the furthest any file
+  reaches on it, with the alternating named bar of a genome-wide plot under
+  them, and a scan beside them shares the layout. It was refused for having no
+  region. A sequence a coverage file names no row on, where another file names
+  it, is drawn as missing, a gap in its line, rather than as a depth of
+  nought, which said every chromosome a sample's file left out was lost; a gap
+  between rows on a sequence it does name stays nought. A bigWig is read
+  through its zoom levels, each sequence as long as its index says, from the
+  level of which a pixel of the whole genome holds two bins, so a bigWig with
+  no place is drawn there where it was refused as `ArgError::PlacelessBigWig`,
+  which now answers only `--dynseq`, whose scores are drawn as bases. A
+  `.bed` named on its own is told once read: mosdepth's `.regions.bed.gz` is
+  drawn across the genome as the bedGraph it is, and one of features is
+  refused for want of a place as it always was. `--rename` makes two files'
+  names for a sequence one, and names it so under the figure, and a `--shade`
+  finds it by either. Files that name one sequence draw it whole, as though it
+  had been written as the place, ruler and all, which a page can move along;
+  so does a scan of one chromosome, which was a genome of one under a bar of
+  one name. Painted a sequence at a time, a bedGraph of 2.9 million rows over
+  22 chromosomes in the order `sort -k1,1` leaves them draws in 0.3 s.
+  `read::signal::genome_spans`, `read::signal::genome_windows`,
+  `read::segments::genome_copy_numbers` and `read::bigwig::genome` read every
+  sequence of a file, and `Invocation::genome_wide`, through
+  `TrackSpec::genome_wide` and `Kind::genome_wide`, says when a command line
+  is drawn so. The Your data page of a whole sequence draws twelve
+  chromosomes' depth and copy number from `tumour.bedgraph` and `tumour.cns`,
+  which `examples.zip` holds too, in `docs/assets/start/genome-copies.svg`
+  and its dark copy.
+- `CopyNumberTrack::across(&genome)` lays a segmentation on a `Genome` of
+  several sequences end to end: the pixel column a join falls in draws a
+  riser for each sequence and none from the level one ends on to the level the
+  next begins at, which drew a breakpoint nobody reported, and a segment's
+  tooltip says where it is on its own sequence, as `5:12,000,001 to
+  13,500,000`, rather than on the shared axis.
+- `.cns` and `.seg` named on their own are copy number, CNVkit's segments and
+  the table IGV and GISTIC2 read, and still need `--ploidy`.
 - `read::bcf` reads a BCF a window at a time, through the CSI `bcftools index`
   writes beside it, from anything that reads and seeks, and hands its records
   over as the VCF text `bcftools view` prints for them, byte for byte, floats

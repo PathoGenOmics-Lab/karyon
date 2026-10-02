@@ -100,7 +100,11 @@
 //! is a [`ManhattanTrack`] over a `Genome` with its
 //! [`boundaries`](Genome::boundaries) handed to
 //! [`bands`](ManhattanTrack::bands), and [`GenomeTrack`] draws the sequences
-//! underneath so a reader can see where one ends and the next begins.
+//! underneath so a reader can see where one ends and the next begins. A
+//! segmentation goes over it with [`CopyNumberTrack::across`], which keeps a
+//! riser from joining the end of one sequence to the start of the next. The
+//! command line draws a figure that names no place this way, from scans,
+//! signals, windows and segment tables alike.
 //!
 //! # A residue is a coordinate too
 //!

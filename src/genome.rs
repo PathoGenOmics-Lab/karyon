@@ -33,6 +33,11 @@
 //! [`GenomeTrack`](crate::GenomeTrack) draws where the joins are, and a ruler
 //! of global coordinates would be a ruler of a coordinate system nothing else
 //! uses, so it labels each sequence instead.
+//!
+//! The command line builds one when a figure names no place and its files are
+//! scans, signals, windows or segment tables: each sequence as long as the
+//! furthest any file reaches on it, or as long as a bigWig says it is, in the
+//! order a reader counts chromosomes.
 
 use crate::error::Error;
 use crate::region::Region;

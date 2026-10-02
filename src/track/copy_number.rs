@@ -64,8 +64,12 @@
 //!
 //! Nothing is ever drawn between two segments. A caller reports intervals, not
 //! a polyline, and a line across a gap asserts a breakpoint at a coordinate
-//! nobody reported.
+//! nobody reported. Across a genome laid end to end, [`CopyNumberTrack::across`]
+//! says where each sequence starts, and a column holding the end of one and
+//! the start of the next draws a riser for each, never one from one to the
+//! other.
 
+use crate::genome::Genome;
 use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, text_rounded, Anchor};
@@ -254,6 +258,9 @@ pub struct CopyNumberTrack {
     loh: Option<String>,
     show_scale: bool,
     show_alleles: bool,
+    /// The sequences laid end to end on the axis, where it is several, and
+    /// where each starts.
+    genome: Option<(Genome, Vec<u64>)>,
 }
 
 impl CopyNumberTrack {
@@ -280,6 +287,7 @@ impl CopyNumberTrack {
             loh: None,
             show_scale: true,
             show_alleles: true,
+            genome: None,
         }
     }
 
@@ -354,6 +362,62 @@ impl CopyNumberTrack {
     pub fn show_alleles(mut self, show: bool) -> Self {
         self.show_alleles = show;
         self
+    }
+
+    /// Lays the track across `genome`, its sequences end to end on the axis
+    /// as [`Genome`] lays them, with each segment's positions on that axis.
+    ///
+    /// A pixel column of a whole genome holds hundreds of thousands of bases,
+    /// and the one holding the end of a sequence holds the start of the next.
+    /// Its riser joins the lowest and the highest level each sequence reached
+    /// in it, one riser a sequence, and never the level one sequence ended on
+    /// to the level the next began at: two sequences are not neighbours, and
+    /// a stalk from a loss at the end of one to a gain at the start of the
+    /// next draws a breakpoint nobody reported. And a segment's tooltip says
+    /// where it is on its own sequence, as `5:12,000,001 to 13,500,000`,
+    /// rather than on the shared axis, a coordinate no other file counts in.
+    ///
+    /// ```
+    /// use karyon::{CopyNumberSegment, CopyNumberTrack, Figure, Genome, GenomeTrack};
+    ///
+    /// let genome = Genome::new([("chr1", 1_000_000u64), ("chr2", 800_000)]);
+    /// let start = genome.offset("chr2").unwrap();
+    /// let track = CopyNumberTrack::diploid(vec![
+    ///     CopyNumberSegment::total(0, 1_000_000, 1.0),
+    ///     CopyNumberSegment::total(start, start + 800_000, 3.0),
+    /// ])
+    /// .across(&genome);
+    /// let svg = Figure::new(genome.region())
+    ///     .push(track)
+    ///     .push(GenomeTrack::new(genome))
+    ///     .to_svg();
+    /// assert!(svg.contains("chr2:1 to 800,000, 3 copies"));
+    /// ```
+    pub fn across(mut self, genome: &Genome) -> Self {
+        self.genome = Some((genome.clone(), genome.boundaries()));
+        self
+    }
+
+    /// Which sequence of the axis a position is on, counted from nought, and
+    /// nought for every position of an axis of one.
+    fn sequence_of(&self, position: u64) -> usize {
+        self.genome.as_ref().map_or(0, |(_, starts)| {
+            starts
+                .partition_point(|start| *start <= position)
+                .saturating_sub(1)
+        })
+    }
+
+    /// Where a segment is, as a tooltip says it: on its own sequence, where
+    /// the axis is several.
+    fn place_of(&self, segment: &CopyNumberSegment) -> String {
+        if let Some((genome, _)) = &self.genome {
+            if let Some((name, start)) = genome.locate(segment.start) {
+                let end = start.saturating_add(segment.len());
+                return format!("{name}:{}", span_label(start, end));
+            }
+        }
+        span_label(segment.start, segment.end)
     }
 
     /// The segments, in the order they were given.
@@ -478,7 +542,7 @@ impl CopyNumberTrack {
 
     /// What a pointer hovering one segment is told.
     fn tooltip(&self, segment: &CopyNumberSegment) -> String {
-        let where_it_is = span_label(segment.start, segment.end);
+        let where_it_is = self.place_of(segment);
         if !segment.copy.is_called() {
             return format!("{where_it_is}, no call");
         }
@@ -660,42 +724,62 @@ impl Track for CopyNumberTrack {
         let columns = (band.w.ceil() as usize).max(1);
         let mut lo = vec![f64::MAX; columns];
         let mut hi = vec![f64::MIN; columns];
-        let mut touched = false;
 
-        for segment in &visible {
-            if !segment.copy.is_called() {
-                continue;
+        // A sequence at a time, where the axis is several: each sequence's
+        // columns are filled, drawn and emptied before the next, so the column
+        // holding a join draws a riser for each sequence and none between
+        // them. Sorted stably, so each sequence keeps its segments in the
+        // order given, and an axis of one sequence is drawn as it always was.
+        let mut by_sequence: Vec<(usize, &CopyNumberSegment)> = visible
+            .iter()
+            .map(|segment| (self.sequence_of(segment.start), *segment))
+            .collect();
+        by_sequence.sort_by_key(|(sequence, _)| *sequence);
+        let mut from = 0;
+        while from < by_sequence.len() {
+            let sequence = by_sequence[from].0;
+            let to = by_sequence[from..]
+                .iter()
+                .position(|(other, _)| *other != sequence)
+                .map_or(by_sequence.len(), |ahead| from + ahead);
+            let (mut leftmost, mut rightmost) = (columns, 0);
+            for (_, segment) in &by_sequence[from..to] {
+                if !segment.copy.is_called() {
+                    continue;
+                }
+                let total = segment.copy.total();
+                let x0 = ctx.scale.x_at(segment.start as f64).max(band.x);
+                let x1 = ctx.scale.x_at(segment.end as f64).min(band.right());
+                if x1 <= x0 {
+                    continue;
+                }
+                let first = ((x0 - band.x).floor().max(0.0)) as usize;
+                let last = ((x1 - band.x).ceil().min(columns as f64)) as usize;
+                for slot in lo.iter_mut().zip(hi.iter_mut()).take(last).skip(first) {
+                    *slot.0 = slot.0.min(total);
+                    *slot.1 = slot.1.max(total);
+                }
+                leftmost = leftmost.min(first);
+                rightmost = rightmost.max(last);
             }
-            let total = segment.copy.total();
-            let x0 = ctx.scale.x_at(segment.start as f64).max(band.x);
-            let x1 = ctx.scale.x_at(segment.end as f64).min(band.right());
-            if x1 <= x0 {
-                continue;
-            }
-            let first = ((x0 - band.x).floor().max(0.0)) as usize;
-            let last = ((x1 - band.x).ceil().min(columns as f64)) as usize;
-            for slot in lo.iter_mut().zip(hi.iter_mut()).take(last).skip(first) {
-                *slot.0 = slot.0.min(total);
-                *slot.1 = slot.1.max(total);
-                touched = true;
-            }
-        }
-
-        if touched {
-            for (index, (low, high)) in lo.iter().zip(&hi).enumerate() {
-                if *low >= *high {
+            let emptied = lo.iter_mut().zip(hi.iter_mut()).enumerate();
+            for (index, (low, high)) in emptied.take(rightmost).skip(leftmost) {
+                let low = std::mem::replace(low, f64::MAX);
+                let high = std::mem::replace(high, f64::MIN);
+                if low >= high {
                     continue;
                 }
                 let x = band.x + index as f64 + 0.5;
                 ctx.svg.line(
                     x,
-                    y_of(*low),
+                    y_of(low),
                     x,
-                    y_of(*high),
+                    y_of(high),
                     &neutral,
                     ctx.theme.tokens.hairline,
                 );
             }
+            from = to;
         }
 
         let bar = ctx.px(3.0);
@@ -958,5 +1042,74 @@ mod tests {
         ];
         let svg = drawn(CopyNumberTrack::diploid(segments));
         assert!(svg.contains("9 copies"), "the focal event vanished");
+    }
+
+    /// The vertical lines of a drawing, as the span of each from top to
+    /// bottom: the risers, since every other line of the track runs across.
+    fn risers(svg: &str) -> Vec<(f64, f64)> {
+        svg.split("<line ")
+            .skip(1)
+            .filter_map(|line| {
+                let at = |name: &str| -> Option<f64> {
+                    line.split(&format!("{name}=\""))
+                        .nth(1)?
+                        .split('"')
+                        .next()?
+                        .parse()
+                        .ok()
+                };
+                (at("x1")? == at("x2")?).then(|| {
+                    let (y1, y2) = (at("y1").unwrap(), at("y2").unwrap());
+                    (y1.min(y2), y1.max(y2))
+                })
+            })
+            .collect()
+    }
+
+    /// Two sequences laid end to end share the pixel column their join
+    /// falls in. A loss to one copy at the end of the first and a gain to six
+    /// at the start of the second are two levels in one column, which a riser
+    /// joined as if one were a focal event in the other; told where the join
+    /// is, the column draws each sequence's own riser, and here none.
+    #[test]
+    fn a_riser_never_joins_two_sequences() {
+        let segments = vec![
+            CopyNumberSegment::total(0, 5_005, 1.0),
+            CopyNumberSegment::total(5_005, 10_000, 6.0),
+        ];
+        let joined = drawn(CopyNumberTrack::diploid(segments.clone()));
+        assert_eq!(risers(&joined).len(), 1, "{joined}");
+        let genome = Genome::new([("chrA", 5_005u64), ("chrB", 4_995)]);
+        let apart = drawn(CopyNumberTrack::diploid(segments.clone()).across(&genome));
+        assert!(risers(&apart).is_empty(), "{apart}");
+        // Each segment is where it is on its own sequence.
+        assert!(
+            apart.contains("<title>chrA:1 to 5,005, 1 copies"),
+            "{apart}"
+        );
+        assert!(
+            apart.contains("<title>chrB:1 to 4,995, 6 copies"),
+            "{apart}"
+        );
+        // A focal event inside one sequence still has its riser, beside the
+        // join and with the join's column drawn for each sequence apart.
+        let mut focal = segments;
+        focal.insert(1, CopyNumberSegment::total(5_000, 5_001, 9.0));
+        focal[0].end = 5_000;
+        focal.insert(2, CopyNumberSegment::total(5_001, 5_005, 1.0));
+        let svg = drawn(CopyNumberTrack::diploid(focal).across(&genome));
+        assert_eq!(risers(&svg).len(), 1, "{svg}");
+        // Across a genome of one sequence the drawing is the one it always
+        // was, but for where the tooltips say a segment is.
+        let plain = vec![
+            CopyNumberSegment::total(0, 4_990, 2.0),
+            CopyNumberSegment::total(4_990, 4_991, 9.0),
+            CopyNumberSegment::total(4_991, 10_000, 2.0),
+        ];
+        let one = Genome::new([("chr8", 10_000u64)]);
+        assert_eq!(
+            drawn(CopyNumberTrack::diploid(plain.clone())).replace("<title>chr8:", "<title>"),
+            drawn(CopyNumberTrack::diploid(plain).across(&one)).replace("<title>chr8:", "<title>")
+        );
     }
 }
