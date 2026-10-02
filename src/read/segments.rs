@@ -38,6 +38,12 @@
 //! A file that carries a called integer copy number is read from that instead,
 //! since it is what the caller concluded rather than what this arithmetic
 //! would infer.
+//!
+//! # Every sequence at once
+//!
+//! [`genome_copy_numbers`] reads the same tables with no window, each segment
+//! kept on the sequence its row names, for a figure laid across a whole
+//! genome, as the command line draws a segment table named with no place.
 
 use std::collections::BTreeSet;
 
@@ -110,17 +116,119 @@ pub fn copy_numbers(
     ploidy: f64,
     sample: Option<&str>,
 ) -> Result<Segmentation, ReadError> {
-    let mut rows = lines(text);
-    let (at, head) = rows.next().ok_or_else(|| {
+    let mut segments = Vec::new();
+    let tally = segment_rows(text, Rows::In(region), ploidy, sample, |_, segment| {
+        segments.push(segment)
+    })?;
+    Ok(Segmentation {
+        segments,
+        records: tally.records,
+        no_call: tally.no_call,
+        other_sequence: tally.other_sequence,
+        off_region: tally.off_region,
+        samples: tally.samples,
+    })
+}
+
+/// Every segment of a table, on every sequence it names, as a figure across
+/// a whole genome reads it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GenomeSegmentation {
+    /// Each sequence the table calls a segment on, in the order it first
+    /// names them, with its segments, 0-based on that sequence, in the order
+    /// of the file.
+    pub sequences: Vec<(String, Vec<CopyNumberSegment>)>,
+    /// Segment rows in the file, before any filter.
+    pub records: usize,
+    /// Rows whose copy number is a stated no call, left out of `sequences`
+    /// as [`copy_numbers`] leaves them out of its segments.
+    pub no_call: usize,
+    /// The samples the file named, in the order they were first seen.
+    pub samples: Vec<String>,
+}
+
+/// Reads every segment of a table, on every sequence, converting log ratios
+/// at `ploidy` copies, for a figure laid across a whole genome rather than
+/// over one window of it.
+///
+/// The table is read as [`copy_numbers`] reads it, header, counting from one
+/// or from nought, `sample` and all; only no row is left out for being
+/// somewhere else.
+///
+/// # Errors
+///
+/// What [`copy_numbers`] refuses.
+///
+/// ```
+/// use karyon::read::segments::genome_copy_numbers;
+///
+/// let table = "chromosome\tstart\tend\tcn\n2\t0\t500\t3\n1\t0\t900\t2\n1\t900\t1000\tNA\n";
+/// let read = genome_copy_numbers(table, 2.0, None)?;
+/// let names: Vec<&str> = read.sequences.iter().map(|(name, _)| name.as_str()).collect();
+/// assert_eq!(names, ["2", "1"]);
+/// assert_eq!(read.sequences[1].1[0].end, 900);
+/// assert_eq!(read.no_call, 1);
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn genome_copy_numbers(
+    text: &str,
+    ploidy: f64,
+    sample: Option<&str>,
+) -> Result<GenomeSegmentation, ReadError> {
+    let mut sequences: Vec<(String, Vec<CopyNumberSegment>)> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let tally = segment_rows(text, Rows::All, ploidy, sample, |name, segment| {
+        let at = *index.entry(name.to_string()).or_insert_with(|| {
+            sequences.push((name.to_string(), Vec::new()));
+            sequences.len() - 1
+        });
+        sequences[at].1.push(segment);
+    })?;
+    Ok(GenomeSegmentation {
+        sequences,
+        records: tally.records,
+        no_call: tally.no_call,
+        samples: tally.samples,
+    })
+}
+
+/// Which rows of a table are read: the ones over one window of one sequence,
+/// or every one, on whatever sequence it names.
+#[derive(Debug, Clone, Copy)]
+enum Rows<'a> {
+    In(&'a Region),
+    All,
+}
+
+/// What a table held besides its segments.
+#[derive(Debug, Default)]
+struct Tally {
+    records: usize,
+    no_call: usize,
+    other_sequence: usize,
+    off_region: usize,
+    samples: Vec<String>,
+}
+
+/// [`copy_numbers`] and [`genome_copy_numbers`], handing each segment `rows`
+/// asks for to `each` with the sequence its row names.
+fn segment_rows(
+    text: &str,
+    rows: Rows<'_>,
+    ploidy: f64,
+    sample: Option<&str>,
+    mut each: impl FnMut(&str, CopyNumberSegment),
+) -> Result<Tally, ReadError> {
+    let mut lines = lines(text);
+    let (at, head) = lines.next().ok_or_else(|| {
         ReadError::whole("a segment table begins with a header and this file is empty")
     })?;
     let layout = layout(&columns(head), at)?;
 
-    let mut found = Segmentation::default();
+    let mut found = Tally::default();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut wanted = 0usize;
 
-    for (at, line) in rows {
+    for (at, line) in lines {
         let cols = columns(line);
         let width = [
             layout.sequence,
@@ -161,12 +269,13 @@ pub fn copy_numbers(
                     continue;
                 }
             }
-            wanted += 1;
         }
 
-        if cols[layout.sequence] != region.seq() {
-            found.other_sequence += 1;
-            continue;
+        if let Rows::In(region) = rows {
+            if cols[layout.sequence] != region.seq() {
+                found.other_sequence += 1;
+                continue;
+            }
         }
 
         let raw_start: u64 = super::number(cols[layout.start], "start", at)?;
@@ -189,16 +298,21 @@ pub fn copy_numbers(
             }
             raw_start - 1
         };
-        if end <= region.start() || start >= region.end() {
-            found.off_region += 1;
-            continue;
+        if let Rows::In(region) = rows {
+            if end <= region.start() || start >= region.end() {
+                found.off_region += 1;
+                continue;
+            }
         }
 
         let Some(copy) = call(&cols, &layout, ploidy) else {
             found.no_call += 1;
             continue;
         };
-        found.segments.push(CopyNumberSegment { start, end, copy });
+        each(
+            cols[layout.sequence],
+            CopyNumberSegment { start, end, copy },
+        );
     }
 
     // Two samples in one band are two step functions drawn over each other,
@@ -209,7 +323,6 @@ pub fn copy_numbers(
             found.samples.len()
         )));
     }
-    let _ = wanted;
 
     Ok(found)
 }
@@ -479,6 +592,46 @@ T1\tchr8\t0\t2000000\t2\t0
         .unwrap_err();
         assert_eq!(error.line, 2);
         assert!(error.reason.contains("this row has 2"), "{error}");
+    }
+
+    /// Every called segment of every sequence, each sequence in the order
+    /// the file first names it, counted as a window counts them, from one or
+    /// from nought by the header.
+    #[test]
+    fn genome_copy_numbers_keeps_each_sequence_s_segments_and_counts_no_calls() {
+        let found = genome_copy_numbers(CNS, 2.0, None).expect("segments");
+        assert_eq!(found.records, 4);
+        assert_eq!(found.no_call, 1);
+        let names: Vec<&str> = found
+            .sequences
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(names, ["chr8", "chr17"]);
+        assert_eq!(found.sequences[0].1.len(), 2);
+        assert_eq!(found.sequences[0].1[1].start, 2_000_000);
+        assert_eq!(found.sequences[1].1[0].copy.total(), 3.0);
+        let seg = "\
+ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean
+S1\t2\t1\t1000\t5\t1.0
+S2\t1\t1\t500\t5\t0.0
+S1\t1\t1\t2000\t5\t-1.0
+";
+        let one = genome_copy_numbers(seg, 2.0, Some("S1")).expect("segments");
+        assert_eq!(one.records, 3);
+        assert_eq!(one.samples, ["S1", "S2"]);
+        assert_eq!(one.sequences.len(), 2);
+        assert_eq!(
+            one.sequences[0],
+            (
+                "2".to_string(),
+                vec![CopyNumberSegment::total(0, 1000, 4.0)]
+            )
+        );
+        assert_eq!(one.sequences[1].1, [CopyNumberSegment::total(0, 2000, 1.0)]);
+        // Two samples in one band are refused here as over a window.
+        let error = genome_copy_numbers(seg, 2.0, None).unwrap_err();
+        assert!(error.reason.contains("2 samples"), "{error}");
     }
 
     #[test]

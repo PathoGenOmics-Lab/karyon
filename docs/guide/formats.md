@@ -226,7 +226,7 @@ chr2L  103  105  9
 
 | | |
 |:--|:--|
-| Read by | `--coverage`, `--windows` and `--dynseq`; `read::signal::spans`, `read::signal::windows` and `read::dynseq::scores` |
+| Read by | `--coverage`, `--windows` and `--dynseq`; `read::signal::spans`, `read::signal::windows` and `read::dynseq::scores`, and `read::signal::genome_spans` and `read::signal::genome_windows` for every sequence |
 | Columns | 1 sequence, 2 start, 3 end, 4 value |
 | Coordinates | 0-based and half-open, passed through: `100 103` is the bases 100, 101 and 102, and 103 belongs to the next row |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p bed depth.bedgraph.gz` writes or the `.csi` mosdepth writes, [as the guide says](cli.md#tabix); a `track` line has to be skipped as well, with `-S1` |
@@ -244,6 +244,18 @@ The three flags read it differently:
 `--coverage` also refuses overlapping rows, the sign of
 [two-sample depth](#a-coverage-file), unless `--format bedgraph` is given.
 
+Named with no place, after `--coverage` or `--windows` or on its own, a
+bedGraph is read whole and drawn across the whole genome: every sequence it
+names, end to end, in the order chromosomes are counted, each as long as its
+furthest row reaches or another file of the figure reaches further. Rows
+overlap only on one sequence, so the first row of the next sequence starting
+back at 0 is no overlap. A base no row covers on a sequence the file names is
+still 0, and a sequence it names no row on, which another file of the figure
+does, is no value at all, a gap in the profile: a file that left a chromosome
+out has said nothing about it. mosdepth's `.regions.bed.gz`, the depth in the
+windows `mosdepth --by` counts, is a bedGraph by another name and is drawn the
+same way.
+
 ### bigWig { #bigwig }
 
 A bedGraph's values, or a wiggle file's, packed into blocks behind an index,
@@ -253,7 +265,7 @@ UCSC's `bedGraphToBigWig` and `wigToBigWig` write it, and so does deepTools'
 
 | | |
 |:--|:--|
-| Read by | `--coverage`, `--windows` and `--dynseq`, or a `.bw` or `.bigwig` named on its own; `read::bigwig::window` |
+| Read by | `--coverage`, `--windows` and `--dynseq`, or a `.bw` or `.bigwig` named on its own; `read::bigwig::window`, and `read::bigwig::genome` for every sequence |
 | What is read | the blocks over the window, through the index: its bedGraph, variable-step and fixed-step sections alike, as `bigWigToBedGraph` prints them |
 | Coordinates | 0-based and half-open, as bedGraph, passed through |
 | A base no value covers | 0, as in a bedGraph |
@@ -282,8 +294,12 @@ bedGraph draws. A file written without zoom levels is read as written at any
 scale.
 `--windows` and `--dynseq` always read the values as written.
 
-A bigWig is drawn over a place, as `chr1` or `chr1:1-2,000,000`; across a
-whole genome it is not drawn yet.
+With no place, `--coverage` draws a bigWig across the whole genome, each
+sequence it names as long as its index says, read from the zoom level of which
+a pixel of the whole genome holds two bins, as a window is: a genome of three
+billion bases 900 pixels wide is a few thousand bins of the summary the file
+keeps at that scale. `--windows` reads it whole, as written. After `--dynseq` a
+bigWig still needs a place, since its scores are drawn as the bases under them.
 
 ### samtools depth { #samtools-depth }
 
@@ -298,7 +314,7 @@ NC_000962.3  761102  0
 
 | | |
 |:--|:--|
-| Read by | `--coverage`; `read::signal::spans` |
+| Read by | `--coverage`, with a place or across the whole genome as bedGraph is; `read::signal::spans` and `read::signal::genome_spans` |
 | Columns | 1 sequence, 2 position, 3 depth; with `--format depth`, further depth columns are ignored |
 | Coordinates | 1-based: position 761100 is 0-based 761099 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e2 depth.txt.gz` writes |
@@ -323,6 +339,7 @@ One number per line, for anything already computed base by base.
 | Columns | 1 value |
 | Coordinates | none: the first value is the region's first base, the next value the base after it |
 | Skipped | values past the end of the region; the file names no sequence |
+| Refused | with no place, since there is no sequence to lay the values on |
 
 The file carries no position, so it belongs to one window: drawn over
 `chr4:501-600` and over `chr4:1-100`, the same file puts its values in two
@@ -835,7 +852,7 @@ chr17       7590000    7700000    -     NA     NA  NA   NA
 
 | | |
 |:--|:--|
-| Read by | `--copy-number`; `read::segments::copy_numbers` |
+| Read by | `--copy-number`, or a `.cns` or `.seg` named on its own; `read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence |
 | Columns | found by name in a required header, in any case, as below |
 | Coordinates | `start` and `end` (CNVkit `.cns`): 0-based and half-open, passed through. `startpos` and `endpos` (ASCAT), `loc.start` and `loc.end` (`.seg`): 1-based and inclusive, so the start moves back one |
 | Skipped | segments whose copy number is missing: an empty field, `.`, `NA`, `-`, or anything that is not a finite number |
@@ -854,6 +871,15 @@ file, which is why `--ploidy` is required. The allele split is read first
 because a caller that wrote it did so on purpose, and a total cannot be turned
 back into one. A missing copy number leaves a gap rather than a level nobody
 called.
+
+Named with no place, the table is drawn across the whole genome, every
+sequence it calls a segment on end to end in the order chromosomes are
+counted, each as long as its furthest segment or as another file of the figure
+reaches, with `--ploidy` and `--sample` as over a place:
+
+```bash
+karyon tumour.bedgraph tumour.cns --ploidy 2 -o genome.svg
+```
 
 ## Over time
 

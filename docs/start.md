@@ -44,7 +44,9 @@ figure as PDF.
 ## How to read a command
 
 1. **The place comes first:** a gene, a sequence, or a region such as
-   `NC_000962.3:761,000-763,000`.
+   `NC_000962.3:761,000-763,000`. Leave it out, and a scan, a bedGraph or a
+   segment table is drawn across
+   [every sequence it names](your-data/genome.md#every-sequence-at-once).
 2. **Then your files.** Each one is a row, top to bottom in the order you
    write them.
 3. **Then `-o` and the file to write.**

@@ -224,8 +224,8 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, with `--sample`, `--height` |
-| Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`) |
+| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome |
+| Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence) |
 
 === "Rust"
 
@@ -249,6 +249,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 
     ```bash
     karyon chr8:1-46,000,000 --copy-number tumour.cns --ploidy 2 --label 'copy number' -o cn.svg
+    karyon tumour.cns --ploidy 2 -o genome.svg
     ```
 
 #### Options
@@ -262,6 +263,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | `.loh_color("#6a3d9a")` | Ink of the lost-heterozygosity mark | from the theme |
 | `.show_scale(false)` | Shows or hides the copy scale | shown |
 | `.show_alleles(false)` | Shows or hides the allele lane along the foot | shown |
+| `.across(&genome)` | Lays the track on a `Genome` of several sequences end to end: no riser joins two of them, and a tooltip says where a segment is on its own sequence | one sequence |
 
 #### Notes
 
@@ -274,6 +276,8 @@ A minor allele of nought with copies still present is a finding, so it must not 
 Copies are continuous, since subclonal and purity-adjusted calls are fractional; the rungs are at whole copies because that is where the interpretable states are. Nothing is averaged: every segment is drawn at its own level, a pixel wide where it is narrower, with a hairline joining the extremes in each column, and nothing is drawn between two segments.
 
 A log2 ratio from a `.seg` or `.cns` becomes copies as `ploidy * 2^log2`, and a called copy number is used where the table has one. `--sample` picks one sample from a table holding several.
+
+With no place, the command line draws the table across every sequence it calls a segment on, end to end, each as long as its furthest segment, with the sequences named under it, as `karyon tumour.cns --ploidy 2` does. A pixel column there holds hundreds of thousands of bases, and the one a join falls in holds the end of one sequence and the start of the next, so `across` keeps each column's riser to one sequence: a stalk from a loss at the end of one chromosome to a gain at the start of the next would draw a breakpoint nobody reported.
 
 ## SnpTrack { #snptrack }
 

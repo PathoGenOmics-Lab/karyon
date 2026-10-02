@@ -10,6 +10,7 @@ It needs samtools, bgzip and tabix on the PATH, for the BAM and the VCF.
 """
 
 import gzip
+import math
 import os
 import random
 import subprocess
@@ -208,6 +209,59 @@ def write_cohort():
                       + "\t".join(calls) + "\n")
     subprocess.run(["bgzip", "-f", plain], check=True)
     subprocess.run(["tabix", "-f", "-p", "vcf", plain + ".gz"], check=True)
+
+
+def write_genome_copies():
+    # One sample's copy number across the twelve chromosomes trait.assoc
+    # names, as CNVkit's `cnvkit.py call` writes its segments, and the depth
+    # of its reads in windows of 500 kb, as `mosdepth --by 500000` writes
+    # them, which follows the copies: a gain, a focal amplification, losses,
+    # a copy-neutral loss of heterozygosity and a stretch of no copies at all.
+    # It keeps a seed of its own, so the files above stay as they are when
+    # this changes.
+    rng = random.Random(20261003)
+    lengths = [43, 36, 36, 35, 30, 31, 30, 28, 23, 23, 29, 27]  # megabases
+    # (chromosome, start, end, major, minor) in megabases, 0-based, where the
+    # sample is not one copy of each.
+    changes = {
+        3: [(18.0, 36.0, 2, 1)],
+        5: [(12.0, 13.5, 6, 1)],
+        7: [(10.0, 22.0, 2, 0)],
+        8: [(6.0, 14.0, 1, 0)],
+        9: [(0.0, 11.0, 1, 0)],
+        11: [(0.0, 29.0, 2, 1)],
+        12: [(5.0, 5.5, 0, 0)],
+    }
+    segments = []
+    for chrom, megabases in enumerate(lengths, start=1):
+        at = 0.0
+        for start, end, major, minor in changes.get(chrom, []):
+            if start > at:
+                segments.append((chrom, at, start, 1, 1))
+            segments.append((chrom, start, end, major, minor))
+            at = end
+        if at < megabases:
+            segments.append((chrom, at, float(megabases), 1, 1))
+    with open(path("tumour.cns"), "w") as out:
+        out.write("chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\tdepth\tprobes\tweight\n")
+        for chrom, start, end, major, minor in segments:
+            copies = major + minor
+            log2 = math.log2(copies / 2) if copies else -5.0
+            probes = int((end - start) * 40)
+            out.write(f"{chrom}\t{int(start * 1e6)}\t{int(end * 1e6)}\t-\t{log2:.4f}\t{copies}"
+                      f"\t{major}\t{minor}\t{30 * max(copies, 0.02):.2f}\t{probes}"
+                      f"\t{probes * 0.9:.1f}\n")
+    with open(path("tumour.bedgraph"), "w") as out:
+        for chrom, megabases in enumerate(lengths, start=1):
+            level = 0.0
+            for start in range(0, megabases * 1_000_000, 500_000):
+                end = start + 500_000
+                middle = (start + 250_000) / 1e6
+                copies = next(major + minor for c, low, high, major, minor in segments
+                              if c == chrom and low <= middle < high)
+                level = 0.7 * level + rng.gauss(0, 0.6)
+                depth = 30 * copies + (level * copies if copies else abs(level) * 0.3)
+                out.write(f"{chrom}\t{start}\t{end}\t{max(0.0, depth):.2f}\n")
 
 
 def write_samples():
@@ -546,7 +600,7 @@ def write_zip():
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
              "reads.slow5", "moves.sam", "depths.tsv", "linkage.ld", "epistasis.tsv",
              "lead.ld", "genetic_map.txt", "trait.assoc", "cohort.vcf.gz",
-             "cohort.vcf.gz.tbi"]
+             "cohort.vcf.gz.tbi", "tumour.bedgraph", "tumour.cns"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -577,6 +631,7 @@ def main():
     write_lead_linkage(rng)
     write_trait_scan()
     write_cohort()
+    write_genome_copies()
     write_zip()
 
 

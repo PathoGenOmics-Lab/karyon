@@ -48,7 +48,9 @@ karyon trait.assoc --threshold genome-wide -o genome.svg
 Each chromosome is as long as its furthest marker, since a table says where
 its markers are and not how long the chromosomes run, and the shades alternate
 so a tower is read against the chromosome it stands on. Name one to draw it
-alone, as `karyon 3 trait.assoc`.
+alone, as `karyon 3 trait.assoc`. A depth, windows or a segment table named
+beside the scan is laid over the same chromosomes, as `karyon trait.assoc
+tumour.bedgraph`, with the files of [a whole sequence](genome.md#every-sequence-at-once).
 
 ## Colour a peak by linkage
 

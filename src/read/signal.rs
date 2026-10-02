@@ -37,6 +37,14 @@
 //! then not what it was taken for, and a reader that stepped over the row would
 //! draw a figure with data missing from it and say nothing, so it stops on the
 //! line and names the field that would not read.
+//!
+//! # Every sequence at once
+//!
+//! [`genome_spans`] and [`genome_windows`] read the same files with no window,
+//! each row kept on the sequence it names, for a figure laid across a whole
+//! genome. A bare column of values has no sequence to be laid on there, and is
+//! refused. The command line draws these when a coverage or a window file is
+//! named with no place.
 
 use crate::{Region, Window};
 
@@ -95,6 +103,154 @@ pub(crate) fn fold_spans(
     format: Option<Format>,
     mut each: impl FnMut(u64, u64, f64),
 ) -> Result<usize, ReadError> {
+    fold(text, Rows::In(region), format, |_, start, end, value| {
+        each(start, end, value)
+    })
+}
+
+/// A stretch of bases and the value over every one of them, as
+/// `(start, end, value)`, 0-based and half-open.
+pub type Span = (u64, u64, f64);
+
+/// Every value of a bedGraph or a `samtools depth` file, on every sequence it
+/// names, as a signal drawn across a whole genome reads it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GenomeSignal {
+    /// Each sequence the file names, in the order it first names them, with
+    /// its spans, 0-based and half-open on that sequence, in the order of the
+    /// file.
+    pub sequences: Vec<(String, Vec<Span>)>,
+}
+
+/// Reads every value of a bedGraph or a `samtools depth` file, on every
+/// sequence it names, for a signal drawn across a whole genome rather than
+/// over one window of it.
+///
+/// The file is read as [`spans`] reads it, shape, `--format` and all, and
+/// only no row is left out for being somewhere else. Two intervals of a
+/// bedGraph overlap only on one sequence: the first row of the second
+/// sequence starts back at nought, and is no sign of anything.
+///
+/// # Errors
+///
+/// What [`spans`] refuses, and a bare column of values, which names no
+/// sequence to lay its values on.
+///
+/// ```
+/// use karyon::read::signal::genome_spans;
+///
+/// let text = "chr2\t0\t100\t5\nchr1\t0\t50\t3\nchr1\t50\t80\t4\n";
+/// let read = genome_spans(text, None)?;
+/// assert_eq!(read.sequences[0], ("chr2".to_string(), vec![(0, 100, 5.0)]));
+/// assert_eq!(read.sequences[1].1, [(0, 50, 3.0), (50, 80, 4.0)]);
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn genome_spans(text: &str, format: Option<Format>) -> Result<GenomeSignal, ReadError> {
+    let mut found = Sequences::default();
+    fold_genome_spans(text, format, |sequence, start, end, value| {
+        found.of(sequence).push((start, end, value))
+    })?;
+    Ok(GenomeSignal {
+        sequences: found.sequences,
+    })
+}
+
+/// The same reading as [`genome_spans`], handing each span to `each` with
+/// the sequence its row names as the line is read, and answering how many
+/// there were, so a caller laying a whole genome's depth out never holds the
+/// list, as [`fold_spans`] does over a window.
+pub(crate) fn fold_genome_spans(
+    text: &str,
+    format: Option<Format>,
+    each: impl FnMut(&str, u64, u64, f64),
+) -> Result<usize, ReadError> {
+    fold(text, Rows::All, format, each)
+}
+
+/// Which rows of a file are read: the ones over one window of one sequence,
+/// or every one, on whatever sequence it names.
+#[derive(Debug, Clone, Copy)]
+enum Rows<'a> {
+    In(&'a Region),
+    All,
+}
+
+/// Each sequence a file names, in the order it first names them, with what
+/// its rows hold, found by name without a search for each row: a file's rows
+/// come a sequence at a time, so the last one is asked about again far more
+/// often than any other.
+struct Sequences<T> {
+    sequences: Vec<(String, Vec<T>)>,
+    index: std::collections::HashMap<String, usize>,
+    last: Option<usize>,
+}
+
+impl<T> Default for Sequences<T> {
+    fn default() -> Self {
+        Sequences {
+            sequences: Vec::new(),
+            index: std::collections::HashMap::new(),
+            last: None,
+        }
+    }
+}
+
+impl<T> Sequences<T> {
+    /// What the rows on `name` hold so far.
+    fn of(&mut self, name: &str) -> &mut Vec<T> {
+        let at = match self.last {
+            Some(at) if self.sequences[at].0 == name => at,
+            _ => match self.index.get(name) {
+                Some(at) => *at,
+                None => {
+                    self.index.insert(name.to_string(), self.sequences.len());
+                    self.sequences.push((name.to_string(), Vec::new()));
+                    self.sequences.len() - 1
+                }
+            },
+        };
+        self.last = Some(at);
+        &mut self.sequences[at].1
+    }
+}
+
+/// How far the last interval on each sequence reached, which is what says
+/// whether the next one overlaps it. The sequence the rows are on now is
+/// kept apart from the others, since a file's rows come a sequence at a time
+/// and a lookup by name for each row of a ten million row file is time spent
+/// on nothing.
+#[derive(Default)]
+struct Reached<'t> {
+    now: Option<(&'t str, u64)>,
+    earlier: std::collections::HashMap<&'t str, u64>,
+}
+
+impl<'t> Reached<'t> {
+    /// The end of the last interval on `sequence`, where there was one, with
+    /// `end` kept in its place.
+    fn swap(&mut self, sequence: &'t str, end: u64) -> Option<u64> {
+        match &mut self.now {
+            Some((name, reach)) if *name == sequence => Some(std::mem::replace(reach, end)),
+            _ => {
+                if let Some((name, reach)) = self.now.take() {
+                    self.earlier.insert(name, reach);
+                }
+                let before = self.earlier.remove(sequence);
+                self.now = Some((sequence, end));
+                before
+            }
+        }
+    }
+}
+
+/// [`fold_spans`] and [`fold_genome_spans`], reading the rows `rows` asks
+/// for and handing each to `each` with the sequence it names.
+fn fold(
+    text: &str,
+    rows: Rows<'_>,
+    format: Option<Format>,
+    mut each: impl FnMut(&str, u64, u64, f64),
+) -> Result<usize, ReadError> {
     let asked = match format {
         Some(Format::BedGraph) => Some(Shape::BedGraph),
         Some(Format::Depth) => Some(Shape::Depth),
@@ -117,11 +273,16 @@ pub(crate) fn fold_spans(
     // positions cannot be trusted rather than one to guess at line by line.
     let mut shape = asked;
     let mut read = 0usize;
-    // Where the next bare value lands, that shape carrying no position of its own.
-    let mut next = region.start();
-    // How far the last bedGraph interval reached, which is what says whether
-    // the intervals overlap and so whether this is a bedGraph at all.
-    let mut reached: Option<u64> = None;
+    // Where the next bare value lands, that shape carrying no position of its
+    // own. Across a whole genome it has nowhere to land, and is refused.
+    let mut next = match rows {
+        Rows::In(region) => region.start(),
+        Rows::All => 0,
+    };
+    // How far the last bedGraph interval on each sequence reached, which is
+    // what says whether the intervals overlap and so whether this is a
+    // bedGraph at all.
+    let mut reached = Reached::default();
 
     for (at, line) in lines(text) {
         let fields = columns(line);
@@ -163,8 +324,10 @@ pub(crate) fn fold_spans(
 
         match this {
             Shape::BedGraph => {
-                if fields[0] != region.seq() {
-                    continue;
+                if let Rows::In(region) = rows {
+                    if fields[0] != region.seq() {
+                        continue;
+                    }
                 }
                 let start: u64 = number(fields[1], "start", at)?;
                 let end: u64 = number(fields[2], "end", at)?;
@@ -196,8 +359,10 @@ pub(crate) fn fold_spans(
                 // the second sample, which is a plausible looking figure of
                 // nothing. Overlap is what tells them apart, so it is refused
                 // here rather than guessed at.
+                // Checked a sequence at a time: the first row of the next
+                // sequence starts back at nought, and overlaps nothing.
                 if asked.is_none() {
-                    if let Some(previous) = reached {
+                    if let Some(previous) = reached.swap(fields[0], end) {
                         if start < previous {
                             return Err(ReadError::at(
                                 at,
@@ -208,23 +373,26 @@ pub(crate) fn fold_spans(
                             ));
                         }
                     }
-                    reached = Some(end);
                 }
                 let value: f64 = number(fields[3], "value", at)?;
                 // The span, not one entry per base of it. A row is a row
                 // however wide it is: expanded here, a bedGraph tiling a whole
                 // chromosome became one pair per base of it, and a kilobyte of
                 // input asked for six gigabytes.
-                let from = start.max(region.start());
-                let to = end.min(region.end());
+                let (from, to) = match rows {
+                    Rows::In(region) => (start.max(region.start()), end.min(region.end())),
+                    Rows::All => (start, end),
+                };
                 if to > from {
-                    each(from, to, value);
+                    each(fields[0], from, to, value);
                     read += 1;
                 }
             }
             Shape::Depth => {
-                if fields[0] != region.seq() {
-                    continue;
+                if let Rows::In(region) = rows {
+                    if fields[0] != region.seq() {
+                        continue;
+                    }
                 }
                 let pos: u64 = number(fields[1], "position", at)?;
                 if pos == 0 {
@@ -236,17 +404,25 @@ pub(crate) fn fold_spans(
                 let depth: f64 = number(fields[2], "depth", at)?;
                 // 1-based inclusive to 0-based.
                 let pos = pos - 1;
-                if region.contains(pos) {
-                    each(pos, pos + 1, depth);
+                if rows.at(pos) {
+                    each(fields[0], pos, pos + 1, depth);
                     read += 1;
                 }
             }
             Shape::Values => {
+                let Rows::In(region) = rows else {
+                    return Err(ReadError::at(
+                        at,
+                        "a bare column of values names no sequence, and across a whole \
+                         genome each value is laid on the sequence its row names: write the \
+                         place first, as chr1, or give the values their sequences as bedGraph",
+                    ));
+                };
                 let value: f64 = number(fields[0], "value", at)?;
                 let pos = next;
                 next += 1;
                 if region.contains(pos) {
-                    each(pos, pos + 1, value);
+                    each(region.seq(), pos, pos + 1, value);
                     read += 1;
                 }
             }
@@ -256,12 +432,59 @@ pub(crate) fn fold_spans(
     Ok(read)
 }
 
+impl Rows<'_> {
+    /// Whether a position on a sequence that is read at all is kept.
+    fn at(self, pos: u64) -> bool {
+        match self {
+            Rows::In(region) => region.contains(pos),
+            Rows::All => true,
+        }
+    }
+}
+
 /// Reads intervals with a value each, for a window track.
 ///
 /// bedGraph, 0-based half-open, kept as intervals rather than flattened to one
 /// value per base, since a window track draws the window and not the base.
 pub fn windows(text: &str, region: &Region) -> Result<Vec<Window>, ReadError> {
     let mut found = Vec::new();
+    window_rows(text, Rows::In(region), |_, window| found.push(window))?;
+    Ok(found)
+}
+
+/// Every window of a bedGraph, on every sequence it names, for windows drawn
+/// across a whole genome: each sequence in the order the file first names it,
+/// with its windows, 0-based and half-open on that sequence.
+///
+/// # Errors
+///
+/// What [`windows`] refuses.
+///
+/// ```
+/// use karyon::read::signal::genome_windows;
+///
+/// let text = "1\t0\t500000\t0.25\n2\t0\t500000\t-0.5\n";
+/// let read = genome_windows(text)?;
+/// assert_eq!(read.len(), 2);
+/// assert_eq!(read[1].0, "2");
+/// assert_eq!(read[1].1[0].value, -0.5);
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn genome_windows(text: &str) -> Result<Vec<(String, Vec<Window>)>, ReadError> {
+    let mut found = Sequences::default();
+    window_rows(text, Rows::All, |sequence, window| {
+        found.of(sequence).push(window)
+    })?;
+    Ok(found.sequences)
+}
+
+/// [`windows`] and [`genome_windows`], handing each window `rows` asks for to
+/// `each` with the sequence its row names.
+fn window_rows(
+    text: &str,
+    rows: Rows<'_>,
+    mut each: impl FnMut(&str, Window),
+) -> Result<(), ReadError> {
     for (at, line) in lines(text) {
         let fields = columns(line);
         if fields.len() < 4 {
@@ -273,8 +496,10 @@ pub fn windows(text: &str, region: &Region) -> Result<Vec<Window>, ReadError> {
                 ),
             ));
         }
-        if fields[0] != region.seq() {
-            continue;
+        if let Rows::In(region) = rows {
+            if fields[0] != region.seq() {
+                continue;
+            }
         }
         let start: u64 = number(fields[1], "start", at)?;
         let end: u64 = number(fields[2], "end", at)?;
@@ -287,12 +512,14 @@ pub fn windows(text: &str, region: &Region) -> Result<Vec<Window>, ReadError> {
         // rather than handed over. The bounds of the ones that do reach it are
         // passed through whole: the track clips them to the region itself, and
         // a window cut short would draw as a window of another size.
-        if end <= region.start() || start >= region.end() {
-            continue;
+        if let Rows::In(region) = rows {
+            if end <= region.start() || start >= region.end() {
+                continue;
+            }
         }
-        found.push(Window::new(start, end, value));
+        each(fields[0], Window::new(start, end, value));
     }
-    Ok(found)
+    Ok(())
 }
 
 /// Which of the three per-base shapes a file is written in.
@@ -625,5 +852,99 @@ AF086833.2\t0\t1000\t9.9
         let text = "chr3\t0\t100\t1\nchr3\t100\t200\t.\n";
         let error = windows(text, &region("chr3:1-200")).unwrap_err();
         assert_eq!(error.to_string(), "line 2: value is not a number: \".\"");
+    }
+
+    /// Every row, on every sequence, each sequence in the order the file
+    /// first names it and its spans in the file's order, none cut to a window.
+    #[test]
+    fn genome_spans_reads_every_sequence_in_file_order() {
+        let text = "\
+track type=bedGraph
+chr2\t0\t100\t5
+chr10\t50\t60\t1.5
+chr2\t100\t300000000\t7
+chr10\t60\t60\t9
+";
+        let read = genome_spans(text, None).unwrap().sequences;
+        assert_eq!(
+            read,
+            vec![
+                (
+                    "chr2".to_string(),
+                    vec![(0, 100, 5.0), (100, 300_000_000, 7.0)]
+                ),
+                // An interval of no bases is no span, as over a window.
+                ("chr10".to_string(), vec![(50, 60, 1.5)]),
+            ]
+        );
+        // samtools depth, one position a line from one.
+        let depth = genome_spans("X\t1\t4\nY\t10\t2\nX\t2\t5\n", None)
+            .unwrap()
+            .sequences;
+        assert_eq!(
+            depth,
+            vec![
+                ("X".to_string(), vec![(0, 1, 4.0), (1, 2, 5.0)]),
+                ("Y".to_string(), vec![(9, 10, 2.0)]),
+            ]
+        );
+        let mut count = 0;
+        assert_eq!(
+            fold_genome_spans(text, None, |_, _, _, _| count += 1).unwrap(),
+            3
+        );
+        assert_eq!(count, 3);
+    }
+
+    /// The first row of the next sequence starts back at nought, which is
+    /// no overlap; a row that goes back on its own sequence is one, wherever
+    /// the rows of other sequences fell between.
+    #[test]
+    fn overlap_is_checked_within_a_sequence_not_across_them() {
+        let sorted = "chr1\t0\t100\t1\nchr1\t100\t200\t2\nchr2\t0\t100\t3\n";
+        assert_eq!(genome_spans(sorted, None).unwrap().sequences.len(), 2);
+        let back = "chr1\t0\t100\t1\nchr2\t0\t100\t3\nchr1\t50\t150\t2\n";
+        let error = genome_spans(back, None).unwrap_err();
+        assert_eq!(error.line, 3);
+        assert!(error.reason.contains("these intervals overlap"), "{error}");
+        // Over a window, the rows of another sequence never counted.
+        let spans = spans(back, &region("chr2:1-100"), None).unwrap();
+        assert_eq!(spans, vec![(0, 100, 3.0)]);
+        // And returning to a sequence after another is no overlap by itself.
+        let apart = "chr1\t0\t100\t1\nchr2\t0\t100\t3\nchr1\t100\t150\t2\n";
+        let read = genome_spans(apart, None).unwrap().sequences;
+        assert_eq!(read[0].1, [(0, 100, 1.0), (100, 150, 2.0)]);
+    }
+
+    /// A bare value has no sequence to be laid on, and across a genome it
+    /// is refused rather than laid on the first.
+    #[test]
+    fn a_bare_column_has_no_place_on_a_genome() {
+        let error = genome_spans("0.5\n0.25\n", None).unwrap_err();
+        assert_eq!(error.line, 1);
+        assert!(error.reason.contains("names no sequence"), "{error}");
+        let asked = genome_spans("0.5\n", Some(Format::Values)).unwrap_err();
+        assert!(asked.reason.contains("names no sequence"), "{asked}");
+    }
+
+    #[test]
+    fn genome_windows_keep_each_sequence_s_windows_whole() {
+        let text = "1\t0\t500000\t0.25\n2\t0\t500000\t-0.5\n1\t500000\t900000\t1\n";
+        let read = genome_windows(text).unwrap();
+        assert_eq!(
+            read,
+            vec![
+                (
+                    "1".to_string(),
+                    vec![
+                        Window::new(0, 500_000, 0.25),
+                        Window::new(500_000, 900_000, 1.0)
+                    ]
+                ),
+                ("2".to_string(), vec![Window::new(0, 500_000, -0.5)]),
+            ]
+        );
+        let error = genome_windows("1\t0\t100\n").unwrap_err();
+        assert!(error.reason.contains("chrom start end value"), "{error}");
     }
 }

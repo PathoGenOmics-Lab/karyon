@@ -21,7 +21,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | | |
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
-| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--max`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb; `--same-scale` puts several on one scale |
+| Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--max`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb; `--same-scale` puts several on one scale; with no place, across the whole genome |
 | Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a bigWig, through its index, from the zoom level of which a pixel holds two bins where it has one (`read::bigwig::window`); a genetic map as HapMap writes one (`read::recombination::rates`). A bgzipped bedGraph or `samtools depth` with a `.tbi` or `.csi` beside it is read over the window alone (`read::tabix`) |
 
 === "Rust"
@@ -69,6 +69,8 @@ The ceiling moves with the view unless it is pinned, and each profile has its ow
 
 `CoverageTrack::new` draws only the values it holds: bases outside them are not drawn, and non-finite values are missing, so a gap in the input stays a gap. `from_spans` and `from_pairs` span the region, not the genome, and leave every base they are not given at nought, which is what a bedGraph means by leaving it out. The command line reads the same way.
 
+Named with no place, a bedGraph, a `samtools depth` file or a bigWig is drawn across the whole genome on the command line: every sequence it names, end to end, in the order chromosomes are counted, over the bar of [GenomeTrack](whole-genome.md#genometrack). A sequence it names no row on, which another file of the figure does, is missing there rather than nought, so the profile stops over it: a sample's file that left a chromosome out has not lost it. A bigWig is read from the zoom level of which a pixel of the whole genome holds two bins, and says how long each of its sequences is; a BAM is refused, since its depth across a genome is every read it holds, with the `mosdepth --by` that counts it in windows.
+
 A profile is kept as runs of bases holding one value, so what it costs follows how often the value changes, not how long the region is. A bedGraph of windows over 200 Mb is a few thousand runs: a value per base made it 1.6 GB, and it now takes 4 MB. A per-base depth file changes value at almost every base and costs what it did.
 
 The profile rises from the floor of the band, which says that zero is the bottom. That is true of read depth and false of a signed or centred statistic: a number that can fall below its baseline belongs in a [WindowTrack](#windowtrack).
@@ -84,7 +86,7 @@ A statistic computed in windows, drawn either side of a baseline it can fall bel
 | | |
 |:--|:--|
 | Rust | `.add_windows(windows)` on `plot()`; `WindowTrack::new(windows)`, `WindowTrack::ratios(windows)`, `WindowTrack::gc_skew(start, &seq, window)`, `WindowTrack::gc_content(start, &seq, window)` |
-| Command line | `--windows FILE`, with `--style`, `--max`, `--height`; `--same-scale` puts several on one scale |
+| Command line | `--windows FILE`, with `--style`, `--max`, `--height`; `--same-scale` puts several on one scale; with no place, across the whole genome |
 | Reads | bedGraph, one window per row (`read::signal::windows`), over the window alone where it is bgzipped with a `.tbi` beside it, or a bigWig's values as written (`read::bigwig::window`) |
 
 === "Rust"

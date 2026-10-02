@@ -82,8 +82,8 @@ The sequences of a `Genome` laid end to end as alternating named blocks: the bar
 | | |
 |:--|:--|
 | Rust | `.add_genome(genome)` on `plot()`; `GenomeTrack::new(genome)` |
-| Command line | none: library only, as the axis it labels is built in Rust with `Genome` |
-| Reads | nothing from a file; build a `Genome` from sequence names and lengths |
+| Command line | drawn under a figure with no place: `--manhattan`, `--coverage`, `--windows` and `--copy-number` files named alone are laid across every sequence they name |
+| Reads | nothing from a file; build a `Genome` from sequence names and lengths, which the command line takes from how far its files reach |
 
 === "Rust"
 
@@ -129,4 +129,6 @@ What the track refuses to be is a ruler. A ruler of global coordinates under a c
 
 An assembly of two hundred contigs has two hundred names and room for perhaps twelve, so the names that do not fit are left out rather than overprinted, and how many went unwritten is printed inside the bar. `named(&scale, &theme)` gives that count before anything is drawn. The blocks alternate between two shades of one hue rather than taking a colour each, because what a reader needs from the bar is the joins, and the hues in the figure are left to the tracks carrying data.
 
-For a genome-wide association figure, pass `genome.boundaries()` to [ManhattanTrack](variation.md#manhattantrack) `bands` so its shading changes where each sequence starts. `Genome::gap(bases)` puts blank axis between the sequences when you want the joins visible without the bar.
+For a genome-wide association figure, pass `genome.boundaries()` to [ManhattanTrack](variation.md#manhattantrack) `bands` so its shading changes where each sequence starts, and lay a segment table on it with [CopyNumberTrack](variation.md#copynumbertrack) `across(&genome)`, so no riser joins the end of one sequence to the start of the next. `Genome::gap(bases)` puts blank axis between the sequences when you want the joins visible without the bar.
+
+On the command line, a figure that names no place is one across the whole genome when every file in it is a scan, a signal, windows or a segment table: `karyon trait.assoc tumour.bedgraph` lays every sequence either file names end to end, in the order chromosomes are counted, each as long as the furthest either file reaches on it, or as long as a bigWig says, with this bar under them. A sequence a coverage file names no row on is a gap in its track rather than a depth of nought, `--rename` makes two files' names for one sequence one, and files that name a single sequence draw it as though it had been written as the place.
