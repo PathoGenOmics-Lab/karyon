@@ -10,7 +10,10 @@
 //!
 //! Nothing here opens a file. [`window`] takes anything that reads and seeks,
 //! which is a file for the command line and a buffer for a test, and
-//! [`index`] takes the index's bytes.
+//! [`index`] takes the index's bytes. A `.csi`, which `samtools index -c`
+//! writes for a sequence longer than a BAI has room for, is read by
+//! [`index::parse`](super::index::parse) into the same [`Index`], and
+//! [`window`] reads a BAM through it as through a BAI.
 //!
 //! # What comes out
 //!
@@ -27,12 +30,15 @@
 //! window on a sequence the BAM does not have is refused naming the ones it
 //! has. None of it panics.
 
-use std::collections::BTreeMap;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 
 use crate::Region;
 
-use super::{gzip, ReadError};
+use super::ReadError;
+
+/// The reader a BAM is read through, which lived here until the bgzipped text
+/// files a tabix index points into came to need it too.
+pub use super::bgzf::Bgzf;
 
 /// The flag bits `samtools depth` leaves out by default: unmapped, secondary,
 /// failing quality checks, and duplicate.
@@ -41,145 +47,23 @@ const NOT_COUNTED: u16 = 0x4 | 0x100 | 0x200 | 0x400;
 /// A record larger than this is a damaged file rather than a read.
 const LARGEST_RECORD: usize = 1 << 28;
 
-/// A BGZF file, read block by block.
-pub struct Bgzf<R> {
-    inner: R,
-    block: Vec<u8>,
-    at: usize,
-    offset: u64,
-    next: u64,
+/// Fills `buf` from the BAM, and says whether there was anything at all:
+/// false when the file ends before the first byte, which between records is
+/// where a BAM ends.
+fn read_into<R: Read + Seek>(bgzf: &mut Bgzf<R>, buf: &mut [u8]) -> Result<bool, ReadError> {
+    match bgzf.fill(buf)? {
+        got if got == buf.len() => Ok(true),
+        0 => Ok(false),
+        _ => Err(ReadError::whole("the BAM ends in the middle of a record")),
+    }
 }
 
-impl<R: Read + Seek> Bgzf<R> {
-    /// Starts at the first block.
-    pub fn new(inner: R) -> Self {
-        Bgzf {
-            inner,
-            block: Vec::new(),
-            at: 0,
-            offset: 0,
-            next: 0,
-        }
-    }
-
-    /// Reads the block at compressed offset `offset`, and says whether there
-    /// was one: false at the end of the file.
-    fn load(&mut self, offset: u64) -> Result<bool, ReadError> {
-        self.inner
-            .seek(SeekFrom::Start(offset))
-            .map_err(|error| ReadError::whole(error.to_string()))?;
-        let mut head = [0u8; 12];
-        let got = fill(&mut self.inner, &mut head)?;
-        self.offset = offset;
-        self.block.clear();
-        self.at = 0;
-        if got == 0 {
-            self.next = offset;
-            return Ok(false);
-        }
-        if got < head.len() || !gzip::is_gzip(&head) || head[3] & 0x04 == 0 {
-            return Err(ReadError::whole(
-                "not BGZF: a block does not start the way bgzip writes one",
-            ));
-        }
-        let extra_length = usize::from(u16::from_le_bytes([head[10], head[11]]));
-        let mut extra = vec![0u8; extra_length];
-        if fill(&mut self.inner, &mut extra)? < extra_length {
-            return Err(ReadError::whole("a BGZF block is cut short"));
-        }
-        // The block's size is in the extra field, in a subfield called BC.
-        let mut at = 0;
-        let mut size = None;
-        while at + 4 <= extra.len() {
-            let length = usize::from(u16::from_le_bytes([extra[at + 2], extra[at + 3]]));
-            if extra[at] == b'B' && extra[at + 1] == b'C' && length == 2 && at + 6 <= extra.len() {
-                size = Some(usize::from(u16::from_le_bytes([extra[at + 4], extra[at + 5]])) + 1);
-            }
-            at += 4 + length;
-        }
-        let size = size.ok_or_else(|| ReadError::whole("a BGZF block does not say its size"))?;
-        let before = head.len() + extra.len();
-        if size < before {
-            return Err(ReadError::whole(
-                "a BGZF block is smaller than its own header",
-            ));
-        }
-        let mut whole = Vec::with_capacity(size);
-        whole.extend_from_slice(&head);
-        whole.extend_from_slice(&extra);
-        whole.resize(size, 0);
-        if fill(&mut self.inner, &mut whole[before..])? < size - before {
-            return Err(ReadError::whole("a BGZF block is cut short"));
-        }
-        let (data, _) = gzip::member(&whole)?;
-        self.block = data;
-        self.next = offset + size as u64;
-        Ok(true)
-    }
-
-    /// Moves to a virtual offset, as an index gives one: the compressed
-    /// offset of a block in the high 48 bits and a position within it in the
-    /// low 16.
-    pub fn seek(&mut self, virtual_offset: u64) -> Result<(), ReadError> {
-        let (offset, within) = (virtual_offset >> 16, (virtual_offset & 0xffff) as usize);
-        if offset != self.offset || (self.block.is_empty() && self.next != offset) {
-            self.load(offset)?;
-        }
-        if within > self.block.len() {
-            return Err(ReadError::whole("an index points past the end of a block"));
-        }
-        self.at = within;
+fn exact<R: Read + Seek>(bgzf: &mut Bgzf<R>, buf: &mut [u8]) -> Result<(), ReadError> {
+    if read_into(bgzf, buf)? || buf.is_empty() {
         Ok(())
+    } else {
+        Err(ReadError::whole("the BAM ends early"))
     }
-
-    /// The virtual offset of the next byte.
-    pub fn tell(&self) -> u64 {
-        (self.offset << 16) | self.at as u64
-    }
-
-    /// Fills `buf` from as many blocks as it takes, and says whether there was
-    /// anything at all: false when the file ends before the first byte.
-    fn read_into(&mut self, buf: &mut [u8]) -> Result<bool, ReadError> {
-        let mut filled = 0;
-        while filled < buf.len() {
-            if self.at == self.block.len() {
-                if !self.load(self.next)? {
-                    if filled == 0 {
-                        return Ok(false);
-                    }
-                    return Err(ReadError::whole("the BAM ends in the middle of a record"));
-                }
-                continue;
-            }
-            let n = (buf.len() - filled).min(self.block.len() - self.at);
-            buf[filled..filled + n].copy_from_slice(&self.block[self.at..self.at + n]);
-            self.at += n;
-            filled += n;
-        }
-        Ok(true)
-    }
-
-    fn exact(&mut self, buf: &mut [u8]) -> Result<(), ReadError> {
-        if self.read_into(buf)? || buf.is_empty() {
-            Ok(())
-        } else {
-            Err(ReadError::whole("the BAM ends early"))
-        }
-    }
-}
-
-/// Reads until `buf` is full or the reader ends, and says how much it read.
-fn fill(reader: &mut impl Read, buf: &mut [u8]) -> Result<usize, ReadError> {
-    let mut got = 0;
-    while got < buf.len() {
-        match reader.read(&mut buf[got..]) {
-            Ok(0) => break,
-            Ok(n) => got += n,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(ReadError::whole(error.to_string())),
-        }
-    }
-    Ok(got)
 }
 
 /// What a BAM says about itself before its reads.
@@ -205,7 +89,7 @@ impl Header {
 
 fn header<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Header, ReadError> {
     let mut magic = [0u8; 4];
-    bgzf.exact(&mut magic)?;
+    exact(bgzf, &mut magic)?;
     if &magic != b"BAM\x01" {
         return Err(ReadError::whole(
             "not BAM: the file does not start with BAM's magic",
@@ -213,7 +97,7 @@ fn header<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Header, ReadError> {
     }
     let text_length = count(bgzf, 1 << 30, "header")?;
     let mut text = vec![0u8; text_length];
-    bgzf.exact(&mut text)?;
+    exact(bgzf, &mut text)?;
     // The text may be padded with noughts.
     let text = String::from_utf8_lossy(&text)
         .trim_end_matches('\0')
@@ -223,12 +107,12 @@ fn header<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Header, ReadError> {
     for _ in 0..references {
         let name_length = count(bgzf, 1 << 16, "reference name")?;
         let mut name = vec![0u8; name_length];
-        bgzf.exact(&mut name)?;
+        exact(bgzf, &mut name)?;
         let name = String::from_utf8_lossy(&name)
             .trim_end_matches('\0')
             .to_string();
         let mut length = [0u8; 4];
-        bgzf.exact(&mut length)?;
+        exact(bgzf, &mut length)?;
         named.push((name, u64::from(u32::from_le_bytes(length))));
     }
     Ok(Header {
@@ -240,7 +124,7 @@ fn header<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Header, ReadError> {
 /// A count the format stores as an `int32`, held to what a sound file holds.
 fn count<R: Read + Seek>(bgzf: &mut Bgzf<R>, most: usize, what: &str) -> Result<usize, ReadError> {
     let mut bytes = [0u8; 4];
-    bgzf.exact(&mut bytes)?;
+    exact(bgzf, &mut bytes)?;
     let value = i32::from_le_bytes(bytes);
     usize::try_from(value)
         .ok()
@@ -298,7 +182,7 @@ impl Record {
 /// The next record, or `None` at the end of the file.
 fn record<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Option<Record>, ReadError> {
     let mut size = [0u8; 4];
-    if !bgzf.read_into(&mut size)? {
+    if !read_into(bgzf, &mut size)? {
         return Ok(None);
     }
     let size = i32::from_le_bytes(size);
@@ -309,7 +193,7 @@ fn record<R: Read + Seek>(bgzf: &mut Bgzf<R>) -> Result<Option<Record>, ReadErro
             ReadError::whole(format!("a BAM record claims an impossible size, {size}"))
         })?;
     let mut body = vec![0u8; size];
-    bgzf.exact(&mut body)?;
+    exact(bgzf, &mut body)?;
     let int = |at: usize| i32::from_le_bytes([body[at], body[at + 1], body[at + 2], body[at + 3]]);
     let short = |at: usize| u16::from_le_bytes([body[at], body[at + 1]]);
     let name_length = usize::from(body[8]);
@@ -452,17 +336,9 @@ fn walk_tags(tags: &[u8], mut each: impl FnMut([u8; 2], u8, &[u8])) {
     }
 }
 
-/// A BAI index.
-#[derive(Debug, Clone, Default)]
-pub struct Index {
-    references: Vec<Bins>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct Bins {
-    chunks: BTreeMap<u32, Vec<(u64, u64)>>,
-    linear: Vec<u64>,
-}
+/// A BAM's index, which [`index`] reads. The same type holds a CSI, and
+/// [`window`] reads a BAM through either.
+pub use super::index::Index;
 
 /// Reads a `.bai` index.
 ///
@@ -470,97 +346,13 @@ struct Bins {
 ///
 /// Bytes that are not a BAI, or one cut short.
 pub fn index(data: &[u8]) -> Result<Index, ReadError> {
-    let mut at = 0usize;
-    let mut take = |n: usize| -> Result<&[u8], ReadError> {
-        let bytes = data
-            .get(at..at + n)
-            .ok_or_else(|| ReadError::whole("the BAM index is cut short"))?;
-        at += n;
-        Ok(bytes)
-    };
-    if take(4)? != b"BAI\x01" {
-        return Err(ReadError::whole(
+    match data.get(..4) {
+        None => Err(ReadError::whole("the BAM index is cut short")),
+        Some(magic) if magic != b"BAI\x01" => Err(ReadError::whole(
             "not a BAI index: it does not start with BAI's magic",
-        ));
+        )),
+        Some(_) => super::index::parse(data),
     }
-    let int = |bytes: &[u8]| i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let long = |bytes: &[u8]| {
-        u64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])
-    };
-    let references = usize::try_from(int(take(4)?)).unwrap_or(0);
-    let mut index = Index::default();
-    for _ in 0..references {
-        let mut bins = Bins::default();
-        let n_bins = usize::try_from(int(take(4)?)).unwrap_or(0);
-        for _ in 0..n_bins {
-            let bin = u32::from_le_bytes(take(4)?.try_into().unwrap_or([0; 4]));
-            let n_chunks = usize::try_from(int(take(4)?)).unwrap_or(0);
-            let mut chunks = Vec::with_capacity(n_chunks.min(1 << 16));
-            for _ in 0..n_chunks {
-                let begin = long(take(8)?);
-                let end = long(take(8)?);
-                chunks.push((begin, end));
-            }
-            // 37450 is not a bin: it holds counts of mapped and unmapped reads.
-            if bin != 37450 {
-                bins.chunks.insert(bin, chunks);
-            }
-        }
-        let n_intervals = usize::try_from(int(take(4)?)).unwrap_or(0);
-        for _ in 0..n_intervals {
-            bins.linear.push(long(take(8)?));
-        }
-        index.references.push(bins);
-    }
-    Ok(index)
-}
-
-impl Index {
-    /// The stretches of the file that can hold reads over `[start, end)` of
-    /// reference `reference`, in order and merged.
-    fn chunks(&self, reference: usize, start: u64, end: u64) -> Vec<(u64, u64)> {
-        let Some(bins) = self.references.get(reference) else {
-            return Vec::new();
-        };
-        // No read ending before the window starts is worth reading, and the
-        // linear index says where the first one that might not sits.
-        let floor = bins
-            .linear
-            .get((start >> 14) as usize)
-            .copied()
-            .unwrap_or(0);
-        let mut chunks: Vec<(u64, u64)> = overlapping_bins(start, end)
-            .into_iter()
-            .filter_map(|bin| bins.chunks.get(&bin))
-            .flatten()
-            .copied()
-            .filter(|(_, stop)| *stop > floor)
-            .collect();
-        chunks.sort_unstable();
-        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(chunks.len());
-        for (begin, stop) in chunks {
-            match merged.last_mut() {
-                Some(last) if begin <= last.1 => last.1 = last.1.max(stop),
-                _ => merged.push((begin, stop)),
-            }
-        }
-        merged
-    }
-}
-
-/// Every bin a read overlapping `[start, end)` can be filed under, as the SAM
-/// specification's `reg2bins` lists them.
-fn overlapping_bins(start: u64, end: u64) -> Vec<u32> {
-    let last = end.saturating_sub(1).max(start);
-    let mut bins = vec![0u32];
-    for (shift, first) in [(26u32, 1u64), (23, 9), (20, 73), (17, 585), (14, 4681)] {
-        for bin in first + (start >> shift)..=first + (last >> shift) {
-            bins.push(bin as u32);
-        }
-    }
-    bins
 }
 
 /// The header of a BAM, and every record that overlaps `region`.
@@ -898,6 +690,18 @@ pub(crate) mod fixture {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd6, 0x01, 0x9e, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
+
+    /// The same reads indexed by `samtools index -c` 1.24, which chose a tree
+    /// of one level for sequences of 1,000 and 500 bases.
+    pub(crate) const CSI: [u8; 104] = [
+        0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43, 0x02,
+        0x00, 0x4b, 0x00, 0x73, 0x0e, 0xf6, 0x64, 0xe4, 0x63, 0x40, 0x00, 0x26, 0x28, 0x86, 0x80,
+        0x79, 0x60, 0x92, 0x11, 0x89, 0x7d, 0x8d, 0x71, 0x1e, 0x5c, 0x1d, 0xb2, 0x1e, 0x74, 0x79,
+        0x76, 0x06, 0x54, 0x00, 0x53, 0x0f, 0x93, 0x67, 0x44, 0x62, 0x33, 0x30, 0x61, 0x37, 0x13,
+        0x5d, 0x9e, 0x11, 0xcd, 0x4c, 0x18, 0x1f, 0x00, 0xa4, 0x1c, 0x51, 0x22, 0xc4, 0x00, 0x00,
+        0x00, 0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43,
+        0x02, 0x00, 0x1b, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
 }
 
 #[cfg(test)]
@@ -961,6 +765,41 @@ d\t256\tchr1\t20\t0\t8M\t*\t0\t0\tACGTACGT\tIIIIIIII\n\
             .map(|line| format!("{line}\n"))
             .collect();
         assert_eq!(records, VIEW_15_20);
+    }
+
+    /// A CSI is read through the same index as a BAI, with the tree its
+    /// writer chose in place of BAI's, and finds the same reads: over every
+    /// window of every sequence, and the same as a scan of the file.
+    #[test]
+    fn a_bam_with_a_csi_beside_it_reads_what_its_bai_reads() {
+        let bai = index(&BAI).unwrap();
+        let csi = super::super::index::parse(&super::fixture::CSI).unwrap();
+        assert_eq!(csi.depth(), 0, "samtools chose one level for 1,000 bases");
+        for (sequence, length) in [("chr1", 1000u64), ("chr2", 500)] {
+            for start in (0..length).step_by(7) {
+                for width in [1, 5, 40, 1000] {
+                    let end = (start + width).min(length);
+                    let over = Region::new(sequence, start, end).unwrap();
+                    let read = |index: Option<&Index>| {
+                        window(Cursor::new(&BAM[..]), index, &over).unwrap().1
+                    };
+                    let through = read(Some(&csi));
+                    assert_eq!(through, read(Some(&bai)), "{over}");
+                    assert_eq!(through, read(None), "{over}");
+                }
+            }
+        }
+        assert_eq!(
+            names(
+                &window(Cursor::new(&BAM[..]), Some(&csi), &region("chr1:15-20"))
+                    .unwrap()
+                    .1
+            ),
+            ["a", "b", "c", "d"]
+        );
+        // The index of a BAM is a BAI where a caller asks for one.
+        let error = index(&super::fixture::CSI).unwrap_err();
+        assert!(error.to_string().contains("not a BAI"), "{error}");
     }
 
     /// A read is found by its name from one end of the file to the other,

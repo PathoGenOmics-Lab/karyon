@@ -252,6 +252,21 @@ impl stack::Files for Page {
         }
     }
 
+    fn seekable(
+        &mut self,
+        source: &args::Source,
+    ) -> std::io::Result<Option<Box<dyn stack::Seekable>>> {
+        self.0.seekable(source)
+    }
+
+    fn beside(
+        &mut self,
+        source: &args::Source,
+        ending: &str,
+    ) -> std::io::Result<Option<stack::Beside>> {
+        self.0.beside(source, ending)
+    }
+
     fn depth(&mut self, source: &args::Source, region: &Region) -> std::io::Result<Option<String>> {
         self.0.depth(source, region)
     }
@@ -1254,6 +1269,37 @@ mod tests {
                 "{tip} is not drawn"
             );
         }
+    }
+
+    /// A page passes on the bytes of a file it holds and the file beside it,
+    /// which every reader that does not read a file whole stands on. One that
+    /// did not would read a BAM from its start and every file that is only
+    /// read through an index not at all, with nothing said.
+    #[test]
+    fn a_page_passes_on_a_file_s_bytes_and_the_file_beside_it() {
+        use std::io::Read as _;
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/data");
+        let read = |name: &str| std::fs::read(docs.join(name)).unwrap();
+        let mut held = stack::Held::new();
+        for name in ["reads.bam", "reads.bam.bai"] {
+            held.insert(name, read(name));
+        }
+        let mut page = Page(held);
+        let source = args::Source::Path("reads.bam".into());
+        let mut bytes = Vec::new();
+        stack::Files::seekable(&mut page, &source)
+            .unwrap()
+            .expect("the file's bytes")
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, read("reads.bam"));
+        let beside = stack::Files::beside(&mut page, &source, ".bai")
+            .unwrap()
+            .expect("its index");
+        assert_eq!(
+            (beside.name.as_str(), beside.bytes),
+            ("reads.bam.bai", read("reads.bam.bai"))
+        );
     }
 
     #[test]

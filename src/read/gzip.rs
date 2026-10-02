@@ -16,7 +16,8 @@
 //! and the length every member ends with, both checked. BGZF, which is what
 //! bgzip, samtools and tabix write, is a series of ordinary gzip members, so a
 //! reader of every member is a BGZF reader; [`member`] reads one, for a reader
-//! that seeks to a block through an index.
+//! that seeks to a block through an index, which is
+//! [`Bgzf`](super::bgzf::Bgzf).
 //!
 //! # What is refused
 //!

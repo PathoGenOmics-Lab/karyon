@@ -20,7 +20,7 @@
 
 use std::fmt;
 use std::fs;
-use std::io::{self, Read as _};
+use std::io::{self, Read as _, Seek as _};
 use std::path::Path;
 
 use crate::{
@@ -765,6 +765,11 @@ pub fn build_sheet(
     let mut shading = Shading::new(invocation);
     let mut names = Vec::with_capacity(places.len());
     let mut figures = Vec::with_capacity(places.len());
+    // The width that letters the bases of every panel, said once under them
+    // all. Said a panel at a time, each panel named the width its own span
+    // needed, and a reader who took the first width still had the panels of
+    // longer places in blocks, which said so again.
+    let mut letters = None;
     for place in &places {
         let mut one = invocation.clone();
         one.more = Vec::new();
@@ -782,7 +787,7 @@ pub fn build_sheet(
                 names.push(name.clone());
             }
         }
-        let built = build_one(
+        let (built, wanted) = build_one(
             &one,
             &mut kept,
             &mut parsed,
@@ -790,10 +795,12 @@ pub fn build_sheet(
             None,
             Some(&mut shading),
         )?;
+        letters = letters.max(wanted);
         gather(&mut legend, &built.legend);
         figures.push(built.figure);
     }
     settle_shades(invocation, &shading.fates, &mut kept)?;
+    note_letters(&mut kept, letters);
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
     if invocation.same_scale {
@@ -857,7 +864,21 @@ pub fn build_figure(
     theme: Theme,
     window: Option<&Region>,
 ) -> Result<Built, BuildError> {
-    build_one(invocation, files, parsed, theme, window, None)
+    let (built, letters) = build_one(invocation, files, parsed, theme, window, None)?;
+    note_letters(files, letters);
+    Ok(built)
+}
+
+/// Says how wide a figure would have to be for its bases to be letters, where
+/// they are blocks of colour too narrow for them and a figure that wide is one
+/// worth drawing.
+fn note_letters(files: &mut dyn Files, letters: Option<u64>) {
+    if let Some(width) = letters.filter(|width| *width <= 100_000) {
+        files.note(&format!(
+            "the bases are blocks of colour at this width, too narrow for their \
+             letters; --width {width} draws the letters"
+        ));
+    }
 }
 
 /// The same, for a panel of a sheet of several places where `sheet` is
@@ -865,6 +886,10 @@ pub fn build_figure(
 /// rather than refusing the figure, and what became of each shade is put in
 /// `sheet` for the sheet to settle once every panel has had it, beside where
 /// each gene to shade is, which the first panel looks up for them all.
+///
+/// Beside the figure, the width it would letter its bases at, where it draws
+/// a reference as blocks too narrow for their letters, for the caller to say
+/// once: a sheet says the widest any of its panels needs.
 fn build_one(
     invocation: &Invocation,
     files: &mut dyn Files,
@@ -872,12 +897,12 @@ fn build_one(
     theme: Theme,
     window: Option<&Region>,
     sheet: Option<&mut Shading>,
-) -> Result<Built, BuildError> {
+) -> Result<(Built, Option<u64>), BuildError> {
     let tolerant = sheet.is_some();
     let mut kept = KeptStdin { files, stdin: None };
     let files: &mut dyn Files = &mut kept;
     if invocation.genome_wide() && window.is_none() {
-        return build_genome(invocation, files, theme);
+        return build_genome(invocation, files, theme).map(|built| (built, None));
     }
     // A figure of phylogenies and variable-site panels names no region, and
     // none of its tracks asks the window anything. The figure still wants
@@ -1104,31 +1129,28 @@ fn build_one(
         .tracks
         .iter()
         .any(|spec| spec.kind == Kind::Sequence);
-    if sequence && bases.items().iter().all(|item| key.items().contains(item)) {
-        // And how wide the figure would have to be for the letters, which a
-        // reader asked to show a sequence came for.
-        let px = figure.px_per_bp();
-        let span = region.len() as f64;
-        let now = figure.dimensions().0;
-        let wanted =
-            ((now + (crate::track::sequence::LETTER_PX - px) * span) / 100.0).ceil() * 100.0;
-        if wanted <= 100_000.0 {
-            files.note(&format!(
-                "the bases are blocks of colour at this width, too narrow for their \
-                 letters; --width {} draws the letters",
-                wanted as u64
-            ));
-        }
-    }
+    // And how wide the figure would have to be for the letters, which a
+    // reader asked to show a sequence came for.
+    let letters = (sequence && bases.items().iter().all(|item| key.items().contains(item)))
+        .then(|| {
+            let px = figure.px_per_bp();
+            let span = region.len() as f64;
+            let now = figure.dimensions().0;
+            ((now + (crate::track::sequence::LETTER_PX - px) * span) / 100.0).ceil() * 100.0
+        })
+        .map(|wanted| wanted as u64);
     gather(&mut legend, &key);
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
-    Ok(Built {
-        figure,
-        along,
-        legend,
-    })
+    Ok((
+        Built {
+            figure,
+            along,
+            legend,
+        },
+        letters,
+    ))
 }
 
 /// A track of one place of several that has nothing there: the band it would
@@ -2310,21 +2332,72 @@ fn colored_as_asked(invocation: &Invocation, files: &mut dyn Files) -> Result<()
     Ok(())
 }
 
-/// A track's own file, what it was called, and whether it arrived converted
-/// from a binary alignment file rather than read as it is.
+/// Where the text a track is handed came from, which says how much of its
+/// file it is and what can be told from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// The file as it is, its own lines, all of them.
+    Text,
+    /// Lines written from a BAM over the window: its reads as SAM, or the
+    /// depth they add up to as bedGraph. They say what they were written as
+    /// and nothing of the file's own format, and they hold the window alone.
+    Bam,
+}
+
+/// A track's own file, read.
+struct Slurped {
+    /// What the track's reader takes.
+    text: String,
+    /// What the file is called in a message.
+    path: String,
+    /// Where `text` came from.
+    origin: Origin,
+    /// The lines that tell what the file is, for [`refine`], where `text`
+    /// holds only some of the file's own lines and may hold none of them:
+    /// its header and its first row. `None` where `text` is the file, which
+    /// says it itself.
+    probe: Option<String>,
+    /// How many rows the file holds, where something other than `text`
+    /// counted them, as an index counts a file it hands over a window of.
+    /// `None` where `text` is all there is to count.
+    held: Option<usize>,
+}
+
+/// A track's own file, read as much of it as the track needs.
 ///
-/// A track that draws reads, or the depth they add up to, asks the files for
-/// that first: a BAM on disk answers with the reads over the window, or their
-/// depth as bedGraph, and anything that cannot answer is read as text.
-fn slurp(
-    spec: &TrackSpec,
-    region: &Region,
-    files: &mut dyn Files,
-) -> Result<(String, String, bool), BuildError> {
+/// The files are asked in this order, and the first to answer gives the text:
+///
+/// 1. A BAM, for a track that draws reads or the depth they add up to: its
+///    reads over the window as SAM, or their depth as bedGraph, through
+///    [`Files::reads`] and [`Files::depth`].
+/// 2. A binary format read natively, turned over the window into text a
+///    reader already takes.
+/// 3. The rows over the window of a bgzipped text file, through the index
+///    beside it.
+/// 4. The whole text, through [`Files::text`].
+///
+/// Each comes before the next because the next would misread its file or
+/// read more of it. A BAM is not text, and is read through the `.bai` beside
+/// it. A BCF has a `.csi` beside it as a bgzipped VCF does, and only its own
+/// reader can read the blocks it points into. A window through an index reads
+/// a few blocks of a file the whole text reads all of.
+///
+/// No file answers the second or the third yet. They are where a native
+/// reader and a tabix index come in, each built on [`Files::seekable`] and
+/// [`Files::beside`], each saying in [`Origin`] what its text is, and the
+/// third giving [`Slurped::probe`] and [`Slurped::held`], since a window holds
+/// neither the file's first row nor the count of its rows.
+fn slurp(spec: &TrackSpec, region: &Region, files: &mut dyn Files) -> Result<Slurped, BuildError> {
     let Some(source) = spec.source.as_ref() else {
-        return Ok((String::new(), String::new(), false));
+        return Ok(Slurped {
+            text: String::new(),
+            path: String::new(),
+            origin: Origin::Text,
+            probe: None,
+            held: None,
+        });
     };
-    let converted = match spec.kind {
+    let bam = match spec.kind {
         Kind::Coverage => files.depth(source, region),
         Kind::Pileup | Kind::SplitReads => files.reads(source, region),
         _ => Ok(None),
@@ -2334,13 +2407,23 @@ fn slurp(
         path: called(source),
         cause,
     })?;
-    match converted {
-        Some(text) => Ok((text, called(source), true)),
-        None => {
-            let (text, name) = fetch(spec.kind.flag(), source, files)?;
-            Ok((text, name, false))
-        }
+    if let Some(text) = bam {
+        return Ok(Slurped {
+            text,
+            path: called(source),
+            origin: Origin::Bam,
+            probe: None,
+            held: None,
+        });
     }
+    let (text, path) = fetch(spec.kind.flag(), source, files)?;
+    Ok(Slurped {
+        text,
+        path,
+        origin: Origin::Text,
+        probe: None,
+        held: None,
+    })
 }
 
 /// The tree a file holds, Newick or NEXUS, read once and kept by `parsed`
@@ -2748,15 +2831,50 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
     Ok(text)
 }
 
+/// Bytes a reader can go back and forth in, as a file on disk or a buffer can
+/// be read and a pipe cannot: what a reader of a binary format, or of a
+/// compressed file through the index beside it, takes.
+///
+/// Everything that reads and seeks is one, so whatever a caller holds will do.
+/// [`Files::seekable`] hands one over boxed and owned, which leaves the files
+/// free to be asked for the index beside it while it is read.
+pub trait Seekable: io::Read + io::Seek {}
+
+impl<T: io::Read + io::Seek> Seekable for T {}
+
+/// A file found beside the one a command line names, as an index sits beside
+/// the file it indexes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Beside {
+    /// What it is called, as a message would name it.
+    pub name: String,
+    /// What it holds.
+    pub bytes: Vec<u8>,
+    /// Whether it was last written before the file it sits beside, where the
+    /// files say when they were written, as on a disk; false where they say
+    /// nothing, as files held in memory do not. An index older than its file
+    /// may have been made for an earlier version of it.
+    pub older: bool,
+}
+
 /// Where a figure's files come from.
 ///
 /// Text is the one question every source answers: a shell reads a path, a
 /// page looks a name up among its buffers, a test hands over a literal, and
-/// any closure from a source to its text is a `Files`. The other questions
-/// are for sources that are not text, and a reader that cannot answer them
-/// says `None`, which sends the track to [`Files::text`] instead. [`Disk`]
-/// answers them for a BAM, reading only the reads over the window through
-/// its index.
+/// any closure from a source to its text is a `Files`.
+///
+/// Two more are what every reader that does not read a file whole stands on:
+/// [`Files::seekable`], the file as bytes to go back and forth in, and
+/// [`Files::beside`], the file its index would be. A source that cannot
+/// answer one says `None`, which leaves the track to [`Files::text`]. [`Disk`]
+/// and [`Held`] answer both. A type that wraps another `Files` has to pass
+/// both on, since one that does not turns every reader built on them off
+/// behind it, and the file is read whole, or refused, with nothing said.
+///
+/// The questions about a BAM are answered from those two unless a type
+/// answers them itself: the depth and the reads over a window, through the
+/// `.bai` beside it, the sequences its header names, and one read by its
+/// name.
 pub trait Files {
     /// The text a source holds.
     ///
@@ -2765,14 +2883,40 @@ pub trait Files {
     /// Whatever stopped it being read.
     fn text(&mut self, source: &Source) -> io::Result<String>;
 
+    /// The source as bytes to read out of order, as they are and not taken
+    /// out of a gzip wrapper, or `None` for a source this cannot give that
+    /// way.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped it being opened.
+    fn seekable(&mut self, _source: &Source) -> io::Result<Option<Box<dyn Seekable>>> {
+        Ok(None)
+    }
+
+    /// The file beside a source whose name is the source's with `ending`
+    /// after it, or in place of its last extension, looked for in that order
+    /// as samtools and tabix look for an index: `.bai` finds `reads.bam.bai`,
+    /// and then `reads.bai`. `None` where there is neither, and for a source
+    /// with no name to put an ending on.
+    ///
+    /// # Errors
+    ///
+    /// Whatever stopped one that is there being read.
+    fn beside(&mut self, _source: &Source, _ending: &str) -> io::Result<Option<Beside>> {
+        Ok(None)
+    }
+
     /// The depth of the reads a binary alignment file holds over `region`, as
     /// bedGraph, or `None` for a source this cannot read that way.
     ///
     /// # Errors
     ///
     /// Whatever stopped it being read.
-    fn depth(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
-        Ok(None)
+    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(bam_window(self, source, region)?.map(|(_, records)| {
+            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
+        }))
     }
 
     /// The reads a binary alignment file holds over `region`, as SAM text, or
@@ -2781,8 +2925,9 @@ pub trait Files {
     /// # Errors
     ///
     /// Whatever stopped it being read.
-    fn reads(&mut self, _source: &Source, _region: &Region) -> io::Result<Option<String>> {
-        Ok(None)
+    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+        Ok(bam_window(self, source, region)?
+            .map(|(header, records)| read::bam::sam(&header, &records)))
     }
 
     /// The sequences a binary file names, each with its length, or `None`
@@ -2791,8 +2936,13 @@ pub trait Files {
     /// # Errors
     ///
     /// Whatever stopped it being read.
-    fn sequences(&mut self, _source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
-        Ok(None)
+    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
+        let Some(file) = opened_bam(self, source)? else {
+            return Ok(None);
+        };
+        read::bam::header_of(file)
+            .map(|header| Some(header.references))
+            .map_err(unreadable)
     }
 
     /// The records of one read in a binary alignment file, by its name, as
@@ -2801,8 +2951,13 @@ pub trait Files {
     /// # Errors
     ///
     /// Whatever stopped it being read.
-    fn named_read(&mut self, _source: &Source, _name: &str) -> io::Result<Option<String>> {
-        Ok(None)
+    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
+        let Some(file) = opened_bam(self, source)? else {
+            return Ok(None);
+        };
+        read::bam::named(file, name)
+            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
+            .map_err(unreadable)
     }
 
     /// Something about a figure drawn anyway that whoever asked for it should
@@ -2814,6 +2969,97 @@ pub trait Files {
 impl<F: FnMut(&Source) -> io::Result<String>> Files for F {
     fn text(&mut self, source: &Source) -> io::Result<String> {
         self(source)
+    }
+}
+
+/// A file that could not be read, as the error a source gives.
+fn unreadable(error: read::ReadError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
+}
+
+/// A source that is a BAM, opened at its start: bgzip on the outside and a
+/// BAM's header inside. `None` for any other source, and for one the files
+/// cannot give as bytes, which [`Files::text`] then reads or says why not.
+fn opened_bam<F: Files + ?Sized>(
+    files: &mut F,
+    source: &Source,
+) -> io::Result<Option<Box<dyn Seekable>>> {
+    let Some(mut file) = files.seekable(source)? else {
+        return Ok(None);
+    };
+    let mut first = [0u8; 3];
+    if file.read(&mut first)? < first.len() || !read::gzip::is_gzip(&first) {
+        return Ok(None);
+    }
+    file.seek(io::SeekFrom::Start(0))?;
+    if read::bam::header_of(&mut file).is_err() {
+        return Ok(None);
+    }
+    file.seek(io::SeekFrom::Start(0))?;
+    Ok(Some(file))
+}
+
+/// The header and the reads over `region`, for a source that is a BAM, read
+/// through the `.bai` beside it where there is one and from its start where
+/// there is not.
+fn bam_window<F: Files + ?Sized>(
+    files: &mut F,
+    source: &Source,
+    region: &Region,
+) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
+    let Some(file) = opened_bam(files, source)? else {
+        return Ok(None);
+    };
+    let index = match files.beside(source, ".bai")? {
+        Some(found) => Some(read::bam::index(&found.bytes).map_err(unreadable)?),
+        None => None,
+    };
+    read::bam::window(file, index.as_ref(), region)
+        .map(Some)
+        .map_err(unreadable)
+}
+
+/// The names a file beside `path` is looked for under, in the order htslib
+/// looks: `ending` after the whole name, then in place of its last extension.
+fn beside_names(path: &Path, ending: &str) -> [std::path::PathBuf; 2] {
+    let mut after = path.as_os_str().to_owned();
+    after.push(ending);
+    let extension = ending.strip_prefix('.').unwrap_or(ending);
+    [
+        std::path::PathBuf::from(after),
+        path.with_extension(extension),
+    ]
+}
+
+/// Whether a file last written at `this` was written before one last written
+/// at `that`.
+///
+/// In whole seconds: an archive, or a copy to another kind of disk, keeps no
+/// finer a time than that, and a file and its index written by one command in
+/// the same second are neither older than the other. A time that is not known
+/// is not older.
+fn older(this: Option<std::time::SystemTime>, that: Option<std::time::SystemTime>) -> bool {
+    let seconds = |time: Option<std::time::SystemTime>| {
+        time.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|since| since.as_secs())
+    };
+    matches!((seconds(this), seconds(that)), (Some(this), Some(that)) if this < that)
+}
+
+/// Bytes held once and handed out as often as they are asked for, without a
+/// copy each time: a page's files, and what a pipe gave.
+#[derive(Debug, Clone)]
+struct Shared(std::sync::Arc<Vec<u8>>);
+
+impl From<Vec<u8>> for Shared {
+    fn from(bytes: Vec<u8>) -> Self {
+        Shared(std::sync::Arc::new(bytes))
+    }
+}
+
+impl AsRef<[u8]> for Shared {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -2844,6 +3090,20 @@ impl Files for KeptStdin<'_> {
         Ok(text)
     }
 
+    fn seekable(&mut self, source: &Source) -> io::Result<Option<Box<dyn Seekable>>> {
+        // Standard input is kept here as the text it held, which is all a
+        // reader of it is given: asked for its bytes underneath, it would be
+        // read past, and the text asked for after found empty.
+        if matches!(source, Source::Stdin) {
+            return Ok(None);
+        }
+        self.files.seekable(source)
+    }
+
+    fn beside(&mut self, source: &Source, ending: &str) -> io::Result<Option<Beside>> {
+        self.files.beside(source, ending)
+    }
+
     fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
         self.files.depth(source, region)
     }
@@ -2865,6 +3125,19 @@ impl Files for KeptStdin<'_> {
     }
 }
 
+/// Keeps `message` unless it is kept already.
+///
+/// A figure tells the files the same thing more than once: a figure of
+/// several places builds its tracks once a panel, and a file read under the
+/// name `--rename` gives its sequence is read again under that name. Said
+/// each time, a BAM over two genes printed that it was drawn as its depth
+/// twice, word for word.
+fn keep_once(notes: &mut Vec<String>, message: &str) {
+    if !notes.iter().any(|kept| kept == message) {
+        notes.push(message.to_string());
+    }
+}
+
 /// The files a command line names, read from disk.
 ///
 /// Text is read whole, and compressed text is taken out of its wrapper, by
@@ -2873,130 +3146,83 @@ impl Files for KeptStdin<'_> {
 /// gene is in.
 ///
 /// A pipe the shell named, as `<(zcat genes.gff3.gz)`, cannot be read twice,
-/// so it is kept once read, since placing a figure by a gene's name reads the
-/// annotation before the track does. Standard input is read once and kept by
-/// [`build_files`], which every figure is drawn through. A file on disk is
-/// read again instead: kept, every file was held twice while its track was
-/// built, once here and once in the text handed out, and a depth file of
-/// 176 MB took 435 MB to draw where it now takes 259.
+/// so it is read whole the first time anything asks and its bytes are kept,
+/// since placing a figure by a gene's name reads the annotation before the
+/// track does. Looking for a BAM's magic in one read its first three bytes
+/// and dropped them, and the text read after began at the fourth: a bedGraph
+/// of `chr1` rows was said to hold rows on `1`. Standard input is read once and
+/// kept by [`build_files`], which every figure is drawn through. A file on
+/// disk is read again instead: kept, every file was held twice while its
+/// track was built, once here and once in the text handed out, and a depth
+/// file of 176 MB took 435 MB to draw where it now takes 259.
 #[derive(Debug, Default)]
 pub struct Disk {
-    kept: std::collections::HashMap<Source, String>,
-    /// What [`Files::note`] was told, for the command line to print.
+    kept: std::collections::HashMap<Source, Shared>,
+    /// What [`Files::note`] was told, each thing once, for the command line
+    /// to print.
     pub notes: Vec<String>,
 }
 
 impl Disk {
-    /// The header and the reads over `region`, for a source that is a BAM.
-    fn bam(
-        &mut self,
-        source: &Source,
-        region: &Region,
-    ) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
+    /// What a pipe the command line names held, read the first time it is
+    /// asked for and kept after. `None` for a file on disk, which is read
+    /// again, and for one that is not there, which reading it says.
+    fn pipe(&mut self, source: &Source) -> io::Result<Option<Shared>> {
         let Source::Path(path) = source else {
             return Ok(None);
         };
-        if !is_bam(path)? {
-            return Ok(None);
+        if let Some(bytes) = self.kept.get(source) {
+            return Ok(Some(bytes.clone()));
         }
-        let index = bam_index(path)?;
-        let file = io::BufReader::new(fs::File::open(path)?);
-        read::bam::window(file, index.as_ref(), region)
-            .map(Some)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+        match fs::metadata(path) {
+            Ok(meta) if !meta.is_file() => {
+                let bytes = Shared::from(fs::read(path)?);
+                self.kept.insert(source.clone(), bytes.clone());
+                Ok(Some(bytes))
+            }
+            _ => Ok(None),
+        }
     }
 }
 
 impl Files for Disk {
     fn note(&mut self, message: &str) {
-        self.notes.push(message.to_string());
+        keep_once(&mut self.notes, message);
     }
 
     fn text(&mut self, source: &Source) -> io::Result<String> {
-        if let Some(text) = self.kept.get(source) {
-            return Ok(text.clone());
+        match (self.pipe(source)?, source) {
+            (Some(bytes), Source::Path(path)) => decoded(bytes.as_ref().to_vec(), Some(path)),
+            _ => open_from_disk(source),
         }
-        let text = open_from_disk(source)?;
-        if let Source::Path(path) = source {
-            if !fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
-                self.kept.insert(source.clone(), text.clone());
+    }
+
+    fn seekable(&mut self, source: &Source) -> io::Result<Option<Box<dyn Seekable>>> {
+        if let Some(bytes) = self.pipe(source)? {
+            return Ok(Some(Box::new(io::Cursor::new(bytes))));
+        }
+        match source {
+            Source::Path(path) => Ok(Some(Box::new(io::BufReader::new(fs::File::open(path)?)))),
+            Source::Stdin => Ok(None),
+        }
+    }
+
+    fn beside(&mut self, source: &Source, ending: &str) -> io::Result<Option<Beside>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
+        let written = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
+        for candidate in beside_names(path, ending) {
+            if candidate.is_file() {
+                return Ok(Some(Beside {
+                    name: candidate.display().to_string(),
+                    bytes: fs::read(&candidate)?,
+                    older: older(written(&candidate), written(path)),
+                }));
             }
         }
-        Ok(text)
+        Ok(None)
     }
-
-    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
-        Ok(self.bam(source, region)?.map(|(_, records)| {
-            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
-        }))
-    }
-
-    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
-        Ok(self
-            .bam(source, region)?
-            .map(|(header, records)| read::bam::sam(&header, &records)))
-    }
-
-    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
-        let Source::Path(path) = source else {
-            return Ok(None);
-        };
-        if !is_bam(path)? {
-            return Ok(None);
-        }
-        let file = io::BufReader::new(fs::File::open(path)?);
-        read::bam::named(file, name)
-            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
-    }
-
-    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
-        let Source::Path(path) = source else {
-            return Ok(None);
-        };
-        if !is_bam(path)? {
-            return Ok(None);
-        }
-        let file = io::BufReader::new(fs::File::open(path)?);
-        read::bam::header_of(file)
-            .map(|header| Some(header.references))
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
-    }
-}
-
-/// Whether a file is a BAM: bgzip on the outside, and BAM's magic inside.
-///
-/// Only a file on disk is looked at. A BAM is read a window at a time by
-/// opening it again, which a pipe cannot be, and a pipe the shell named, as
-/// `<(tabix -h cohort.vcf.gz chr1:1-100000)`, gives each byte once: the three
-/// read here to look for the wrapper were gone from the text read after, so a
-/// VCF lost the `##f` of its first line, a SAM the `@HD` of its header and a
-/// bedGraph the first letters of its sequence's name.
-fn is_bam(path: &Path) -> io::Result<bool> {
-    if !fs::metadata(path)?.is_file() {
-        return Ok(false);
-    }
-    let mut first = [0u8; 3];
-    let mut file = fs::File::open(path)?;
-    if file.read(&mut first)? < first.len() || !read::gzip::is_gzip(&first) {
-        return Ok(false);
-    }
-    Ok(read::bam::header_of(io::BufReader::new(fs::File::open(path)?)).is_ok())
-}
-
-/// The `.bai` beside a BAM, as `reads.bam.bai` or `reads.bai`, if there is one.
-fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
-    let mut beside = path.as_os_str().to_owned();
-    beside.push(".bai");
-    for candidate in [std::path::PathBuf::from(beside), path.with_extension("bai")] {
-        if candidate.is_file() {
-            let bytes = fs::read(&candidate)?;
-            return read::bam::index(&bytes)
-                .map(Some)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()));
-        }
-    }
-    Ok(None)
 }
 
 /// The files a command line names, held in memory by name.
@@ -3006,7 +3232,8 @@ fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
 /// text is taken out of its wrapper, a BAM is read a window at a time through
 /// the `.bai` held beside it, and one read is found by its name, so a figure
 /// drawn from these files is the figure a shell draws from the same files on
-/// disk. A file is found by its name as the command line writes it.
+/// disk. A file is found by its name as the command line writes it, and the
+/// file beside it, as an index, by that name with its ending.
 ///
 /// ```
 /// use karyon::cli::{args, stack};
@@ -3022,8 +3249,8 @@ fn bam_index(path: &Path) -> io::Result<Option<read::bam::Index>> {
 /// ```
 #[derive(Debug, Default)]
 pub struct Held {
-    files: std::collections::BTreeMap<String, Vec<u8>>,
-    /// What [`Files::note`] was told.
+    files: std::collections::BTreeMap<String, Shared>,
+    /// What [`Files::note`] was told, each thing once.
     pub notes: Vec<String>,
 }
 
@@ -3035,7 +3262,7 @@ impl Held {
 
     /// Holds `bytes` as the file called `name`, in place of any held before.
     pub fn insert(&mut self, name: impl Into<String>, bytes: impl Into<Vec<u8>>) {
-        self.files.insert(name.into(), bytes.into());
+        self.files.insert(name.into(), Shared::from(bytes.into()));
     }
 
     /// Whether a file called `name` is held.
@@ -3057,7 +3284,7 @@ impl Held {
         };
         let name = path.display().to_string();
         match self.files.get(&name) {
-            Some(bytes) => Ok((path.as_path(), bytes.as_slice())),
+            Some(bytes) => Ok((path.as_path(), bytes.as_ref())),
             None => {
                 let names: Vec<&str> = self.names().collect();
                 let held = if names.is_empty() {
@@ -3072,51 +3299,11 @@ impl Held {
             }
         }
     }
-
-    /// A source's bytes where it is a BAM: bgzip on the outside, and BAM's
-    /// header inside. `None` for any other file, and for one not held, which
-    /// [`Files::text`] then says.
-    fn bam<'s>(&self, source: &'s Source) -> Option<(&'s Path, &[u8])> {
-        let (path, bytes) = self.held(source).ok()?;
-        let bam =
-            read::gzip::is_gzip(bytes) && read::bam::header_of(io::Cursor::new(bytes)).is_ok();
-        bam.then_some((path, bytes))
-    }
-
-    /// The `.bai` held beside a BAM, as `reads.bam.bai` or `reads.bai`, if
-    /// there is one.
-    fn bam_index(&self, path: &Path) -> io::Result<Option<read::bam::Index>> {
-        let mut beside = path.as_os_str().to_owned();
-        beside.push(".bai");
-        for candidate in [std::path::PathBuf::from(beside), path.with_extension("bai")] {
-            if let Some(bytes) = self.files.get(&candidate.display().to_string()) {
-                return read::bam::index(bytes).map(Some).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
-                });
-            }
-        }
-        Ok(None)
-    }
-
-    /// The header and the reads over `region`, for a source that is a BAM.
-    fn window(
-        &self,
-        source: &Source,
-        region: &Region,
-    ) -> io::Result<Option<(read::bam::Header, Vec<read::bam::Record>)>> {
-        let Some((path, bytes)) = self.bam(source) else {
-            return Ok(None);
-        };
-        let index = self.bam_index(path)?;
-        read::bam::window(io::Cursor::new(bytes), index.as_ref(), region)
-            .map(Some)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
-    }
 }
 
 impl Files for Held {
     fn note(&mut self, message: &str) {
-        self.notes.push(message.to_string());
+        keep_once(&mut self.notes, message);
     }
 
     fn text(&mut self, source: &Source) -> io::Result<String> {
@@ -3124,34 +3311,32 @@ impl Files for Held {
         decoded(bytes.to_vec(), Some(path))
     }
 
-    fn depth(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
-        Ok(self.window(source, region)?.map(|(_, records)| {
-            read::bam::bedgraph(region.seq(), region, &read::bam::depth(&records, region))
-        }))
-    }
-
-    fn reads(&mut self, source: &Source, region: &Region) -> io::Result<Option<String>> {
+    /// The bytes held for a source, or `None` for one not held, which
+    /// [`Files::text`] then says, naming the files that are.
+    fn seekable(&mut self, source: &Source) -> io::Result<Option<Box<dyn Seekable>>> {
+        let Source::Path(path) = source else {
+            return Ok(None);
+        };
         Ok(self
-            .window(source, region)?
-            .map(|(header, records)| read::bam::sam(&header, &records)))
+            .files
+            .get(&path.display().to_string())
+            .map(|bytes| Box::new(io::Cursor::new(bytes.clone())) as Box<dyn Seekable>))
     }
 
-    fn named_read(&mut self, source: &Source, name: &str) -> io::Result<Option<String>> {
-        let Some((_, bytes)) = self.bam(source) else {
+    fn beside(&mut self, source: &Source, ending: &str) -> io::Result<Option<Beside>> {
+        let Source::Path(path) = source else {
             return Ok(None);
         };
-        read::bam::named(io::Cursor::new(bytes), name)
-            .map(|(header, records)| Some(read::bam::sam(&header, &records)))
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
-    }
-
-    fn sequences(&mut self, source: &Source) -> io::Result<Option<Vec<(String, u64)>>> {
-        let Some((_, bytes)) = self.bam(source) else {
-            return Ok(None);
-        };
-        read::bam::header_of(io::Cursor::new(bytes))
-            .map(|header| Some(header.references))
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+        Ok(beside_names(path, ending)
+            .into_iter()
+            .find_map(|candidate| {
+                let name = candidate.display().to_string();
+                self.files.get(&name).map(|bytes| Beside {
+                    name,
+                    bytes: bytes.as_ref().to_vec(),
+                    older: false,
+                })
+            }))
     }
 }
 
@@ -3619,11 +3804,25 @@ fn track(
 ) -> Result<Box<dyn Track>, BuildError> {
     let region = context.region;
     let theme = context.theme;
-    let (text, path, converted) = slurp(spec, region, files)?;
+    let Slurped {
+        text,
+        path,
+        origin,
+        probe,
+        held: counted,
+    } = slurp(spec, region, files)?;
     // A file named on its own was placed by its name, and a few names hide
-    // another format: modkit writes its bedMethyl as `.bed`.
+    // another format: modkit writes its bedMethyl as `.bed`. Lines written
+    // from a binary file say only what they were written as.
+    let told = match origin {
+        Origin::Text => spec
+            .guessed
+            .then(|| refine(spec.kind, probe.as_deref().unwrap_or(&text)))
+            .flatten(),
+        Origin::Bam => None,
+    };
     let refined;
-    let spec = match spec.guessed.then(|| refine(spec.kind, &text)).flatten() {
+    let spec = match told {
         Some(kind) if kind != spec.kind => {
             refined = TrackSpec {
                 kind,
@@ -3663,10 +3862,9 @@ fn track(
                 read::signal::fold_spans(
                     &text,
                     region,
-                    if converted {
-                        Some(crate::Format::BedGraph)
-                    } else {
-                        spec.format
+                    match origin {
+                        Origin::Bam => Some(crate::Format::BedGraph),
+                        Origin::Text => spec.format,
                     },
                     |start, end, value| painted.paint(start, end, value),
                 ),
@@ -3675,7 +3873,7 @@ fn track(
             // Named on its own, a BAM is its depth; over a window a few reads
             // wide the reads are what a reader came for, and nothing said
             // they could be drawn.
-            if converted && spec.guessed && region.len() <= READS_WINDOW {
+            if origin == Origin::Bam && spec.guessed && region.len() <= READS_WINDOW {
                 files.note(&format!(
                     "{path} is drawn as its depth; --pileup {path} draws its reads"
                 ));
@@ -3716,7 +3914,7 @@ fn track(
                     track: name,
                     path: path.clone(),
                     wanted: "scores",
-                    held: found.records,
+                    held: counted.unwrap_or(found.records),
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
@@ -3762,7 +3960,7 @@ fn track(
                     track: name,
                     path: path.clone(),
                     wanted: "junctions",
-                    held: found.records,
+                    held: counted.unwrap_or(found.records),
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
@@ -4287,7 +4485,7 @@ fn track(
                     track: name,
                     path: path.clone(),
                     wanted: "modified bases",
-                    held: found.records,
+                    held: counted.unwrap_or(found.records),
                     named: code.clone(),
                     region: region.to_string(),
                     rename: None,
@@ -7187,17 +7385,20 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         if cfg!(windows) {
             assert!(bam.contains('\\'), "{bam}");
         }
-        assert!(bam_index(Path::new(&bam)).unwrap().is_none());
+        let source = Source::Path(std::path::PathBuf::from(&bam));
+        let region = Region::parse("chr1:10-35").unwrap();
+        let mut disk = Disk::default();
+        assert!(disk.beside(&source, ".bai").unwrap().is_none());
         for name in ["tiny.bam.bai", "tiny.bai"] {
             let index = dir.write(name, &BAI);
             assert!(
-                bam_index(Path::new(&bam)).unwrap().is_some(),
+                disk.beside(&source, ".bai").unwrap().is_some(),
                 "{index} was not found beside {bam}"
             );
             fs::remove_file(&index).unwrap();
         }
         dir.write("tiny.bam.bai", b"not an index");
-        assert!(bam_index(Path::new(&bam)).is_err());
+        assert!(bam_window(&mut disk, &source, &region).is_err());
     }
 
     /// Files held in memory draw what the same files on disk draw: a BAM a
@@ -7327,6 +7528,182 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         );
     }
 
+    /// A figure says a thing once however many times it is told: a BAM over
+    /// two places a few reads wide each said it was drawn as its depth once a
+    /// panel, word for word, and so it did where each panel found its reads
+    /// only on a second try, under the name `--rename` gives the sequence.
+    #[test]
+    fn a_note_is_said_once_however_many_panels_say_it() {
+        use crate::read::bam::fixture::{BAI, BAM};
+        let dir = Scratch::new("notes");
+        let bam = dir.write("tiny.bam", &BAM);
+        dir.write("tiny.bam.bai", &BAI);
+        let said = format!("{bam} is drawn as its depth; --pileup {bam} draws its reads");
+        for line in [
+            format!("chr1:10-35 chr1:12-30 {bam}"),
+            format!("1:10-35 1:12-30 {bam} --rename chr1=1"),
+        ] {
+            let mut disk = Disk::default();
+            let svg = build_files(&invocation(&line), &mut disk, |_, _| None).unwrap();
+            assert_eq!(
+                svg.matches("<svg").count(),
+                3,
+                "{line}: a sheet of two panels"
+            );
+            assert_eq!(disk.notes, std::slice::from_ref(&said), "{line}");
+            let mut held = Held::new();
+            held.insert(bam.as_str(), BAM);
+            held.insert(format!("{bam}.bai"), BAI);
+            build_files(&invocation(&line), &mut held, |_, _| None).unwrap();
+            assert_eq!(held.notes, std::slice::from_ref(&said), "{line}");
+        }
+    }
+
+    /// The bytes a source holds and the file beside it, as every `Files` the
+    /// command line and a page draw through answers for them. One that does
+    /// not pass both on turns off every reader built on them, and nothing
+    /// says so.
+    #[test]
+    fn every_files_answers_for_a_file_s_bytes_and_the_file_beside_it() {
+        use crate::read::bam::fixture::{BAI, BAM};
+        let dir = Scratch::new("door");
+        let bam = dir.write("tiny.bam", &BAM);
+        let replaced = dir.write("tiny.bai", &BAI);
+        let source = Source::Path(bam.clone().into());
+        let mut held = Held::new();
+        held.insert(bam.as_str(), BAM);
+        held.insert(replaced.as_str(), BAI);
+        let answers = |files: &mut dyn Files| {
+            let mut bytes = Vec::new();
+            files
+                .seekable(&source)
+                .unwrap()
+                .expect("the file's bytes")
+                .read_to_end(&mut bytes)
+                .unwrap();
+            let beside = files.beside(&source, ".bai").unwrap().expect("its index");
+            (bytes, beside.name, beside.bytes)
+        };
+        let wanted = (BAM.to_vec(), replaced.clone(), BAI.to_vec());
+        assert_eq!(answers(&mut Disk::default()), wanted);
+        assert_eq!(answers(&mut held), wanted);
+        let mut disk = Disk::default();
+        let mut kept = KeptStdin {
+            files: &mut disk,
+            stdin: None,
+        };
+        assert_eq!(answers(&mut kept), wanted);
+        let mut kept = KeptStdin {
+            files: &mut held,
+            stdin: None,
+        };
+        assert_eq!(answers(&mut kept), wanted);
+
+        // The ending after the whole name is looked for first, as samtools
+        // looks; nothing is beside it under another ending; and standard input
+        // has neither bytes to go back in nor a name to put an ending on.
+        let after = dir.write("tiny.bam.bai", b"first");
+        held.insert(after.as_str(), &b"first"[..]);
+        let mut disk = Disk::default();
+        for files in [&mut disk as &mut dyn Files, &mut held] {
+            let found = files.beside(&source, ".bai").unwrap().unwrap();
+            assert_eq!(
+                (found.name, found.bytes, found.older),
+                (after.clone(), b"first".to_vec(), false)
+            );
+            assert!(files.beside(&source, ".csi").unwrap().is_none());
+            assert!(files.seekable(&Source::Stdin).unwrap().is_none());
+            assert!(files.beside(&Source::Stdin, ".bai").unwrap().is_none());
+        }
+        // A file not held is left to the text, which names the files that are.
+        let other = Source::Path("other.bam".into());
+        assert!(held.seekable(&other).unwrap().is_none());
+        assert!(held
+            .text(&other)
+            .unwrap_err()
+            .to_string()
+            .contains("tiny.bam"));
+    }
+
+    /// An index older than its file may be for an earlier version of it, and
+    /// the times are compared in whole seconds, since an archive keeps no
+    /// finer a time; a time not known is not older.
+    #[test]
+    fn a_file_is_older_than_another_by_whole_seconds_and_never_by_an_unknown_time() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let at = |seconds: u64, nanos: u32| Some(UNIX_EPOCH + Duration::new(seconds, nanos));
+        assert!(older(at(9, 999_999_999), at(10, 0)));
+        assert!(!older(at(10, 0), at(10, 999_999_999)), "the same second");
+        assert!(!older(at(11, 0), at(10, 0)));
+        assert!(!older(None, at(10, 0)) && !older(at(9, 0), None));
+    }
+
+    /// The file beside one on disk says whether it was written before it, as
+    /// an index made for an earlier version of its file was. `touch` sets the
+    /// time here, since `File::set_modified` is newer than the oldest Rust
+    /// the crate builds with.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_beside_another_on_disk_says_whether_it_is_older() {
+        use crate::read::bam::fixture::{BAI, BAM};
+        let dir = Scratch::new("older");
+        let bam = dir.write("tiny.bam", &BAM);
+        let bai = dir.write("tiny.bam.bai", &BAI);
+        let source = Source::Path(bam.clone().into());
+        let found = Disk::default().beside(&source, ".bai").unwrap().unwrap();
+        assert!(!found.older, "written after its file");
+        let touched = std::process::Command::new("touch")
+            .args(["-t", "200001010000", &bai])
+            .status()
+            .unwrap();
+        assert!(touched.success());
+        let found = Disk::default().beside(&source, ".bai").unwrap().unwrap();
+        assert!(found.older, "written in 2000, before its file");
+        // Bytes held in memory say nothing of when they were written.
+        let mut held = Held::new();
+        held.insert(bam.as_str(), BAM);
+        held.insert(bai.as_str(), BAI);
+        assert!(!held.beside(&source, ".bai").unwrap().unwrap().older);
+    }
+
+    /// A pipe the shell names, as `<(cat depth.bg)`, is read from its first
+    /// byte by every question asked of it, and draws what the file it came
+    /// from draws. Asking whether it was a BAM read its first three bytes and
+    /// dropped them, so its `chr1` rows were read as rows of `1` and a figure
+    /// placed on `chr1` was refused, and a BAM was refused as text that is not
+    /// UTF-8.
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_named_as_a_file_is_read_from_its_first_byte() {
+        use crate::read::bam::fixture::BAM;
+        use std::os::unix::io::AsRawFd;
+        use std::process::{Command, Stdio};
+        let dir = Scratch::new("pipe");
+        let depth = dir.write("depth.bg", b"chr1\t0\t100\t5\n");
+        let bam = dir.write("reads.bam", &BAM);
+        for (line, file) in [
+            ("chr1:1-100 --coverage", &depth),
+            ("chr1 --coverage", &depth),
+            ("chr1 --features", &depth),
+            ("chr1:10-35 --coverage", &bam),
+            ("chr1:10-35 --pileup", &bam),
+        ] {
+            let mut child = Command::new("cat")
+                .arg(file)
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let pipe = child.stdout.take().unwrap();
+            let fd = pipe.as_raw_fd();
+            let drawn = drawn_from_disk(&format!("{line} /dev/fd/{fd} --label read"));
+            drop(pipe);
+            child.wait().unwrap();
+            let drawn = drawn.unwrap_or_else(|error| panic!("{line}: {error}"));
+            let from_file = drawn_from_disk(&format!("{line} {file} --label read")).unwrap();
+            assert!(drawn == from_file, "{line}: the pipe drew another figure");
+        }
+    }
+
     /// Bases too narrow for their letters say how wide the figure would have
     /// to be for them, and at that width they are letters.
     #[test]
@@ -7348,6 +7725,45 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(notes.is_empty(), "{notes:?}");
         let letters = svg.unwrap().matches(">A</text>").count();
         assert_eq!(letters, 100, "a hundred As in four hundred bases of ACGT");
+    }
+
+    /// A figure of several places says once the width that letters the bases
+    /// of every panel. Each panel said the width its own span needed, so two
+    /// places of different lengths gave two widths, and a reader who drew the
+    /// figure at the first still had the longer place in blocks.
+    #[test]
+    fn bases_in_several_panels_say_the_one_width_all_their_letters_need() {
+        let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));
+        let held = [("ref.fa", fasta.as_str())];
+        let widths = |line: &str| -> Vec<u64> {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap_or_else(|error| panic!("{line}: {error}"));
+            notes
+                .iter()
+                .filter(|note| note.starts_with("the bases are blocks of colour"))
+                .map(|note| {
+                    let rest = note.rsplit("--width ").next().unwrap_or_default();
+                    let number = rest.split_whitespace().next().unwrap_or_default();
+                    number.parse().unwrap_or_else(|_| panic!("{note}"))
+                })
+                .collect()
+        };
+        let shorter = widths("chr1:1-400 ref.fa");
+        let longer = widths("chr1:1001-1600 ref.fa");
+        assert!(
+            shorter.len() == 1 && longer.len() == 1,
+            "{shorter:?} {longer:?}"
+        );
+        assert!(longer[0] > shorter[0], "{shorter:?} {longer:?}");
+        // The longer place's width, whichever panel it is.
+        assert_eq!(widths("chr1:1-400 chr1:1001-1600 ref.fa"), longer);
+        assert_eq!(widths("chr1:1001-1600 chr1:1-400 ref.fa"), longer);
+        // And at that width both panels are letters, and nothing is said.
+        let line = format!("chr1:1-400 chr1:1001-1600 ref.fa --width {}", longer[0]);
+        let (svg, notes) = drawn_noting(&line, &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        let letters = svg.unwrap().matches(">A</text>").count();
+        assert_eq!(letters, 100 + 150, "the As of four and six hundred bases");
     }
 
     /// A compressed file is text in a wrapper, and is read as the text.
@@ -8102,6 +8518,16 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let mut disk = Disk::default();
         disk.note("chr1 is drawn to 4,800");
         assert_eq!(disk.notes, ["chr1 is drawn to 4,800"]);
+        // Each thing once, in the order it was first said, on disk and in
+        // memory alike.
+        let mut held = Held::new();
+        for files in [&mut disk as &mut dyn Files, &mut held] {
+            for message in ["chr1 is drawn to 4,800", "a", "chr1 is drawn to 4,800", "a"] {
+                files.note(message);
+            }
+        }
+        assert_eq!(disk.notes, ["chr1 is drawn to 4,800", "a"]);
+        assert_eq!(held.notes, ["chr1 is drawn to 4,800", "a"]);
     }
 
     /// A name that is the figure's own with a chr more or less is plainly
