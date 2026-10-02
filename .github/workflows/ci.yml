@@ -327,6 +327,46 @@ jobs:
             rsvg-convert --keep-aspect-ratio --width 1800 \
               --output "visual-gallery/${name}.png" "$figure"
           done
+      # The site's figures again as PDF, through the command line's own -o,
+      # read back by two readers that share no code with each other or with
+      # karyon. Ghostscript marks every repair it makes with ****, and says
+      # nothing of the kind about a sound file; its -q hides those lines too,
+      # which is why it is not used, and a cross-reference table off by one
+      # byte went through -q in silence when this was tried. poppler writes
+      # to standard error only for a file it had to reconstruct, and lists
+      # the fonts a page uses, which have to be the base fonts every reader
+      # carries since none is embedded. The rasters go into the gallery
+      # beside the SVG ones, named -pdf, for a person to compare; no pixel
+      # threshold gates them, because the only one measured so far was
+      # against Chrome on a Mac and not against rsvg-convert and Liberation
+      # on this runner.
+      - name: Install PDF readers
+        run: sudo apt-get install -y ghostscript poppler-utils
+      - name: Draw the site figures as PDF and read them back
+        run: |
+          sh docs/data/draw.sh "$PWD/target/release/karyon" pdf pdf-figures 2>/dev/null
+          status=0
+          for figure in pdf-figures/*.pdf; do
+            name="$(basename "$figure" .pdf)"
+            said="$(gs -dNOPAUSE -dBATCH -dSAFER -sDEVICE=nullpage "$figure" 2>&1 \
+              | grep -E '[*]{4}|Error|Warning' || true)"
+            said="$said$(pdfinfo "$figure" 2>&1 >/dev/null)"
+            if [ -n "$said" ]; then
+              echo "$figure: $said" >&2
+              status=1
+            fi
+            fonts="$(pdffonts "$figure" | tail -n +3 | awk '{print $1}' \
+              | grep -vxE 'Helvetica|Helvetica-Bold|Courier|Courier-Bold|Symbol' || true)"
+            if [ -n "$fonts" ]; then
+              echo "$figure: a font that is not a base font: $fonts" >&2
+              status=1
+            fi
+            gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=png16m -r144 \
+              -dTextAlphaBits=4 -dGraphicsAlphaBits=4 \
+              -o "visual-gallery/${name}-pdf.png" "$figure"
+          done
+          ls pdf-figures/*.pdf | wc -l
+          exit $status
       - name: Upload visual gallery
         uses: actions/upload-artifact@v7
         with:

@@ -205,6 +205,7 @@ nav:
           - Scales and keys: tracks/scales-keys.md
       - Coordinates: how-it-works/coordinates.md
       - Scale: how-it-works/scale.md
+      - PDF: how-it-works/pdf.md
   - Rust:
       - A first program: getting-started/quickstart.md
       - The Rust API: guide/plot.md

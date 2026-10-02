@@ -38,7 +38,8 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 </figure>
 
 Open `rpoB.svg` in a web browser. Point at a call or a gene, and the browser
-says what it is and where.
+says what it is and where. For a manuscript, `-o rpoB.pdf` writes the same
+figure as PDF.
 
 ## How to read a command
 
