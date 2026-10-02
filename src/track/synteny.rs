@@ -580,6 +580,14 @@ impl Track for SyntenyTrack {
         }
     }
 
+    // The upper bar is the query, on the figure's axis, and the lower one is
+    // the target on its own length, so a column through the band would mark
+    // the target at the query's place, where the stretch is not. The shade
+    // breaks here and goes on under it.
+    fn shows_shades(&self) -> bool {
+        false
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let range = self.range();
@@ -750,6 +758,41 @@ mod tests {
             AlignmentBlock::new(4_000, 6_000, 6_000, 8_000).reversed(true),
             AlignmentBlock::new(6_000, 9_000, 4_000, 7_000),
         ]
+    }
+
+    /// The lower bar is the target on its own length, so the column of a
+    /// shade stops at the band and goes on under it: a coverage over the
+    /// ribbons over a gene is two runs, with the ribbons left out.
+    #[test]
+    fn a_shade_is_not_drawn_across_the_target_bar() {
+        use crate::track::{CoverageTrack, Feature, FeatureTrack};
+        use crate::Shade;
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(CoverageTrack::new(0, vec![30.0; 10_000]))
+            .push(SyntenyTrack::new(blocks()).height(80.0))
+            .push(FeatureTrack::new(vec![Feature::new(1_000, 3_000)]))
+            .shade(Shade::new(2_000, 2_500))
+            .to_svg();
+        let title = "<g><title>2,001 to 2,500</title>";
+        let group = &svg[svg.find(title).expect("a wash") + title.len()..];
+        let group = &group[..group.find("</g>").unwrap()];
+        let spans: Vec<(f64, f64)> = group
+            .split("<rect")
+            .skip(1)
+            .map(|rect| {
+                let number = |name: &str| -> f64 {
+                    let key = format!(" {name}=\"");
+                    let at = rect.find(&key).unwrap() + key.len();
+                    rect[at..].split('"').next().unwrap().parse().unwrap()
+                };
+                (number("y"), number("y") + number("height"))
+            })
+            .collect();
+        assert_eq!(spans.len(), 2, "{group}");
+        // The ribbons sit between the two runs, in the gap the wash leaves.
+        let (first, second) = (spans[0], spans[1]);
+        assert!(second.0 - first.1 > 80.0, "{spans:?}");
     }
 
     #[test]

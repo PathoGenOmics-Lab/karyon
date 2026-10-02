@@ -172,6 +172,8 @@ pub struct MatrixTrack {
     tree_shape: TreeShape,
     traits: Traits,
     unit: String,
+    /// The value the ramp ends at, pinned; see [`MatrixTrack::max`].
+    top: Option<f64>,
 }
 
 impl MatrixTrack {
@@ -197,6 +199,7 @@ impl MatrixTrack {
             tree_shape: TreeShape::Phylogram,
             traits: Traits::default(),
             unit: String::new(),
+            top: None,
         }
     }
 
@@ -265,6 +268,51 @@ impl MatrixTrack {
     pub fn scale(mut self, scale: CellScale) -> Self {
         self.scale = scale;
         self
+    }
+
+    /// Pins the value the colour ramp ends at, so matrices drawn apart are
+    /// read off one ramp: left to itself each ends at its own largest value,
+    /// and the same colour in two of them is two different depths.
+    ///
+    /// On a sequential ramp it is the value drawn at full strength, and it
+    /// wins over [`CellScale::Sequential`]'s `max` whichever of the two is
+    /// set last. On a diverging ramp it is the end of the gain above the
+    /// centre, and the loss below keeps reaching its own furthest value, or
+    /// the `spread` where one is set: a depth read against a sample's usual
+    /// one runs down to nought whatever it runs up to, so the top is the
+    /// one end with a choice in it. The key's ends say the pinned value.
+    ///
+    /// A top at or under where the ramp starts, nought for a sequential one
+    /// and the centre for a diverging one, is not a ramp and is ignored, as is
+    /// one that is not a number. A categorical scale has no ramp and ignores
+    /// it too.
+    ///
+    /// ```
+    /// use karyon::{CellScale, LegendItem, MatrixRow, MatrixTrack, Region, Theme, Track};
+    ///
+    /// let rows = vec![MatrixRow::new("S1", vec![0.0, 1.0, 2.19])];
+    /// let track = MatrixTrack::windows(vec![(0, 10), (10, 20), (20, 30)], rows)
+    ///     .unit("×")
+    ///     .scale(CellScale::Diverging { center: 1.0, spread: None })
+    ///     .max(3.0);
+    /// let key = track
+    ///     .key(&Region::new("chr1", 0, 30).unwrap(), 1.0, &Theme::light())
+    ///     .unwrap();
+    /// let [LegendItem::Ramp { low, high, .. }] = key.items() else {
+    ///     unreachable!("one ramp")
+    /// };
+    /// assert_eq!((low.as_str(), high.as_str()), ("0×", "3×"));
+    /// ```
+    pub fn max(mut self, top: f64) -> Self {
+        if top.is_finite() {
+            self.top = Some(top);
+        }
+        self
+    }
+
+    /// The pinned top of a sequential ramp, where it is above nought.
+    fn pinned_ceiling(&self) -> Option<f64> {
+        self.top.filter(|top| *top > 0.0)
     }
 
     /// Sets the colour of a missing cell.
@@ -381,10 +429,12 @@ impl MatrixTrack {
 
     /// How far below and above its centre a diverging scale reaches, each
     /// side at least a little, so a side nothing reaches draws nothing at
-    /// full strength.
+    /// full strength. A pinned top sets how far above, and leaves below to
+    /// the data or the spread.
     fn reach(&self, center: f64, spread: Option<f64>) -> (f64, f64) {
+        let pinned = self.top.filter(|top| *top > center).map(|top| top - center);
         if let Some(spread) = spread.filter(|spread| spread.is_finite() && *spread > 0.0) {
-            return (spread, spread);
+            return (spread, pinned.unwrap_or(spread));
         }
         let values = self
             .rows
@@ -396,7 +446,7 @@ impl MatrixTrack {
             (low.max(center - value), high.max(value - center))
         });
         let floor = f64::EPSILON * center.abs().max(1.0);
-        (low.max(floor), high.max(floor))
+        (low.max(floor), pinned.unwrap_or(high).max(floor))
     }
 
     /// The colour a diverging scale draws its centre in: off the page, as
@@ -410,12 +460,17 @@ impl MatrixTrack {
     /// or how far a diverging scale reaches below and above its centre.
     fn extent(&self) -> Extent {
         match &self.scale {
-            CellScale::Sequential { max: Some(max), .. } => Extent::up_to(*max),
+            CellScale::Sequential { max, .. } => Extent::up_to(
+                self.pinned_ceiling()
+                    .or(*max)
+                    .or_else(|| self.value_ceiling())
+                    .unwrap_or(1.0),
+            ),
             CellScale::Diverging { center, spread } => {
                 let (below, above) = self.reach(*center, *spread);
                 Extent { below, above }
             }
-            _ => Extent::up_to(self.value_ceiling().unwrap_or(1.0)),
+            CellScale::Categorical => Extent::up_to(self.value_ceiling().unwrap_or(1.0)),
         }
     }
 
@@ -495,7 +550,10 @@ impl Track for MatrixTrack {
         let CellScale::Sequential { max, hue } = &self.scale else {
             return None;
         };
-        let ceiling = max.or_else(|| self.value_ceiling())?;
+        let ceiling = self
+            .pinned_ceiling()
+            .or(*max)
+            .or_else(|| self.value_ceiling())?;
         let hue = hue.clone().unwrap_or_else(|| theme.accent.clone());
         Some(crate::track::legend::Legend::new().ramp(
             self.label.clone().unwrap_or_else(|| "value".to_string()),
@@ -868,6 +926,94 @@ mod tests {
                 above: 4.0
             }
         );
+    }
+
+    /// The two ends a key says, for a track over its own sites.
+    fn key_ends(track: &MatrixTrack) -> (String, String) {
+        let key = track
+            .key(
+                &Region::new("chr1", 0, 4_000).unwrap(),
+                1.0,
+                &Theme::light(),
+            )
+            .expect("a ramp");
+        let [crate::track::legend::LegendItem::Ramp { low, high, .. }] = key.items() else {
+            panic!("one ramp: {:?}", key.items());
+        };
+        (low.clone(), high.clone())
+    }
+
+    /// Two ways to say where a sequential ramp ends, and the pin wins in
+    /// either order, so a command line pinning a matrix whose scale was set
+    /// after it is not undone by the setting.
+    #[test]
+    fn a_matrix_max_ends_a_sequential_ramp_whatever_the_order() {
+        let theme = Theme::light();
+        let set = CellScale::Sequential {
+            max: Some(2.0),
+            hue: None,
+        };
+        let before = matrix().max(5.0).scale(set.clone());
+        let after = matrix().scale(set).max(5.0);
+        for track in [&before, &after] {
+            assert_eq!(track.extent(), Extent::up_to(5.0));
+            assert_eq!(key_ends(track), ("0".to_string(), "5".to_string()));
+        }
+        // A one is a fifth of the way up, where unpinned it was the top.
+        let one = before.cell_color(1.0, before.extent(), &theme);
+        assert_ne!(one, matrix().cell_color(1.0, matrix().extent(), &theme));
+        // A top that is no ramp is ignored rather than painting every cell
+        // pale.
+        for nothing in [0.0, -3.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(matrix().max(nothing).extent(), matrix().extent());
+        }
+    }
+
+    /// Pinned either side of a centre, the gain ends at the pin and the loss
+    /// keeps its own reach: a depth halved is still drawn as far below as
+    /// it was, while the top reads three times the usual depth.
+    #[test]
+    fn a_matrix_max_pins_the_gain_and_leaves_the_loss_its_own() {
+        let depths = MatrixTrack::windows(
+            vec![(0, 1_000), (1_000, 2_000), (2_000, 3_000)],
+            vec![
+                MatrixRow::new("S1", vec![0.0, 1.0, 2.19]),
+                MatrixRow::new("S2", vec![0.5, 1.2, 1.0]),
+            ],
+        )
+        .unit("×")
+        .scale(CellScale::Diverging {
+            center: 1.0,
+            spread: None,
+        });
+        assert_eq!(key_ends(&depths), ("0×".to_string(), "2.19×".to_string()));
+        let pinned = depths.clone().max(3.0);
+        assert_eq!(
+            pinned.extent(),
+            Extent {
+                below: 1.0,
+                above: 2.0
+            }
+        );
+        assert_eq!(key_ends(&pinned), ("0×".to_string(), "3×".to_string()));
+        // With a spread the loss is the spread and the gain the pin.
+        let spread = depths
+            .clone()
+            .scale(CellScale::Diverging {
+                center: 1.0,
+                spread: Some(0.5),
+            })
+            .max(4.0);
+        assert_eq!(
+            spread.extent(),
+            Extent {
+                below: 0.5,
+                above: 3.0
+            }
+        );
+        // A top at or under the centre is no gain and is ignored.
+        assert_eq!(depths.clone().max(0.8).extent(), depths.extent());
+        assert_eq!(depths.clone().max(1.0).extent(), depths.extent());
     }
 
     #[test]

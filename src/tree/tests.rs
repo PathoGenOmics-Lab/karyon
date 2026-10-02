@@ -109,6 +109,33 @@ fn comments_are_skipped_wherever_a_real_file_puts_them() {
 }
 
 #[test]
+fn a_newick_tree_after_a_byte_order_mark_is_the_tree() {
+    // Windows editors and spreadsheets write U+FEFF at the start of a UTF-8
+    // file. Read as the tree's first character, it made the file "more than
+    // one root" at character 2, through every reader of Newick.
+    let plain = "((a:1,b:1):1,c:2);";
+    let marked = format!("\u{feff}{plain}");
+    for read in [
+        Tree::parse_newick,
+        Tree::parse_annotated_newick,
+        Tree::parse,
+    ] {
+        let tree = read(&marked).unwrap();
+        assert_eq!(tree.leaf_names(), ["a", "b", "c"]);
+        assert_eq!(tree.max_depth(false), read(plain).unwrap().max_depth(false));
+    }
+    assert_eq!(Tree::parse_all(&marked).unwrap().len(), 1);
+    // A fault is counted in the characters an editor shows, which do not
+    // include the mark.
+    assert_eq!(
+        Tree::parse_newick("\u{feff}(a,b:x);")
+            .unwrap_err()
+            .to_string(),
+        Tree::parse_newick("(a,b:x);").unwrap_err().to_string()
+    );
+}
+
+#[test]
 fn annotated_newick_keeps_beast_values_and_rootedness() {
     let tree = Tree::parse_annotated_newick(
         "[&R] (A[&date=2024.5,location='Lima',flags={1,2},selected=true]:0.1,B:0.2);",

@@ -39,6 +39,7 @@ together are the dark triangles.
 |:--|:--|
 | Arcs between a few pairs far apart | nothing: a few pairs are drawn as arcs by themselves, and `--style arcs` or `--style triangle` chooses |
 | Only the strong pairs | `--threshold 0.5` |
+| Weak linkage read on a scale of its own, rather than against an r² of 1 | `--max 0.5` |
 | Contacts, which fall by orders of magnitude | `--log` |
 | Scores between the calls, over the calls | `rpoB genes.gff3 calls.vcf.gz --pairs epistasis.tsv` |
 

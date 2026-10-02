@@ -55,7 +55,13 @@ jobs:
   # anything with a Linux kernel. It ships as `linux-x86_64-static` alongside
   # the ordinary build rather than instead of it.
   #
-  # Windows on MSVC.
+  # Windows on MSVC, with the C runtime linked in (`+crt-static`), for the
+  # reason the musl build exists. Linked the default way, the binary imports
+  # VCRUNTIME140.dll, which Windows does not ship and the Visual C++
+  # redistributable installs, so the archive needed that installed beside it
+  # on any machine where nothing else had put it there first, against what
+  # the release notes promise. Static, it asks the host for system libraries
+  # alone, and a step below reads its import table to hold it to that.
   #
   # Not built: Linux on aarch64. It would need either an ARM runner in this
   # matrix or a cross linker, which means installing a C toolchain for a crate
@@ -87,6 +93,7 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
             asset_suffix: windows-x86_64
             native: true
+            rustflags: -C target-feature=+crt-static
 
     runs-on: ${{ matrix.platform }}
     # A release build of a crate with no dependencies is a minute of work. The
@@ -119,8 +126,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
+      # Only the Windows entry sets rustflags, and for the others the
+      # expression is empty, which Cargo reads as no flags at all.
       - name: Build karyon
         run: cargo build --release --locked --target ${{ matrix.rust_target }} --bin karyon
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
 
       # A binary that does not start is still a file, and a file uploads
       # perfectly well, so nothing downstream would notice. This asks it to
@@ -149,6 +160,37 @@ jobs:
               echo "the tag says ${GITHUB_REF_NAME#v} and the binary says '$reported'" >&2
               exit 1
             fi
+          fi
+
+      # The step above runs the binary on a runner that has Visual Studio
+      # installed, so it would start there whether or not the C runtime was
+      # linked in. Its import table is what says, so it is read: every DLL it
+      # names has to be one Windows itself ships. llvm-readobj comes with the
+      # toolchain's llvm-tools, and cygpath turns the sysroot rustc prints,
+      # which is a Windows path, into one Git Bash runs a program from.
+      #
+      # The names are taken out with sed rather than grep -q on a pipe: under
+      # pipefail, a grep that stops reading at its first match can fail the
+      # writer it leaves behind, and the step with it.
+      - name: The Windows binary carries its own C runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup component add llvm-tools
+          sysroot="$(cygpath -u "$(rustc --print sysroot)")"
+          readobj="${sysroot}/lib/rustlib/${{ matrix.rust_target }}/bin/llvm-readobj.exe"
+          binary="target/${{ matrix.rust_target }}/release/karyon.exe"
+          dlls="$("$readobj" --coff-imports "$binary" | sed -n 's/^ *Name: //p')"
+          echo "karyon.exe imports: $(tr '\n' ' ' <<< "$dlls")"
+          if ! grep -qix 'kernel32.dll' <<< "$dlls"; then
+            echo "llvm-readobj listed no KERNEL32.dll, so its output was not read right" >&2
+            exit 1
+          fi
+          if grep -Eiq '^(vcruntime|msvcp|ucrtbase|api-ms-win-crt)' <<< "$dlls"; then
+            echo "karyon.exe imports the Visual C++ runtime, which Windows does not ship;" >&2
+            echo "it is built with -C target-feature=+crt-static so that it carries its own" >&2
+            exit 1
           fi
 
       # One archive per target, holding the binary and the three files a person
@@ -440,7 +482,8 @@ jobs:
             linked against musl and asks the host for no libraries at all, so
             a glibc older than the one that built it cannot refuse it.
           - `macos-aarch64` on Apple silicon, `macos-x86_64` on an Intel Mac.
-          - `windows-x86_64` on Windows.
+          - `windows-x86_64` on Windows 10 or 11. It carries its own C
+            runtime, so there is no Visual C++ redistributable to install.
 
           On macOS the binary is not signed with an Apple Developer
           certificate, so the first run is refused. Clear the quarantine flag
