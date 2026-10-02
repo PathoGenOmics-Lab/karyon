@@ -8,6 +8,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A Windows build answers a file that is not text with the command piped
+  into `-`, as `pipe what bcftools view calls.bcf writes into karyon, with -
+  where its name is`, where it offered `<(bcftools view calls.bcf)`: cmd and
+  PowerShell have no such thing, and Git Bash's hands over a path to a pipe
+  that a Windows program cannot open. Linux, macOS, WSL and the playground
+  keep the `<(...)`.
+- The Windows release archive's `karyon.exe` carries its own C runtime
+  (`+crt-static`), as the musl build carries its libc. Linked the default way
+  it imported `VCRUNTIME140.dll`, which Windows does not ship, and the release
+  notes said each archive needs nothing installed alongside it. The release
+  workflow reads the binary's import table and fails if the runtime is back.
+- CI tests on Windows as well as Linux and macOS, every step of the check
+  job, and draws the reads figure of Start here from full paths in each
+  system's own spelling, compared byte for byte with the committed file. A
+  file that is not an index, put beside a copy of the BAM, has to be refused,
+  since a figure drawn without the index is the same figure. `.gitattributes`
+  checks every text file out with LF line endings, so `docs/data/draw.sh`,
+  which stopped at its `set -e` in a Windows checkout, runs there.
+
 - A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
   through its introns, with arrows along the line, and the untranslated ends
   of the exons at half height. It was a solid bar from end to end, which for a
@@ -969,6 +988,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gets the dark palette; `example-dark.svg` keeps the one it has always drawn.
 
 ### Fixed
+
+- A file that is not text, named on its own with no flag in front of it, is
+  answered with its track's flag in what to write in its place, as `write
+  --variants <(bcftools view calls.bcf) where its name is` for `karyon
+  chr1:1-5,000 calls.bcf`. Done as it said, the bare `<(...)` was looked for
+  as a gene or a sequence called `/dev/fd/63`, and on Windows the bare `-`
+  was refused for want of a track.
+- A tanglegram names its trees after their files on Windows too: given
+  `C:\runs\before.nwk` it printed the whole path over the tree, because the
+  name was cut at `/` alone. It is cut at the separators the system writes.
+- A Newick tree, a SLOW5 file or a move table that starts with a byte order
+  mark is read, as every other file already was. Windows tools and
+  spreadsheets write one, and a tree read "more than one root" at character
+  2, a SLOW5 file "a raw sample is not a number" on line 1. The mark is
+  dropped once where the command line decodes a file, and by every Newick
+  reader of `Tree`, `read::series::squiggle` and `read::series::moves` for a
+  library caller.
 
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the
