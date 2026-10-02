@@ -34,8 +34,10 @@ are the half-strength blue.
   `bcftools merge` of single-sample VCFs, or from a joint caller such as
   GATK's GenotypeGVCFs or DeepVariant with GLnexus. `GT` is what is read, from
   wherever it is among the keys.
-- **A big one**: the file is read whole, so cut it to the place first, keeping
-  its header, with `<(tabix -h cohort.vcf.gz chr1:1-100000)` or
+- **A big one**: compress it with `bgzip` and index it with
+  `tabix -p vcf cohort.vcf.gz`, and the `.tbi` beside it is read for the rows
+  over the place and the header that names the samples, with no other row of
+  the file read. A BCF is cut to the place on the way in, with
   `<(bcftools view -r chr1:1-100000 cohort.bcf)` where its name goes.
 - **Named on its own**, a VCF is drawn as its calls, one lollipop per site,
   and a cohort's says that `--genotypes` draws its samples.

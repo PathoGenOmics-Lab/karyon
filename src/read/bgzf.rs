@@ -12,9 +12,10 @@
 //!
 //! Nothing here opens a file: [`Bgzf`] takes anything that reads and seeks,
 //! which is a file for the command line and a buffer for a test or a page.
-//! [`bam`](super::bam) reads its records through it, and the lines of a
-//! bgzipped text file are what a tabix index points into; which blocks to go
-//! to is [`index`](super::index)'s answer.
+//! [`bam`](super::bam) reads its records through it, and
+//! [`tabix`](super::tabix) the lines of a bgzipped text file that a tabix
+//! index points into; which blocks to go to is [`index`](super::index)'s
+//! answer.
 //!
 //! # Where a block ends
 //!
@@ -88,7 +89,13 @@ impl<R: Read + Seek> Bgzf<R> {
             inner,
             block: Vec::new(),
             at: 0,
-            offset: 0,
+            // No block is loaded yet, and no block is at this offset, so the
+            // first seek loads the one it names. At nought, a fresh reader
+            // took a seek into its first block for a seek to the end of an
+            // empty file there, and refused every place in that block as
+            // past its end: the rows of a small bgzipped file share its
+            // first block with its header.
+            offset: u64::MAX,
             next: 0,
         }
     }
@@ -338,6 +345,24 @@ mod tests {
         // And the end of the file is the empty block's end, once read past.
         while bgzf.line(&mut line).unwrap() {}
         assert_eq!(bgzf.tell(), (data.len() as u64) << 16);
+    }
+
+    /// A reader made to go straight to a place in the first block goes
+    /// there, as a reader of a window does: the rows of a small bgzipped
+    /// file begin in the block that holds its header.
+    #[test]
+    fn a_new_reader_goes_straight_to_a_place_in_the_first_block() {
+        let data = blocks(b"#header\nchr1\t5\nchr1\t9\n", &[15]);
+        let mut bgzf = Bgzf::new(Cursor::new(&data));
+        bgzf.seek(8).unwrap();
+        let mut line = Vec::new();
+        assert!(bgzf.line(&mut line).unwrap());
+        assert_eq!(line, b"chr1\t5");
+        assert!(bgzf.line(&mut line).unwrap());
+        assert_eq!(line, b"chr1\t9");
+        // And a place past the end of that block is still refused.
+        let mut bgzf = Bgzf::new(Cursor::new(&data));
+        assert!(bgzf.seek(16).is_err());
     }
 
     #[test]

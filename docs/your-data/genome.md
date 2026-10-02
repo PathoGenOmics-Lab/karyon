@@ -34,7 +34,7 @@ draws as far as the files reach and says so; write the span, as
 | Each sample on a scale of its own | leave out `--same-scale` |
 | Pin the top of a sample's scale, to match a figure drawn apart | `sampleA.bedgraph --max 150` |
 | Shade the stretch the first sample lost, down every row | `--shade NC_000962.3:1,450,001-1,510,000=deletion` |
-| Make depth windows from a BAM | `mosdepth --by 10000 sample reads.bam`, then draw `sample.regions.bed.gz` |
+| Make depth windows from a BAM | `mosdepth --by 10000 sample reads.bam`, then draw `sample.regions.bed.gz`, read a window at a time through the `.csi` mosdepth writes beside it |
 | Draw a bigWig, as deepTools or UCSC's tools write one | `sampleA.bw` in place of `sampleA.bedgraph`: it says how long each sequence is, and a whole one is read from the summary it keeps at that scale |
 
 The example files: [sampleA.bedgraph](../data/sampleA.bedgraph) and

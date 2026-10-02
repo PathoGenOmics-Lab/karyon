@@ -36,6 +36,9 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 
 The example files:
 [reads.bam](../data/reads.bam), [reads.bam.bai](../data/reads.bam.bai),
-[genes.gff3](../data/genes.gff3), [calls.vcf.gz](../data/calls.vcf.gz) and
-[ref.fa](../data/ref.fa). Every option: `karyon help coverage`, or the
-[command line reference](../guide/cli.md).
+[genes.gff3](../data/genes.gff3), [calls.vcf.gz](../data/calls.vcf.gz),
+[calls.vcf.gz.tbi](../data/calls.vcf.gz.tbi) and [ref.fa](../data/ref.fa).
+The two indexes are read from beside their files, the `.bai` for the reads
+over the gene and the `.tbi` for its calls, so a gene out of a whole genome's
+reads and calls draws about as fast as these do. Every option:
+`karyon help coverage`, or the [command line reference](../guide/cli.md).

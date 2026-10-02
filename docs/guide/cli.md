@@ -762,6 +762,94 @@ A file compressed with gzip or bgzip is read as the text inside it, by every
 track and from standard input, so a `.vcf.gz`, a `.gff3.gz` or a `.bed.gz` is
 given as it is.
 
+### Through a tabix index { #tabix }
+
+A file compressed with bgzip and indexed by `tabix` or `bcftools index` is
+read a window at a time when its index sits beside it: its header, which is
+where a VCF names its samples and a table its columns, and the rows over the
+region, which are all the track draws. A figure of one gene out of a whole
+genome's calls reads the few blocks over that gene:
+
+```bash
+tabix -p vcf calls.vcf.gz          # writes calls.vcf.gz.tbi beside it
+karyon chr2:5,000,001-5,002,000 calls.vcf.gz -o window.svg
+```
+
+On a VCF of 200 samples and 984,000 rows, 825 MB of text in 82 MB of bgzip,
+that window took 4.4 seconds and 870 MB read whole, and takes 5 ms and 4 MB
+through the `.tbi`. A window of a megabase takes 0.2 seconds. A gene named in
+a GFF3 beside the calls took 8.9 seconds and 1.3 GB, since the calls were read
+whole while the gene was looked for and again to draw it, and takes 7 ms: only
+their header is read while the gene is looked for, for the lengths it states.
+
+The figure is the one the whole file draws, byte for byte, since the same
+rows reach the same reader. These tracks read through an index, each written
+as the command beside it writes one:
+
+| Track | The file, and its index |
+|:--|:--|
+| `--variants`, `--genotypes` | a VCF: `tabix -p vcf calls.vcf.gz`, or `bcftools index calls.vcf.gz` for a `.csi` |
+| `--coverage`, `--windows`, `--dynseq` | a bedGraph: `tabix -p bed depth.bedgraph.gz`; `samtools depth`: `tabix -s1 -b2 -e2 depth.txt.gz`; mosdepth writes its own `.csi` |
+| `--features` | a BED: `tabix -p bed genes.bed.gz`; a GFF3 that says `##gff-version 3`, sorted with `sort -k1,1 -k4,4n`: `tabix -p gff genes.gff3.gz` |
+| `--junctions` | an SJ.out.tab: `tabix -s1 -b2 -e3 SJ.out.tab.gz` |
+| `--methylation`, with `--modification` | a bedMethyl: `tabix -p bed calls.bed.gz` |
+| `--manhattan`, over a place | an association table: `tabix -s1 -b2 -e2 scan.tsv.gz` for PLINK 2's `#CHROM` line or no header, and `-S1` with the columns where they are for a plain header line, as `-S1 -s1 -b3 -e3` for PLINK 1 |
+| `--heatmap` | a table of windows with a header: `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` |
+
+A GFF3 is read over the region and then over as far as the genes over it
+reach, so a gene whose intron covers the window comes with every exon. The
+rest are read whole with an index beside them, each for a reason:
+
+- **Structural calls**: an arc is drawn from the lower of its two breakends,
+  which lies outside a window the arc crosses.
+- **A recombination map**: each rate runs on to the next row, so the rows
+  either side of the window belong to it.
+- **A GTF, or a GFF3 that does not say it is one**: UCSC's GTF holds exon and
+  CDS rows only, so a window inside an intron holds no row of its gene.
+  GENCODE and Ensembl ship the same genes as GFF3, which is read through its
+  index.
+- **A bedMethyl with no `--modification`**: the codes it offers to choose from
+  are every code in the file.
+- **A long table of windows**, which names its samples on its rows.
+
+A window a reader refuses sends the file to be read whole, so a row that does
+not read is refused on its line in the file rather than in the window. A scan
+with no header is read as p-values when every value it holds lies between 0
+and 1, so a window whose values all do is refused that way, and the whole
+file says what its values are.
+
+The index is looked for where htslib looks for it: `calls.vcf.gz.csi`,
+`calls.vcf.csi`, `calls.vcf.gz.tbi`, then `calls.vcf.tbi`, a `.csi` before a
+`.tbi`. Held beside its file in the playground, or by a program through
+`Held`, it is read the same way.
+
+An index that does not fit its file is not read: the file is read whole, which
+draws the same figure, and a note says why:
+
+```text
+karyon: calls.vcf.gz.tbi is older than calls.vcf.gz, so it was not trusted and the file was read whole; tabix -f -p vcf calls.vcf.gz writes it again
+karyon: calls.vcf.gz.tbi does not describe calls.vcf.gz: the index puts the first row at byte 210, and the file's header ends 240 bytes into the block at byte 0, so the file was read whole; tabix -f -p vcf calls.vcf.gz writes it again
+karyon: calls.vcf.gz is compressed with gzip rather than bgzip, so calls.vcf.gz.tbi beside it has no blocks to point to, and the file was read whole; gunzip it, bgzip it and index it again to read it a window at a time
+```
+
+The first is an index last written before its file, counted in whole seconds:
+it may be the index of an earlier version of the file, and a row that version
+did not have would be left out of the figure with nothing to show for it.
+htslib warns of such an index and reads through it anyway. A copy that keeps
+no times makes an index look older than its file too: `cp` without `-p`,
+`rsync` without `-t`, and an archive unpacked without its times. `tabix -f`
+writes the index again.
+
+An index named on its own is refused before anything is read, naming the file
+to give instead:
+
+```text
+$ karyon chr1:1-5,000 calls.vcf.gz.tbi
+karyon: calls.vcf.gz.tbi is an index, and karyon reads it from beside the file it indexes; name calls.vcf.gz instead
+```
+
+### Binary formats { #binary-files }
+
 A BAM is read by `--coverage`, which draws the depth of its reads, and by
 `--pileup` and `--split-reads`, which draw the reads. The `.bai` beside it,
 `reads.bam.bai` or `reads.bai`, says which blocks hold the reads over the
@@ -827,14 +915,6 @@ $ karyon chr1:1-5,000 --variants calls.bcf
 karyon: --variants calls.bcf: the file is BCF, and karyon reads text; write <(bcftools view calls.bcf) where its name is, or turn it into text first
 ```
 
-A VCF is read whole, so a cohort's of many samples is best cut to the window
-on the way in, which `tabix -h` does through the `.tbi` beside it, keeping
-the header that names the samples:
-
-```bash
-karyon chr1:1-100,000 --genotypes <(tabix -h cohort.vcf.gz chr1:1-100000) -o cohort.svg
-```
-
 `<(command)` is the shell handing the command's output over as though it were
 a file, in bash and zsh, so it works for any track and for a second file as
 well, where `-` can be given to only one:
@@ -890,10 +970,12 @@ and exits with status 1. Success exits with 0, and so do `--help` and
 A figure drawn with something its reader should know is still drawn and still
 exits with 0, and the something goes to standard error, after `karyon:` too:
 a sequence no file gives the length of, drawn only as far as its rows reach; a
-BAM named on its own over a window of reads, drawn as its depth; and bases too
-narrow for their letters, with the `--width` that would letter them. Each is
-said once, however many panels of a figure of several places it is true of,
-and the `--width` said is the one that letters the bases of every panel:
+BAM named on its own over a window of reads, drawn as its depth; an index
+beside a file that was not read, with why and the command that writes it
+again, [as above](#tabix); and bases too narrow for their letters, with the
+`--width` that would letter them. Each is said once, however many panels of a
+figure of several places it is true of, and the `--width` said is the one that
+letters the bases of every panel:
 
 ```text
 $ karyon NC_000962.3:761,100-761,500 aln.bam H37Rv.fa -o reads.svg

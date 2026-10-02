@@ -216,7 +216,7 @@ Splice junctions as arcs, each weighted by the reads that crossed it and labelle
 |:--|:--|
 | Rust | `.add_junctions(junctions)` on `plot()`; `JunctionTrack::new(junctions)` |
 | Command line | `--junctions FILE`, with `--no-counts`, `--min-reads`, `--color`, `--height` |
-| Reads | an aligner's `SJ.out.tab` (`read::junction::junctions`) |
+| Reads | an aligner's `SJ.out.tab` (`read::junction::junctions`), only the rows over the window where it is bgzipped with the `.tbi` of `tabix -s1 -b2 -e3` beside it |
 
 === "Rust"
 
