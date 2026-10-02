@@ -123,7 +123,7 @@ figure saves the view you are looking at.
 | Rust | 1.74 or newer (the MSRV), edition 2021. An older toolchain stops with a message naming the version it needs. |
 | Dependencies | None. The `[dependencies]` table in `Cargo.toml` is empty. |
 | System libraries | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
-| Platforms | Any target with Rust's standard library, WebAssembly included. |
+| Platforms | Any target with Rust's standard library, WebAssembly included. Linux, macOS and Windows are built and tested on every pull request, and the Windows release archive needs no Visual C++ runtime installed. |
 | Input | Text formats, gzipped or not, and BAM read directly through its index. CRAM and BCF come in through `samtools` or `bcftools`, piped. |
 | Output | Standalone SVG that names its fonts rather than embedding them. |
 

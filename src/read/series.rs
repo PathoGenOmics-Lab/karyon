@@ -434,6 +434,11 @@ pub struct Signal {
 /// named `read`, or the first. Or plain numbers, one sample after another,
 /// which are taken as picoamperes already.
 pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
+    // This reader splits its own lines rather than going through `lines`,
+    // which drops a byte order mark, so it drops one too. Left on, the mark
+    // made `#slow5_version` a row, and the file "a raw sample is not a
+    // number" on line 1.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let slow5 = text
         .lines()
         .any(|line| line.starts_with("#read_id") || line.starts_with("#slow5_version"));
@@ -548,6 +553,8 @@ pub fn moves(sam: &str, read: Option<&str>) -> Result<Vec<Move>, ReadError> {
         line: usize,
         fields: Vec<&'a str>,
     }
+    // Its own lines again, so the mark `lines` drops is dropped here.
+    let sam = sam.strip_prefix('\u{feff}').unwrap_or(sam);
     let records: Vec<Found<'_>> = sam
         .lines()
         .enumerate()
@@ -859,5 +866,33 @@ mod tests {
         assert_eq!(squiggle(slow5, None).unwrap().read, "r1");
         let error = squiggle(slow5, Some("r9")).unwrap_err();
         assert!(error.reason.contains("r1, r2"), "{}", error.reason);
+    }
+
+    /// A SLOW5 file and a move table split their own lines, so the byte order
+    /// mark that `lines` drops for every other reader is theirs to drop. On,
+    /// it turned the first header into a row.
+    #[test]
+    fn a_slow5_file_after_a_byte_order_mark_reads_its_first_read() {
+        let slow5 = "#slow5_version\t0.2.0\n#num_read_groups\t1\n\
+                     #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\tlen_raw_signal\traw_signal\n\
+                     r1\t0\t2048\t10\t1024\t4000\t3\t100,110,120\n";
+        let marked = format!("\u{feff}{slow5}");
+        assert_eq!(
+            squiggle(&marked, None).unwrap(),
+            squiggle(slow5, None).unwrap()
+        );
+        let plain = "80.5\n81\n";
+        assert_eq!(
+            squiggle(&format!("\u{feff}{plain}"), None).unwrap(),
+            squiggle(plain, None).unwrap()
+        );
+        let sam = "@HD\tVN:1.6\n\
+                   r1\t4\t*\t0\t0\t*\t*\t0\t0\tACG\t*\tmv:B:c,5,1,0,1,1,0\tts:i:10\n";
+        // Asked for no read by name, the file has to hold one, and the
+        // header under a mark was a second.
+        assert_eq!(
+            moves(&format!("\u{feff}{sam}"), None).unwrap(),
+            moves(sam, None).unwrap()
+        );
     }
 }

@@ -32,6 +32,19 @@ name: CI
 # workflow_dispatch stays because the visual gallery this file uploads is worth
 # rebuilding on demand after a change to the renderer, and asking for it should
 # not require an empty commit.
+#
+# Windows is in the test matrix because release.yml ships a karyon.exe, and
+# until it was added here the only things ever run on that binary were
+# --help and --version, on a tag. A checkout made the way Git for Windows
+# makes one by default, with CRLF line endings, can be tried on any system,
+# and it was: the suite passed and every example figure came out byte for
+# byte, and the one breakage, docs/data/draw.sh, is what .gitattributes is
+# for. What cannot be tried anywhere else is the rest of Windows: paths
+# written with a backslash and a drive letter, a file system with no /dev,
+# the C runtime's mathematics under every number a figure prints, and the
+# branch of one message that is compiled for Windows alone. Reading the code
+# for those found a tanglegram printing whole Windows paths over its trees
+# and a test that read /dev/null.
 
 on:
   push:
@@ -67,7 +80,10 @@ permissions:
 # a cold check on the oldest supported compiler is about three seconds, the test
 # suite is under a minute, and rendering every example is a couple of minutes.
 # The limits then sit far above those, so that a cold runner or a slow macOS
-# image is never mistaken for a hang.
+# or Windows image is never mistaken for a hang. The Windows leg is the one to
+# watch: it had no runs at all when its limit was set, and two or three times
+# what Linux takes, for a cold MSVC build of the suite twice over, debug and
+# release, is a guess until its first runs say otherwise.
 #
 # There is no cargo-audit job in this file, and no lockfile job, which is a
 # deliberate absence rather than an oversight. Both [dependencies] and
@@ -97,7 +113,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # Every step runs in bash, which is Git Bash on Windows, rather than in
+    # each system's default. The default there is PowerShell, which reads the
+    # trailing backslash of the wasm build below as one more argument rather
+    # than a continuation, and which takes a step's status from its last
+    # command alone: a `cargo fmt --check` failing on the second line of the
+    # playground step would have left the step green. On Linux and macOS
+    # naming bash adds -o pipefail, and no step here has a pipe for it to
+    # change.
+    #
+    # One list of steps for all three systems, as macOS already repeats the
+    # steps no system changes. Trimming the Windows leg to the steps Windows
+    # can change is for when its runs show it slowing every pull request.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -140,6 +171,52 @@ jobs:
         run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+      # The program as a person runs it, from paths written the way the system
+      # writes them: on Windows a drive letter and backslashes, which no test
+      # above hands it, since the tests name files the way tests are written.
+      # The BAM has to be found by a backslashed name, -o has to write to
+      # one, and a tanglegram has to name each tree after its file rather than
+      # print the folders over it, as it did on Windows until this step was
+      # written.
+      #
+      # The index beside the BAM does not show in the figure: without one the
+      # BAM is read from its start and draws the same bytes. So a file that is
+      # not an index is put beside a copy of the BAM, and the program has to
+      # refuse it, which it can only do once it has found it by the
+      # backslashed name.
+      #
+      # The figure is the reads figure of the "Start here" page, and it is
+      # compared with the committed file rather than with a second drawing
+      # made here, as the playground's tests above compare every figure of
+      # the short path. That is what says this system's arithmetic and its C
+      # runtime round what a figure prints to the same three decimals as the
+      # Linux that drew it.
+      - name: The program draws a site figure from full paths
+        run: |
+          cargo build --quiet --release --bin karyon
+          if [ "$RUNNER_OS" = Windows ]; then sep="\\"; exe=.exe; else sep=/; exe=; fi
+          karyon="target/release/karyon${exe}"
+          data="${GITHUB_WORKSPACE}${sep}docs${sep}data${sep}"
+          out="${GITHUB_WORKSPACE}${sep}target${sep}"
+          "$karyon" rpoB "${data}reads.bam" "${data}genes.gff3" "${data}calls.vcf.gz" \
+            --width 720 --background '#fbfaff' -o "${out}reads.svg"
+          cmp target/reads.svg docs/assets/start/reads.svg
+          mkdir -p target/bad-index
+          cp docs/data/reads.bam target/bad-index/reads.bam
+          printf 'not an index' > target/bad-index/reads.bam.bai
+          if "$karyon" rpoB "${out}bad-index${sep}reads.bam" "${data}genes.gff3" \
+            -o "${out}bad-index${sep}reads.svg" 2> target/bad-index/said; then
+            echo "the index beside ${out}bad-index${sep}reads.bam was not read" >&2
+            exit 1
+          fi
+          grep -q 'not a BAI index' target/bad-index/said || {
+            cat target/bad-index/said >&2
+            exit 1
+          }
+          "$karyon" --tanglegram "${data}tree.nwk" --against "${data}tree2.nwk" \
+            -o "${out}trees.svg"
+          grep -q '>tree.nwk<' target/trees.svg
+          grep -q '>tree2.nwk<' target/trees.svg
 
   msrv:
     name: Oldest supported compiler
