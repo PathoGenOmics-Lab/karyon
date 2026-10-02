@@ -80,28 +80,43 @@ self.karyon = self.karyon || (function () {
   // in it and every example in the documentation shows one; everything else a
   // shell does is a shell's business and is not reimplemented here.
   function words(text) {
+    return pieces(text).map(function (piece) { return piece.word; });
+  }
+
+  // The same words, each with where it starts and ends in the text, its
+  // quotes included, so one word can be rewritten where it stands. Rewriting
+  // the first stretch of text spelled like it moved a `--shade` written before
+  // the place with the place's own spelling, and left the place where it was.
+  function pieces(text) {
     var out = [];
     var word = "";
     var quote = null;
     var started = false;
+    var from = 0;
     for (var i = 0; i < text.length; i++) {
       var c = text[i];
       if (quote) {
         if (c === quote) quote = null;
         else { word += c; started = true; }
       } else if (c === '"' || c === "'") {
+        if (!started) from = i;
         quote = c;
         started = true;
       } else if (c === "\\" && text[i + 1] === "\n") {
         i++;
       } else if (/\s/.test(c)) {
-        if (started) { out.push(word); word = ""; started = false; }
+        if (started) {
+          out.push({ word: word, from: from, to: i });
+          word = "";
+          started = false;
+        }
       } else {
+        if (!started) from = i;
         word += c;
         started = true;
       }
     }
-    if (started) out.push(word);
+    if (started) out.push({ word: word, from: from, to: text.length });
     return out;
   }
 
@@ -176,9 +191,9 @@ self.karyon = self.karyon || (function () {
 
   // The region a command names, which is its one positional word.
   function locus(text) {
-    var argv = words(text);
+    var argv = pieces(text);
     for (var i = 0; i < argv.length; i++) {
-      var word = argv[i];
+      var word = argv[i].word;
       if (word.charAt(0) === "-" && word !== "-") {
         if (ALONE.indexOf(word) < 0) i++;
         continue;
@@ -191,6 +206,9 @@ self.karyon = self.karyon || (function () {
           // 1-based inclusive, which is what a person reads and types.
           start: parseInt(m[2].replace(/,/g, ""), 10),
           end: parseInt(m[3].replace(/,/g, ""), 10),
+          // Where the word stands in the text.
+          from: argv[i].from,
+          to: argv[i].to,
         };
       }
     }
@@ -216,7 +234,8 @@ self.karyon = self.karyon || (function () {
     var span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, end - start + 1));
     if (start < 1) start = 1;
     end = start + span - 1;
-    return text.replace(where.word, where.seq + ":" + grouped(start) + "-" + grouped(end));
+    var place = where.seq + ":" + grouped(start) + "-" + grouped(end);
+    return text.slice(0, where.from) + place + text.slice(where.to);
   }
 
   // Moves the window by a fraction of its own span, which is what a drag of

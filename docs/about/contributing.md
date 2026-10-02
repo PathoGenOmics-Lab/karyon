@@ -47,7 +47,7 @@ copy.
 ## What a change has to pass
 
 CI runs on every pull request, and again on `main` after a merge. The core of
-it is five commands, on Ubuntu and on macOS:
+it is five commands, on Ubuntu, macOS and Windows:
 
 ```bash
 cargo fmt --all -- --check
@@ -64,7 +64,8 @@ not reach:
 |:--|:--|:--|
 | The oldest supported compiler, 1.74, still builds everything | Oldest supported compiler | `cargo +1.74 check --all-targets --locked`, with that toolchain installed through rustup |
 | The playground's WebAssembly bridge, a crate of its own in `playground/` | Check & Test | the same format, lint and test commands with `--manifest-path playground/Cargo.toml`, and a `--target wasm32-unknown-unknown` release build |
-| The tree viewer's scripts | Check & Test | `node tests/tree-canvas.test.js` and `node tests/tree-radio.test.js` |
+| The tree viewer's scripts, and the bridge every page runs the program through | Check & Test | `node tests/tree-canvas.test.js`, `node tests/tree-radio.test.js` and `node tests/karyon-wasm.test.js` |
+| The program, run from full paths in the system's own spelling, draws the reads figure of Start here byte for byte and names a tanglegram's trees after their files | Check & Test | the commands of the step "The program draws a site figure from full paths" in `ci.yml`, in bash, with `GITHUB_WORKSPACE` set to the full path of the clone |
 | Every figure is current | Example renders | see [the figures are part of the build](#the-figures-are-part-of-the-build) |
 | Every tracked file has a label | Every file has a label | `python3 .github/scripts/labeler-coverage.py` |
 
@@ -84,8 +85,10 @@ to pass `mkdocs build --strict` in the Docs workflow.
   interval on the same bases, and hostile names never break the document.
 - **`tests/render.rs`**, which checks what a user actually gets: a well-formed
   document, no number that is not finite, byte-identical output from two runs,
-  unique clip ids, a variant on the middle of its base, and a four-megabase
-  figure under 100 KB.
+  unique clip ids, a variant on the middle of its base, a four-megabase
+  figure under 100 KB, and the site's figures drawn the same from their
+  example files written as Windows writes text, with a byte order mark and
+  CRLF line endings.
 - **Doc tests.** The examples in the crate's documentation are compiled and
   run, so an example that stops compiling is a failing test.
 

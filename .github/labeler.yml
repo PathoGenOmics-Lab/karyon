@@ -192,10 +192,16 @@ tests:
 # one left `.github/labeler.yml` itself uncovered, so the pull request adding a
 # rule to this file arrived with no label, which is a small thing that says
 # exactly how the list would have aged.
+#
+# .gitattributes is here too, though it lives at the root. It decides which
+# bytes every checkout holds, the Windows runner's first, and a change to it
+# is read the way a change to the workflows is: by whether CI still sees the
+# files the repository holds.
 ci:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/**"
+          - ".gitattributes"
 
 # Two tracked files match nothing above, on purpose: LICENSE and .gitignore.
 # Neither is a part of the project anybody filters the pull request list for,

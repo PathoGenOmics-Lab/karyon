@@ -101,6 +101,7 @@ use crate::error::Error;
 use crate::figure::{Figure, Margin};
 use crate::genome::Genome;
 use crate::region::Region;
+use crate::shade::Shade;
 use crate::style::{Density, RenderProfile};
 use crate::theme::Theme;
 use crate::track::{
@@ -474,6 +475,29 @@ impl<T: Slot> Plot<T> {
     /// [`Figure::same_scale`] does: several depths read off one ceiling.
     pub fn same_scale(mut self) -> Self {
         self.figure = self.figure.same_scale();
+        self
+    }
+
+    /// Shades a stretch of the axis across every band laid on it, as
+    /// [`Figure::shade`] does: behind the tracks, with dashed edges over them
+    /// and its name at the head of the column. Once for each stretch, and
+    /// anywhere in the chain, since it is the figure's and not a track's.
+    ///
+    /// ```
+    /// use karyon::{plot, Shade};
+    ///
+    /// let svg = plot("chr1:1-10,000")
+    ///     .unwrap()
+    ///     .add_coverage(vec![30.0; 10_000])
+    ///     .shade(Shade::new(1_000, 2_000).name("deletion"))
+    ///     .label("depth")
+    ///     .to_svg();
+    ///
+    /// assert!(svg.contains("<title>deletion, 1,001 to 2,000</title>"));
+    /// assert!(svg.contains("Shaded: deletion, 1,001 to 2,000.</desc>"));
+    /// ```
+    pub fn shade(mut self, shade: Shade) -> Self {
+        self.figure = self.figure.shade(shade);
         self
     }
 
@@ -1122,8 +1146,10 @@ mod tests {
             right: 60.0,
             ..Margin::default()
         };
+        let deletion = || Shade::new(761_100, 761_300).name("deletion");
         let first = window()
             .width(200.0)
+            .shade(deletion())
             .label_width(150.0)
             .margin(margin)
             .add_coverage(vec![30.0; 1000])
@@ -1135,9 +1161,43 @@ mod tests {
             .margin(margin)
             .label_width(150.0)
             .width(200.0)
+            .shade(deletion())
             .into_figure();
         assert_eq!(first.dimensions(), last.dimensions());
         assert_eq!(first.to_svg(), last.to_svg());
+    }
+
+    /// A shade is the figure's, so it may be written between a track and
+    /// the label that names it without the label landing anywhere else.
+    #[test]
+    fn a_shade_set_anywhere_in_the_chain_draws_the_same_plot() {
+        let deletion = || Shade::new(761_100, 761_300).name("deletion");
+        let before = window()
+            .shade(deletion())
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .to_svg();
+        let between = window()
+            .add_coverage(vec![30.0; 1000])
+            .shade(deletion())
+            .label("depth")
+            .to_svg();
+        let after = window()
+            .add_coverage(vec![30.0; 1000])
+            .label("depth")
+            .shade(deletion())
+            .to_svg();
+        assert_eq!(before, between);
+        assert_eq!(before, after);
+        assert!(before.contains("<title>deletion, 761,101 to 761,300</title>"));
+        assert!(before.contains(">depth</text>"));
+        assert_ne!(
+            before,
+            window()
+                .add_coverage(vec![30.0; 1000])
+                .label("depth")
+                .to_svg()
+        );
     }
 
     #[test]

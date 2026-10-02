@@ -1203,6 +1203,43 @@ mod tests {
         assert_eq!(entry[0], 0);
     }
 
+    /// A page moves a figure by running its command over another window, so
+    /// a shade has to stay on its own bases as the window slides past it, and
+    /// a window slid off it draws, rather than stopping the drag there.
+    #[test]
+    fn a_shade_stays_on_its_place_when_the_window_moves() {
+        let files = [("d.bg", "c1\t0\t10000\t30\n")];
+        let argv = ["c1:1-2,000", "d.bg", "--shade", "c1:1,001-1,200=mark"];
+        let wash = |region: &str| -> (f64, f64) {
+            let svg = commanded_on(&argv, &files, "light", "", 600, region, "k-").unwrap();
+            let title = "<g><title>mark, 1,001 to 1,200</title><rect";
+            let rect = &svg[svg.find(title).unwrap_or_else(|| panic!("{svg}")) + title.len()..];
+            let number = |name: &str| -> f64 {
+                let key = format!(" {name}=\"");
+                let at = rect.find(&key).unwrap() + key.len();
+                rect[at..].split('"').next().unwrap().parse().unwrap()
+            };
+            (number("x"), number("width"))
+        };
+        let (here, width) = wash("c1:1-2,000");
+        let (moved, same) = wash("c1:501-2,500");
+        assert!(
+            (width - same).abs() < 1e-3,
+            "the same stretch, the same width"
+        );
+        // Two hundred bases are `width` pixels, so five hundred are 2.5 of it.
+        let shift = here - moved;
+        assert!(
+            (shift - width * 2.5).abs() < 0.01,
+            "moved {shift}, a base is {}",
+            width / 200.0
+        );
+        // Past it, the figure is drawn, and with no shade in it.
+        let past = commanded_on(&argv, &files, "light", "", 600, "c1:3,001-5,000", "k-").unwrap();
+        assert!(past.starts_with("<svg"));
+        assert!(!past.contains("<title>mark"), "{past}");
+    }
+
     #[test]
     fn a_whole_command_line_runs_with_no_disk_under_it() {
         let input = packed(

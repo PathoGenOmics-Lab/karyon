@@ -93,7 +93,8 @@ with `#` (comments, GFF3 pragmas, the VCF header) or `@` (the SAM header); a
 UCSC `track` or `browser` line, but only one carrying a `key=value`, since a
 sequence may be called `track`; a byte order mark at the start of the file; and
 the carriage return of a Windows line ending. A Newick file is the exception:
-it is read whole, as one tree.
+it is read whole, as one tree, though its byte order mark is dropped all the
+same.
 
 Fields are split on tabs when a line holds a tab, and on runs of spaces when it
 does not, so tab-separated and space-separated files read the same. A field that
