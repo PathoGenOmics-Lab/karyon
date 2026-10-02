@@ -120,7 +120,10 @@ CI does the same and fails when a committed figure, under `assets/` or under
 examples in `ci.yml` has to match `examples/`, so a new example is added there
 too, or the job fails and names it. The run also turns every figure into a
 PNG and uploads them as the `visual-gallery` artifact, which shows a rendering
-change without checking out the branch.
+change without checking out the branch. It draws the site's figures as PDF
+too, with `sh docs/data/draw.sh target/release/karyon pdf <folder>`, fails if
+Ghostscript or poppler had to repair one or poppler finds a font in it other
+than the base fonts, and adds each page to the gallery as `<name>-pdf.png`.
 
 An example builds its figures in a file of its own under `examples/figures/`,
 one function per SVG named after the file, so `example-genomewide.svg` is

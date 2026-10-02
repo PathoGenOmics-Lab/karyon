@@ -1,12 +1,13 @@
-//! Genomic track plots, rendered to standalone SVG.
+//! Genomic track plots, rendered to standalone SVG or to PDF.
 //!
 //! `karyon` draws the kind of figure a genome browser draws: a stack of tracks
 //! over one shared coordinate axis, so a read depth profile, the reference
 //! bases, the gene models and the variant calls all line up on the same
 //! position. It has no runtime dependencies and emits plain SVG 1.1 that opens
 //! unchanged in a browser, in Inkscape and in Illustrator. Drawing does no I/O:
-//! a figure is written only by an optional `save_svg`, and the one function
-//! that reads a path, [`cli::stack::open_from_disk`], is the command line's.
+//! a figure is written only by an optional `save_svg` or `save_pdf`, and the
+//! one function that reads a path, [`cli::stack::open_from_disk`], is the
+//! command line's.
 //!
 //! # 0-based inside, 1-based where a reader looks
 //!
@@ -63,6 +64,15 @@
 //!
 //! A stretch worth pointing at, a deletion or the gene a scan peaks over, is
 //! shaded down the whole stack by [`Plot::shade`] with a [`Shade`].
+//!
+//! # A PDF is the SVG, read back
+//!
+//! Every drawing has `to_pdf` and `save_pdf` beside `to_svg` and `save_svg`,
+//! and [`Pdf::from_svg`] is what they call: the SVG the writer wrote is read
+//! back and written as a one-page PDF, in the fonts every reader has. It is a
+//! conversion rather than a second way of drawing, so a track written outside
+//! the crate gets its PDF for nothing. The [`pdf`] module says what carries
+//! over and what does not.
 //!
 //! # Neither layer draws what the other cannot
 //!
@@ -142,6 +152,7 @@ pub mod figure;
 pub mod genome;
 pub mod map;
 pub mod panels;
+pub mod pdf;
 pub mod plot;
 pub mod read;
 pub mod region;
@@ -161,6 +172,7 @@ pub use crate::map::{
     GeoFlow, GeoLocation, GeoPosition, GeoProjection, Map, PhyloConnector, PhyloMap,
 };
 pub use crate::panels::Panels;
+pub use crate::pdf::Pdf;
 pub use crate::plot::{plot, plot_alignment, plot_tree, Plot};
 pub use crate::read::sheet::Sheet;
 pub use crate::read::{Format, ReadError};

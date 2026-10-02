@@ -31,6 +31,14 @@
 //! than written, and [`SvgWriter::finish`] closes whatever groups a track left
 //! open. None of that is a judgement call at the call site, which is the point:
 //! there is one way out of the crate and it is this one.
+//!
+//! # What this writes is a contract
+//!
+//! A PDF is this writer's output read back by [`Pdf::from_svg`](crate::Pdf),
+//! which reads the elements and attributes written here and names anything
+//! else in a note. So a new element or attribute here is one the converter has
+//! to learn, and a test that calls every method of [`SvgWriter`] and converts
+//! the result fails, by the name of what it does not read, until it has.
 
 use std::fmt::Write as _;
 

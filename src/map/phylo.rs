@@ -389,6 +389,21 @@ impl PhyloMap {
         fs::write(path, self.to_svg())
     }
 
+    /// Renders the composition as a one-page PDF, converted from
+    /// [`PhyloMap::to_svg`]; see [`Pdf`] for what carries over.
+    pub fn to_pdf(&self) -> Pdf {
+        crate::pdf::drawn(&self.to_svg())
+    }
+
+    /// Renders the composition as PDF and writes it to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
+    pub fn save_pdf(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        self.to_pdf().save(path)
+    }
+
     pub(super) fn document_name(&self) -> String {
         match (&self.title, &self.subtitle) {
             (Some(title), Some(subtitle)) => format!("{title}, {subtitle}"),

@@ -566,7 +566,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
 | `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
-| `-o`, `--output <FILE>` | writes the figure to a file | standard output |
+| `-o`, `--output <FILE>` | writes the figure to a file: PDF when the name ends in `.pdf`, SVG under any other name | standard output, as SVG |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
 
@@ -677,10 +677,35 @@ bytes karyon wrote: the superscript 2 of an r² comes out as two other
 characters. cmd, PowerShell 7.4 or newer and Git Bash keep the bytes, and
 `-o` writes the same file in all of them.
 
-The figure is SVG whatever the file is called, so a name that promises another
-format, such as `fig.png` or `fig.pdf`, is refused rather than written as SVG
-under it. Write `fig.svg` and convert it with `rsvg-convert`, Inkscape or a
-browser.
+A name ending in `.pdf` is written as PDF, from the same drawing:
+
+```bash
+karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.pdf
+```
+
+The page is the figure's size at three quarters of a point to the pixel, the
+size Inkscape and `rsvg-convert` give the SVG, so a figure 900 pixels wide is
+675 points, about 9.4 inches. Its text is set in Helvetica, Courier and Symbol,
+which every PDF reader has, rather than in the Inter and JetBrains Mono the SVG
+asks for, and no font is embedded; the hover titles of the SVG are not carried,
+since a page has nowhere to hover. A character none of those fonts has, such as
+a sample name in Cyrillic, is drawn as a question mark, and the command says
+which on standard error; the figure is still written. [How the PDF is
+made](../how-it-works/pdf.md) has the rest.
+
+A name that promises any other format, such as `fig.png` or `fig.eps`, is
+refused rather than written as SVG under it, and the message names a tool that
+writes that format. For a PNG, write `fig.pdf` and convert it with
+`pdftoppm -png -singlefile -r 300 fig.pdf fig`, or `fig.svg` and convert it
+with `rsvg-convert`, Inkscape or a browser; an EPS comes from `pdftops -eps`,
+an EMF from Inkscape, and a `.svgz` from `gzip -c fig.svg > fig.svgz`.
+
+A journal whose upload checks want every font embedded gets them from
+Ghostscript, which embeds faces drawn to the same widths:
+
+```bash
+gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
+```
 
 The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not
@@ -795,7 +820,7 @@ $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --height NaN
 karyon: --height does not take "NaN", only a number of pixels above nought, as in 80
 
 $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph -o rpoB.png
-karyon: rpoB.png names a PNG file, and karyon writes SVG: write the figure to a file ending in .svg and convert it, with rsvg-convert, Inkscape or a browser
+karyon: rpoB.png names a PNG file, and karyon writes SVG and PDF: write rpoB.pdf and convert it with pdftoppm, or rpoB.svg with rsvg-convert, Inkscape or a browser
 
 $ karyon NC_000962.3:761,000-763,000 --coverage depth.bedgraph --aggregate median
 karyon: --aggregate does not take "median", only max, mean or min
