@@ -94,7 +94,8 @@ with `#` (comments, GFF3 pragmas, the VCF header) or `@` (the SAM header); a
 UCSC `track` or `browser` line, but only one carrying a `key=value`, since a
 sequence may be called `track`; a byte order mark at the start of the file; and
 the carriage return of a Windows line ending. A Newick file is the exception:
-it is read whole, as one tree.
+it is read whole, as one tree, though its byte order mark is dropped all the
+same.
 
 Fields are split on tabs when a line holds a tab, and on runs of spaces when it
 does not, so tab-separated and space-separated files read the same. A field that
@@ -1221,11 +1222,12 @@ S004    L1       human   NA     false
 A field is a number when it parses as one, `true` or `false` when it spells one,
 and text otherwise. A column whose every value is a number is drawn on a colour
 ramp; any other column gets a colour per level, and a shape as well once it has
-more than six levels. An empty field (tab-separated files only), `.`, `NA` and
-`NaN` are missing and drawn as an empty outline, so a column whose levels
-really include `NA`, a continent code for instance, loses them to missing. The
-first line is always the header, and the join to the track's rows is by exact
-name.
+more than six levels, unless `--colors` gives its levels colours of your own
+(see [Sample sheets beside the rows](cli.md#what-is-known-about-the-rows)). An
+empty field (tab-separated files only), `.`, `NA` and `NaN` are missing and
+drawn as an empty outline, so a column whose levels really include `NA`, a
+continent code for instance, loses them to missing. The first line is always
+the header, and the join to the track's rows is by exact name.
 
 ## Where next
 

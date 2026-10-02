@@ -46,7 +46,7 @@ Four rules cover every command:
 
 | A file named | Is drawn as |
 |:--|:--|
-| `.bam`, `.cram` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
+| `.bam` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
 | `.sam` | its reads (`--pileup`) |
 | `.vcf`, `.bcf` | its calls (`--variants`); a cohort's says that `--genotypes` draws its samples |
 | `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
@@ -291,8 +291,8 @@ takes.
 | `--aggregate <HOW>` | `max`, `mean` or `min` | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
-| `--max <V>` | a number above nought, the top of the scale, as `100` for a depth | `--coverage`, `--recombination`, `--manhattan` | the largest value in view, rounded up |
-| `--color <HEX>` | a colour, as in `'#d55e00'` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
+| `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
+| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
@@ -463,6 +463,39 @@ $ karyon NC_000962.3:1-4,411,532 --matrix genotypes.tsv --traits samples.tsv --c
 karyon: --matrix samples.tsv has no column called linage; it has lineage, host, depth, drug
 ```
 
+Each column of words starts on a stretch of the palette's six colours of its
+own. A column of more than six values is drawn in shapes as well, and one that
+runs past its stretch shares colours with the column after it; a tree says
+either under it. `--colors` gives the values colours of your own, the ones
+your field already knows them by:
+
+```bash
+karyon tree.nwk --traits samples.tsv --columns lineage,country \
+  --colors 'country=China:#1b9e77,India:#d95f02,Kenya:#7570b3,Peru:#e7298a' \
+  --colors 'country=Portugal:#66a61e,Spain:#e6ab02,Vietnam:#666666'
+```
+
+The column comes first, then each value and its colour, joined by commas, and
+the flag again for more values or another column. A colour is `#` and six hex
+digits, and quoting the whole word keeps a shell from reading the `#`. Each
+pair ends at its colour, so a value may hold a colon, or a comma with no colon
+before it, as in `'country=Korea, Rep.:#aa0000'`. A value not named keeps the
+palette. The colours are the figure's: every sheet of it that has the column
+paints those values so, in its strips, in the key and along the branches
+`--color-by` colours by the column, drawn as a strip or not. Two values given
+one colour, or one given the colour the palette deals another, are drawn in
+shapes as well, and a tree names the two and the colour under it.
+
+A colour that would paint nothing is refused rather than passed over: a
+`--colors` with no `--traits` anywhere, a column no sheet has, a column of
+numbers (drawn on a ramp), a value no row holds, a column no track draws, and a
+value given two colours:
+
+```text
+$ karyon tree.nwk --traits samples.tsv --colors 'country=Peu:#e7298a'
+karyon: --colors names Peu in country, and no row of samples.tsv holds it; country holds China, India, Kenya, Peru, Portugal, Spain, Vietnam
+```
+
 ### Phylogenies
 
 A `--tree` track has the most options of any track. A typical figure:
@@ -479,7 +512,9 @@ karyon --tree big.nwk --max-rows 60 \
   by when the branch lengths are noise or absent.
 - `--color-by` colours each branch by a column of the `--traits` sheet or by an
   annotation the Newick carries. A clade whose tips all agree takes the colour
-  too, so a lineage comes out as a coloured clade.
+  too, so a lineage comes out as a coloured clade. A column of the sheet takes
+  the colours `--colors` gives it; an annotation of the Newick keeps the
+  palette.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
@@ -568,7 +603,9 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
+| `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
+| `--colors <COLUMN=VALUE:#HEX,...>` | colours of your own for the values of a `--traits` column, as `--colors 'country=Peru:#e7298a,Kenya:#7570b3'`, in its strips, its key and the branches `--color-by` paints; the flag again for another column. [Sample sheets](#what-is-known-about-the-rows) has the rules | the palette, a stretch of it per column |
 | `-o`, `--output <FILE>` | writes the figure to a file | standard output |
 | `-h`, `--help` | prints the help that fits on a screen, or after a track flag that track's; `karyon help all` prints all of it | |
 | `-V`, `--version` | prints the version | |
@@ -592,6 +629,52 @@ karyon NC_000962.3:761,000-762,999 \
 ![The rpoB locus with depth, reference, annotation and variant bands](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }
 <figcaption>Drawn in this page's theme; switch the page to dark with the button at the top to see what `--theme dark` draws.</figcaption>
 </figure>
+
+### Shading a stretch
+
+`--shade` marks a stretch down the whole figure, behind every track laid on the
+coordinates, as a genome browser marks a region of interest. The place is
+written as the figure's place is, and a name after `=` is written at the head
+of the column:
+
+```bash
+karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
+  --shade NC_000962.3:761,082-761,162=RRDR --shade rpoC -o rpoB.svg
+```
+
+- **A span, one base, a gene or a span with no sequence.** `chr1:1,001-2,000`
+  is a span and `chr1:1,500` one base, which marks one column. A gene the
+  annotation names, as `--shade katG`, is shaded from its own start to its
+  own end, without the margin a figure placed on the gene is drawn with; a
+  gene of `--loci` where its row draws it, whichever genome its first column
+  names. A span with no sequence, as `120-180`, is on whatever axis the figure
+  has: an alignment's columns, a table's weeks or years, said as its ruler
+  says them, or the one sequence it is drawn over.
+- **Behind the tracks, edged over them.** The wash is under every track, so no
+  colour in the figure changes, and its two ends are dashed lines drawn over
+  the tracks, so a heatmap whose cells hide the wash still shows where the
+  stretch starts and stops.
+- **Only what is on the coordinates.** A phylogeny, a tanglegram, a
+  variable-site panel, an ideogram and the key are not, and the column stops
+  at them and goes on under them. Synteny is not shaded either, since its
+  lower bar is the other sequence on a scale of its own.
+- **Each panel its own.** With several places, each panel shades what is on
+  its sequence. A stretch on a sequence no place is on is refused; one on the
+  right sequence and outside the window is drawn as nothing, with a note on
+  standard error, so a figure moved past it is still drawn. A scan across the
+  whole genome is shaded on one of its sequences, as `7:1,001-2,000`, since it
+  reads no annotation to find a gene in.
+- **Never a file.** Many intervals from a BED are what `--features` draws, and
+  `--shade genes.bed` is refused with that.
+
+```text
+$ karyon chr1:1-1,000 depth.bedgraph --shade chr2:100-200
+karyon: --shade chr2:100-200 is on chr2, and the figure is drawn over chr1:1-1,000
+```
+
+Other tools call this highlighting. Here `--highlight` marks the clades of a
+`--tree`, and a place written after it is answered with the `--shade` that
+draws it.
 
 ## Standard input
 
@@ -626,6 +709,13 @@ karyon Chr1:1-50,000 --manhattan gwas.tsv --label association > scan.svg
 
 `-o` always names a file: `-o -` writes a file called `-`. Leave `-o` out to
 write to standard output.
+
+On Windows, name the figure with `-o` rather than saving it with `>`. Windows
+PowerShell 5.1, the one Windows ships, reads what karyon writes through the
+console's code page and saves it as UTF-16, so the figure on disk is not the
+bytes karyon wrote: the superscript 2 of an r² comes out as two other
+characters. cmd, PowerShell 7.4 or newer and Git Bash keep the bytes, and
+`-o` writes the same file in all of them.
 
 The figure is SVG whatever the file is called, so a name that promises another
 format, such as `fig.png` or `fig.pdf`, is refused rather than written as SVG
@@ -679,6 +769,37 @@ karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
   --pileup <(samtools view -h -T ecoli.fa aln.cram NC_000913.3:3423000-3424000) \
   --variants <(bcftools view calls.bcf) -o reads.svg
 ```
+
+A file named on its own, with no flag in front of it, was given its track by
+its name, and `<(command)` has no name to give one: on its own it is looked
+for as a gene or a sequence called `/dev/fd/63`. So for `karyon chr1:1-5,000
+calls.bcf` the message writes the flag in front, `write --variants
+<(bcftools view calls.bcf) where its name is`.
+
+!!! note "On Windows"
+    cmd and PowerShell have no `<(command)`, and Git Bash's hands over a
+    `/dev/fd` path that only its own programs can open, not a Windows build
+    of karyon. So the Windows build says to pipe the command in, with `-`
+    where the file's name was:
+
+    ```text
+    $ karyon chr1:1-5,000 --variants calls.bcf
+    karyon: --variants calls.bcf: the file is BCF, and karyon reads text; pipe what bcftools view calls.bcf writes into karyon, with - where its name is, or turn it into text first
+    ```
+
+    ```bash
+    bcftools view calls.bcf | karyon chr1:1-5,000 --variants - -o calls.svg
+    ```
+
+    That line runs as it is in all three shells. Only one track can read
+    standard input, so a second file is written to a file of its own first,
+    with the tool's own output option, as `bcftools view calls.bcf -o
+    calls.vcf`, and named. Under WSL the Linux build runs, and `<(command)`
+    works as above.
+
+    A file named on its own is answered with its flag in front of the `-`,
+    as `with --variants - where its name is`, since a bare `-` has no name
+    to say which track reads it.
 
 !!! tip "Secondary and supplementary alignments"
     `--pileup` draws every mapped record it is given, secondary and

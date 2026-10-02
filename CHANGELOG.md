@@ -8,6 +8,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A tree that says under it that a column of its sheet ran out of colours,
+  drawn in shapes as well, two strips painting two values one colour, or
+  branches of two values sharing one, says how to part them when drawn from
+  the command line: `; --colors gives them colours of their own`. Branches
+  coloured by an annotation of the Newick are out of reach of `--colors`, and
+  their line is as it was. Where a colour `--colors` chose made the clash,
+  given to two values or the one the palette deals another, the line names
+  the two values and the colour instead, as `lineage: L1 and L2 are both
+  #aa0000, so each is a shape as well`, and leaves `--colors` out of it.
+  `docs/assets/start/tree.svg` and its dark copy change.
+- `--color` refuses a value holding `=`, which is `--colors` with a letter
+  lost, and names `--colors`; taken as a paint, `country=Peru:#e7298a` went
+  into the fill as written, which is no colour at all.
+- A Windows build answers a file that is not text with the command piped
+  into `-`, as `pipe what bcftools view calls.bcf writes into karyon, with -
+  where its name is`, where it offered `<(bcftools view calls.bcf)`: cmd and
+  PowerShell have no such thing, and Git Bash's hands over a path to a pipe
+  that a Windows program cannot open. Linux, macOS, WSL and the playground
+  keep the `<(...)`.
+- The Windows release archive's `karyon.exe` carries its own C runtime
+  (`+crt-static`), as the musl build carries its libc. Linked the default way
+  it imported `VCRUNTIME140.dll`, which Windows does not ship, and the release
+  notes said each archive needs nothing installed alongside it. The release
+  workflow reads the binary's import table and fails if the runtime is back.
+- CI tests on Windows as well as Linux and macOS, every step of the check
+  job, and draws the reads figure of Start here from full paths in each
+  system's own spelling, compared byte for byte with the committed file. A
+  file that is not an index, put beside a copy of the BAM, has to be refused,
+  since a figure drawn without the index is the same figure. `.gitattributes`
+  checks every text file out with LF line endings, so `docs/data/draw.sh`,
+  which stopped at its `set -e` in a Windows checkout, runs there.
+
 - A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
   through its introns, with arrows along the line, and the untranslated ends
   of the exons at half height. It was a solid bar from end to end, which for a
@@ -354,7 +386,62 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and in `examples.zip`, and a "Genotypes of many samples" page drawn from
   it, `docs/assets/start/genotypes.svg` and its dark copy. The playground has
   an example of its own.
-
+- `--colors COLUMN=VALUE:#rrggbb,...` gives the values of a `--traits` column
+  colours of your own, the ones a field already knows its lineages or
+  countries by: in its strips, in the key and along the branches
+  `--color-by` paints. Values are joined by commas, and the flag is written
+  again for more of them or for another column. A pair ends at its colour, so
+  a value may hold a colon, or a comma with no colon before it, as in
+  `country=Korea, Rep.:#aa0000`. It is a figure option, so every sheet of the
+  figure that has the column paints its values alike, and a column of seven
+  countries stays a strip rather than a column of shapes.
+  A colour that would paint nothing is refused: with no `--traits` on the
+  line, for a column no sheet has, for a column of numbers, for a value no
+  row holds, for a column no track draws, and for a value given two colours.
+  It takes the written form only; a colour file, as Nextstrain's colors.tsv,
+  would be the one figure option that reads a file.
+- `--palette`, `--colormap` and the like are answered with `--colors`, and
+  `--tss`, `--operons` and `--terminators` with `--features`: a BED12 whose
+  thick span is the part that codes, or a GFF3 or GTF with UTR or CDS rows,
+  already draws each RNA with its 5' leader at half height. No common format
+  says how an RNA stops, so `TranscriptionUnitTrack` stays library only, and
+  the annotation reference says what does reach the command line.
+- `Figure::shade` and `Plot::shade` shade a stretch of the axis down every
+  band laid on it, a `Shade` each, as a genome browser marks a region of
+  interest; `Shade::name` writes its name at the head of the column and
+  `Shade::color` gives it a colour of its own. The figure draws it, since a
+  track is clipped to its band: the wash behind every track, so no data colour
+  changes, and dashed edges over them, so a heatmap that hides the wash still
+  shows where the stretch is. A tree, an ideogram or the key breaks the column,
+  and `Track::shows_shades` is how a track says no, which synteny does for its
+  lower bar. A named shade in view adds one row of 19.5 pixels at the plain
+  scale; a figure with none in view writes the bytes it wrote before, and no
+  committed figure changes. The alt text names every stretch shaded.
+- `--shade PLACE[=NAME]` on the command line, once for each stretch, anywhere
+  on the line: a span, one base, a gene the annotation names, shaded over its
+  own ends rather than with a margin, or a span with no sequence, as
+  `120-180`, on an alignment's columns or a table's weeks. A gene of `--loci`
+  is shaded in whichever genome's row draws it, and every gene is looked up
+  in one read of each annotation for the whole figure, however many panels it
+  has. A time is said as its ruler says it, `2012 to 2013`, and never in the
+  thousandths a table with fractions is drawn at. Each panel of a sheet
+  shades what is on its own sequence and a scan across the genome through its
+  offsets. A stretch on a sequence no place is on is refused, and one outside
+  the window is a note, so a page moving the figure keeps drawing.
+  It reads no file: `--shade genes.bed` points at `--features`. `--highlight`
+  with a place, and `--roi`, `--vhighlight` and `--axvspan` as other tools
+  spell it, are answered with `--shade`.
+- `MatrixTrack::max` pins the value a colour ramp ends at: the top of a
+  sequential one, whichever of it and `CellScale::Sequential`'s `max` comes
+  last, or the end of the gain of a diverging one, whose loss keeps its own
+  reach. `--max` takes it after `--matrix` and `--heatmap`, where the key of
+  `--heatmap depths.tsv --relative --max 3` ends at 3× rather than at the
+  2.19× the table reached, and a top at or under the centre is refused. After
+  `--pairs` it is the ceiling, and wins over the r² of 1 linkage is read
+  against, and after `--windows` it is the top with the bottom as far below
+  the line: windows reaching 1.4 read -1.5 to 1.5, and -2 to 2 with `--max 2`.
+- `node tests/karyon-wasm.test.js` checks how the pages rewrite a command, in
+  CI beside the tree viewer's scripts.
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of
   scale, windows about the same baseline, scans of the same statistic. Each
@@ -1022,6 +1109,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--matrix` given a VCF read its first record as the header of sites and
   refused it for a word where a position goes, which said nothing of what the
   file was. It says it is a VCF, and that `--genotypes` draws its samples.
+- `Traits::colors` reaches every column of its key, the ones made after the
+  call as well as before it: given before `Traits::strips` it touched no
+  column, and the strips came out in the palette. It reaches the branches of
+  a phylogeny coloured by the key with no strip of it too, which were dealt
+  the palette whatever colours the sheet's column was given, so a country was
+  one colour beside a matrix and another along the tree above it.
+- The help and the guide said a CRAM named on its own is drawn as its depth.
+  It is taken for one and refused with the `samtools depth` command that
+  writes the depth as text, since reading a CRAM takes its codecs and a
+  reference; the sentence now names the BAM alone.
+- A page moving a figure rewrote the first stretch of its command spelled like
+  the place, so a `--shade` or another value written before the place with
+  the same spelling was what moved. It rewrites the place where it stands.
+- A file that is not text, named on its own with no flag in front of it, is
+  answered with its track's flag in what to write in its place, as `write
+  --variants <(bcftools view calls.bcf) where its name is` for `karyon
+  chr1:1-5,000 calls.bcf`. Done as it said, the bare `<(...)` was looked for
+  as a gene or a sequence called `/dev/fd/63`, and on Windows the bare `-`
+  was refused for want of a track.
+- A tanglegram names its trees after their files on Windows too: given
+  `C:\runs\before.nwk` it printed the whole path over the tree, because the
+  name was cut at `/` alone. It is cut at the separators the system writes.
+- A Newick tree, a SLOW5 file or a move table that starts with a byte order
+  mark is read, as every other file already was. Windows tools and
+  spreadsheets write one, and a tree read "more than one root" at character
+  2, a SLOW5 file "a raw sample is not a number" on line 1. The mark is
+  dropped once where the command line decodes a file, and by every Newick
+  reader of `Tree`, `read::series::squiggle` and `read::series::moves` for a
+  library caller.
 
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the

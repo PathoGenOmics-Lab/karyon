@@ -84,7 +84,7 @@ A statistic computed in windows, drawn either side of a baseline it can fall bel
 | | |
 |:--|:--|
 | Rust | `.add_windows(windows)` on `plot()`; `WindowTrack::new(windows)`, `WindowTrack::ratios(windows)`, `WindowTrack::gc_skew(start, &seq, window)`, `WindowTrack::gc_content(start, &seq, window)` |
-| Command line | `--windows FILE`, with `--style`, `--height` |
+| Command line | `--windows FILE`, with `--style`, `--max`, `--height`; `--same-scale` puts several on one scale |
 | Reads | bedGraph, one window per row (`read::signal::windows`) |
 
 === "Rust"
@@ -123,7 +123,7 @@ A statistic computed in windows, drawn either side of a baseline it can fall bel
 | `.baseline(1.0)` | Moves the line the statistic is read against | `0`, or the genome's own GC content for `gc_content` |
 | `.style(WindowStyle::Line)` | `Steps`, a block per window, or `Line` (`--style steps` or `line`) | `Steps` |
 | `.colors("#d55e00", "#0072b2")` | Colours of windows above and below the baseline | from the theme |
-| `.extent(3.0)` | Pins how far the axis reaches either side of the baseline | every window's range |
+| `.extent(3.0)` | Pins how far the axis reaches either side of the baseline; `--max 3` sets it, the top at 3 and the bottom at -3 | every window's range |
 | `.symmetric(false)` | Whether the axis reaches equally far above and below | on |
 | `.unit(" log2")` | Suffix after each axis number | none, or `" log2"` for `ratios` |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
@@ -137,7 +137,7 @@ A ratio needs one more step, and `WindowTrack::ratios` takes it. On a linear axi
 
 `gc_skew` and `gc_content` compute the statistic from the bases you hand them. `gc_content` puts the baseline at the GC content of the whole sequence, so a window reads as richer or poorer than its own genome rather than against an arbitrary half.
 
-The axis range is taken over every window you pass, not only the visible ones, so panning does not rescale it. Pin `extent` to compare two tracks.
+The axis range is taken over every window you pass, not only the visible ones, so panning does not rescale it. Pin `extent` (`--max`) to compare figures drawn apart; a pinned track keeps its pin when the others share a scale.
 
 From the command line the baseline stays at nought, so give `--windows` a statistic centred on zero, or a ratio already turned into log2.
 

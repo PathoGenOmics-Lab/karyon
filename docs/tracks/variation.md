@@ -355,7 +355,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | | |
 |:--|:--|
 | Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)`, and `MatrixTrack::windows(windows, rows)` for a column per window |
-| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`; `--relative` and `--center` after `--heatmap` |
+| Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`, `--max`; `--relative` and `--center` after `--heatmap` |
 | Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample, or in the long form, a sample and its value to a row (`read::table::windows`). An empty cell, `.` or `NA` is missing |
 
 === "Rust"
@@ -405,6 +405,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |
 | `.traits(traits)` | Metadata columns between the names and the cells (`--traits`, `--columns`) | none |
 | `.unit("×")` | Written after the two numbers at the ends of the key | none |
+| `.max(150.0)` | The value drawn at full colour, so matrices drawn apart read off one ramp: the top of a sequential ramp, winning over `Sequential { max }` in either order, or the end of the gain above a diverging one's centre, whose loss keeps its own reach (`--max`) | the largest value in the matrix |
 
 #### Notes
 
@@ -504,7 +505,7 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 | | |
 |:--|:--|
 | Rust | `.add_pairs(pairs)` on `plot()`; `PairTrack::new(pairs)` |
-| Command line | `--pairs FILE`, or a `.ld` or `.bedpe` named on its own, with `--style`, `--threshold`, `--log`, `--color`, `--height` |
+| Command line | `--pairs FILE`, or a `.ld` or `.bedpe` named on its own, with `--style`, `--threshold`, `--log`, `--max`, `--color`, `--height` |
 | Reads | PLINK's `.ld`, BEDPE, or a table headed `pos1`, `pos2` and a value (`read::pairs::pairs`) |
 
 === "Rust"
@@ -539,7 +540,7 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 | `.label("r²")` | Names the track in the left gutter (`--label`) | none |
 | `.style(PairStyle::Arcs)` | `Triangle` or `Arcs` (`--style triangle`, `--style arcs`) | `Triangle`; on the command line, `PairStyle::for_pairs` |
 | `.height(200.0)` | Band height in pixels (`--height`) | a triangle as deep as its widest pair, up to `240`; arcs `90` |
-| `.ceiling(1.0)` | The value the ramp saturates at | the largest value drawn; `1` on the command line for an r², r or D' |
+| `.ceiling(1.0)` | The value the ramp saturates at (`--max`, which wins over the r² default) | the largest value drawn; `1` on the command line for an r², r or D' |
 | `.threshold(0.2)` | Draws only the pairs at or above this value (`--threshold`) | every pair |
 | `.log_scale(true)` | Colours on a log scale, as a contact map is read (`--log`) | linear |
 | `.color("#d55e00")` | The hue at the top of the ramp (`--color`) | theme accent |

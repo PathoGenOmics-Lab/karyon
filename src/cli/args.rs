@@ -117,6 +117,23 @@ pub enum ArgError {
         /// The second.
         second: String,
     },
+    /// One value of a column given two colours by `--colors`.
+    ColoredTwice {
+        /// The column.
+        column: String,
+        /// The value.
+        value: String,
+        /// The first colour it was given.
+        first: String,
+        /// The second.
+        second: String,
+    },
+    /// Colours for the values of a sheet's column, and no track given a
+    /// sheet.
+    ///
+    /// Refused rather than passed over: the colours go nowhere, and the
+    /// figure comes out in the palette looking as though they had been read.
+    ColorsWithoutTraits,
     /// A locus whose span is larger than a figure is drawn over.
     HugeRegion {
         /// The locus as it was written.
@@ -171,6 +188,16 @@ pub enum ArgError {
     },
     /// A file named on its own whose name does not say what it holds.
     Unplaced(String),
+    /// A place given to `--highlight` where no tree is there to take it.
+    ///
+    /// `--highlight` is a phylogeny's, and marks its clades. A locus after it
+    /// is someone asking for a stretch shaded across the tracks, which other
+    /// tools call highlighting, and was answered that the flag meant nothing
+    /// to a coverage track, which said nothing of how to ask.
+    HighlightIsShade {
+        /// The place as it was written.
+        given: String,
+    },
     /// A modifier given a second value where it takes one.
     ///
     /// The last one used to win without a word, so a `--label` meant for the
@@ -293,6 +320,21 @@ impl fmt::Display for ArgError {
                 f,
                 "--rename names {from} twice, as {first} and as {second}; a sequence is one of them"
             ),
+            ArgError::ColoredTwice {
+                column,
+                value,
+                first,
+                second,
+            } => write!(
+                f,
+                "--colors paints {column} {value} twice, as {first} and as {second}; a value \
+                 takes one colour"
+            ),
+            ArgError::ColorsWithoutTraits => write!(
+                f,
+                "--colors paints the values of a --traits sheet, and no track here has one: \
+                 add --traits samples.tsv after the track whose rows it describes"
+            ),
             ArgError::HugeRegion { given, span } => write!(
                 f,
                 "{given:?} spans {span} bases, and a figure is drawn over at most {MAX_SPAN}"
@@ -313,6 +355,11 @@ impl fmt::Display for ArgError {
             ArgError::MissingCarrying => write!(
                 f,
                 "--mutations needs --carrying, which names the change to mark the carriers of"
+            ),
+            ArgError::HighlightIsShade { given } => write!(
+                f,
+                "--highlight marks clades of a --tree; to shade {given} across every track, \
+                 write --shade {given}"
             ),
             ArgError::Unplaced(file) => write!(
                 f,
@@ -584,12 +631,25 @@ impl Kind {
         matches!(self, Kind::Coverage | Kind::Phylodynamics | Kind::Pairs)
     }
 
-    /// Whether `--max` means anything here: a track drawn up from nought to
-    /// a ceiling its data sets, which a reader comparing figures made apart
-    /// wants pinned. A statistic either side of a baseline has no one top to
-    /// pin, and is put on one scale with others by `--same-scale` instead.
+    /// Whether `--max` means anything here: a track drawn against a scale its
+    /// data set, which a reader comparing figures made apart wants pinned.
+    /// The top of a value axis for a coverage, a rate or a scan. For windows
+    /// drawn either side of their line, the top, and the bottom mirrors it,
+    /// since a band symmetric about its line has one free number; a pinned
+    /// window track leaves `--same-scale` alone, as a pinned coverage does.
+    /// For a matrix, a heatmap or pairs, the value drawn at full colour,
+    /// which the key then says.
     fn takes_max(self) -> bool {
-        matches!(self, Kind::Coverage | Kind::Recombination | Kind::Manhattan)
+        matches!(
+            self,
+            Kind::Coverage
+                | Kind::Recombination
+                | Kind::Manhattan
+                | Kind::Windows
+                | Kind::Matrix
+                | Kind::Heatmap
+                | Kind::Pairs
+        )
     }
 
     /// Whether a sheet of metadata means anything to this track.
@@ -796,8 +856,8 @@ impl Kind {
     /// The track a file's name says it holds, for a file named on the
     /// command line with no track flag in front of it.
     ///
-    /// By the extension a tool writes, under any `.gz`: a BAM or CRAM is
-    /// drawn as its depth, and `--pileup` draws its reads; a SAM as its
+    /// By the extension a tool writes, under any `.gz`: a BAM is drawn as
+    /// its depth, and `--pileup` draws its reads; a SAM as its
     /// reads; a VCF as its calls; GFF3, GTF and BED as features; bedGraph as
     /// a signal; FASTA as the reference; a Newick file as a tree; PAF as
     /// synteny; a PLINK or REGENIE association table as a scan. A name that
@@ -1523,6 +1583,31 @@ pub enum Place {
     Named(String),
 }
 
+/// A stretch `--shade` asks for, as it was written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shading {
+    /// Where it is.
+    pub place: ShadePlace,
+    /// What it is called, written after an `=`, as `chr1:1,001-2,000=deletion`.
+    pub name: Option<String>,
+    /// The value as it was written, for the messages that name it.
+    pub given: String,
+}
+
+/// Where a shade is, in the forms a place is written in, and two more.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShadePlace {
+    /// Coordinates on a sequence, as the place is written, or one base, as
+    /// `chr1:1,500`, which is no figure but is a column worth marking.
+    Locus(Region),
+    /// A span with no sequence named, 0-based and half-open, on whatever
+    /// axis the figure has: an alignment's columns, a table's weeks, or the
+    /// one sequence it is drawn over.
+    Along(u64, u64),
+    /// A gene the figure's annotation names, shaded over its own span.
+    Gene(String),
+}
+
 /// A whole command line, parsed and not yet acted on.
 #[derive(Debug, Clone)]
 pub struct Invocation {
@@ -1570,6 +1655,16 @@ pub struct Invocation {
     /// `--same-scale`: the tracks that measure the same thing, as the depths
     /// of several samples, drawn on one scale, across every panel.
     pub same_scale: bool,
+    /// `--colors COLUMN=VALUE:#rrggbb,...`: each column of a `--traits` sheet
+    /// given colours, with the colour of each value named, in the order the
+    /// columns were first written. Every sheet of the figure that has the
+    /// column paints those values so, in its strips, its key and the branches
+    /// `--color-by` colours by it.
+    pub colors: Vec<(String, Vec<(String, String)>)>,
+    /// `--shade`, each stretch shaded across every track laid on the
+    /// coordinates, in the order written. None of them reads a file, so
+    /// [`Invocation::files`] does not list them.
+    pub shades: Vec<Shading>,
 }
 
 impl Invocation {
@@ -1733,7 +1828,9 @@ pub const FLAGS: &[&str] = &[
     "--no-region-label",
     "--no-legend",
     "--same-scale",
+    "--shade",
     "--rename",
+    "--colors",
     "-o",
     "--output",
     "--help",
@@ -1814,8 +1911,36 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
         "the theme is --theme dark or --theme light",
     ),
     (
-        &["ymax", "y-max", "max-value", "maxvalue", "ylim", "y-limit"],
-        "the top of a track's scale is --max after its file, as in reads.bam --max 100",
+        &[
+            "ymax",
+            "y-max",
+            "max-value",
+            "maxvalue",
+            "ylim",
+            "y-limit",
+            "vmax",
+            "zmax",
+            "color-max",
+            "colour-max",
+        ],
+        "the top of a track's scale, or the value a heatmap or pairs draw at full \
+         colour, is --max after its file, as in reads.bam --max 100",
+    ),
+    (
+        &[
+            "roi",
+            "region-of-interest",
+            "regions-of-interest",
+            "vhighlight",
+            "highlight-region",
+            "highlight-regions",
+            "highlightregions",
+            "axvspan",
+            "vspan",
+            "shading",
+        ],
+        "a stretch shaded across every track is --shade chr1:1,001-2,000, or --shade \
+         GENE, and =NAME after it names it; the flag again for another",
     ),
     (
         &[
@@ -1832,6 +1957,31 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     (
         &["scale-bar", "scalebar"],
         "a phylogram draws its scale bar by default, and --no-scale-bar leaves it out",
+    ),
+    (
+        &[
+            "palette",
+            "colormap",
+            "color-map",
+            "colour-map",
+            "trait-colors",
+            "level-colors",
+        ],
+        "the values of a --traits column take colours of their own with --colors \
+         COLUMN=VALUE:#rrggbb, as in --colors country=Peru:#e7298a,Kenya:#1b9e77",
+    ),
+    (
+        &[
+            "tss",
+            "operon",
+            "operons",
+            "transcription-units",
+            "terminator",
+            "terminators",
+        ],
+        "transcripts are --features FILE: a BED12 whose thick span is the part that \
+         codes, or a GFF3 or GTF with UTR or CDS rows, draws each RNA with its 5' leader \
+         at half height",
     ),
     (
         &["flank", "padding", "pad", "margin", "extend"],
@@ -2048,7 +2198,9 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
     let mut same_scale = false;
+    let mut shades: Vec<Shading> = Vec::new();
     let mut renames: Vec<(String, String)> = Vec::new();
+    let mut colors: Vec<(String, Vec<(String, String)>)> = Vec::new();
     // Every value-taking flag given so far, with the track it went to, or
     // `None` for a figure option. See `once`.
     let mut given: Vec<(Option<usize>, &'static str)> = Vec::new();
@@ -2523,6 +2675,14 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             }
             "--highlight" => {
                 let named = value("--highlight")?.clone();
+                // A place where no tree is there to take clades is a stretch
+                // to shade, which is what other tools mean by highlighting.
+                // Read whole, before the commas that list clades are split,
+                // since a place is written with commas in its numbers.
+                let a_place = Region::parse(&named).is_ok() || one_position(&named).is_some();
+                if a_place && !tracks.last().is_some_and(|t| t.kind.takes_tree_marks()) {
+                    return Err(ArgError::HighlightIsShade { given: named });
+                }
                 let track = last(&mut tracks, "--highlight")?;
                 if !track.kind.takes_tree_marks() {
                     return Err(ArgError::WrongTrack {
@@ -2565,6 +2725,15 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 let cladogram = match text.as_str() {
                     "phylogram" => false,
                     "cladogram" => true,
+                    // One letter from --shade, and a place is what that takes.
+                    _ if Region::parse(text).is_ok() || one_position(text).is_some() => {
+                        return Err(ArgError::BadValue {
+                            flag: "--shape",
+                            given: text.clone(),
+                            expected: "phylogram or cladogram, for a tree; a stretch shaded \
+                                       across every track is --shade and the place",
+                        })
+                    }
                     _ => {
                         return Err(ArgError::BadValue {
                             flag: "--shape",
@@ -2835,6 +3004,17 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         expected: "a colour, as in '#d55e00'",
                     });
                 }
+                // Nor an equals sign, which is `--colors` with its last
+                // letter lost: taken as a paint, `country=Peru:#e7298a` was
+                // written into the fill as it stood, which is no colour.
+                if text.contains('=') {
+                    return Err(ArgError::BadValue {
+                        flag: "--color",
+                        given: text,
+                        expected: "one colour for the whole track, as in '#d55e00'; the \
+                                   values of a --traits column take theirs from --colors",
+                    });
+                }
                 let track = once(&mut tracks, &mut given, "--color")?;
                 if !matches!(
                     track.kind,
@@ -2991,6 +3171,83 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     }
                 }
             }
+            "--colors" => {
+                let text = value("--colors")?;
+                let bad = || ArgError::BadValue {
+                    flag: "--colors",
+                    given: text.clone(),
+                    expected: "COLUMN=VALUE:#rrggbb, as in country=Peru:#e7298a, several \
+                               values joined by commas; one colour for a whole track is --color",
+                };
+                // The column at the first equals sign and each colour at the
+                // last colon of its pair, so a value may hold either.
+                let (column, pairs) = text
+                    .split_once('=')
+                    .map(|(column, pairs)| (column.trim(), pairs))
+                    .filter(|(column, _)| !column.is_empty())
+                    .ok_or_else(bad)?;
+                let mut written: Vec<(String, String)> = Vec::new();
+                // A piece with no colon is the start of a value that holds a
+                // comma, and the piece after it is the rest of that value:
+                // `country=Korea, Rep.:#aa0000` is one value. Split at every
+                // comma, a value such as `Korea, Rep.` could not be given a
+                // colour, and was refused as if the flag had been written
+                // wrong. A piece with a colon is a pair, so a colour written
+                // wrong is still refused here as one.
+                let mut begun: Option<String> = None;
+                for piece in pairs.split(',') {
+                    let pair = match begun.take() {
+                        Some(start) => format!("{start},{piece}"),
+                        None if piece.trim().is_empty() => continue,
+                        None => piece.to_string(),
+                    };
+                    if !pair.contains(':') {
+                        begun = Some(pair);
+                        continue;
+                    }
+                    // As `#rrggbb` and no other spelling, as --background
+                    // takes it: the pairs are split at commas, which would
+                    // cut `rgb(27,158,119)` in three. In small letters, since
+                    // two values are found to share a colour by comparing
+                    // the colours as written, and `#1B9E77` beside the
+                    // palette's `#1b9e77` would be two.
+                    let (level, color) = pair
+                        .rsplit_once(':')
+                        .map(|(level, color)| (level.trim(), color.trim()))
+                        .filter(|(level, color)| !level.is_empty() && is_hex_color(color))
+                        .ok_or_else(bad)?;
+                    written.push((level.to_string(), color.to_ascii_lowercase()));
+                }
+                // A value and no colour after it.
+                if written.is_empty() || begun.is_some() {
+                    return Err(bad());
+                }
+                let at = match colors.iter().position(|(known, _)| known == column) {
+                    Some(at) => at,
+                    None => {
+                        colors.push((column.to_string(), Vec::new()));
+                        colors.len() - 1
+                    }
+                };
+                let held = &mut colors[at].1;
+                // The same colour twice says one thing twice; two colours for
+                // one value is a choice nobody made, and drew whichever came
+                // last.
+                for (level, color) in written {
+                    match held.iter().find(|(known, _)| *known == level) {
+                        Some((_, first)) if *first != color => {
+                            return Err(ArgError::ColoredTwice {
+                                column: column.to_string(),
+                                value: level,
+                                first: first.clone(),
+                                second: color,
+                            })
+                        }
+                        Some(_) => {}
+                        None => held.push((level, color)),
+                    }
+                }
+            }
             "--title" => {
                 figure_once(&mut given, "--title")?;
                 title = Some(value("--title")?.clone());
@@ -3038,8 +3295,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 // figure mixes from its ground, as the pill behind the locus,
                 // are worked out from those six digits and would stay mixed
                 // from the theme's own under any other.
-                let hex = text.strip_prefix('#').unwrap_or_default();
-                if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                if !is_hex_color(text) {
                     return Err(ArgError::BadValue {
                         flag: "--background",
                         given: text.clone(),
@@ -3052,6 +3308,12 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
             "--same-scale" => same_scale = true,
+            "--shade" => {
+                // Taken as the next word whatever it is, as every value is,
+                // so a shade written before the place is never the place.
+                let text = value("--shade")?;
+                shades.push(shading(text)?);
+            }
             "-o" | "--output" => {
                 figure_once(&mut given, "-o")?;
                 let path = PathBuf::from(value("-o")?);
@@ -3156,6 +3418,27 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 track: spec.kind.flag(),
             });
         }
+        // Late for the same reason: `--center` and `--relative` may follow
+        // the `--max` they make wrong. A heatmap read either side of a centre
+        // ends its gain at the top, and a top at or under the centre is no
+        // gain at all.
+        if let (Kind::Heatmap, Some(max)) = (spec.kind, spec.max) {
+            if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
+                if max <= center {
+                    return Err(ArgError::BadValue {
+                        flag: "--max",
+                        given: max.to_string(),
+                        expected: "a number above the centre the heatmap is read either \
+                                   side of: above 1 with --relative",
+                    });
+                }
+            }
+        }
+    }
+    // Late, as a figure option may sit before the track and the sheet it
+    // paints. Whether the sheets hold the column is for when they are read.
+    if !colors.is_empty() && tracks.iter().all(|track| track.traits.is_none()) {
+        return Err(ArgError::ColorsWithoutTraits);
     }
 
     // A stack that no track is drawn in a window for needs none, and one that
@@ -3189,7 +3472,101 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         renames,
         more,
         same_scale,
+        colors,
+        shades,
     })))
+}
+
+/// Whether a word is a colour written `#rrggbb`, the one spelling a figure
+/// mixes shades from and picks an ink over by.
+fn is_hex_color(word: &str) -> bool {
+    word.strip_prefix('#')
+        .is_some_and(|hex| hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// What a `--shade` value says: a place, as the figure's place is written or
+/// as one base, a span with no sequence, or a gene, with `=NAME` after any of
+/// them.
+///
+/// Refused by what it looks like when it is none of those. A file's name is
+/// the commonest, since other tools read their regions of interest from a
+/// BED, and a file is a track here: a figure option that read one would be a
+/// second way into everything [`Invocation::files`] keeps track of. A tree's
+/// shape is the next, since `--shade` and `--shape` are one letter apart.
+fn shading(text: &str) -> Result<Shading, ArgError> {
+    let (place, name) = match text.split_once('=') {
+        Some((place, name)) => (place.trim(), Some(name.trim())),
+        None => (text.trim(), None),
+    };
+    let name = name.filter(|name| !name.is_empty()).map(str::to_string);
+    // A flag where its value should be is a value left out, as everywhere
+    // else a value is missing.
+    if place.starts_with('-') && place != "-" {
+        return Err(ArgError::MissingValue("--shade"));
+    }
+    let refused = |expected: &'static str| ArgError::BadValue {
+        flag: "--shade",
+        given: text.to_string(),
+        expected,
+    };
+    let at = if let Ok(region) = Region::parse(place) {
+        ShadePlace::Locus(region)
+    } else if let Some((sequence, position)) = one_position(place) {
+        // One base, which a figure is not drawn over and a shade marks.
+        let region = Region::new(sequence, position - 1, position)
+            .map_err(|_| refused("a place, as chr1:1,001-2,000 or a gene"))?;
+        ShadePlace::Locus(region)
+    } else if written_as_a_locus(place) {
+        return Err(refused(
+            "a place counted from 1, as chr1:1,001-2,000, whose end is not before its start",
+        ));
+    } else if let Some(span) = along(place) {
+        let (start, end) = span.ok_or_else(|| {
+            refused("a span counted from 1, as 120-180, whose end is not before its start")
+        })?;
+        ShadePlace::Along(start, end)
+    } else if matches!(place, "cladogram" | "phylogram") {
+        return Err(refused(
+            "a place to shade, as chr1:1,001-2,000 or a gene; --shape takes cladogram or \
+             phylogram",
+        ));
+    } else if place == "-" || Kind::for_file(place).is_some() || looks_like_a_file(place) {
+        return Err(refused(
+            "a place, as chr1:1,001-2,000 or a gene; the intervals of a file are a track, \
+             --features FILE",
+        ));
+    } else if place.is_empty() {
+        return Err(refused("a place, as chr1:1,001-2,000 or a gene"));
+    } else {
+        ShadePlace::Gene(place.to_string())
+    };
+    Ok(Shading {
+        place: at,
+        name,
+        given: text.to_string(),
+    })
+}
+
+/// A span written with no sequence, as `120-180` or `150`, 1-based and
+/// inclusive, as 0-based half-open: `None` for a word that is not written as
+/// one, and `Some(None)` for one written as one that counts from nought or
+/// ends before it starts.
+fn along(word: &str) -> Option<Option<(u64, u64)>> {
+    let number = |digits: &str| -> Option<u64> {
+        let cleaned: String = digits.chars().filter(|c| !matches!(c, ',' | '_')).collect();
+        if cleaned.is_empty() || !cleaned.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        cleaned.parse().ok()
+    };
+    let (start, end) = match word.split_once('-') {
+        Some((start, end)) => (number(start)?, number(end)?),
+        None => {
+            let at = number(word)?;
+            (at, at)
+        }
+    };
+    Some((start >= 1 && end >= start).then(|| (start - 1, end)))
 }
 
 /// Whether a word is a file's name, going by an extension a tool would give
@@ -4856,6 +5233,201 @@ mod tests {
         }
     }
 
+    /// Colours are written column first, then each value and its colour, and
+    /// the flag again adds to the same column or starts another. A colour is
+    /// `#` and six digits, kept in small letters.
+    #[test]
+    fn colors_are_a_column_its_values_and_six_digit_colours() {
+        let it = draw(
+            "--tree t.nwk --traits s.tsv --colors country=Peru:#E7298A,Kenya:#1b9e77 \
+             --colors lineage=L4.2:x:#b78a2c --colors=country=Spain:#e6ab02,Peru:#e7298a",
+        );
+        let pair = |value: &str, color: &str| (value.to_string(), color.to_string());
+        assert_eq!(
+            it.colors,
+            [
+                (
+                    "country".to_string(),
+                    vec![
+                        pair("Peru", "#e7298a"),
+                        pair("Kenya", "#1b9e77"),
+                        pair("Spain", "#e6ab02"),
+                    ]
+                ),
+                // A value may hold a colon; the colour is after the last.
+                ("lineage".to_string(), vec![pair("L4.2:x", "#b78a2c")]),
+            ]
+        );
+        for bad in [
+            "country",
+            "country=",
+            "=Peru:#e7298a",
+            "country=Peru",
+            "country=Peru:#d55",
+            "country=Peru:red",
+            "country=:#e7298a",
+            "country=Peru:#e7298a,Kenya",
+            "#d55e00",
+        ] {
+            let error = parse(&args(&format!(
+                "--tree t.nwk --traits s.tsv --colors {bad}"
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--colors",
+                        ..
+                    }
+                ),
+                "{bad}: {error:?}"
+            );
+            // The one-colour flag is named, for the reader who meant it.
+            assert!(error.to_string().ends_with("is --color"), "{error}");
+        }
+    }
+
+    /// A value may hold a comma, as a place written `Korea, Rep.` does: a
+    /// pair ends at its colour, so a piece with no colon is the start of the
+    /// value the next piece ends. A piece with a colon is a pair, and a value
+    /// with no colour after it is still refused.
+    #[test]
+    fn a_value_that_holds_a_comma_takes_a_colour() {
+        let parsed = |colors: &str| {
+            let mut line = args("--tree t.nwk --traits s.tsv --colors");
+            line.push(colors.to_string());
+            parse(&line)
+        };
+        let Ok(Request::Draw(it)) =
+            parsed("country=Korea, Rep.:#AA0000,Peru:#e7298a, Congo,DR:#1b9e77")
+        else {
+            panic!("refused")
+        };
+        let pair = |value: &str, color: &str| (value.to_string(), color.to_string());
+        assert_eq!(
+            it.colors,
+            [(
+                "country".to_string(),
+                vec![
+                    pair("Korea, Rep.", "#aa0000"),
+                    pair("Peru", "#e7298a"),
+                    pair("Congo,DR", "#1b9e77"),
+                ]
+            )]
+        );
+        for bad in [
+            "country=Korea, Rep.",
+            "country=Peru:#e7298a,Korea, Rep.",
+            "country=Peru:red,Kenya:#1b9e77",
+            "country=Korea, Rep.:#d55",
+        ] {
+            assert!(
+                matches!(
+                    parsed(bad),
+                    Err(ArgError::BadValue {
+                        flag: "--colors",
+                        ..
+                    })
+                ),
+                "{bad}"
+            );
+        }
+    }
+
+    /// One value in two colours is a choice nobody made, and the same colour
+    /// twice is one.
+    #[test]
+    fn a_value_given_two_colours_is_refused() {
+        let error = parse(&args(
+            "--tree t.nwk --traits s.tsv --colors country=Peru:#e7298a \
+             --colors country=Peru:#1b9e77",
+        ))
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--colors paints country Peru twice, as #e7298a and as #1b9e77; a value takes \
+             one colour"
+        );
+        let it = draw("--tree t.nwk --traits s.tsv --colors country=Peru:#e7298a,Peru:#E7298A");
+        assert_eq!(it.colors[0].1.len(), 1);
+    }
+
+    /// Colours with no sheet to paint are refused before a file is read,
+    /// wherever on the line the flag is written.
+    #[test]
+    fn colors_without_a_traits_sheet_are_refused() {
+        for line in [
+            "--tree t.nwk --colors country=Peru:#e7298a",
+            "--colors country=Peru:#e7298a --tree t.nwk",
+            "chr1:1-10 --coverage d.bg --colors country=Peru:#e7298a",
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(matches!(error, ArgError::ColorsWithoutTraits), "{line}");
+            assert_eq!(
+                error.to_string(),
+                "--colors paints the values of a --traits sheet, and no track here has one: \
+                 add --traits samples.tsv after the track whose rows it describes"
+            );
+        }
+        // Before the track and its sheet is as good as after them.
+        let it = draw("--colors country=Peru:#e7298a --tree t.nwk --traits s.tsv");
+        assert_eq!(it.colors.len(), 1);
+    }
+
+    /// `--color` is one colour for a track, and a value that is `--colors`
+    /// with a letter lost names the flag it was meant for, on a track that
+    /// takes a colour and on one that does not.
+    #[test]
+    fn a_track_s_colour_written_as_a_column_s_names_colors() {
+        for line in [
+            "chr1:1-10 --coverage d.bg --color country=Peru:#e7298a",
+            "--tree t.nwk --traits s.tsv --color country=Peru:#e7298a",
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--color",
+                        ..
+                    }
+                ),
+                "{line}: {error:?}"
+            );
+            assert!(error.to_string().ends_with("from --colors"), "{error}");
+        }
+        assert_eq!(
+            nearest_flag("--colours"),
+            Some("--colors"),
+            "the British spelling"
+        );
+        assert_eq!(nearest_flag("--colour"), Some("--color"));
+    }
+
+    /// Another tool's word for colours by value finds `--colors`, and its
+    /// words for transcription units find the flag that draws their start
+    /// and leader, since no flag draws a unit's terminator.
+    #[test]
+    fn palettes_and_transcription_units_are_answered_by_name() {
+        for word in ["--palette", "--colormap", "--colour-map"] {
+            let answer = spelled_elsewhere(word).unwrap_or_else(|| panic!("{word}"));
+            assert!(answer.contains("--colors COLUMN=VALUE:#rrggbb"), "{answer}");
+        }
+        for word in [
+            "--tss",
+            "--operons",
+            "--terminators",
+            "--transcription-units",
+        ] {
+            let answer = spelled_elsewhere(word).unwrap_or_else(|| panic!("{word}"));
+            assert!(
+                answer.starts_with("transcripts are --features FILE"),
+                "{answer}"
+            );
+        }
+    }
+
     #[test]
     fn a_word_is_a_locus_a_gene_or_a_sequence() {
         assert!(draw("chr1:1-100 --coverage d.bg").region.is_some());
@@ -5188,5 +5760,137 @@ mod tests {
             ),
             "{error:?}"
         );
+    }
+
+    /// The one `--shade` of a command line, as it was read.
+    fn shade_of(value: &str) -> Shading {
+        let it = draw(&format!("chr1:1-10000 d.bg --shade {value}"));
+        assert_eq!(it.shades.len(), 1, "{value}");
+        it.shades[0].clone()
+    }
+
+    #[test]
+    fn a_shade_is_a_locus_a_base_a_span_or_a_gene_with_an_optional_name() {
+        assert_eq!(
+            shade_of("chr1:1,001-2,000").place,
+            ShadePlace::Locus(Region::new("chr1", 1_000, 2_000).unwrap())
+        );
+        assert_eq!(
+            shade_of("chr1:1,500").place,
+            ShadePlace::Locus(Region::new("chr1", 1_499, 1_500).unwrap())
+        );
+        assert_eq!(shade_of("120-180").place, ShadePlace::Along(119, 180));
+        assert_eq!(shade_of("150").place, ShadePlace::Along(149, 150));
+        let gene = shade_of("katG=target");
+        assert_eq!(gene.place, ShadePlace::Gene("katG".to_string()));
+        assert_eq!(gene.name.as_deref(), Some("target"));
+        assert_eq!(gene.given, "katG=target");
+        assert_eq!(shade_of("katG").name, None);
+        assert_eq!(shade_of("katG=").name, None, "an empty name is none");
+        // Joined by an equals sign to the flag, which splits at the first.
+        let joined = draw("chr1:1-10000 d.bg --shade=chr1:1-2=x");
+        assert_eq!(
+            joined.shades[0].place,
+            ShadePlace::Locus(Region::new("chr1", 0, 2).unwrap())
+        );
+        assert_eq!(joined.shades[0].name.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn a_shade_written_wrong_is_refused_by_what_it_looks_like() {
+        let refused = |value: &str| -> String {
+            parse(&args(&format!("chr1:1-10000 d.bg --shade {value}")))
+                .unwrap_err()
+                .to_string()
+        };
+        for wrong in ["chr1:0-5", "chr1:5-1", "chr1:0"] {
+            let said = refused(wrong);
+            assert!(
+                said.contains("counted from 1, as chr1:1,001-2,000"),
+                "{said}"
+            );
+        }
+        assert!(refused("0-5").contains("counted from 1, as 120-180"));
+        assert!(refused("9-5").contains("counted from 1, as 120-180"));
+        // A file is a track, and a shade reads none, the pipe included.
+        for file in ["genes.bed", "regions.tsv", "peaks.bed.gz", "-"] {
+            let said = refused(file);
+            assert!(said.contains("--features FILE"), "{file}: {said}");
+        }
+        let said = refused("cladogram");
+        assert!(said.contains("--shape takes cladogram"), "{said}");
+        // A flag where the place should be is the place left out.
+        let said = parse(&args("chr1:1-10000 d.bg --shade --label x")).unwrap_err();
+        assert!(
+            matches!(said, ArgError::MissingValue("--shade")),
+            "{said:?}"
+        );
+    }
+
+    #[test]
+    fn the_shade_flag_goes_anywhere_and_again_and_is_never_the_place() {
+        // Before the place, with a place's spelling, after a track, and again.
+        let it = draw(
+            "--shade chr1:100-200=first chr1:1-10000 d.bg --label depth --shade 300-400 \
+             genes.gff3",
+        );
+        assert_eq!(it.region, Some(Region::new("chr1", 0, 10_000).unwrap()));
+        assert_eq!(it.shades.len(), 2);
+        assert_eq!(it.shades[0].name.as_deref(), Some("first"));
+        assert_eq!(it.shades[1].place, ShadePlace::Along(299, 400));
+        assert_eq!(it.tracks.len(), 2);
+        assert_eq!(it.tracks[0].label.as_deref(), Some("depth"));
+        assert!(it.more.is_empty(), "a shade was taken for a panel");
+        // It reads no file, so a page holding the files is told of none.
+        assert_eq!(it.files().len(), 2);
+        // And it is a flag the program answers to, not a misspelt --shape.
+        assert!(FLAGS.contains(&"--shade"));
+    }
+
+    #[test]
+    fn highlight_with_a_locus_is_answered_with_shade() {
+        let answer = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        for line in [
+            "chr1:1-10000 --coverage d.bg --highlight chr1:100-200",
+            "chr1:1-10000 --highlight chr1:100-200",
+            "chr1:1-10000 d.bg --highlight chr1:1,000-2,000",
+            "chr1:1-10000 d.bg --highlight chr1:1,500",
+        ] {
+            let said = answer(line);
+            assert!(
+                said.starts_with("--highlight marks clades of a --tree"),
+                "{said}"
+            );
+            assert!(said.contains("write --shade chr1:"), "{said}");
+        }
+        // After a tree it still means clades, commas and all.
+        let tree = draw("chr1:1-10000 d.bg --tree t.nwk --highlight A,B");
+        assert_eq!(tree.tracks[1].highlight, ["A", "B"]);
+        // A place after --shape is pointed at --shade too.
+        let said = answer("--tree t.nwk --shape chr1:100-200");
+        assert!(said.contains("--shade"), "{said}");
+        // And another tool's name for it says how karyon says it.
+        let said = answer("chr1:1-10000 d.bg --roi chr1:100-200");
+        assert!(said.contains("--shade chr1:1,001-2,000"), "{said}");
+    }
+
+    #[test]
+    fn a_heatmap_max_must_sit_above_its_centre() {
+        for line in [
+            "chr1:1-10000 --heatmap d.tsv --relative --max 0.8",
+            "chr1:1-10000 --heatmap d.tsv --max 0.8 --relative",
+            "chr1:1-10000 --heatmap d.tsv --max 1 --center 2",
+            "chr1:1-10000 --heatmap d.tsv --center 2 --max 2",
+        ] {
+            let said = parse(&args(line)).unwrap_err().to_string();
+            assert!(said.contains("above the centre"), "{line}: {said}");
+        }
+        for line in [
+            "chr1:1-10000 --heatmap d.tsv --max 0.8",
+            "chr1:1-10000 --heatmap d.tsv --relative --max 3",
+            "chr1:1-10000 --heatmap d.tsv --max 3 --center -1",
+        ] {
+            assert!(parse(&args(line)).is_ok(), "{line}");
+        }
     }
 }

@@ -482,6 +482,19 @@ pub trait Track {
         self.on_coordinates()
     }
 
+    /// Whether a stretch the figure [shades](crate::Figure::shade) is drawn
+    /// across this band.
+    ///
+    /// Everything on the coordinates is, and that is the default: a column at
+    /// one x means the same bases in every band it crosses. A track whose band
+    /// mixes the shared axis with a scale of its own has to say no, since a
+    /// column across it would put the shaded stretch somewhere on the other
+    /// scale that is not that stretch. Synteny does, for its lower bar, which
+    /// is the target measured on its own length.
+    fn shows_shades(&self) -> bool {
+        self.on_coordinates()
+    }
+
     /// Draws the track inside `ctx.band`.
     fn draw(&self, ctx: &mut DrawContext<'_>);
 }

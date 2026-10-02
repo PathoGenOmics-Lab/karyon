@@ -372,3 +372,114 @@ fn every_track_agrees_on_which_colour_a_strand_is() {
     assert!(only_reverse.contains(reverse));
     assert!(!only_reverse.contains(forward));
 }
+
+/// The figures the site draws from its example files, drawn again from the
+/// same files as Windows tools write text: a UTF-8 byte order mark first,
+/// and a carriage return before every line feed.
+///
+/// The commands are read out of `docs/data/draw.sh`, which draws the
+/// committed figures, so there is no second list here to fall behind it.
+/// Each file a command names is held twice, as it is and as Windows writes it,
+/// and the two drawings must be the same bytes. A gzip file, the BAM and its
+/// index are held as they are in both: they are bytes, not lines.
+///
+/// When this was written, every reader the command line reaches already
+/// took a carriage return as part of the line ending. Taking every explicit
+/// `\r` trim out of `src/read` still drew all of these figures the same,
+/// because `str::lines` ends a line at `\r\n` by itself; a reader that split
+/// on `\n` and kept the rest fails here at once, on the first bedGraph. So
+/// that half guards readers yet to come. The mark half failed: `tree.nwk`
+/// was "more than one root" at character 2, and `reads.slow5` had "a raw
+/// sample is not a number" on line 1.
+#[test]
+fn the_example_files_draw_the_same_figures_as_windows_writes_them() {
+    use karyon::cli::{args, stack};
+    use std::path::Path;
+
+    let data = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("docs")
+        .join("data");
+    let script = fs::read_to_string(data.join("draw.sh")).unwrap();
+    let mut commands: Vec<Vec<String>> = Vec::new();
+    let mut joined = String::new();
+    for line in script.lines() {
+        let line = line.trim_end();
+        if let Some(head) = line.strip_suffix('\\') {
+            joined.push_str(head);
+            joined.push(' ');
+            continue;
+        }
+        joined.push_str(line);
+        if let Some(words) = joined.strip_prefix("draw ") {
+            let mut words = words.split_whitespace();
+            let _name = words.next();
+            let argv: Vec<String> = words.map(String::from).collect();
+            assert!(
+                argv.iter()
+                    .all(|word| !word.contains('\'') && !word.contains('"')),
+                "draw.sh quotes a word, and this test splits on spaces: {argv:?}"
+            );
+            commands.push(argv);
+        }
+        joined.clear();
+    }
+    assert!(
+        commands.len() >= 13,
+        "only {} commands in draw.sh",
+        commands.len()
+    );
+
+    let mut converted = std::collections::BTreeSet::new();
+    for argv in &commands {
+        let args::Request::Draw(invocation) = args::parse(argv).unwrap() else {
+            panic!("draw.sh draws: {argv:?}")
+        };
+        let mut as_written = stack::Held::new();
+        let mut as_windows_writes = stack::Held::new();
+        let mut names: Vec<String> = invocation
+            .files()
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        // A BAM is read through the index beside it, which no command names.
+        let indexes: Vec<String> = names
+            .iter()
+            .map(|name| format!("{name}.bai"))
+            .filter(|index| data.join(index).is_file())
+            .collect();
+        names.extend(indexes);
+        for name in &names {
+            let bytes = fs::read(data.join(name)).unwrap();
+            let windows = match std::str::from_utf8(&bytes) {
+                Ok(text) if !bytes.starts_with(&[0x1f, 0x8b]) => {
+                    // A CR here is the checkout's: .gitattributes holds every
+                    // text file to LF, and a Windows checkout without it is
+                    // CRLF throughout, which would leave nothing to compare.
+                    assert!(
+                        !text.contains('\r'),
+                        "{name} was checked out with CRLF line endings, which \
+                         .gitattributes is there to stop"
+                    );
+                    converted.insert(name.clone());
+                    format!("\u{feff}{}", text.replace('\n', "\r\n")).into_bytes()
+                }
+                _ => bytes.clone(),
+            };
+            as_written.insert(name.as_str(), bytes);
+            as_windows_writes.insert(name.as_str(), windows);
+        }
+        let drawn = stack::build_files(&invocation, &mut as_written, |_, _| None)
+            .unwrap_or_else(|error| panic!("{argv:?}: {error}"));
+        let from_windows = stack::build_files(&invocation, &mut as_windows_writes, |_, _| None)
+            .unwrap_or_else(|error| panic!("{argv:?} from Windows text: {error}"));
+        assert!(
+            drawn == from_windows,
+            "{argv:?} draws another figure from the files as Windows writes them"
+        );
+    }
+    assert!(
+        converted.len() >= 15,
+        "only {} text files were written the Windows way: {converted:?}",
+        converted.len()
+    );
+}

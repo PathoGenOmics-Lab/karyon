@@ -11,6 +11,12 @@
 use super::*;
 
 pub(super) fn parse_newick_impl(input: &str, preserve_annotations: bool) -> Result<Tree, Error> {
+    // A byte order mark before the tree is not part of it, as `is_nexus`
+    // already knew. `trim` keeps it, since U+FEFF is not white space, so a
+    // tree saved by a Windows editor that writes one was "more than one root"
+    // at character 2. Dropped before `lead` is measured, the characters a
+    // message counts are the ones an editor shows.
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let text = input.trim().trim_end_matches(';').trim();
     if text.is_empty() {
         return Err(Error::InvalidNewick {
