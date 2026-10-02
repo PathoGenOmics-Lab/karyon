@@ -48,7 +48,7 @@ Four rules cover every command:
 |:--|:--|
 | `.bam` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
 | `.sam` | its reads (`--pileup`) |
-| `.vcf`, `.bcf` | its calls (`--variants`); a cohort's says that `--genotypes` draws its samples |
+| `.vcf`, `.bcf` | its calls (`--variants`), a BCF read through its `.csi`; a cohort's says that `--genotypes` draws its samples |
 | `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
 | `.bb`, `.bigbed` | features (`--features`), read through its index |
 | `.bedgraph`, `.bg`, `.bdg` | a signal (`--coverage`) |
@@ -872,10 +872,13 @@ karyon: calls.vcf.gz.tbi is an index, and karyon reads it from beside the file i
 ### Binary formats { #binary-files }
 
 A BAM is read by `--coverage`, which draws the depth of its reads, and by
-`--pileup` and `--split-reads`, which draw the reads. The `.bai` beside it,
-`reads.bam.bai` or `reads.bai`, says which blocks hold the reads over the
-region, so a figure of one gene reads that gene's blocks and no more; without
-one the file is read from its start. Depth is counted as `samtools depth -a`
+`--pileup` and `--split-reads`, which draw the reads. The index beside it says
+which blocks hold the reads over the region, so a figure of one gene reads
+that gene's blocks and no more; without one the file is read from its start.
+It is looked for where samtools looks for it, a `.csi` before a `.bai`:
+`reads.bam.csi`, `reads.csi`, `reads.bam.bai`, then `reads.bai`. `samtools
+index -c` writes the `.csi`, which a sequence longer than 536,870,912 bases
+needs, and a BAM with both is read through the one samtools reads. Depth is counted as `samtools depth -a`
 counts it: every base, with reads that are unmapped, secondary, failing
 quality checks or duplicates left out, and a deletion not counted as covered.
 
@@ -928,12 +931,55 @@ Compressed with gzip, each is refused with the `gunzip -k` that gives the file
 back, since its index says where each block is in the file as it is. A bigWig
 needs a place: across a whole genome it is not drawn yet.
 
-CRAM and BCF are not read. Hand a track one and it says what the file
-is and what to write in place of its name:
+A BCF is read by `--variants`, `--genotypes` and `--structural` as the VCF
+`bcftools view` prints for it, so each draws from a BCF the figure it draws
+from the same calls as VCF, byte for byte, and a `.bcf` named on its own is its
+calls. The `.csi` that `bcftools index` writes beside it, `calls.bcf.csi` or
+`calls.csi`, says which blocks hold the records over the region, so a figure of
+one gene out of a whole chromosome's calls reads those blocks and no more for
+`--variants` and `--genotypes`; without one, every record is read and those
+over the region kept. `--structural` reads every record with an index or
+without, as it reads a VCF, since an arc is drawn from the lower of its two
+breakends, which lies outside a window the arc crosses. `--variants` and
+`--structural` read each record's site and pass its samples' columns by
+undecoded, which are most of a cohort's file, and `--genotypes` reads each
+sample's `GT` and nothing else of them. A cohort's BCF named on its own says
+how many samples `--genotypes` would draw, from the names its header gives:
+
+```bash
+bcftools index calls.bcf           # writes calls.bcf.csi beside it
+karyon chr1:100,000,001-100,002,000 calls.bcf --genotypes calls.bcf -o window.svg
+```
+
+Over a chromosome of 248,956,422 bases, a million records of 200 samples, a
+BCF of 69 MB with its `.csi` draws a window of 2,000 bases in 10 ms and 6 MB,
+as the same calls in a VCF of 77 MB of bgzip do through its `.tbi`, and a
+megabase of their calls in 27 ms where the VCF takes 36, and of their
+genotypes in 72 ms where it takes 68. Without an index the
+BCF takes 2.9 s and 4 MB for that window, where the VCF, 841 MB of text, takes
+5.9 s and 851 MB read whole.
+
+The `.csi` is trusted as a tabix index is: one older than its file, one that
+does not read as an index, and one that says the file's first record is
+somewhere other than where its header ends, as the index of another file
+does, is read past, the file read whole, which draws the same figure, and a
+note says why:
 
 ```text
-$ karyon chr1:1-5,000 --variants calls.bcf
-karyon: --variants calls.bcf: the file is BCF, and karyon reads text; write <(bcftools view calls.bcf) where its name is, or turn it into text first
+karyon: calls.bcf.csi is older than calls.bcf, so it was not trusted and the file was read whole; bcftools index -f calls.bcf writes it again
+```
+
+A record a track refuses is named by where it is, `the record at chr1:60,000`,
+since a BCF has no lines to number. BCF 2.2 is read, the version htslib reads
+and bcftools has written since 2014, compressed as `bcftools view -Ob` writes
+it, uncompressed as `-Ou` writes it, or bare.
+
+CRAM is not read. Hand a track one and it says what the file is and what to
+write in place of its name:
+
+```text
+$ karyon chr1:1-5,000 --pileup aln.cram
+karyon: --pileup aln.cram: the file is CRAM, and karyon reads text; write <(samtools view -h aln.cram chr1:1-5000) where its name is, or turn it into text first
 ```
 
 `<(command)` is the shell handing the command's output over as though it were
@@ -942,15 +988,16 @@ well, where `-` can be given to only one:
 
 ```bash
 karyon NC_000913.3:3,423,000-3,424,000 genes.gff3 \
+  --coverage <(samtools depth -a -r NC_000913.3:3423000-3424000 aln.cram) \
   --pileup <(samtools view -h -T ecoli.fa aln.cram NC_000913.3:3423000-3424000) \
-  --variants <(bcftools view calls.bcf) -o reads.svg
+  -o reads.svg
 ```
 
 A file named on its own, with no flag in front of it, was given its track by
 its name, and `<(command)` has no name to give one: on its own it is looked
 for as a gene or a sequence called `/dev/fd/63`. So for `karyon chr1:1-5,000
-calls.bcf` the message writes the flag in front, `write --variants
-<(bcftools view calls.bcf) where its name is`.
+aln.cram` the message writes the flag in front, `write --coverage
+<(samtools depth -a -r chr1:1-5000 aln.cram) where its name is`.
 
 !!! note "On Windows"
     cmd and PowerShell have no `<(command)`, and Git Bash's hands over a
@@ -959,22 +1006,22 @@ calls.bcf` the message writes the flag in front, `write --variants
     where the file's name was:
 
     ```text
-    $ karyon chr1:1-5,000 --variants calls.bcf
-    karyon: --variants calls.bcf: the file is BCF, and karyon reads text; pipe what bcftools view calls.bcf writes into karyon, with - where its name is, or turn it into text first
+    $ karyon chr1:1-5,000 --pileup aln.cram
+    karyon: --pileup aln.cram: the file is CRAM, and karyon reads text; pipe what samtools view -h aln.cram chr1:1-5000 writes into karyon, with - where its name is, or turn it into text first
     ```
 
     ```bash
-    bcftools view calls.bcf | karyon chr1:1-5,000 --variants - -o calls.svg
+    samtools view -h aln.cram chr1:1-5000 | karyon chr1:1-5,000 --pileup - -o reads.svg
     ```
 
     That line runs as it is in all three shells. Only one track can read
     standard input, so a second file is written to a file of its own first,
-    with the tool's own output option, as `bcftools view calls.bcf -o
-    calls.vcf`, and named. Under WSL the Linux build runs, and `<(command)`
-    works as above.
+    with the tool's own output option, as `samtools view -h -o reads.sam
+    aln.cram chr1:1-5000`, and named. Under WSL the Linux build runs, and
+    `<(command)` works as above.
 
     A file named on its own is answered with its flag in front of the `-`,
-    as `with --variants - where its name is`, since a bare `-` has no name
+    as `with --coverage - where its name is`, since a bare `-` has no name
     to say which track reads it.
 
 !!! tip "Secondary and supplementary alignments"

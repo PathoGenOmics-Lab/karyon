@@ -119,7 +119,7 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
             }
             let category = consequence(info, alt).unwrap_or_else(|| shape(reference, alt));
             let mut call = Variant::new(pos).category(category);
-            if let Some(fraction) = fractions.as_ref().map(|all| all[index]) {
+            if let Some(fraction) = fractions.as_ref().and_then(|all| all[index]) {
                 call = call.value(fraction);
             }
             calls.push(call);
@@ -947,25 +947,33 @@ fn info_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
         .map(|(_, value)| value)
 }
 
-/// The fraction each alternate allele gets.
+/// The fraction each alternate allele gets, `None` for one that has none.
 ///
 /// `AF` carries one number per alternate allele, so a multi-allelic row hands
 /// each alternate its own. A single number is spread over all of them, since
 /// that is what a caller writing one `AF` for the row means. Any other count
 /// is a row that does not add up, and saying so beats guessing which allele
 /// the numbers belong to.
+///
+/// A `.` is VCF's missing value, which bcftools writes for a fraction it could
+/// not work out, for the whole row as `AF=.` or for one allele as `AF=0.5,.`.
+/// That allele has no fraction, as a row with no `AF` has none, and is drawn
+/// full height. Read as a number, it refused the whole track over one row.
 fn allele_fractions(
     info: &str,
     alternates: usize,
     line: usize,
-) -> Result<Option<Vec<f64>>, ReadError> {
+) -> Result<Option<Vec<Option<f64>>>, ReadError> {
     let Some(field) = info_field(info, "AF") else {
         // A call with no fraction is a call, and it gets a full height stem.
         return Ok(None);
     };
     let mut values = Vec::with_capacity(alternates);
     for value in field.split(',') {
-        values.push(number::<f64>(value, "AF", line)?);
+        values.push(match value {
+            "." => None,
+            value => Some(number::<f64>(value, "AF", line)?),
+        });
     }
     match values.len() {
         1 => Ok(Some(vec![values[0]; alternates])),
@@ -1149,6 +1157,32 @@ NC_045512.2\t21580\t.\tACGT\tA\t.\t.\tDP=9
         let calls = variants(text, &region).unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].value, None);
+    }
+
+    /// `.` is the missing value bcftools writes for a fraction, for the row or
+    /// for one allele: that allele has no fraction, as a row with no `AF` has
+    /// none, and the others keep theirs. A word that is not the missing value
+    /// is still refused.
+    #[test]
+    fn a_missing_fraction_is_no_fraction() {
+        let region = Region::parse("chrIV:800-1000").unwrap();
+        let calls = variants("chrIV\t900\t.\tC\tT\t.\t.\tAF=.\n", &region).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].value, None);
+        let calls = variants("chrIV\t900\t.\tC\tT,G\t.\t.\tAF=.\n", &region).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|call| call.value.is_none()));
+        let calls = variants("chrIV\t900\t.\tC\tT,G\t.\t.\tAF=0.5,.\n", &region).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].value, Some(0.5));
+        assert_eq!(calls[1].value, None);
+        let calls = variants("chrIV\t900\t.\tC\tT,G\t.\t.\tAF=.,0.25\n", &region).unwrap();
+        assert_eq!(calls[0].value, None);
+        assert_eq!(calls[1].value, Some(0.25));
+        for refused in ["AF=NA", "AF=", "AF=.,.,.", "AF=..", "AF=0.5,"] {
+            let text = format!("chrIV\t900\t.\tC\tT,G\t.\t.\t{refused}\n");
+            assert!(variants(&text, &region).is_err(), "{refused}");
+        }
     }
 
     #[test]

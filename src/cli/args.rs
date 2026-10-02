@@ -1961,8 +1961,8 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
          depth; a BAM named on its own is drawn as its depth",
     ),
     (
-        &["vcf", "calls"],
-        "variant calls are --variants FILE, or the VCF named on its own, and \
+        &["vcf", "bcf", "calls"],
+        "variant calls are --variants FILE, or the VCF or BCF named on its own, and \
          --genotypes FILE draws each sample's calls, a row per sample",
     ),
     (
@@ -5356,6 +5356,7 @@ mod tests {
     fn another_tool_s_flag_is_answered_with_how_karyon_says_it() {
         for (typed, said) in [
             ("--vcf", "--variants FILE"),
+            ("--bcf", "the VCF or BCF named on its own"),
             ("--metadata", "--traits FILE"),
             ("--region", "the place is the first word"),
             ("-r", "the place is the first word"),

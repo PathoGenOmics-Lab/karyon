@@ -13,7 +13,8 @@
 //! [`index`] takes the index's bytes. A `.csi`, which `samtools index -c`
 //! writes for a sequence longer than a BAI has room for, is read by
 //! [`index::parse`](super::index::parse) into the same [`Index`], and
-//! [`window`] reads a BAM through it as through a BAI.
+//! [`window`] reads a BAM through it as through a BAI. The command line
+//! looks for the `.csi` first, as samtools does.
 //!
 //! # What comes out
 //!

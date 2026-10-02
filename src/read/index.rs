@@ -64,12 +64,13 @@
 //!
 //! # Who reads it
 //!
-//! [`bam`](super::bam) reads a BAM through its BAI, and through a CSI the same
-//! way when a caller hands one. The command line looks for the `.bai` alone,
-//! as `reads.bam.bai` or `reads.bai`. htslib looks for a `.csi` first, so
-//! looking for one changes which index an existing BAM is read through, and
-//! that comes with BCF, whose only index is a CSI, with htslib's order and a
-//! test of a BAM that has both. The rows of a bgzipped text file are found
+//! [`bam`](super::bam) reads a BAM through its BAI or its CSI, and
+//! [`bcf`](super::bcf) a BCF through its CSI, the one index a BCF has, which
+//! numbers its sequences as the BCF's header does. The command line looks for
+//! a BAM's index as htslib does, a `.csi` before a `.bai`, each after the
+//! whole name and then in place of its extension: `reads.bam.csi`,
+//! `reads.csi`, `reads.bam.bai`, `reads.bai`; and for a BCF's as
+//! `calls.bcf.csi` or `calls.csi`. The rows of a bgzipped text file are found
 //! through the same chunks: [`tabix`](super::tabix) reads them from each with
 //! [`Bgzf::line`](super::bgzf::Bgzf::line), and the [`Columns`] the index
 //! keeps say where each row lies, so it stops at the first past the window.
@@ -482,6 +483,15 @@ impl Index {
     /// What the pseudo-bin says about a sequence, where the index has one.
     pub fn summary(&self, reference: usize) -> Option<Summary> {
         self.references.get(reference)?.summary
+    }
+
+    /// Whether the index has bins for a sequence, other than its pseudo-bin.
+    /// htslib writes none, and no pseudo-bin, for a sequence a header names
+    /// and no record is on, so a sequence with none holds no record.
+    pub fn binned(&self, reference: usize) -> bool {
+        self.references
+            .get(reference)
+            .is_some_and(|sequence| !sequence.bins.is_empty())
     }
 
     /// How many records the file holds with no sequence at all, where the

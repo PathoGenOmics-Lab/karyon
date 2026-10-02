@@ -177,7 +177,7 @@ The Command line column above maps each flag to its track. A few flags need comp
 - **A second file.** `--dynseq` needs `--with-sequence`, `--tanglegram` needs `--against`, `--clades` needs `--with-tree` and `--loci` needs `--links`, and each is refused without it. `--pileup` takes `--with-sequence` optionally, to find mismatches.
 - **A choice inside the file.** `--methylation` takes `--modification`, `--bisulfite` takes `--context` and `--domains` takes `--analysis`, for a file that holds several datasets; the command refuses to pick one for you.
 - **A number the file does not hold.** `--copy-number` needs `--ploidy`, since where balanced sits is not in the file.
-- **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM and BCF get in: `samtools` and `bcftools` already write the text these readers take. A BAM, a bigWig, a bigBed and a 2bit are named instead, since each is read out of order through an index.
+- **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM gets in: `samtools` already writes the text these readers take. A BAM, a BCF, a bigWig, a bigBed and a 2bit are named instead, since each is read out of order through an index.
 
 Four tracks are library only. `TranscriptionUnitTrack`, `CodonTrack` and `GenomeTrack` would need a table with no single standard behind it, and `LegendTrack` is built from what the other tracks drew rather than from a file; the command line draws that one by itself, under a figure with colours to key. The whole grammar is in [Command line](../guide/cli.md).
 
