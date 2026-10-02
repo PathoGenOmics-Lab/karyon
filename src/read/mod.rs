@@ -6,8 +6,12 @@
 //! nothing added: [`bam`] reads a BAM a window at a time, [`bgzf`] the blocked
 //! gzip that a BAM and a bgzipped text file are written in, from any place an
 //! index points to, and [`index`] the BAI, TBI and CSI indexes that say which
-//! places those are. CRAM and BCF come in through a pipe, as `samtools view`
-//! and `bcftools view` already write exactly what these readers take.
+//! places those are. [`bigwig`], [`bigbed`] and [`twobit`] read UCSC's own
+//! formats a window at a time through the index each one holds, and hand the
+//! window over as what the text readers take or a track is built from: a
+//! bigWig's values as spans, a bigBed's rows as BED, and a 2bit's bases. CRAM
+//! and BCF come in through a pipe, as `samtools view` and `bcftools view`
+//! already write exactly what these readers take.
 //!
 //! # Text in, values out, and no path anywhere
 //!
@@ -44,7 +48,10 @@
 //!
 //! # Which formats count from one
 //!
-//! Half-open and 0-based, passed straight through: BED, bedGraph, cytoBand.
+//! Half-open and 0-based, passed straight through: BED, bedGraph, cytoBand,
+//! and the bigBed and bigWig they are packed into.
+//!
+//! None at all, a sequence starting at its own first base: FASTA and 2bit.
 //!
 //! Inclusive and 1-based, so one is taken off the start on the way in: GFF3,
 //! VCF, SAM and the output of `samtools depth`.
@@ -63,8 +70,12 @@ pub mod align_pairs;
 #[cfg(test)]
 mod audit;
 pub mod bam;
+mod bbi;
 pub mod bgzf;
+pub mod bigbed;
+pub mod bigwig;
 pub mod bisulfite;
+mod bytes;
 pub mod clade;
 pub mod date;
 pub mod domain;
@@ -86,6 +97,7 @@ pub mod signal;
 pub mod split;
 pub mod structural;
 pub mod table;
+pub mod twobit;
 
 use std::fmt;
 

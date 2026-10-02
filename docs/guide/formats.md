@@ -4,9 +4,10 @@ Which files karyon reads, what it takes from each one, and where each format's
 coordinates land in the figure.
 { .k-lead }
 
-Every format here is line-based text. The readers live in the library as
-`karyon::read`, and each takes a file's text as a string rather than a path, so
-the same reader serves the command line, the playground and your own program:
+Nearly every format here is line-based text. The readers live in the library
+as `karyon::read`, and each takes a file's text as a string rather than a path,
+so the same reader serves the command line, the playground and your own
+program:
 
 ```rust
 use karyon::{plot, read, Region};
@@ -24,18 +25,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 The `karyon` command does the same, and adds opening the path. A file
 compressed with gzip or bgzip is read as the text inside it, and a BAM is read
 by `--coverage`, `--pileup` and `--split-reads` a window at a time through its
-`.bai`, as [Compressed and binary files](cli.md#binary-formats) shows. CRAM,
-BCF and bigWig come in through the tool that writes them as text.
+`.bai`, as [Compressed and binary files](cli.md#binary-formats) shows. Three of
+UCSC's binary formats are read a window at a time through the index each
+holds, by readers that take anything that reads and seeks rather than a
+string: [bigWig](#bigwig), [bigBed](#bigbed) and [2bit](#2bit). CRAM and BCF
+come in through the tool that writes them as text.
 
 ## Formats at a glance
 
 | Format | What it holds | Read by | Coordinates | Tracks |
 |:--|:--|:--|:--|:--|
 | [bedGraph](#bedgraph) | a value over each interval | `--coverage`, `--windows`, `--dynseq` | 0-based, half-open | `CoverageTrack`, `WindowTrack`, `DynseqTrack` |
+| [bigWig](#bigwig) | a bedGraph's values, indexed, with summaries at coarser scales | `--coverage`, `--windows`, `--dynseq` | 0-based, half-open | `CoverageTrack`, `WindowTrack`, `DynseqTrack` |
 | [samtools depth](#samtools-depth) | read depth at each position | `--coverage` | 1-based | `CoverageTrack` |
 | [A bare column of values](#a-bare-column-of-values) | one value per base | `--coverage` | none: starts at the region's first base | `CoverageTrack` |
 | [A recombination map](#a-recombination-map) | a rate in cM/Mb from each position to the next | `--recombination` | 1-based; a bedGraph of rates 0-based | `CoverageTrack` |
 | [BED](#bed) | intervals with a name and a strand | `--features` | 0-based, half-open | `FeatureTrack` |
+| [bigBed](#bigbed) | a BED's rows, indexed | `--features` | 0-based, half-open | `FeatureTrack` |
 | [GFF3](#gff3) | annotation in nine columns | `--features` | 1-based, inclusive | `FeatureTrack` |
 | [cytoBand](#cytoband) | chromosome bands and their stains | `--ideogram` | 0-based, half-open | `IdeogramTrack` |
 | [VCF](#vcf) | small variant calls | `--variants` | 1-based | `VariantTrack` |
@@ -49,6 +55,7 @@ BCF and bigWig come in through the tool that writes them as text.
 | [Estimates over time](#estimates-over-time) | an estimate at each time, with its interval | `--phylodynamics` | whole units, as written | `PhylodynamicTrack` |
 | [Segment table](#the-segment-table) | copy number per segment | `--copy-number` | CNVkit 0-based; ASCAT and `.seg` 1-based | `CopyNumberTrack` |
 | [FASTA](#fasta) | sequences | `--sequence`, `--orfs`, `--with-sequence` | none: byte n is position n | `SequenceTrack`, `OrfTrack` |
+| [2bit](#2bit) | sequences, four bases to a byte, indexed | `--sequence`, `--orfs`, `--with-sequence` | none: base n is position n | `SequenceTrack`, `OrfTrack` |
 | [Aligned FASTA](#aligned-fasta) | an alignment | `--msa`, `--snps`, `--logo` | alignment columns | `MsaTrack`, `SnpTrack`, `LogoTrack` |
 | [Newick](#newick) | a phylogeny | `--tree`, `--tanglegram`, `--against`, `--with-tree` | none | `TreeTrack`, `TanglegramTrack`, `CladeTrack` |
 | [SAM](#sam) | aligned reads | `--pileup` | 1-based | `PileupTrack` |
@@ -229,6 +236,40 @@ The three flags read it differently:
 `--coverage` also refuses overlapping rows, the sign of
 [two-sample depth](#a-coverage-file), unless `--format bedgraph` is given.
 
+### bigWig { #bigwig }
+
+A bedGraph's values, or a wiggle file's, packed into blocks behind an index,
+with the same values summed up again at a few coarser scales, the zoom levels.
+UCSC's `bedGraphToBigWig` and `wigToBigWig` write it, and so does deepTools'
+`bamCoverage`.
+
+| | |
+|:--|:--|
+| Read by | `--coverage`, `--windows` and `--dynseq`, or a `.bw` or `.bigwig` named on its own; `read::bigwig::window` |
+| What is read | the blocks over the window, through the index: its bedGraph, variable-step and fixed-step sections alike, as `bigWigToBedGraph` prints them |
+| Coordinates | 0-based and half-open, as bedGraph, passed through |
+| A base no value covers | 0, as in a bedGraph |
+| Refused | a sequence the file does not name, with the ones it does; a file damaged or cut short; `--format`, since the file says what it holds; the file on standard input, since it is read out of order |
+
+`--coverage` reads it at the scale it is drawn at. Where a pixel holds two bins
+or more of a zoom level, the coarsest such level is read instead of the values
+as written, and each bin is painted over its bases with what `--aggregate`
+takes of a pixel: its highest value, its lowest, or its sum spread over its
+bases, with the bases no value covers counted as 0 in each. A chromosome of
+249 Mb written as 4.7 million spans, a 38 MB bigWig, is then 5,139 bins of
+51,200 bases, and draws 900 pixels wide in 0.01 s and 4 MB, where its bedGraph
+takes 0.95 s and 216 MB. The figure is the one the values as written draw, but
+for a bin that straddles two columns and lends its highest value to both, so a
+peak may be drawn a column wider than it is, as in UCSC's browser: over that
+chromosome 154 of 792 columns came out higher and none lower. A window of
+10 kb of it reads 189 spans as written and draws byte for byte what the
+bedGraph draws. A file written without zoom levels is read as written at any
+scale.
+`--windows` and `--dynseq` always read the values as written.
+
+A bigWig is drawn over a place, as `chr1` or `chr1:1-2,000,000`; across a
+whole genome it is not drawn yet.
+
 ### samtools depth { #samtools-depth }
 
 The read depth at each position, as `samtools depth` writes it.
@@ -319,6 +360,29 @@ Chr2  3000  4000  AT2G01010  0  +
 
 Over `Chr1:1-10,000` this file draws the two Chr1 genes and skips the Chr2 row;
 the `track` line is dropped because it carries `key=value` pairs.
+
+### bigBed { #bigbed }
+
+A BED's rows packed into blocks behind an index, as UCSC's `bedToBigBed`
+writes them, with an autoSql description of any columns of its own.
+
+| | |
+|:--|:--|
+| Read by | `--features`, or a `.bb` or `.bigbed` named on its own; `read::bigbed::bed`, which writes the rows over a window back out as BED for `read::interval::features` |
+| Columns | the ones the header says are BED's own (`definedFieldCount`), and none after: all twelve of a BED12, so a gene keeps its exons and the stretch that codes; six of a narrowPeak, which is BED6 and four columns of its own |
+| Coordinates | 0-based and half-open, as BED, passed through |
+| Refused | a sequence the file does not name, with the ones it does; a file damaged or cut short; `--format`; the file on standard input |
+
+The columns past BED's own are left out because they are the file's own: a
+narrowPeak's seventh is a signal value, and read as BED it would be a BED12's
+`thickStart`, a coding stretch starting at 5.2. A row that starts before the
+window and runs into it is kept whole, as in a BED.
+
+A gene a bigBed names is a place a figure can be drawn over, as `karyon geneA
+genes.bb`, and so is a `--shade` by its name. The window is read through the
+index, but a name is found by reading every row, so a bigBed larger than 64 MB
+is not read for one; the figure says so, and its place is written as a span
+instead.
 
 ### GFF3 { #gff3 }
 
@@ -772,6 +836,25 @@ header is taken for a span only when the span is exactly as long as the record,
 so a sequence whose own name looks like one keeps its bases from 1. Several
 slices of one sequence in one file are one sequence in pieces, and the region
 picks the piece it falls in.
+
+### 2bit { #2bit }
+
+A genome's sequences at four bases to a byte, as UCSC's `faToTwoBit` writes
+them, with the runs of N and the soft-masked runs listed apart and an index of
+where each sequence starts.
+
+| | |
+|:--|:--|
+| Read by | `--sequence`, `--orfs` and `--with-sequence`, the reference a `--pileup` reads against, or a `.2bit` named on its own; `read::twobit::bases` |
+| What is read | the index, the one sequence's lists of runs, and the bases over the window, a quarter of a byte each: a window of ten thousand bases reads 2,500 bytes of bases, where a FASTA is read whole for it |
+| Bases | as `twoBitToFa` writes them: N over a run of N, lower case over a soft-masked run, and `n` where the two meet |
+| Coordinates | none: base n of a sequence is 0-based position n, as in a FASTA |
+| Refused | a sequence the file does not name, or names twice; a window holding no base of the sequence; a file damaged or cut short; the file on standard input |
+
+Both versions of the format are read, the 32-bit offsets nearly every file has
+and the 64-bit ones `faToTwoBit -long` writes, in either byte order. As with a
+FASTA, a file of one sequence is that sequence whatever the region calls it,
+and a window that runs past the end draws the bases there are.
 
 ### Aligned FASTA { #aligned-fasta }
 

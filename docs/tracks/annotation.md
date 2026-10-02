@@ -22,7 +22,7 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
 |:--|:--|
 | Rust | `.add_features(features)` on `plot()`; `FeatureTrack::new(features)` |
 | Command line | `--features FILE`, with `--isoforms`, `--row-height`, `--no-names`, `--color`, `--format` |
-| Reads | BED, GFF3 or GTF, told apart by their columns: a gene once with the exons of all its transcripts (`read::interval::features`), or each transcript on its own with `--isoforms` (`read::interval::transcripts`); a BED12 row with its blocks and its thick span |
+| Reads | BED, GFF3 or GTF, told apart by their columns: a gene once with the exons of all its transcripts (`read::interval::features`), or each transcript on its own with `--isoforms` (`read::interval::transcripts`); a BED12 row with its blocks and its thick span; a bigBed, its rows over the window as BED cut to the columns its header says are BED's own (`read::bigbed::bed`) |
 
 === "Rust"
 
@@ -168,7 +168,7 @@ The six reading frames of a stretch of sequence: three lanes above a line for th
 |:--|:--|
 | Rust | `.add_orfs(seq)` or `.add_orfs_at(start, seq)` on `plot()`; `OrfTrack::new(start, seq)` |
 | Command line | `--orfs FILE`, with `--row-height` |
-| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region: the same file `--sequence` takes (`read::seq::fasta`) |
+| Reads | FASTA, its only record or the one named like the region's sequence, cut to the region: the same file `--sequence` takes (`read::seq::fasta`), or a 2bit (`read::twobit::bases`) |
 
 === "Rust"
 

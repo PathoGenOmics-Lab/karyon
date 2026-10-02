@@ -1302,6 +1302,40 @@ mod tests {
         );
     }
 
+    /// A bigWig, a bigBed and a 2bit a page holds are read as they are, as a
+    /// shell reads them from disk, and draw what the text they were written
+    /// from draws. A page that did not pass on the bytes of a file would
+    /// refuse every one of them as a file that is not text.
+    #[test]
+    fn a_page_draws_a_held_bigwig_bigbed_and_2bit() {
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/read/fixtures");
+        let mut held = stack::Held::new();
+        for name in [
+            "signal.bw",
+            "genes.bb",
+            "ref.2bit",
+            "signal.bedgraph",
+            "genes.bed",
+            "ref.fa",
+        ] {
+            held.insert(name, std::fs::read(fixtures.join(name)).unwrap());
+        }
+        let mut page = Page(held);
+        let mut draw = |line: &str| {
+            let argv: Vec<String> = line.split_whitespace().map(String::from).collect();
+            stack::build_files(&invocation(&argv).unwrap(), &mut page, |_, _| None).unwrap()
+        };
+        assert_eq!(
+            draw("chr1:1-1000 signal.bw genes.bb ref.2bit"),
+            draw("chr1:1-1000 signal.bedgraph genes.bed ref.fa")
+        );
+        assert_eq!(
+            draw("geneA genes.bb"),
+            draw("chr1:101-1,000 genes.bed --title geneA")
+        );
+    }
+
     #[test]
     fn a_file_the_page_is_not_holding_says_what_it_is_holding() {
         // A shell can be told to go and look. A page cannot, so the error names
