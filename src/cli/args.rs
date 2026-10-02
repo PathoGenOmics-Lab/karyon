@@ -324,18 +324,50 @@ impl fmt::Display for ArgError {
             ),
             ArgError::NotSvg { path, format } => {
                 // The names to write instead are the one given with another
-                // ending, so the advice can be pasted back as it stands.
+                // ending, so the advice can be pasted back as it stands, and
+                // each tool named is one that writes the format asked for:
+                // pdftoppm writes PNG, JPEG and TIFF, and none of the others
+                // refused here.
                 let named = std::path::Path::new(path);
                 let pdf = named.with_extension("pdf");
                 let svg = named.with_extension("svg");
+                let (pdf, svg) = (pdf.display(), svg.display());
+                let article = if matches!(*format, "EPS" | "EMF" | "AVIF") {
+                    "an"
+                } else {
+                    "a"
+                };
                 write!(
                     f,
-                    "{path} names a {format} file, and karyon writes SVG and PDF: write {} \
-                     and convert it with pdftoppm, or {} with rsvg-convert, Inkscape or a \
-                     browser",
-                    pdf.display(),
-                    svg.display()
-                )
+                    "{path} names {article} {format} file, and karyon writes SVG and PDF: "
+                )?;
+                match *format {
+                    "PNG" => write!(
+                        f,
+                        "write {pdf} and convert it with pdftoppm, or {svg} with \
+                         rsvg-convert, Inkscape or a browser"
+                    ),
+                    "JPEG" | "TIFF" => write!(
+                        f,
+                        "write {pdf} and convert it with pdftoppm, or {svg} with Inkscape"
+                    ),
+                    "EPS" | "PostScript" => {
+                        let eps = if *format == "EPS" { " -eps" } else { "" };
+                        write!(
+                            f,
+                            "write {pdf} and convert it with pdftops{eps}, or {svg} with \
+                             rsvg-convert or Inkscape"
+                        )
+                    }
+                    "EMF" | "WMF" => write!(f, "write {svg} and convert it with Inkscape"),
+                    "compressed SVG" => {
+                        write!(f, "write {svg} and compress it, as gzip -c {svg} > {path}")
+                    }
+                    _ => write!(
+                        f,
+                        "write {svg} and convert it with an image editor, such as GIMP"
+                    ),
+                }
             }
             ArgError::Twice { flag, track: Some(track) } => write!(
                 f,
@@ -3593,12 +3625,57 @@ mod tests {
                 matches!(&error, ArgError::NotSvg { format: said, .. } if *said == format),
                 "{name}: {error:?}"
             );
-            // The advice names the two files karyon would write instead, in
-            // the folder and under the name that was asked for.
+            // The advice names the files karyon would write instead, in the
+            // folder and under the name that was asked for.
             let stem = &name[..name.rfind('.').unwrap()];
             let said = error.to_string();
-            assert!(said.contains(&format!("write {stem}.pdf ")), "{said}");
-            assert!(said.contains(&format!("or {stem}.svg ")), "{said}");
+            assert!(said.contains(&format!(" {stem}.svg ")), "{said}");
+        }
+        // And a tool that writes the format asked for: pdftoppm writes PNG,
+        // JPEG and TIFF, and was named for EPS, EMF and .svgz as well.
+        for (name, names, never) in [
+            (
+                "fig.png",
+                &["write fig.pdf ", "pdftoppm", "rsvg-convert"][..],
+                None,
+            ),
+            ("fig.jpg", &["write fig.pdf ", "pdftoppm"][..], None),
+            ("fig.tif", &["write fig.pdf ", "pdftoppm"][..], None),
+            (
+                "fig.eps",
+                &["names an EPS file", "write fig.pdf ", "pdftops -eps,"][..],
+                Some("pdftoppm"),
+            ),
+            (
+                "fig.ps",
+                &["write fig.pdf ", "pdftops,"][..],
+                Some("pdftoppm"),
+            ),
+            (
+                "fig.emf",
+                &["names an EMF file", "Inkscape"][..],
+                Some("pdf"),
+            ),
+            ("fig.wmf", &["Inkscape"][..], Some("pdf")),
+            ("fig.svgz", &["gzip -c fig.svg > fig.svgz"][..], Some("pdf")),
+            ("fig.gif", &["image editor"][..], Some("pdf")),
+            ("fig.webp", &["image editor"][..], Some("pdf")),
+            (
+                "fig.heic",
+                &["names a HEIC file", "image editor"][..],
+                Some("pdf"),
+            ),
+        ] {
+            let said = parse(&args(&format!("chr1:1-10 -o {name}")))
+                .unwrap_err()
+                .to_string();
+            for wanted in names {
+                assert!(said.contains(wanted), "{name}: {wanted:?} in {said}");
+            }
+            if let Some(never) = never {
+                let advice = &said[said.find("PDF: ").expect("the advice") + 5..];
+                assert!(!advice.contains(never), "{name}: {never:?} in {said}");
+            }
         }
         // A name that promises SVG, or nothing, is written as asked.
         for name in ["fig.svg", "FIG.SVG", "fig", "fig.v2", "-"] {

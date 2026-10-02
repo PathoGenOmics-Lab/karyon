@@ -256,11 +256,11 @@ jobs:
       # byte went through -q in silence when this was tried. poppler writes
       # to standard error only for a file it had to reconstruct, and lists
       # the fonts a page uses, which have to be the base fonts every reader
-      # carries since none is embedded. The
-      # rasters go into the gallery beside the SVG ones, named -pdf, for a
-      # person to compare; no pixel threshold gates them, because the only
-      # one measured so far was against Chrome on a Mac and not against
-      # rsvg-convert and Liberation on this runner.
+      # carries since none is embedded. The rasters go into the gallery
+      # beside the SVG ones, named -pdf, for a person to compare; no pixel
+      # threshold gates them, because the only one measured so far was
+      # against Chrome on a Mac and not against rsvg-convert and Liberation
+      # on this runner.
       - name: Install PDF readers
         run: sudo apt-get install -y ghostscript poppler-utils
       - name: Draw the site figures as PDF and read them back

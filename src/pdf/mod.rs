@@ -48,7 +48,10 @@
 //! a page and are left out. The document's own title and description are
 //! kept, as the PDF's title and subject and as the alternative text of the one
 //! tagged figure on the page, which is where a screen reader looks for them.
-//! The file is not compressed, and comes out a little larger than the SVG.
+//! The file is not compressed. Most figures come out about the size of their
+//! SVG, and one of many dots up to four times it, since a circle is four
+//! curves where the SVG writes one element: the association scan the guide
+//! shows, 1,748 circles, is 3.7 times its SVG.
 
 mod color;
 mod metrics;
@@ -85,7 +88,9 @@ pub struct Pdf {
     /// Each way the PDF differs from the SVG it came from, once each, for a
     /// person to read: a character no base font has, a colour or a transform
     /// that could not be read, an element or an attribute that is not drawn.
-    /// Empty for everything this crate draws.
+    /// Empty for everything this crate draws, unless a label holds a
+    /// character outside what the base fonts encode, as a sample name in
+    /// Cyrillic or Chinese does.
     pub notes: Vec<String>,
 }
 
@@ -95,8 +100,11 @@ impl Pdf {
     /// The document is one [`SvgWriter`](crate::SvgWriter) wrote, or one
     /// written in the same terms; anything this does not read is named in
     /// [`notes`](Pdf::notes) and drawn as well as it can be, since a figure
-    /// with a note is still a figure. `None` only when there is no root
-    /// `<svg>` to take a page size from: neither a width and a height nor a
+    /// with a note is still a figure. A length is read in pixels or in any
+    /// absolute unit, so a root `width="100mm"` is a page 100 millimetres
+    /// wide with its `viewBox` scaled to fill it; a percentage or an `em` is
+    /// named in the notes. `None` only when there is no root `<svg>` to take
+    /// a page size from: neither a width and a height it can read nor a
     /// `viewBox`.
     ///
     /// The same SVG always gives the same bytes. Nothing in the file depends
@@ -405,7 +413,11 @@ impl Notes {
     }
 }
 
-/// The size of the root `<svg>`, in pixels.
+/// The size of the root `<svg>`, in pixels, read as the painter reads it.
+///
+/// A width of nought, or one that came out of the writer as nought because it
+/// was not a number, is still a size: the page is made as small as a reader
+/// allows, rather than the conversion failing over a figure with nothing in it.
 fn page_size(svg: &str) -> Option<(f64, f64)> {
     let root = xml::tokens(svg).find_map(|token| match token {
         Token::Start {
@@ -417,39 +429,9 @@ fn page_size(svg: &str) -> Option<(f64, f64)> {
     if name != "svg" {
         return None;
     }
-    let side = |name: &str| attributes.get(name).and_then(absolute_length);
-    if let (Some(width), Some(height)) = (side("width"), side("height")) {
-        return Some((width, height));
-    }
-    let mut scanner = path::Scanner::new(attributes.get("viewBox")?);
-    let mut view = [0.0; 4];
-    for number in &mut view {
-        *number = scanner.number()?;
-    }
-    (view[2] > 0.0 && view[3] > 0.0).then_some((view[2], view[3]))
-}
-
-/// A length in pixels, from any absolute unit CSS has.
-///
-/// A width of nought, or one that came out of the writer as nought because it
-/// was not a number, is still a size: the page is made as small as a reader
-/// allows, rather than the conversion failing over a figure with nothing in it.
-fn absolute_length(value: &str) -> Option<f64> {
-    let value = value.trim();
-    let units = [
-        ("px", 1.0),
-        ("pt", 4.0 / 3.0),
-        ("pc", 16.0),
-        ("in", 96.0),
-        ("cm", 96.0 / 2.54),
-        ("mm", 96.0 / 25.4),
-    ];
-    let (number, factor) = units
-        .iter()
-        .find_map(|(unit, factor)| value.strip_suffix(unit).map(|number| (number, *factor)))
-        .unwrap_or((value, 1.0));
-    let pixels = number.trim().parse::<f64>().ok()? * factor;
-    pixels.is_finite().then_some(pixels.max(0.0))
+    // Whatever the root holds that is not read is named when the painter
+    // reaches it, so it is named once.
+    paint::viewport(attributes, &mut Notes::default())
 }
 
 /// Text as a PDF string a reader shows in any script: UTF-16, big-endian,

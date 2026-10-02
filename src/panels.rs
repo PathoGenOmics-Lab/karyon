@@ -660,8 +660,9 @@ impl Panels {
         fs::write(path, self.to_svg())
     }
 
-    /// Renders the sheet as a one-page PDF, every panel clipped to its own box, converted from
-    /// [`Panels::to_svg`]; see [`Pdf`] for what carries over.
+    /// Renders the sheet as a one-page PDF, every panel clipped to its own
+    /// box, converted from [`Panels::to_svg`]; see [`Pdf`] for what carries
+    /// over.
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }

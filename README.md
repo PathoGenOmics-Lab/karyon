@@ -152,8 +152,9 @@ Not implemented yet, in the order they are likely to arrive:
 - A release on crates.io
 
 PNG is not on the list. A rasterizer would have to carry its own fonts and do
-what `pdftoppm -png -r 300 figure.pdf figure` and `rsvg-convert` already do
-with hinted text, so `-o figure.png` is refused with that advice instead.
+what `pdftoppm -png -singlefile -r 300 figure.pdf figure` and `rsvg-convert`
+already do with hinted text, so `-o figure.png` is refused with that advice
+instead.
 
 ## Contributing
 

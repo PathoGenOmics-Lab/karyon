@@ -481,6 +481,17 @@ fn a_fade_is_an_image_whose_alpha_runs_top_to_bottom_clipped_to_its_shape() {
         stream.contains("0 10 m\n100 10 l\n100 90 l\n0 90 l\nh\nW n\n100 0 0 80 0 10 cm\n"),
         "{stream}"
     );
+    // Which way up: an image's first row is drawn along the top of its unit
+    // square, and the two matrices before it take that row to the top of the
+    // box, y = 10, where the fade is strongest, and its last row to the foot.
+    let placed = image_placement(&stream, "/I1 Do");
+    for (x, y, lands) in [(0.0, 1.0, 10.0), (1.0, 1.0, 10.0), (0.0, 0.0, 90.0)] {
+        let (_, at) = placed.apply(x, y);
+        assert!(
+            (at - lands).abs() < 1e-9,
+            "({x}, {y}) lands at {at}: {stream}"
+        );
+    }
     let alpha = stream_after(&pdf, "/ColorSpace /DeviceGray");
     assert_eq!(alpha.len(), 256);
     // The top row is the top's opacity, the last the foot's, falling all
@@ -499,6 +510,28 @@ fn a_fade_is_an_image_whose_alpha_runs_top_to_bottom_clipped_to_its_shape() {
     assert_eq!(rgb.len(), 3 * 256);
     assert!(rgb.chunks(3).all(|pixel| pixel == [0x00, 0x72, 0xb2]));
     assert!(text(&pdf).contains("/Group << /S /Transparency /CS /DeviceRGB >>"));
+}
+
+/// The map from an image's unit square to the page's SVG coordinates: the
+/// `cm` matrices written between the last `q` before `draw` and `draw`
+/// itself, the later one applied first, as a PDF reader applies them.
+fn image_placement(stream: &str, draw: &str) -> path::Matrix {
+    let end = stream
+        .find(draw)
+        .unwrap_or_else(|| panic!("no {draw}: {stream}"));
+    let start = stream[..end].rfind("q\n").expect("the image's own q");
+    let mut placed = path::Matrix::IDENTITY;
+    for line in stream[start..end].lines() {
+        if let Some(numbers) = line.strip_suffix(" cm") {
+            let values: Vec<f64> = numbers
+                .split(' ')
+                .map(|number| number.parse().expect("a number"))
+                .collect();
+            let matrix = path::Matrix(values.try_into().expect("six numbers"));
+            placed = placed.then_inner(&matrix);
+        }
+    }
+    placed
 }
 
 #[test]
@@ -532,6 +565,44 @@ fn a_clip_ends_where_its_group_ends() {
         clip < inside && inside < closed && closed < outside,
         "{stream}"
     );
+}
+
+/// The state a `Q` restores is the one from before its `q`, so whatever was
+/// set inside is set again after it. The writer keeps a copy of that state
+/// to skip an operator that would change nothing, and if the copy outlived
+/// the `Q`, a mark after a group would take the paint of the group's last
+/// mark with no operator to say so.
+#[test]
+fn what_a_group_sets_is_set_again_after_its_group_ends() {
+    let mark = r##"<rect x="10" width="5" height="5" fill="#ff0000" fill-opacity="0.5" stroke="#0000ff" stroke-width="2" stroke-dasharray="1 1"/><text x="1" y="15" font-size="7" letter-spacing="1">a</text>"##;
+    for group in [r#"clip-path="url(#c)""#, r#"transform="translate(1 1)""#] {
+        let svg = format!(
+            r#"<svg width="20" height="20"><defs><clipPath id="c"><rect width="10" height="10"/></clipPath></defs><g {group}>{mark}</g>{mark}</svg>"#
+        );
+        let pdf = convert(&svg);
+        assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
+        let stream = content(&pdf);
+        let restored = stream.find("\nQ\n").expect("the group's end");
+        let (inside, after) = stream.split_at(restored);
+        for operator in [
+            "1 0 0 rg\n",
+            "/G1 gs\n",
+            "0 0 1 RG\n",
+            "2 w\n",
+            "[1 1] 0 d\n",
+            "/F1 7 Tf\n",
+            "1 Tc\n",
+        ] {
+            assert!(
+                inside.contains(operator),
+                "{operator:?} inside {group}: {stream}"
+            );
+            assert!(
+                after.contains(operator),
+                "{operator:?} after {group}: {stream}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -659,4 +730,84 @@ fn a_group_s_paint_is_inherited_by_what_is_inside_it() {
         "{stream}"
     );
     assert!(stream.contains("0 0 6 6 re\nS\n"), "{stream}");
+}
+
+#[test]
+fn a_length_in_any_absolute_unit_is_read_by_the_drawing_as_by_the_page() {
+    // A page 100 by 50 millimetres around a view 100 by 50: each unit of the
+    // view is a millimetre, 3.78 pixels, so the rectangle fills the page.
+    let pdf = convert(
+        r##"<svg width="100mm" height="50mm" viewBox="0 0 100 50"><rect width="100" height="50" fill="#ff0000"/></svg>"##,
+    );
+    assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
+    assert!(text(&pdf).contains("/MediaBox [0 0 283.465 141.732]"));
+    let stream = content(&pdf);
+    assert!(
+        stream.contains("0.75 0 0 -0.75 0 141.732 cm\n4 M\n3.779528 0 0 3.779528 0 0 cm\n"),
+        "{stream}"
+    );
+    // A size in points, and a rectangle in millimetres, inside a page in
+    // pixels: 30 points is 40 pixels, and 10 millimetres 37.795.
+    let pdf = convert(
+        r##"<svg width="200" height="50"><text x="0" y="40" font-size="30pt">Hi</text><rect x="100" y="0" width="10mm" height="10mm" fill="red"/></svg>"##,
+    );
+    assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
+    let stream = content(&pdf);
+    assert!(stream.contains("/F1 40 Tf\n(Hi) Tj"), "{stream}");
+    assert!(stream.contains("100 0 37.795 37.795 re\nf\n"), "{stream}");
+}
+
+#[test]
+fn a_length_measured_against_a_box_or_a_font_is_named_rather_than_dropped() {
+    let pdf = convert(
+        r##"<svg width="100%" height="50" viewBox="0 0 100 50"><rect width="50%" height="10"/><text x="1em" y="5" font-size="2em" stroke="#000" stroke-dasharray="1ex">a</text></svg>"##,
+    );
+    let said = pdf.notes.join("\n");
+    for value in [
+        "\"100%\" of <svg>",
+        "\"50%\" of <rect>",
+        "\"2em\"",
+        "\"1em\" of <text>",
+    ] {
+        assert!(said.contains(value), "{value} in {said}");
+    }
+    assert!(said.contains("stroke-dasharray \"1ex\""), "{said}");
+    assert_eq!(pdf.notes.len(), 5, "{said}");
+    // The page is the view's size, as the drawing is.
+    assert!(text(&pdf).contains("/MediaBox [0 0 75 37.5]"));
+}
+
+/// The PDF sets regular text in Helvetica, and the layout was made with
+/// [`text_width`](crate::svg::text_width): a measure narrower than Helvetica
+/// for any character would let a label that fitted in the SVG run past its
+/// room on the page.
+#[test]
+fn the_regular_measure_is_never_narrower_than_helvetica() {
+    for code in 0x20u8..0x7f {
+        let letter = char::from(code).to_string();
+        let measured = crate::svg::text_width(&letter, 1000.0);
+        let drawn = text::runs(&letter, text::Face::Helvetica, &mut Vec::new())[0].width;
+        assert!(
+            measured >= drawn - 1e-9,
+            "{letter:?} is measured {measured} and Helvetica draws it {drawn}"
+        );
+    }
+}
+
+/// The monospaced stack is set in Courier, every glyph of which is 600
+/// thousandths of an em, and measured at the same 600 by
+/// [`mono_width`](crate::svg::mono_width).
+#[test]
+fn the_monospaced_measure_is_courier() {
+    let stack = "JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace";
+    assert_eq!(text::Face::choose(stack, "normal"), text::Face::Courier);
+    for code in 0x20u8..0x7f {
+        let letter = char::from(code).to_string();
+        let measured = crate::svg::mono_width(&letter, 1000.0);
+        let drawn = text::runs(&letter, text::Face::Courier, &mut Vec::new())[0].width;
+        assert!(
+            (measured - drawn).abs() < 1e-9,
+            "{letter:?} is measured {measured} and Courier draws it {drawn}"
+        );
+    }
 }

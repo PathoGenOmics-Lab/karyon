@@ -639,10 +639,12 @@ a sample name in Cyrillic, is drawn as a question mark, and the command says
 which on standard error; the figure is still written. [How the PDF is
 made](../how-it-works/pdf.md) has the rest.
 
-A name that promises any other format, such as `fig.png` or `fig.tiff`, is
-refused rather than written as SVG under it. Write `fig.pdf` and convert it
-with `pdftoppm -png -r 300 fig.pdf fig`, or `fig.svg` and convert it with
-`rsvg-convert`, Inkscape or a browser.
+A name that promises any other format, such as `fig.png` or `fig.eps`, is
+refused rather than written as SVG under it, and the message names a tool that
+writes that format. For a PNG, write `fig.pdf` and convert it with
+`pdftoppm -png -singlefile -r 300 fig.pdf fig`, or `fig.svg` and convert it
+with `rsvg-convert`, Inkscape or a browser; an EPS comes from `pdftops -eps`,
+an EMF from Inkscape, and a `.svgz` from `gzip -c fig.svg > fig.svgz`.
 
 A journal whose upload checks want every font embedded gets them from
 Ghostscript, which embeds faces drawn to the same widths:

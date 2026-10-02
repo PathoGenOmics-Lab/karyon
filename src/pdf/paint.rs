@@ -209,7 +209,7 @@ impl<'a> Definitions<'a> {
                     _ => {
                         if let Some((_, shapes)) = &mut clip {
                             check(notes, name, attributes);
-                            if let Some(shape) = geometry(name, attributes) {
+                            if let Some(shape) = geometry(name, attributes, notes) {
                                 let shape = match attributes.get("transform") {
                                     Some(list) => match path::transform(&xml::unescape(list)) {
                                         Some(matrix) => shape.transformed(&matrix),
@@ -285,11 +285,77 @@ fn opacity(value: &str) -> Option<f64> {
     proportion(value).map(|v| v.clamp(0.0, 1.0))
 }
 
-/// A length in pixels, the unit a karyon figure is drawn in.
-fn length(value: &str) -> Option<f64> {
+/// Pixels in one of each absolute unit CSS has, at its 96 pixels to the
+/// inch.
+const UNITS: [(&str, f64); 6] = [
+    ("px", 1.0),
+    ("pt", 4.0 / 3.0),
+    ("pc", 16.0),
+    ("in", 96.0),
+    ("cm", 96.0 / 2.54),
+    ("mm", 96.0 / 25.4),
+];
+
+/// A length in pixels, the unit a karyon figure is drawn in, from a bare
+/// number or a number in any absolute unit CSS has.
+///
+/// This is the one reader of a length, the page's size included, so a root
+/// `width="100mm"` scales the drawing by as much as it sizes the page. A
+/// percentage, or a size relative to the font, is `None`: each needs a box or
+/// a font to be measured against, and whoever asked names it in a note.
+pub(crate) fn length(value: &str) -> Option<f64> {
     let value = value.trim();
-    let value = value.strip_suffix("px").unwrap_or(value).trim_end();
-    value.parse::<f64>().ok().filter(|v| v.is_finite())
+    let (number, factor) = UNITS
+        .iter()
+        .find_map(|(unit, factor)| value.strip_suffix(unit).map(|number| (number, *factor)))
+        .unwrap_or((value, 1.0));
+    let pixels = number.trim_end().parse::<f64>().ok()? * factor;
+    pixels.is_finite().then_some(pixels)
+}
+
+/// `value`, written as `attribute` of `element`, as a length, or `None` with
+/// a note when it is in a unit this does not read, so the element is drawn
+/// as if it had no such attribute.
+fn placed(notes: &mut Notes, element: &str, attribute: &str, value: &str) -> Option<f64> {
+    let read = length(value);
+    if read.is_none() {
+        notes.add(format!(
+            "the {attribute} {value:?} of <{element}> is not read, so the element is drawn as \
+             if it had none"
+        ));
+    }
+    read
+}
+
+/// `value`, written as `attribute`, as a length an element can inherit, or
+/// `None` with a note when it is in a unit this does not read, so the
+/// element keeps the one it inherits.
+fn own(notes: &mut Notes, attribute: &str, value: &str) -> Option<f64> {
+    let read = length(value);
+    if read.is_none() {
+        notes.add(format!(
+            "the {attribute} {value:?} is not read, so the element takes the one it inherits"
+        ));
+    }
+    read
+}
+
+/// The width and height an `<svg>` gives what is inside it, in pixels: its
+/// own, or its `viewBox`'s when it lacks either.
+///
+/// The page is sized by this too, so the page and the drawing on it are read
+/// alike. A negative side is nought, as SVG draws nothing for one.
+pub(crate) fn viewport(attributes: Attributes<'_>, notes: &mut Notes) -> Option<(f64, f64)> {
+    let mut side = |name: &str| {
+        let value = attributes.get(name)?;
+        placed(notes, "svg", name, value).map(|pixels| pixels.max(0.0))
+    };
+    let (width, height) = (side("width"), side("height"));
+    match (width, height, attributes.get("viewBox").and_then(view_box)) {
+        (Some(w), Some(h), _) => Some((w, h)),
+        (_, _, Some([_, _, w, h])) => Some((w, h)),
+        _ => None,
+    }
 }
 
 /// The id a `url(#id)` names, and whatever is written after it.
@@ -307,35 +373,41 @@ fn unread_paint(value: &str) -> String {
 }
 
 /// The outline of a shape element, or `None` when SVG would draw nothing.
-fn geometry(element: &str, attributes: Attributes<'_>) -> Option<Shape> {
-    let get = |name: &str| attributes.get(name).and_then(length);
-    let at = |name: &str| get(name).unwrap_or(0.0);
+fn geometry(element: &str, attributes: Attributes<'_>, notes: &mut Notes) -> Option<Shape> {
+    let mut get = |name: &str| {
+        let value = attributes.get(name)?;
+        placed(notes, element, name, value)
+    };
     let shape = match element {
         "rect" => {
             let (w, h) = (get("width")?, get("height")?);
             if !(w > 0.0 && h > 0.0) {
                 return None;
             }
-            Shape::rect(at("x"), at("y"), w, h, get("rx"), get("ry"))
+            let (x, y) = (get("x").unwrap_or(0.0), get("y").unwrap_or(0.0));
+            Shape::rect(x, y, w, h, get("rx"), get("ry"))
         }
         "circle" => {
             let r = get("r")?;
             if r <= 0.0 {
                 return None;
             }
-            Shape::ellipse(at("cx"), at("cy"), r, r)
+            Shape::ellipse(get("cx").unwrap_or(0.0), get("cy").unwrap_or(0.0), r, r)
         }
         "ellipse" => {
             let (rx, ry) = (get("rx")?, get("ry")?);
             if rx <= 0.0 || ry <= 0.0 {
                 return None;
             }
-            Shape::ellipse(at("cx"), at("cy"), rx, ry)
+            Shape::ellipse(get("cx").unwrap_or(0.0), get("cy").unwrap_or(0.0), rx, ry)
         }
-        "line" => Shape::Path(vec![
-            path::Segment::Move(at("x1"), at("y1")),
-            path::Segment::Line(at("x2"), at("y2")),
-        ]),
+        "line" => {
+            let mut at = |name: &str| get(name).unwrap_or(0.0);
+            Shape::Path(vec![
+                path::Segment::Move(at("x1"), at("y1")),
+                path::Segment::Line(at("x2"), at("y2")),
+            ])
+        }
         "polyline" => Shape::points(attributes.get("points").unwrap_or_default(), false),
         "polygon" => Shape::points(attributes.get("points").unwrap_or_default(), true),
         "path" => Shape::Path(path::parse(attributes.get("d").unwrap_or_default())),
@@ -640,13 +712,8 @@ impl<'a, 'w> Painter<'a, 'w> {
 
     fn open_svg(&mut self, attributes: Attributes<'a>, empty: bool) {
         let style = self.inherit(attributes);
-        let get = |name: &str| attributes.get(name).and_then(length);
         let view_box = attributes.get("viewBox").and_then(view_box);
-        let size = match (get("width"), get("height"), view_box) {
-            (Some(w), Some(h), _) => Some((w, h)),
-            (_, _, Some([_, _, w, h])) => Some((w, h)),
-            _ => None,
-        };
+        let size = viewport(attributes, self.notes);
         let restore = if self.frames.is_empty() {
             // The root: the page is its viewport, so there is nothing to clip.
             if let (Some((w, h)), Some(view)) = (size, view_box) {
@@ -660,8 +727,12 @@ impl<'a, 'w> Painter<'a, 'w> {
             // A document inside another, as a sheet holds its panels: SVG
             // clips it to its own viewport, which is what keeps a panel's
             // marks from spilling into the one beside it.
-            self.save();
+            let mut get = |name: &str| {
+                let value = attributes.get(name)?;
+                placed(self.notes, "svg", name, value)
+            };
             let (x, y) = (get("x").unwrap_or(0.0), get("y").unwrap_or(0.0));
+            self.save();
             if let Some((w, h)) = size {
                 Shape::Rect { x, y, w, h }.write(self.out);
                 self.out.extend_from_slice(b"W n\n");
@@ -782,7 +853,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                     style.stroke_opacity = opacity(value).unwrap_or(style.stroke_opacity);
                 }
                 "stroke-width" => {
-                    if let Some(width) = length(value).filter(|w| *w >= 0.0) {
+                    if let Some(width) = own(self.notes, name, value).filter(|w| *w >= 0.0) {
                         style.stroke_width = width;
                     }
                 }
@@ -790,7 +861,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                     style.dash = Some(value).filter(|value| value.trim() != "none");
                 }
                 "stroke-dashoffset" => {
-                    style.dash_offset = length(value).unwrap_or(style.dash_offset)
+                    style.dash_offset = own(self.notes, name, value).unwrap_or(style.dash_offset)
                 }
                 "stroke-linejoin" => {
                     style.join = match value.trim() {
@@ -815,7 +886,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                 }
                 "font-family" => style.family = value,
                 "font-size" => {
-                    if let Some(size) = length(value).filter(|size| *size >= 0.0) {
+                    if let Some(size) = own(self.notes, name, value).filter(|size| *size >= 0.0) {
                         style.size = size;
                     }
                 }
@@ -835,7 +906,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                     } else if let Some(em) = value.strip_suffix("em").and_then(|v| v.parse().ok()) {
                         Spacing::Em(em)
                     } else {
-                        length(value).map_or(style.spacing, Spacing::Px)
+                        own(self.notes, name, value).map_or(style.spacing, Spacing::Px)
                     };
                 }
                 _ => {}
@@ -910,7 +981,7 @@ impl<'a, 'w> Painter<'a, 'w> {
 
     fn draw_shape(&mut self, element: &'a str, attributes: Attributes<'a>) {
         let style = self.inherit(attributes);
-        let Some(shape) = geometry(element, attributes) else {
+        let Some(shape) = geometry(element, attributes, self.notes) else {
             return;
         };
         let restore = self.place(attributes);
@@ -1082,7 +1153,7 @@ impl<'a, 'w> Painter<'a, 'w> {
         if let Some(target) = label
             .attributes
             .get("textLength")
-            .and_then(length)
+            .and_then(|value| placed(self.notes, "text", "textLength", value))
             .filter(|target| *target > 0.0)
         {
             if label.attributes.get("lengthAdjust") == Some("spacingAndGlyphs") {
@@ -1099,10 +1170,17 @@ impl<'a, 'w> Painter<'a, 'w> {
             2 => -advance,
             _ => 0.0,
         };
-        let first = |name: &str| {
-            let mut scanner = Scanner::new(label.attributes.get(name).unwrap_or_default());
-            let value = scanner.number().unwrap_or(0.0);
-            (value, scanner.number().is_some())
+        // A position on a label is a list of lengths, one for each letter,
+        // and only the first is read.
+        let mut first = |name: &str| {
+            let list = label.attributes.get(name).unwrap_or_default();
+            let mut items = list
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .filter(|item| !item.is_empty());
+            let value = items
+                .next()
+                .and_then(|item| placed(self.notes, "text", name, item));
+            (value.unwrap_or(0.0), items.next().is_some())
         };
         let ((x, more_x), (y, more_y)) = (first("x"), first("y"));
         if more_x || more_y {
@@ -1228,7 +1306,7 @@ impl<'a, 'w> Painter<'a, 'w> {
             self.out.extend_from_slice(b"M\n");
             self.state_mut().miter = style.miter;
         }
-        let dash = (dashes(style.dash), style.dash_offset);
+        let dash = (dashes(style.dash, self.notes), style.dash_offset);
         let dash = if dash.0.is_empty() {
             (Vec::new(), 0.0)
         } else {
@@ -1299,8 +1377,9 @@ impl<'a, 'w> Painter<'a, 'w> {
 }
 
 /// A dash pattern, or nothing for a solid line: SVG draws a pattern with a
-/// negative length, or one that adds up to nought, as solid.
-fn dashes(list: Option<&str>) -> Vec<f64> {
+/// negative length, or one that adds up to nought, as solid, and so is one
+/// in a unit this does not read, with a note.
+fn dashes(list: Option<&str>, notes: &mut Notes) -> Vec<f64> {
     let Some(list) = list else {
         return Vec::new();
     };
@@ -1311,7 +1390,13 @@ fn dashes(list: Option<&str>) -> Vec<f64> {
         }
         match length(piece) {
             Some(value) if value >= 0.0 => values.push(value),
-            _ => return Vec::new(),
+            Some(_) => return Vec::new(),
+            None => {
+                notes.add(format!(
+                    "the stroke-dasharray {list:?} is not read, so the line is drawn solid"
+                ));
+                return Vec::new();
+            }
         }
     }
     if values.iter().sum::<f64>() <= 0.0 {

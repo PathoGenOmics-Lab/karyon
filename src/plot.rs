@@ -1386,6 +1386,28 @@ mod tests {
     }
 
     #[test]
+    fn a_save_to_a_name_ending_in_pdf_writes_pdf_and_any_other_svg() {
+        let folder = std::env::temp_dir().join(format!("karyon-plot-save-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let written = |name: &str| {
+            let path = folder.join(name);
+            window().add_coverage(vec![30.0; 1000]).save(&path).unwrap();
+            std::fs::read(path).unwrap()
+        };
+        // In any case: the folder may not tell the two names apart, so they
+        // are different names as well.
+        for name in ["fig.pdf", "UPPER.PDF"] {
+            let pdf = written(name);
+            assert!(pdf.starts_with(b"%PDF-1.4\n"), "{name}");
+            assert!(pdf.ends_with(b"%%EOF\n"), "{name}");
+        }
+        for name in ["fig.svg", "fig"] {
+            assert!(written(name).starts_with(b"<svg "), "{name}");
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn a_stack_can_be_built_in_a_loop() {
         // Every arm of a loop has to have one type, so the pending track has
         // to be put away before the next turn. That is what `done` is for.

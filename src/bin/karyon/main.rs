@@ -51,7 +51,7 @@ need none, and a scan alone is drawn across every chromosome. Each file is a
 track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph, FASTA,
 Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is its
 depth, and a track flag chooses another kind, as --pileup reads.bam. The
-figure is SVG, on standard output unless -o names one.
+figure is SVG, on standard output unless -o names one, and PDF for -o x.pdf.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -661,8 +661,8 @@ FIGURE OPTIONS
                          FASTA; several joined by commas, or the flag again
     -o, --output <FILE>  standard output by default. A name ending in .pdf is
                          written as PDF and any other as SVG; one ending in
-                         .png or another image format is refused, since
-                         pdftoppm or rsvg-convert makes that from either
+                         .png, .eps or another format is refused, and the
+                         message names a tool that makes it from one of them
     -h, --help
     -V, --version
 

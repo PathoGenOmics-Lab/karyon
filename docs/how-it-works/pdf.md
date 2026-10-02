@@ -99,9 +99,10 @@ which macOS Preview draws with, and left out by Inkscape's import.
   alternative text of the one tagged figure on the page, which is where a
   screen reader looks.
 - **The faces.** Helvetica and Courier, not Inter and JetBrains Mono, as above.
-- **Size on disk.** The file is not compressed, and comes out up to three
-  times the size of the SVG for a figure of many dots, since each circle is
-  four curves.
+- **Size on disk.** The file is not compressed. Most figures come out about
+  the size of their SVG, and a figure of many dots up to four times it, since
+  each circle is four curves: the [association scan](../your-data/scan.md) is
+  3.7 times its SVG.
 
 ## No PNG
 
@@ -111,7 +112,7 @@ thousand lines of anti-aliasing, stroking and compositing, for something every
 PDF and SVG tool already does with hinted text:
 
 ```bash
-pdftoppm -png -r 300 rpoB.pdf rpoB
+pdftoppm -png -singlefile -r 300 rpoB.pdf rpoB
 rsvg-convert -d 300 -p 300 -o rpoB.png rpoB.svg
 ```
 
@@ -126,9 +127,10 @@ pdftotext rpoB.pdf -
 `pdffonts` lists Helvetica, Helvetica-Bold, Courier and Symbol, none embedded.
 Ghostscript marks anything it had to repair with a line of `****`, and has no
 such line for a sound file; leave out its `-q`, which hides those lines along
-with the rest. `pdftotext` gives the labels back. Some local copies of poppler draw Helvetica-Bold as the
-regular weight when the machine has no face for it, which is the machine and
-not the file: Ghostscript, Quartz and Chrome draw it bold.
+with the rest. `pdftotext` gives the labels back. Some local copies of poppler
+draw Helvetica-Bold as the regular weight when the machine has no face for it,
+which is the machine and not the file: Ghostscript, Quartz and Chrome draw it
+bold.
 
 A journal whose upload checks want every font embedded gets them from
 Ghostscript, which embeds faces drawn to the same widths:

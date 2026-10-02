@@ -279,10 +279,10 @@ assert_eq!(fit_text("NC_000962.3 read depth", 84.0, 12.0), "NC_000962.\u{2026}")
 
 A PDF sets its text in the fonts every reader has rather than in the stack, and
 `font_family` decides only which: a monospaced stack is Courier, one that opens
-with a serif face or ends in `serif` is Times, and anything else Helvetica. The measure above is
-never narrower than Helvetica for ordinary text, so a label laid out for the SVG
-fits on the page too; [How the PDF is made](../how-it-works/pdf.md#text) has the
-two exceptions.
+with a serif face or ends in `serif` is Times, and anything else Helvetica. The
+measure above is never narrower than Helvetica for ordinary text, so a label
+laid out for the SVG fits on the page too; [How the PDF is
+made](../how-it-works/pdf.md#text) has the two exceptions.
 
 `cap_height_ratio` is the one font setting that is not a size. Letters stretched
 to fill a box, in a logo stack or in the cells of an alignment, a pileup, a

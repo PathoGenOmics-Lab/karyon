@@ -726,8 +726,9 @@ generates starting with `prefix`, for nesting it inside another SVG by hand.
 
 `to_pdf()` returns a `Pdf`: its `bytes`, from `%PDF` to `%%EOF`, and its
 `notes`, each way the page differs from the SVG it was converted from, for a
-person to read. The notes are empty for everything the crate draws; a
-character no base font has, drawn as a question mark, is the usual one.
+person to read. The notes are empty for everything the crate draws unless a
+label holds a character no base font has, such as a sample name in Cyrillic,
+which is drawn as a question mark and named.
 
 ```rust
 use karyon::{plot, Pdf};
@@ -922,10 +923,9 @@ arbitrary. `origin_gap(0.0)` closes it.
 `length()`, `ring_count()`, `dimensions()` and `inner_radius()` read the plot
 back, the last being the radius where chords start. `push_boxed`, `to_svg`,
 `to_svg_with_id_prefix`, `save_svg`, `to_pdf` and `save_pdf` work as they do on
-`Figure`. A ring type
-of your own implements the `Ring` trait: `thickness()`, an optional `gap()`
-(5 pixels by default) and `draw(ctx)`, which draws between the two radii in the
-`RingContext` it is given.
+`Figure`. A ring type of your own implements the `Ring` trait: `thickness()`,
+an optional `gap()` (5 pixels by default) and `draw(ctx)`, which draws between
+the two radii in the `RingContext` it is given.
 
 ## Genome: several sequences on one axis
 
