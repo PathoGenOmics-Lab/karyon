@@ -77,6 +77,7 @@ line flag that draws it, and the route opens its page in this gallery.
 | Structural calls: VCF with symbolic alleles or `SVTYPE` | [Structural variants](../tracks/variation.md#structuraltrack), `--structural` | [Variation and association](variation-association.md) |
 | Copy number segments: CNVkit `.cns`, ASCAT or `.seg` | [Copy number](../tracks/variation.md#copynumbertrack), `--copy-number` with `--ploidy` | [Variation and association](variation-association.md) |
 | Closely related genomes: aligned FASTA | [Variable sites](../tracks/variation.md#snptrack), `--snps`, or a [multiple alignment](../tracks/comparison.md#msatrack), `--msa` | [Variation and association](variation-association.md), [Comparisons and alignments](comparisons-alignments.md) |
+| The genotypes of a cohort: VCF with samples | [Genotypes by sample](../tracks/variation.md#genotypetrack), `--genotypes` | [Variation and association](variation-association.md) |
 | A value per sample per site: a table | [Genotype matrix](../tracks/variation.md#matrixtrack), `--matrix` | [Variation and association](variation-association.md) |
 | Association statistics: a table of position and value | [Association scan](../tracks/variation.md#manhattantrack), `--manhattan` | [Variation and association](variation-association.md) |
 | Site-wise results from a codon model | [Site-wise selection](../tracks/variation.md#selectiontrack) | [Variation and association](variation-association.md), [Evolution and surveillance](evolution-surveillance.md) |
@@ -114,7 +115,7 @@ line flag that draws it, and the route opens its page in this gallery.
 
 -   **[Track catalogue](../tracks/index.md)**
 
-    All 37 track types, family by family, with the options of each and the
+    All 38 track types, family by family, with the options of each and the
     files it reads.
 
 -   **[Recipes](../recipes.md)**

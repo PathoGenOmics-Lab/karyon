@@ -853,6 +853,72 @@
       },
     },
     {
+      name: "Genotypes from a VCF",
+      bounds: { from: 1, to: 30500, min: 800 },
+      controls: [
+        { kind: "region" },
+        { kind: "data", param: "samples", value: 32, label: "Samples in the cohort",
+          options: [12, 32, 80],
+          says: "The track draws 40 rows and counts the rest" },
+        { kind: "data", param: "ploidy", value: "diploid", label: "How many copies a call has",
+          options: ["haploid", "diploid"],
+          says: "A haploid cohort has no heterozygous call, and the key says so" },
+        { kind: "choice", flag: "--max-rows", after: "--genotypes",
+          label: "How many samples are drawn before it counts the rest",
+          options: ["10", "40", "all"] },
+      ],
+      group: "Association and genotype",
+      // The same question as the matrix above, asked of the file a caller
+      // writes rather than of a table made from it: which samples carry what.
+      // Each clade carries alleles of its own, a quarter of the sites are a
+      // scatter at low frequency, and one call in fifty is not called, so a
+      // row of each mark is somewhere on the page. Narrow the window and the
+      // pixels that pooled several sites come apart into cells, each a call
+      // with a tooltip of its own.
+      command: "chr1:1-12,000 --genotypes cohort.vcf --traits samples.tsv --columns lineage",
+      files: [
+        { name: "cohort.vcf", body: "" },
+        { name: "samples.tsv", body: "" },
+      ],
+      make: function (p) {
+        var samples = (p && p.samples) || 32;
+        var diploid = ((p && p.ploidy) || "diploid") === "diploid";
+        var next = rolls(511207);
+        var names = [];
+        for (var i = 0; i < samples; i++) names.push("S" + ("0" + (i + 1)).slice(-2));
+        var per = Math.ceil(samples / 3);
+        var clade = function (i) { return Math.floor(i / per); };
+        var out = "##fileformat=VCFv4.2\n" +
+          "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + names.join("\t") + "\n";
+        var bases = "ACGT";
+        var n = 0;
+        for (var at = 120; at < 30400; at += 90 + Math.floor(next() * 160)) {
+          var ref = bases[Math.floor(next() * 4)];
+          var alt = bases[(bases.indexOf(ref) + 1 + Math.floor(next() * 3)) % 4];
+          // Three sites in four belong to one clade, and the fourth is a
+          // scatter across all of them.
+          var owner = n % 4;
+          var row = ["chr1", at, ".", ref, alt, "60", "PASS", ".", "GT"];
+          for (var s = 0; s < samples; s++) {
+            var carries = owner === 3 ? next() < 0.08 : clade(s) === owner;
+            var call;
+            if (next() < 0.02) call = diploid ? "./." : ".";
+            else if (!diploid) call = carries ? "1" : "0";
+            else if (carries) call = next() < 0.2 ? "0/1" : "1/1";
+            else call = next() < 0.03 ? "0/1" : "0/0";
+            row.push(call);
+          }
+          out += row.join("\t") + "\n";
+          n++;
+        }
+        return [
+          { name: "cohort.vcf", body: out },
+          { name: "samples.tsv", body: sheetFor(names, ["lineage", "drug", "year", "source"],
+              function (i) { return "L" + (clade(i) + 1); }) },
+        ];
+      },
+    },
+    {
       name: "A read pileup",
       bounds: { from: 1, to: 1600, min: 60 },
       controls: [

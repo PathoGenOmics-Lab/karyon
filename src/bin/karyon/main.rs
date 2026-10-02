@@ -57,8 +57,8 @@ TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
                           --logo --dynseq
     annotation            --features --orfs
-    variation             --variants --structural --copy-number --snps
-                          --matrix --heatmap --manhattan --pairs
+    variation             --variants --genotypes --structural --copy-number
+                          --snps --matrix --heatmap --manhattan --pairs
                           --recombination
     reads and molecules   --pileup --split-reads --bisulfite --junctions
     comparison            --msa --domains --dotplot --synteny --loci
@@ -91,6 +91,7 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Features => "tracks/annotation/#featuretrack",
         Kind::Orfs => "tracks/annotation/#orftrack",
         Kind::Variants => "tracks/variation/#varianttrack",
+        Kind::Genotypes => "tracks/variation/#genotypetrack",
         Kind::Structural => "tracks/variation/#structuraltrack",
         Kind::Pairs => "tracks/variation/#pairtrack",
         Kind::CopyNumber => "tracks/variation/#copynumbertrack",
@@ -230,9 +231,21 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          folded clade shows what its tips agree on
 "
         }
-        (Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains, "--with-tree") => {
+        (
+            Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Genotypes | Kind::Domains,
+            "--with-tree",
+        ) => {
             "    --with-tree <FILE>   a Newick tree: the rows are drawn in the order of
                          its tips, with the tree beside them
+"
+        }
+        (Kind::CopyNumber, "--sample") => {
+            "    --sample <NAME>      which sample of a segment table holding several
+"
+        }
+        (Kind::Genotypes, "--sample") => {
+            "    --sample <A,B,C>     which samples of the VCF to draw, in this order; every
+                         sample, in the order of its header, by default
 "
         }
         (Kind::Tree, "--threshold") => {
@@ -433,6 +446,9 @@ TRACKS
                          over a line through its introns, and the ends that
                          do not code at half height
     --variants <FILE>    point calls, VCF
+    --genotypes <FILE>   the call of each sample at each site of a VCF, a row
+                         per sample: reference, heterozygous, alternate or
+                         not called, at its position
     --windows <FILE>     a statistic in windows, bedGraph
     --manhattan <FILE>   association statistics, a table of position and value;
                          a column headed P, pvalue or p_wald is drawn as -log10
@@ -535,7 +551,9 @@ TRACK OPTIONS, each describing the track before it, once
                          by default
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
                          required, since it is not in the file
-    --sample <NAME>      which sample of a segment table holding several
+    --sample <NAME[,N]>  which sample of a segment table holding several; after
+                         --genotypes, which samples of the VCF to draw and in
+                         what order, comma separated
     --traits <FILE>      a sample sheet drawn as strips beside the rows, for
                          the tracks that have rows: a header, names in column
                          one, one column per thing known about them. A tree
@@ -634,13 +652,14 @@ TRACK OPTIONS, each describing the track before it, once
                          themselves by rows rather than by --height; each has
                          a minimum of its own and will not be drawn under it,
                          and a row too short for a name shrinks the name with it
-    --max-rows <N|all>   how deep a pileup, alignment, variable-site panel or
-                         molecule grid is drawn before it stops and counts the
-                         rest; 40 by default, and all lifts it. A tree takes it
-                         too and answers differently: it collapses the smallest
-                         clades until it fits, so every tip is still on the
-                         figure inside a triangle saying how many it holds, and
-                         it has no cap unless one is asked for
+    --max-rows <N|all>   how deep a pileup, alignment, variable-site panel,
+                         stack of genotype rows or molecule grid is drawn
+                         before it stops and counts the rest; 40 by default,
+                         and all lifts it. A tree takes it too and answers
+                         differently: it collapses the smallest clades until it
+                         fits, so every tip is still on the figure inside a
+                         triangle saying how many it holds, and it has no cap
+                         unless one is asked for
     --no-names           leave out the name written on or beside each thing a
                          track draws, which is not the track's own name in the
                          gutter: that one is --label
@@ -1198,6 +1217,25 @@ mod tests {
             });
             assert!(accepted, "no track takes {flag} {value}");
         }
+    }
+
+    /// `--sample` is one name after `--copy-number` and a list after
+    /// `--genotypes`, so each track's own help says which it is, rather than
+    /// both reading the line that covers the two.
+    #[test]
+    fn sample_is_described_as_each_track_reads_it() {
+        let genotypes = help_on("genotypes").unwrap();
+        assert!(
+            genotypes.contains("--sample <A,B,C>     which samples of the VCF to draw"),
+            "{genotypes}"
+        );
+        assert!(!genotypes.contains("segment table"), "{genotypes}");
+        let copies = help_on("copy-number").unwrap();
+        assert!(
+            copies.contains("--sample <NAME>      which sample of a segment table"),
+            "{copies}"
+        );
+        assert!(!copies.contains("--genotypes"), "{copies}");
     }
 
     #[test]

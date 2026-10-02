@@ -107,14 +107,15 @@ use crate::theme::Theme;
 use crate::track::{
     AlignmentBlock, Association, AxisTrack, Band, BisulfiteTrack, CladeBlock, CladeTrack,
     CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack, DomainArchitecture, DomainTrack,
-    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, IdeogramTrack, Junction,
-    JunctionTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack,
-    MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack,
-    OrfTrack, Pair, PairTrack, PhylodynamicPoint, PhylodynamicTrack, PileupTrack, Read,
-    SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack,
-    SquiggleTrack, Strand, StructuralTrack, StructuralVariant, SurveillanceObservation,
-    SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track, TranscriptionUnit,
-    TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
+    DotplotTrack, DynseqTrack, Feature, FeatureTrack, GenomeTrack, GenotypeSite, GenotypeTrack,
+    IdeogramTrack, Junction, JunctionTrack, Legend, LegendTrack, Locus, LocusTrack, LogoColumn,
+    LogoTrack, ManhattanTrack, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule,
+    MsaSequence, MsaTrack, OrfTrack, Pair, PairTrack, PhylodynamicPoint, PhylodynamicTrack,
+    PileupTrack, Read, SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead,
+    SplitReadTrack, SquiggleTrack, Strand, StructuralTrack, StructuralVariant,
+    SurveillanceObservation, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Track,
+    TranscriptionUnit, TranscriptionUnitTrack, TreeTrack, Variant, VariantTrack, Window,
+    WindowTrack,
 };
 use crate::tree::Tree;
 
@@ -295,6 +296,7 @@ tracks![
     DynseqTrack,
     FeatureTrack,
     GenomeTrack,
+    GenotypeTrack,
     IdeogramTrack,
     JunctionTrack,
     LegendTrack,
@@ -761,6 +763,16 @@ impl<T: Slot> Plot<T> {
     /// Every sequence of a genome laid end to end, for a whole genome view.
     pub fn add_genome(self, genome: Genome) -> Plot<GenomeTrack> {
         self.settle().park(GenomeTrack::new(genome))
+    }
+
+    /// The call of each sample at each site, a row per sample, each call at
+    /// its site's position.
+    pub fn add_genotypes(
+        self,
+        samples: impl Into<Vec<String>>,
+        sites: impl Into<Vec<GenotypeSite>>,
+    ) -> Plot<GenotypeTrack> {
+        self.settle().park(GenotypeTrack::new(samples, sites))
     }
 
     /// A chromosome drawn as stained bands, with the region marked on it.
@@ -1292,6 +1304,15 @@ mod tests {
             .add_domains(vec![DomainArchitecture::new("s1", 1_000)])
             .add_features(vec![Feature::new(761_100, 761_400)])
             .add_genome(Genome::new([("chr1", 1_000u64)]))
+            .add_genotypes(
+                vec!["s1".to_string()],
+                vec![GenotypeSite::new(
+                    761_100,
+                    "A",
+                    ["G"],
+                    vec![crate::track::Genotype::diploid(0, 1)],
+                )],
+            )
             .add_ideogram(1_000_000, vec![Band::new(0, 1_000, Stain::Gneg)])
             .add_legend(Legend::new().key("a", "#000000"))
             .add_loci(vec![Locus::new("l1", vec![Feature::new(761_000, 761_100)])])
@@ -1340,7 +1361,7 @@ mod tests {
             .add_track(AxisTrack::new())
             .add_axis()
             .into_figure();
-        assert_eq!(figure.track_count(), 39);
+        assert_eq!(figure.track_count(), 40);
     }
 
     #[test]

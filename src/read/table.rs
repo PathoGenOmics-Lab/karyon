@@ -41,6 +41,15 @@ use super::{columns, lines, number, ReadError};
 ///
 /// Returns the site positions, 0-based, and one row per sample.
 pub fn matrix(text: &str, region: &Region) -> Result<(Vec<u64>, Vec<MatrixRow>), ReadError> {
+    // A VCF's header is comments to this reader, so its first record was read
+    // as the header of sites and refused for an `ID` where a position goes,
+    // which says nothing of what the file is or what reads it.
+    if is_vcf(text) {
+        return Err(ReadError::whole(
+            "this is a VCF, and --matrix reads a table of sites across a header; \
+             --genotypes draws a VCF's samples, a row each",
+        ));
+    }
     let mut rest = lines(text);
     let Some((header_line, header)) = rest.next() else {
         // A file with no header has no sites and no samples. The caller is the
@@ -99,6 +108,19 @@ pub fn matrix(text: &str, region: &Region) -> Result<(Vec<u64>, Vec<MatrixRow>),
     }
 
     Ok((inside, rows))
+}
+
+/// Whether the text opens with a VCF's header: its `##fileformat=VCF` line,
+/// or the `#CHROM POS` line that names its columns.
+fn is_vcf(text: &str) -> bool {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    text.lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .take_while(|line| line.starts_with('#') || line.trim().is_empty())
+        .any(|line| {
+            line.starts_with("##fileformat=VCF")
+                || columns(line).get(..2) == Some(&["#CHROM", "POS"][..])
+        })
 }
 
 /// The windows of a table, each 0-based and half-open, and a row of values
@@ -443,6 +465,26 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "ERR001");
         assert_eq!(rows[0].value(0), Some(1.0));
+    }
+
+    /// A VCF's header is comments here, so its first record was read as the
+    /// header and refused for an `ID` where a position goes, which said
+    /// nothing of what the file is. It names the track that reads one.
+    #[test]
+    fn a_vcf_is_refused_and_the_track_for_it_named() {
+        let region = region("chr1:1-1000");
+        let vcf = "##fileformat=VCFv4.2\n\
+                   #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n\
+                   chr1\t100\trs1\tC\tT\t.\t.\t.\tGT\t1\n";
+        let headless = &vcf[vcf.find("#CHROM").unwrap()..];
+        for text in [vcf, headless] {
+            let error = matrix(text, &region).unwrap_err();
+            assert_eq!(error.line, 0, "the whole file, not one line");
+            assert!(error.reason.contains("--genotypes"), "{}", error.reason);
+        }
+        // A comment above a table is still a table.
+        let (sites, _) = matrix("# typed in 2026\nsample\t101\nS1\t1\n", &region).unwrap();
+        assert_eq!(sites, vec![100]);
     }
 
     #[test]
