@@ -605,9 +605,11 @@ karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
 - **A span, one base, a gene or a span with no sequence.** `chr1:1,001-2,000`
   is a span and `chr1:1,500` one base, which marks one column. A gene the
   annotation names, as `--shade katG`, is shaded from its own start to its
-  own end, without the margin a figure placed on the gene is drawn with. A
-  span with no sequence, as `120-180`, is on whatever axis the figure has: an
-  alignment's columns, a table's weeks, or the one sequence it is drawn over.
+  own end, without the margin a figure placed on the gene is drawn with; a
+  gene of `--loci` where its row draws it, whichever genome its first column
+  names. A span with no sequence, as `120-180`, is on whatever axis the figure
+  has: an alignment's columns, a table's weeks or years, said as its ruler
+  says them, or the one sequence it is drawn over.
 - **Behind the tracks, edged over them.** The wash is under every track, so no
   colour in the figure changes, and its two ends are dashed lines drawn over
   the tracks, so a heatmap whose cells hide the wash still shows where the
@@ -619,7 +621,9 @@ karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
 - **Each panel its own.** With several places, each panel shades what is on
   its sequence. A stretch on a sequence no place is on is refused; one on the
   right sequence and outside the window is drawn as nothing, with a note on
-  standard error, so a figure moved past it is still drawn.
+  standard error, so a figure moved past it is still drawn. A scan across the
+  whole genome is shaded on one of its sequences, as `7:1,001-2,000`, since it
+  reads no annotation to find a gene in.
 - **Never a file.** Many intervals from a BED are what `--features` draws, and
   `--shade genes.bed` is refused with that.
 

@@ -340,10 +340,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--shade PLACE[=NAME]` on the command line, once for each stretch, anywhere
   on the line: a span, one base, a gene the annotation names, shaded over its
   own ends rather than with a margin, or a span with no sequence, as
-  `120-180`, on an alignment's columns or a table's weeks. Each panel of a
-  sheet shades what is on its own sequence and a scan across the genome
-  through its offsets. A stretch on a sequence no place is on is refused, and
-  one outside the window is a note, so a page moving the figure keeps drawing.
+  `120-180`, on an alignment's columns or a table's weeks. A gene of `--loci`
+  is shaded in whichever genome's row draws it, and every gene is looked up
+  in one read of each annotation for the whole figure, however many panels it
+  has. A time is said as its ruler says it, `2012 to 2013`, and never in the
+  thousandths a table with fractions is drawn at. Each panel of a sheet
+  shades what is on its own sequence and a scan across the genome through its
+  offsets. A stretch on a sequence no place is on is refused, and one outside
+  the window is a note, so a page moving the figure keeps drawing.
   It reads no file: `--shade genes.bed` points at `--features`. `--highlight`
   with a place, and `--roi`, `--vhighlight` and `--axvspan` as other tools
   spell it, are answered with `--shade`.

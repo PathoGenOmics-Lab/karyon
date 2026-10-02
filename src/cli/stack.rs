@@ -292,6 +292,9 @@ pub enum ShadeRefusal {
     },
     /// A span with no sequence, on a scan whose axis is every sequence.
     WholeGenome,
+    /// A gene, on a scan across the whole genome, which reads no annotation
+    /// to look one up in: a GFF3 beside it makes the figure one of a place.
+    GenomeGene,
 }
 
 impl fmt::Display for BuildError {
@@ -506,6 +509,12 @@ impl fmt::Display for BuildError {
                     "--shade {given}: a scan across the whole genome is shaded on one of its \
                      sequences, as 7:1,001-2,000"
                 ),
+                ShadeRefusal::GenomeGene => write!(
+                    f,
+                    "--shade {given}: a scan across the whole genome reads no annotation to \
+                     look a gene up in; write the gene's span on its sequence, as \
+                     7:1,001-2,000"
+                ),
             },
         }
     }
@@ -624,11 +633,7 @@ pub fn build_sheet(
     }
     let mut legend = crate::track::legend::Legend::new();
     // Each shade is settled across every panel, once they are all drawn.
-    let mut fates: Vec<ShadeFate> = invocation
-        .shades
-        .iter()
-        .map(|_| ShadeFate::default())
-        .collect();
+    let mut shading = Shading::new(invocation);
     let mut names = Vec::with_capacity(places.len());
     let mut figures = Vec::with_capacity(places.len());
     for place in &places {
@@ -654,12 +659,12 @@ pub fn build_sheet(
             &mut parsed,
             theme.clone(),
             None,
-            Some(&mut fates),
+            Some(&mut shading),
         )?;
         gather(&mut legend, &built.legend);
         figures.push(built.figure);
     }
-    settle_shades(invocation, &fates, &mut kept)?;
+    settle_shades(invocation, &shading.fates, &mut kept)?;
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
     if invocation.same_scale {
@@ -729,14 +734,15 @@ pub fn build_figure(
 /// The same, for a panel of a sheet of several places where `sheet` is
 /// given: a track with nothing in the place is drawn as a band that says so
 /// rather than refusing the figure, and what became of each shade is put in
-/// `sheet` for the sheet to settle once every panel has had it.
+/// `sheet` for the sheet to settle once every panel has had it, beside where
+/// each gene to shade is, which the first panel looks up for them all.
 fn build_one(
     invocation: &Invocation,
     files: &mut dyn Files,
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
     theme: Theme,
     window: Option<&Region>,
-    sheet: Option<&mut [ShadeFate]>,
+    sheet: Option<&mut Shading>,
 ) -> Result<Built, BuildError> {
     let tolerant = sheet.is_some();
     let mut kept = KeptStdin { files, stdin: None };
@@ -933,17 +939,19 @@ fn build_one(
     // here for a figure of one place and by the sheet for one of several.
     let over = known.unwrap_or(region);
     figure = match sheet {
-        Some(fates) => shaded(figure, invocation, files, region, over, decimals, fates)?,
+        Some(shading) => shaded(figure, invocation, files, region, over, decimals, shading)?,
         None => {
-            let mut fates: Vec<ShadeFate> = invocation
-                .shades
-                .iter()
-                .map(|_| ShadeFate::default())
-                .collect();
+            let mut shading = Shading::new(invocation);
             let figure = shaded(
-                figure, invocation, files, region, over, decimals, &mut fates,
+                figure,
+                invocation,
+                files,
+                region,
+                over,
+                decimals,
+                &mut shading,
             )?;
-            settle_shades(invocation, &fates, files)?;
+            settle_shades(invocation, &shading.fates, files)?;
             figure
         }
     };
@@ -1185,6 +1193,38 @@ struct ShadeFate {
     sequence: String,
 }
 
+/// Where an annotation puts a gene a `--shade` names: the sequence, under the
+/// name the figure gives it, and the span. The sequence is `None` for a gene
+/// of `--loci`, whose first column names a genome and not a sequence, and
+/// which is drawn on the figure's own axis whatever genome it names.
+type GenePlace = (Option<String>, u64, u64);
+
+/// The `--shade`s of a command line, as the panels of its figure take them.
+#[derive(Debug)]
+struct Shading {
+    /// What became of each, in the order they were written.
+    fates: Vec<ShadeFate>,
+    /// Where the annotations put the gene each names, in the same order, and
+    /// nothing for one that names no gene. Looked up the first time a panel
+    /// shades anything and kept for the rest, since every panel has the same
+    /// answer: looked up again for each shade and each panel, four genes over
+    /// a sheet of four places went through a 63 MB GFF3 sixteen more times.
+    genes: Option<Vec<Vec<GenePlace>>>,
+}
+
+impl Shading {
+    fn new(invocation: &Invocation) -> Shading {
+        Shading {
+            fates: invocation
+                .shades
+                .iter()
+                .map(|_| ShadeFate::default())
+                .collect(),
+            genes: None,
+        }
+    }
+}
+
 /// A window as a reader writes one, `chr1:1-4,000`, for the messages a shade
 /// is answered with.
 fn written(region: &Region) -> String {
@@ -1197,15 +1237,30 @@ fn written(region: &Region) -> String {
     )
 }
 
+/// A window of a time axis as its ruler and its tooltips write a time,
+/// `year:2010.25-2015.75`: in the units of the table, from the first time to
+/// the last, rather than in the thousandths it is drawn at, and never grouped
+/// as a count of bases is.
+fn written_in_time(region: &Region, decimals: u32) -> String {
+    use crate::track::axis::time_text;
+    format!(
+        "{}:{}-{}",
+        region.seq(),
+        time_text(region.start(), decimals),
+        time_text(region.end().saturating_sub(1), decimals)
+    )
+}
+
 /// Shades on `figure`, drawn over `region` and written as `over`, every
-/// stretch `--shade` asks for that is on its sequence, and says in `fates`
+/// stretch `--shade` asks for that is on its sequence, and says in `shading`
 /// what became of each.
 ///
 /// A place on the sequence under any name `--rename` gives it, and a span with
 /// no sequence on whatever the figure is drawn over. A gene over its own span
 /// as the annotation gives it, without the margin a figure placed on it gets,
-/// and over each of its places where it has several. On a continuous time,
-/// each is moved into the thousandths the tables are read in, as the place is.
+/// and over each of its places where it has several; a gene of `--loci` where
+/// its row draws it, whichever genome that is. On a continuous time, each is
+/// moved into the thousandths the tables are read in, as the place is.
 fn shaded(
     figure: Figure,
     invocation: &Invocation,
@@ -1213,7 +1268,7 @@ fn shaded(
     region: &Region,
     over: &Region,
     decimals: u32,
-    fates: &mut [ShadeFate],
+    shading: &mut Shading,
 ) -> Result<Figure, BuildError> {
     let Some(first) = invocation.shades.first() else {
         return Ok(figure);
@@ -1224,20 +1279,50 @@ fn shaded(
             why: ShadeRefusal::NothingToShade,
         });
     }
+    let Shading { fates, genes } = shading;
+    if genes.is_none() {
+        *genes = Some(gene_places(invocation, files)?);
+    }
+    let genes = genes.as_deref().unwrap_or_default();
     let aliases = called_by(invocation, region.seq());
+    // Moved into thousandths wherever the tables are read in them, as the
+    // place is.
     let scale = (decimals > 0 && all_times(invocation)).then(|| 10u64.pow(decimals));
-    // A time is said in its own units, as the place is written, rather than
-    // in the thousandths it is drawn at, and a year is never grouped.
-    let timed = |(start, end): (u64, u64)| match scale {
-        Some(scale) => (
-            start.saturating_add(1).saturating_mul(scale),
-            end.saturating_mul(scale).saturating_add(1),
-            Some(format!("{} to {end}", start.saturating_add(1))),
-        ),
-        None => (start, end, None),
+    // A time is said in its own units, as its ruler and its tooltips write
+    // it, rather than in the thousandths it is drawn at, and a year is never
+    // grouped: a table of whole years said `2,012 to 2,013` under a ruler
+    // reading 2012. Only where the ruler counts time, though: a skyline beside
+    // a depth is drawn under a ruler of bases, which groups.
+    let times = all_times(invocation) && counted(invocation, region, decimals).is_some();
+    let timed = |(start, end): (u64, u64)| {
+        let (start, end) = match scale {
+            Some(scale) => (
+                start.saturating_add(1).saturating_mul(scale),
+                end.saturating_mul(scale).saturating_add(1),
+            ),
+            None => (start, end),
+        };
+        let said = times.then(|| {
+            use crate::track::axis::time_text;
+            format!(
+                "{} to {}",
+                time_text(start, decimals),
+                time_text(end.saturating_sub(1).max(start), decimals)
+            )
+        });
+        (start, end, said)
+    };
+    // The window each shade is said to be outside of, or refused against, in
+    // the units the ruler counts: on a time, the thousandths a table with
+    // fractions is drawn at said `year:2,010,251-2,015,751` under a ruler
+    // reading 2011 to 2015.
+    let window = if times {
+        written_in_time(region, decimals)
+    } else {
+        written(over)
     };
     let mut figure = figure;
-    for (shading, fate) in invocation.shades.iter().zip(fates.iter_mut()) {
+    for ((shading, fate), places) in invocation.shades.iter().zip(fates.iter_mut()).zip(genes) {
         let (spans, sequence): (Vec<(u64, u64, Option<String>)>, String) = match &shading.place {
             ShadePlace::Locus(at) => {
                 let here = aliases.contains(&at.seq());
@@ -1251,23 +1336,29 @@ fn shaded(
             ShadePlace::Along(start, end) => {
                 (vec![timed((*start, *end))], region.seq().to_string())
             }
-            ShadePlace::Gene(name) => {
-                let places = gene_places(name, &shading.given, invocation, files)?;
+            ShadePlace::Gene(_) => {
                 let mut sequences: Vec<String> = Vec::new();
-                for (sequence, _, _) in &places {
+                for sequence in places
+                    .iter()
+                    .filter_map(|(sequence, _, _)| sequence.as_ref())
+                {
                     if !sequences.contains(sequence) {
                         sequences.push(sequence.clone());
                     }
                 }
                 let here = places
                     .iter()
-                    .filter(|(sequence, _, _)| sequence == region.seq())
+                    .filter(|(sequence, _, _)| {
+                        sequence
+                            .as_ref()
+                            .map_or(true, |sequence| sequence == region.seq())
+                    })
                     .map(|(_, start, end)| (*start, *end, None))
                     .collect();
                 (here, joined(&sequences))
             }
         };
-        fate.windows.push(written(over));
+        fate.windows.push(window.clone());
         if spans.is_empty() {
             fate.sequence = sequence;
             continue;
@@ -1287,27 +1378,37 @@ fn shaded(
         if seen {
             fate.drawn = true;
         } else {
-            fate.outside.push(written(over));
+            fate.outside.push(window.clone());
         }
     }
     Ok(figure)
 }
 
-/// Every place the figure's annotations put the gene `name`, each once: one
-/// gene written as a gene, a transcript and a CDS overlaps itself and is one
-/// place, merged as [`place`] merges the place a figure is drawn over.
+/// Every place the figure's annotations put each gene a `--shade` names, in
+/// the order the shades are written, and nothing for one that names no gene.
+///
+/// Each place once: one gene written as a gene, a transcript and a CDS
+/// overlaps itself and is one place, merged as [`place`] merges the place a
+/// figure is drawn over. Each annotation is read once, and every name looked
+/// up in the one pass over it.
 fn gene_places(
-    name: &str,
-    given: &str,
     invocation: &Invocation,
     files: &mut dyn Files,
-) -> Result<Vec<(String, u64, u64)>, BuildError> {
-    let refuse = |why: ShadeRefusal| BuildError::Unshaded {
-        given: given.to_string(),
-        why,
-    };
+) -> Result<Vec<Vec<GenePlace>>, BuildError> {
+    let wanted: Vec<&str> = invocation
+        .shades
+        .iter()
+        .filter_map(|shading| match &shading.place {
+            ShadePlace::Gene(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut places: Vec<Vec<GenePlace>> = invocation.shades.iter().map(|_| Vec::new()).collect();
+    if wanted.is_empty() {
+        return Ok(places);
+    }
     let mut annotated = false;
-    let mut spans: Vec<(String, u64, u64)> = Vec::new();
+    let mut spans: Vec<Vec<GenePlace>> = vec![Vec::new(); wanted.len()];
     let mut names: Vec<String> = Vec::new();
     for spec in &invocation.tracks {
         if !matches!(spec.kind, Kind::Features | Kind::Loci) {
@@ -1321,30 +1422,45 @@ fn gene_places(
             continue;
         };
         annotated = true;
-        let found = read::interval::named(&text, name);
-        spans.extend(
-            found
-                .spans
-                .into_iter()
-                .map(|(sequence, start, end)| (renamed(invocation, sequence), start, end)),
-        );
+        let found = read::interval::named_each(&text, &wanted);
+        // A row of --loci is drawn on the figure's axis whatever genome its
+        // first column names, so its gene is shaded there too: held to the
+        // sequence of that name, it was refused as elsewhere in the very
+        // figure that drew it.
+        let loci = spec.kind == Kind::Loci;
+        for (spans, found) in spans.iter_mut().zip(found.spans) {
+            spans.extend(found.into_iter().map(|(sequence, start, end)| {
+                let sequence = (!loci).then(|| renamed(invocation, sequence));
+                (sequence, start, end)
+            }));
+        }
         names.extend(found.names);
     }
-    if !annotated {
-        return Err(refuse(ShadeRefusal::NoAnnotation));
-    }
-    spans.sort();
-    let mut places: Vec<(String, u64, u64)> = Vec::new();
-    for (sequence, start, end) in spans {
-        match places.last_mut() {
-            Some(last) if last.0 == sequence && start <= last.2 => last.2 = last.2.max(end),
-            _ => places.push((sequence, start, end)),
+    let mut spans = spans.into_iter();
+    for (shading, places) in invocation.shades.iter().zip(places.iter_mut()) {
+        let ShadePlace::Gene(name) = &shading.place else {
+            continue;
+        };
+        let refuse = |why: ShadeRefusal| BuildError::Unshaded {
+            given: shading.given.clone(),
+            why,
+        };
+        if !annotated {
+            return Err(refuse(ShadeRefusal::NoAnnotation));
         }
-    }
-    if places.is_empty() {
-        return Err(refuse(ShadeRefusal::NoSuchGene {
-            near: near_names(&names, name),
-        }));
+        let mut found = spans.next().unwrap_or_default();
+        found.sort();
+        for (sequence, start, end) in found {
+            match places.last_mut() {
+                Some(last) if last.0 == sequence && start <= last.2 => last.2 = last.2.max(end),
+                _ => places.push((sequence, start, end)),
+            }
+        }
+        if places.is_empty() {
+            return Err(refuse(ShadeRefusal::NoSuchGene {
+                near: near_names(&names, name),
+            }));
+        }
     }
     Ok(places)
 }
@@ -1404,7 +1520,7 @@ fn shaded_genome(
         let at = match &shading.place {
             ShadePlace::Locus(at) => at,
             ShadePlace::Along(..) => return Err(refuse(ShadeRefusal::WholeGenome)),
-            ShadePlace::Gene(_) => return Err(refuse(ShadeRefusal::NoAnnotation)),
+            ShadePlace::Gene(_) => return Err(refuse(ShadeRefusal::GenomeGene)),
         };
         let found = std::iter::once(at.seq())
             .chain(
@@ -7959,6 +8075,53 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .unwrap_err()
             .to_string();
         assert!(said.contains("a scan across the whole genome"), "{said}");
+        // A stretch past where a sequence ends in the figure stops there,
+        // at its furthest marker, rather than running on into the next.
+        let built = built_from(
+            "gwas.assoc --shade 1:800,001-2,000,000",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let shades = built.figure.shades();
+        let first = genome.offset("1").unwrap();
+        assert_eq!(
+            (shades[0].start(), shades[0].end()),
+            (first + 800_000, first + 900_000)
+        );
+        // A sequence --rename names otherwise is found by that name too, and
+        // shaded where the table's own name for it is laid.
+        let built = built_from(
+            "gwas.assoc --rename 2=chrB --shade chrB:1-500,000=p",
+            &held,
+            Theme::light(),
+            None,
+        );
+        let shades = built.figure.shades();
+        assert_eq!(
+            (shades[0].start(), shades[0].end()),
+            (start, start + 500_000)
+        );
+        assert!(built
+            .figure
+            .to_svg()
+            .contains("<title>p, chrB:1-500,000</title>"));
+    }
+
+    /// A scan across the whole genome reads no annotation, and one beside it
+    /// makes the figure a figure of a place, so a gene is answered with the
+    /// one form that shades it: its span on its sequence.
+    #[test]
+    fn a_gene_shade_on_a_genome_wide_scan_is_answered_with_its_span() {
+        let table = "CHR\tSNP\tBP\tP\n1\ta\t1000\t0.01\n2\tc\t5000\t1e-9\n";
+        let said = drawn_from("gwas.assoc --shade GENE1", &[("gwas.assoc", table)])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            said,
+            "--shade GENE1: a scan across the whole genome reads no annotation to look a \
+             gene up in; write the gene's span on its sequence, as 7:1,001-2,000"
+        );
     }
 
     #[test]
@@ -7986,6 +8149,161 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             said.starts_with("--shade c1:1-10: nothing in this figure is laid on the coordinates"),
             "{said}"
         );
+    }
+
+    /// Two genomes' neighbourhoods, column one naming the genome, and what
+    /// joins them.
+    const SHADED_LOCI: &str = "H37Rv\t100\t900\tesxA\nH37Rv\t1000\t1800\tesxB\n\
+                               BCG\t150\t950\tesxA_b\nBCG\t1100\t1900\tesxB_b\n";
+    const SHADED_HITS: &str = "esxA\tesxA_b\t98.5\nesxB\tesxB_b\t97.0\n";
+
+    /// A row of --loci is drawn on the figure's axis whatever genome its
+    /// first column names, and its gene is shaded where it is drawn: held to
+    /// the sequence of that name, it was refused as on H37Rv in the figure
+    /// that drew it.
+    #[test]
+    fn a_gene_of_the_loci_is_shaded_where_its_row_draws_it() {
+        let held = [("loci.bed", SHADED_LOCI), ("hits.tsv", SHADED_HITS)];
+        for (line, span) in [
+            (
+                "locus:1-2,500 --loci loci.bed --links hits.tsv --shade esxA=A",
+                (100, 900),
+            ),
+            (
+                "H37Rv:1-2,500 --loci loci.bed --links hits.tsv --shade esxA_b",
+                (150, 950),
+            ),
+        ] {
+            let built = built_from(line, &held, Theme::light(), None);
+            let shades = built.figure.shades();
+            assert_eq!(shades.len(), 1, "{line}");
+            assert_eq!((shades[0].start(), shades[0].end()), span, "{line}");
+        }
+        // Outside the window is a note, as for any gene.
+        let (svg, notes) = drawn_noting(
+            "locus:1,001-2,500 --loci loci.bed --links hits.tsv --shade esxA",
+            &held,
+        );
+        assert!(svg.is_ok());
+        assert_eq!(
+            notes,
+            ["--shade esxA is outside locus:1,001-2,500, so it is not drawn"]
+        );
+    }
+
+    /// Every gene to shade is looked up in one read of each annotation, for
+    /// every panel of a sheet: each shade read it again for each panel.
+    #[test]
+    fn gene_shades_read_the_annotation_once_for_every_panel() {
+        let reads = |line: &str| {
+            let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+            let Request::Draw(invocation) = parse(&args).unwrap() else {
+                unreachable!("a figure")
+            };
+            let mut read = 0;
+            build(&invocation, |source: &Source| {
+                let Source::Path(path) = source else {
+                    unreachable!("every source is a file")
+                };
+                match path.to_string_lossy().as_ref() {
+                    "genes.gff3" => {
+                        read += 1;
+                        Ok(SHADED_GENES.to_string())
+                    }
+                    "d.bg" => Ok(SHADED_DEPTH.to_string()),
+                    other => Err(io::Error::new(io::ErrorKind::NotFound, other.to_string())),
+                }
+            })
+            .unwrap_or_else(|error| panic!("{line}: {error}"));
+            read
+        };
+        let places = "c1:1-4,000 c1:4,001-8,000 c2:1-1,000 genes.gff3 d.bg";
+        let plain = reads(places);
+        assert_eq!(
+            reads(&format!("{places} --shade GENE1 --shade GENE2")),
+            plain + 1
+        );
+        // A figure of one place reads it once more, however many genes.
+        let plain = reads("c1:1-4,000 genes.gff3 d.bg");
+        assert_eq!(
+            reads("c1:1-4,000 genes.gff3 d.bg --shade GENE1 --shade gene1=again"),
+            plain + 1
+        );
+    }
+
+    /// A skyline over whole years and one over fractions of them.
+    const SHADED_YEARS: &str = "year\tmedian\tlower\tupper\n2010\t100\t50\t200\n\
+                                2012\t400\t300\t600\n2015\t900\t700\t1200\n";
+    const SHADED_FRACTIONS: &str = "year\tmedian\tlower\tupper\n2010.25\t100\t50\t200\n\
+                                    2012.5\t400\t300\t600\n2015.75\t900\t700\t1200\n";
+
+    /// A shade on a time is said as its ruler and its tooltips say a time,
+    /// in whole years as in fractions: whole years were grouped as bases are,
+    /// `2,012 to 2,013`, under a ruler reading 2012.
+    #[test]
+    fn a_shade_on_a_time_is_said_in_years_whole_or_not() {
+        for table in [SHADED_YEARS, SHADED_FRACTIONS] {
+            let svg = drawn_from(
+                "--phylodynamics sky.tsv --shade 2012-2013=a",
+                &[("sky.tsv", table)],
+            )
+            .unwrap();
+            assert!(svg.contains("<title>a, 2012 to 2013</title>"), "{svg}");
+            assert!(svg.contains(" Shaded: a, 2012 to 2013.</desc>"), "{svg}");
+        }
+        // Beside a depth the ruler counts bases and groups them, and the
+        // shade is said as that ruler says a span.
+        let svg = drawn_from(
+            "c1:1-3,000 d.bg --phylodynamics sky.tsv --shade 2012-2013=a",
+            &[("sky.tsv", SHADED_YEARS), ("d.bg", SHADED_DEPTH)],
+        )
+        .unwrap();
+        assert!(svg.contains(">2,000</text>"), "{svg}");
+        assert!(svg.contains("<title>a, 2,012 to 2,013</title>"), "{svg}");
+    }
+
+    /// The window a shade on a time is outside of, or refused against, is
+    /// said in the table's own units: it was said in the thousandths a table
+    /// with fractions is drawn at, as `year:2,010,251-2,015,751`.
+    #[test]
+    fn a_window_of_time_is_named_in_its_own_units() {
+        for (line, table, window) in [
+            (
+                "--phylodynamics sky.tsv",
+                SHADED_FRACTIONS,
+                "year:2010.25-2015.75",
+            ),
+            (
+                "year:2010-2016 --phylodynamics sky.tsv",
+                SHADED_FRACTIONS,
+                "year:2010-2016",
+            ),
+            ("--phylodynamics sky.tsv", SHADED_YEARS, "year:2010-2015"),
+            (
+                "year:2010-2016 --phylodynamics sky.tsv",
+                SHADED_YEARS,
+                "year:2010-2016",
+            ),
+        ] {
+            let held = [("sky.tsv", table)];
+            let (svg, notes) = drawn_noting(&format!("{line} --shade 2030-2040=a"), &held);
+            assert!(svg.is_ok(), "{line}");
+            assert_eq!(
+                notes,
+                [format!(
+                    "--shade 2030-2040=a is outside {window}, so it is not drawn"
+                )],
+                "{line}"
+            );
+            let said = drawn_from(&format!("{line} --shade foo:1-2=a"), &held)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                said,
+                format!("--shade foo:1-2=a is on foo, and the figure is drawn over {window}"),
+                "{line}"
+            );
+        }
     }
 
     #[test]

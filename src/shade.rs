@@ -118,8 +118,9 @@ impl Shade {
         self
     }
 
-    /// Sets the colour of the wash and its edges, which are otherwise the
-    /// figure's foreground ink.
+    /// Sets the colour of the wash and of its edges. Otherwise the wash is the
+    /// figure's foreground ink at 8% of its strength, and the edges are its
+    /// muted ink, the colour of the ruler's labels.
     ///
     /// One colour for every shade is the default, because a shade says look
     /// here and not which category, and a palette colour would read as a key

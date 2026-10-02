@@ -2000,6 +2000,19 @@ mod tests {
             .shade(Shade::new(10_000, 10_500));
         assert_eq!(plain.to_svg(), away.to_svg());
         assert_eq!(plain.dimensions(), away.dimensions());
+        // Nor for one ending where the window starts: half-open, its last
+        // base is the one before the first drawn, and counted in view it drew
+        // an edge and a name row over a stretch with no base on the page.
+        let later = |figure: Figure| {
+            figure
+                .push(CoverageTrack::new(1_000, vec![30.0; 1_000]).label("depth"))
+                .push(AxisTrack::new())
+        };
+        let window = Region::new("chr1", 1_000, 2_000).unwrap();
+        let plain = later(Figure::new(window.clone()));
+        let before = later(Figure::new(window)).shade(Shade::new(0, 1_000).name("before"));
+        assert_eq!(plain.to_svg(), before.to_svg());
+        assert_eq!(plain.dimensions(), before.dimensions());
         // And nothing for a shade in view of a figure no band of which
         // shows it.
         let trees = Figure::new(shaded_region())
@@ -2170,6 +2183,48 @@ mod tests {
             (drawn[0].0 - middle).abs() < 1e-3,
             "{drawn:?} against {middle}"
         );
+    }
+
+    /// Every value of one attribute of every `tag` element in `svg`.
+    fn attributes<'a>(svg: &'a str, tag: &str, name: &str) -> Vec<&'a str> {
+        let key = format!(" {name}=\"");
+        svg.split(&format!("<{tag}"))
+            .skip(1)
+            .filter_map(|element| {
+                let element = &element[..element.find('>').unwrap_or(element.len())];
+                let at = element.find(&key)? + key.len();
+                element[at..].split('"').next()
+            })
+            .collect()
+    }
+
+    /// A shade of its own colour takes it on the wash and on both edges, and
+    /// one of none takes the foreground ink for the wash and the muted ink
+    /// for the edges.
+    #[test]
+    fn a_shade_s_colour_is_its_wash_and_its_edges() {
+        let theme = Theme::light();
+        for (shade, wash, edge) in [
+            (
+                Shade::new(1_000, 2_000).color("#d55e00"),
+                "#d55e00",
+                "#d55e00",
+            ),
+            (
+                Shade::new(1_000, 2_000),
+                theme.foreground.as_str(),
+                theme.muted.as_str(),
+            ),
+        ] {
+            let svg = stack().theme(theme.clone()).shade(shade).to_svg();
+            let title = "<g><title>1,001 to 2,000</title>";
+            let group = &svg[svg.find(title).unwrap() + title.len()..];
+            let group = &group[..group.find("</g>").unwrap()];
+            assert_eq!(attributes(group, "rect", "fill"), [wash], "{group}");
+            let inert = &svg[svg.find(r#"<g pointer-events="none"><line"#).unwrap()..];
+            let inert = &inert[..inert.find("</g>").unwrap()];
+            assert_eq!(attributes(inert, "line", "stroke"), [edge, edge], "{inert}");
+        }
     }
 
     #[test]
