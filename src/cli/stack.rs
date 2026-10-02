@@ -2163,7 +2163,17 @@ impl Files for Disk {
 }
 
 /// Whether a file is a BAM: bgzip on the outside, and BAM's magic inside.
+///
+/// Only a file on disk is looked at. A BAM is read a window at a time by
+/// opening it again, which a pipe cannot be, and a pipe the shell named, as
+/// `<(tabix -h cohort.vcf.gz chr1:1-100000)`, gives each byte once: the three
+/// read here to look for the wrapper were gone from the text read after, so a
+/// VCF lost the `##f` of its first line, a SAM the `@HD` of its header and a
+/// bedGraph the first letters of its sequence's name.
 fn is_bam(path: &Path) -> io::Result<bool> {
+    if !fs::metadata(path)?.is_file() {
+        return Ok(false);
+    }
     let mut first = [0u8; 3];
     let mut file = fs::File::open(path)?;
     if file.read(&mut first)? < first.len() || !read::gzip::is_gzip(&first) {
@@ -4680,6 +4690,34 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         let device = Source::Path("/dev/null".into());
         assert_eq!(disk.text(&device).unwrap(), "");
         assert!(disk.kept.contains_key(&device), "a device was not kept");
+    }
+
+    /// A pipe the shell named is asked whether it is a BAM before its text is
+    /// read: by a figure placed by a gene's name, and by every track that can
+    /// draw a BAM. Answered by reading the pipe, the first bytes of its text
+    /// were gone, and a cohort's VCF cut with `tabix -h` lost its header. A
+    /// pipe is no BAM read a window at a time, and nothing of it is read to
+    /// say so.
+    #[cfg(unix)]
+    #[test]
+    fn asking_whether_a_pipe_is_a_bam_reads_none_of_it() {
+        use std::os::unix::io::AsRawFd;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("printf")
+            .arg("##fileformat=VCFv4.2\\n")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pipe = child.stdout.take().unwrap();
+        let named = Source::Path(format!("/dev/fd/{}", pipe.as_raw_fd()).into());
+        let region = Region::parse("chr1:1-100").unwrap();
+        let mut disk = Disk::default();
+        assert_eq!(disk.sequences(&named).unwrap(), None);
+        assert_eq!(disk.depth(&named, &region).unwrap(), None);
+        assert_eq!(disk.reads(&named, &region).unwrap(), None);
+        assert_eq!(disk.named_read(&named, "read_1").unwrap(), None);
+        assert_eq!(disk.text(&named).unwrap(), "##fileformat=VCFv4.2\n");
+        child.wait().unwrap();
     }
 
     /// A dynseq draws letters from a reference, and the reference has to be the

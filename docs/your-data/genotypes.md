@@ -23,8 +23,10 @@ A short grey bar is a call of the reference, a blue cell a call of the other
 allele, and a pale cell no call. In the order of the tree, the alleles a clade
 shares are blocks rather than a speckle. Where sites are closer than a cell,
 their pixel is shaded by the share of alternate calls under it, and the key
-says so; zoom in and they come apart into cells, each with its call in a
-tooltip. A diploid cohort's heterozygous calls are the half-strength blue.
+says so; zoom in and they come apart into cells. Each row's tooltip counts
+the sample's calls in the window, and a cell that carries an alternate allele
+names its call in a tooltip of its own. A diploid cohort's heterozygous calls
+are the half-strength blue.
 
 ## Your file
 

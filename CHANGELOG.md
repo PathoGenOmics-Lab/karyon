@@ -999,6 +999,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A pipe the shell names, as `<(tabix -h cohort.vcf.gz chr1:1-100000)`,
+  reached its track short of its first three bytes. Every track that can draw
+  a BAM, and a figure placed by a gene's name, read them to see whether it was
+  one, and a pipe gives each byte once: a cohort's VCF lost the `##f` of its
+  first line and was refused for having no `#CHROM` line, a SAM the `@HD` of
+  its header, and a bedGraph the first letters of its sequence's name. Only a
+  file on disk is asked now, since a BAM read a window at a time is opened
+  again, which a pipe cannot be.
+- A VCF row at the largest `POS` a file can write panicked `--variants` and
+  `--genotypes` with an overflow, adding to it the length of what `REF`
+  spells. The end saturates, and the row is left out of any window that ends
+  before it.
+
 - `--variants` drew a gVCF's placeholder allele as a call: a GATK row written
   `T,<NON_REF>` was a substitution and a second lollipop called `non_ref` at
   one base, and a reference block of `<NON_REF>` or of bcftools' `<*>` was a

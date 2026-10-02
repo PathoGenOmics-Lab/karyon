@@ -1473,6 +1473,33 @@ mod tests {
         assert!(track.key(&empty, 0.7, &theme).is_none());
     }
 
+    /// The key is of the rows on display: a state held only by rows past
+    /// the cap is drawn nowhere, and keyed it would be a colour with no cell.
+    #[test]
+    fn a_state_only_the_rows_past_the_cap_hold_is_not_keyed() {
+        let theme = Theme::light();
+        let mut calls = vec!["0/1"; 40];
+        calls.extend(["./."; 5]);
+        let track = GenotypeTrack::new(names(45), vec![site(1_100, &calls)]);
+        assert_eq!(track.visible_rows(), (40, 5));
+        let region = Region::new("chr1", 1_000, 3_000).unwrap();
+        let labels = |track: &GenotypeTrack| -> Vec<String> {
+            let key = track.key(&region, 0.35, &theme).unwrap();
+            key.items()
+                .iter()
+                .map(|item| match item {
+                    LegendItem::Key { label, .. } | LegendItem::Ramp { label, .. } => label.clone(),
+                })
+                .collect()
+        };
+        assert_eq!(labels(&track), ["heterozygous call"]);
+        // Lifted, the rows that hold it are drawn, and it is keyed.
+        assert_eq!(
+            labels(&track.clone().max_rows(None)),
+            ["heterozygous call", "no call"]
+        );
+    }
+
     /// A row counts what is on the page: three of six sites in the window
     /// are three, and a call off it is not counted as called or carried.
     #[test]
@@ -1488,6 +1515,19 @@ mod tests {
         assert!(
             svg.contains("<title>S1, 3 of 3 sites called, 3 carrying an alternate allele</title>"),
             "{svg}"
+        );
+    }
+
+    /// A call with a copy missing is no call, and the row does not count it
+    /// as carrying an alternate allele either, though the copy it has is one:
+    /// carrying is counted among the calls, as the cell's colour is.
+    #[test]
+    fn a_partly_called_genotype_is_not_counted_as_carrying() {
+        assert_eq!(gt("./1").alternate(), 1, "the copy it has is alternate");
+        let track = GenotypeTrack::new(names(1), vec![site(100, &["./1"]), site(200, &["0/1"])]);
+        assert_eq!(
+            track.row_tooltip(0, 0..2),
+            "S1, 1 of 2 sites called, 1 carrying an alternate allele"
         );
     }
 
@@ -1534,6 +1574,21 @@ mod tests {
         assert_eq!(
             track.cell_tooltip(&track.sites[0], 0),
             "S1, 1,000, C>T,G: C/T and 2 more copies, 3 of 4 alternate (heterozygous)"
+        );
+    }
+
+    /// A phased call is written with the bar the file wrote it with, so a
+    /// reader hovering it can tell which haplotype carries the allele.
+    #[test]
+    fn a_phased_call_keeps_its_bar_in_the_tooltip() {
+        let track = GenotypeTrack::new(names(2), vec![site(999, &["0|1", "0/1"])]);
+        assert_eq!(
+            track.cell_tooltip(&track.sites[0], 0),
+            "S1, 1,000, C>T: C|T (heterozygous)"
+        );
+        assert_eq!(
+            track.cell_tooltip(&track.sites[0], 1),
+            "S2, 1,000, C>T: C/T (heterozygous)"
         );
     }
 
@@ -1611,6 +1666,23 @@ mod tests {
         );
         let svg = drawn(Region::new("chr1", 1_000, 3_000).unwrap(), track);
         assert!(svg.contains("1 tip of the tree has no row"), "{svg}");
+    }
+
+    /// A tip of the tree with no row is said on the line under the rows, and
+    /// the track asks room for that line with no row hidden by the cap as
+    /// well: without it, the line is drawn over the last row.
+    #[test]
+    fn a_tip_with_no_row_is_given_its_line_under_the_rows() {
+        let samples: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let tree = Tree::parse_newick("((c:1,a:1):1,(b:1,d:1):1);").unwrap();
+        let bare = GenotypeTrack::new(samples, vec![site(1_100, &["0", "1", "0"])]);
+        let beside = bare.clone().tree(tree);
+        assert_eq!(beside.visible_rows(), (3, 0), "no row is hidden");
+        let scale = Scale::new(&Region::new("chr1", 1_000, 3_000).unwrap(), 0.0, 700.0);
+        assert_eq!(
+            beside.height(&scale),
+            bare.height(&scale) + Theme::default().font_size + 2.0
+        );
     }
 
     /// A VCF need not be sorted, and a figure of one in any order is the

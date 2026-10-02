@@ -99,8 +99,10 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
         // carried into a track that would not draw it. What is kept is what
         // REF spells, not the anchor base alone: a deletion is written one base
         // to the left of the bases it removes, so a call anchored just outside
-        // the window can still be a call about the window.
-        let spelled = pos + reference.len().max(1) as u64;
+        // the window can still be a call about the window. The end saturates,
+        // since a POS at the top of the number line leaves no room after it for
+        // what REF spells, and the add panicked there instead of reading on.
+        let spelled = pos.saturating_add(reference.len().max(1) as u64);
         if pos >= region.end() || spelled <= region.start() {
             continue;
         }
@@ -325,7 +327,8 @@ pub fn genotypes(
         if reference_block(alt) {
             continue;
         }
-        let spelled = pos + reference.len().max(1) as u64;
+        // Kept by the rule `variants` keeps a row by, saturating as it does.
+        let spelled = pos.saturating_add(reference.len().max(1) as u64);
         if pos >= region.end() || spelled <= region.start() {
             continue;
         }
@@ -1829,6 +1832,22 @@ locus\t0.4
             1,
             "the same rule keeps the same rows"
         );
+    }
+
+    /// The largest POS a file can write is one base from the top of the
+    /// number line, and what REF spells from there is past it. Both readers
+    /// panicked on the add; the row is outside any window that ends before
+    /// it, and is passed over as one.
+    #[test]
+    fn a_position_at_the_top_of_the_number_line_is_outside_the_window_and_not_a_panic() {
+        let rows = "chr1\t18446744073709551615\t.\tCC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\n\
+                    chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        let positions: Vec<u64> = read.sites.iter().map(|site| site.position).collect();
+        assert_eq!(positions, [99]);
+        let calls = variants(&cohort(rows), &window()).unwrap();
+        let positions: Vec<u64> = calls.iter().map(|call| call.pos).collect();
+        assert_eq!(positions, [99]);
     }
 
     /// A row outside the window is not split past its position, and a row on
