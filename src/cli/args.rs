@@ -27,7 +27,7 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Thirty-three of the crate's thirty-seven track types are what the command
+//! Thirty-four of the crate's thirty-eight track types are what the command
 //! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -460,6 +460,8 @@ pub enum Kind {
     Features,
     /// Point calls from VCF.
     Variants,
+    /// The call of each sample at each site of a VCF, a row per sample.
+    Genotypes,
     /// A statistic in windows, from bedGraph.
     Windows,
     /// Association statistics from a table.
@@ -533,7 +535,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 35] = [
+    pub const ALL: [Kind; 36] = [
         Kind::Coverage,
         Kind::CopyNumber,
         Kind::Dynseq,
@@ -541,6 +543,7 @@ impl Kind {
         Kind::Sequence,
         Kind::Features,
         Kind::Variants,
+        Kind::Genotypes,
         Kind::Windows,
         Kind::Manhattan,
         Kind::Recombination,
@@ -581,6 +584,7 @@ impl Kind {
             Kind::Sequence => "sequence",
             Kind::Features => "features",
             Kind::Variants => "variants",
+            Kind::Genotypes => "genotypes",
             Kind::Windows => "windows",
             Kind::Manhattan => "manhattan",
             Kind::Recombination => "recombination",
@@ -628,6 +632,7 @@ impl Kind {
             Kind::Sequence => "--sequence",
             Kind::Features => "--features",
             Kind::Variants => "--variants",
+            Kind::Genotypes => "--genotypes",
             Kind::Windows => "--windows",
             Kind::Manhattan => "--manhattan",
             Kind::Recombination => "--recombination",
@@ -710,6 +715,7 @@ impl Kind {
             self,
             Kind::Matrix
                 | Kind::Heatmap
+                | Kind::Genotypes
                 | Kind::Msa
                 | Kind::Snps
                 | Kind::Clades
@@ -725,7 +731,7 @@ impl Kind {
     /// whose rows come from its data rather than from a cap, a feature track
     /// packing what fits, is not one of them: it has no cap to move.
     ///
-    /// A tree is here and answers differently from the other four. They stop
+    /// A tree is here and answers differently from the other five. They stop
     /// opening rows and count what they left out, which a tree cannot do: a
     /// tip is not interchangeable with the tip below it and cutting the list
     /// would cut a clade in half. So it collapses the smallest clades instead
@@ -734,7 +740,7 @@ impl Kind {
     fn takes_max_rows(self) -> bool {
         matches!(
             self,
-            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Bisulfite | Kind::Tree
+            Kind::Pileup | Kind::Msa | Kind::Snps | Kind::Genotypes | Kind::Bisulfite | Kind::Tree
         )
     }
 
@@ -766,6 +772,7 @@ impl Kind {
                 | Kind::Snps
                 | Kind::Matrix
                 | Kind::Heatmap
+                | Kind::Genotypes
                 | Kind::SplitReads
                 | Kind::Structural
                 | Kind::Bisulfite
@@ -862,6 +869,7 @@ impl Kind {
                 | Kind::Snps
                 | Kind::Matrix
                 | Kind::Heatmap
+                | Kind::Genotypes
                 | Kind::Pileup
                 | Kind::Orfs
                 | Kind::Tree
@@ -1051,9 +1059,12 @@ impl Kind {
             Kind::Pileup => Some("--with-sequence"),
             Kind::Manhattan => Some("--ld"),
             Kind::Squiggle => Some("--with-moves"),
-            Kind::Msa | Kind::Snps | Kind::Matrix | Kind::Heatmap | Kind::Domains => {
-                Some("--with-tree")
-            }
+            Kind::Msa
+            | Kind::Snps
+            | Kind::Matrix
+            | Kind::Heatmap
+            | Kind::Genotypes
+            | Kind::Domains => Some("--with-tree"),
             _ => None,
         }
     }
@@ -1076,6 +1087,7 @@ impl Kind {
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
+            | Kind::Genotypes
             | Kind::Windows
             | Kind::Manhattan
             | Kind::Recombination
@@ -1128,6 +1140,7 @@ impl Kind {
             | Kind::Sequence
             | Kind::Features
             | Kind::Variants
+            | Kind::Genotypes
             | Kind::Windows
             | Kind::Manhattan
             | Kind::Recombination
@@ -1491,7 +1504,9 @@ pub struct TrackSpec {
     pub row_height: Option<f64>,
     /// `--ploidy`, where balanced sits on a copy number ladder.
     pub ploidy: Option<f64>,
-    /// `--sample`, for a file holding more than one.
+    /// `--sample`, for a file holding more than one: one name after
+    /// `--copy-number`, and after `--genotypes` the samples to draw, in the
+    /// order to draw them, joined by commas as they were written.
     pub sample: Option<String>,
     /// `--traits`, the sample sheet whose columns are drawn beside the rows.
     pub traits: Option<Source>,
@@ -1791,6 +1806,7 @@ pub const FLAGS: &[&str] = &[
     "--sequence",
     "--features",
     "--variants",
+    "--genotypes",
     "--windows",
     "--manhattan",
     "--recombination",
@@ -1907,7 +1923,8 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     ),
     (
         &["vcf", "calls"],
-        "variant calls are --variants FILE, or the VCF named on its own",
+        "variant calls are --variants FILE, or the VCF named on its own, and \
+         --genotypes FILE draws each sample's calls, a row per sample",
     ),
     (
         &["gff", "gff3", "gtf", "bed", "genes"],
@@ -1926,7 +1943,8 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
     (
         &["metadata", "meta", "samples", "sample-sheet", "samplesheet"],
         "a sample sheet is --traits FILE, written after the track whose rows it \
-         describes, as in --tree tree.nwk --traits samples.tsv",
+         describes, as in --tree tree.nwk --traits samples.tsv; --sample A,B picks \
+         the samples a --genotypes track draws",
     ),
     (
         &["legend", "key", "show-legend"],
@@ -2267,6 +2285,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--sequence" => Some((Kind::Sequence, true)),
             "--features" => Some((Kind::Features, true)),
             "--variants" => Some((Kind::Variants, true)),
+            "--genotypes" => Some((Kind::Genotypes, true)),
             "--windows" => Some((Kind::Windows, true)),
             "--manhattan" => Some((Kind::Manhattan, true)),
             "--recombination" => Some((Kind::Recombination, true)),
@@ -2350,11 +2369,34 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--sample" => {
                 let text = value("--sample")?.clone();
                 let track = once(&mut tracks, &mut given, "--sample")?;
-                if track.kind != Kind::CopyNumber {
+                if !matches!(track.kind, Kind::CopyNumber | Kind::Genotypes) {
                     return Err(ArgError::WrongTrack {
                         flag: "--sample",
                         track: track.kind.flag(),
                     });
+                }
+                // After --genotypes it is a list, the rows to draw in the
+                // order to draw them, so a name twice would be one sample on
+                // two rows, and a list of commas would be no rows at all.
+                // Kept as it was written, and split where the VCF is read.
+                if track.kind == Kind::Genotypes {
+                    let names: Vec<&str> = text
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .collect();
+                    let repeated = names
+                        .iter()
+                        .enumerate()
+                        .any(|(at, name)| names[..at].contains(name));
+                    if names.is_empty() || repeated {
+                        return Err(ArgError::BadValue {
+                            flag: "--sample",
+                            given: text,
+                            expected: "one or more sample names separated by commas, each \
+                                       named once",
+                        });
+                    }
                 }
                 track.sample = Some(text);
             }
@@ -5785,6 +5827,77 @@ mod tests {
         ] {
             assert_eq!(draw(line).tracks[0].format, Some(format), "{line}");
         }
+    }
+
+    /// A track of genotype rows takes what the other tracks of rows take,
+    /// and not what a band sized by `--height` or coloured by `--color`
+    /// does: the key names its colours, as a matrix's does.
+    #[test]
+    fn genotypes_takes_the_options_of_a_track_of_rows() {
+        for (flag, value) in [
+            ("--label", Some("cohort")),
+            ("--row-height", Some("8")),
+            ("--max-rows", Some("all")),
+            ("--no-names", None),
+            ("--traits", Some("s.tsv")),
+            ("--with-tree", Some("t.nwk")),
+            ("--sample", Some("S1,S2")),
+        ] {
+            assert!(takes(Kind::Genotypes, flag, value), "{flag}");
+        }
+        for (flag, value) in [
+            ("--height", Some("80")),
+            ("--style", Some("tick")),
+            ("--color", Some("#d55e00")),
+            ("--threshold", Some("1")),
+        ] {
+            assert!(!takes(Kind::Genotypes, flag, value), "{flag}");
+        }
+        let line = draw("chr1:1-100 --genotypes c.vcf --traits s.tsv --columns lineage,host");
+        assert_eq!(
+            line.tracks[0].columns.as_deref(),
+            Some(&["lineage".to_string(), "host".to_string()][..])
+        );
+        // A VCF named on its own is still its calls.
+        assert_eq!(Kind::for_file("cohort.vcf.gz"), Some(Kind::Variants));
+        assert!(Kind::Genotypes.needs_region());
+    }
+
+    /// After `--genotypes`, `--sample` is the rows to draw in the order to
+    /// draw them. A list of nothing would draw no rows, and a name twice one
+    /// sample on two rows; after `--copy-number` it stays one name.
+    #[test]
+    fn sample_after_genotypes_takes_a_list_and_refuses_an_empty_or_repeated_one() {
+        let line = draw("chr1:1-100 --genotypes c.vcf --sample S3,S1");
+        assert_eq!(line.tracks[0].sample.as_deref(), Some("S3,S1"));
+        for bad in [",", " , ", "S1,S2,S1"] {
+            let mut words = args("chr1:1-100 --genotypes c.vcf --sample");
+            words.push(bad.to_string());
+            let error = parse(&words).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--sample",
+                        ..
+                    }
+                ),
+                "{bad:?}: {error:?}"
+            );
+        }
+        let copies = draw("chr1:1-100 --copy-number s.cns --ploidy 2 --sample S1,S1");
+        assert_eq!(copies.tracks[0].sample.as_deref(), Some("S1,S1"));
+        let error = parse(&args("chr1:1-100 --variants c.vcf --sample S1")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--sample",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     /// The one `--shade` of a command line, as it was read.

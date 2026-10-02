@@ -8,7 +8,7 @@ description: Every track type karyon draws, by family, with the Rust call that b
 Every track type karyon draws, grouped by what it shows, with the Rust call that builds it and the command line flag that reads it. Each name links to its full entry: options, defaults and pitfalls.
 { .k-lead }
 
-All 36 work the same way. A track says how tall it wants to be and draws inside the band the figure gives it, on the shared horizontal scale, so any of them stacks with any other. Each has an `add_` method on [`plot()`](../guide/plot.md), and each is also a type you can build yourself and hand over with `add_track`, or push onto a `Figure`, which is the way in for an alternative constructor or a track you want to query before it is drawn:
+All 38 work the same way. A track says how tall it wants to be and draws inside the band the figure gives it, on the shared horizontal scale, so any of them stacks with any other. Each has an `add_` method on [`plot()`](../guide/plot.md), and each is also a type you can build yourself and hand over with `add_track`, or push onto a `Figure`, which is the way in for an alternative constructor or a track you want to query before it is drawn:
 
 ```rust
 use karyon::{plot, read, CoverageTrack, Region};
@@ -25,7 +25,7 @@ plot("NC_000962.3:761,001-763,000")?
     .save("rpoB.svg")?;
 ```
 
-On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag starts a track, the options after it describe that track, and every track takes `--label`.
+On the [command line](../guide/cli.md), 34 of the 38 have a flag. Each flag starts a track, the options after it describe that track, and every track takes `--label`.
 
 ## Signal and sequence
 
@@ -57,6 +57,7 @@ On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag star
 | Track | Draws | Rust | Command line |
 |:--|:--|:--|:--|
 | [VariantTrack](variation.md#varianttrack) | Point calls as lollipops or ticks | `.add_variants(variants)` | `--variants` |
+| [GenotypeTrack](variation.md#genotypetrack) | The call of each sample at each site of a VCF, a row per sample | `.add_genotypes(samples, sites)` | `--genotypes` |
 | [StructuralTrack](variation.md#structuraltrack) | Structural calls as arcs between breakpoints | `.add_structural(variants)` | `--structural` |
 | [CopyNumberTrack](variation.md#copynumbertrack) | Segmented copy number and lost heterozygosity | `.add_copy_number(segments, ploidy)` | `--copy-number` with `--ploidy` |
 | [SnpTrack](variation.md#snptrack) | The variable sites of an alignment, one row per sample | `.add_snps(names, sites)` | `--snps` |
@@ -135,7 +136,7 @@ On the [command line](../guide/cli.md), 28 of the 36 have a flag. Each flag star
 
 ## Metadata columns
 
-Seven tracks draw a row per named thing, and each can carry columns of metadata beside its rows: [MatrixTrack](variation.md#matrixtrack), [MsaTrack](comparison.md#msatrack), [SnpTrack](variation.md#snptrack), [CladeTrack](phylogeny.md#cladetrack), [DomainTrack](comparison.md#domaintrack) and [LocusTrack](comparison.md#locustrack) through `.traits(...)`, and [TreeTrack](phylogeny.md#treetrack), which draws the same columns from its own annotations through `trait_column`. The track answers which ones; the columns say what they were.
+Eight tracks draw a row per named thing, and each can carry columns of metadata beside its rows: [MatrixTrack](variation.md#matrixtrack), [GenotypeTrack](variation.md#genotypetrack), [MsaTrack](comparison.md#msatrack), [SnpTrack](variation.md#snptrack), [CladeTrack](phylogeny.md#cladetrack), [DomainTrack](comparison.md#domaintrack) and [LocusTrack](comparison.md#locustrack) through `.traits(...)`, and [TreeTrack](phylogeny.md#treetrack), which draws the same columns from its own annotations through `trait_column`. The track answers which ones; the columns say what they were.
 
 ```rust
 use karyon::read;
@@ -167,7 +168,7 @@ plot("chr1:1-1,000")?
 - **Each column its own colours.** Every column of words in a sheet deals its own stretch of the six colours, by its place in the sheet: two columns take three each and three take two, so a lineage and a country are never one colour while each fits its stretch. A column with more levels runs on into the next stretch, and the key names every colour by its column. The stretch goes by the sheet and not by what is drawn, so `--columns` never repaints, and not by how many levels come before, so an appended sample never does. `TraitColumn::first_color` sets where a column starts, and a phylogeny deals the columns it is given without a start, and the key its branches are coloured by, a stretch each the same way.
 - **In Rust the key is yours to place.** `Traits::legend(&theme)` builds one naming every level and both ends of every ramp, and `TreeTrack::legend(&theme)` does the same for a tree's branches and strips, each level drawn as its column draws it: a box, a shape, or the two dots of a binary column. `Figure::key()` gathers the tree's key in the figure's own theme. Where it goes, and whether the figure needs it, is yours to decide. The command line draws it under the figure, each colour once, unless `--no-legend` is given.
 
-From the command line this is `--traits FILE`, and `--columns A,B` to choose and order the columns, after `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`, with `--colors COLUMN=VALUE:#HEX,...` anywhere on the line for colours of your own. The sample sheet format is in [File formats](../guide/formats.md).
+From the command line this is `--traits FILE`, and `--columns A,B` to choose and order the columns, after `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`, with `--colors COLUMN=VALUE:#HEX,...` anywhere on the line for colours of your own. The sample sheet format is in [File formats](../guide/formats.md).
 
 ## From the command line
 
@@ -217,6 +218,7 @@ Four tracks are library only. `TranscriptionUnitTrack`, `CodonTrack` and `Genome
       transcriptionunittrack: "annotation",
       orftrack: "annotation",
       varianttrack: "variation",
+      genotypetrack: "variation",
       structuraltrack: "variation",
       copynumbertrack: "variation",
       snptrack: "variation",

@@ -817,8 +817,9 @@ let domains = DomainTrack::new(architectures).tree(tree).tree_width(110.0);
 
 [MsaTrack](../tracks/comparison.md#msatrack),
 [DomainTrack](../tracks/comparison.md#domaintrack),
-[SnpTrack](../tracks/variation.md#snptrack) and
-[MatrixTrack](../tracks/variation.md#matrixtrack) take a tree, draw it beside
+[SnpTrack](../tracks/variation.md#snptrack),
+[MatrixTrack](../tracks/variation.md#matrixtrack) and
+[GenotypeTrack](../tracks/variation.md#genotypetrack) take a tree, draw it beside
 their rows and sort the rows to match, so a clade's shared changes form one
 block (panels C and D above). Rows match tips by exact name, and a row the
 tree does not name stays at the bottom rather than disappearing.
