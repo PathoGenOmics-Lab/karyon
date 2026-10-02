@@ -150,6 +150,66 @@ def write_trait_scan():
                 number += 1
 
 
+def write_cohort():
+    # The calls of the forty samples tree.nwk and samples.tsv name, at sites
+    # across rpoB, as a joint caller writes a cohort: a column per sample and
+    # a haploid GT in each. Each site's allele is carried by one clade of the
+    # tree, so the rows ordered by the tree turn the speckle into blocks; a
+    # few sites are scattered across the tree instead, as a homoplasy is, and
+    # one call in fifty is missing. It keeps a seed of its own, so the files
+    # above stay as they are when this changes.
+    rng = random.Random(20261002)
+    with open(path("tree.nwk")) as held:
+        newick = held.read().strip().rstrip(";")
+
+    def clades(text):
+        # Every set of tips under one node of a Newick string, read with a
+        # stack of the tips each open bracket has gathered.
+        found, stack, tip = [], [], ""
+        for char in text + ",":
+            if char == "(":
+                stack.append([])
+            elif char in ",)":
+                name = tip.split(":")[0]
+                if name and name[0] == "S":
+                    for open_ in stack:
+                        open_.append(name)
+                tip = ""
+                if char == ")":
+                    found.append(sorted(stack.pop()))
+            else:
+                tip += char
+        return found
+
+    groups = [group for group in clades(newick) if 1 < len(group) < 40]
+    names = [f"S{n:02d}" for n in range(1, 41)]
+    positions = sorted(rng.sample(range(759_700, 763_400), 48))
+    plain = path("cohort.vcf")
+    with open(plain, "w") as out:
+        out.write("##fileformat=VCFv4.2\n")
+        out.write(f"##contig=<ID={SEQ},length={LENGTH}>\n")
+        out.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
+        out.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+                  + "\t".join(names) + "\n")
+        for position in positions:
+            ref = rng.choice("ACGT")
+            alt = rng.choice([base for base in "ACGT" if base != ref])
+            if rng.random() < 0.15:
+                carriers = set(rng.sample(names, rng.randint(2, 5)))
+            else:
+                carriers = set(rng.choice(groups))
+            calls = []
+            for name in names:
+                if rng.random() < 0.02:
+                    calls.append(".")
+                else:
+                    calls.append("1" if name in carriers else "0")
+            out.write(f"{SEQ}\t{position}\t.\t{ref}\t{alt}\t60\tPASS\t.\tGT\t"
+                      + "\t".join(calls) + "\n")
+    subprocess.run(["bgzip", "-f", plain], check=True)
+    subprocess.run(["tabix", "-f", "-p", "vcf", plain + ".gz"], check=True)
+
+
 def write_samples():
     # Forty samples in four lineages, a tree of them with branch lengths and
     # support, a second tree that disagrees in two places, a sample sheet in
@@ -485,7 +545,8 @@ def write_zip():
              "samples.tsv", "aln.fasta", "assemblies.paf", "sampleA.bedgraph",
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
              "reads.slow5", "moves.sam", "depths.tsv", "linkage.ld", "epistasis.tsv",
-             "lead.ld", "genetic_map.txt", "trait.assoc"]
+             "lead.ld", "genetic_map.txt", "trait.assoc", "cohort.vcf.gz",
+             "cohort.vcf.gz.tbi"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -515,6 +576,7 @@ def main():
     write_epistasis()
     write_lead_linkage(rng)
     write_trait_scan()
+    write_cohort()
     write_zip()
 
 

@@ -26,11 +26,23 @@
 //! # What is dropped and what is refused
 //!
 //! Rows on another sequence, rows outside the window, and rows with no
-//! alternate allele go past without a word. The last of those is most of a
-//! gVCF, and a reference block is a statement that nothing happened rather than
-//! a call. A row that does not parse stops the read on its line, because a VCF
-//! that cannot be read is not a VCF and a figure short of the calls it should
-//! have shows nothing wrong on its face.
+//! alternate allele go past without a word. The last of those are a gVCF's
+//! reference blocks, a statement that nothing happened rather than a call,
+//! which bcftools writes with an `ALT` of `<*>` and GATK with `<NON_REF>`. A
+//! variant row of a gVCF names the placeholder too, after its own allele, as
+//! `T,<NON_REF>`, and is a call of `T` and nothing else: the placeholder is
+//! dropped allele by allele, so the indices a genotype names keep pointing at
+//! the alleles they were written against. A row that does not parse stops the
+//! read on its line, because a VCF that cannot be read is not a VCF and a
+//! figure short of the calls it should have shows nothing wrong on its face.
+//!
+//! # A cohort's genotypes
+//!
+//! After the eight columns of a site, a VCF of several samples has a column
+//! of keys, `FORMAT`, and one column per sample, named on the `#CHROM` line in
+//! the same order. [`genotypes`] reads the `GT` of each, found by its name
+//! among the keys rather than taken to be first, and [`samples`] reads the
+//! names alone, from the header, without reading a row.
 //!
 //! An association table of two columns names no sequence, so every row in one
 //! is taken to be about the sequence on display; three columns puts the name in
@@ -40,7 +52,8 @@
 
 use std::cmp::Ordering;
 
-use crate::{Association, Region, Variant};
+use crate::track::genotype::{placeholder, Unread};
+use crate::{Association, Genotype, GenotypeSite, Region, Variant};
 
 use super::{columns, lines, number, ReadError};
 
@@ -73,9 +86,10 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
             continue;
         }
         let pos = position(fields[1], "POS", line)?;
-        // A row with no alternate allele is a reference block, which is most of
-        // what a gVCF holds, and it is not a call.
-        if fields[4] == "." {
+        // A row with no alternate allele, or with only the placeholder for
+        // one, is a reference block, which is most of what a gVCF holds, and
+        // it is not a call.
+        if reference_block(fields[4]) {
             continue;
         }
 
@@ -85,14 +99,24 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
         // carried into a track that would not draw it. What is kept is what
         // REF spells, not the anchor base alone: a deletion is written one base
         // to the left of the bases it removes, so a call anchored just outside
-        // the window can still be a call about the window.
-        let spelled = pos + reference.len().max(1) as u64;
+        // the window can still be a call about the window. The end saturates,
+        // since a POS at the top of the number line leaves no room after it for
+        // what REF spells, and the add panicked there instead of reading on.
+        let spelled = pos.saturating_add(reference.len().max(1) as u64);
         if pos >= region.end() || spelled <= region.start() {
             continue;
         }
         let alternates: Vec<&str> = fields[4].split(',').collect();
         let fractions = allele_fractions(info, alternates.len(), line)?;
         for (index, alt) in alternates.iter().enumerate() {
+            // A gVCF's variant rows name the placeholder after their own
+            // alleles, and it is no call: drawn, `T,<NON_REF>` was a
+            // substitution and a second lollipop called `non_ref` at one base.
+            // Skipped here and not taken out of the list, so a fraction given
+            // per allele stays with its allele.
+            if placeholder(alt) {
+                continue;
+            }
             let category = consequence(info, alt).unwrap_or_else(|| shape(reference, alt));
             let mut call = Variant::new(pos).category(category);
             if let Some(fraction) = fractions.as_ref().map(|all| all[index]) {
@@ -102,6 +126,296 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
         }
     }
     Ok(calls)
+}
+
+/// Whether an `ALT` column names no allele at all: `.`, or only the
+/// placeholder a gVCF's reference blocks carry.
+fn reference_block(alt: &str) -> bool {
+    alt == "." || alt.split(',').all(placeholder)
+}
+
+/// The fields of a row, split as [`columns`] splits them, one at a time, so a
+/// row of a thousand samples outside the window is not split past its `POS`.
+fn fields_of(row: &str) -> impl Iterator<Item = &str> {
+    let tabbed = row.contains('\t');
+    let tabs = tabbed.then(|| row.split('\t'));
+    let spaces = (!tabbed).then(|| row.split_whitespace());
+    tabs.into_iter()
+        .flatten()
+        .chain(spaces.into_iter().flatten())
+}
+
+/// The `#CHROM` line of a VCF, numbered from one, split into its fields.
+///
+/// The last one in the header, which ends at the first line that is not a
+/// comment: the header comes first, and a row is not looked at.
+fn chrom_line(text: &str) -> Option<(usize, Vec<&str>)> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut found = None;
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with('#') {
+            break;
+        }
+        if line.starts_with("#CHROM") {
+            found = Some((index + 1, columns(line)));
+        }
+    }
+    found
+}
+
+/// The samples a VCF names, in the order of its columns: the names on the
+/// `#CHROM` line after `FORMAT`.
+///
+/// Read off the header alone, so a caller can count the samples, or check a
+/// name it was given, before any row is read. Empty for a VCF of sites only,
+/// and for text with no `#CHROM` line.
+///
+/// ```
+/// use karyon::read::point::samples;
+///
+/// let vcf = "##fileformat=VCFv4.2\n\
+///            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n\
+///            chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\n";
+/// assert_eq!(samples(vcf), ["S1", "S2"]);
+/// ```
+pub fn samples(text: &str) -> Vec<String> {
+    chrom_line(text)
+        .and_then(|(_, fields)| fields.get(9..).map(<[&str]>::to_vec))
+        .unwrap_or_default()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+/// What a VCF's genotype columns hold over a window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Genotypes {
+    /// The samples, in the order their rows are drawn: the order of the
+    /// `#CHROM` line, or the order they were asked for in.
+    pub samples: Vec<String>,
+    /// The records in the window, in the order of the file, each with a call
+    /// per sample in the order of `samples`.
+    pub sites: Vec<GenotypeSite>,
+    /// How many rows the file holds, on any sequence.
+    pub records: usize,
+}
+
+/// Reads the genotype of every sample at every record of a VCF in a window.
+///
+/// Column 9 is `FORMAT`, the keys of the sample columns joined by `:`, and
+/// `GT` is found among them by name rather than taken to be first. Columns 10
+/// on are one sample each, named on the `#CHROM` line in the same order,
+/// which has to be there: `bcftools view -H` leaves it out. A sample's column
+/// is its values in the order of the keys, and a value left off its end, as a
+/// caller writes `.` for a sample it has nothing for, is not there.
+///
+/// `GT` is allele indices joined by `/`, or by `|` where the call is phased,
+/// with the leading `/` or `|` VCF 4.4 allows: 0 is `REF` and `i` the `i`th
+/// allele of `ALT`, and `.` is a copy nobody called. One index is a haploid
+/// call, two a diploid one, and more a polyploid one. A call with any copy
+/// unknown, as `./1` is, is no call: a whole call is what the track draws,
+/// and half of one read as a whole would draw a heterozygote as homozygous.
+/// A row whose `FORMAT` has no `GT` leaves every sample of it without a call.
+///
+/// A record is kept by the rule [`variants`] keeps one by, when what `REF`
+/// spells touches the window, and `POS` lands at `POS - 1`. A row whose `ALT`
+/// is `.`, or only a placeholder, `<NON_REF>` or `<*>`, is a gVCF's reference
+/// block and is skipped. `wanted` keeps only the samples it names, in the
+/// order it names them.
+///
+/// # Errors
+///
+/// A VCF with no `#CHROM` line or no sample on it, and one naming a sample
+/// twice; a sample `wanted` names that the file does not, or names twice. The
+/// line that does not read: fewer than 8 columns, a POS that is not one, a row
+/// with more or fewer samples than the `#CHROM` line names, a `GT` that is not
+/// indices and dots, and an index past the alleles of its row. And a window
+/// holding records of which none carries `GT`, since nothing is known there
+/// of any sample.
+///
+/// ```
+/// use karyon::read::point::genotypes;
+/// use karyon::{GenotypeState, Region};
+///
+/// let vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n\
+///            chr1\t100\trs1\tC\tT,G\t.\t.\t.\tGT:DP\t0/1:20\t1/2:18\t./.:0\n";
+/// let read = genotypes(vcf, &Region::parse("chr1:1-200")?, None)?;
+/// let site = &read.sites[0];
+/// assert_eq!(site.position, 99);
+/// assert_eq!(site.call(0).state(), GenotypeState::Heterozygous);
+/// assert_eq!(site.call(1).state(), GenotypeState::Alternate);
+/// assert_eq!(site.call(2).state(), GenotypeState::NotCalled);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn genotypes(
+    text: &str,
+    region: &Region,
+    wanted: Option<&[String]>,
+) -> Result<Genotypes, ReadError> {
+    let Some((header, names)) = chrom_line(text) else {
+        return Err(ReadError::whole(
+            "the VCF has no #CHROM line, which is where it names its samples; keep the \
+             header, which bcftools view -H leaves out",
+        ));
+    };
+    let held: &[&str] = names.get(9..).unwrap_or_default();
+    if held.is_empty() {
+        return Err(ReadError::at(
+            header,
+            "the VCF names no samples on its #CHROM line, so it holds no genotypes; \
+             --variants draws its calls",
+        ));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(held.len());
+    for name in held {
+        if !seen.insert(*name) {
+            return Err(ReadError::at(
+                header,
+                format!("the #CHROM line names {name} twice"),
+            ));
+        }
+    }
+    let columns: Vec<usize> = match wanted {
+        None => (0..held.len()).collect(),
+        Some(wanted) => {
+            let mut picked: Vec<usize> = Vec::with_capacity(wanted.len());
+            for name in wanted {
+                let Some(at) = held.iter().position(|held| held == name) else {
+                    return Err(ReadError::whole(format!(
+                        "the #CHROM line names no sample called {name}"
+                    )));
+                };
+                if picked.contains(&at) {
+                    return Err(ReadError::whole(format!("{name} is asked for twice")));
+                }
+                picked.push(at);
+            }
+            picked
+        }
+    };
+    let samples: Vec<String> = columns.iter().map(|at| held[*at].to_string()).collect();
+
+    let mut sites = Vec::new();
+    let mut records = 0;
+    let mut typed = false;
+    for (line, row) in lines(text) {
+        records += 1;
+        let mut fields = fields_of(row);
+        let (Some(chrom), Some(pos), Some(id), Some(reference), Some(alt)) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "a VCF line has at least 8 columns, this one has {}",
+                    fields_of(row).count()
+                ),
+            ));
+        };
+        if chrom != region.seq() {
+            continue;
+        }
+        let pos = position(pos, "POS", line)?;
+        if reference_block(alt) {
+            continue;
+        }
+        // Kept by the rule `variants` keeps a row by, saturating as it does.
+        let spelled = pos.saturating_add(reference.len().max(1) as u64);
+        if pos >= region.end() || spelled <= region.start() {
+            continue;
+        }
+
+        // QUAL, FILTER, INFO, FORMAT and the samples, split only now that the
+        // record is one the figure draws.
+        let rest: Vec<&str> = fields.collect();
+        if rest.len() + 5 < 8 {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "a VCF line has at least 8 columns, this one has {}",
+                    rest.len() + 5
+                ),
+            ));
+        }
+        let given = rest.len().saturating_sub(4);
+        if given != held.len() {
+            return Err(ReadError::at(
+                line,
+                format!(
+                    "this line has {given} sample{} and the #CHROM line names {}",
+                    if given == 1 { "" } else { "s" },
+                    held.len()
+                ),
+            ));
+        }
+        let gt = rest[3].split(':').position(|key| key == "GT");
+        typed |= gt.is_some();
+        let alternates: Vec<String> = alt.split(',').map(str::to_string).collect();
+
+        let mut calls = Vec::with_capacity(columns.len());
+        for at in &columns {
+            let value = gt
+                .and_then(|key| rest[4 + at].split(':').nth(key))
+                .unwrap_or("");
+            if value.is_empty() {
+                calls.push(Genotype::not_called());
+                continue;
+            }
+            let name = held[*at];
+            let (call, largest) = Genotype::read(value).map_err(|unread| {
+                ReadError::at(
+                    line,
+                    match unread {
+                        Unread::Malformed => format!(
+                            "sample {name}'s GT is {value:?}, and an allele is a number or ."
+                        ),
+                        Unread::TooMany(copies) => format!(
+                            "sample {name}'s GT has {copies} copies, and a call is read with \
+                             at most {}",
+                            Genotype::MAX_COPIES
+                        ),
+                    },
+                )
+            })?;
+            if largest as usize > alternates.len() {
+                return Err(ReadError::at(
+                    line,
+                    format!(
+                        "sample {name}'s GT {value} names allele {largest}, and the line has \
+                         {} alternate allele{}",
+                        alternates.len(),
+                        if alternates.len() == 1 { "" } else { "s" }
+                    ),
+                ));
+            }
+            calls.push(call);
+        }
+        sites.push(GenotypeSite {
+            position: pos,
+            id: (id != ".").then(|| id.to_string()),
+            reference: reference.to_string(),
+            alternates,
+            calls,
+        });
+    }
+    if !sites.is_empty() && !typed {
+        return Err(ReadError::whole(
+            "no row in the window carries GT, so no sample's genotype is known there",
+        ));
+    }
+    Ok(Genotypes {
+        samples,
+        sites,
+        records,
+    })
 }
 
 /// What an association table held inside the window.
@@ -1190,5 +1504,361 @@ locus\t0.4
         let error = associations(text, &region).unwrap_err();
         assert_eq!(error.line, 1);
         assert!(error.to_string().contains("5 columns"), "{error}");
+    }
+
+    /// A cohort of three, the header every genotype test reads under.
+    const COHORT: &str = "##fileformat=VCFv4.2\n\
+                          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n";
+
+    fn cohort(rows: &str) -> String {
+        format!("{COHORT}{rows}")
+    }
+
+    fn window() -> Region {
+        Region::parse("chr1:1-1,000").unwrap()
+    }
+
+    /// The states of the first site's calls, in row order.
+    fn states(rows: &str) -> Vec<crate::GenotypeState> {
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        read.sites[0]
+            .calls
+            .iter()
+            .map(|call| call.state())
+            .collect()
+    }
+
+    fn refusal(rows: &str) -> ReadError {
+        genotypes(&cohort(rows), &window(), None).unwrap_err()
+    }
+
+    #[test]
+    fn the_samples_are_the_columns_after_format_on_the_chrom_line() {
+        assert_eq!(samples(COHORT), ["S1", "S2", "S3"]);
+        // A VCF of sites alone names none, and neither does text with no
+        // header at all.
+        assert!(samples(RPOB).is_empty());
+        assert!(samples("chr1\t100\t.\tC\tT\t.\t.\t.\n").is_empty());
+        // The header is read and the rows are not: a row past it that looks
+        // like a header changes nothing.
+        let later = format!("{COHORT}chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\t0\n#CHROM\tX\n");
+        assert_eq!(samples(&later), ["S1", "S2", "S3"]);
+    }
+
+    #[test]
+    fn a_haploid_one_and_a_diploid_one_one_are_both_all_alternate() {
+        let read = genotypes(
+            &cohort("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t1\t1/1\t0\n"),
+            &window(),
+            None,
+        )
+        .unwrap();
+        let shares: Vec<Option<f64>> = read.sites[0].calls.iter().map(|c| c.share()).collect();
+        assert_eq!(shares, [Some(1.0), Some(1.0), Some(0.0)]);
+        assert_eq!(read.sites[0].call(0).copies(), 1);
+        assert_eq!(read.sites[0].call(1).copies(), 2);
+    }
+
+    #[test]
+    fn zero_one_is_half_and_zero_zero_zero_one_a_quarter() {
+        let read = genotypes(
+            &cohort("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/1\t0/0/0/1\t0/0\n"),
+            &window(),
+            None,
+        )
+        .unwrap();
+        let shares: Vec<Option<f64>> = read.sites[0].calls.iter().map(|c| c.share()).collect();
+        assert_eq!(shares, [Some(0.5), Some(0.25), Some(0.0)]);
+    }
+
+    /// Half a genotype is no call. Counted over the copies that were called,
+    /// `./1` would be all alternate and drawn as a homozygote.
+    #[test]
+    fn a_partly_called_genotype_is_not_called() {
+        use crate::GenotypeState::NotCalled;
+        assert_eq!(
+            states("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t./1\t0/.\t.|1\n"),
+            [NotCalled, NotCalled, NotCalled]
+        );
+        let half = crate::Genotype::parse("./1").unwrap();
+        assert_eq!((half.called(), half.alternate()), (1, 1));
+        assert_eq!(half.share(), None);
+    }
+
+    /// A caller writes `.` for a sample it has nothing for, `./.` for a
+    /// diploid one, or leaves a field empty, and keys past GT may be dropped.
+    #[test]
+    fn a_missing_sample_field_is_not_called() {
+        use crate::GenotypeState::{NotCalled, Reference};
+        assert_eq!(
+            states("chr1\t100\t.\tC\tT\t.\t.\t.\tGT:DP\t.\t./.\t\n"),
+            [NotCalled, NotCalled, NotCalled]
+        );
+        // GT second, and the whole field written `.`: there is no GT in it.
+        assert_eq!(
+            states("chr1\t100\t.\tC\tT\t.\t.\t.\tDP:GT\t.\t12:0/0\t3\n"),
+            [NotCalled, Reference, NotCalled]
+        );
+    }
+
+    #[test]
+    fn phased_and_unphased_read_alike_and_phase_is_kept() {
+        let read = genotypes(
+            &cohort("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0|1\t0/1\t|0|1\n"),
+            &window(),
+            None,
+        )
+        .unwrap();
+        let calls = &read.sites[0].calls;
+        assert_eq!(calls[0].share(), calls[1].share());
+        assert!(calls[0].phased());
+        assert!(!calls[1].phased());
+        // VCF 4.4's leading mark is the phase of the first copy, not a copy.
+        assert_eq!(calls[2], calls[0]);
+    }
+
+    #[test]
+    fn gt_need_not_be_the_first_format_key() {
+        use crate::GenotypeState::{Alternate, Heterozygous, Reference};
+        assert_eq!(
+            states("chr1\t100\t.\tC\tT\t.\t.\t.\tDP:AD:GT\t9:4,5:0/1\t9:0,9:1/1\t9:9,0:0/0\n"),
+            [Heterozygous, Alternate, Reference]
+        );
+    }
+
+    #[test]
+    fn a_row_without_gt_leaves_every_sample_not_called() {
+        use crate::GenotypeState::{NotCalled, Reference};
+        let rows = "chr1\t100\t.\tC\tT\t.\t.\t.\tDP\t9\t9\t9\n\
+                    chr1\t200\t.\tC\tT\t.\t.\t.\tGT\t0\t0\t0\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        assert_eq!(read.sites.len(), 2);
+        assert!(read.sites[0].calls.iter().all(|c| c.state() == NotCalled));
+        assert!(read.sites[1].calls.iter().all(|c| c.state() == Reference));
+    }
+
+    /// A window of records that none of carries GT says nothing of anyone,
+    /// and drawn it was a band of no calls that looked like a failed sample.
+    #[test]
+    fn a_window_with_no_gt_anywhere_is_refused() {
+        let error = refusal("chr1\t100\t.\tC\tT\t.\t.\t.\tDP\t9\t9\t9\n");
+        assert!(
+            error
+                .to_string()
+                .contains("no row in the window carries GT"),
+            "{error}"
+        );
+        // Outside the window, a row without GT is nobody's business.
+        let elsewhere = cohort("chr2\t100\t.\tC\tT\t.\t.\t.\tDP\t9\t9\t9\n");
+        assert!(genotypes(&elsewhere, &window(), None)
+            .unwrap()
+            .sites
+            .is_empty());
+    }
+
+    #[test]
+    fn an_allele_past_the_alternates_is_refused_on_its_line() {
+        let error = refusal("chr1\t100\t.\tC\tT,G\t.\t.\t.\tGT\t0/1\t0/3\t0/0\n");
+        assert_eq!(error.line, 3);
+        assert!(
+            error.to_string().contains(
+                "sample S2's GT 0/3 names allele 3, and the line has 2 alternate alleles"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_genotype_that_is_not_numbers_is_refused_on_its_line() {
+        let error = refusal("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/1\t0/x\t0/0\n");
+        assert_eq!(error.line, 3);
+        assert!(
+            error
+                .to_string()
+                .contains("sample S2's GT is \"0/x\", and an allele is a number or ."),
+            "{error}"
+        );
+        // A copy with nothing in it is no copy.
+        assert!(refusal("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/\t0\t0\n")
+            .to_string()
+            .contains("S1's GT"));
+    }
+
+    #[test]
+    fn a_line_short_of_samples_is_refused_naming_both_counts() {
+        let error = refusal("chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/1\t0/0\n");
+        assert_eq!(error.line, 3);
+        assert!(
+            error
+                .to_string()
+                .contains("this line has 2 samples and the #CHROM line names 3"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_sites_only_vcf_is_refused_and_names_variants() {
+        let error = genotypes(RPOB, &rpob_region(), None).unwrap_err();
+        assert!(
+            error.to_string().contains("--variants draws its calls"),
+            "{error}"
+        );
+        // And text with no header at all says to keep it.
+        let bare = "chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\n";
+        let error = genotypes(bare, &window(), None).unwrap_err();
+        assert!(error.to_string().contains("no #CHROM line"), "{error}");
+    }
+
+    /// A gVCF's blocks name no allele but the placeholder, `<NON_REF>` from
+    /// GATK and `<*>` from bcftools, and are not sites.
+    #[test]
+    fn a_reference_block_is_not_a_site() {
+        let rows = "chr1\t100\t.\tC\t.\t.\t.\tEND=150\tGT\t0\t0\t0\n\
+                    chr1\t200\t.\tC\t<NON_REF>\t.\t.\tEND=250\tGT\t0/0\t0/0\t0/0\n\
+                    chr1\t300\t.\tC\t<*>\t.\t.\tEND=350\tGT\t0/0\t0/0\t0/0\n\
+                    chr1\t400\t.\tC\tT,<NON_REF>\t.\t.\t.\tGT\t0/1\t0/0\t1/2\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        assert_eq!(read.sites.len(), 1);
+        let site = &read.sites[0];
+        assert_eq!(site.position, 399);
+        // The placeholder stays in the list, so `2` still names it.
+        assert_eq!(site.alternates, ["T", "<NON_REF>"]);
+        assert_eq!(site.call(2).allele(1), Some(2));
+        assert_eq!(read.records, 4);
+    }
+
+    /// A GATK variant row names the placeholder after its own allele, and
+    /// is the call of that allele alone; a block of only the placeholder is
+    /// no call. Dropping the row's placeholder, and not the allele after it,
+    /// keeps a fraction given per allele with its own allele.
+    #[test]
+    fn variants_drawn_from_a_gvcf_do_not_include_its_reference_blocks() {
+        let text = "chr1\t200\t.\tC\t<NON_REF>\t.\t.\tEND=250\n\
+                    chr1\t280\t.\tC\t<*>\t.\t.\tEND=290\n\
+                    chr1\t300\t.\tC\tT,<NON_REF>\t.\t.\tAF=0.4,0.0\n\
+                    chr1\t320\t.\tC\t<NON_REF>,G\t.\t.\tAF=0.0,0.7\n";
+        let calls = variants(text, &window()).unwrap();
+        let drawn: Vec<(u64, Option<&str>, Option<f64>)> = calls
+            .iter()
+            .map(|call| (call.pos, call.category.as_deref(), call.value))
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                (299, Some("substitution"), Some(0.4)),
+                (319, Some("substitution"), Some(0.7))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_multi_allelic_row_is_one_site_and_one_two_has_no_reference_copy() {
+        use crate::GenotypeState::{Alternate, Heterozygous};
+        let rows = "chr1\t100\t.\tC\tT,G\t.\t.\t.\tGT\t1/2\t0/2\t2/2\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        assert_eq!(read.sites.len(), 1);
+        let calls: Vec<_> = read.sites[0].calls.iter().map(|c| c.state()).collect();
+        assert_eq!(calls, [Alternate, Heterozygous, Alternate]);
+        assert_eq!(read.sites[0].call(0).allele(0), Some(1));
+        assert_eq!(read.sites[0].call(0).allele(1), Some(2));
+    }
+
+    /// A joint caller writes `*` for the base a deletion upstream took away,
+    /// and a gVCF's variant row keeps its placeholder: a copy naming either
+    /// is not the reference, so it is an alternate copy like any other, and
+    /// the indices still name the alleles they were written against.
+    #[test]
+    fn a_call_of_a_star_or_a_placeholder_is_an_alternate_copy() {
+        use crate::GenotypeState::{Alternate, Heterozygous, Reference};
+        let rows = "chr1\t100\t.\tA\tG,*\t.\t.\t.\tGT\t2/2\t0/2\t0/0\n\
+                    chr1\t200\t.\tC\tT,<NON_REF>\t.\t.\t.\tGT\t1/2\t0/2\t2\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        assert_eq!(read.sites.len(), 2);
+        let states = |site: usize| -> Vec<crate::GenotypeState> {
+            read.sites[site].calls.iter().map(|c| c.state()).collect()
+        };
+        assert_eq!(states(0), [Alternate, Heterozygous, Reference]);
+        assert_eq!(states(1), [Alternate, Heterozygous, Alternate]);
+        assert_eq!(read.sites[0].alternates[1], "*");
+        assert_eq!(read.sites[1].call(2).allele(0), Some(2));
+    }
+
+    #[test]
+    fn wanted_samples_come_back_in_the_order_asked() {
+        let rows = "chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\t.\n";
+        let wanted = ["S3".to_string(), "S1".to_string()];
+        let read = genotypes(&cohort(rows), &window(), Some(&wanted)).unwrap();
+        assert_eq!(read.samples, ["S3", "S1"]);
+        let states: Vec<_> = read.sites[0].calls.iter().map(|c| c.state()).collect();
+        assert_eq!(
+            states,
+            [
+                crate::GenotypeState::NotCalled,
+                crate::GenotypeState::Reference
+            ]
+        );
+        let unknown = ["S9".to_string()];
+        let error = genotypes(&cohort(rows), &window(), Some(&unknown)).unwrap_err();
+        assert!(error.to_string().contains("no sample called S9"), "{error}");
+        let twice = ["S1".to_string(), "S1".to_string()];
+        let error = genotypes(&cohort(rows), &window(), Some(&twice)).unwrap_err();
+        assert!(
+            error.to_string().contains("S1 is asked for twice"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_sample_named_twice_on_the_chrom_line_is_refused() {
+        let text = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS1\n\
+                    chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\t0\n";
+        let error = genotypes(text, &window(), None).unwrap_err();
+        assert_eq!(error.line, 1);
+        assert!(error.to_string().contains("names S1 twice"), "{error}");
+    }
+
+    /// The rule `variants` keeps a row by: what REF spells touching the
+    /// window, so a deletion anchored a base before it is a site of it.
+    #[test]
+    fn a_deletion_whose_ref_reaches_into_the_window_is_kept() {
+        let rows = "chr1\t98\t.\tCTTT\tC\t.\t.\t.\tGT\t0/1\t0/0\t1/1\n\
+                    chr1\t90\t.\tC\tT\t.\t.\t.\tGT\t0/1\t0/0\t1/1\n";
+        let region = Region::parse("chr1:100-200").unwrap();
+        let read = genotypes(&cohort(rows), &region, None).unwrap();
+        let positions: Vec<u64> = read.sites.iter().map(|site| site.position).collect();
+        assert_eq!(positions, [97]);
+        assert_eq!(
+            variants(&cohort(rows), &region).unwrap().len(),
+            1,
+            "the same rule keeps the same rows"
+        );
+    }
+
+    /// The largest POS a file can write is one base from the top of the
+    /// number line, and what REF spells from there is past it. Both readers
+    /// panicked on the add; the row is outside any window that ends before
+    /// it, and is passed over as one.
+    #[test]
+    fn a_position_at_the_top_of_the_number_line_is_outside_the_window_and_not_a_panic() {
+        let rows = "chr1\t18446744073709551615\t.\tCC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\n\
+                    chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        let positions: Vec<u64> = read.sites.iter().map(|site| site.position).collect();
+        assert_eq!(positions, [99]);
+        let calls = variants(&cohort(rows), &window()).unwrap();
+        let positions: Vec<u64> = calls.iter().map(|call| call.pos).collect();
+        assert_eq!(positions, [99]);
+    }
+
+    /// A row outside the window is not split past its position, and a row on
+    /// another sequence is not checked at all, as `variants` does not.
+    #[test]
+    fn rows_outside_the_window_are_not_read_past_where_they_are() {
+        let rows = "chr2\t100\t.\tC\tT\t.\t.\t.\tGT\t0/x\n\
+                    chr1\t5000\t.\tC\tT\t.\t.\t.\tGT\t0/x\n\
+                    chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\t0\n";
+        let read = genotypes(&cohort(rows), &window(), None).unwrap();
+        assert_eq!(read.sites.len(), 1);
+        assert_eq!(read.records, 3);
     }
 }

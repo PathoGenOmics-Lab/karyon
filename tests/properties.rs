@@ -26,17 +26,17 @@ use karyon::{
     BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
     CigarOp, CladeBlock, CladeTrack, CodonTrack, CopyNumberSegment, CopyNumberTrack, CoverageTrack,
     DomainArchitecture, DomainFeature, DomainTrack, DotplotTrack, DynseqTrack, Feature,
-    FeatureTrack, Figure, Format, Genome, GenomeTrack, GeoFlow, GeoLocation, GeoProjection,
-    HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack, Legend, LegendTrack, Locus, LocusTrack,
-    LogoColumn, LogoTrack, ManhattanTrack, Map, MatrixRow, MatrixTrack, MethylSite,
-    MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack, PhyloConnector, PhyloMap,
-    PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Read, Region,
-    RenderProfile, Scale, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack, SnpSite,
-    SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, Stain, Strand,
-    StructuralTrack, StructuralVariant, SupportStyle, SurveillanceMetric, SurveillanceObservation,
-    SurveillanceStyle, SurveillanceTrack, SvKind, SyntenyTrack, TanglegramTrack, Theme,
-    TimeDirection, Track, TranscriptionUnit, TranscriptionUnitTrack, Tree, TreeProjection,
-    TreeShape, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
+    FeatureTrack, Figure, Format, Genome, GenomeTrack, Genotype, GenotypeSite, GenotypeTrack,
+    GeoFlow, GeoLocation, GeoProjection, HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack,
+    Legend, LegendTrack, Locus, LocusTrack, LogoColumn, LogoTrack, ManhattanTrack, Map, MatrixRow,
+    MatrixTrack, MethylSite, MethylationTrack, Molecule, MsaSequence, MsaTrack, OrfTrack,
+    PhyloConnector, PhyloMap, PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack, PileupTrack,
+    Read, Region, RenderProfile, Scale, SelectionEvidence, SelectionSite, SelectionTrack,
+    SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack,
+    Stain, Strand, StructuralTrack, StructuralVariant, SupportStyle, SurveillanceMetric,
+    SurveillanceObservation, SurveillanceStyle, SurveillanceTrack, SvKind, SyntenyTrack,
+    TanglegramTrack, Theme, TimeDirection, Track, TranscriptionUnit, TranscriptionUnitTrack, Tree,
+    TreeProjection, TreeShape, TreeTrack, Variant, VariantTrack, Window, WindowTrack,
 };
 
 /// How many figures each property is given before it is believed.
@@ -226,7 +226,7 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
     let width = span.min(4_000);
     let count = rng.count();
 
-    match rng.below(36) {
+    match rng.below(37) {
         0 => {
             let values: Vec<f64> = (0..count).map(|_| rng.value()).collect();
             Box::new(CoverageTrack::new(rng.position(span), values))
@@ -247,6 +247,64 @@ fn track(rng: &mut Lcg, region: &Region) -> Box<dyn Track> {
                 })
                 .collect();
             Box::new(CopyNumberTrack::at_ploidy(segments, rng.value()))
+        }
+        36 => {
+            // Calls of every shape a VCF writes: haploid, diploid and more
+            // copies, several alleles, a copy or all of them not called, a
+            // site with fewer calls than rows, and sites that share a position
+            // or crowd under one pixel, so the cluster painter is handed
+            // runs, ties and the edges of the coordinate range.
+            let rows = rng.count();
+            let names: Vec<String> = (0..rows).map(|_| rng.name()).collect();
+            let sites: Vec<GenotypeSite> = (0..count)
+                .map(|_| {
+                    let position = if rng.chance(3) {
+                        start.saturating_add(rng.below(8))
+                    } else {
+                        rng.position(span)
+                    };
+                    let alleles = 1 + rng.below(3) as u16;
+                    let calls: Vec<Genotype> = (0..rng.below(rows as u64 + 2))
+                        .map(|_| {
+                            let allele = |rng: &mut Lcg| {
+                                if rng.chance(8) {
+                                    u16::MAX
+                                } else {
+                                    rng.below(u64::from(alleles) + 1) as u16
+                                }
+                            };
+                            match rng.below(5) {
+                                0 => Genotype::haploid(allele(rng)),
+                                1 => Genotype::not_called(),
+                                2 => {
+                                    let copies: Vec<String> = (0..1 + rng.below(6))
+                                        .map(|_| match allele(rng) {
+                                            u16::MAX => ".".to_string(),
+                                            index => index.to_string(),
+                                        })
+                                        .collect();
+                                    Genotype::parse(&copies.join("|")).expect("a call")
+                                }
+                                _ => Genotype::diploid(allele(rng), allele(rng)),
+                            }
+                        })
+                        .collect();
+                    let alternates: Vec<String> = (0..alleles).map(|_| rng.name()).collect();
+                    GenotypeSite::new(position, rng.name(), alternates, calls)
+                })
+                .collect();
+            let mut track = GenotypeTrack::new(names.clone(), sites);
+            if rng.chance(3) {
+                track = track.max_rows(Some(1 + rng.below(5) as usize));
+            }
+            if rng.chance(4) {
+                track = track.min_cell_width(rng.value());
+            }
+            Box::new(if rng.chance(2) {
+                track.traits(traits(rng, &names))
+            } else {
+                track
+            })
         }
         35 => {
             // Junctions that touch, cross, invert and that nobody crossed, so

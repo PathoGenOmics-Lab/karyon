@@ -105,7 +105,7 @@ let figure = plot_tree().add_tree(Tree::parse_newick("((A:1,B:1):1,C:2);")?);
 
 Each `add_` method builds one track and puts it under the tracks already added,
 so the order of the calls is the order of the stack. There is one for each of
-the 37 track types the crate ships, five `_at` forms that take the start of an
+the 38 track types the crate ships, five `_at` forms that take the start of an
 array, and two that take a track you built yourself.
 
 | Method | Adds | Takes |
@@ -122,6 +122,7 @@ array, and two that take a track you built yourself.
 | `add_dynseq(start, seq, scores)` | [`DynseqTrack`](../tracks/signal-sequence.md#dynseqtrack) | `u64`, `Vec<u8>`, `Vec<f64>` with one score per base |
 | `add_features(features)` | [`FeatureTrack`](../tracks/annotation.md#featuretrack) | `Vec<Feature>` |
 | `add_genome(genome)` | [`GenomeTrack`](../tracks/whole-genome.md#genometrack) | `Genome` |
+| `add_genotypes(samples, sites)` | [`GenotypeTrack`](../tracks/variation.md#genotypetrack) | `Vec<String>`, `Vec<GenotypeSite>` with a call per sample |
 | `add_ideogram(length, bands)` | [`IdeogramTrack`](../tracks/whole-genome.md#ideogramtrack) | `u64`, `Vec<Band>` |
 | `add_junctions(junctions)` | [`JunctionTrack`](../tracks/reads-molecules.md#junctiontrack) | `Vec<Junction>` |
 | `add_key()` | [`LegendTrack`](../tracks/scales-keys.md#legendtrack) | nothing: the key every track gives, in the figure's theme, at the foot of the figure |

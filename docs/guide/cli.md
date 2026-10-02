@@ -48,7 +48,7 @@ Four rules cover every command:
 |:--|:--|
 | `.bam` | the depth of its reads (`--coverage`); `--pileup` draws the reads |
 | `.sam` | its reads (`--pileup`) |
-| `.vcf`, `.bcf` | its calls (`--variants`) |
+| `.vcf`, `.bcf` | its calls (`--variants`); a cohort's says that `--genotypes` draws its samples |
 | `.gff3`, `.gff`, `.gtf`, `.bed` | features (`--features`); a `.bed` that is modkit's bedMethyl, as methylation |
 | `.bb`, `.bigbed` | features (`--features`), read through its index |
 | `.bedgraph`, `.bg`, `.bdg` | a signal (`--coverage`) |
@@ -91,7 +91,7 @@ is answered with how karyon says the same thing:
 
 ```text
 $ karyon rpoB --vcf calls.vcf.gz
-karyon: unknown flag --vcf; variant calls are --variants FILE, or the VCF named on its own
+karyon: unknown flag --vcf; variant calls are --variants FILE, or the VCF named on its own, and --genotypes FILE draws each sample's calls, a row per sample
 ```
 
 ### A worked example
@@ -164,7 +164,7 @@ command adds, and it does that with the readers in `karyon::read`, described in
 
 ## Track flags
 
-Thirty-five flags, one per track the command can draw. Each takes one
+Thirty-six flags, one per track the command can draw. Each takes one
 file, or `-` for [standard input](#standard-input), except `--axis`, which
 reads nothing.
 
@@ -177,6 +177,7 @@ reads nothing.
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
 | `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
 | `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
 | `--recombination <FILE>` | recombination rates, as a line in cM/Mb | [a genetic map, or a bedGraph of rates](formats.md#a-recombination-map) | [CoverageTrack](../tracks/signal-sequence.md#coveragetrack) |
@@ -207,9 +208,9 @@ reads nothing.
 | `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
 
 `--matrix` and `--heatmap` draw one track type from two shapes of table, and
-`--coverage` and `--recombination` another, so thirty-three types are drawn
+`--coverage` and `--recombination` another, so thirty-four types are drawn
 here. The other four are reached from Rust
-only, and the [track catalogue](../tracks/index.md) lists all thirty-seven.
+only, and the [track catalogue](../tracks/index.md) lists all thirty-eight.
 
 A few things about track flags are worth knowing before they surprise you:
 
@@ -253,7 +254,7 @@ takes.
 | `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA or 2bit file, or `-` for a FASTA | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
-| `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
+| `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
 | `--links <FILE>` | BLAST tabular, or two or three columns of names, or `-` | `--loci` | required |
 | `--ld <FILE>` | [PLINK's `.ld`](formats.md#pairs-of-positions) of the lead against its neighbours, or `-` | `--manhattan` | every point in one colour |
 | `--with-recombination <FILE>` | a [genetic map](formats.md#a-recombination-map), or `-` | `--manhattan` | no rate laid over the scan |
@@ -264,8 +265,8 @@ takes.
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
 | `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
 | `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
-| `--sample <NAME>` | a sample the table names | `--copy-number` | the one sample; refused when the table holds several |
-| `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
+| `--sample <NAME[,N]>` | a sample the table names; after `--genotypes`, samples of the VCF, comma separated, in the order to draw them | `--copy-number`, `--genotypes` | the one sample, refused when the table holds several; every sample of the VCF, in the order of its header |
+| `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
 | `--height <PX>` | pixels | `--coverage`, `--copy-number`, `--dynseq`, `--sequence`, `--variants`, `--windows`, `--manhattan`, `--recombination`, `--ideogram`, `--synteny`, `--dotplot`, `--methylation`, `--structural`, `--pairs`, `--junctions`, `--frequencies`, `--phylodynamics`, `--selection`, `--squiggle`, `--axis` | the track's own |
 | `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn; `--frequencies`, as the frequency a lineage is flagged at | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair; no lineage flagged |
@@ -288,9 +289,9 @@ takes.
 | `--growth <RISE>` | a rise in frequency from one time to the next, above 0 and at most 1, as in `0.15` | `--frequencies` | no rise flagged |
 | `--min-total <N>` | a whole number of samples from 1 | `--frequencies` | every time drawn |
 | `--counts` | nothing | `--frequencies` | frequencies |
-| `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
-| `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--bisulfite`, `--tree` | 40 for the first four; no cap on a tree |
-| `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
+| `--row-height <PX>` | pixels above 0 | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--pileup`, `--orfs`, `--tree`, `--tanglegram`, `--clades`, `--split-reads`, `--bisulfite`, `--domains` | the track's own |
+| `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--genotypes`, `--bisulfite`, `--tree` | 40 for the first five; no cap on a tree |
+| `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--isoforms` | nothing | `--features` | each gene once, with every exon its transcripts use |
 | `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
@@ -318,7 +319,7 @@ second with an option, spelled by what the file is:
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
 | `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
-| `--msa`, `--snps`, `--matrix`, `--heatmap`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
+| `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
 | `--squiggle` | the read's current | `--with-moves`, optional: the basecaller's record of the read, whose move table puts each base over its stretch of current |
 
 The first four are refused without their second file:
@@ -394,8 +395,11 @@ karyon: --methylation dual.bed holds h, m, and --modification says which to draw
 The option that chooses is `--modification`, `--context`, `--analysis` or
 `--sample`. A SLOW5 file holds many reads and is the exception: its first read
 is drawn, the command says how many others there are, and `--read` names
-another. A methylation, bisulfite or domain band is named after what it shows
-unless `--label` names it.
+another. A cohort's VCF is the other: `--genotypes` draws every sample it
+names, a row each, and `--sample` after it chooses the rows and their order
+rather than one of several, as `--sample S07,S01,S12`. A name the VCF does not
+hold is refused with the first five it does. A methylation, bisulfite or
+domain band is named after what it shows unless `--label` names it.
 
 `--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
 The segment file does not say it, and a rule in the wrong place turns every gain
@@ -403,10 +407,10 @@ into a loss.
 
 ### How deep a stack of rows goes
 
-`--pileup`, `--msa`, `--snps` and `--bisulfite` stack their data in rows: a
-pileup packs its reads into rows, and the other three give each sequence or
-molecule a row of its own. Each stops at 40 rows and prints how many it left
-out. `--max-rows` moves the cap, and `all` removes it:
+`--pileup`, `--msa`, `--snps`, `--genotypes` and `--bisulfite` stack their
+data in rows: a pileup packs its reads into rows, and the other four give each
+sequence, sample or molecule a row of its own. Each stops at 40 rows and prints
+how many it left out. `--max-rows` moves the cap, and `all` removes it:
 
 ```bash
 karyon chr1:1-400 --pileup reads.sam --max-rows 10 --label reads
@@ -448,12 +452,12 @@ karyon NC_000962.3:1-4,411,532 \
   --traits samples.tsv --columns lineage,drug,depth
 ```
 
-Eight tracks take a sheet: `--matrix`, `--heatmap`, `--msa`, `--snps`,
-`--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows too, but they are reads,
-so `--traits` is refused there. On a tree the strips sit beside the tips, or
-become rings on a circular or unrooted one, and a folded clade shows what its
-tips agree on and nothing where they differ. The strips are not placed at
-coordinates, so they stay put when the region changes.
+Nine tracks take a sheet: `--matrix`, `--heatmap`, `--genotypes`, `--msa`,
+`--snps`, `--clades`, `--domains`, `--loci` and `--tree`. A pileup has rows
+too, but they are reads, so `--traits` is refused there. On a tree the strips
+sit beside the tips, or become rings on a circular or unrooted one, and a
+folded clade shows what its tips agree on and nothing where they differ. The
+strips are not placed at coordinates, so they stay put when the region changes.
 
 Two refusals to expect. A sheet whose names match none of the rows is refused
 with the first names it holds. A column that is not in the sheet is refused with
@@ -812,6 +816,14 @@ is and what to write in place of its name:
 ```text
 $ karyon chr1:1-5,000 --variants calls.bcf
 karyon: --variants calls.bcf: the file is BCF, and karyon reads text; write <(bcftools view calls.bcf) where its name is, or turn it into text first
+```
+
+A VCF is read whole, so a cohort's of many samples is best cut to the window
+on the way in, which `tabix -h` does through the `.tbi` beside it, keeping
+the header that names the samples:
+
+```bash
+karyon chr1:1-100,000 --genotypes <(tabix -h cohort.vcf.gz chr1:1-100000) -o cohort.svg
 ```
 
 `<(command)` is the shell handing the command's output over as though it were

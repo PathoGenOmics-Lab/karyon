@@ -113,7 +113,7 @@
 //!
 //! # A track type the crate lacks is thirty lines
 //!
-//! The thirty-seven track types shipped here are implementations of one small
+//! The thirty-eight track types shipped here are implementations of one small
 //! trait, [`Track`], with no privileged access to the figure. See the example
 //! on [`Track`] for the whole of what a new one has to do.
 //!
@@ -195,19 +195,20 @@ pub use crate::track::{
     CellScale, Centering, CigarOp, CladeBlock, CladeHighlight, CladeTrack, CodonTrack, CopyNumber,
     CopyNumberSegment, CopyNumberTrack, CoverageStyle, CoverageTrack, DomainArchitecture,
     DomainFeature, DomainTrack, DotplotTrack, DrawContext, DynseqTrack, Extent, Feature,
-    FeatureTrack, GeneShape, GenomeTrack, Homology, HomoplasyLayer, IdeogramTrack, Junction,
-    JunctionTrack, Legend, LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore,
-    LogoStack, LogoTrack, ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite,
-    MethylationTrack, Molecule, Motif, Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack,
-    NodeGlyph, NodeGlyphStyle, NodeGlyphTarget, Orf, OrfTrack, Pair, PairStyle, PairTrack,
-    PhylodynamicPoint, PhylodynamicScale, PhylodynamicTrack, PileupLayout, PileupTrack,
-    RadialDirection, Read, ReadColoring, Rect, Segment, SelectionEvidence, SelectionSite,
-    SelectionTrack, SequenceTrack, SnpSite, SnpTrack, SplitRead, SplitReadTrack, SplitSegment,
-    SquiggleTrack, StackOrder, Stain, Strand, StructuralTrack, StructuralVariant, SupportStyle,
-    SurveillanceMetric, SurveillanceObservation, SurveillanceStyle, SurveillanceTrack, SvKind,
-    SyntenyTrack, TangleLabels, TangleTieStyle, TanglegramTrack, Terminator, Track, TraitColumn,
-    TraitScale, TraitStyle, TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape,
-    TreeTrack, Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
+    FeatureTrack, GeneShape, GenomeTrack, Genotype, GenotypeSite, GenotypeState, GenotypeTrack,
+    Homology, HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack, Legend, LegendItem,
+    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack,
+    Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, Motif, Move,
+    MsaColoring, MsaDisplay, MsaSequence, MsaTrack, NodeGlyph, NodeGlyphStyle, NodeGlyphTarget,
+    Orf, OrfTrack, Pair, PairStyle, PairTrack, PhylodynamicPoint, PhylodynamicScale,
+    PhylodynamicTrack, PileupLayout, PileupTrack, RadialDirection, Read, ReadColoring, Rect,
+    Segment, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack,
+    SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, StackOrder, Stain, Strand,
+    StructuralTrack, StructuralVariant, SupportStyle, SurveillanceMetric, SurveillanceObservation,
+    SurveillanceStyle, SurveillanceTrack, SvKind, SyntenyTrack, TangleLabels, TangleTieStyle,
+    TanglegramTrack, Terminator, Track, TraitColumn, TraitScale, TraitStyle, TranscriptionUnit,
+    TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack, Variant, VariantStyle,
+    VariantTrack, Window, WindowStyle, WindowTrack,
 };
 pub use crate::tree::{
     AnnotationValue, Annotations, Clade, Mutation, Mutations, NodeRef, Placement, Spot,

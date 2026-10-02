@@ -1,11 +1,11 @@
 ---
 title: Variation tracks
-description: VariantTrack, StructuralTrack, CopyNumberTrack, SnpTrack, MatrixTrack, ManhattanTrack and SelectionTrack, with their options, command line flags and pitfalls.
+description: VariantTrack, GenotypeTrack, StructuralTrack, CopyNumberTrack, SnpTrack, MatrixTrack, ManhattanTrack and SelectionTrack, with their options, command line flags and pitfalls.
 ---
 
 # Variation tracks
 
-Draw how samples differ from a reference and from each other: point calls, structural calls, copy number, variable sites, genotype matrices, association scans and site-wise selection.
+Draw how samples differ from a reference and from each other: point calls, the genotypes of a cohort, structural calls, copy number, variable sites, genotype matrices, association scans and site-wise selection.
 { .k-lead }
 
 The Rust snippets use `?`, so they belong in a function that returns `Result<(), Box<dyn std::error::Error>>`, and names such as `tree` stand for data you already hold. To choose a track by its picture, start from the [gallery](../plots/variation-association.md).
@@ -69,7 +69,86 @@ A variant with no value gets a full-height stem, which is right when there is no
 
 Lollipops read well up to a few hundred calls; past that the heads smear, and `Tick` is the answer. Ticks carry no tooltip, since a mark nobody can isolate is not worth naming.
 
-From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call per allele, and a call with no `AF` has no value, and stands full height. Rows without an alternate allele, most of a gVCF, are skipped.
+From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call per allele, and a call with no `AF` has no value, and stands full height. A gVCF's reference blocks are skipped: rows whose `ALT` is `.`, or only the placeholder for an allele, `<NON_REF>` as GATK writes it or `<*>` as bcftools does. A variant row of a gVCF names the placeholder after its own allele, as `T,<NON_REF>`, and draws its `T` alone. The samples of a cohort's VCF are a [GenotypeTrack](#genotypetrack).
+
+## GenotypeTrack { #genotypetrack }
+
+The call of each sample at each site of a cohort's VCF: one row per sample and one cell per record, each at its own position on the shared axis, so a column of calls stands under the lollipop a [VariantTrack](#varianttrack) draws for the same record and under the gene it falls in. Put a phylogeny beside it and the alleles a clade shares line up into a block.
+
+<figure class="k-start" markdown>
+![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, blue cells where it carries the other allele, the blue cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }
+![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }
+</figure>
+
+| | |
+|:--|:--|
+| Rust | `.add_genotypes(samples, sites)` on `plot()`; `GenotypeTrack::new(samples, sites)` |
+| Command line | `--genotypes FILE`, with `--sample`, `--with-tree`, `--traits`, `--columns`, `--row-height`, `--max-rows`, `--no-names` |
+| Reads | a VCF with samples: `GT` from the column of each sample the `#CHROM` line names (`read::point::genotypes`) |
+
+=== "Rust"
+
+    ```rust
+    use karyon::{plot, Genotype, GenotypeSite};
+
+    let samples = vec!["S1".to_string(), "S2".to_string(), "S3".to_string()];
+    let sites = vec![
+        GenotypeSite::new(761_154, "C", ["T"], vec![
+            Genotype::diploid(0, 1),
+            Genotype::diploid(1, 1),
+            Genotype::diploid(0, 0),
+        ]),
+        GenotypeSite::new(762_367, "G", ["A", "T"], vec![
+            Genotype::diploid(1, 2), // no copy is the reference
+            Genotype::parse("./.").unwrap(),
+            Genotype::diploid(0, 1),
+        ]),
+    ];
+
+    // tree: a Tree whose leaves are named S1, S2 and S3
+    plot("NC_000962.3:759,001-765,000")?
+        .add_genotypes(samples, sites)
+        .label("cohort")
+        .adjust(|track| track.tree(tree))
+        .save("genotypes.svg")?;
+    ```
+
+=== "Command line"
+
+    ```bash
+    karyon rpoB genes.gff3 --genotypes cohort.vcf.gz --with-tree tree.nwk \
+      --traits samples.tsv --columns lineage -o genotypes.svg
+    ```
+
+#### Options
+
+| Method | What it does | Default |
+|:--|:--|:--|
+| `.label("cohort")` | Names the track in the left gutter (`--label`) | none; on the command line, the file's name and `genotypes` |
+| `.row_height(8.0)` | Height of one row (`--row-height`) | `11` |
+| `.row_gap(2.0)` | Gap between rows, in the page colour | `1` |
+| `.min_cell_width(4.0)` | Narrowest a cell is drawn, which is also how close two sites can be before they are pooled | `3` |
+| `.max_rows(Some(100))` | Caps the sample rows drawn; `None` lifts the cap (`--max-rows`) | `Some(40)` |
+| `.show_names(false)` | Shows or hides sample names (`--no-names`) | shown |
+| `.color("#d55e00")` | The hue of an alternate call | the theme's ink, a colour no category of a strip takes |
+| `.tree(tree)` | Draws a phylogeny beside the rows and puts them in the order of its tips (`--with-tree`) | none |
+| `.tree_width(120.0)` | Width of the tree strip in pixels | `90` |
+| `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |
+| `.traits(traits)` | Metadata columns between the names and the calls (`--traits`, `--columns`) | none |
+
+#### Notes
+
+A cell is the share of the call's copies that are not the reference, which is the one reading that means the same thing whatever the ploidy. A haploid `1` and a diploid `1/1` are both all alternate and drawn in the full hue, `0/1` at half strength and `0/0/0/1` at a quarter. A multi-allelic `1/2` carries no copy of the reference, so it is all alternate too, and its tooltip names both alleles. A copy that names `*`, the base a deletion upstream took away, or a placeholder such as `<NON_REF>` is not the reference either, and counts as alternate; the tooltip spells it out, and says what a `*` is.
+
+Four marks, because four things can be true of a sample at a site: a reference call is a short quiet bar, as an agreement is in a [SnpTrack](#snptrack); a heterozygous call and an alternate call are full cells at two strengths of the hue; and a sample with no call is a pale full cell. A stretch with no record in it is the page. A call with any copy unknown, `./1` say, is no call: counted over its known copies it would be all alternate, and a heterozygote would be drawn as a homozygote. The quiet marks are mixed from the theme's muted ink and not from its rule, since a bar mixed from the rule is 1.06 to one against the light page and close to not there; mixed from the ink it is 2.07 to one, the pale cell of no call 1.31, and the two are 1.58 apart as well as different shapes.
+
+A cell is drawn at a floor width, centred on its base, which at the zoom a cohort is read at is wider than the gap between sites. So the track works out which cells would overlap before drawing any. A site whose cell touches no other is a cell, with a tooltip of its own when it carries an alternate allele. Sites whose cells overlap are a cluster, and a cluster is painted a pixel at a time: each pixel takes the share of alternate copies among the calls under it, in eight steps, and any alternate copy is at least the first step, so one heterozygote among forty references is not drawn as a reference. The cluster runs from the left edge of its first cell to the right edge of its last, and runs of one shade are one rectangle. Twenty thousand sites of two hundred samples over a megabase, drawn a cell at a time as a [MatrixTrack](#matrixtrack) draws them, were 258 MB and four million rectangles; drawn here they are 0.94 MB.
+
+The key names the four states while every cell is one call, and only the ones the figure holds: a haploid cohort has no heterozygous call to key. Once a pixel is an average of several calls, or a call is a share a diploid cannot make, it keys the steps as a ramp instead, with the reference and no call beside it. Each row's tooltip counts what the window holds of that sample: how many sites it was called at and how many it carries an alternate allele at.
+
+The rows stop at forty and the figure counts the rest, as `+N more`. `tree` sorts them by descent and draws the tree beside them; a sample the tree does not name keeps its row at the bottom, and a tip with no row is counted under the rows. On the command line, `--sample S3,S1` chooses the rows and their order, and with `--with-tree` as well the tree orders the rows chosen.
+
+A VCF named on its own is still its calls, a [VariantTrack](#varianttrack), since a VCF of one sample is the common case and a row of its own would repeat its sites. A cohort's says so: `karyon: cohort.vcf.gz is drawn as its calls; --genotypes cohort.vcf.gz draws its 40 samples, a row each`. What the reader takes and refuses is under [VCF genotypes](../guide/formats.md#vcf-genotypes).
 
 ## StructuralTrack { #structuraltrack }
 
@@ -263,11 +342,11 @@ A panel with more sites than pixels, the whole genomes of an outbreak say, is dr
 
 `from_alignment(reference, &rows)` keeps a column when any row disagrees with the reference row, gaps included, since a deletion is an observation too. Positions are alignment columns, counted from 0 and labelled from 1; `offset` moves them to where the alignment starts.
 
-`tree` sorts the rows by descent, so a clade's shared substitutions line up into a block. Rows are matched to leaves by name, and a sample the tree does not mention keeps its place at the bottom rather than vanishing: a row silently dropped from a figure is worse than a row out of order. The same tree beside a [MatrixTrack](#matrixtrack), [MsaTrack](comparison.md#msatrack) or [DomainTrack](comparison.md#domaintrack) sorts it the same way.
+`tree` sorts the rows by descent, so a clade's shared substitutions line up into a block. Rows are matched to leaves by name, and a sample the tree does not mention keeps its place at the bottom rather than vanishing: a row silently dropped from a figure is worse than a row out of order. The same tree beside a [MatrixTrack](#matrixtrack), [GenotypeTrack](#genotypetrack), [MsaTrack](comparison.md#msatrack) or [DomainTrack](comparison.md#domaintrack) sorts it the same way.
 
 ## MatrixTrack { #matrixtrack }
 
-One row per sample, one column per site, and a cell saying what that sample had there. The columns sit at their real coordinates, so the matrix shares the axis with whatever is stacked above it: a genotype matrix from a VCF, or a presence and absence matrix of genes.
+One row per sample, one column per site, and a cell saying what that sample had there. The columns sit at their real coordinates, so the matrix shares the axis with whatever is stacked above it: a table of allele fractions or depths, or a presence and absence matrix of genes. The genotypes of a VCF are a [GenotypeTrack](#genotypetrack), which reads the calls themselves and pools sites closer than a cell.
 
 <figure class="k-plate" markdown>
 ![A presence and absence matrix of accessory genes across nine Klebsiella isolates, with the phylogeny beside it ordering the rows so the accessory islands come out as solid rectangles](../assets/figures/example-pangenome.svg){ width="940" height="264" loading="lazy" }

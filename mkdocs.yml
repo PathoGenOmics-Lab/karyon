@@ -170,6 +170,7 @@ nav:
       - Two assemblies: your-data/assemblies.md
       - A whole sequence: your-data/genome.md
       - Many samples in windows: your-data/samples.md
+      - Genotypes of many samples: your-data/genotypes.md
       - Pairs of positions: your-data/pairs.md
       - Counts over time: your-data/time.md
       - Selection along a gene: your-data/selection.md
