@@ -10,7 +10,8 @@ what this script thought it should hold. The tools are htslib 1.24's
     python3 src/read/fixtures/bcf/make.py
 
 - tiny.vcf holds a value of every type a BCF stores and every way a value is
-  missing; tiny.bcf is it as `bcftools view -Ob` writes it, with the CSI
+  missing, a GT left out of a sample whose FORMAT puts it second among them;
+  tiny.bcf is it as `bcftools view -Ob` writes it, with the CSI
   `bcftools index` writes, tiny.u.bcf as `-Ou` writes it, BGZF of blocks
   stored rather than compressed, and tiny.raw.bcf the bare stream inside.
 - floats.bcf holds floats of every size, a few chosen for where htslib's
@@ -18,10 +19,12 @@ what this script thought it should hold. The tools are htslib 1.24's
   ones printf prints differently on macOS and on Linux.
 - phased.vcf is VCF 4.4, whose first allele may say how it is phased.
 - cohort.bcf holds the calls of ../indexed/cohort.vcf.gz, and sv.bcf the
-  structural calls of sv.vcf, breakends whose mates lie far off among them,
-  each in blocks of a few kilobytes cut anywhere, a record across two blocks included, as make.py there cuts
-  its files, so a window is read out of the middle of a file of many blocks
-  as it is out of a large one.
+  structural calls of sv.vcf, breakends whose mates lie far off among them, a
+  deletion whose END and SVLEN are left missing, and a sequence the header
+  names that no record is on, which the CSI gives no bins, each in blocks of
+  a few kilobytes cut anywhere, a record across two blocks included, as
+  make.py there cuts its files, so a window is read out of the middle of a
+  file of many blocks as it is out of a large one.
 """
 
 import decimal

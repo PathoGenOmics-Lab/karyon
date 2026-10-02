@@ -1,5 +1,6 @@
 ##fileformat=VCFv4.2
 ##contig=<ID=chr1,length=1000000>
+##contig=<ID=scaffold_9,length=40000>
 ##contig=<ID=chr2,length=500000>
 ##ALT=<ID=DEL,Description="Deletion">
 ##ALT=<ID=DUP,Description="Duplication">
@@ -17,3 +18,4 @@ chr1	700000	bnd3	G	G]chr2:20000]	50	PASS	SVTYPE=BND;MATEID=bnd4
 chr1	800000	bnd2	N	]chr1:3000]N	50	PASS	SVTYPE=BND;MATEID=bnd1
 chr2	20000	bnd4	T	T]chr1:700000]	50	PASS	SVTYPE=BND;MATEID=bnd3
 chr2	300000	del2	N	<DEL>	.	PASS	SVTYPE=DEL;END=300900
+chr2	400000	del3	NACGTACGTA	N	30	PASS	SVTYPE=DEL;SVLEN=.;END=.

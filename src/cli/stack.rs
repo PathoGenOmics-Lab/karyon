@@ -2944,42 +2944,51 @@ fn csi_name(files: &mut dyn Files, source: &Source) -> String {
 /// bgzipped VCF's is not trusted; one that does not read as an index; and one
 /// that is not a CSI written for a BCF, as a tabix index renamed would be.
 fn trusted_csi(files: &mut dyn Files, source: &Source, path: &str) -> Option<read::index::Index> {
+    match csi_beside(files, source, path) {
+        Ok(index) => index,
+        Err(note) => {
+            files.note(&note);
+            None
+        }
+    }
+}
+
+/// The `.csi` beside a BCF as [`trusted_csi`] takes it, without a word: the
+/// index where there is one and it is trusted, `None` where there is none,
+/// and the note that says why where it is not trusted.
+fn csi_beside(
+    files: &mut dyn Files,
+    source: &Source,
+    path: &str,
+) -> Result<Option<read::index::Index>, String> {
     let again = format!("bcftools index -f {path} writes it again");
     let beside = match files.beside(source, ".csi") {
         Ok(Some(beside)) => beside,
-        Ok(None) => return None,
+        Ok(None) => return Ok(None),
         Err(error) => {
-            files.note(&format!(
+            return Err(format!(
                 "the index beside {path} could not be read ({error}), so the file was read whole"
-            ));
-            return None;
+            ))
         }
     };
     let name = beside.name;
     if beside.older {
-        files.note(&format!(
+        return Err(format!(
             "{name} is older than {path}, so it was not trusted and the file was read whole; \
              {again}"
         ));
-        return None;
     }
     match read::index::parse(&beside.bytes) {
         Ok(index) if index.kind() == read::index::Kind::Csi && index.columns().is_none() => {
-            Some(index)
+            Ok(Some(index))
         }
-        Ok(_) => {
-            files.note(&format!(
-                "{name} is not the CSI bcftools index writes for a BCF, so {path} was read \
-                 whole; {again}"
-            ));
-            None
-        }
-        Err(error) => {
-            files.note(&format!(
-                "{name} cannot be read as an index ({error}), so {path} was read whole; {again}"
-            ));
-            None
-        }
+        Ok(_) => Err(format!(
+            "{name} is not the CSI bcftools index writes for a BCF, so {path} was read whole; \
+             {again}"
+        )),
+        Err(error) => Err(format!(
+            "{name} cannot be read as an index ({error}), so {path} was read whole; {again}"
+        )),
     }
 }
 
@@ -2999,32 +3008,24 @@ fn bcf(files: &mut dyn Files, source: &Source) -> Option<(read::bcf::Header, Box
 
 /// How many records a BCF holds on each of its sequences, for the message of
 /// a window that held none: from the counts the `.csi` beside it keeps, where
-/// it keeps them, and otherwise from the file's records, each read as far as
-/// the number of its sequence. `None` for a source that is not a BCF.
+/// it is the index its track reads through and keeps them, and otherwise from
+/// the file's records, each read as far as the number of its sequence. `None`
+/// for a source that is not a BCF.
+///
+/// The index is the one [`calls`] trusts and [`read::bcf::window`] reads
+/// through: one either passes over is passed over here as well, without a
+/// word, since a track that reads through an index has said why already.
+/// Counted from, the index of another file put that file's records under
+/// this file's names.
 fn bcf_rows(files: &mut dyn Files, source: &Source) -> Option<Vec<(String, usize)>> {
-    let (header, file) = bcf(files, source)?;
-    let counted = files
-        .beside(source, ".csi")
-        .ok()
-        .flatten()
-        .filter(|beside| !beside.older)
-        .and_then(|beside| read::index::parse(&beside.bytes).ok())
-        .and_then(|index| {
-            let mut counted = Vec::new();
-            for (name, _) in &header.contigs {
-                let number = header.sequence(name)?;
-                let rows = match index.summary(number) {
-                    Some(summary) => usize::try_from(summary.placed).ok()?,
-                    None if number >= index.references() => 0,
-                    None => return None,
-                };
-                if rows > 0 {
-                    counted.push((name.clone(), rows));
-                }
-            }
-            Some(counted)
-        });
-    counted.or_else(|| read::bcf::counted(file).ok())
+    let (_, mut file) = bcf(files, source)?;
+    let path = called(source);
+    if let Ok(Some(index)) = csi_beside(files, source, &path) {
+        if let Ok(counted) = read::bcf::counted(&mut file, Some(&index)) {
+            return Some(counted);
+        }
+    }
+    read::bcf::counted(file, None).ok()
 }
 
 /// The whole text of a source: [`Files::text`], or for a BCF, every record's
@@ -13409,8 +13410,11 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
                 }
             }
             assert!(drawn >= 12, "{drawn}");
+            // chr1:60,000 has `AF=.`, chr2:80,000 a GT left out of a sample
+            // under `DP:GT`, which bcftools prints `4:.`, and chr2:400,000 an
+            // END and an SVLEN left missing, each drawn as from the VCF.
             for line in [
-                "chr1:1-55,000 tiny.bcf",
+                "chr1:1-100,000 tiny.bcf",
                 "chr1:1-100,000 --genotypes tiny.bcf",
                 "chr2:1-90,000 --genotypes tiny.bcf",
                 "chr1:1-1,000,000 --structural sv.bcf",
@@ -13421,13 +13425,6 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
                 assert!(bcf.0.starts_with("<svg"), "{line}: {}", bcf.0);
                 assert_eq!(bcf, vcf, "{line}");
             }
-            // The VCF's refusal names its line, and the BCF's the record.
-            let [(bcf, _), _] = both(&mut held, "chr1:1-100,000 tiny.bcf");
-            assert_eq!(
-                bcf,
-                "refused: --variants tiny.bcf: the record at chr1:60,000: AF is not a number: \
-                 \".\""
-            );
             let [(_, notes), _] = both(&mut held, "chr1:1-200,000 cohort.bcf");
             assert_eq!(
                 notes,
@@ -13438,10 +13435,11 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     }
 
     /// A BCF's empty window says what the file holds, from the counts its CSI
-    /// keeps or from its records, as a VCF's does from its rows; a place is
-    /// a sequence its header names, as long as the header says or as far as
-    /// its records reach; and a name no file has is answered with the
-    /// sequences the header names.
+    /// keeps or from its records, as a VCF's does from its rows, and from the
+    /// CSI alone where the header names a sequence no record is on; a place
+    /// is a sequence its header names, as long as the header says, under the
+    /// name `--rename` gives it, or as far as its records reach; and a name
+    /// no file has is answered with the sequences the header names.
     #[test]
     fn a_bcf_is_placed_and_its_empty_windows_explained_as_its_vcf_is() {
         for with_index in [true, false] {
@@ -13469,7 +13467,44 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
                 notes[0].starts_with("chrM is drawn to 100, as far as tiny.bcf reaches"),
                 "{notes:?}"
             );
+            // A sequence placed by the name --rename gives it is as long as
+            // the header says under its own name.
+            let [bcf, vcf] = both(&mut held, "2 tiny.bcf --rename chr2=2");
+            assert!(bcf.0.starts_with("<svg"), "{}", bcf.0);
+            assert_eq!(bcf, vcf);
+            assert!(
+                !bcf.1.iter().any(|note| note.contains("as far as")),
+                "{:?}",
+                bcf.1
+            );
         }
+        // sv.bcf's header names scaffold_9, which no record is on and the CSI
+        // gives no bins: the counts are the CSI's all the same, and a block
+        // of records damaged, which every record read whole would stop at, is
+        // never read for them.
+        use crate::read::bcf::fixture::{SV, SV_CSI, SV_VIEW};
+        let mut starts = Vec::new();
+        let mut at = 0;
+        while at + 18 <= SV.len() {
+            starts.push(at);
+            at += usize::from(u16::from_le_bytes([SV[at + 16], SV[at + 17]])) + 1;
+        }
+        let mut bent = SV.to_vec();
+        bent[starts[starts.len() - 2] + 30] ^= 0xff;
+        let mut held = Held::new();
+        held.insert("sv.bcf", bent.clone());
+        held.insert("sv.bcf.csi", SV_CSI);
+        held.insert("sv.vcf", SV_VIEW);
+        let [(bcf, _), (vcf, _)] = both(&mut held, "chr1:900,000-950,000 --variants sv.bcf");
+        assert_eq!(
+            bcf,
+            "refused: --variants sv.bcf: no variants in chr1:900000-950000, though the file \
+             holds 9 on chr1 and chr2"
+        );
+        assert_eq!(bcf, vcf);
+        let mut whole = Held::new();
+        whole.insert("sv.bcf", bent);
+        assert!(held_figure(&mut whole, "chr1:1-1,000,000 --variants sv.bcf").is_err());
     }
 
     /// A BCF is read over the window through its CSI: a block far from the
@@ -13500,7 +13535,8 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     /// An index beside a BCF that does not fit it is read past, the file read
     /// whole, which draws the same figure, and the note says why and the
     /// command that writes it again: the index of another file, one that
-    /// does not read as an index, and a tabix index named as a CSI.
+    /// does not read as an index, and a tabix index named as a CSI. An empty
+    /// window counts the file's own records, and not the index's.
     #[test]
     fn a_csi_that_does_not_fit_its_bcf_is_read_past_and_said() {
         use crate::read::bcf::fixture::{COHORT, COHORT_VIEW, TINY_CSI};
@@ -13530,6 +13566,15 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
             assert_eq!(bcf.1.len(), 1, "{:?}", bcf.1);
             assert!(bcf.1[0].starts_with(said), "{:?}", bcf.1);
             assert!(bcf.1[0].ends_with("bcftools index -f cohort.bcf writes it again"));
+            // An empty window counts the file's own records, and not the
+            // records the index counts, which are another file's or none.
+            let [(bcf, _), (vcf, _)] =
+                both(&mut held, "chr1:2,999,000-3,000,000 --variants cohort.bcf");
+            assert!(
+                bcf.ends_with("though the file holds 450 on chr1, chr2 and chr3"),
+                "{bcf}"
+            );
+            assert_eq!(bcf, vcf);
         }
     }
 

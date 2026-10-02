@@ -740,19 +740,19 @@ COMPRESSED AND BINARY FILES
     an index older than its file is not trusted. A BAM is read by --coverage,
     --pileup and --split-reads, through the .csi or the .bai beside it,
     looked for in that order as samtools looks, so only the reads over the
-    region are read. A BCF is read by --variants, --genotypes and
-    --structural as the VCF bcftools view writes for it, through the .csi
-    bcftools index writes beside it, so only the records over the region are
-    read, and only --genotypes reads its samples' columns. A bigWig, a bigBed
-    and a 2bit are read through the index each one holds, so only the blocks
-    over the region are read: a bigWig by --coverage, from the summary it
-    keeps at the scale it is drawn at, and by --windows and --dynseq; a
-    bigBed by --features; and a 2bit by --sequence, --orfs and
+    region are read. A BCF is read as the VCF bcftools view writes for it: by
+    --variants and --genotypes through the .csi bcftools index writes beside
+    it, so only the records over the region are read, and by --structural
+    whole, as a VCF is; only --genotypes reads its samples' columns. A
+    bigWig, a bigBed and a 2bit are read through the index each one holds, so
+    only the blocks over the region are read: a bigWig by --coverage, from
+    the summary it keeps at the scale it is drawn at, and by --windows and
+    --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
     --with-sequence. Each of these is told by its first bytes, and is named
-    rather than piped, since it is read out of order; a bigWig, a bigBed or
-    a 2bit compressed with gzip is refused with the gunzip -k that gives it
-    back. CRAM is not read here; a track handed one says which command
-    writes what it reads, and a pipe brings that in:
+    rather than piped, since it is read out of order; a bigWig, a bigBed or a
+    2bit compressed with gzip is refused with the gunzip -k that gives it
+    back. CRAM is not read here; a track handed one says which command writes
+    what it reads, and a pipe brings that in:
 
     samtools depth -a -r NC_000962.3:761000-763000 aln.cram \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg

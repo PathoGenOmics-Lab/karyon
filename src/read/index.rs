@@ -485,6 +485,15 @@ impl Index {
         self.references.get(reference)?.summary
     }
 
+    /// Whether the index has bins for a sequence, other than its pseudo-bin.
+    /// htslib writes none, and no pseudo-bin, for a sequence a header names
+    /// and no record is on, so a sequence with none holds no record.
+    pub fn binned(&self, reference: usize) -> bool {
+        self.references
+            .get(reference)
+            .is_some_and(|sequence| !sequence.bins.is_empty())
+    }
+
     /// How many records the file holds with no sequence at all, where the
     /// index says.
     pub fn unplaced(&self) -> Option<u64> {

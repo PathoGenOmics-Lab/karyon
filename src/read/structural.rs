@@ -229,7 +229,11 @@ fn end(
         return Ok(pos);
     }
 
+    // A `.` is VCF's missing value, which bcftools writes back for a length
+    // the text left blank: no length, as a key that is not there is none.
+    // Read as a number, it refused the whole track over one record.
     let stated = key(info, "SVLEN")
+        .filter(|word| word != ".")
         .as_deref()
         .map(|word| {
             word.parse::<f64>()
@@ -238,6 +242,7 @@ fn end(
         })
         .transpose()?;
     let ended = key(info, "END")
+        .filter(|word| word != ".")
         .as_deref()
         .map(|word| number::<u64>(word, "END", at))
         .transpose()?;
@@ -359,6 +364,29 @@ mod tests {
         let backwards = "chrA\t1000\t.\tT\t<DEL>\t6\tPASS\tEND=100\n";
         let error = variants(backwards, &window()).unwrap_err();
         assert!(error.reason.contains("starts at 1000"), "{error}");
+    }
+
+    /// `.` is the missing value bcftools writes back for an `END` or an
+    /// `SVLEN` the text left blank: no length, as a key that is not there is
+    /// none, so the other one says it, or a call spelled out in full its REF.
+    /// A symbolic call with only missing values states no length, and is
+    /// refused as one with neither key is.
+    #[test]
+    fn a_missing_end_or_length_is_no_end_or_length() {
+        for (info, end) in [
+            ("SVTYPE=DEL;END=.;SVLEN=-500", 1500),
+            ("SVTYPE=DEL;SVLEN=.;END=1500", 1500),
+            ("SVTYPE=DEL;SVLEN=.;END=.", 1009),
+        ] {
+            let text = format!("chrA\t1000\t.\tTACGTACGTA\tT\t6\tPASS\t{info}\n");
+            let found = variants(&text, &window()).unwrap();
+            assert_eq!(found.variants[0].end, end, "{info}");
+        }
+        let symbolic = "chrA\t1000\t.\tT\t<DEL>\t6\tPASS\tSVTYPE=DEL;END=.\n";
+        let error = variants(symbolic, &window()).unwrap_err();
+        assert!(error.reason.contains("states no length"), "{error}");
+        let worded = "chrA\t1000\t.\tT\t<DEL>\t6\tPASS\tSVTYPE=DEL;END=NA\n";
+        assert!(variants(worded, &window()).is_err());
     }
 
     #[test]

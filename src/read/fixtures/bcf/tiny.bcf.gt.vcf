@@ -24,4 +24,5 @@ chr1	50000	sv1	N	<DEL>	50	PASS	SVTYPE=DEL;END=50500	GT	0/1	./.	.
 chr1	60000	v4	G	A	12	PASS	AF=.	.	.	.	.
 chr2	5	v5	T	C	.	.	.	GT	1	0/1/1	.
 chr2	70000	v6	G	GA	3	PASS	DP=0;AF=1	.	.	.	.
+chr2	80000	v8	C	T	.	PASS	.	GT	0/1	.	.
 chrM	100	v7	A	T	.	PASS	.	.	.	.	.

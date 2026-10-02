@@ -933,16 +933,18 @@ needs a place: across a whole genome it is not drawn yet.
 
 A BCF is read by `--variants`, `--genotypes` and `--structural` as the VCF
 `bcftools view` prints for it, so each draws from a BCF the figure it draws
-from the same calls as VCF, byte for byte, and a `.bcf` named on its own is
-its calls. The `.csi` that `bcftools index` writes beside it, `calls.bcf.csi`
-or `calls.csi`, says which blocks hold the records over the region, so a
-figure of one gene out of a whole chromosome's calls reads those blocks and no
-more; without one, every record is read and those over the region kept.
-`--variants` and `--structural` read each record's site and pass its samples'
-columns by undecoded, which are most of a cohort's file, and `--genotypes`
-reads each sample's `GT` and nothing else of them. A cohort's BCF named on its
-own says how many samples `--genotypes` would draw, from the names its header
-gives:
+from the same calls as VCF, byte for byte, and a `.bcf` named on its own is its
+calls. The `.csi` that `bcftools index` writes beside it, `calls.bcf.csi` or
+`calls.csi`, says which blocks hold the records over the region, so a figure of
+one gene out of a whole chromosome's calls reads those blocks and no more for
+`--variants` and `--genotypes`; without one, every record is read and those
+over the region kept. `--structural` reads every record with an index or
+without, as it reads a VCF, since an arc is drawn from the lower of its two
+breakends, which lies outside a window the arc crosses. `--variants` and
+`--structural` read each record's site and pass its samples' columns by
+undecoded, which are most of a cohort's file, and `--genotypes` reads each
+sample's `GT` and nothing else of them. A cohort's BCF named on its own says
+how many samples `--genotypes` would draw, from the names its header gives:
 
 ```bash
 bcftools index calls.bcf           # writes calls.bcf.csi beside it
@@ -955,8 +957,7 @@ as the same calls in a VCF of 77 MB of bgzip do through its `.tbi`, and a
 megabase of their calls in 27 ms where the VCF takes 36, and of their
 genotypes in 72 ms where it takes 68. Without an index the
 BCF takes 2.9 s and 4 MB for that window, where the VCF, 841 MB of text, takes
-5.9 s and 851 MB read whole. Structural calls are read whole, as they are
-from a VCF, since an arc is drawn from the lower of its two breakends.
+5.9 s and 851 MB read whole.
 
 The `.csi` is trusted as a tabix index is: one older than its file, one that
 does not read as an index, and one that says the file's first record is

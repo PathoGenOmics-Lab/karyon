@@ -208,25 +208,7 @@ pub fn window<R: Read + Seek>(
     let mut record = Record::default();
     match index {
         Some(index) if stream.blocked() => {
-            if index.kind() != Kind::Csi || index.columns().is_some() {
-                return Err(ReadError::whole(
-                    "the index is not a CSI written for a BCF, which is the one index a BCF has",
-                ));
-            }
-            // The first record is where the header ends, and an index of
-            // another file puts it somewhere else: read through, it would
-            // hand over records of bytes that are not where it says.
-            let first = (0..index.references())
-                .filter_map(|reference| index.summary(reference))
-                .map(|summary| summary.first)
-                .min();
-            if let Some(first) = first.filter(|first| *first != stream.tell()) {
-                return Err(ReadError::whole(format!(
-                    "the index puts the first record {}, and the file's header ends {}",
-                    super::tabix::at(first),
-                    super::tabix::at(stream.tell())
-                )));
-            }
+            fits(index, stream.tell())?;
             'chunks: for (begin, stop) in index.chunks(number, over.start, over.end) {
                 stream.seek(begin)?;
                 while stream.tell() < stop {
@@ -275,15 +257,34 @@ pub fn whole<R: Read + Seek>(reader: R, fields: Fields) -> Result<String, ReadEr
 
 /// How many records a BCF holds on each of its sequences, in the order the
 /// header numbers them, leaving out the sequences with none: what an empty
-/// window says the file does hold, read from every record's first four bytes
-/// where no index counts them.
+/// window says the file does hold.
+///
+/// Counted from `index` where one is given and the file is BGZF, from the
+/// count each sequence's pseudo-bin keeps, and no record is read. A sequence
+/// the index has no bins for holds none, as `bcftools index` writes nothing
+/// for a sequence the header names and no record is on, which most headers
+/// of a whole genome have. Where the index keeps no count for a sequence it
+/// has bins for, which the format leaves to the writer, and where no index
+/// is given, every record is read as far as the number of its sequence.
 ///
 /// # Errors
 ///
-/// A file that is not BCF or is damaged.
-pub fn counted<R: Read + Seek>(reader: R) -> Result<Vec<(String, usize)>, ReadError> {
+/// A file that is not BCF or is damaged, and an index [`window`] would not
+/// read through: one that is not a CSI written for a BCF, or one that puts
+/// the first record somewhere other than where the header ends, as the index
+/// of another file does, whose counts are another file's.
+pub fn counted<R: Read + Seek>(
+    reader: R,
+    index: Option<&Index>,
+) -> Result<Vec<(String, usize)>, ReadError> {
     let mut stream = open(reader)?;
     let header = header(&mut stream)?;
+    if let Some(index) = index.filter(|_| stream.blocked()) {
+        fits(index, stream.tell())?;
+        if let Some(counts) = indexed_counts(&header, index) {
+            return Ok(counts);
+        }
+    }
     let mut counts = vec![0usize; header.sequences.len()];
     let mut record = Record::default();
     while record.shared(&mut stream)? {
@@ -298,6 +299,57 @@ pub fn counted<R: Read + Seek>(reader: R) -> Result<Vec<(String, usize)>, ReadEr
         .filter(|(_, count)| *count > 0)
         .filter_map(|(sequence, count)| Some((header.contigs[(*sequence)?].0.clone(), count)))
         .collect())
+}
+
+/// Whether `index` is one a BCF whose header ends at the virtual offset
+/// `header_end` is read through, and why not where it is not: what [`window`]
+/// reads through and what [`counted`] counts from are one index.
+///
+/// A CSI written for a BCF, which carries no columns, since a BCF's records
+/// say where they are themselves. Its first record is where the header ends,
+/// and an index of another file puts it somewhere else: read through, it
+/// would hand over records of bytes that are not where it says, and counted
+/// from, the records of the other file.
+fn fits(index: &Index, header_end: u64) -> Result<(), ReadError> {
+    if index.kind() != Kind::Csi || index.columns().is_some() {
+        return Err(ReadError::whole(
+            "the index is not a CSI written for a BCF, which is the one index a BCF has",
+        ));
+    }
+    let first = (0..index.references())
+        .filter_map(|reference| index.summary(reference))
+        .map(|summary| summary.first)
+        .min();
+    if let Some(first) = first.filter(|first| *first != header_end) {
+        return Err(ReadError::whole(format!(
+            "the index puts the first record {}, and the file's header ends {}",
+            super::tabix::at(first),
+            super::tabix::at(header_end)
+        )));
+    }
+    Ok(())
+}
+
+/// The records on each sequence the header names, as [`counted`] says them,
+/// from the counts `index` keeps, in one pass over the header's numbers.
+/// `None` where it keeps no count for a sequence it has bins for, or a count
+/// past what a count here holds.
+fn indexed_counts(header: &Header, index: &Index) -> Option<Vec<(String, usize)>> {
+    let mut counts = Vec::new();
+    for (number, sequence) in header.sequences.iter().enumerate() {
+        let Some(at) = *sequence else {
+            continue;
+        };
+        let rows = match index.summary(number) {
+            Some(summary) => usize::try_from(summary.placed).ok()?,
+            None if !index.binned(number) => 0,
+            None => return None,
+        };
+        if rows > 0 {
+            counts.push((header.contigs[at].0.clone(), rows));
+        }
+    }
+    Some(counts)
 }
 
 /// Bytes written as text, which they are but where a value held bytes that
@@ -1088,6 +1140,13 @@ impl<'a> Typed<'a> {
     /// so `/0|1` keeps its `/` and `|0|1` is printed `0|1`; a haploid one is
     /// taken to be phased, so `/0` keeps its `/` and `|0` is `0`, but for an
     /// allele nobody called, which is `.` unphased and `|.` phased.
+    ///
+    /// The missing value of the type is what htslib stores for a sample whose
+    /// `GT` the text left out, as a sample written `4` under `DP:GT`, and
+    /// before VCF 4.4 bcftools 1.24 prints it `.` where it is the whole call,
+    /// alone or followed by the end of the vector. Anywhere else, and under
+    /// VCF 4.4 everywhere, it is not looked for, and is printed as the number
+    /// it is, `-65` for one byte, as bcftools prints it.
     fn genotype(&self, out: &mut Vec<u8>, prefixed: bool) -> Result<(), ReadError> {
         if self.kind == Type::Missing {
             out.push(b'.');
@@ -1098,6 +1157,13 @@ impl<'a> Typed<'a> {
                 "a BCF record stores a GT as something other than numbers",
             ));
         }
+        let left_out = self.count > 0
+            && matches!(self.value(0), Value::Missing)
+            && (self.count == 1 || matches!(self.value(1), Value::End));
+        if left_out && !prefixed {
+            out.push(b'.');
+            return Ok(());
+        }
         let start = out.len();
         let mut first = 0i64;
         let mut unphased = false;
@@ -1106,8 +1172,8 @@ impl<'a> Typed<'a> {
             let value = match self.value(at) {
                 Value::End => break,
                 Value::Int(value) => value,
-                // The missing value is not looked for, and prints as the
-                // number it is, as htslib prints it.
+                // Anywhere but a whole call before VCF 4.4, the missing
+                // value prints as the number it is, as htslib prints it.
                 Value::Missing => match self.kind {
                     Type::Int8 => i64::from(i8::MIN),
                     Type::Int16 => i64::from(i16::MIN),
@@ -1640,31 +1706,58 @@ mod tests {
         );
     }
 
-    /// The records on each sequence, counted from the file, are the ones
-    /// bcftools prints, and the index's own counts agree.
+    /// The records on each sequence are the ones bcftools prints, counted from
+    /// the file and from its CSI alike. A sequence the header names and no
+    /// record is on, which the CSI gives no bins, holds none, and the rest are
+    /// counted from the index without a record read: a block of records
+    /// damaged stops the count of every record and not the index's. An index
+    /// of another file, or one that is not a BCF's, is refused, as a window
+    /// refuses it, where its counts were the other file's.
     #[test]
     fn the_records_on_each_sequence_are_counted() {
-        let counted = counted(Cursor::new(COHORT)).unwrap();
-        assert_eq!(
-            counted,
-            [
-                ("chr1".to_string(), 300),
-                ("chr2".to_string(), 120),
-                ("chr3".to_string(), 30)
-            ]
-        );
-        let csi = index::parse(COHORT_CSI).unwrap();
-        for (number, (_, count)) in counted.iter().enumerate() {
-            assert_eq!(csi.summary(number).unwrap().placed, *count as u64);
+        let csi = |bytes: &[u8]| index::parse(bytes).unwrap();
+        for (bytes, index, expected) in [
+            (
+                COHORT,
+                csi(COHORT_CSI),
+                [("chr1", 300), ("chr2", 120), ("chr3", 30)],
+            ),
+            (TINY, csi(TINY_CSI), [("chr1", 5), ("chr2", 3), ("chrM", 1)]),
+        ] {
+            let expected: Vec<(String, usize)> = expected
+                .iter()
+                .map(|(name, count)| (name.to_string(), *count))
+                .collect();
+            assert_eq!(counted(Cursor::new(bytes), None).unwrap(), expected);
+            assert_eq!(counted(Cursor::new(bytes), Some(&index)).unwrap(), expected);
         }
-        assert_eq!(
-            super::counted(Cursor::new(TINY)).unwrap(),
-            [
-                ("chr1".to_string(), 5),
-                ("chr2".to_string(), 2),
-                ("chrM".to_string(), 1)
-            ]
+        let sv = csi(SV_CSI);
+        // sv.bcf's header names scaffold_9 between chr1 and chr2.
+        let header = header_of(Cursor::new(SV)).unwrap();
+        let scaffold = header.sequence("scaffold_9").unwrap();
+        assert!(scaffold < sv.references() && !sv.binned(scaffold));
+        assert_eq!(sv.summary(scaffold), None);
+        let expected = [("chr1".to_string(), 6), ("chr2".to_string(), 3)];
+        assert_eq!(counted(Cursor::new(SV), None).unwrap(), expected);
+        let mut starts = Vec::new();
+        let mut at = 0;
+        while at + 18 <= SV.len() {
+            starts.push(at);
+            at += usize::from(u16::from_le_bytes([SV[at + 16], SV[at + 17]])) + 1;
+        }
+        let mut bent = SV.to_vec();
+        bent[starts[starts.len() - 2] + 30] ^= 0xff;
+        assert!(counted(Cursor::new(&bent), None).is_err());
+        assert_eq!(counted(Cursor::new(&bent), Some(&sv)).unwrap(), expected);
+        let error = counted(Cursor::new(COHORT), Some(&csi(TINY_CSI))).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("the index puts the first record"),
+            "{error}"
         );
+        let tbi = csi(&crate::read::index::fixture::ROWS_TBI);
+        assert!(counted(Cursor::new(COHORT), Some(&tbi)).is_err());
     }
 
     /// Each width's missing value and end of a vector, a float's told by its
@@ -1742,6 +1835,41 @@ mod tests {
         assert_eq!(gt(&[0x02, 0x81], true), "/0");
         assert_eq!(gt(&[0x01, 0x81], true), "|.");
         assert_eq!(gt(&[0x00, 0x81], true), ".");
+        // A GT left out of a sample is stored as the missing value, which
+        // bcftools 1.24 prints `.` as a whole call before VCF 4.4, and as the
+        // number it is anywhere else, as measured on files patched to hold
+        // each of these.
+        for (data, before, under) in [
+            (&[0x80][..], ".", "/-65"),
+            (&[0x80, 0x81], ".", "/-65"),
+            (&[0x80, 0x81, 0x81], ".", "/-65"),
+            (&[0x80, 0x80], "-65/-65", "-65/-65"),
+            (&[0x80, 0x80, 0x81], "-65/-65", "-65/-65"),
+            (&[0x80, 0x04], "-65/1", "-65/1"),
+            (&[0x02, 0x80], "0/-65", "0/-65"),
+        ] {
+            assert_eq!(gt(data, false), before, "{data:02x?}");
+            assert_eq!(gt(data, true), under, "{data:02x?}");
+        }
+        let mut out = Vec::new();
+        let wide = [i16::MIN.to_le_bytes(), (-32767i16).to_le_bytes()].concat();
+        Typed {
+            kind: Type::Int16,
+            count: 2,
+            data: &wide,
+        }
+        .genotype(&mut out, false)
+        .unwrap();
+        assert_eq!(out, b".");
+        let mut out = Vec::new();
+        Typed {
+            kind: Type::Int8,
+            count: 0,
+            data: &[],
+        }
+        .genotype(&mut out, false)
+        .unwrap();
+        assert_eq!(out, b".");
     }
 
     /// Floats as htslib prints them, which is not always the nearest six
@@ -1820,7 +1948,7 @@ mod tests {
                     let _ = whole(Cursor::new(&bent), fields);
                     let _ = window(Cursor::new(&bent), None, &over, fields);
                 }
-                let _ = counted(Cursor::new(&bent));
+                let _ = counted(Cursor::new(&bent), None);
             }
         }
         for cut in 0..TINY.len() {
@@ -1831,10 +1959,12 @@ mod tests {
             let mut bent = TINY.to_vec();
             bent[at] ^= 0x55;
             let _ = window(Cursor::new(&bent), Some(&csi), &over, Fields::All);
+            let _ = counted(Cursor::new(&bent), Some(&csi));
         }
         for cut in 0..TINY_CSI.len() {
             if let Ok(index) = index::parse(&TINY_CSI[..cut]) {
                 let _ = window(Cursor::new(TINY), Some(&index), &over, Fields::All);
+                let _ = counted(Cursor::new(TINY), Some(&index));
             }
         }
         // Lengths at the top of their words: a header, a record's sites and

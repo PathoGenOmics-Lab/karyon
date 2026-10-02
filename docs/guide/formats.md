@@ -505,12 +505,13 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window. The same calls as [BCF](#bcf) are read through theirs and draw the same figure |
 | Skipped | a gVCF's reference blocks, rows whose ALT is `.` or only a placeholder, `<NON_REF>` as GATK writes one and `<*>` as bcftools does; and the placeholder of a variant row written `T,<NON_REF>`, which draws its `T` alone |
+| Missing | an `AF` of `.`, the missing value bcftools writes for a fraction it could not work out, is no fraction, for the row as `AF=.` or for one allele as `AF=0.5,.` |
 | Refused | fewer than 8 columns; a POS of 0; an `AF` whose count is neither 1 nor the number of alternate alleles |
 
 - **Height** is the allele fraction, `AF`, matched as a whole key so that
   `MLEAF` and `AF_ESP` are not taken for it. One number on a multi-allelic row
-  is shared, and a row with none is drawn at 1.0: a call with no fraction is
-  still a call.
+  is shared, and a row with none, or an allele whose `AF` is `.`, is drawn at
+  1.0: a call with no fraction is still a call.
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
   (from snpEff or VEP), or else the first; or the first `BCSQ` consequence
   (from bcftools csq), without the `*` of an uncertain one. With neither, it is
@@ -584,6 +585,7 @@ chrA    321687  bnd_W  T    T[chrA:323457[  6     PASS    SVTYPE=BND;MATEID=bnd_
 | Coordinates | `POS` is the base before the event and `END` its last base, so both pass through unchanged: the deletion above covers 321,683 to 321,887 counted from 1 |
 | With an index | read whole all the same: an arc is drawn from the lower of its two breakends, which lies outside a window the arc crosses |
 | Skipped | rows with no symbolic allele and no `SVTYPE`; classes with no glyph, such as `<CNV>`; a breakend whose mate is on another sequence, and a single breakend; the second record of a breakend pair |
+| Missing | an `SVLEN` or `END` of `.`, the missing value, is no length, as a key that is not there is none |
 | Refused | fewer than 8 columns; an SVLEN and END that disagree; a symbolic call with neither; a call that covers no bases; an end before its start |
 
 This is the one VCF reader that takes nothing off `POS`: a symbolic allele

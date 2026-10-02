@@ -403,35 +403,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `read::bcf` reads a BCF a window at a time, through the CSI `bcftools index`
   writes beside it, from anything that reads and seeks, and hands its records
   over as the VCF text `bcftools view` prints for them, byte for byte, floats
-  rounded as htslib rounds them and a `GT` under VCF 4.4 prefixed as htslib
-  prefixes it: `window` the records over a window, through an index or by
-  reading every record, `whole` every record, `counted` the records on each
-  sequence, and `header_of` the header, with its sequences and its samples.
-  `Fields` says how much of each record to write: its site alone, as
+  rounded as htslib rounds them, a `GT` under VCF 4.4 prefixed as htslib
+  prefixes it, and one a sample left out, as `4` under `DP:GT`, printed `.`
+  before VCF 4.4 as bcftools 1.24 prints it: `window` the records over a
+  window, through an index or by reading every record, `whole` every record,
+  `counted` the records on each sequence, from the counts a CSI keeps or by
+  reading every record, and `header_of` the header, with its sequences and its
+  samples. `Fields` says how much of each record to write: its site alone, as
   `bcftools view -G` prints it, which leaves its samples' bytes undecoded; its
-  site and each sample's `GT`; or every field. The command line reads a BCF
-  as it is, named on its own or after `--variants`, `--genotypes` or
+  site and each sample's `GT`; or every field. The command line reads a BCF as
+  it is, named on its own or after `--variants`, `--genotypes` or
   `--structural`, and draws from it the figure the same calls draw as VCF:
   `--variants` and `--structural` read sites alone and `--genotypes` `GT`
-  alone, and a cohort's BCF named on its own says how many samples
-  `--genotypes` draws from the names its header gives. It was refused with
-  the `bcftools view` that writes it as text. Over a chromosome of 248,956,422
-  bases, a million records of 200 samples, a BCF of 69 MB draws a window of
-  2,000 bases through its `.csi` in 10 ms and 6 MB, as the VCF of the same
-  calls does through its `.tbi`, and without an index in 2.9 s and 4 MB,
-  where the VCF's 841 MB of text took 5.9 s and 851 MB read whole. A `.csi`
-  older than its file, one that does not read as an index and one whose first
-  record is not where the file's header ends is read past, with a note and
-  the `bcftools index -f` that writes it again; an empty window says what the
-  file holds from the counts the `.csi` keeps; a sequence its header names is
-  a place, as long as the header says or as far as its records reach; and a
-  record a track refuses is named by its place, since a BCF has no lines.
-  Compressed as `bcftools view -Ob` writes it, uncompressed as `-Ou` does, or
-  bare, BCF 2.2 is read, as htslib reads it; `Binary::of` names a bare one by
-  its magic, and one piped into standard input is refused asking for its
-  name, or for the text `bcftools view` writes. Each is held to `bcftools
-  view` 1.24 on small files it wrote, kept in `src/read/fixtures/bcf` with the
-  script that writes them again.
+  alone, `--structural` every record, as it reads a VCF, and a cohort's BCF
+  named on its own says how many samples `--genotypes` draws from the names
+  its header gives. It was refused with the `bcftools view` that writes it as
+  text. Over a chromosome of 248,956,422 bases, a million records of 200
+  samples, a BCF of 69 MB draws a window of 2,000 bases through its `.csi` in
+  10 ms and 6 MB, as the VCF of the same calls does through its `.tbi`, and
+  without an index in 2.9 s and 4 MB, where the VCF's 841 MB of text took
+  5.9 s and 851 MB read whole. A `.csi` older than its file, one that does not
+  read as an index and one whose first record is not where the file's header
+  ends is read past, with a note and the `bcftools index -f` that writes it
+  again; an empty window says what the file holds from the counts the `.csi`
+  keeps, a sequence the header names and no record is on counted as none, and
+  from the file's own records where the `.csi` is one the window read past,
+  whose counts would be another file's; a sequence its header names is a
+  place, as long as the header says, under the name `--rename` gives it, or as
+  far as its records reach; and a record a track refuses is named by its
+  place, since a BCF has no lines. Compressed as `bcftools view -Ob` writes
+  it, uncompressed as `-Ou` does, or bare, BCF 2.2 is read, as htslib reads
+  it; `Binary::of` names a bare one by its magic, and one piped into standard
+  input is refused asking for its name, or for the text `bcftools view`
+  writes. Each is held to `bcftools view` 1.24 on small files it wrote, kept
+  in `src/read/fixtures/bcf` with the script that writes them again.
 - A file compressed with bgzip and indexed by `tabix` or `bcftools index` is
   read a window at a time through the `.csi` or `.tbi` beside it, looked for
   as htslib looks, a `.csi` first: its header, which is where a VCF names its
@@ -526,15 +531,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `read::gzip::zlib`, a zlib stream with its Adler-32 checked and a bound on
   what it may inflate to, which is how a bigWig and a bigBed compress their
   blocks.
-- `read::index` reads the three indexes htslib writes, BAI, TBI and CSI,
-  into one `Index`: the tree of bins at the depth the file says, which for a
-  CSI was 0 from samtools, 6 from bcftools and 8 from `tabix -C`, and
+- `read::index` reads the three indexes htslib writes, BAI, TBI and CSI, into
+  one `Index`: the tree of bins at the depth the file says, which for a CSI
+  was 0 from samtools, 6 from bcftools and 8 from `tabix -C`, and
   `Index::chunks`, the stretches of the file that hold the records over a
   window. A TBI, and a CSI written for text, also give the columns and the
   names of the sequences tabix was told, and every index the rows it counts
-  for each sequence. Over a grid of 2,880 windows the rows the chunks hold
-  are the rows a scan of the file finds, and over twenty-three windows they
-  are the rows `tabix` 1.24 prints.
+  for each sequence, and `Index::binned` whether it has bins for a sequence at
+  all, which htslib writes none of for one with no records. Over a grid of
+  2,880 windows the rows the chunks hold are the rows a scan of the file
+  finds, and over twenty-three windows they are the rows `tabix` 1.24 prints.
 - `read::bgzf::is_bgzf` tells a file bgzip wrote, which an index can point
   into, from plain gzip, which has to be read from its start.
 - `read::bam::window` reads a BAM through a CSI as through a BAI, and the
@@ -1290,6 +1296,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--variants` draws a call whose `AF` is `.`, the missing value bcftools
+  writes for a fraction it could not work out, full height, as it draws a call
+  with no `AF`: `AF=.` refused the whole track with `AF is not a number: "."`.
+  On a row of several alternates `AF=0.5,.` gives the first its fraction and
+  the second none. `--structural` reads an `END` or an `SVLEN` of `.` as none,
+  so the other one says how long the call is, or its REF where it is spelled
+  out, where either refused the track the same way.
 - `read::bgzf::Bgzf`, which `read::bam::Bgzf` names, goes to a place in a
   file's first block when that is the first place it is sent: a new reader
   took itself to be at the end of an empty file there, and refused every
