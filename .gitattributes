@@ -1,0 +1,44 @@
+# Which bytes a checkout holds, the same on every system.
+#
+# Git for Windows installs with core.autocrlf=true, so without this file a
+# Windows checkout, the CI runner's included, writes every text file with CRLF
+# line endings. The Rust suite does not mind: a clone made that way passed
+# every test and drew every example figure byte for byte. The shell does.
+# docs/data/draw.sh, which draws the site's figures, answers its `set -e`
+# with "set: -: invalid option" and then tries to cd into a folder whose name
+# ends in a carriage return. So text is LF in the index, which it already
+# was, and LF in every working tree, whatever the local setting says. Adding
+# this file renormalised no tracked file, and a clone made under autocrlf
+# with it in place holds no CRLF anywhere.
+* text=auto eol=lf
+
+# The figures are compared byte for byte with what the code draws, by the
+# example job and by the playground's tests, so git never rewrites a line
+# ending in one. Under text=auto a renderer that began to write a CR would
+# have it quietly normalised away on commit, rather than showing as the
+# difference it is. Every drawn figure is one line with no newline at all,
+# and the hand-drawn logos keep the LF they were committed with.
+*.svg -text
+
+# Binary by name, not by git's guess at the content. The guess is right for
+# every file here today, and a guess is not what should keep a BAM intact.
+# The list runs ahead of the repository on purpose: it names the formats the
+# readers and their fixtures deal in, the compressed and indexed ones, the
+# binary ones the command line names and refuses, the playground's wasm and
+# the pictures and documents a page may one day carry.
+*.bam binary
+*.bai binary
+*.gz binary
+*.tbi binary
+*.csi binary
+*.zip binary
+*.bw binary
+*.bb binary
+*.2bit binary
+*.bcf binary
+*.hic binary
+*.cool binary
+*.mcool binary
+*.wasm binary
+*.png binary
+*.pdf binary
