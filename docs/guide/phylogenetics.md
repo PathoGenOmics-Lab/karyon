@@ -102,7 +102,15 @@ let traits = Traits::from_sheet(&sheet)
 
 or draw the figure in a theme with more colours, with `plot_tree().theme(theme)`
 and a longer `theme.palette`: which values are shapes is decided in the theme
-the figure is drawn in.
+the figure is drawn in. `colors` may come before `strips` as well as after, and
+reaches the branches of a tree coloured by the column with no strip of it
+beside them. From the command line the same colours are a figure option:
+
+```bash
+karyon tree.nwk --traits samples.tsv --columns lineage,country \
+  --colors 'country=China:#1b9e77,India:#d95f02,Kenya:#7570b3,Peru:#e7298a' \
+  --colors 'country=Portugal:#66a61e,Spain:#e6ab02,Vietnam:#666666'
+```
 
 ### Colour the branches and fold a clade
 

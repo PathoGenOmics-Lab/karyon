@@ -41,6 +41,9 @@ let map = Map::new()
 map.save_svg("sites.svg")?;
 ```
 
+`save_pdf("sites.pdf")` writes the same map as PDF, as it does for a
+`PhyloMap`; see [How the PDF is made](../how-it-works/pdf.md).
+
 A location's category sets both its colour and its shape, so the legend still
 reads without colour. `count` grows the mark's area with the number of
 observations, up to about ten, and the tooltip gives the exact count. `value`

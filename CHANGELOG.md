@@ -22,6 +22,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   type wrapping another `Files` passes on two questions for every reader that
   does not read a file whole. `Held` holds each file once and hands it out
   without a copy.
+- A tree that says under it that a column of its sheet ran out of colours,
+  drawn in shapes as well, two strips painting two values one colour, or
+  branches of two values sharing one, says how to part them when drawn from
+  the command line: `; --colors gives them colours of their own`. Branches
+  coloured by an annotation of the Newick are out of reach of `--colors`, and
+  their line is as it was. Where a colour `--colors` chose made the clash,
+  given to two values or the one the palette deals another, the line names
+  the two values and the colour instead, as `lineage: L1 and L2 are both
+  #aa0000, so each is a shape as well`, and leaves `--colors` out of it.
+  `docs/assets/start/tree.svg` and its dark copy change.
+- `--color` refuses a value holding `=`, which is `--colors` with a letter
+  lost, and names `--colors`; taken as a paint, `country=Peru:#e7298a` went
+  into the fill as written, which is no colour at all.
+- A name ending in `.png`, `.eps` or another format is still refused by
+  `-o`, and the message now names the file karyon would write instead and a
+  tool that makes the format asked for from it: `rpoB.png names a PNG file,
+  and karyon writes SVG and PDF: write rpoB.pdf and convert it with pdftoppm,
+  or rpoB.svg with rsvg-convert, Inkscape or a browser`. An EPS is answered
+  with `pdftops -eps`, an EMF with Inkscape and a `.svgz` with gzip, since
+  pdftoppm writes none of them. `--pdf` is answered with `-o figure.pdf`, and
+  `--png`, `--jpg` and `--dpi` with the tools that make an image from either.
+- `Plot::save` writes PDF when the name it is given ends in `.pdf`, where it
+  wrote SVG into a file of that name, which no PDF reader opens.
 - A Windows build answers a file that is not text with the command piped
   into `-`, as `pipe what bcftools view calls.bcf writes into karyon, with -
   where its name is`, where it offered `<(bcftools view calls.bcf)`: cmd and
@@ -376,6 +399,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the file beside it under an ending, as an index is, with its name and
   whether it was written before the file. `Disk` and `Held` answer both, and
   the playground's page passes them on.
+- `--colors COLUMN=VALUE:#rrggbb,...` gives the values of a `--traits` column
+  colours of your own, the ones a field already knows its lineages or
+  countries by: in its strips, in the key and along the branches
+  `--color-by` paints. Values are joined by commas, and the flag is written
+  again for more of them or for another column. A pair ends at its colour, so
+  a value may hold a colon, or a comma with no colon before it, as in
+  `country=Korea, Rep.:#aa0000`. It is a figure option, so every sheet of the
+  figure that has the column paints its values alike, and a column of seven
+  countries stays a strip rather than a column of shapes.
+  A colour that would paint nothing is refused: with no `--traits` on the
+  line, for a column no sheet has, for a column of numbers, for a value no
+  row holds, for a column no track draws, and for a value given two colours.
+  It takes the written form only; a colour file, as Nextstrain's colors.tsv,
+  would be the one figure option that reads a file.
+- `--palette`, `--colormap` and the like are answered with `--colors`, and
+  `--tss`, `--operons` and `--terminators` with `--features`: a BED12 whose
+  thick span is the part that codes, or a GFF3 or GTF with UTR or CDS rows,
+  already draws each RNA with its 5' leader at half height. No common format
+  says how an RNA stops, so `TranscriptionUnitTrack` stays library only, and
+  the annotation reference says what does reach the command line.
+- PDF: `-o figure.pdf` writes the figure as a one-page PDF, and every drawing,
+  `Figure`, `Panels`, `Rings`, `Map` and `PhyloMap`, has `to_pdf` and
+  `save_pdf` beside `to_svg` and `save_svg`, with `Plot::to_pdf` for a plot.
+  The PDF is the SVG read back by `Pdf::from_svg`, not a second way of
+  drawing, so a track written outside the crate gets one for nothing. A pixel
+  is three quarters of a point, the size Inkscape and `rsvg-convert` give the
+  SVG; text is set in Helvetica, Courier and Symbol with no font embedded, and
+  stays text; a coverage fade is an image with its opacity in a mask, which
+  Ghostscript, poppler, Quartz, Chrome and Inkscape all draw in full; and the
+  figure's title and description are the document's title, subject and alt
+  text. `Pdf::notes` names anything the page could not carry, as a character
+  no base font has, and the command line prints it. `Pdf::from_svg` reads a
+  length in pixels or any absolute unit, so an SVG sized in millimetres comes
+  out at its size with its drawing scaled to fit, and names a percentage or an
+  `em` in the notes rather than dropping it. The reference has a page on how
+  the PDF is made.
 - `Figure::shade` and `Plot::shade` shade a stretch of the axis down every
   band laid on it, a `Shade` each, as a genome browser marks a region of
   interest; `Shade::name` writes its name at the head of the column and
@@ -1069,6 +1128,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Bases too narrow for their letters in panels of different lengths said a
   `--width` for each panel, and the first left the longer places in blocks;
   a figure of several places now says the one width that letters them all.
+- `Traits::colors` reaches every column of its key, the ones made after the
+  call as well as before it: given before `Traits::strips` it touched no
+  column, and the strips came out in the palette. It reaches the branches of
+  a phylogeny coloured by the key with no strip of it too, which were dealt
+  the palette whatever colours the sheet's column was given, so a country was
+  one colour beside a matrix and another along the tree above it.
 - The help and the guide said a CRAM named on its own is drawn as its depth.
   It is taken for one and refused with the `samtools depth` command that
   writes the depth as text, since reading a CRAM takes its codecs and a

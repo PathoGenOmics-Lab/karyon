@@ -565,7 +565,19 @@ impl<T: Slot> Plot<T> {
         self.into_figure().to_svg()
     }
 
-    /// Writes the SVG to `path`, and gives the plot back.
+    /// Renders the figure as a one-page PDF, converted from its SVG; see
+    /// [`Pdf`](crate::Pdf) for what carries over.
+    pub fn to_pdf(self) -> crate::Pdf {
+        self.into_figure().to_pdf()
+    }
+
+    /// Writes the figure to `path`, and gives the plot back: as PDF when the
+    /// name ends in `.pdf`, in any case, and as SVG otherwise.
+    ///
+    /// The name decides because it is what the file will be opened as. An
+    /// SVG saved as `figure.pdf` is a file every PDF reader refuses, which is
+    /// what this wrote until it could write PDF, and the command line
+    /// decides by the name of its `-o` in the same way.
     ///
     /// Handing the plot back is what lets one stack be rendered twice:
     ///
@@ -590,7 +602,12 @@ impl<T: Slot> Plot<T> {
     /// Returns whatever the write returned.
     pub fn save(self, path: impl AsRef<Path>) -> io::Result<Plot<Empty>> {
         let figure = self.into_figure();
-        figure.save_svg(path)?;
+        let path = path.as_ref();
+        if crate::pdf::named_pdf(path) {
+            figure.save_pdf(path)?;
+        } else {
+            figure.save_svg(path)?;
+        }
         Ok(Plot::resume(figure))
     }
 
@@ -1426,6 +1443,28 @@ mod tests {
         let _ = std::fs::remove_file(&first);
         let _ = std::fs::remove_file(&second);
         assert_eq!(figure.track_count(), 2);
+    }
+
+    #[test]
+    fn a_save_to_a_name_ending_in_pdf_writes_pdf_and_any_other_svg() {
+        let folder = std::env::temp_dir().join(format!("karyon-plot-save-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let written = |name: &str| {
+            let path = folder.join(name);
+            window().add_coverage(vec![30.0; 1000]).save(&path).unwrap();
+            std::fs::read(path).unwrap()
+        };
+        // In any case: the folder may not tell the two names apart, so they
+        // are different names as well.
+        for name in ["fig.pdf", "UPPER.PDF"] {
+            let pdf = written(name);
+            assert!(pdf.starts_with(b"%PDF-1.4\n"), "{name}");
+            assert!(pdf.ends_with(b"%%EOF\n"), "{name}");
+        }
+        for name in ["fig.svg", "fig"] {
+            assert!(written(name).starts_with(b"<svg "), "{name}");
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

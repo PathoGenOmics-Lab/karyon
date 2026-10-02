@@ -756,7 +756,9 @@ around it. The height is computed rather than set, which is why `dimensions`
 lays the figure out to answer. `Panels` does the prefixing for you.
 
 The output is plain SVG with no scripts, no external references and no
-embedded fonts, so it also opens unchanged in Inkscape and Illustrator.
+embedded fonts, so it also opens unchanged in Inkscape and Illustrator. For a
+manuscript that wants PDF, `figure.save_pdf("depth.pdf")` writes the same
+drawing as one; see [How the PDF is made](how-it-works/pdf.md).
 
 ## Next
 

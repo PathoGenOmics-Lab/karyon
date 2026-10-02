@@ -5,7 +5,7 @@
       <img src=".github/logo/karyon.svg" alt="karyon" width="351">
     </picture>
   </h1>
-  <p><strong>Genomic figures from the command line or from Rust: tracks over one shared coordinate axis, rendered to standalone SVG.</strong></p>
+  <p><strong>Genomic figures from the command line or from Rust: tracks over one shared coordinate axis, rendered to standalone SVG or PDF.</strong></p>
 
   <p>
     <a href="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml"><img src="https://github.com/PathoGenOmics-Lab/karyon/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -83,7 +83,8 @@ let svg = plot("NC_000962.3:761000-761200")?
 Thirty-seven track types compose that way, over one region, in the order you
 write them. No runtime dependencies, no I/O while drawing beyond an optional
 `save_svg`, and plain SVG 1.1 that opens unchanged in a browser, in Inkscape
-and in Illustrator.
+and in Illustrator. The same drawing comes out as PDF from `to_pdf()`, or from
+the command line with `-o figure.pdf`.
 
 <details>
   <summary><strong>Most kinds of plot it draws, on one sheet</strong></summary>
@@ -148,8 +149,12 @@ Not implemented yet, in the order they are likely to arrive:
 
 - A figure-level highlight and mask, one column running through every track, so a
   masked region is visible as a mask rather than as an absence of variants
-- PNG output, likely behind a feature flag so the default stays dependency-free
 - A release on crates.io
+
+PNG is not on the list. A rasterizer would have to carry its own fonts and do
+what `pdftoppm -png -singlefile -r 300 figure.pdf figure` and `rsvg-convert`
+already do with hinted text, so `-o figure.png` is refused with that advice
+instead.
 
 ## Contributing
 

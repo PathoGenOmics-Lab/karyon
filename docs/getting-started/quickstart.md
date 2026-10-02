@@ -88,7 +88,8 @@ fn main() -> std::io::Result<()> {
   `karyon::Error`, which converts into `std::io::Error`, so one `?` covers
   both the region and the file write.
 - **`to_svg()` returns the document as a `String`** instead of writing a file,
-  which is what a web service or a test wants.
+  which is what a web service or a test wants. `to_pdf()` gives the same
+  figure as PDF, and `save` writes one when the name ends in `.pdf`.
 
 Over two thousand bases the reference is too narrow for letters and prints a
 hint instead. [Zooming to base resolution](../recipes.md#zooming-to-base-resolution)
