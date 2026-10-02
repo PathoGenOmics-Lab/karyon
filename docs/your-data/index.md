@@ -47,6 +47,11 @@ it is drawn over one.
     **[Many samples in windows](samples.md)**
     The depth or copy number of many samples, in the order of a tree.
 
+-   [![Genotypes of many samples](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }![Genotypes of many samples](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }](genotypes.md)
+
+    **[Genotypes of many samples](genotypes.md)**
+    A cohort's VCF, a row per sample, in the order of a tree.
+
 -   [![Pairs of positions](../assets/start/pairs.svg){ .k-light width="720" height="386" loading="lazy" }![Pairs of positions](../assets/start/pairs-dark.svg){ .k-dark width="720" height="386" loading="lazy" }](pairs.md)
 
     **[Pairs of positions](pairs.md)**

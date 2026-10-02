@@ -30,6 +30,8 @@ draw locus 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
   --with-recombination genetic_map.txt
 draw heatmap NC_000962.3 --heatmap depths.tsv --relative --with-tree tree.nwk --label depth
 draw pairs rpoB genes.gff3 linkage.ld
+draw genotypes rpoB genes.gff3 --genotypes cohort.vcf.gz --with-tree tree.nwk \
+  --traits samples.tsv --columns lineage
 draw time --frequencies lineages.tsv --phylodynamics reproduction.tsv --threshold 1
 draw selection --selection fel.csv
 draw signal reads.slow5

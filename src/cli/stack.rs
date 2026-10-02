@@ -25,12 +25,12 @@ use std::path::Path;
 
 use crate::{
     Aggregate, BisulfiteTrack, CladeTrack, CopyNumberTrack, CoverageTrack, DomainTrack,
-    DotplotTrack, DynseqTrack, FeatureTrack, Figure, IdeogramTrack, JunctionTrack, LocusTrack,
-    LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack, OrfTrack,
-    PairStyle, PairTrack, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Plot, Region,
-    SelectionEvidence, SelectionTrack, SequenceTrack, SnpTrack, SplitReadTrack, SquiggleTrack,
-    StructuralTrack, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Theme, Track, Tree,
-    TreeTrack, VariantTrack, WindowStyle, WindowTrack,
+    DotplotTrack, DynseqTrack, FeatureTrack, Figure, GenotypeTrack, IdeogramTrack, JunctionTrack,
+    LocusTrack, LogoTrack, ManhattanTrack, MatrixTrack, MethylationTrack, MsaSequence, MsaTrack,
+    OrfTrack, PairStyle, PairTrack, PhylodynamicScale, PhylodynamicTrack, PileupTrack, Plot,
+    Region, SelectionEvidence, SelectionTrack, SequenceTrack, SnpTrack, SplitReadTrack,
+    SquiggleTrack, StructuralTrack, SurveillanceTrack, SyntenyTrack, TanglegramTrack, Theme, Track,
+    Tree, TreeTrack, VariantTrack, WindowStyle, WindowTrack,
 };
 
 use crate::cli::args::{
@@ -772,11 +772,16 @@ fn build_one(
             plot = axis.done();
             continue;
         }
+        let genotyped = invocation
+            .tracks
+            .iter()
+            .any(|other| other.kind == Kind::Genotypes && other.source == spec.source);
         let context = Context {
             region,
             theme: &theme,
             reference: reference.as_ref(),
             decimals,
+            genotyped,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -793,6 +798,7 @@ fn build_one(
                         theme: &theme,
                         reference: reference.as_ref(),
                         decimals,
+                        genotyped,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -1439,6 +1445,9 @@ struct Context<'a> {
     /// The places the figure's times are read to: nought for whole units,
     /// or `read::series::DECIMALS` where a table has fractions of one.
     decimals: u32,
+    /// Whether a `--genotypes` track of the figure reads the file this track
+    /// does, so a VCF drawn as its calls need not say its samples can be.
+    genotyped: bool,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -2545,6 +2554,11 @@ fn default_label(spec: &TrackSpec) -> Option<String> {
     if spec.kind == Kind::Coverage && extension.eq_ignore_ascii_case("bam") {
         return Some(format!("{stem} depth"));
     }
+    // A VCF's genotypes are drawn under its calls as often as not, and two
+    // bands both called `calls` would leave the reader to tell them apart.
+    if spec.kind == Kind::Genotypes {
+        return Some(format!("{stem} genotypes"));
+    }
     Some(stem.to_string())
 }
 
@@ -2670,6 +2684,7 @@ fn sequence_column(kind: Kind) -> Option<SequenceColumn> {
         | Kind::Junctions
         | Kind::Methylation
         | Kind::Variants
+        | Kind::Genotypes
         | Kind::Structural
         | Kind::Ideogram
         | Kind::CopyNumber => at(0, &[1], 2),
@@ -3002,7 +3017,83 @@ fn track(
             if let Some(style) = spec.style.and_then(Style::variant) {
                 track = track.style(style);
             }
+            // Named on its own, a VCF is its calls, which is what a VCF of one
+            // sample is for. A cohort's holds a row of calls per sample too, and
+            // nothing said they could be drawn. Said once the track is built, so
+            // a first attempt that fails and is read again under a --rename
+            // says nothing twice, and not where the figure draws them already.
+            let held = if spec.guessed && !context.genotyped {
+                read::point::samples(&text).len()
+            } else {
+                0
+            };
+            if held >= 2 {
+                files.note(&format!(
+                    "{path} is drawn as its calls; --genotypes {path} draws its {} samples, \
+                     a row each",
+                    crate::track::axis::group_thousands(held as u64)
+                ));
+            }
             Box::new(named(track, label, VariantTrack::label))
+        }
+        Kind::Genotypes => {
+            let held = read::point::samples(&text);
+            // A list, after --genotypes: the rows to draw, in this order. A
+            // name the header has not got is nearly always a spelling, so the
+            // names it does have are given, the first five of them, since a
+            // cohort's header can name thousands.
+            let wanted: Option<Vec<String>> = spec.sample.as_ref().map(|list| {
+                list.split(',')
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            });
+            if let Some(missing) = wanted
+                .iter()
+                .flatten()
+                .find(|name| !held.is_empty() && !held.contains(name))
+            {
+                let named: Vec<(String, usize)> =
+                    held.iter().map(|sample| (sample.clone(), 0)).collect();
+                return Err(BuildError::Unnamed {
+                    track: name,
+                    path: path.clone(),
+                    what: "sample",
+                    wanted: missing.clone(),
+                    held: vec![listed_as(&named, "samples")],
+                });
+            }
+            let found = wrap(
+                name,
+                &path,
+                read::point::genotypes(&text, region, wanted.as_deref()),
+            )?;
+            // A cohort's text is the larger of the two by far, and the calls
+            // are all of it the track needs.
+            drop(text);
+            if found.sites.is_empty() {
+                return Err(empty("genotypes"));
+            }
+            let names = found.samples.clone();
+            let mut track = GenotypeTrack::new(found.samples, found.sites);
+            if let Some(px) = spec.row_height {
+                track = track.row_height(px);
+            }
+            if let Some(cap) = spec.max_rows {
+                track = track.max_rows(cap.rows());
+            }
+            if spec.no_names {
+                track = track.show_names(false);
+            }
+            if let Some(traits) = strip(spec, sheet.as_ref(), &names)? {
+                gather(legend, &traits.legend(theme));
+                track = track.traits(traits);
+            }
+            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+                track = track.tree(tree);
+            }
+            Box::new(named(track, label, GenotypeTrack::label))
         }
         Kind::Windows => {
             let windows = wrap(name, &path, read::signal::windows(&text, region))?;
@@ -7776,6 +7867,223 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert!(
             svg.contains(">1 under 5x, 2 with no coverage</text>"),
             "{svg}"
+        );
+    }
+
+    /// Four samples called at three sites of chr1, named as `ROWS_TREE`
+    /// names its tips.
+    const COHORT_VCF: &str = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tone\ttwo\tthree\tfour
+chr1\t100\trs1\tC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\t./.
+chr1\t400\t.\tA\tG\t.\t.\t.\tGT\t0/0\t0/1\t0/0\t1/1
+chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
+";
+
+    /// Named on its own, a VCF is its calls, and a cohort's says the samples
+    /// can be drawn a row each. One sample's would be a row repeating its
+    /// sites, a track asked for by name needs no telling, and a first
+    /// attempt read again under a --rename says it once.
+    #[test]
+    fn a_vcf_of_several_samples_named_on_its_own_says_its_genotypes_can_be_drawn() {
+        let held = [("cohort.vcf", COHORT_VCF)];
+        let (svg, notes) = drawn_noting("chr1:1-1000 cohort.vcf", &held);
+        assert!(svg.unwrap().contains("<circle"), "drawn as calls");
+        assert_eq!(
+            notes,
+            ["cohort.vcf is drawn as its calls; --genotypes cohort.vcf draws its 4 samples, a row each"]
+        );
+        let (_, notes) = drawn_noting("chr1:1-1000 --variants cohort.vcf", &held);
+        assert!(notes.is_empty(), "{notes:?}");
+        // Drawn as both, the figure already shows what the note would offer.
+        let (svg, notes) = drawn_noting("chr1:1-1000 cohort.vcf --genotypes cohort.vcf", &held);
+        assert!(svg.is_ok());
+        assert!(notes.is_empty(), "{notes:?}");
+
+        let single = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n\
+                      chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t1\n";
+        let (_, notes) = drawn_noting("chr1:1-1000 one.vcf", &[("one.vcf", single)]);
+        assert!(notes.is_empty(), "{notes:?}");
+
+        let numbered = COHORT_VCF.replace("\nchr1\t", "\n1\t");
+        let (svg, notes) = drawn_noting(
+            "chr1:1-1000 cohort.vcf --rename 1=chr1",
+            &[("cohort.vcf", numbered.as_str())],
+        );
+        assert!(svg.is_ok());
+        assert_eq!(notes.len(), 1, "{notes:?}");
+    }
+
+    /// A name the VCF has not got is refused with the names it has, the
+    /// first five of them: a cohort's header can name thousands.
+    #[test]
+    fn sample_names_a_sample_the_vcf_has_not_got() {
+        let names: Vec<String> = (1..=40).map(|n| format!("S{n:02}")).collect();
+        let vcf = format!(
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n\
+             chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t{}\n",
+            names.join("\t"),
+            vec!["0"; 40].join("\t")
+        );
+        let error = drawn_from(
+            "chr1:1-1000 --genotypes c.vcf --sample S03,S99",
+            &[("c.vcf", vcf.as_str())],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Unnamed { what: "sample", wanted, .. } if wanted == "S99"),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            "--genotypes c.vcf has no sample called S99; it has S01, S02, S03, S04, S05 and \
+             35 more samples"
+        );
+    }
+
+    /// `--matrix` read a VCF's first record as its header of sites and
+    /// refused it for a word where a position goes.
+    #[test]
+    fn a_vcf_given_to_matrix_names_genotypes() {
+        let error = drawn_from(
+            "chr1:1-1000 --matrix cohort.vcf",
+            &[("cohort.vcf", COHORT_VCF)],
+        )
+        .unwrap_err();
+        let said = error.to_string();
+        assert!(said.contains("this is a VCF"), "{said}");
+        assert!(said.contains("--genotypes"), "{said}");
+    }
+
+    /// Rows on another sequence are rows elsewhere, and the refusal says
+    /// where, with the --rename that would draw them.
+    #[test]
+    fn genotypes_on_another_sequence_say_where_the_rows_are() {
+        let error = drawn_from(
+            "chr2:1-1000 --genotypes cohort.vcf",
+            &[("cohort.vcf", COHORT_VCF)],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                BuildError::Elsewhere {
+                    wanted: "genotypes",
+                    held: 3,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains("add --rename chr1=chr2"),
+            "{error}"
+        );
+    }
+
+    /// One place of several with no record on it is a band saying so,
+    /// rather than the whole figure refused.
+    #[test]
+    fn a_place_of_several_with_no_genotypes_says_so_there() {
+        let svg = drawn_from(
+            "chr1:1-1000 chr1:5000-6000 --genotypes cohort.vcf",
+            &[("cohort.vcf", COHORT_VCF)],
+        )
+        .unwrap();
+        assert_eq!(svg.matches(">no genotypes here</text>").count(), 1);
+    }
+
+    /// A bgzipped VCF is the text inside, read the same way.
+    #[test]
+    fn genotypes_from_a_bgzipped_vcf_match_the_plain_one() {
+        let dir = Scratch::new("genotypes-gz");
+        let plain = dir.write("cohort.vcf", COHORT_VCF.as_bytes());
+        let gz = dir.write("cohort.vcf.gz", &gzip_of(COHORT_VCF.as_bytes()));
+        let svg = drawn_from_disk(&format!("chr1:1-1000 --genotypes {plain} --label c")).unwrap();
+        let unwrapped =
+            drawn_from_disk(&format!("chr1:1-1000 --genotypes {gz} --label c")).unwrap();
+        assert!(svg.contains("one, 3 of 3 sites called"), "{svg}");
+        assert_eq!(svg, unwrapped);
+    }
+
+    /// Drawn under the calls of the same file, two bands both called `calls`
+    /// would be left for the reader to tell apart.
+    #[test]
+    fn the_label_of_a_genotypes_track_says_genotypes() {
+        let held = [("calls.vcf.gz", COHORT_VCF)];
+        let svg = drawn_from("chr1:1-1000 calls.vcf.gz --genotypes calls.vcf.gz", &held).unwrap();
+        assert!(svg.contains(">calls genotypes</text>"), "{svg}");
+        assert!(svg.contains(">calls</text>"), "{svg}");
+    }
+
+    /// The tree puts the rows in the order of its tips, and --sample picks
+    /// which rows there are, in its own order when there is no tree.
+    #[test]
+    fn with_tree_orders_genotype_rows() {
+        let held = [("c.vcf", COHORT_VCF), ("t.nwk", ROWS_TREE)];
+        let plain = drawn_from("chr1:1-1000 --genotypes c.vcf", &held).unwrap();
+        assert_eq!(rows_drawn(&plain), ["one", "two", "three", "four"]);
+        let ordered = drawn_from("chr1:1-1000 --genotypes c.vcf --with-tree t.nwk", &held).unwrap();
+        assert_eq!(rows_drawn(&ordered), ["four", "two", "three", "one"]);
+        let picked = drawn_from("chr1:1-1000 --genotypes c.vcf --sample three,one", &held).unwrap();
+        assert_eq!(rows_drawn(&picked), ["three", "one"]);
+        let both = drawn_from(
+            "chr1:1-1000 --genotypes c.vcf --sample three,one,two --with-tree t.nwk",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(rows_drawn(&both), ["two", "three", "one"]);
+        assert!(both.contains("1 tip of the tree has no row"), "{both}");
+    }
+
+    /// The options of a track of rows reach the genotype rows: two rows of
+    /// four, the other two counted, no names, and rows six pixels tall.
+    #[test]
+    fn row_options_after_genotypes_reach_the_rows() {
+        let held = [("c.vcf", COHORT_VCF)];
+        let svg = drawn_from(
+            "chr1:1-1000 --genotypes c.vcf --max-rows 2 --row-height 6",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(rows_drawn(&svg), ["one", "two"]);
+        assert!(svg.contains(">+2 more</text>"), "{svg}");
+        assert!(svg.contains(" height=\"6\""), "rows six pixels tall: {svg}");
+        assert!(
+            !svg.contains(" height=\"11\""),
+            "no row at the default: {svg}"
+        );
+        let named = drawn_from("chr1:1-1000 --genotypes c.vcf", &held).unwrap();
+        assert!(named.contains(">three</text>"), "{named}");
+        let unnamed = drawn_from("chr1:1-1000 --genotypes c.vcf --no-names", &held).unwrap();
+        assert!(!unnamed.contains(">three</text>"), "{unnamed}");
+    }
+
+    /// A sheet beside the rows is joined through the same door as a matrix's,
+    /// so a column it has not got is refused with the ones it has, and its
+    /// levels are keyed under the figure.
+    #[test]
+    fn traits_beside_genotype_rows_are_a_sheet_joined_by_name() {
+        let sheet = "sample\tlineage\none\tL1\ntwo\tL2\nthree\tL1\nfour\tL2\n";
+        let held = [("c.vcf", COHORT_VCF), ("s.tsv", sheet)];
+        let svg = drawn_from(
+            "chr1:1-1000 --genotypes c.vcf --traits s.tsv --columns lineage",
+            &held,
+        )
+        .unwrap();
+        assert!(svg.contains("one; lineage L1"), "{svg}");
+        assert!(
+            svg.contains(">lineage: L2</text>"),
+            "the key names the levels: {svg}"
+        );
+        let error = drawn_from(
+            "chr1:1-1000 --genotypes c.vcf --traits s.tsv --columns linage",
+            &held,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, BuildError::Unnamed { what: "column", .. }),
+            "{error:?}"
         );
     }
 }

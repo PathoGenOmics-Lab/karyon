@@ -136,8 +136,8 @@ self.karyon = self.karyon || (function () {
   // way the help text and `Kind::ALL` are already held together.
   var TRACKS = [
     "--coverage", "--copy-number", "--dynseq", "--junctions", "--sequence",
-    "--features", "--variants", "--windows", "--manhattan", "--recombination",
-    "--tree",
+    "--features", "--variants", "--genotypes", "--windows", "--manhattan",
+    "--recombination", "--tree",
     "--msa", "--snps", "--ideogram", "--matrix", "--heatmap", "--pileup",
     "--synteny", "--dotplot", "--orfs", "--logo", "--tanglegram",
     "--clades", "--loci", "--methylation", "--structural", "--pairs",

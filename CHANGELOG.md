@@ -326,6 +326,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--genotypes FILE` draws the call of each sample at each site of a cohort's
+  VCF, a row per sample and each call at its position, so a column of calls
+  stands under the lollipop of its record and the gene it falls in. A cell is
+  the share of the call's copies that are not the reference, which reads the
+  same for a haploid, a diploid and a polyploid call: a reference call is a
+  short bar, a heterozygous call half the hue, an alternate call all of it,
+  and no call a pale cell. Sites closer than a cell are pooled a pixel at a
+  time, and any alternate copy under a pixel is at least the first of eight
+  steps, so twenty thousand sites of two hundred samples are 0.94 MB, where a
+  cell for each, as `--matrix` draws them, was 258 MB. It takes `--with-tree`,
+  `--traits`, `--columns`, `--row-height`, `--max-rows` (40 by default) and
+  `--no-names`, and its key names the states it drew.
+- `GenotypeTrack`, `GenotypeSite`, `Genotype` and `GenotypeState`, and
+  `Plot::add_genotypes`, behind it. `read::point::genotypes` reads `GT` from
+  wherever it is among a VCF's keys, a call with any copy unknown is no call,
+  and `read::point::samples` reads the names on the `#CHROM` line without
+  reading a row.
+- `--sample` after `--genotypes` takes a list, the samples to draw and the
+  order to draw them in, as `--sample S07,S01,S12`; a name the VCF has not
+  got is refused with the first five it has.
+- A VCF of several samples named on its own is still drawn as its calls, and
+  says that `--genotypes` draws its samples, a row each, unless the figure
+  draws them already. `--vcf` and `--samples`, as other tools spell them, are
+  answered with `--genotypes` and `--sample` too.
+- `cohort.vcf.gz`, forty samples called across rpoB, in the example files
+  and in `examples.zip`, and a "Genotypes of many samples" page drawn from
+  it, `docs/assets/start/genotypes.svg` and its dark copy. The playground has
+  an example of its own.
+
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of
   scale, windows about the same baseline, scans of the same statistic. Each
@@ -969,6 +998,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gets the dark palette; `example-dark.svg` keeps the one it has always drawn.
 
 ### Fixed
+
+- `--variants` drew a gVCF's placeholder allele as a call: a GATK row written
+  `T,<NON_REF>` was a substitution and a second lollipop called `non_ref` at
+  one base, and a reference block of `<NON_REF>` or of bcftools' `<*>` was a
+  call of its own. The placeholder is skipped allele by allele, so a fraction
+  given per allele stays with its allele and a genotype's allele numbers keep
+  naming what they were written against, and a row of only the placeholder
+  is a reference block, as one whose ALT is `.` is.
+- `--matrix` given a VCF read its first record as the header of sites and
+  refused it for a word where a position goes, which said nothing of what the
+  file was. It says it is a VCF, and that `--genotypes` draws its samples.
 
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the

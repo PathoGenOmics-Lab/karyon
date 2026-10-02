@@ -4,12 +4,14 @@
 //! cargo run --example gallery -- assets
 //! ```
 //!
-//! The twenty-three panels draw thirty of the thirty-seven track types
-//! between them, and a circular chromosome. The seven with no panel are drawn
-//! by other examples: `CopyNumberTrack` by `copy_number`, `DomainTrack` by
-//! `phylogenetics`, `DynseqTrack` and `JunctionTrack` by `regulation`, and
-//! `PhylodynamicTrack`, `SelectionTrack` and `SurveillanceTrack` by
-//! `evolutionary_surveillance`.
+//! The twenty-three panels draw thirty of the thirty-eight track types
+//! between them, and a circular chromosome. Seven of the eight with no panel
+//! are drawn by other examples: `CopyNumberTrack` by `copy_number`,
+//! `DomainTrack` by `phylogenetics`, `DynseqTrack` and `JunctionTrack` by
+//! `regulation`, and `PhylodynamicTrack`, `SelectionTrack` and
+//! `SurveillanceTrack` by `evolutionary_surveillance`. `GenotypeTrack` is
+//! drawn by the site, from `docs/data/cohort.vcf.gz`, in
+//! `docs/assets/start/genotypes.svg`.
 //!
 //! **When a new track type is added, give it a panel here**, in
 //! `figures/gallery.rs`, where the panels are built. An overview that quietly

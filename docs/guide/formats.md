@@ -39,6 +39,7 @@ BCF and bigWig come in through the tool that writes them as text.
 | [GFF3](#gff3) | annotation in nine columns | `--features` | 1-based, inclusive | `FeatureTrack` |
 | [cytoBand](#cytoband) | chromosome bands and their stains | `--ideogram` | 0-based, half-open | `IdeogramTrack` |
 | [VCF](#vcf) | small variant calls | `--variants` | 1-based | `VariantTrack` |
+| [VCF with samples](#vcf-genotypes) | the genotype of each sample at each site | `--genotypes` | 1-based | `GenotypeTrack` |
 | [Structural VCF](#structural-vcf) | structural variant calls | `--structural` | `POS` is the base before the event | `StructuralTrack` |
 | [Association table](#the-association-table) | a statistic per tested position | `--manhattan` | 1-based | `ManhattanTrack` |
 | [Matrix table](#the-matrix-table) | a value per sample per site | `--matrix` | 1-based, in the header | `MatrixTrack` |
@@ -411,9 +412,9 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 |:--|:--|
 | Read by | `--variants`; `read::point::variants` |
 | Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
-| Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
+| Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
-| Skipped | rows whose ALT is `.`, which are reference blocks and most of a gVCF |
+| Skipped | a gVCF's reference blocks, rows whose ALT is `.` or only a placeholder, `<NON_REF>` as GATK writes one and `<*>` as bcftools does; and the placeholder of a variant row written `T,<NON_REF>`, which draws its `T` alone |
 | Refused | fewer than 8 columns; a POS of 0; an `AF` whose count is neither 1 nor the number of alternate alleles |
 
 - **Height** is the allele fraction, `AF`, matched as a whole key so that
@@ -430,6 +431,48 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.
+
+### VCF genotypes { #vcf-genotypes }
+
+The genotype of each sample at each site of a cohort, as a joint caller or
+`bcftools merge` writes it: the eight columns of a site, then the keys of the
+sample columns, then a column per sample.
+
+```text
+#CHROM       POS     ID   REF  ALT  QUAL  FILTER  INFO  FORMAT  S01  S02    S03
+NC_000962.3  761155  .    C    T    60    PASS    .     GT:DP   0:31 1:28   .
+NC_000962.3  762368  rs1  G    A,T  60    PASS    .     DP:GT   30:1 29:2   31:0
+```
+
+| | |
+|:--|:--|
+| Read by | `--genotypes`; `read::point::genotypes`, and `read::point::samples` for the names alone |
+| Columns | 1 CHROM, 2 POS, 3 ID, 4 REF, 5 ALT, 9 FORMAT (`GT` found among its keys by name, wherever it is), and 10 onwards, one sample each, named on the `#CHROM` line in the same order |
+| Ignored | 6 QUAL, 7 FILTER, 8 INFO, and every key of FORMAT but `GT` |
+| Coordinates | 1-based: `POS 761155` is 0-based 761154, the base the record's lollipop stands on |
+| Skipped | rows on another sequence, rows whose REF does not reach the window, and a gVCF's reference blocks, rows whose ALT is `.` or only `<NON_REF>` or `<*>` |
+| Not called | `.`, `./.`, an empty field, a sample field cut short before its `GT`, a call with any copy unknown, as `./1`, and every sample of a row whose FORMAT has no `GT` |
+| Refused | no `#CHROM` line, which `bcftools view -H` leaves out; a `#CHROM` line naming no sample, or one sample twice; a row with more or fewer samples than it names; a `GT` that is not allele numbers and dots; an allele number past the row's alternates; and a window whose rows none of them carries `GT` |
+
+- **GT** is allele numbers joined by `/`, or by `|` where the call is
+  phased, with the leading `/` or `|` that VCF 4.4 allows: `0` is REF and
+  `i` is the `i`th allele of ALT. One number is a haploid call, two a
+  diploid one and more a polyploid one, read up to 255 copies.
+- **What is drawn** is the share of the copies that are not REF: `1` and
+  `1/1` all of them, `0/1` half and `0/0/0/1` a quarter. `1/2` has no copy
+  of REF and is all alternate, and so is a copy that names `*`, the base a
+  deletion upstream took away, or a placeholder, `<NON_REF>` or `<*>`,
+  which says the base is not REF without saying what it is: any number but 0
+  is an alternate copy.
+- **A polyploid call** keeps the alleles of its first two copies and the
+  count of its alternate copies, so its tooltip spells out two alleles and
+  says how many more copies there are and how many of all of them are
+  alternate.
+- **Reach**: a row is kept by the rule a [VCF](#vcf) row is, when what REF
+  spells touches the window. A row outside the window is not split past its
+  position, so a cohort of a thousand samples costs little for the rows a
+  figure does not draw; the file is still read whole, so cut a big one to
+  the window first, as `<(tabix -h cohort.vcf.gz chr1:1-100000)` does.
 
 ### Structural VCF { #structural-vcf }
 

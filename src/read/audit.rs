@@ -213,6 +213,16 @@ fn audit_vcf_one_base() {
 }
 
 #[test]
+fn audit_vcf_genotype_one_base() {
+    // The same record with a sample's call after it: the call is at the
+    // record's base, which is where its lollipop stands.
+    let text = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n\
+                chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t1\n";
+    let read = point::genotypes(text, &region("chr1:1-200"), None).unwrap();
+    assert_eq!(read.sites[0].position, TARGET);
+}
+
+#[test]
 fn audit_association_one_base() {
     let points = point::associations("100\t9\n", &region("chr1:1-200")).unwrap();
     assert_eq!(points[0].pos, TARGET);

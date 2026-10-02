@@ -1,9 +1,9 @@
 # Variation and association
 
 Plots for calls and the patterns they make across samples: point and
-structural variants, copy number, variable sites, genotype matrices and
-heatmaps, association scans, linkage and other pairs, and site-wise
-selection.
+structural variants, the genotypes of a cohort, copy number, variable sites,
+genotype matrices and heatmaps, association scans, linkage and other pairs,
+and site-wise selection.
 { .k-lead }
 
 ## How to choose
@@ -18,6 +18,7 @@ position.
 | Which two positions does a rearrangement join? | [Structural variants](../tracks/variation.md#structuraltrack) | `StructuralTrack`, `--structural` |
 | How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number` with `--ploidy` |
 | Which sites tell closely related samples apart? | [Variable sites](../tracks/variation.md#snptrack) | `SnpTrack`, `--snps` |
+| Which call does each sample carry, from a VCF? | [Genotypes by sample](../tracks/variation.md#genotypetrack) | `GenotypeTrack`, `--genotypes` |
 | Which samples carry what, site by site? | [Genotype matrix](../tracks/variation.md#matrixtrack) | `MatrixTrack`, `--matrix` |
 | Which samples lost or gained a stretch, window by window? | [Heatmap of samples](../tracks/variation.md#matrixtrack) | `MatrixTrack::windows`, `--heatmap` |
 | Where does a scan cross its significance line? | [Association scan](../tracks/variation.md#manhattantrack) | `ManhattanTrack`, `--manhattan` |
@@ -33,6 +34,11 @@ position.
 
     **[Point variants](../tracks/variation.md#varianttrack)**
     Point events as lollipops whose height is a value, or as plain ticks when there are too many for heads, with categories coloured in the order they first appear.
+
+-   [![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB, the cells of the other allele forming blocks down the clades of the tree](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }](../tracks/variation.md#genotypetrack)
+
+    **[Genotypes by sample](../tracks/variation.md#genotypetrack)**
+    The call of each sample at each site of a VCF, a row per sample and each call at its position, with sites closer than a cell pooled a pixel at a time.
 
 -   [![Five structural calls as arcs between their breakpoints, a deletion, a duplication, an inversion, an insertion and a translocation leaving the view, above a depth profile that drops under the deletion and steps up under the duplication](../assets/figures/example-structural.svg){ width="880" height="288" loading="lazy" }](../tracks/variation.md#structuraltrack)
 
