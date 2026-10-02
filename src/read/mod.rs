@@ -6,12 +6,15 @@
 //! nothing added: [`bam`] reads a BAM a window at a time, [`bgzf`] the blocked
 //! gzip that a BAM and a bgzipped text file are written in, from any place an
 //! index points to, and [`index`] the BAI, TBI and CSI indexes that say which
-//! places those are. [`bigwig`], [`bigbed`] and [`twobit`] read UCSC's own
-//! formats a window at a time through the index each one holds, and hand the
-//! window over as what the text readers take or a track is built from: a
-//! bigWig's values as spans, a bigBed's rows as BED, and a 2bit's bases. CRAM
-//! and BCF come in through a pipe, as `samtools view` and `bcftools view`
-//! already write exactly what these readers take.
+//! places those are. [`tabix`] hands over a bgzipped text file a window at a
+//! time through its index, as the header and the rows over the window, which
+//! every reader of text takes as it takes the whole file. [`bigwig`],
+//! [`bigbed`] and [`twobit`] read UCSC's own formats a window at a time
+//! through the index each one holds, and hand the window over as what the
+//! text readers take or a track is built from: a bigWig's values as spans, a
+//! bigBed's rows as BED, and a 2bit's bases. CRAM and BCF come in through a
+//! pipe, as `samtools view` and `bcftools view` already write exactly what
+//! these readers take.
 //!
 //! # Text in, values out, and no path anywhere
 //!
@@ -96,6 +99,7 @@ pub mod sheet;
 pub mod signal;
 pub mod split;
 pub mod structural;
+pub mod tabix;
 pub mod table;
 pub mod twobit;
 

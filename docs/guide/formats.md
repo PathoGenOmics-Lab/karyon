@@ -23,9 +23,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The `karyon` command does the same, and adds opening the path. A file
-compressed with gzip or bgzip is read as the text inside it, and a BAM is read
-by `--coverage`, `--pileup` and `--split-reads` a window at a time through its
-`.bai`, as [Compressed and binary files](cli.md#binary-formats) shows. Three of
+compressed with gzip or bgzip is read as the text inside it, and one
+compressed with bgzip with the `.tbi` or `.csi` of `tabix` beside it is read a
+window at a time through it, its header and the rows over the window, for the
+formats whose table below says so. A BAM is read by `--coverage`, `--pileup`
+and `--split-reads` a window at a time through its `.bai`, as [Compressed and
+binary files](cli.md#binary-formats) shows. Three of
 UCSC's binary formats are read a window at a time through the index each
 holds, by readers that take anything that reads and seeks rather than a
 string: [bigWig](#bigwig), [bigBed](#bigbed) and [2bit](#2bit). CRAM and BCF
@@ -223,6 +226,7 @@ chr2L  103  105  9
 | Read by | `--coverage`, `--windows` and `--dynseq`; `read::signal::spans`, `read::signal::windows` and `read::dynseq::scores` |
 | Columns | 1 sequence, 2 start, 3 end, 4 value |
 | Coordinates | 0-based and half-open, passed through: `100 103` is the bases 100, 101 and 102, and 103 belongs to the next row |
+| With an index | read a window at a time, through the `.tbi` that `tabix -p bed depth.bedgraph.gz` writes or the `.csi` mosdepth writes, [as the guide says](cli.md#tabix); a `track` line has to be skipped as well, with `-S1` |
 | Refused | an end before its start |
 
 The three flags read it differently:
@@ -294,6 +298,7 @@ NC_000962.3  761102  0
 | Read by | `--coverage`; `read::signal::spans` |
 | Columns | 1 sequence, 2 position, 3 depth; with `--format depth`, further depth columns are ignored |
 | Coordinates | 1-based: position 761100 is 0-based 761099 |
+| With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e2 depth.txt.gz` writes |
 | Refused | a position of 0 |
 
 Without `-a`, samtools leaves out positions no read covers. Those stay at 0
@@ -336,6 +341,7 @@ chr1        609401        0.63         0.004200
 | Read by | `--recombination`, or a file whose name holds `genetic_map`, as a track of its own; `--with-recombination` after `--manhattan`, laid over the scan; `read::recombination::rates` |
 | Columns | found by name in any case: a position (`Position(bp)`, `position`), a rate (`Rate(cM/Mb)`, `COMBINED_rate(cM/Mb)`) and, where there is one, a chromosome; with no header, a bedGraph of rates |
 | Coordinates | positions 1-based; a bedGraph 0-based, half-open |
+| With an index | read whole all the same: each rate runs on to the next row, so the rows either side of a window belong to it, and 290 windows of 300 drew differently from their rows alone |
 | Skipped | rows on another sequence; a rate that is empty or `NA`, which leaves its stretch out rather than at nought |
 | Refused | a position of 0; a negative rate |
 
@@ -364,6 +370,7 @@ Chr2  3000  4000  AT2G01010  0  +
 | Columns | 1 sequence, 2 start, 3 end, 4 name (`.` for none), 6 strand (`+` or `-`; anything else is unknown) |
 | Ignored | 5 score, and 7 onwards (`thickStart`, colour, blocks), though column 7 tells a BED from a GFF3 |
 | Coordinates | 0-based and half-open, passed through: `3630 5899` is the bases 3,631 to 5,899 counted from 1 |
+| With an index | read a window at a time, through the `.tbi` that `tabix -p bed genes.bed.gz` writes |
 | Refused | fewer than 3 columns; an end before its start |
 
 Over `Chr1:1-10,000` this file draws the two Chr1 genes and skips the Chr2 row;
@@ -415,6 +422,7 @@ NC_000962.3  RefSeq  gene  763370  767320  .  +  .  ID=gene-Rv0668;Name=rpoC
 | Columns | 1 sequence, 3 type, 4 start, 5 end, 7 strand, 9 attributes: the name is `Name=`, failing that `gene=`, failing that `ID=` |
 | Ignored | 2 source, 6 score, 8 phase |
 | Coordinates | 1-based and inclusive: the start moves back one and the end stays, so `759807 763325` is 0-based `759806..763325` |
+| With an index | read a window at a time where its first line is `##gff-version 3`, through the `.tbi` that `tabix -p gff genes.gff3.gz` writes once the file is sorted with `sort -k1,1 -k4,4n`; read over the window, then over as far as the genes over it reach, so a gene whose intron covers the window keeps every exon. A GTF is read whole: UCSC's has no gene or transcript rows, and a window inside an intron holds no row of its gene. So is a GFF3 whose exons name a transcript it has no row for, which the rows it opens with or the rows over the window show |
 | Skipped | a trailing `##FASTA` section, whose lines name no sequence; a row describing the whole sequence; a row whose parent is in the file |
 | Refused | fewer than 5 columns; a start of 0; an end before its start |
 
@@ -492,6 +500,7 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
 | Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
+| With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window |
 | Skipped | a gVCF's reference blocks, rows whose ALT is `.` or only a placeholder, `<NON_REF>` as GATK writes one and `<*>` as bcftools does; and the placeholder of a variant row written `T,<NON_REF>`, which draws its `T` alone |
 | Refused | fewer than 8 columns; a POS of 0; an `AF` whose count is neither 1 nor the number of alternate alleles |
 
@@ -528,6 +537,7 @@ NC_000962.3  762368  rs1  G    A,T  60    PASS    .     DP:GT   30:1 29:2   31:0
 | Columns | 1 CHROM, 2 POS, 3 ID, 4 REF, 5 ALT, 9 FORMAT (`GT` found among its keys by name, wherever it is), and 10 onwards, one sample each, named on the `#CHROM` line in the same order |
 | Ignored | 6 QUAL, 7 FILTER, 8 INFO, and every key of FORMAT but `GT` |
 | Coordinates | 1-based: `POS 761155` is 0-based 761154, the base the record's lollipop stands on |
+| With an index | read a window at a time, as a VCF is: the `#CHROM` line that names the samples comes with every window |
 | Skipped | rows on another sequence, rows whose REF does not reach the window, and a gVCF's reference blocks, rows whose ALT is `.` or only `<NON_REF>` or `<*>` |
 | Not called | `.`, `./.`, an empty field, a sample field cut short before its `GT`, a call with any copy unknown, as `./1`, and every sample of a row whose FORMAT has no `GT` |
 | Refused | no `#CHROM` line, which `bcftools view -H` leaves out; a `#CHROM` line naming no sample, or one sample twice; a row with more or fewer samples than it names; a `GT` that is not allele numbers and dots; an allele number past the row's alternates; and a window whose rows none of them carries `GT` |
@@ -549,8 +559,9 @@ NC_000962.3  762368  rs1  G    A,T  60    PASS    .     DP:GT   30:1 29:2   31:0
 - **Reach**: a row is kept by the rule a [VCF](#vcf) row is, when what REF
   spells touches the window. A row outside the window is not split past its
   position, so a cohort of a thousand samples costs little for the rows a
-  figure does not draw; the file is still read whole, so cut a big one to
-  the window first, as `<(tabix -h cohort.vcf.gz chr1:1-100000)` does.
+  figure does not draw. With its `.tbi` or `.csi` beside it, the rows a
+  figure does not draw are not read at all: a window of 2,000 bases of 200
+  samples' calls, 825 MB of text, takes 8 ms where it took 2.8 seconds.
 
 ### Structural VCF { #structural-vcf }
 
@@ -568,6 +579,7 @@ chrA    321687  bnd_W  T    T[chrA:323457[  6     PASS    SVTYPE=BND;MATEID=bnd_
 | Columns | 1 CHROM, 2 POS, 3 ID (the call's name), 4 REF, 5 ALT, 8 INFO: `SVTYPE`, `SVLEN`, `END`, and read support from the first of `SUPPORT`, `PE`, `SR`, `RE` and `DV` |
 | Ignored | 6 QUAL, 7 FILTER, 9 onwards |
 | Coordinates | `POS` is the base before the event and `END` its last base, so both pass through unchanged: the deletion above covers 321,683 to 321,887 counted from 1 |
+| With an index | read whole all the same: an arc is drawn from the lower of its two breakends, which lies outside a window the arc crosses |
 | Skipped | rows with no symbolic allele and no `SVTYPE`; classes with no glyph, such as `<CNV>`; a breakend whose mate is on another sequence, and a single breakend; the second record of a breakend pair |
 | Refused | fewer than 8 columns; an SVLEN and END that disagree; a symbolic call with neither; a call that covers no bases; an end before its start |
 
@@ -597,6 +609,7 @@ Pf3D7_07_v3   4150  0.40
 | Read by | `--manhattan`; `read::point::associations` |
 | Columns | two or three: an optional sequence name, then a position and a value; or an association tool's own table, read by its header |
 | Coordinates | 1-based: position 4100 is 0-based 4099 |
+| With an index | read a window at a time over a place: through the `.tbi` that `tabix -s1 -b2 -e2 scan.tsv.gz` writes for PLINK 2's `#CHROM` line or a table of three columns, and `-S1` with the table's own columns for a plain header, as `-S1 -s1 -b3 -e3` for PLINK 1 once its columns, padded with spaces, are turned into tabs, [as the guide shows](cli.md#tabix). A table with no header whose values over the window all lie between 0 and 1 is read whole, since every value it holds says whether they are p-values |
 | Skipped | a header on the first line; a two-column table names no sequence; in a tool's table, a test written `NA` |
 | Refused | in a table of two or three columns, a line of any other number; a tool's table whose header names no position or no p-value; a position of 0; a header-like word after the first line; in a column of p-values, a value outside 0 to 1; with no header, a file whose every value lies between 0 and 1 |
 
@@ -674,6 +687,7 @@ NC_000962.3  100000  200000  70.4   98.7   0.0
 | Read by | `--heatmap`; `read::table::windows` |
 | Columns | a sequence, a start and an end, then one value per sample; the header names the samples |
 | Coordinates | 0-based, half-open, as BED; passed through |
+| With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` writes for a table with its header on the first line; a long table is read whole, since it names its samples on its rows |
 | Skipped | windows on another sequence or outside the region, and a window that ends where it starts |
 | Refused | a line after the header that is not a window; a window whose count of values differs from the count of samples |
 
@@ -1062,6 +1076,7 @@ chr1  14830  14969  2  2  1  14  3  40
 | Read by | `--junctions`; `read::junction::junctions` |
 | Columns | 1 sequence, 2 first base of the intron, 3 last base of the intron, 4 strand (0 unknown, 1 forward, 2 reverse), 5 motif, 6 annotated (0 or 1), 7 uniquely mapping reads, 8 multi-mapping reads, 9 longest overhang |
 | Coordinates | 1-based and inclusive on the intron: the start moves back one and the end stays |
+| With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e3 SJ.out.tab.gz` writes |
 | Refused | fewer than 9 columns; an intron start of 0; an intron that ends before it starts |
 
 The six motif codes fold to four (GT/AG, GC/AG, AT/AC and non-canonical), since
@@ -1087,6 +1102,7 @@ NC_000913.3  1000  1001  m  30  +  1000  1001  255,0,0  30  86.67  26  4  0  0  
 | Columns | 1 sequence, 2 start, 4 modification code, 6 strand, 10 valid coverage, 12 reads modified; the fraction is column 12 over column 10 |
 | Ignored | 3 end, 5 score, 7 to 9, 11 percent modified (the same fraction, rounded), and 13 to 18 |
 | Coordinates | 0-based, passed through: `1000` is the base 1,001 counted from 1 |
+| With an index | read a window at a time with `--modification`, through the `.tbi` that `tabix -p bed calls.bed.gz` writes; without it the file is read whole, since the codes offered are every code it holds |
 | Skipped | rows counting another modification; rows with no valid coverage, which are positions nobody measured rather than 0% modified, and whose number `--methylation` prints on the band |
 | Refused | fewer than 18 columns; a strand other than `+` or `-`, since a strand-combined pileup has no strand to draw; more reads modified than valid coverage |
 

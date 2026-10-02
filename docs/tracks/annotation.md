@@ -22,7 +22,7 @@ Annotated intervals from BED or GFF3, packed onto as few rows as they need witho
 |:--|:--|
 | Rust | `.add_features(features)` on `plot()`; `FeatureTrack::new(features)` |
 | Command line | `--features FILE`, with `--isoforms`, `--row-height`, `--no-names`, `--color`, `--format` |
-| Reads | BED, GFF3 or GTF, told apart by their columns: a gene once with the exons of all its transcripts (`read::interval::features`), or each transcript on its own with `--isoforms` (`read::interval::transcripts`); a BED12 row with its blocks and its thick span; a bigBed, its rows over the window as BED cut to the columns its header says are BED's own (`read::bigbed::bed`) |
+| Reads | BED, GFF3 or GTF, told apart by their columns: a gene once with the exons of all its transcripts (`read::interval::features`), or each transcript on its own with `--isoforms` (`read::interval::transcripts`); a BED12 row with its blocks and its thick span; a bigBed, its rows over the window as BED cut to the columns its header says are BED's own (`read::bigbed::bed`); a BED, or a GFF3 that says it is one, bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window and every row of the genes over it (`read::tabix`) |
 
 === "Rust"
 

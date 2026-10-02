@@ -70,10 +70,11 @@
 //! looking for one changes which index an existing BAM is read through, and
 //! that comes with BCF, whose only index is a CSI, with htslib's order and a
 //! test of a BAM that has both. The rows of a bgzipped text file are found
-//! through the same chunks: [`Bgzf::line`](super::bgzf::Bgzf::line) reads
-//! them from each, and the [`Columns`] the index keeps say where each row
-//! lies, so a reader can drop the ones outside the window and stop at the
-//! first past it.
+//! through the same chunks: [`tabix`](super::tabix) reads them from each with
+//! [`Bgzf::line`](super::bgzf::Bgzf::line), and the [`Columns`] the index
+//! keeps say where each row lies, so it stops at the first past the window.
+//! The command line looks for a `.csi` before a `.tbi` beside such a file, as
+//! htslib does.
 
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
@@ -563,6 +564,41 @@ impl Index {
 /// and one row cut across two blocks.
 #[cfg(test)]
 pub(crate) mod fixture {
+    /// A TBI, already out of its BGZF wrapper, written here rather than by
+    /// tabix, for what tabix does not write: one stretch for the first of
+    /// `names`, `[from, to)` in virtual offsets, filed under the root bin that
+    /// every window is in, and no pseudo-bin, which the format leaves to the
+    /// writer. `format` is tabix's word for the kind of file, and the columns
+    /// of the sequence, the start and the end, as `[0x10000, 1, 2, 3]` for
+    /// `-p bed`.
+    pub(crate) fn rooted(names: &[&str], format: [i32; 4], stretch: (u64, u64)) -> Vec<u8> {
+        let mut out = b"TBI\x01".to_vec();
+        let int = |out: &mut Vec<u8>, value: i32| out.extend_from_slice(&value.to_le_bytes());
+        int(&mut out, names.len() as i32);
+        // The comment character, `#`, and no lines skipped.
+        for value in format.into_iter().chain([35, 0]) {
+            int(&mut out, value);
+        }
+        let joined: Vec<u8> = names
+            .iter()
+            .flat_map(|name| name.bytes().chain([0]))
+            .collect();
+        int(&mut out, joined.len() as i32);
+        out.extend(joined);
+        for at in 0..names.len() {
+            int(&mut out, i32::from(at == 0));
+            if at == 0 {
+                out.extend_from_slice(&0u32.to_le_bytes());
+                int(&mut out, 1);
+                out.extend_from_slice(&stretch.0.to_le_bytes());
+                out.extend_from_slice(&stretch.1.to_le_bytes());
+            }
+            // No linear index.
+            int(&mut out, 0);
+        }
+        out
+    }
+
     /// Rows over three sequences as BED: one over the edge of the first leaf,
     /// one of 4.88 Mb that only a bin near the root holds, and one at the start
     /// of the leaf at 2^20.

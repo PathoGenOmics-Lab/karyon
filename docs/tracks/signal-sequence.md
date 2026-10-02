@@ -22,7 +22,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 |:--|:--|
 | Rust | `.add_coverage(values)` or `.add_coverage_at(start, values)` on `plot()`; `CoverageTrack::new(start, values)`, `CoverageTrack::from_spans(&region, spans)`, `CoverageTrack::from_pairs(&region, pairs)` |
 | Command line | `--coverage FILE`, with `--aggregate`, `--style`, `--log`, `--max`, `--color`, `--height`, `--format`; `--recombination FILE` draws a recombination rate as a line in cM/Mb; `--same-scale` puts several on one scale |
-| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a bigWig, through its index, from the zoom level of which a pixel holds two bins where it has one (`read::bigwig::window`); a genetic map as HapMap writes one (`read::recombination::rates`) |
+| Reads | bedGraph, `samtools depth`, one value per line, or a BAM, whose depth it counts as `samtools depth -a` does (`read::signal::spans`, `read::bam`); a bigWig, through its index, from the zoom level of which a pixel holds two bins where it has one (`read::bigwig::window`); a genetic map as HapMap writes one (`read::recombination::rates`). A bgzipped bedGraph or `samtools depth` with a `.tbi` or `.csi` beside it is read over the window alone (`read::tabix`) |
 
 === "Rust"
 
@@ -85,7 +85,7 @@ A statistic computed in windows, drawn either side of a baseline it can fall bel
 |:--|:--|
 | Rust | `.add_windows(windows)` on `plot()`; `WindowTrack::new(windows)`, `WindowTrack::ratios(windows)`, `WindowTrack::gc_skew(start, &seq, window)`, `WindowTrack::gc_content(start, &seq, window)` |
 | Command line | `--windows FILE`, with `--style`, `--max`, `--height`; `--same-scale` puts several on one scale |
-| Reads | bedGraph, one window per row (`read::signal::windows`), or a bigWig's values as written (`read::bigwig::window`) |
+| Reads | bedGraph, one window per row (`read::signal::windows`), over the window alone where it is bgzipped with a `.tbi` beside it, or a bigWig's values as written (`read::bigwig::window`) |
 
 === "Rust"
 
@@ -153,7 +153,7 @@ Per-site methylation, one lane per strand: forward calls above a midline and rev
 |:--|:--|
 | Rust | `.add_methylation(sites)` on `plot()`; `MethylationTrack::new(sites)` |
 | Command line | `--methylation FILE`, with `--modification`, `--min-reads`, `--height` |
-| Reads | bedMethyl from `modkit pileup` (`read::methyl::sites`) |
+| Reads | bedMethyl from `modkit pileup` (`read::methyl::sites`); bgzipped with a `.tbi` beside it and given `--modification`, only the rows over the window |
 
 === "Rust"
 
@@ -352,7 +352,7 @@ Per-base model attribution, drawn as the bases themselves at a height proportion
 |:--|:--|
 | Rust | `.add_dynseq(start, seq, scores)` on `plot()`; `DynseqTrack::new(start, seq, scores)`, `DynseqTrack::from_pairs(start, seq, pairs)`, `DynseqTrack::from_spans(start, seq, spans)` |
 | Command line | `--dynseq FILE --with-sequence FASTA`, with `--height` |
-| Reads | bedGraph or bigWig of per-base scores (`read::dynseq::scores`, `read::bigwig::window`), with the letters from the FASTA or 2bit |
+| Reads | bedGraph or bigWig of per-base scores (`read::dynseq::scores`, `read::bigwig::window`), a bgzipped bedGraph over the window alone through its `.tbi`, with the letters from the FASTA or 2bit |
 
 === "Rust"
 

@@ -242,7 +242,12 @@ const SAMPLE: &[&str] = &[
 /// Whether a table of windows is in the long form, a window and a sample to a
 /// row: its header calls the fourth column a sample, or its first window
 /// holds a word there, where a wide table holds a value.
-fn is_long(text: &str) -> bool {
+///
+/// A long table names its samples on its rows, in the order the file first
+/// gives them, so the rows over one window do not say every sample there is
+/// or their order, and the command line reads one whole where it reads a
+/// wide one through an index.
+pub(crate) fn is_long(text: &str) -> bool {
     for raw in text.lines() {
         let raw = raw.trim_end_matches('\r');
         if raw.trim().is_empty() {

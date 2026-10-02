@@ -731,10 +731,17 @@ COORDINATES
     same place in the figure.
 
 COMPRESSED AND BINARY FILES
-    A file compressed with gzip or bgzip is read as the text inside it. A BAM
-    is read by --coverage, --pileup and --split-reads, through the .bai beside
-    it when there is one, so only the reads over the region are read. A
-    bigWig, a bigBed and a 2bit are read through the index each one holds, so
+    A file compressed with gzip or bgzip is read as the text inside it, and
+    one compressed with bgzip and indexed by tabix, with calls.vcf.gz.csi or
+    calls.vcf.gz.tbi beside it, a window at a time: its header and the rows
+    over the region, for --variants, --genotypes, --coverage, --windows,
+    --dynseq, --junctions, --manhattan, --heatmap and --features, and for
+    --methylation given --modification. Rows outside the region are not read,
+    so the figure is the whole file's wherever the whole file draws one, and
+    an index older than its file is not trusted. A BAM is read by
+    --coverage, --pileup and --split-reads, through the .bai beside it when
+    there is one, so only the reads over the region are read. A bigWig, a
+    bigBed and a 2bit are read through the index each one holds, so
     only the blocks over the region are read: a bigWig by --coverage, from the
     summary it keeps at the scale it is drawn at, and by --windows and
     --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
@@ -793,7 +800,8 @@ fn run(args: &[String]) -> Result<(), String> {
     };
 
     // Read through `Disk`, which takes compressed files out of their wrapper
-    // and reads a BAM a window at a time through its index.
+    // and reads a BAM, and a bgzipped text file with a tabix index beside it,
+    // a window at a time through its index.
     let mut disk = stack::Disk::default();
     let svg = stack::build_files(&invocation, &mut disk, |_, _| None)
         .map_err(|error| error.to_string())?;

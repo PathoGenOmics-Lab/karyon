@@ -62,7 +62,8 @@ karyon rpoB aln.bam H37Rv.fa genes.gff3 calls.vcf.gz -o rpoB.svg
 The first word says where: a gene the annotation names, a whole sequence, or a
 span such as `NC_000962.3:761,000-762,999`. Each file is drawn as what its name
 says it holds and labelled after itself, and a BAM or a file compressed with
-gzip is read as it is. `karyon --help` fits on one screen, and
+gzip is read as it is, a bgzipped one with its `.tbi` or `.csi` a window at a
+time. `karyon --help` fits on one screen, and
 `karyon help coverage` lists what one track takes. The [Playground](https://pathogenomics-lab.github.io/karyon/playground/)
 runs the same program in your browser, with nothing to install.
 

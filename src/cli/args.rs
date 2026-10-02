@@ -191,6 +191,19 @@ pub enum ArgError {
     },
     /// A file named on its own whose name does not say what it holds.
     Unplaced(String),
+    /// An index named on its own, which is read from beside the file it
+    /// indexes and draws nothing itself.
+    ///
+    /// Named as a word, `calls.vcf.gz.tbi` was looked for as a gene or a
+    /// sequence of that name, and refused as neither, which did not say that
+    /// the file to name was the one beside it.
+    IndexNamed {
+        /// The index, as it was written.
+        index: String,
+        /// The file it indexes, where its name says: `calls.vcf.gz` for
+        /// `calls.vcf.gz.tbi`, and `reads.bam` for `reads.bai`.
+        file: Option<String>,
+    },
     /// A bigWig and no place to draw it over.
     ///
     /// A bigWig is read a window at a time, and across a whole genome it would
@@ -385,6 +398,16 @@ impl fmt::Display for ArgError {
                 "{file}: its name does not say what it holds; put its track before it, as \
                  --matrix {file} or --manhattan {file}, or give it to a track as --traits {file}"
             ),
+            ArgError::IndexNamed { index, file } => {
+                write!(
+                    f,
+                    "{index} is an index, and karyon reads it from beside the file it indexes; "
+                )?;
+                match file {
+                    Some(file) => write!(f, "name {file} instead"),
+                    None => write!(f, "name that file instead"),
+                }
+            }
             ArgError::NotSvg { path, format } => {
                 // The names to write instead are the one given with another
                 // ending, so the advice can be pasted back as it stands, and
@@ -3421,6 +3444,13 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 return Err(ArgError::UnknownFlag(flag.to_string()))
             }
             word => {
+                // An index draws nothing, and is read from beside its file.
+                if let Some(file) = indexed_by(word) {
+                    return Err(ArgError::IndexNamed {
+                        index: word.to_string(),
+                        file,
+                    });
+                }
                 // A file named on its own is a track of the kind its name says,
                 // and the options after it describe it as they would after its
                 // flag.
@@ -3677,6 +3707,41 @@ fn along(word: &str) -> Option<Option<(u64, u64)>> {
         }
     };
     Some((start >= 1 && end >= start).then(|| (start - 1, end)))
+}
+
+/// For a word named as an index by its extension, the file it indexes where
+/// its name says which: `Some(None)` for an index whose file it does not say,
+/// and `None` for a word that is no index.
+///
+/// The extensions are the six an index beside a genomics file is written
+/// with: tabix's `.tbi`, `.csi` for a BAM, a BCF or a bgzipped text file,
+/// samtools' `.bai`, `.crai` and `.fai`, and bgzip's `.gzi`. An index named
+/// after its whole file, as `calls.vcf.gz.tbi`, names that file; one in place
+/// of its file's extension, as `reads.bai`, names it where only one kind of
+/// file has that index.
+fn indexed_by(word: &str) -> Option<Option<String>> {
+    let (stem, extension) = word.rsplit_once('.')?;
+    let extension = extension.to_ascii_lowercase();
+    if !matches!(
+        extension.as_str(),
+        "tbi" | "csi" | "bai" | "crai" | "fai" | "gzi"
+    ) || stem.is_empty()
+        || stem.ends_with('/')
+    {
+        return None;
+    }
+    let named = std::path::Path::new(stem)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.contains('.'));
+    if named {
+        return Some(Some(stem.to_string()));
+    }
+    Some(match extension.as_str() {
+        "bai" => Some(format!("{stem}.bam")),
+        "crai" => Some(format!("{stem}.cram")),
+        _ => None,
+    })
 }
 
 /// Whether a word is a file's name, going by an extension a tool would give
@@ -5406,6 +5471,39 @@ mod tests {
         let chosen = draw("chr1:1-100 --pileup reads.bam");
         assert_eq!(chosen.tracks[0].kind, Kind::Pileup);
         assert!(!chosen.tracks[0].guessed);
+    }
+
+    /// An index named on its own is refused before any file is opened,
+    /// naming the file it indexes. Looked for as a place, it was refused as
+    /// no gene and no sequence.
+    #[test]
+    fn an_index_named_on_its_own_names_the_file_it_indexes() {
+        for (word, file) in [
+            ("calls.vcf.gz.tbi", Some("calls.vcf.gz")),
+            ("calls.vcf.gz.csi", Some("calls.vcf.gz")),
+            ("data/reads.bam.bai", Some("data/reads.bam")),
+            ("reads.bai", Some("reads.bam")),
+            ("aln.CRAI", Some("aln.cram")),
+            ("ref.fa.fai", Some("ref.fa")),
+            ("ref.fa.gz.gzi", Some("ref.fa.gz")),
+            ("calls.tbi", None),
+        ] {
+            match parse(&args(&format!("chr1:1-100 {word}"))) {
+                Err(ArgError::IndexNamed { index, file: named }) => {
+                    assert_eq!((index.as_str(), named.as_deref()), (word, file), "{word}");
+                }
+                other => panic!("{word}: {other:?}"),
+            }
+        }
+        assert_eq!(
+            parse(&args("chr1:1-100 calls.vcf.gz.tbi"))
+                .unwrap_err()
+                .to_string(),
+            "calls.vcf.gz.tbi is an index, and karyon reads it from beside the file it \
+             indexes; name calls.vcf.gz instead"
+        );
+        // A gene may be called anything without a dot in it.
+        assert!(parse(&args("tbi calls.vcf.gz")).is_ok());
     }
 
     #[test]

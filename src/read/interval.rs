@@ -508,6 +508,127 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
     Ok(out)
 }
 
+/// How far the gene models over a window reach either side of it: the window
+/// widened to the least start and the greatest end of every GFF3 or GTF row
+/// that touches it, 0-based and half-open.
+///
+/// A gene model is put back together from all its rows, and the rows of one
+/// over the window need not be over it themselves: a window inside an intron
+/// touches the gene's row and its transcripts' and none of their exons. The
+/// rows an index finds over a window are the ones over it, so a window read
+/// through one is read again over this reach, which holds every row of every
+/// model the window touches, since the gene's own row spans them all. A model
+/// with no row of its own, exons naming a transcript the file never writes,
+/// is spanned by nothing, and [`parentless`] says when the rows read hold
+/// one. A row
+/// that describes the sequence it is on, as NCBI's `region` does from its
+/// first base to its last, is left out: it is no model, and it would widen
+/// every window to its whole chromosome. A BED row is a model of its own, so
+/// a BED reaches no further than the window.
+///
+/// Rows that do not read as a span are passed over, since the reader that
+/// draws the window says what is wrong with them.
+///
+/// ```
+/// use karyon::read::interval::reach;
+/// use karyon::Region;
+///
+/// let gff = "##gff-version 3\n\
+///            chr1\t.\tgene\t101\t900\t.\t+\t.\tID=g1\n\
+///            chr1\t.\texon\t101\t200\t.\t+\t.\tParent=g1\n\
+///            chr1\t.\texon\t801\t900\t.\t+\t.\tParent=g1\n";
+/// // A window in the intron reaches both exons.
+/// let window = Region::parse("chr1:401-500")?;
+/// assert_eq!(reach(gff, &window, None), (100, 900));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn reach(text: &str, region: &Region, format: Option<Format>) -> (u64, u64) {
+    let mut reach = (region.start(), region.end());
+    if flavour(text, format) == Flavour::Bed {
+        return reach;
+    }
+    for (_, line) in lines(text) {
+        let cols = columns(line);
+        if cols.len() < 5 || cols[0] != region.seq() || describes_sequence(&cols) {
+            continue;
+        }
+        let (Ok(start), Ok(end)) = (cols[3].trim().parse::<u64>(), cols[4].trim().parse::<u64>())
+        else {
+            continue;
+        };
+        // 1-based and inclusive, so the start comes down by one.
+        let start = start.saturating_sub(1);
+        if end <= region.start() || start >= region.end() {
+            continue;
+        }
+        reach = (reach.0.min(start), reach.1.max(end));
+    }
+    reach
+}
+
+/// Whether a GFF3 or GTF row over `region`, or anywhere in `text` for `None`,
+/// belongs to a model with no row of its own in `text`: a part, an exon, a
+/// coding or an untranslated stretch, naming a transcript no row on its
+/// sequence is, or any row naming a GTF gene no row on its sequence is.
+///
+/// The readers put such a model together from all its parts on the sequence
+/// and draw it from the first of them to the last, so how far it reaches is
+/// in no row of its own, and the rows over a window, widened by [`reach`], do
+/// not hold the parts outside it. A parent that has a row spans the rows
+/// under it, so it lies over any window they lie over and is among the rows
+/// an index finds there: only a parent with no row can be missing. A row
+/// naming a parent the file does not write that is not a part stands on its
+/// own and is drawn as it stands, so it is no such model.
+///
+/// ```
+/// use karyon::read::interval::parentless;
+/// use karyon::Region;
+///
+/// let window = Region::parse("chr1:101-200")?;
+/// let exons = "##gff-version 3\n\
+///              chr1\t.\texon\t101\t200\t.\t+\t.\tParent=t1\n\
+///              chr1\t.\texon\t801\t900\t.\t+\t.\tParent=t1\n";
+/// assert!(parentless(exons, Some(&window)));
+/// let rooted = format!("{exons}chr1\t.\tmRNA\t101\t900\t.\t+\t.\tID=t1\n");
+/// assert!(!parentless(&rooted, Some(&window)));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parentless(text: &str, region: Option<&Region>) -> bool {
+    let mut declared = std::collections::BTreeSet::new();
+    let mut named = Vec::new();
+    for (_, line) in lines(text) {
+        let cols = columns(line);
+        // A model is put together from the rows on its own sequence, so the
+        // rows on another declare nothing it could be under.
+        let elsewhere = region.is_some_and(|region| cols.first() != Some(&region.seq()));
+        if cols.len() < 5 || elsewhere || describes_sequence(&cols) {
+            continue;
+        }
+        let sequence = cols[0];
+        if let Some((space, name)) = declared_as(&cols) {
+            declared.insert((sequence, space, name));
+        }
+        if let Some(region) = region {
+            let span = (cols[3].trim().parse::<u64>(), cols[4].trim().parse::<u64>());
+            let (Ok(start), Ok(end)) = span else {
+                continue;
+            };
+            // 1-based and inclusive, so the start comes down by one.
+            if end <= region.start() || start.saturating_sub(1) >= region.end() {
+                continue;
+            }
+        }
+        let a_part = part(cols[2].trim()).is_some();
+        named.extend(
+            parents_of(&cols)
+                .into_iter()
+                .filter(|(space, _)| a_part || *space == "gene")
+                .map(|(space, name)| (sequence, space, name)),
+        );
+    }
+    named.iter().any(|key| !declared.contains(key))
+}
+
 /// Keeps a feature that touches the window.
 ///
 /// A feature the window does not touch is not drawn, and it would still take a
@@ -1028,6 +1149,132 @@ fn strand_of(field: &str) -> Strand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two genes of two transcripts and several exons each, as NCBI writes
+    /// them, with the `region` row that opens the sequence.
+    const MODELS: &str = "\
+##gff-version 3
+chr1\tRefSeq\tregion\t1\t50000\t.\t+\t.\tID=chr1:1..50000
+chr1\t.\tgene\t1001\t9000\t.\t+\t.\tID=g1;Name=alpha
+chr1\t.\tmRNA\t1001\t9000\t.\t+\t.\tID=t1;Parent=g1
+chr1\t.\texon\t1001\t1500\t.\t+\t.\tParent=t1
+chr1\t.\texon\t4001\t4500\t.\t+\t.\tParent=t1
+chr1\t.\texon\t8001\t9000\t.\t+\t.\tParent=t1
+chr1\t.\tmRNA\t1201\t8500\t.\t+\t.\tID=t2;Parent=g1
+chr1\t.\texon\t1201\t1500\t.\t+\t.\tParent=t2
+chr1\t.\texon\t8001\t8500\t.\t+\t.\tParent=t2
+chr1\t.\tgene\t20001\t30000\t.\t-\t.\tID=g2;Name=beta
+chr1\t.\tmRNA\t20001\t30000\t.\t-\t.\tID=t3;Parent=g2
+chr1\t.\texon\t20001\t21000\t.\t-\t.\tParent=t3
+chr1\t.\texon\t29001\t30000\t.\t-\t.\tParent=t3
+";
+
+    /// The rows of `MODELS` that touch `[start, end)`, as an index finds
+    /// them, behind the header.
+    fn over(start: u64, end: u64) -> String {
+        let mut text = String::from("##gff-version 3\n");
+        for line in MODELS.lines().skip(1) {
+            let cols: Vec<&str> = line.split('\t').collect();
+            let (from, to) = (
+                cols[3].parse::<u64>().unwrap() - 1,
+                cols[4].parse::<u64>().unwrap(),
+            );
+            if from < end && to > start {
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+        text
+    }
+
+    /// A window over any part of a gene, an intron included, reaches every
+    /// row of it, and the genes read from the rows over that reach are the
+    /// ones read from the whole file, with every exon. Read from the rows
+    /// over the window alone, a window in the intron of alpha drew it with
+    /// none of its exons.
+    #[test]
+    fn reach_covers_every_exon_of_a_gene_over_the_window() {
+        for (start, end) in [
+            (2_000u64, 2_100u64),
+            (1_499, 1_501),
+            (8_999, 9_000),
+            (12_000, 13_000),
+            (25_000, 25_100),
+            (5_000, 21_000),
+            (40_000, 45_000),
+        ] {
+            let region = Region::new("chr1", start, end).unwrap();
+            let (from, to) = reach(&over(start, end), &region, None);
+            assert!(from <= start && to >= end, "{region}");
+            for level in [features, transcripts] {
+                let whole = level(MODELS, &region, None).unwrap();
+                assert_eq!(
+                    level(&over(from, to), &region, None).unwrap(),
+                    whole,
+                    "{region}"
+                );
+            }
+        }
+        let intron = Region::new("chr1", 2_000, 2_100).unwrap();
+        assert_eq!(reach(&over(2_000, 2_100), &intron, None), (1_000, 9_000));
+        assert!(features(&over(2_000, 2_100), &intron, None).unwrap()[0]
+            .exons
+            .is_empty());
+    }
+
+    /// NCBI's `region` row spans the whole sequence and is no gene model,
+    /// so it widens nothing; counted, every window would reach the whole
+    /// chromosome and be read whole.
+    #[test]
+    fn reach_leaves_out_a_row_that_describes_the_sequence() {
+        let gap = Region::new("chr1", 12_000, 13_000).unwrap();
+        assert_eq!(reach(MODELS, &gap, None), (12_000, 13_000));
+        // A BED row is its own model, and a BED reaches no further.
+        let bed = "chr1\t0\t50000\tall\nchr1\t1000\t9000\talpha\n";
+        assert_eq!(reach(bed, &gap, None), (12_000, 13_000));
+        assert_eq!(reach(MODELS, &gap, Some(Format::Bed)), (12_000, 13_000));
+    }
+
+    /// Exons naming a transcript no row is make a model the reach of a window
+    /// does not hold, and `parentless` finds them and only them: the
+    /// transcript is drawn from its first exon to its last, so the rows over
+    /// a window by one exon drew that exon alone. A gene naming an operon
+    /// the file does not write stands on its own, and a row describing the
+    /// sequence is no parent a part can belong to.
+    #[test]
+    fn parentless_finds_the_models_a_reach_does_not_hold() {
+        let exons = "##gff-version 3\n\
+            chr1\t.\texon\t1001\t2000\t.\t+\t.\tParent=t9\n\
+            chr1\t.\texon\t50001\t51000\t.\t+\t.\tParent=t9\n";
+        let window = Region::new("chr1", 1_500, 1_600).unwrap();
+        let (from, to) = reach(exons, &window, None);
+        let reached = Region::new("chr1", from, to).unwrap();
+        let rows: String = exons
+            .lines()
+            .take(2)
+            .map(|line| line.to_string() + "\n")
+            .collect();
+        assert_ne!(
+            features(&rows, &window, None).unwrap(),
+            features(exons, &window, None).unwrap()
+        );
+        assert!(parentless(&rows, Some(&reached)));
+        assert!(parentless(exons, None));
+        let between = Region::new("chr1", 10_000, 20_000).unwrap();
+        assert!(!parentless(&rows, Some(&between)), "no row over it");
+        for (start, end) in [(2_000, 2_100), (12_000, 13_000), (40_000, 45_000)] {
+            let region = Region::new("chr1", start, end).unwrap();
+            let (from, to) = reach(&over(start, end), &region, None);
+            let reached = Region::new("chr1", from, to).unwrap();
+            assert!(!parentless(&over(from, to), Some(&reached)), "{region}");
+        }
+        assert!(!parentless(MODELS, None));
+        let operon = "chr1\t.\tgene\t1001\t2000\t.\t+\t.\tID=g1;Parent=op1\n";
+        assert!(!parentless(operon, None));
+        let described = "chr1\tRefSeq\tregion\t1\t90000\t.\t+\t.\tID=chr1\n\
+                         chr1\t.\texon\t1001\t1500\t.\t+\t.\tParent=chr1\n";
+        assert!(parentless(described, None));
+    }
 
     /// Arabidopsis genes, as a BED with a UCSC track line on top.
     const BED: &str = "\

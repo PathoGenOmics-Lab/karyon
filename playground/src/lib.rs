@@ -1336,6 +1336,32 @@ mod tests {
         );
     }
 
+    /// A bgzipped file a page holds with its index beside it is read a
+    /// window at a time through the index, as a shell reads it from disk: a
+    /// VCF whose row on chr2 has seven columns, which the reader of calls
+    /// refuses, draws a window on chr1 only where the page passes the index
+    /// on, and draws what the files held without the page between draw.
+    #[test]
+    fn a_page_reads_through_an_index_it_holds() {
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/read/fixtures/indexed");
+        let line = ["chr1:1-1,000", "seven.vcf.gz"].map(String::from);
+        let draw = |names: &[&str]| {
+            let mut held = stack::Held::new();
+            for name in names {
+                held.insert(*name, std::fs::read(fixtures.join(name)).unwrap());
+            }
+            let alone = stack::build_files(&invocation(&line).unwrap(), &mut held, |_, _| None);
+            let mut page = Page(held);
+            let paged = stack::build_files(&invocation(&line).unwrap(), &mut page, |_, _| None);
+            (alone.ok(), paged.ok())
+        };
+        let (alone, paged) = draw(&["seven.vcf.gz", "seven.vcf.gz.tbi"]);
+        assert!(paged.is_some(), "the page did not read through the index");
+        assert_eq!(paged, alone);
+        assert_eq!(draw(&["seven.vcf.gz"]), (None, None));
+    }
+
     #[test]
     fn a_file_the_page_is_not_holding_says_what_it_is_holding() {
         // A shell can be told to go and look. A page cannot, so the error names

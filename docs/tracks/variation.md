@@ -22,7 +22,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
 | Command line | `--variants FILE`, with `--style`, `--height` |
-| Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`) |
+| Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`) |
 
 === "Rust"
 
@@ -84,7 +84,7 @@ The call of each sample at each site of a cohort's VCF: one row per sample and o
 |:--|:--|
 | Rust | `.add_genotypes(samples, sites)` on `plot()`; `GenotypeTrack::new(samples, sites)` |
 | Command line | `--genotypes FILE`, with `--sample`, `--with-tree`, `--traits`, `--columns`, `--row-height`, `--max-rows`, `--no-names` |
-| Reads | a VCF with samples: `GT` from the column of each sample the `#CHROM` line names (`read::point::genotypes`) |
+| Reads | a VCF with samples: `GT` from the column of each sample the `#CHROM` line names (`read::point::genotypes`); bgzipped with a `.tbi` or `.csi` beside it, its header and the rows over the window (`read::tabix`) |
 
 === "Rust"
 
@@ -162,7 +162,7 @@ Structural variant calls as arcs between their two breakpoints, springing from t
 |:--|:--|
 | Rust | `.add_structural(variants)` on `plot()`; `StructuralTrack::new(variants)` |
 | Command line | `--structural FILE`, with `--no-names`, `--height` |
-| Reads | VCF with symbolic alleles or `SVTYPE`, breakend pairs read from the `ALT` (`read::structural::variants`) |
+| Reads | VCF with symbolic alleles or `SVTYPE`, breakend pairs read from the `ALT` (`read::structural::variants`), whole even with an index beside it, since an arc is drawn from a breakend outside a window it crosses |
 
 === "Rust"
 
@@ -356,7 +356,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 |:--|:--|
 | Rust | `.add_matrix(sites, rows)` on `plot()`; `MatrixTrack::new(sites, rows)`, and `MatrixTrack::windows(windows, rows)` for a column per window |
 | Command line | `--matrix FILE` for sites, `--heatmap FILE` for windows, with `--with-tree`, `--row-height`, `--no-names`, `--traits`, `--columns`, `--max`; `--relative` and `--center` after `--heatmap` |
-| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample, or in the long form, a sample and its value to a row (`read::table::windows`). An empty cell, `.` or `NA` is missing |
+| Reads | a table with 1-based site positions across the header and one row per sample (`read::table::matrix`); or windows as `bedtools unionbedg` writes them, a sequence, a start and an end, then a column per sample, or in the long form, a sample and its value to a row (`read::table::windows`); the wide form bgzipped with a `.tbi` beside it, only the rows over the window. An empty cell, `.` or `NA` is missing |
 
 === "Rust"
 
@@ -431,7 +431,7 @@ Association statistics: one point per test, height by significance, a line where
 |:--|:--|
 | Rust | `.add_manhattan(points)` on `plot()`; `ManhattanTrack::new(points)` |
 | Command line | `--manhattan FILE`, with `--threshold`, `--ld`, `--with-recombination`, `--max`, `--height`; `--same-scale` puts several scans on one scale |
-| Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`) |
+| Reads | two columns, position and value, or three with a sequence name first; 1-based positions, and the value drawn as given (`read::point::associations`); bgzipped with a `.tbi` beside it, only the rows over a place |
 
 === "Rust"
 
