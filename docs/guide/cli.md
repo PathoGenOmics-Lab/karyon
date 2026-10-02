@@ -473,10 +473,14 @@ karyon tree.nwk --traits samples.tsv --columns lineage,country \
 
 The column comes first, then each value and its colour, joined by commas, and
 the flag again for more values or another column. A colour is `#` and six hex
-digits, and quoting the whole word keeps a shell from reading the `#`. A value
-not named keeps the palette. The colours are the figure's: every sheet of it
-that has the column paints those values so, in its strips, in the key and along
-the branches `--color-by` colours by the column, drawn as a strip or not.
+digits, and quoting the whole word keeps a shell from reading the `#`. Each
+pair ends at its colour, so a value may hold a colon, or a comma with no colon
+before it, as in `'country=Korea, Rep.:#aa0000'`. A value not named keeps the
+palette. The colours are the figure's: every sheet of it that has the column
+paints those values so, in its strips, in the key and along the branches
+`--color-by` colours by the column, drawn as a strip or not. Two values given
+one colour, or one given the colour the palette deals another, are drawn in
+shapes as well, and a tree names the two and the colour under it.
 
 A colour that would paint nothing is refused rather than passed over: a
 `--colors` with no `--traits` anywhere, a column no sheet has, a column of

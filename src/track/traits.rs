@@ -517,12 +517,50 @@ impl TraitDomain {
             .any(|(_, index)| !seen.insert(self.paint(*index, theme)))
     }
 
+    /// Two levels some value held that `theme` paints one colour where one
+    /// of the two was given its colour by name, with that colour, in the
+    /// order a key lists them.
+    ///
+    /// A clash the chosen colours made rather than the palette running out,
+    /// which a warning names by its cause: given `L1:#aa0000,L2:#aa0000`, or
+    /// for L1 the colour the palette deals L4, a strip said it had four
+    /// values for six colours and that colours of their own would part them,
+    /// which sent the reader back to the colours that joined them.
+    pub(crate) fn chosen_clash(&self, theme: &Theme) -> Option<[String; 3]> {
+        let mut first: BTreeMap<String, (&str, usize)> = BTreeMap::new();
+        for (level, index) in self.keyed() {
+            let color = self.paint(index, theme);
+            match first.get(&color) {
+                Some((had, at)) if self.chose(*at) || self.chose(index) => {
+                    return Some([had.to_string(), level.to_string(), color]);
+                }
+                Some(_) => {}
+                None => {
+                    first.insert(color, (level, index));
+                }
+            }
+        }
+        None
+    }
+
+    /// Whether the level dealt `index` was given its colour by name.
+    fn chose(&self, index: usize) -> bool {
+        self.chosen.contains_key(&index)
+    }
+
     /// The levels some value held, each with the colour it is painted in
-    /// `theme`, in the order a key lists them.
-    pub(crate) fn painted(&self, theme: &Theme) -> Vec<(String, String)> {
+    /// `theme` and whether that colour was chosen for it by name, in the
+    /// order a key lists them.
+    pub(crate) fn painted(&self, theme: &Theme) -> Vec<(String, String, bool)> {
         self.keyed()
             .into_iter()
-            .map(|(level, index)| (level.to_string(), self.paint(index, theme)))
+            .map(|(level, index)| {
+                (
+                    level.to_string(),
+                    self.paint(index, theme),
+                    self.chose(index),
+                )
+            })
             .collect()
     }
 

@@ -3040,8 +3040,25 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     .map(|(column, pairs)| (column.trim(), pairs))
                     .filter(|(column, _)| !column.is_empty())
                     .ok_or_else(bad)?;
-                let mut written: Vec<(&str, String)> = Vec::new();
-                for pair in pairs.split(',').filter(|pair| !pair.trim().is_empty()) {
+                let mut written: Vec<(String, String)> = Vec::new();
+                // A piece with no colon is the start of a value that holds a
+                // comma, and the piece after it is the rest of that value:
+                // `country=Korea, Rep.:#aa0000` is one value. Split at every
+                // comma, a value such as `Korea, Rep.` could not be given a
+                // colour, and was refused as if the flag had been written
+                // wrong. A piece with a colon is a pair, so a colour written
+                // wrong is still refused here as one.
+                let mut begun: Option<String> = None;
+                for piece in pairs.split(',') {
+                    let pair = match begun.take() {
+                        Some(start) => format!("{start},{piece}"),
+                        None if piece.trim().is_empty() => continue,
+                        None => piece.to_string(),
+                    };
+                    if !pair.contains(':') {
+                        begun = Some(pair);
+                        continue;
+                    }
                     // As `#rrggbb` and no other spelling, as --background
                     // takes it: the pairs are split at commas, which would
                     // cut `rgb(27,158,119)` in three. In small letters, since
@@ -3053,9 +3070,10 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         .map(|(level, color)| (level.trim(), color.trim()))
                         .filter(|(level, color)| !level.is_empty() && is_hex_color(color))
                         .ok_or_else(bad)?;
-                    written.push((level, color.to_ascii_lowercase()));
+                    written.push((level.to_string(), color.to_ascii_lowercase()));
                 }
-                if written.is_empty() {
+                // A value and no colour after it.
+                if written.is_empty() || begun.is_some() {
                     return Err(bad());
                 }
                 let at = match colors.iter().position(|(known, _)| known == column) {
@@ -3070,17 +3088,17 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 // one value is a choice nobody made, and drew whichever came
                 // last.
                 for (level, color) in written {
-                    match held.iter().find(|(known, _)| known == level) {
+                    match held.iter().find(|(known, _)| *known == level) {
                         Some((_, first)) if *first != color => {
                             return Err(ArgError::ColoredTwice {
                                 column: column.to_string(),
-                                value: level.to_string(),
+                                value: level,
                                 first: first.clone(),
                                 second: color,
                             })
                         }
                         Some(_) => {}
-                        None => held.push((level.to_string(), color)),
+                        None => held.push((level, color)),
                     }
                 }
             }
@@ -5013,6 +5031,53 @@ mod tests {
             );
             // The one-colour flag is named, for the reader who meant it.
             assert!(error.to_string().ends_with("is --color"), "{error}");
+        }
+    }
+
+    /// A value may hold a comma, as a place written `Korea, Rep.` does: a
+    /// pair ends at its colour, so a piece with no colon is the start of the
+    /// value the next piece ends. A piece with a colon is a pair, and a value
+    /// with no colour after it is still refused.
+    #[test]
+    fn a_value_that_holds_a_comma_takes_a_colour() {
+        let parsed = |colors: &str| {
+            let mut line = args("--tree t.nwk --traits s.tsv --colors");
+            line.push(colors.to_string());
+            parse(&line)
+        };
+        let Ok(Request::Draw(it)) =
+            parsed("country=Korea, Rep.:#AA0000,Peru:#e7298a, Congo,DR:#1b9e77")
+        else {
+            panic!("refused")
+        };
+        let pair = |value: &str, color: &str| (value.to_string(), color.to_string());
+        assert_eq!(
+            it.colors,
+            [(
+                "country".to_string(),
+                vec![
+                    pair("Korea, Rep.", "#aa0000"),
+                    pair("Peru", "#e7298a"),
+                    pair("Congo,DR", "#1b9e77"),
+                ]
+            )]
+        );
+        for bad in [
+            "country=Korea, Rep.",
+            "country=Peru:#e7298a,Korea, Rep.",
+            "country=Peru:red,Kenya:#1b9e77",
+            "country=Korea, Rep.:#d55",
+        ] {
+            assert!(
+                matches!(
+                    parsed(bad),
+                    Err(ArgError::BadValue {
+                        flag: "--colors",
+                        ..
+                    })
+                ),
+                "{bad}"
+            );
         }
     }
 

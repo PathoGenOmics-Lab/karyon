@@ -490,6 +490,14 @@ impl fmt::Display for BuildError {
                         if several { "they have" } else { "it has" },
                         held.join(", ")
                     ),
+                    // A column of nothing but gaps, or a sheet of a header
+                    // alone, holds no value to list, and the sentence was
+                    // left unfinished at "holds".
+                    Some(value) if held.is_empty() => write!(
+                        f,
+                        "--colors names {value} in {column}, and no row of {sheets} holds a \
+                         value in {column}"
+                    ),
                     Some(value) => write!(
                         f,
                         "--colors names {value} in {column}, and no row of {sheets} holds it; \
@@ -1678,17 +1686,16 @@ fn colored_as_asked(invocation: &Invocation, files: &mut dyn Files) -> Result<()
                 column: column.clone(),
             });
         }
-        let mut levels: Vec<String> = Vec::new();
-        for sheet in &having {
-            for level in sheet.levels(column) {
-                if !levels.contains(&level) {
-                    levels.push(level);
-                }
-            }
-        }
+        // A set, because a column can hold a value per row, and a search of
+        // a list per value took eight seconds at 120,000 rows.
+        let levels: std::collections::BTreeSet<String> = having
+            .iter()
+            .flat_map(|sheet| sheet.levels(column))
+            .collect();
         if let Some((value, _)) = chosen.iter().find(|(value, _)| !levels.contains(value)) {
             // In the order a key lists them, which is the order a reader
             // looks a misspelt value up in.
+            let mut levels: Vec<String> = levels.into_iter().collect();
             levels.sort_by(|a, b| crate::track::traits::natural(a, b));
             return Err(BuildError::NotColored {
                 column: column.clone(),
@@ -7923,6 +7930,145 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             &held
         )
         .is_ok());
+        // A column of nothing but gaps, and a sheet of a header alone, hold
+        // no value to list, and say so rather than end at "holds".
+        for (path, text) in [
+            ("na.tsv", "sample\tlineage\na\tNA\nb\t.\nc\tNA\nd\tNA\n"),
+            ("e.tsv", "sample\tlineage\n"),
+        ] {
+            let error = drawn_from(
+                &format!("--tree t.nwk --traits {path} --colors lineage=L4:#aa0000"),
+                &[("t.nwk", tree), (path, text)],
+            )
+            .unwrap_err()
+            .to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "--colors names L4 in lineage, and no row of {path} holds a value in \
+                     lineage"
+                )
+            );
+        }
+    }
+
+    /// The colours are checked over every sheet of the figure at once, and
+    /// each rule over all of them: a column is drawn when a track whose own
+    /// sheet has it draws it, and is a ramp when it is numbers in every sheet
+    /// that has it.
+    #[test]
+    fn colors_are_checked_over_every_sheet_of_the_figure() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let matrix = "sample\t100\t200\na\t1\t0\nb\t0\t1\nc\t1\t1\nd\t0\t0\n";
+        let sheet = "sample\tlineage\tgroup\na\tL4\tx\nb\tL4\ty\nc\tL2\tx\nd\tL1\ty\n";
+        // The matrix's sheet has no lineage, so it draws every column it has
+        // and no lineage among them.
+        let other = "sample\tgroup\na\tx\nb\ty\nc\tx\nd\ty\n";
+        // Lineage as numbers, a ramp beside the matrix.
+        let numbers = "sample\tlineage\na\t4\nb\t4\nc\t2\nd\t1\n";
+        let held = [
+            ("t.nwk", tree),
+            ("m.tsv", matrix),
+            ("s.tsv", sheet),
+            ("o.tsv", other),
+            ("n.tsv", numbers),
+        ];
+        let undrawn = drawn_from(
+            "chr:1-300 --tree t.nwk --traits s.tsv --columns group --matrix m.tsv \
+             --traits o.tsv --colors lineage=L4:#aa0000",
+            &held,
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            undrawn,
+            "--colors paints lineage, and no track draws it: name it in --columns, or colour \
+             a tree's branches by it with --color-by lineage"
+        );
+        // Words beside the tree and numbers beside the matrix: painted where
+        // it is words.
+        let svg = drawn_from(
+            "chr:1-300 --tree t.nwk --traits s.tsv --matrix m.tsv --traits n.tsv \
+             --colors lineage=L4:#aa0000",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(painted(&svg, "a; lineage L4"), ["#aa0000"]);
+    }
+
+    /// Values a colour chose alike are named in the line under the tree,
+    /// with their colour, and `--colors` is not offered as the way out: it is
+    /// what joined them. The tree said "4 values for 6 colours".
+    #[test]
+    fn colors_chosen_alike_are_named_under_the_tree() {
+        let held = [
+            ("t.nwk", "((a:1,b:1):1,(c:1,d:1):1);"),
+            ("s.tsv", "sample\tlineage\na\tL4\nb\tL2\nc\tL1\nd\tL3\n"),
+        ];
+        let (svg, notes) = drawn_noting(
+            "--tree t.nwk --traits s.tsv --colors lineage=L1:#aa0000,L2:#aa0000",
+            &held,
+        );
+        let said = "lineage: L1 and L2 are both #aa0000, so each is a shape as well";
+        assert_eq!(notes, [format!("--tree t.nwk: {said}")]);
+        assert!(svg.unwrap().contains(said), "the figure does not say it");
+    }
+
+    /// A value that holds a comma takes its colour, as a place written
+    /// `Korea, Rep.` does; split at every comma, it was refused as if the
+    /// flag were written wrong.
+    #[test]
+    fn colors_reach_a_value_that_holds_a_comma() {
+        let mut files = Held::new();
+        files.insert("t.nwk", "((a:1,b:1):1,(c:1,d:1):1);");
+        files.insert(
+            "s.tsv",
+            "sample\tcountry\na\tKorea, Rep.\nb\tPeru\nc\tKorea, Rep.\nd\tPeru\n",
+        );
+        let line = [
+            "--tree",
+            "t.nwk",
+            "--traits",
+            "s.tsv",
+            "--colors",
+            "country=Korea, Rep.:#aa0000,Peru:#0000aa",
+        ]
+        .map(String::from);
+        let Request::Draw(invocation) = parse(&line).unwrap() else {
+            unreachable!("a figure")
+        };
+        let svg = build_files(&invocation, &mut files, |_, _| None).unwrap();
+        assert_eq!(painted(&svg, "a; country Korea, Rep."), ["#aa0000"]);
+        assert_eq!(painted(&svg, "b; country Peru"), ["#0000aa"]);
+    }
+
+    /// The values `--colors` names are looked up in a set of the column's
+    /// values, not in a list of them: a column of a value per row took eight
+    /// seconds at 120,000 rows, where drawing the figure took half a second.
+    /// Timed against reading the sheet, which is linear, so a machine that
+    /// is slow, or busy, is slow at both.
+    #[test]
+    fn colors_are_checked_against_a_column_of_many_values_in_linear_time() {
+        let rows = 60_000;
+        let mut sheet = String::from("sample\tbatch\n");
+        for row in 0..rows {
+            sheet.push_str(&format!("s{row}\tB{row}\n"));
+        }
+        let mut files = Held::new();
+        files.insert("t.nwk", "((s0:1,s1:1):1,(s2:1,s3:1):1);");
+        files.insert("s.tsv", sheet.as_str());
+        let invocation = sheeted("--tree t.nwk --traits s.tsv --colors batch=B0:#aa0000");
+        let started = std::time::Instant::now();
+        let read = read::sheet::sheet(&sheet).unwrap();
+        let reading = started.elapsed();
+        assert_eq!(read.levels("batch").len(), rows);
+        let started = std::time::Instant::now();
+        colored_as_asked(&invocation, &mut files).unwrap();
+        let checking = started.elapsed();
+        assert!(
+            checking < reading * 10 + std::time::Duration::from_millis(100),
+            "checked in {checking:?}, read in {reading:?}"
+        );
     }
 
     /// A phylogram draws its scale bar by default, and --no-scale-bar is how

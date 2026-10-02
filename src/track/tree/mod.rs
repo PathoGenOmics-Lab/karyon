@@ -1984,7 +1984,9 @@ impl TreeTrack {
     /// the words name a flag of a front end rather than anything of this
     /// type. Only where the colours would reach: branches coloured by an
     /// annotation the Newick carries, and by no column of the sheet, take no
-    /// chosen colour, and the warning about them is left as it was.
+    /// chosen colour, and the warning about them is left as it was. Nor where
+    /// a colour chosen by name joined the two values: that warning names
+    /// them and the colour instead.
     pub(crate) fn recolour(mut self, said: impl Into<String>) -> Self {
         self.recolour = Some(said.into());
         self
@@ -2501,7 +2503,13 @@ impl TreeTrack {
                         key,
                         self.dealing(theme.palette.len()).branches,
                     );
-                    if domain.colors_repeat(theme) {
+                    // By what joined the two: colours chosen alike are not
+                    // parted by choosing colours, as a palette that ran out is.
+                    if let Some([first, second, color]) = domain.chosen_clash(theme) {
+                        said.push(format!(
+                            "{key} {first} and {second} are both {color}, so their branches are drawn alike"
+                        ));
+                    } else if domain.colors_repeat(theme) {
                         said.push(self.with_recolour(
                             format!(
                                 "{key} has {} values and the palette {} colours, so some branches of two values share one",
@@ -2541,10 +2549,11 @@ impl TreeTrack {
         let colors = theme.palette.len().max(1);
         let most = colors * 4;
         // Each colour a filled strip paints, with the column and the level it
-        // paints, to find two strips that paint two things one colour, and
-        // the key of each column of such a pair.
-        let mut painted: Vec<(String, &str, String, &str)> = Vec::new();
-        let mut shared: Vec<(String, [&str; 2])> = Vec::new();
+        // paints and whether it was chosen by name, to find two strips that
+        // paint two things one colour, and the key of each column of such a
+        // pair.
+        let mut painted: Vec<(String, &str, String, &str, bool)> = Vec::new();
+        let mut shared: Vec<(String, [&str; 2], bool)> = Vec::new();
         for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
             let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
             let levels = domain.keyed().len();
@@ -2556,32 +2565,42 @@ impl TreeTrack {
                 ));
             } else if style == TraitStyle::Symbol && column.style == TraitStyle::Strip {
                 // Asked for a strip and drawn as shapes, which the figure
-                // should say rather than the reader find out.
-                said.push(self.with_recolour(
-                    format!(
-                        "{}: {levels} values for {colors} colours, so each is a shape as well",
+                // should say rather than the reader find out, and why: two
+                // values given one colour by name are not a palette that
+                // ran out, and naming the way to colours of their own
+                // would point at the colours that joined them.
+                said.push(match domain.chosen_clash(theme) {
+                    Some([first, second, color]) => format!(
+                        "{}: {first} and {second} are both {color}, so each is a shape as well",
                         column.label
                     ),
-                    &column.key,
-                ));
+                    None => self.with_recolour(
+                        format!(
+                            "{}: {levels} values for {colors} colours, so each is a shape as well",
+                            column.label
+                        ),
+                        &column.key,
+                    ),
+                });
             }
             if style != TraitStyle::Strip || column.scale != TraitScale::Categorical {
                 continue;
             }
-            for (level, color) in domain.painted(theme) {
+            for (level, color, chose) in domain.painted(theme) {
                 let other = painted
                     .iter()
-                    .find(|(_, named, had, _)| *had == color && *named != column.label.as_str());
-                if let Some((was, named, _, key)) = other {
+                    .find(|(_, named, had, _, _)| *had == color && *named != column.label.as_str());
+                if let Some((was, named, _, key, before)) = other {
                     shared.push((
                         format!("{named} {was} and {} {level}", column.label),
                         [key, &column.key],
+                        *before || chose,
                     ));
                 }
-                painted.push((level, &column.label, color, &column.key));
+                painted.push((level, &column.label, color, &column.key, chose));
             }
         }
-        if let Some((first, keys)) = shared.first() {
+        if let Some((first, keys, chose)) = shared.first() {
             let others = match shared.len() {
                 1 => String::new(),
                 2 => ", and 1 other pair is too".to_string(),
@@ -2592,7 +2611,14 @@ impl TreeTrack {
                 .iter()
                 .find(|key| self.sheet_dealing.contains_key(**key))
                 .unwrap_or(&keys[0]);
-            said.push(self.with_recolour(format!("{first} are one colour{others}"), key));
+            let warning = format!("{first} are one colour{others}");
+            // A colour chosen by name made the pair, and choosing colours is
+            // not what parts it.
+            said.push(if *chose {
+                warning
+            } else {
+                self.with_recolour(warning, key)
+            });
         }
         said
     }

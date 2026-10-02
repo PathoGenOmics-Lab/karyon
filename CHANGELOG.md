@@ -13,8 +13,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branches of two values sharing one, says how to part them when drawn from
   the command line: `; --colors gives them colours of their own`. Branches
   coloured by an annotation of the Newick are out of reach of `--colors`, and
-  their line is as it was. `docs/assets/start/tree.svg` and its dark copy
-  change.
+  their line is as it was. Where a colour `--colors` chose made the clash,
+  given to two values or the one the palette deals another, the line names
+  the two values and the colour instead, as `lineage: L1 and L2 are both
+  #aa0000, so each is a shape as well`, and leaves `--colors` out of it.
+  `docs/assets/start/tree.svg` and its dark copy change.
 - `--color` refuses a value holding `=`, which is `--colors` with a letter
   lost, and names `--colors`; taken as a paint, `country=Peru:#e7298a` went
   into the fill as written, which is no colour at all.
@@ -341,9 +344,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   colours of your own, the ones a field already knows its lineages or
   countries by: in its strips, in the key and along the branches
   `--color-by` paints. Values are joined by commas, and the flag is written
-  again for more of them or for another column. It is a figure option, so
-  every sheet of the figure that has the column paints its values alike, and
-  a column of seven countries stays a strip rather than a column of shapes.
+  again for more of them or for another column. A pair ends at its colour, so
+  a value may hold a colon, or a comma with no colon before it, as in
+  `country=Korea, Rep.:#aa0000`. It is a figure option, so every sheet of the
+  figure that has the column paints its values alike, and a column of seven
+  countries stays a strip rather than a column of shapes.
   A colour that would paint nothing is refused: with no `--traits` on the
   line, for a column no sheet has, for a column of numbers, for a value no
   row holds, for a column no track draws, and for a value given two colours.

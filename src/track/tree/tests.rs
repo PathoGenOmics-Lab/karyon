@@ -3567,6 +3567,91 @@ fn a_warning_that_the_palette_ran_out_names_the_way_to_colours_of_your_own() {
     );
 }
 
+/// Two values painted one colour because a colour was chosen for one of them
+/// by name are named, with the colour, and the way to colours of their own
+/// is left out: it is what joined them. Four values in six colours said the
+/// palette ran out and sent the reader back to the colours that did it.
+#[test]
+fn a_warning_about_colours_chosen_alike_names_them_and_not_the_way_out() {
+    let said = "--colors gives them colours of their own";
+    let newick = "((A:1,B:1):1,(C:1,D:1):1);";
+    // L4 first, so the palette deals it its first colour.
+    let sheet = crate::Sheet::parse(
+        "sample\tlineage\tcountry\nA\tL4\tPeru\nB\tL2\tChile\nC\tL1\tSpain\nD\tL3\tChile\n",
+    )
+    .unwrap();
+    let track = |columns: &[&str], key: &str, colors: &[(&str, &str)]| {
+        TreeTrack::new(Tree::parse_newick(newick).unwrap())
+            .traits(
+                crate::Traits::from_sheet(&sheet)
+                    .strips(columns.iter().copied())
+                    .colors(key, colors.iter().copied()),
+            )
+            .recolour(said)
+    };
+    // Two chosen alike, and one chosen as the palette paints another.
+    assert_eq!(
+        track(
+            &["lineage"],
+            "lineage",
+            &[("L1", "#aa0000"), ("L2", "#aa0000")]
+        )
+        .warnings(),
+        ["lineage: L1 and L2 are both #aa0000, so each is a shape as well"]
+    );
+    let l4 = colour(0);
+    assert_eq!(
+        track(&["lineage"], "lineage", &[("L1", l4.as_str())]).warnings(),
+        [format!(
+            "lineage: L1 and L4 are both {l4}, so each is a shape as well"
+        )]
+    );
+    // Branches have no shape to fall back on, and are drawn alike.
+    let branches = TreeTrack::new(Tree::parse_newick(newick).unwrap())
+        .traits(
+            crate::Traits::from_sheet(&sheet)
+                .colors("lineage", [("L1", "#aa0000"), ("L3", "#aa0000")]),
+        )
+        .color_by("lineage")
+        .recolour(said);
+    assert_eq!(
+        branches.warnings(),
+        ["lineage L1 and L3 are both #aa0000, so their branches are drawn alike"]
+    );
+    // Two strips: Chile chosen as the palette paints L4.
+    let two = track(
+        &["lineage", "country"],
+        "country",
+        &[("Chile", l4.as_str())],
+    );
+    let warnings = two.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with("lineage L4 and country Chile are one colour"),
+        "{warnings:?}"
+    );
+    assert!(!warnings[0].contains(said), "{warnings:?}");
+    // With no colour chosen, the palette is what ran out, and the way out
+    // is still named.
+    let names = ["A", "B", "C", "D", "E", "F", "G"];
+    let rows: String = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| format!("{name}\tC{i}\n"))
+        .collect();
+    let seven = crate::Sheet::parse(&format!("sample\tcountry\n{rows}")).unwrap();
+    let newick = format!("({});", names.map(|name| format!("{name}:1")).join(","));
+    let ran_out = TreeTrack::new(Tree::parse_newick(&newick).unwrap())
+        .traits(crate::Traits::from_sheet(&seven).strips(["country"]))
+        .recolour(said);
+    assert_eq!(
+        ran_out.warnings(),
+        [format!(
+            "country: 7 values for 6 colours, so each is a shape as well; {said}"
+        )]
+    );
+}
+
 /// A node glyph takes the colours no strip was dealt before the ones that
 /// were, so a pie's first key is not drawn in the first lineage's colour.
 #[test]
