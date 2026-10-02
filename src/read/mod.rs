@@ -1,17 +1,22 @@
 //! Readers for the formats a genomics shell already produces.
 //!
-//! Every format here is line based text, which is what keeps the dependency
-//! count at zero. Binary formats are not read at all: BAM, CRAM and BCF come
-//! in through a pipe, as `samtools depth`, `samtools view` or `bcftools view`
-//! already write exactly what these readers take.
+//! Nearly every format here is line based text, which a reader takes with
+//! nothing but the standard library, and that is what keeps the dependency
+//! count at zero. The binary ones read here are read the same way, with
+//! nothing added: [`bam`] reads a BAM a window at a time, [`bgzf`] the blocked
+//! gzip that a BAM and a bgzipped text file are written in, from any place an
+//! index points to, and [`index`] the BAI, TBI and CSI indexes that say which
+//! places those are. CRAM and BCF come in through a pipe, as `samtools view`
+//! and `bcftools view` already write exactly what these readers take.
 //!
 //! # Text in, values out, and no path anywhere
 //!
-//! Every function here takes a `&str` and returns the vector a track is built
-//! from. None of them opens a file, which is deliberate: the caller decides
-//! where the text came from, so a path, standard input, an HTTP response and a
-//! string in a test are all the same to a reader, and nothing in this crate
-//! needs permission to read a disk.
+//! Every reader of text here takes a `&str` and returns the vector a track is
+//! built from, and every reader of a binary file takes anything that reads and
+//! seeks, or an index's bytes. None of them opens a file, which is deliberate:
+//! the caller decides where the bytes came from, so a path, standard input, an
+//! HTTP response and a string in a test are all the same to a reader, and
+//! nothing in this crate needs permission to read a disk.
 //!
 //! ```
 //! use karyon::{plot, read};
@@ -58,12 +63,14 @@ pub mod align_pairs;
 #[cfg(test)]
 mod audit;
 pub mod bam;
+pub mod bgzf;
 pub mod bisulfite;
 pub mod clade;
 pub mod date;
 pub mod domain;
 pub mod dynseq;
 pub mod gzip;
+pub mod index;
 pub mod interval;
 pub mod junction;
 pub mod locus;

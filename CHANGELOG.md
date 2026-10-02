@@ -8,6 +8,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `read::bam::Bgzf` lives in `read::bgzf`, and `read::bam` still names it.
+  `Bgzf::tell` says the end of a block as the next block at offset nought,
+  as htslib writes that place into an index, so a stretch an index says ends
+  on a block boundary is no longer read one record past. `Bgzf::fill` and
+  `Bgzf::line` read bytes and lines from wherever `Bgzf::seek` went.
+  `read::bam::Index` is `read::index::Index`, and `read::bam::index` still
+  reads a `.bai` alone.
+- The questions `Files` asks about a BAM (its depth and its reads over a
+  window, its sequences, one read by its name) are answered from
+  `Files::seekable` and `Files::beside` unless a type answers them itself, so
+  `Disk` and `Held` share one reader of a BAM where each had its own, and a
+  type wrapping another `Files` passes on two questions for every reader that
+  does not read a file whole. `Held` holds each file once and hands it out
+  without a copy.
+
 - A gene from a GFF3 or GTF is drawn as a gene model: its exons over a line
   through its introns, with arrows along the line, and the untranslated ends
   of the exons at half height. It was a solid bar from end to end, which for a
@@ -325,6 +340,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--variants`. Both already keep one entry per row.
 
 ### Added
+
+- `read::index` reads the three indexes htslib writes, BAI, TBI and CSI,
+  into one `Index`: the tree of bins at the depth the file says, which for a
+  CSI was 0 from samtools, 6 from bcftools and 8 from `tabix -C`, and
+  `Index::chunks`, the stretches of the file that hold the records over a
+  window. A TBI, and a CSI written for text, also give the columns and the
+  names of the sequences tabix was told, and every index the rows it counts
+  for each sequence. Over a grid of 2,880 windows the rows the chunks hold
+  are the rows a scan of the file finds, and over twenty-three windows they
+  are the rows `tabix` 1.24 prints.
+- `read::bgzf::is_bgzf` tells a file bgzip wrote, which an index can point
+  into, from plain gzip, which has to be read from its start.
+- `read::bam::window` reads a BAM through a CSI as through a BAI. The command
+  line still looks for the `.bai` alone.
+- `Files::seekable`, a file's bytes to read out of order, and `Files::beside`,
+  the file beside it under an ending, as an index is, with its name and
+  whether it was written before the file. `Disk` and `Held` answer both, and
+  the playground's page passes them on.
 
 - `Figure::same_scale` and `Plot::same_scale` draw the tracks that measure
   the same thing on one scale: coverage in the same units on the same kind of
@@ -969,6 +1002,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gets the dark palette; `example-dark.svg` keeps the one it has always drawn.
 
 ### Fixed
+
+- A pipe the shell names, as `<(zcat depth.bedgraph.gz)`, is read from its
+  first byte. Asking whether it was a BAM read its first three bytes and
+  dropped them, which happened for a `--coverage` track and for every file of
+  a figure placed by a name, so a bedGraph's first row was read on another
+  sequence and drawn as no data, and a GFF3 whose header lost its `##g` was
+  not read as GFF3 and no gene in it was found by its name. A BAM handed
+  over that way is read as a BAM, from its start: it was refused as text
+  that is not UTF-8.
+- A figure says each thing it should say once: a BAM a few reads wide over
+  two places said it was drawn as its depth once a panel, word for word.
 
 - A tree beside an alignment, a matrix, a panel of variable sites or a
   domain panel is cut to the rows it has. Drawn whole, a tree with a tip the
