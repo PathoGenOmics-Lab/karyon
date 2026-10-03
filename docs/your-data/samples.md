@@ -1,12 +1,15 @@
 ---
-title: Many samples in windows
+title: A heatmap of many samples
 description: Draw the depth, copy number or methylation of many samples in windows along a genome, in the order of a tree.
 ---
 
-# Many samples in windows
+# A heatmap of many samples
 
 You have a value for many samples in windows along a genome: the depth of each
-sample, a copy number, a methylation level.
+sample, a copy number, a methylation level. What is known about each sample,
+its lineage or its country, is a different file, [a sample
+sheet](../guide/formats.md#the-sample-sheet), which `--traits` draws beside
+these rows, or beside the tips of [a tree](tree.md).
 
 ```bash
 karyon NC_000962.3 --heatmap depths.tsv --relative \

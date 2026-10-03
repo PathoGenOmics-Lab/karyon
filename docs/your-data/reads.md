@@ -21,7 +21,10 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
   read covers.
 - **genes**: each gene once, with its name and its direction.
 - **calls**: each variant at its position, as tall as its allele frequency,
-  coloured by what the annotation says it does.
+  coloured by the consequence an annotator wrote in its `ANN` or `BCSQ`, as
+  snpEff and `bcftools csq` write them, from the most damaging down, or by
+  its shape, a substitution, an insertion or a deletion, where none is
+  written.
 
 ## Change it
 
@@ -29,10 +32,11 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 |:--|:--|
 | See the reads, not their depth | `--pileup reads.bam` |
 | See the bases, zoomed in | `NC_000962.3:761,100-761,200 --pileup reads.bam ref.fa` |
-| Number the gene's codons, from its CDS, zoomed in | `NC_000962.3:761,081-761,200` in place of `rpoB`, and `ref.fa --codons` after the files |
+| Number the gene's codons, from its CDS, zoomed in | `NC_000962.3:761,081-761,200` in place of `rpoB`, and `ref.fa --codons` after the files; the CDS is read from `genes.gff3`, which stays on the line |
 | Draw a wider stretch | `NC_000962.3:755,000-770,000` in place of `rpoB` |
 | Draw two genes, one under the other | `rpoB rpoC` in place of `rpoB` |
 | Draw two genes side by side | `rpoB rpoC` in place of `rpoB`, and `--panel-columns 2` |
+| Shade a stretch through every track, named over it | `--shade NC_000962.3:761,082-761,162=RRDR` |
 | Make a row taller | `reads.bam --height 100` |
 | Rename a row | `calls.vcf.gz --label "variant calls"` |
 | Every call in one colour, each consequence keeping its shape | `calls.vcf.gz --color '#8b0000'` |

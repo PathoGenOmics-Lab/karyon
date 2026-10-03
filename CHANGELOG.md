@@ -1541,6 +1541,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `karyon help variants` and the guide's table of tracks say calls are
+  coloured by the consequence an annotator wrote in `ANN` or `BCSQ`, or by
+  the shape of the call where none is written, where both said only `point
+  calls`. The page readers of reads, calls and genes start on offers
+  `--shade`, which only the whole-genome page did, and says the codons' CDS
+  is read from the `genes.gff3` on the line, which was kept there by
+  guesswork. `Many samples in windows`, opened for sample sheets and found to
+  be a heatmap, is `A heatmap of many samples` and points to the sample
+  sheet, whose readers now include `--genotypes` and `--heatmap`. The formats
+  page says VEP's `ANN` is read when VEP is run with `--vcf_info_field ANN`,
+  and that its own `CSQ` is not.
 - The genotypes page said a call of the other allele is a blue cell and a
   heterozygote the half-strength blue, and the alternative text of its figure
   spoke of blue cells, where an alternate call is drawn in the ink of the text

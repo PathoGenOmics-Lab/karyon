@@ -510,7 +510,9 @@ TRACKS
                          a gene is drawn once, with the exons its transcripts
                          use over a line through its introns, and the ends
                          that do not code at half height
-    --variants <FILE>    point calls, VCF or BCF
+    --variants <FILE>    point calls, VCF or BCF, coloured by the consequence
+                         an annotator wrote in ANN or BCSQ, or else by the
+                         shape of the call: substitution, insertion, deletion
     --genotypes <FILE>   the call of each sample at each site of a VCF or BCF,
                          a row per sample: reference, heterozygous, alternate
                          or not called, at its position
@@ -1270,6 +1272,52 @@ mod tests {
         assert!(!spread.contains(&"--heatmap"));
         let heatmap = help_on("heatmap").unwrap();
         assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
+    }
+
+    /// Calls are coloured by the consequence an annotator wrote, and `karyon
+    /// help variants` said only `point calls, VCF or BCF`, so a reader after
+    /// calls of one colour had nothing to say what colours them now.
+    #[test]
+    fn the_help_on_calls_says_what_colours_them() {
+        let variants = help_on("variants").unwrap();
+        assert!(variants.contains("coloured by the consequence"), "{variants}");
+        for field in ["ANN", "BCSQ"] {
+            assert!(names(&variants, field), "{field}: {variants}");
+        }
+        assert!(variants.contains("--color <HEX>"), "{variants}");
+    }
+
+    /// What three readers looked for on the page they started from and found
+    /// on another or nowhere. `--shade` was offered on the whole-genome page
+    /// alone; the codons row did not say its CDS comes from the annotation on
+    /// the line, so `genes.gff3` was kept there by guesswork; and a page
+    /// titled `Many samples in windows` was opened for sample sheets and was a
+    /// heatmap with no word of where they are.
+    #[test]
+    fn the_pages_readers_start_on_offer_what_they_looked_for() {
+        const READS: &str = include_str!("../../../docs/your-data/reads.md");
+        const SAMPLES: &str = include_str!("../../../docs/your-data/samples.md");
+        const NAV: &str = include_str!("../../../mkdocs.yml");
+        let table = READS
+            .split_once("## Change it")
+            .expect("the reads page has a table of changes")
+            .1;
+        let rows: Vec<&str> = table.lines().filter(|line| line.starts_with('|')).collect();
+        assert!(
+            rows.iter().any(|row| names(row, "--shade")),
+            "the reads page offers no --shade"
+        );
+        let codons = rows
+            .iter()
+            .find(|row| names(row, "--codons"))
+            .expect("a row numbers the codons");
+        assert!(codons.contains("is read from `genes.gff3`"), "{codons}");
+        assert!(READS.contains("`ANN` or `BCSQ`"), "the calls' colour unexplained");
+
+        assert!(SAMPLES.contains("title: A heatmap of many samples"));
+        assert!(SAMPLES.contains("# A heatmap of many samples"));
+        assert!(SAMPLES.contains("(../guide/formats.md#the-sample-sheet)"));
+        assert!(NAV.contains("- A heatmap of many samples: your-data/samples.md"));
     }
 
     #[test]

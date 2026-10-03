@@ -560,8 +560,10 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
   is shared, and a row with none, or an allele whose `AF` is `.`, is drawn at
   1.0: a call with no fraction is still a call.
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
-  (from snpEff or VEP), or else the first; or the first `BCSQ` consequence
-  (from bcftools csq), without the `*` of an uncertain one. With neither, it is
+  (from snpEff, or from VEP run with `--vcf_info_field ANN`), or else the
+  first; or the first `BCSQ` consequence (from bcftools csq), without the `*`
+  of an uncertain one. VEP's own `CSQ`, which it writes unless told
+  otherwise, is not read, and its calls are named by their shape. With neither, it is
   the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
@@ -1464,7 +1466,7 @@ S004    L1       human   NA     false
 
 | | |
 |:--|:--|
-| Read by | `--traits`, after `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`; `read::sheet::sheet` |
+| Read by | `--traits`, after `--genotypes`, `--heatmap`, `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`; `read::sheet::sheet` |
 | Columns | a required header, whose first field names the name column and every other field an attribute; then one row per name |
 | Coordinates | none: the strips sit beside the rows and do not move with the region |
 | Refused | an empty file; a header of one column; an empty or repeated column name; a row whose field count differs from the header's; an empty or repeated name |

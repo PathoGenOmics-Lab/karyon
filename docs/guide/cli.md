@@ -194,7 +194,7 @@ file, or `-` for [standard input](#standard-input), except `--axis` and
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
 | `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
-| `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--variants <FILE>` | point calls, coloured by the consequence in `ANN` or `BCSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |

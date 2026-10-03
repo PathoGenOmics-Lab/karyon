@@ -43,9 +43,9 @@ it is drawn over one.
     The depth of one sample or several along a whole chromosome, of every
     chromosome at once, or round the chromosome as a circle.
 
--   [![Many samples in windows](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![Many samples in windows](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](samples.md)
+-   [![A heatmap of many samples](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![A heatmap of many samples](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](samples.md)
 
-    **[Many samples in windows](samples.md)**
+    **[A heatmap of many samples](samples.md)**
     The depth or copy number of many samples, in the order of a tree.
 
 -   [![Genotypes of many samples](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }![Genotypes of many samples](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }](genotypes.md)
