@@ -240,13 +240,17 @@ A few things about track flags are worth knowing before they surprise you:
 - **`--codons` counts one gene.** Placed on a gene by its name, as `karyon
   rpoB genes.gff3 ref.fa --codons`, it numbers that gene's CDS; over a place
   written, as `NC_000962.3:761,081-761,200`, the CDS of the one gene that codes
-  there. Codon 1 is the start codon, at the right on the reverse strand, and a
-  trailing partial codon is left off with a note. The CDS has to be one
-  unbroken stretch: a gene with no CDS row, a CDS split by introns, two genes
-  in the place or transcripts that code different stretches are each refused
-  with what to write instead, since a ruler over the wrong stretch names the
-  wrong residue at every codon and looks no different. A page that moves the
-  window keeps counting the gene of the place written.
+  there, read through the annotation's tabix index where it has one. Codon 1
+  is the start codon, at the right on the reverse strand, and a trailing
+  partial codon is left off with a note. The CDS has to be one unbroken
+  stretch, in one frame, from its start codon. A gene with no CDS row, two
+  genes in the place or transcripts that code different stretches are refused
+  with what to write instead; a CDS split by introns, one whose rows overlap
+  or meet out of frame, as a ribosomal slippage is written, and one that does
+  not begin on its start codon, by a phase of 1 or 2 or NCBI's `start_range`,
+  are refused saying why. A ruler over the wrong stretch names the wrong
+  residue at every codon and looks no different. A page that moves the window
+  keeps counting the gene of the place written.
 - **Some files are their own place.** An alignment, a table over time, a table
   of the sites of a gene and a read's signal need no place named: the figure is
   drawn over all of it, and its ruler counts columns, weeks, sites or samples
@@ -1160,7 +1164,8 @@ Check the sequence name first. It has to match the region's exactly: `chr1`,
 `1` and `NC_000001.11` are three different sequences to every reader.
 
 A codon ruler is refused where the annotation does not give it one unbroken
-coding sequence to count, saying what to write instead:
+coding sequence to count, saying why, and what to write instead where
+something can be:
 
 ```text
 $ karyon NC_000962.3:763,301-763,400 genes.gff3 --codons

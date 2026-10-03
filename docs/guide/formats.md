@@ -472,8 +472,13 @@ GENCODE draws one row a gene, StringTie, which writes no gene rows, one a
 transcript, and a table browser GTF of exons alone one an exon.
 
 `--codons` reads the same rows for what codes (`read::interval::coding`): each
-transcript's CDS rows, with a GTF's `start_codon` and `stop_codon`, cut by its
-exons, and a CDS row under no gene as a coding sequence of its own. A gene row
+transcript's CDS rows, with a GTF's `stop_codon` where it lies past them, cut
+by its exons, and a CDS row under no gene as a coding sequence of its own,
+with every other row under its `ID=`. The rows are kept apart, each with its
+phase, column 8, so two that share a base, as NCBI writes a ribosomal
+slippage, are a change of frame and not one stretch, and a 5'-most row of
+phase 1 or 2, or one NCBI marks with `start_range` (`end_range` on the
+reverse strand), is a CDS that does not begin on its start codon. A gene row
 alone says where a gene is and not where its CDS starts, so a file without CDS
 rows draws no codon ruler. The `transl_table=` a CDS row carries, as NCBI
 writes one, is the [translation table](../tracks/scales-keys.md#codontrack)
