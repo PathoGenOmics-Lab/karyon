@@ -343,7 +343,10 @@ fn the_faces_are_named_not_embedded_and_the_pages_on_the_pdf_say_so() {
         assert!(named.contains(&face), "{face} is not named: {named:?}");
     }
     for embedding in ["/FontFile", "/FontDescriptor"] {
-        assert!(!written.contains(embedding), "a face is embedded: {embedding}");
+        assert!(
+            !written.contains(embedding),
+            "a face is embedded: {embedding}"
+        );
     }
 
     let flat = |text: &str| {
@@ -356,9 +359,15 @@ fn the_faces_are_named_not_embedded_and_the_pages_on_the_pdf_say_so() {
         ("cli.md", flat(GUIDE), "none of them is embedded"),
         ("pdf.md", flat(HOW), "no font is embedded"),
     ] {
-        assert!(said.contains(embedded), "{page} does not say no face is embedded");
+        assert!(
+            said.contains(embedded),
+            "{page} does not say no face is embedded"
+        );
         for face in &named {
-            assert!(said.contains(&face.to_lowercase()), "{page} does not name {face}");
+            assert!(
+                said.contains(&face.to_lowercase()),
+                "{page} does not name {face}"
+            );
         }
         for needed in [
             "preflight",

@@ -1547,30 +1547,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   face with `no` under `emb`, and a journal's upload check that wants every
   font embedded, as PDF/X and PDF/A do, flags it, which the Ghostscript line
   given beside it answers. `-o` in the full help says so as well. The guide
-  said it in a clause, so two figures made for a paper met it at the check,
-  and the locus in Courier was taken for a face gone missing. Nothing is
-  embedded still: a face is 300 to 400 kilobytes, and cutting a subset of
-  one is most of a PDF library.
-- The formats page said a cell a `.hic` holds nothing in is a count of
-  nought, and nothing said what the figure draws there. It is left as the
-  page, not painted the pale end of the key, which is a cell listed at
-  nought, and a triangle is as deep as the farthest cell listed: a map of
-  contacts no more than 200 kb apart ended in a jagged edge 200 kb from its
-  diagonal with the page below, and read as cells left undrawn. The formats
+  said it in a clause, so a figure made for a paper went to its check
+  unwarned, and the locus in Courier was taken for a face gone missing.
+  Nothing is embedded still: a face is 300 to 400 kilobytes, and cutting a
+  subset of one is most of a PDF library.
+- The formats page called a cell a `.hic` does not list a count of nought,
+  and nothing said what the figure draws there. It is left as the page, not
+  painted the pale end of the key, which is a cell listed at nought, and a
+  triangle is as deep as the farthest cell listed: a map of contacts no more
+  than 200 kb apart ended in a jagged edge 200 kb from its diagonal with the
+  page below, and read as cells left undrawn. The formats
   page, the guide, the pairs page, the `PairTrack` notes and the help on
   `--resolution` say so, and the pairs page offers `--axis` before the file
   for a ruler along the diagonal.
 - `karyon help variants` and the guide's table of tracks say calls are
   coloured by the consequence an annotator wrote in `ANN` or `BCSQ`, or by
   the shape of the call where none is written, where both said only `point
-  calls`. The page readers of reads, calls and genes start on offers
+  calls`. The page on reads, calls and genes, where readers start, offers
   `--shade`, which only the whole-genome page did, and says the codons' CDS
   is read from the `genes.gff3` on the line, which was kept there by
   guesswork. `Many samples in windows`, opened for sample sheets and found to
   be a heatmap, is `A heatmap of many samples` and points to the sample
-  sheet, whose readers now include `--genotypes` and `--heatmap`. The formats
-  page says VEP's `ANN` is read when VEP is run with `--vcf_info_field ANN`,
-  and that its own `CSQ` is not.
+  sheet, whose entry on the formats page now names `--genotypes` and
+  `--heatmap` among the tracks that read one. The formats page says VEP's
+  `ANN` is read when VEP is run with `--vcf_info_field ANN`, and that its own
+  `CSQ` is not.
 - The genotypes page said a call of the other allele is a blue cell and a
   heterozygote the half-strength blue, and the alternative text of its figure
   spoke of blue cells, where an alternate call is drawn in the ink of the text

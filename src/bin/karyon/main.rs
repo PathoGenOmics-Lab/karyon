@@ -1297,9 +1297,15 @@ mod tests {
             .find(|(flag, _)| *flag == "-o")
             .expect("an entry for -o");
         let said = output.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(said.contains("Helvetica and Courier, named and not embedded"), "{said}");
+        assert!(
+            said.contains("Helvetica and Courier, named and not embedded"),
+            "{said}"
+        );
         assert!(said.contains("embedded fonts flags"), "{said}");
-        assert!(said.contains("-sDEVICE=pdfwrite -dPDFSETTINGS=/prepress"), "{said}");
+        assert!(
+            said.contains("-sDEVICE=pdfwrite -dPDFSETTINGS=/prepress"),
+            "{said}"
+        );
         for line in output.lines() {
             assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
         }
@@ -1311,7 +1317,10 @@ mod tests {
     #[test]
     fn the_help_on_calls_says_what_colours_them() {
         let variants = help_on("variants").unwrap();
-        assert!(variants.contains("coloured by the consequence"), "{variants}");
+        assert!(
+            variants.contains("coloured by the consequence"),
+            "{variants}"
+        );
         for field in ["ANN", "BCSQ"] {
             assert!(names(&variants, field), "{field}: {variants}");
         }
@@ -1343,7 +1352,10 @@ mod tests {
             .find(|row| names(row, "--codons"))
             .expect("a row numbers the codons");
         assert!(codons.contains("is read from `genes.gff3`"), "{codons}");
-        assert!(READS.contains("`ANN` or `BCSQ`"), "the calls' colour unexplained");
+        assert!(
+            READS.contains("`ANN` or `BCSQ`"),
+            "the calls' colour unexplained"
+        );
 
         assert!(SAMPLES.contains("title: A heatmap of many samples"));
         assert!(SAMPLES.contains("# A heatmap of many samples"));

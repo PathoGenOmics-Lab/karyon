@@ -1445,7 +1445,10 @@ mod tests {
             !PAGE.to_lowercase().contains("blue"),
             "the page names a blue the track does not draw"
         );
-        for line in REFERENCE.lines().filter(|line| line.contains("genotypes.svg")) {
+        for line in REFERENCE
+            .lines()
+            .filter(|line| line.contains("genotypes.svg"))
+        {
             assert!(!line.contains("blue"), "{line}");
         }
     }
