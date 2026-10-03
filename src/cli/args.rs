@@ -7348,7 +7348,8 @@ mod tests {
             matches!(flag, "--label")
                 || (flag == "--height" && kind != Kind::Features)
                 || (flag == "--aggregate" && kind == Kind::Coverage)
-                || (flag == "--color" && matches!(kind, Kind::Coverage | Kind::Features))
+                || (flag == "--color"
+                    && matches!(kind, Kind::Coverage | Kind::Features | Kind::Variants))
                 || (flag == "--format" && matches!(kind, Kind::Coverage | Kind::Features))
                 || (flag == "--no-names" && matches!(kind, Kind::Features | Kind::Structural))
         };
@@ -7412,6 +7413,7 @@ mod tests {
                         | "--no-region-label"
                         | "--no-legend"
                         | "--same-scale"
+                        | "--panel-columns"
                         | "--circular"
                         | "--rename"
                         | "--colors"
