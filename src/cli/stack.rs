@@ -3694,7 +3694,10 @@ fn located(
             },
         };
         if let Some(reach) = reach {
-            if furthest.as_ref().map_or(true, |(known, _, _)| reach > *known) {
+            if furthest
+                .as_ref()
+                .map_or(true, |(known, _, _)| reach > *known)
+            {
                 furthest = Some((reach, file, short));
             }
         }
@@ -3795,7 +3798,12 @@ fn ends_short(kind: Kind, text: &str, aliases: &[&str]) -> bool {
 /// to say there. A map of another sequence read under a `--rename` drew such
 /// a line over a window of a genome it was never measured on, and said
 /// nothing.
-fn note_one_interval(files: &mut dyn Files, path: &str, rates: &[(u64, u64, f64)], region: &Region) {
+fn note_one_interval(
+    files: &mut dyn Files,
+    path: &str,
+    rates: &[(u64, u64, f64)],
+    region: &Region,
+) {
     if let [(start, end, rate)] = rates {
         if *start <= region.start() && *end >= region.end() {
             use crate::track::axis::group_thousands;
@@ -12932,7 +12940,10 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         // Balanced on 1 alone, which the place 2 leaves out.
         assert!(keyed(&whole, "total copies"), "{whole}");
         assert!(!keyed(&one, "total copies"), "{one}");
-        assert!(one.contains(", 1 copy (1 + 0), heterozygosity lost</title>"), "{one}");
+        assert!(
+            one.contains(", 1 copy (1 + 0), heterozygosity lost</title>"),
+            "{one}"
+        );
     }
 
     /// A segment table with no place is drawn across every sequence it
@@ -13279,8 +13290,10 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         svg.unwrap();
         assert_eq!(
             notes,
-            ["GENE1: 2 transcripts drawn as one model; --isoforms after genes.gff3 draws a \
-              row each"]
+            [
+                "GENE1: 2 transcripts drawn as one model; --isoforms after genes.gff3 draws a \
+              row each"
+            ]
         );
         for line in ["GENE1 genes.gff3 --isoforms", "7:1-10,000 genes.gff3"] {
             let (svg, notes) = drawn_noting(line, &held);
@@ -17937,10 +17950,19 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         let mut held = Held::new();
         held.insert("calls.vcf", calls);
         let svg = held_figure(&mut held, "chr1:1-1000 calls.vcf --color #8b0000").unwrap();
-        assert!(svg.contains("<title>missense_variant, colour #8b0000</title>"), "{svg}");
-        assert!(svg.contains("<title>synonymous_variant, colour #8b0000</title>"), "{svg}");
+        assert!(
+            svg.contains("<title>missense_variant, colour #8b0000</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>synonymous_variant, colour #8b0000</title>"),
+            "{svg}"
+        );
         for slot in 0..2 {
-            assert!(!svg.contains(theme.color(slot)), "slot {slot} painted: {svg}");
+            assert!(
+                !svg.contains(theme.color(slot)),
+                "slot {slot} painted: {svg}"
+            );
         }
         // On a ring, every tick that colour and no consequence keyed.
         let mut held = Held::new();

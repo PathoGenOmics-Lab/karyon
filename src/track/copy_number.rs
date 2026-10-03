@@ -1100,7 +1100,13 @@ mod tests {
         let labels: Vec<&str> = whole.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(
             labels,
-            ["total copies", "minor allele", "gain", "loss", "heterozygosity lost"]
+            [
+                "total copies",
+                "minor allele",
+                "gain",
+                "loss",
+                "heterozygosity lost"
+            ]
         );
         assert_eq!(whole[0].1, Marker::Line);
         assert_eq!(whole[1].1, Marker::ThinLine);
@@ -1118,7 +1124,10 @@ mod tests {
         let figure = Figure::new(Region::new("chr8", 7_000, 9_000).unwrap()).push(track.clone());
         assert_eq!(figure.key().len(), 2);
         let svg = drawn(track);
-        assert!(svg.contains(", 1 copy (1 + 0), heterozygosity lost</title>"), "{svg}");
+        assert!(
+            svg.contains(", 1 copy (1 + 0), heterozygosity lost</title>"),
+            "{svg}"
+        );
         assert!(svg.contains(", 2 copies (1 + 1)</title>"), "{svg}");
     }
 
@@ -1223,10 +1232,7 @@ mod tests {
         let apart = drawn(CopyNumberTrack::diploid(segments.clone()).across(&genome));
         assert!(risers(&apart).is_empty(), "{apart}");
         // Each segment is where it is on its own sequence.
-        assert!(
-            apart.contains("<title>chrA:1 to 5,005, 1 copy"),
-            "{apart}"
-        );
+        assert!(apart.contains("<title>chrA:1 to 5,005, 1 copy"), "{apart}");
         assert!(
             apart.contains("<title>chrB:1 to 4,995, 6 copies"),
             "{apart}"

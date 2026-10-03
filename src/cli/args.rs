@@ -6620,9 +6620,15 @@ mod tests {
     /// several places, once, and is refused for a line of one.
     #[test]
     fn panel_columns_lay_out_several_places_and_only_several() {
-        assert_eq!(draw("rpoB katG reads.bam --panel-columns 2").panel_columns, Some(2));
+        assert_eq!(
+            draw("rpoB katG reads.bam --panel-columns 2").panel_columns,
+            Some(2)
+        );
         assert_eq!(draw("rpoB katG reads.bam").panel_columns, None);
-        assert_eq!(draw("--panel-columns=3 rpoB katG reads.bam").panel_columns, Some(3));
+        assert_eq!(
+            draw("--panel-columns=3 rpoB katG reads.bam").panel_columns,
+            Some(3)
+        );
         let one = parse(&args("rpoB reads.bam --panel-columns 2")).unwrap_err();
         assert!(matches!(one, ArgError::ColumnsOfOnePlace), "{one:?}");
         assert!(one.to_string().contains("--panel-columns 2"), "{one}");
@@ -6630,12 +6636,20 @@ mod tests {
             let error =
                 parse(&args(&format!("rpoB katG reads.bam --panel-columns {bad}"))).unwrap_err();
             assert!(
-                matches!(error, ArgError::BadValue { flag: "--panel-columns", .. }),
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--panel-columns",
+                        ..
+                    }
+                ),
                 "{bad}: {error:?}"
             );
         }
-        let twice =
-            parse(&args("rpoB katG reads.bam --panel-columns 2 --panel-columns 3")).unwrap_err();
+        let twice = parse(&args(
+            "rpoB katG reads.bam --panel-columns 2 --panel-columns 3",
+        ))
+        .unwrap_err();
         assert!(matches!(twice, ArgError::Twice { .. }), "{twice:?}");
         // `--columns` stays a sheet's, and says so.
         let traits = parse(&args("rpoB katG reads.bam --columns 2")).unwrap_err();

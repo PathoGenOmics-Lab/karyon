@@ -417,7 +417,12 @@ impl Track for VariantTrack {
         // allocations for a handful of distinct answers.
         let palette: Vec<(String, Symbol)> = slots
             .iter()
-            .map(|&(_, slot)| (self.ink(ctx.theme, slot).to_string(), ctx.theme.symbol(slot)))
+            .map(|&(_, slot)| {
+                (
+                    self.ink(ctx.theme, slot).to_string(),
+                    ctx.theme.symbol(slot),
+                )
+            })
             .collect();
         let slot_of = |category: Option<&str>| -> Option<usize> {
             category.and_then(|name| slots.iter().position(|&(c, _)| c == name))
