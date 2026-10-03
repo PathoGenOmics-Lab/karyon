@@ -1019,20 +1019,30 @@ pub fn escape(text: &str) -> String {
 /// for a run of capitals by about a fifth, which is precisely what a column of
 /// sample accessions is, and a label that overruns its room gets clipped.
 ///
-/// A character outside printable ASCII falls back to a wide default, so an
-/// accented name reserves a little too much rather than too little. Text set
-/// in a heavier weight is measured with [`text_width_strong`], and numbers in
-/// the monospaced stack with [`mono_width`].
+/// The faces it is measured against include Helvetica, so it is never
+/// narrower than the PDF's Helvetica either, nor than Symbol for the Greek
+/// letter and the relations a PDF sets in Symbol. Beyond printable ASCII the
+/// characters karyon writes itself, such as the ellipsis, the multiplication
+/// sign and omega, have widths of their own. Any other falls back to six
+/// tenths of an em, a little wider than most accented lowercase letters draw
+/// at the regular weight. An accented capital draws wider than that, an `Ö`
+/// at 778 thousandths in Helvetica, and so does a lowercase one set bold, at
+/// 611 in Helvetica-Bold, so those are measured short.
+///
+/// Text set in a heavier weight is measured with [`text_width_strong`], and
+/// numbers in the monospaced stack with [`mono_width`].
 pub fn text_width(text: &str, font_size: f64) -> f64 {
-    measure(text, font_size, &REGULAR_WIDTHS)
+    measure(text, font_size, false)
 }
 
 /// [`text_width`] for text set semibold or bold, which is wider in Inter.
 ///
 /// Titles and track names are set heavier than the numbers around them, and
 /// measured as the light weight they ran up to a twentieth past their room.
+/// Never narrower than Helvetica-Bold, which is what Arial draws a bold label
+/// with and what a PDF sets one in.
 pub fn text_width_strong(text: &str, font_size: f64) -> f64 {
-    measure(text, font_size, &STRONG_WIDTHS)
+    measure(text, font_size, true)
 }
 
 /// Advance width of a string in the monospaced stack: six tenths of an em a
@@ -1041,19 +1051,32 @@ pub fn mono_width(text: &str, font_size: f64) -> f64 {
     0.6 * font_size * text.chars().count() as f64
 }
 
-fn measure(text: &str, font_size: f64, widths: &[u16; 95]) -> f64 {
-    let per_mille: f64 = text
-        .chars()
-        .map(|c| {
-            let index = c as u32;
-            if (32..127).contains(&index) {
-                widths[index as usize - 32] as f64
-            } else {
-                600.0
-            }
-        })
-        .sum();
+fn measure(text: &str, font_size: f64, strong: bool) -> f64 {
+    let per_mille: f64 = text.chars().map(|c| f64::from(advance(c, strong))).sum();
     per_mille / 1000.0 * font_size
+}
+
+/// The width one character is measured at, in thousandths of an em.
+fn advance(c: char, strong: bool) -> u16 {
+    let index = c as u32;
+    if (32..127).contains(&index) {
+        let widths = if strong {
+            &STRONG_WIDTHS
+        } else {
+            &REGULAR_WIDTHS
+        };
+        return widths[index as usize - 32];
+    }
+    match BEYOND_ASCII.iter().find(|(known, _, _)| *known == c) {
+        Some((_, regular, bold)) => {
+            if strong {
+                *bold
+            } else {
+                *regular
+            }
+        }
+        None => 600,
+    }
 }
 
 /// `text` at the largest size down to `smallest` that fits `room`, and only
@@ -1125,19 +1148,53 @@ const REGULAR_WIDTHS: [u16; 95] = [
     612, 612, 376, 528, 327, 591, 562, 818, 546, 562, 552, 426, 333, 426, 662, // 'p' to '~'
 ];
 
-/// As [`REGULAR_WIDTHS`], with Inter's semibold widths in the running as well.
+/// As [`REGULAR_WIDTHS`], with Inter's semibold widths and Helvetica-Bold's in
+/// the running as well. The site asks for Inter at 400 and 700 only, so a
+/// semibold is drawn at 700, and those are the widths measured. Helvetica-Bold,
+/// whose widths Arial Bold shares, is what a PDF sets bold text in, and it is
+/// the widest of them for nine characters, `& ? B K L ^ i j l`: measured
+/// without it, "Bill" set bold ran a twentieth past its room and "?" nearly a
+/// tenth.
 const STRONG_WIDTHS: [u16; 95] = [
-    281, 338, 552, 649, 655, 1015, 672, 339, 377, 377, 559, 679, 334, 468, 334,
+    281, 338, 552, 649, 655, 1015, 722, 339, 377, 377, 559, 679, 334, 468, 334,
     388, // ' ' to '/'
     674, 556, 630, 645, 676, 622, 650, 581, 651, 650, 334, 343, 679, 679, 679,
-    559, // '0' to '?'
-    1016, 747, 667, 740, 722, 667, 611, 778, 747, 281, 584, 719, 565, 932, 762,
+    611, // '0' to '?'
+    1016, 747, 722, 740, 722, 667, 611, 778, 747, 281, 584, 722, 611, 932, 762,
     778, // '@' to 'O'
-    667, 778, 722, 667, 668, 744, 747, 1038, 738, 731, 664, 377, 388, 377, 487,
+    667, 778, 722, 667, 668, 744, 747, 1038, 738, 731, 664, 377, 388, 377, 584,
     556, // 'P' to '_'
-    365, 581, 630, 588, 630, 596, 398, 632, 623, 271, 271, 580, 271, 912, 622,
+    365, 581, 630, 588, 630, 596, 398, 632, 623, 278, 278, 580, 278, 912, 622,
     613, // '`' to 'o'
     630, 630, 407, 560, 366, 623, 600, 850, 580, 602, 573, 469, 372, 469, 679, // 'p' to '~'
+];
+
+/// The characters beyond ASCII that karyon writes itself, each with its width
+/// at the regular weight and set strong, in thousandths of an em.
+///
+/// Each is the widest of Inter (at 400, and at the 700 a semibold is drawn
+/// at), of Arial as a browser draws it, and of the face a PDF sets it in:
+/// Helvetica or Helvetica-Bold for the five WinAnsi has, and Symbol, which has
+/// no bold, for omega, the three relations and the arrow. Arial is the widest
+/// for the middle dot, 333 where Helvetica's is 278, for the arrow, and for
+/// omega set bold. Inter's were measured as the ASCII tables were, in a
+/// browser at 1000 pixels from the font the documentation site serves; that
+/// font leaves out the relations and the arrow, which were measured from the
+/// same font cut down to them. Given the 600 any other character is, a label
+/// cut short could run four tenths of an em past its room, since Helvetica and
+/// Arial draw the ellipsis a whole em wide, and an arrow or an omega could
+/// overrun as well.
+pub(crate) const BEYOND_ASCII: [(char, u16, u16); 10] = [
+    ('\u{00b2}', 442, 460),   // superscript two: Inter, Inter
+    ('\u{00b7}', 333, 334),   // middle dot: Arial, Inter
+    ('\u{00d7}', 662, 679),   // multiplication sign: Inter, Inter
+    ('\u{03c9}', 805, 845),   // omega: Inter, Arial
+    ('\u{2013}', 556, 556),   // en dash: Helvetica, Helvetica-Bold
+    ('\u{2026}', 1000, 1002), // ellipsis: Helvetica, Inter
+    ('\u{2192}', 1000, 1000), // rightwards arrow: Arial, Arial
+    ('\u{2248}', 662, 679),   // almost equal to: Inter, Inter
+    ('\u{2264}', 662, 679),   // less than or equal to: Inter, Inter
+    ('\u{2265}', 662, 679),   // greater than or equal to: Inter, Inter
 ];
 
 /// A number inside a range, or a fallback when it is not a number at all.
@@ -1403,6 +1460,76 @@ mod tests {
         // Capitals are far wider than lowercase, which is the whole reason for
         // the table: one flat factor clips a column of accessions.
         assert!(text_width("MMMM", 10.0) > text_width("iiii", 10.0) * 3.0);
+    }
+
+    #[test]
+    fn beyond_ascii_is_the_widest_face_that_draws_it() {
+        // Measured in Chrome with canvas measureText at 1000 pixels: Inter at
+        // 400 and at 700, where the site's semibold is drawn, then Arial at
+        // the same two; last the widths Adobe gives the face a PDF sets each
+        // in, Helvetica and Helvetica-Bold, or Symbol from omega on.
+        let measured = [
+            (
+                '\u{2026}',
+                [864.258, 1001.889, 1000.0, 1000.0, 1000.0, 1000.0],
+            ),
+            ('\u{2013}', [500.0, 500.0, 556.152, 556.152, 556.0, 556.0]),
+            (
+                '\u{00b2}',
+                [441.895, 459.823, 333.008, 333.008, 333.0, 333.0],
+            ),
+            (
+                '\u{00d7}',
+                [661.621, 678.759, 583.984, 583.984, 584.0, 584.0],
+            ),
+            (
+                '\u{00b7}',
+                [288.086, 333.963, 333.008, 333.008, 278.0, 278.0],
+            ),
+            (
+                '\u{03c9}',
+                [804.688, 833.690, 780.762, 844.727, 686.0, 686.0],
+            ),
+            (
+                '\u{2264}',
+                [661.621, 678.759, 548.828, 548.828, 549.0, 549.0],
+            ),
+            (
+                '\u{2265}',
+                [661.621, 678.759, 548.828, 548.828, 549.0, 549.0],
+            ),
+            (
+                '\u{2248}',
+                [661.621, 678.759, 548.828, 548.828, 549.0, 549.0],
+            ),
+            ('\u{2192}', [954.102, 954.102, 1000.0, 1000.0, 987.0, 987.0]),
+        ];
+        assert_eq!(measured.len(), BEYOND_ASCII.len());
+        for (c, [inter, inter_bold, arial, arial_bold, pdf, pdf_bold]) in measured {
+            let text = c.to_string();
+            let regular = [inter, arial, pdf].into_iter().fold(0.0, f64::max);
+            let strong = [regular, inter_bold, arial_bold, pdf_bold]
+                .into_iter()
+                .fold(0.0, f64::max);
+            // The widest, rounded to a thousandth of an em: never narrower
+            // than a face that may draw it, and no wider than that one.
+            let width = text_width(&text, 1000.0);
+            assert!(
+                (width - regular).abs() <= 0.5,
+                "{c}: {width} against {regular}"
+            );
+            let width = text_width_strong(&text, 1000.0);
+            assert!(
+                (width - strong).abs() <= 0.5,
+                "{c}: {width} set strong against {strong}"
+            );
+        }
+        // A label cut short keeps room for an ellipsis a whole em wide, as
+        // Helvetica draws one, so this one gives up its full stop too.
+        assert_eq!(
+            fit_text("NC_000962.3 read depth", 84.0, 12.0),
+            "NC_000962\u{2026}"
+        );
     }
 
     #[test]

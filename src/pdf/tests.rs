@@ -777,16 +777,40 @@ fn a_length_measured_against_a_box_or_a_font_is_named_rather_than_dropped() {
     assert!(text(&pdf).contains("/MediaBox [0 0 75 37.5]"));
 }
 
+/// Every character the measure has a width of its own for: printable ASCII,
+/// and the characters beyond it that karyon writes.
+fn measured_characters() -> Vec<String> {
+    (0x20u8..0x7f)
+        .map(char::from)
+        .chain(crate::svg::BEYOND_ASCII.iter().map(|(c, _, _)| *c))
+        .map(String::from)
+        .collect()
+}
+
+/// How wide the PDF draws `letter` in `face`, or in Symbol where `face` has
+/// no such character.
+fn drawn(letter: &str, face: text::Face) -> f64 {
+    let mut missing = Vec::new();
+    let width = text::runs(letter, face, &mut missing)
+        .iter()
+        .map(|run| run.width)
+        .sum();
+    assert!(missing.is_empty(), "{letter:?} has no base font");
+    width
+}
+
 /// The PDF sets regular text in Helvetica, and the layout was made with
 /// [`text_width`](crate::svg::text_width): a measure narrower than Helvetica
 /// for any character would let a label that fitted in the SVG run past its
-/// room on the page.
+/// room on the page. Omega and the relations are set in Symbol, and held to
+/// Symbol's widths.
 #[test]
 fn the_regular_measure_is_never_narrower_than_helvetica() {
-    for code in 0x20u8..0x7f {
-        let letter = char::from(code).to_string();
-        let measured = crate::svg::text_width(&letter, 1000.0);
-        let drawn = text::runs(&letter, text::Face::Helvetica, &mut Vec::new())[0].width;
+    let characters = measured_characters();
+    assert_eq!(characters.len(), 95 + 10);
+    for letter in &characters {
+        let measured = crate::svg::text_width(letter, 1000.0);
+        let drawn = drawn(letter, text::Face::Helvetica);
         assert!(
             measured >= drawn - 1e-9,
             "{letter:?} is measured {measured} and Helvetica draws it {drawn}"
@@ -794,19 +818,41 @@ fn the_regular_measure_is_never_narrower_than_helvetica() {
     }
 }
 
+/// Bold and semibold text is set in Helvetica-Bold and measured with
+/// [`text_width_strong`](crate::svg::text_width_strong), which must not be
+/// the narrower of the two for any character, or a bold panel letter "B" runs
+/// past the room made for it.
+#[test]
+fn the_strong_measure_is_never_narrower_than_helvetica_bold() {
+    for letter in &measured_characters() {
+        let measured = crate::svg::text_width_strong(letter, 1000.0);
+        let drawn = drawn(letter, text::Face::HelveticaBold);
+        assert!(
+            measured >= drawn - 1e-9,
+            "{letter:?} is measured {measured} and Helvetica-Bold draws it {drawn}"
+        );
+    }
+}
+
 /// The monospaced stack is set in Courier, every glyph of which is 600
 /// thousandths of an em, and measured at the same 600 by
-/// [`mono_width`](crate::svg::mono_width).
+/// [`mono_width`](crate::svg::mono_width). Characters Courier cannot set go
+/// to Symbol at Symbol's widths, so only those it can are held to it.
 #[test]
 fn the_monospaced_measure_is_courier() {
     let stack = "JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace";
     assert_eq!(text::Face::choose(stack, "normal"), text::Face::Courier);
-    for code in 0x20u8..0x7f {
-        let letter = char::from(code).to_string();
-        let measured = crate::svg::mono_width(&letter, 1000.0);
-        let drawn = text::runs(&letter, text::Face::Courier, &mut Vec::new())[0].width;
+    let courier: Vec<String> = measured_characters()
+        .into_iter()
+        .filter(|letter| letter.chars().all(|c| text::winansi(c).is_some()))
+        .collect();
+    // The ten beyond ASCII less omega, the three relations and the arrow.
+    assert_eq!(courier.len(), 95 + 5);
+    for letter in &courier {
+        let measured = crate::svg::mono_width(letter, 1000.0);
+        let drawn = drawn(letter, text::Face::Courier);
         assert!(
-            (measured - drawn).abs() < 1e-9,
+            (measured - drawn).abs() < 1e-9 && (drawn - 600.0).abs() < 1e-9,
             "{letter:?} is measured {measured} and Courier draws it {drawn}"
         );
     }

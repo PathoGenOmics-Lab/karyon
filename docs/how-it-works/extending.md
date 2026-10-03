@@ -369,7 +369,8 @@ A few helpers sit beside it. `karyon::svg::text_width` measures a string as
 the wider of Inter and of the Helvetica widths Liberation Sans and Arial share,
 character by character, so a label measured before it is drawn fits in
 whichever face the reader's machine sets it; `text_width_strong` does the same
-for semibold text and `mono_width` for the monospaced stack.
+for semibold and bold text, with Helvetica-Bold's widths, and `mono_width` for
+the monospaced stack.
 `karyon::svg::num` is the formatter the writer uses, for a track that builds a
 `d` attribute of its own, and `karyon::fit_text` shortens text with an
 ellipsis to fit a width. `Anchor` says whether the `x` you pass is the start,

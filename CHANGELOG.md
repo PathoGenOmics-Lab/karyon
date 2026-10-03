@@ -8,6 +8,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Bold and semibold text is measured at least as wide as Helvetica-Bold draws
+  it, which is the face Arial sets a bold label in and the one a PDF sets it
+  in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower
+  widths, and a bold "Bill" ran a twentieth past its room, a "?" nearly a
+  tenth. The ten characters karyon writes beyond ASCII, the ellipsis, the en
+  dash, ², ×, the middle dot, ω, ≤, ≥, ≈ and →, are measured as the widest of
+  Inter, Arial and the face a PDF sets each in, with Inter's measured in a
+  browser as the ASCII widths were. Each was given six tenths of an em, and
+  Helvetica and Arial draw an ellipsis a whole em wide, so a label cut short
+  could run four tenths of an em past its room. 22 of the 47 example figures
+  and their copies on the site, and 20 of the 32 start figures, move: a track
+  name holding one of the nine letters widens the label gutter by 0.05 to
+  0.51 px, which shifts what is drawn beside it and bins a coverage profile or
+  a row of bars afresh; a legend with ω, ×, ≤ or → in it spreads by up to
+  4.2 px; a key after an r² sits 1.7 px closer, since a superscript two is
+  measured at Inter's 442 thousandths rather than 600; the visual-system sheet
+  is 0.25 px wider; and one label in the evidence tree is cut a character
+  sooner, as `embB-M30…`.
 - A `.hic` is drawn rather than refused with the `hic2cool` and `cooler dump`
   commands that wrote it as BEDPE. Handed to a track other than `--pairs`, or
   named for a file a track reads as text, such as the linkage `--ld` gives a
