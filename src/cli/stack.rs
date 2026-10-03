@@ -2024,6 +2024,7 @@ fn build_one(
     // three simulated users read it as the end of the chromosome.
     let reached = placed
         .as_ref()
+        .filter(|placed| !placed.ends_there)
         .and_then(|placed| placed.reached.as_ref())
         .filter(|_| window.is_none());
     if let Some(file) = reached {
@@ -3362,6 +3363,11 @@ struct Placed {
     /// The file whose rows reach furthest, where no file says how long the
     /// sequence is and the figure ends where the rows do.
     reached: Option<String>,
+    /// Whether that file's last window is cut short of the width all its
+    /// others share, which a table of windows does only where the sequence
+    /// ends: its rows then reach the true end, and saying the figure stops
+    /// short of it would be wrong.
+    ends_there: bool,
 }
 
 /// The name the figure gives a sequence a file calls `name`: the one
@@ -3591,6 +3597,7 @@ fn survey<'a>(
             found.reaches.push(Reach::Read(
                 reached_by(spec.kind, &text, &aliases),
                 called(source),
+                ends_short(spec.kind, &text, &aliases),
             ));
         }
     }
@@ -3622,6 +3629,7 @@ fn located(
             gene: None,
             extent: None,
             reached: None,
+            ends_there: false,
         });
     }
 
@@ -3648,6 +3656,7 @@ fn located(
             return Ok(Placed {
                 region,
                 reached: None,
+                ends_there: false,
                 gene: Some(spelled.unwrap_or_else(|| name.to_string())),
                 extent: Some((*start, *end)),
             });
@@ -3669,28 +3678,33 @@ fn located(
 
     // The file whose rows reach furthest, the earlier of two that reach as
     // far.
-    let mut furthest: Option<(u64, String)> = None;
+    let mut furthest: Option<(u64, String, bool)> = None;
     for reach in reaches {
-        let (reach, file) = match reach {
-            Reach::Read(reach, file) => (reach, file),
+        let (reach, file, short) = match reach {
+            Reach::Read(reach, file, short) => (reach, file, short),
             Reach::Later(spec, source) => match whole_text(files, source) {
-                Ok(text) => (reached_by(spec.kind, &text, &aliases), called(source)),
+                Ok(text) => (
+                    reached_by(spec.kind, &text, &aliases),
+                    called(source),
+                    ends_short(spec.kind, &text, &aliases),
+                ),
                 Err(_) => continue,
             },
         };
         if let Some(reach) = reach {
-            if furthest.as_ref().map_or(true, |(known, _)| reach > *known) {
-                furthest = Some((reach, file));
+            if furthest.as_ref().map_or(true, |(known, _, _)| reach > *known) {
+                furthest = Some((reach, file, short));
             }
         }
     }
-    if let Some((end, file)) = furthest {
+    if let Some((end, file, short)) = furthest {
         if let Ok(region) = Region::new(name, 0, end.max(1)) {
             return Ok(Placed {
                 region,
                 gene: None,
                 extent: None,
                 reached: Some(file),
+                ends_there: short,
             });
         }
     }
@@ -3699,8 +3713,10 @@ fn located(
 
 /// How far a file's rows reach on a sequence, or where to find out.
 enum Reach<'a> {
-    /// As far as this, in the file called this, where they reach it at all.
-    Read(Option<u64>, String),
+    /// As far as this, in the file called this, where they reach it at all,
+    /// and whether the last of them is a window cut short, as [`ends_short`]
+    /// says.
+    Read(Option<u64>, String, bool),
     /// A file read through its index, whose rows are read whole for this only
     /// where nothing else places the figure.
     Later(&'a TrackSpec, &'a Source),
@@ -3725,6 +3741,50 @@ fn reached_by(kind: Kind, text: &str, aliases: &[&str]) -> Option<u64> {
             }
         })
         .max()
+}
+
+/// Whether the rows of a table of windows end in a window cut short of the
+/// width every other window of the sequence has, under any name the figure
+/// gives it: `4,400,000 4,411,532` after windows of a hundred thousand bases.
+///
+/// A tool that counts in windows cuts the last one where the sequence ends,
+/// as `bedtools makewindows` and `mosdepth --by` do, so a table ending in a
+/// short window reaches the true end of its sequence. Asked only of a table
+/// whose rows are windows, a heatmap's, a window track's and a bedGraph's of
+/// four columns or more, and only where at least two windows of one width
+/// come before it: a bedGraph of runs of one depth has windows of every
+/// width, and its last says nothing about where the sequence ends.
+fn ends_short(kind: Kind, text: &str, aliases: &[&str]) -> bool {
+    if !matches!(kind, Kind::Heatmap | Kind::Windows | Kind::Coverage) {
+        return false;
+    }
+    aliases.iter().any(|alias| {
+        let mut windows: Vec<(u64, u64)> = Vec::new();
+        for (_, line) in read::lines(text) {
+            let cols = read::columns(line);
+            if cols.len() < 4 || cols[0].trim() != *alias {
+                continue;
+            }
+            let start = cols[1].trim().parse::<u64>();
+            let end = cols[2].trim().parse::<u64>();
+            if let (Ok(start), Ok(end)) = (start, end) {
+                if end > start {
+                    windows.push((start, end));
+                }
+            }
+        }
+        let Some(last) = windows.iter().copied().max_by_key(|&(_, end)| end) else {
+            return false;
+        };
+        let others: Vec<u64> = windows
+            .iter()
+            .filter(|&&window| window != last)
+            .map(|(start, end)| end - start)
+            .collect();
+        others.len() >= 2
+            && others.iter().all(|width| *width == others[0])
+            && last.1 - last.0 < others[0]
+    })
 }
 
 /// The largest bigBed read whole to look a gene up by its name. A bigBed is
@@ -12207,6 +12267,46 @@ chr2\t300\t.\tA\tG\t.\t.\t.
 
     /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file
     /// had to call it one name before the two could be drawn together.
+    /// A table of windows whose last window is cut short of the others ends
+    /// where its sequence ends, and the figure does not say it stops short of
+    /// that; one whose windows are all whole, or a bedGraph of runs of every
+    /// width, says so as before.
+    #[test]
+    fn a_last_window_cut_short_says_the_sequence_ends_there() {
+        let table = |last_end: u64| -> String {
+            let mut text = String::from("chrom\tstart\tend\tS1\tS2\n");
+            for start in (0..400).step_by(100) {
+                text.push_str(&format!("NC_1\t{start}\t{}\t50\t60\n", start + 100));
+            }
+            text.push_str(&format!("NC_1\t400\t{last_end}\t55\t65\n"));
+            text
+        };
+        let short = table(437);
+        let whole = table(500);
+        let held = [("short.tsv", short.as_str()), ("whole.tsv", whole.as_str())];
+        let (svg, notes) = drawn_noting("NC_1 --heatmap short.tsv", &held);
+        assert_eq!(locus_of(&svg.unwrap()), "NC_1:1-437");
+        assert!(notes.is_empty(), "{notes:?}");
+        let (svg, notes) = drawn_noting("NC_1 --heatmap whole.tsv", &held);
+        assert_eq!(locus_of(&svg.unwrap()), "NC_1:1-500");
+        assert!(notes[0].starts_with("NC_1 is drawn to 500"), "{notes:?}");
+        // Windows and a bedGraph of windows cut short the same way.
+        let windows = short.lines().skip(1).map(|line| {
+            let cols: Vec<&str> = line.split('\t').collect();
+            format!("{}\t{}\t{}\t{}\n", cols[0], cols[1], cols[2], cols[3])
+        });
+        let windows: String = windows.collect();
+        let held = [("w.bedgraph", windows.as_str())];
+        for line in ["NC_1 w.bedgraph", "NC_1 --windows w.bedgraph"] {
+            let (_, notes) = drawn_noting(line, &held);
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
+        // Runs of one depth have no one width, and a short last run is no end.
+        let runs = "NC_1\t0\t120\t5\nNC_1\t120\t130\t9\nNC_1\t130\t400\t5\nNC_1\t400\t410\t2\n";
+        let (_, notes) = drawn_noting("NC_1 runs.bedgraph", &[("runs.bedgraph", runs)]);
+        assert!(notes[0].starts_with("NC_1 is drawn to 410"), "{notes:?}");
+    }
+
     #[test]
     fn a_file_that_calls_the_sequence_otherwise_is_read_by_that_name() {
         let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";

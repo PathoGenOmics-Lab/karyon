@@ -47,11 +47,11 @@ USAGE
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
 names, or a sequence drawn whole; several places draw a panel each. Trees need
-none, and a scan, bedGraph or segment table alone spans the genome. Each file
-is a track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph,
-FASTA, Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is
-its depth, and a track flag chooses another kind, as --pileup reads.bam. The
-figure is SVG, on standard output unless -o names one, and PDF for -o x.pdf.
+none, and --coverage, --windows, --copy-number and --manhattan files alone span
+the genome. Each file is a track of the kind its name says, BAM, VCF, GFF3, GTF,
+BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after it.
+A BAM is its depth; a track flag chooses another kind, as --pileup reads.bam.
+The figure is SVG, on standard output unless -o names one; PDF for -o x.pdf.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -530,7 +530,8 @@ TRACKS
                          depth, a copy number or a methylation level, as
                          bedtools unionbedg writes it, a sequence, a start and
                          an end, then a column per sample under a header that
-                         names them
+                         names them. Drawn over a place, as chr1 for the whole
+                         of a sequence, and not across a genome with none
     --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
@@ -1235,6 +1236,40 @@ mod tests {
         // refused.
         assert!(coverage.contains("--circular,"), "{coverage}");
         assert!(!help_on("tree").unwrap().contains("--circular"));
+    }
+
+    /// The short help names the tracks drawn across a genome with no place
+    /// by their flags, the ones the parser spreads: a windows table read as
+    /// a heatmap is a table too, and `a scan, bedGraph or segment table` was
+    /// read as saying it would span the genome.
+    #[test]
+    fn the_short_help_names_the_tracks_that_need_no_place() {
+        let said = SHORT
+            .split_once("Trees need")
+            .expect("the sentence on what needs no place")
+            .1
+            .split_once("span\nthe genome")
+            .expect("its end")
+            .0;
+        let said: Vec<&str> = said
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|word| word.starts_with("--"))
+            .collect();
+        let spread: Vec<&str> = args::Kind::ALL
+            .iter()
+            .filter(|kind| kind.genome_wide())
+            .map(|kind| kind.dashed())
+            .collect();
+        let mut sorted = said.clone();
+        sorted.sort_unstable();
+        let mut expected = spread.clone();
+        expected.sort_unstable();
+        assert_eq!(sorted, expected, "{said:?}");
+        // And a heatmap, whose table has a bedGraph's first three columns,
+        // says in its own help that it is not one of them.
+        assert!(!spread.contains(&"--heatmap"));
+        let heatmap = help_on("heatmap").unwrap();
+        assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
     }
 
     #[test]

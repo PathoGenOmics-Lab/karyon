@@ -32,11 +32,14 @@ Four rules cover every command:
     coverage file names no row on is a gap in its track, not a depth of nought,
     and files that name one sequence draw it as though it were the place
     written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls. So does a scan read with `--ld` or
-    `--with-recombination`, or a signal with `--format values`, and the option
-    is what is named. A BAM or a CRAM, whose depth across a genome is every
-    read it holds, is refused with the `mosdepth --by` that counts it in
-    windows instead.
+    name: a FASTA, an annotation, calls, a `--heatmap` table of windows. So
+    does a scan read with `--ld` or `--with-recombination`, or a signal with
+    `--format values`, and the option is what is named. A BAM or a CRAM, whose
+    depth across a genome is every read it holds, is refused with the
+    `mosdepth --by` that counts it in windows instead. A sequence drawn to the
+    end of a file's rows, because no file says how long it is, is said to stop
+    there, unless the rows are windows whose last is cut short of the others,
+    which a table of windows does only at a sequence's end.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3

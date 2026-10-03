@@ -1541,6 +1541,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A sequence drawn as far as a table of windows reaches is not said to stop
+  short of its end where the table's last window is cut short of the others,
+  as `bedtools makewindows` and `mosdepth --by` cut the one at a sequence's
+  end. `NC_000962.3 --heatmap depths.tsv`, ending `4,400,000 4,411,532` after
+  windows of 100,000, was said to be drawn to 4,411,532 `since no file says
+  how long it is`, which is the sequence's length. The short `--help` names
+  the tracks drawn across a genome with no place by their flags,
+  `--coverage`, `--windows`, `--copy-number` and `--manhattan`, where `a
+  scan, bedGraph or segment table` read as taking a heatmap's table of
+  windows too, and `--heatmap` says in the full help that it is drawn over a
+  place. No committed figure moves.
 - A copy-number track is keyed with what it draws, and named apart from the
   depth of the same sample. `CopyNumberTrack` answers `Track::key` with the
   marks the segments in view use, which a figure gathers: `total copies` for

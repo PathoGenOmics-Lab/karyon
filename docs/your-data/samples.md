@@ -22,9 +22,15 @@ One row per sample and one cell per window, in the order of the tree's tips.
 `--relative` reads each sample against its own median, so 1× is its usual
 depth, drawn pale: a sample sequenced deeper is not a darker row, and what
 changed along the genome is what stands out, a loss in blue and a gain in
-pink. Here one clade lost a stretch, and three samples carry another twice. A table of windows does not say how long the
-sequence is, so karyon draws as far as its last window and says so; write the
-span, as `NC_000962.3:1-4,411,532`, to set it yourself.
+pink. Here one clade lost a stretch, and three samples carry another twice.
+
+A heatmap is drawn over a place, `NC_000962.3` here for the whole sequence; it
+is not laid across a whole genome with no place, as a bedGraph is. A table of
+windows does not say how long the sequence is, so karyon draws as far as its
+last window. Where that window is cut short of the others, as `bedtools
+makewindows` and `mosdepth --by` cut the one at a sequence's end, that is the
+end; where every window is whole, karyon says it stopped there, and writing
+the span, as `NC_000962.3:1-4,411,532`, sets it yourself.
 
 ## Your table
 
