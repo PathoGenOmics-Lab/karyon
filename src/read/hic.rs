@@ -803,13 +803,15 @@ mod tests {
 
     const CONTACTS: &[u8] = include_bytes!("fixtures/hic/contacts.hic");
     const DUMP: &str = include_str!("fixtures/hic/contacts.dump");
+    const SQUARE: &[u8] = include_bytes!("fixtures/hic/square.hic");
+    const SQUARE_DUMP: &str = include_str!("fixtures/hic/square.dump");
 
-    /// Each window `make.sh` asked `hictk dump` for: its resolution, its
-    /// region, 0-based and half-open as hictk takes one, and the cells it
-    /// printed as BEDPE.
-    fn dumped() -> Vec<(u32, Region, String)> {
+    /// Each window `make.sh` asked `hictk dump` for, in `dump`: its
+    /// resolution, its region, 0-based and half-open as hictk takes one, and
+    /// the cells it printed as BEDPE.
+    fn dumped(dump: &str) -> Vec<(u32, Region, String)> {
         let mut out: Vec<(u32, Region, String)> = Vec::new();
-        for line in DUMP.lines() {
+        for line in dump.lines() {
             if let Some(window) = line.strip_prefix("# ") {
                 let words: Vec<&str> = window.split(' ').collect();
                 let region = Region::new(
@@ -854,7 +856,7 @@ mod tests {
     /// a dense block; and a window with nothing in it.
     #[test]
     fn every_window_hictk_dumps_is_read_cell_for_cell() {
-        let cases = dumped();
+        let cases = dumped(DUMP);
         assert_eq!(cases.len(), 9);
         for (resolution, region, expected) in cases {
             let read = contacts(Cursor::new(CONTACTS), &region, resolution).unwrap();
@@ -1116,6 +1118,109 @@ mod tests {
                     Pair::spans((110, 120), (110, 120), 9.0),
                 ],
                 "{short_counts}"
+            );
+        }
+    }
+
+    /// A dense block off the diagonal, as hictk writes a square of contacts
+    /// far from it, reads cell for cell as hictk dumps it, whole and cut by
+    /// a window. Its columns start at bin 0 and its rows at bin 40, and every
+    /// count is a different number, so a cell read with its column and its
+    /// row swapped lands on another cell's count: a dense block on the
+    /// diagonal, which is all `contacts.hic` holds, is its own mirror and
+    /// cannot show it.
+    #[test]
+    fn a_dense_block_off_the_diagonal_reads_as_hictk_dumps_it() {
+        let header = header_of(Cursor::new(SQUARE)).unwrap();
+        let mut file = File::new(Cursor::new(SQUARE), ".hic").unwrap();
+        let (offset, bytes) = master(&mut file, header.footer, "0_0").unwrap().unwrap();
+        let matrix = file.read_at(offset, bytes).unwrap();
+        let zoom = zoom_of(&matrix, 0, 1_000).unwrap().unwrap();
+        let [(_, offset, bytes)] = zoom.blocks[..] else {
+            panic!("{} blocks", zoom.blocks.len());
+        };
+        let block = zlib(&file.read_at(offset, bytes).unwrap(), BLOCK_MOST).unwrap();
+        // Its offsets, and dense.
+        assert_eq!(block[4..12], [0, 0, 0, 0, 40, 0, 0, 0]);
+        assert_eq!(block[15], 2);
+        let cases = dumped(SQUARE_DUMP);
+        assert_eq!(cases.len(), 2);
+        for (resolution, region, expected) in cases {
+            let read = contacts(Cursor::new(SQUARE), &region, resolution).unwrap();
+            assert!(!read.is_empty(), "{region}");
+            assert_eq!(
+                cells_of(&bedpe(region.seq(), &read)),
+                cells_of(&expected),
+                "{region}"
+            );
+        }
+    }
+
+    /// A block off the diagonal reads its columns as columns and its rows as
+    /// rows, written each way a block can be: dense, three cells to a row,
+    /// where a cell's column is its place in its row; and in rows, with the
+    /// column bins and the row bins each as wide as their own byte says,
+    /// one short and the other long both ways round. Columns start at bin 10
+    /// and rows at bin 30, and every count is a different number, so a cell
+    /// read in its mirror's place, or bins read at the other's width, is a
+    /// cell in the wrong place or a block refused.
+    #[test]
+    fn a_block_off_the_diagonal_reads_its_columns_and_its_rows_the_right_way_round() {
+        let region = Region::new("s", 0, 400).unwrap();
+        let read = |block: Vec<u8>| {
+            let bytes = file("s", 400, 10, (40, 1), &[(0, block)]);
+            contacts(Cursor::new(&bytes), &region, 10).unwrap()
+        };
+        let cell = |column: u64, row: u64, count: f64| {
+            Pair::spans(
+                (column * 10, column * 10 + 10),
+                (row * 10, row * 10 + 10),
+                count,
+            )
+        };
+        // Two rows of three: 1, 2, 3 in row 30 and 4, 5, 6 in row 31.
+        let mut body = 6i32.to_le_bytes().to_vec();
+        body.extend(3i16.to_le_bytes());
+        for count in 1..=6u8 {
+            body.extend(f32::from(count).to_le_bytes());
+        }
+        assert_eq!(
+            read(block((10, 30), (false, false, false), 2, &body)),
+            [
+                cell(10, 30, 1.0),
+                cell(10, 31, 4.0),
+                cell(11, 30, 2.0),
+                cell(11, 31, 5.0),
+                cell(12, 30, 3.0),
+                cell(12, 31, 6.0),
+            ]
+        );
+        // Row 30 holds columns 10 and 12, counting 1 and 3, and row 31
+        // column 11, counting 5.
+        for (short_x, short_y) in [(false, false), (true, false), (false, true), (true, true)] {
+            let bin = |body: &mut Vec<u8>, short: bool, value: i32| {
+                if short {
+                    body.extend((value as i16).to_le_bytes());
+                } else {
+                    body.extend(value.to_le_bytes());
+                }
+            };
+            let mut body = Vec::new();
+            bin(&mut body, short_y, 2);
+            bin(&mut body, short_y, 0);
+            bin(&mut body, short_x, 2);
+            bin(&mut body, short_x, 0);
+            body.extend(1f32.to_le_bytes());
+            bin(&mut body, short_x, 2);
+            body.extend(3f32.to_le_bytes());
+            bin(&mut body, short_y, 1);
+            bin(&mut body, short_x, 1);
+            bin(&mut body, short_x, 1);
+            body.extend(5f32.to_le_bytes());
+            assert_eq!(
+                read(block((10, 30), (false, short_x, short_y), 1, &body)),
+                [cell(10, 30, 1.0), cell(11, 31, 5.0), cell(12, 30, 3.0)],
+                "{short_x} {short_y}"
             );
         }
     }

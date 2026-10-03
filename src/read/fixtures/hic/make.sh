@@ -1,8 +1,8 @@
 #!/bin/sh
-# Writes the .hic the reader beside this folder is tested on, with hictk, and
-# then reads windows of it back with hictk dump. The reader's tests compare
-# what it reads with those dumps, so it is held to what hictk says the file
-# holds, not to what this folder's author thought it should hold.
+# Writes the .hic files the reader beside this folder is tested on, with
+# hictk, and then reads windows of them back with hictk dump. The reader's
+# tests compare what it reads with those dumps, so it is held to what hictk
+# says a file holds, not to what this folder's author thought it should hold.
 #
 # The tool is hictk 2.2.0 from bioconda, which writes version 9, the version
 # the reader reads. Run from anywhere:
@@ -57,3 +57,27 @@ for window in '1000 chr1 300000 420000' '1000 chr1 0 1234567' \
     echo "# $window"
     hictk dump --join --resolution "$1" -r "$2:$3-$4" contacts.hic
 done > contacts.dump
+
+# A second file, of one square of contacts far from the diagonal: the first
+# ten bins of a sequence against bins 40 to 49, every cell a different count.
+# hictk writes it as a dense block whose columns start at bin 0 and whose
+# rows start at bin 40, which no block of contacts.hic is: a dense block on
+# the diagonal is its own mirror, and a cell read with its column and its row
+# swapped lands where its mirror was. Here it lands on another cell's count.
+printf 'chr1\t56789\n' > square.sizes
+awk -v OFS='\t' 'BEGIN {
+    for (i = 0; i < 10; i++)
+        for (j = 40; j < 50; j++)
+            print "chr1", i * 1000, (i + 1) * 1000, "chr1", j * 1000, \
+                (j + 1) * 1000, 1 + 10 * i + j - 40
+}' > square.bg2
+hictk load -f bg2 -c square.sizes -b 1000 --count-as-float --force -v 1 \
+    square.bg2 square.hic
+rm square.bg2 square.sizes
+
+# The whole sequence, and a window whose edges cut through the square.
+for window in '1000 chr1 0 56789' '1000 chr1 5500 44500'; do
+    set -- $window
+    echo "# $window"
+    hictk dump --join --resolution "$1" -r "$2:$3-$4" square.hic
+done > square.dump
