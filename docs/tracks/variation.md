@@ -479,7 +479,7 @@ Association statistics: one point per test, height by significance, a line where
 | `.axis(QuantitativeAxis::new())` | Replaces the value axis | automatic |
 | `.color("#9ca3af")` | Colour of points below the line | theme muted grey |
 | `.significant_color("#d55e00")` | Colour of points at or above it | a palette colour |
-| `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values) | none |
+| `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values); left out where the name says the same | none |
 | `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.linkage(lead, r2)` | Colours each point by its r² with the lead variant at `lead`, 0-based, and draws the lead as a diamond with its position over it (`--ld`) | one colour |

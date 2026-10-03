@@ -1525,6 +1525,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A track's axis title is left out where its name says the same, and `karyon
+  help manhattan` says a column of p-values is titled `-log10 p` already.
+  `--label '-log10 p'` on a scan of p-values printed `-log10 p` twice in the
+  gutter, one line over the other. `--max` in `karyon help coverage` and
+  `karyon help heatmap` says how data past it is marked.
 - A phylodynamic trajectory's reference line leaves its words off where
   they are only its number and the axis writes that number, and its tooltip
   says the number once, `reference at 1`, or after its name, `R = 1,

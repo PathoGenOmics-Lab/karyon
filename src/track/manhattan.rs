@@ -1125,6 +1125,23 @@ mod tests {
         assert!(Figure::new(region()).push(whole).notes().is_empty());
     }
 
+    /// A name the same as the axis's title is said once: `--label '-log10
+    /// p'` on a scan of p-values printed `-log10 p` twice, one line over the
+    /// other. A name of its own keeps the title under it.
+    #[test]
+    fn a_name_that_is_the_axis_title_is_written_once() {
+        let drawn = |label: &str| {
+            let track = ManhattanTrack::new(vec![Association::new(1_000, 4.0)])
+                .axis_title("-log10 p")
+                .label(label);
+            Figure::new(region()).push(track).to_svg()
+        };
+        assert_eq!(drawn("-log10 p").matches(">-log10 p</text>").count(), 1);
+        let named = drawn("GWAS");
+        assert!(named.contains(">GWAS</text>"), "{named}");
+        assert_eq!(named.matches(">-log10 p</text>").count(), 1, "{named}");
+    }
+
     /// A lead with a name is called by it, over its diamond, in its tooltip
     /// and in the key, where its position was written.
     #[test]

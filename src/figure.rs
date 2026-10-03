@@ -711,7 +711,13 @@ impl Figure {
             // What the value axis measures goes under the name, a line of
             // its own in the ticks' ink, so the name and the title read as one
             // block centred on the band.
-            let title = track.axis_title().filter(|title| !title.is_empty());
+            // A title the name already says is left out: `--label '-log10
+            // p'` on a scan of p-values printed `-log10 p` twice, one line
+            // over the other.
+            let title = track
+                .axis_title()
+                .filter(|title| !title.is_empty())
+                .filter(|title| track.label().map(str::trim) != Some(title.trim()));
             let title_size = theme.font_size - 1.0;
             let lift = match (track.label(), title) {
                 (Some(_), Some(_)) => (title_size + 3.0 * self.visual_scale) / 2.0,

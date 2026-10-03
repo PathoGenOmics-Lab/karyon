@@ -242,6 +242,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          its tips, with the tree beside them
 "
         }
+        (Kind::Manhattan, "--label") => {
+            "    --label <TEXT>       the name in the left gutter. A column of p-values is
+                         titled -log10 p under it already
+"
+        }
         (Kind::CopyNumber, "--sample") => {
             "    --sample <NAME>      which sample of a segment table holding several
 "
@@ -302,9 +307,16 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          known about them
 "
         }
-        (Kind::Coverage | Kind::Recombination | Kind::Manhattan, "--max") => {
+        (Kind::Coverage | Kind::Recombination, "--max") => {
             "    --max <V>            the top of the scale, pinned, as 100 for a depth, so
-                         figures drawn apart are read off one ceiling
+                         figures drawn apart are read off one ceiling; where
+                         the profile runs past it, it is struck along the top
+                         and the top label reads 100+
+"
+        }
+        (Kind::Manhattan, "--max") => {
+            "    --max <V>            the top of the scale, pinned, so figures drawn apart
+                         are read off one ceiling
 "
         }
         (Kind::Windows, "--max") => {
@@ -316,7 +328,8 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
         (Kind::Matrix | Kind::Heatmap, "--max") => {
             "    --max <V>            the value drawn at full colour, as 150 for a depth;
                          read either side of a centre, the full gain, above
-                         the centre, and the loss keeps its own end
+                         the centre, and the loss keeps its own end. A cell
+                         past it carries a dot, and the key reads 150+
 "
         }
         (Kind::Pairs, "--max") => {
@@ -1131,6 +1144,9 @@ mod tests {
         let scan = help_on("manhattan").unwrap();
         assert!(!scan.contains("phylogeny"), "{scan}");
         assert!(scan.contains("p = 5e-8"), "{scan}");
+        // A --label of -log10 p printed the title twice, and the help did not
+        // say the axis has one.
+        assert!(scan.contains("titled -log10 p under it already"), "{scan}");
         // `--max` is a top on one track, both ends on another and a colour on
         // a third, and each is told only its own.
         let windows = help_on("windows").unwrap();
@@ -1143,6 +1159,9 @@ mod tests {
         let coverage = help_on("coverage").unwrap();
         assert!(coverage.contains("--max <V>"), "{coverage}");
         assert!(!coverage.contains("full colour"), "{coverage}");
+        assert!(coverage.contains("the top label reads 100+"), "{coverage}");
+        assert!(!scan.contains("100+"), "{scan}");
+        assert!(heatmap.contains("the key reads 150+"), "{heatmap}");
     }
 
     /// A CRAM named on its own is taken for a depth and refused with the

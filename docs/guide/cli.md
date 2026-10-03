@@ -279,7 +279,7 @@ takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
-| `--label <TEXT>` | any text | every track, `--axis` and `--codons` included | no name in the gutter; the gene's name for `--codons` |
+| `--label <TEXT>` | any text; a scan of p-values is titled `-log10 p` under it already, and a name the same as that title is written once | every track, `--axis` and `--codons` included | no name in the gutter; the gene's name for `--codons` |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA or 2bit file, or `-` for a FASTA | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
