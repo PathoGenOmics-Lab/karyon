@@ -657,7 +657,8 @@ impl<T: Slot> Plot<T> {
 
     /// Keys the colours and marks of every track at the foot of the figure,
     /// once the plot becomes one: the strips and branches of a tree, the
-    /// shades of a matrix, the bases where they are too narrow for letters.
+    /// shades of a matrix, the bases where they are too narrow for letters,
+    /// the bars and the lane of a copy number.
     ///
     /// A key built by hand had to be made from a track before the track went
     /// into the plot, in the plot's theme, so a tree with strips could not
