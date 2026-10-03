@@ -113,7 +113,9 @@
 //! can be pointed at with those names. It partitions a coding sequence into
 //! codons, numbers them, translates them where there is room for a letter, and
 //! counts from the far end on the reverse strand, which is where the arithmetic
-//! usually goes wrong.
+//! usually goes wrong. [`ncbi_table`] gives it any of NCBI's translation tables
+//! by number. The command line draws it with `--codons`, over the CDS the
+//! figure's annotation writes for the gene the figure is placed on.
 //!
 //! # A track type the crate lacks is thirty lines
 //!
@@ -194,25 +196,25 @@ pub use crate::svg::{fit_text, Anchor, SvgWriter, TextStyle};
 pub use crate::theme::{wash, BaseColors, Theme};
 pub use crate::track::traits::{Join, Traits};
 pub use crate::track::{
-    strand_color, Aggregate, AlignmentBlock, AncestralStateLayer, Association, AxisTrack, Band,
-    BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer, BranchRateMixture,
-    CellScale, Centering, CigarOp, CladeBlock, CladeHighlight, CladeTrack, CodonTrack, CopyNumber,
-    CopyNumberSegment, CopyNumberTrack, CoverageStyle, CoverageTrack, DomainArchitecture,
-    DomainFeature, DomainTrack, DotplotTrack, DrawContext, DynseqTrack, Extent, Feature,
-    FeatureTrack, GeneShape, GenomeTrack, Genotype, GenotypeSite, GenotypeState, GenotypeTrack,
-    Homology, HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack, Legend, LegendItem,
-    LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack, ManhattanTrack,
-    Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, Motif, Move,
-    MsaColoring, MsaDisplay, MsaSequence, MsaTrack, NodeGlyph, NodeGlyphStyle, NodeGlyphTarget,
-    Orf, OrfTrack, Pair, PairStyle, PairTrack, PhylodynamicPoint, PhylodynamicScale,
-    PhylodynamicTrack, PileupLayout, PileupTrack, RadialDirection, Read, ReadColoring, Rect,
-    Segment, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack, SnpSite, SnpTrack,
-    SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, StackOrder, Stain, Strand,
-    StructuralTrack, StructuralVariant, SupportStyle, SurveillanceMetric, SurveillanceObservation,
-    SurveillanceStyle, SurveillanceTrack, SvKind, SyntenyTrack, TangleLabels, TangleTieStyle,
-    TanglegramTrack, Terminator, Track, TraitColumn, TraitScale, TraitStyle, TranscriptionUnit,
-    TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack, Variant, VariantStyle,
-    VariantTrack, Window, WindowStyle, WindowTrack,
+    ncbi_table, strand_color, Aggregate, AlignmentBlock, AncestralStateLayer, Association,
+    AxisTrack, Band, BisulfiteTrack, BranchEventLayer, BranchGeometry, BranchIntervalLayer,
+    BranchRateMixture, CellScale, Centering, CigarOp, CladeBlock, CladeHighlight, CladeTrack,
+    CodonTrack, CopyNumber, CopyNumberSegment, CopyNumberTrack, CoverageStyle, CoverageTrack,
+    DomainArchitecture, DomainFeature, DomainTrack, DotplotTrack, DrawContext, DynseqTrack, Extent,
+    Feature, FeatureTrack, GeneShape, GenomeTrack, Genotype, GenotypeSite, GenotypeState,
+    GenotypeTrack, Homology, HomoplasyLayer, IdeogramTrack, Junction, JunctionTrack, Legend,
+    LegendItem, LegendTrack, Locus, LocusTrack, LogoColumn, LogoScore, LogoStack, LogoTrack,
+    ManhattanTrack, Marker, MatrixRow, MatrixTrack, MethylSite, MethylationTrack, Molecule, Motif,
+    Move, MsaColoring, MsaDisplay, MsaSequence, MsaTrack, NodeGlyph, NodeGlyphStyle,
+    NodeGlyphTarget, Orf, OrfTrack, Pair, PairStyle, PairTrack, PhylodynamicPoint,
+    PhylodynamicScale, PhylodynamicTrack, PileupLayout, PileupTrack, RadialDirection, Read,
+    ReadColoring, Rect, Segment, SelectionEvidence, SelectionSite, SelectionTrack, SequenceTrack,
+    SnpSite, SnpTrack, SplitRead, SplitReadTrack, SplitSegment, SquiggleTrack, StackOrder, Stain,
+    Strand, StructuralTrack, StructuralVariant, SupportStyle, SurveillanceMetric,
+    SurveillanceObservation, SurveillanceStyle, SurveillanceTrack, SvKind, SyntenyTrack,
+    TangleLabels, TangleTieStyle, TanglegramTrack, Terminator, Track, TraitColumn, TraitScale,
+    TraitStyle, TranscriptionUnit, TranscriptionUnitTrack, TreeProjection, TreeShape, TreeTrack,
+    Variant, VariantStyle, VariantTrack, Window, WindowStyle, WindowTrack,
 };
 pub use crate::tree::{
     AnnotationValue, Annotations, Clade, Mutation, Mutations, NodeRef, Placement, Spot,

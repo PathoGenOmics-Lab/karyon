@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The example annotation, `docs/data/genes.gff3`, writes a CDS row under each
+  gene, as NCBI writes a gene with no introns, naming table 11, so the
+  documentation's own files draw `--codons`, and `examples.zip` holds it.
+  Every figure drawn from it is the same byte for byte, since a CDS from one
+  end of a gene to the other is drawn as the gene alone was.
 - A BAM or a CRAM with no place is refused as `ArgError::GenomeWideReads`,
   saying that its depth across a whole genome is every read it holds and
   giving the `mosdepth --by 100000` that counts it in windows, which are drawn
@@ -420,6 +425,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--codons` draws the codon ruler, `CodonTrack`, from the command line, which
+  reached it from Rust only. It reads no file of its own: placed on a gene by
+  its name, as `karyon rpoB genes.gff3 ref.fa --codons`, it numbers that
+  gene's CDS as the figure's GFF3, GTF or BED writes it, and over a place
+  written, the CDS of the one gene that codes there, which a page that moves
+  the window keeps counting. Codon 1 is the start codon, at the right on the
+  reverse strand, the letters are the figure's `--sequence` translated, and a
+  trailing partial codon is left off with a note. The table is the one the
+  CDS row names with `transl_table=`, as NCBI writes one, or `--genetic-code
+  N`, which wins and says so where the two differ, and is refused for a number
+  NCBI does not list. CodonTrack counts one unbroken span, so a CDS split by
+  introns is refused as `CodonRefusal::Spliced` rather than numbered across
+  them, and so are a figure with no annotation, a sequence drawn whole, a gene
+  with no CDS row, two genes in the place written, transcripts that code
+  different stretches, a gene on no strand and a CDS naming a retired table,
+  each with what to write instead, since a ruler over the wrong stretch names
+  the wrong residue at every codon and looks no different. A figure with no
+  place is refused as `ArgError::CodonsWithoutPlace` before anything is read.
+  `--codons` takes `--label`, the gene's name by default, and `--color`; it is
+  on the scales line of `karyon --help`, `karyon help codons` lists its
+  options, and the playground has an example of a gene whose CDS names table
+  4, where TGA is tryptophan, its thirty-third: its page said thirty-one
+  where it held thirty-two. Thirty-five of the thirty-eight track types now
+  have a flag.
+- `ncbi_table(id)` gives every translation table NCBI lists, 1 to 6, 9 to 16
+  and 21 to 33, as the sixty-four residues `CodonTrack::genetic_code` takes,
+  and `None` for a number NCBI retired; a test holds each to the codons NCBI's
+  notes say it reassigns. `read::interval::coding` reads each transcript as it
+  codes, its exons and its CDS as written, a CDS from one end of a gene to the
+  other included, which `read::interval::transcripts` folds into one piece
+  for drawing, and a CDS row under no gene as a coding sequence of its own.
+  `read::interval::translation_table` reads the `transl_table=` of the CDS
+  rows over a span.
 - A figure with no place is drawn across the whole genome from coverage,
   windows and copy number as well as from a scan: `karyon tumour.bedgraph
   tumour.cns --ploidy 2` lays every sequence a bedGraph, a `samtools depth`

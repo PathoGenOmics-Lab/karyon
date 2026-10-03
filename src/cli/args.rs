@@ -27,7 +27,7 @@
 //! second table are not interchangeable, and a track that takes one is refused
 //! without it. That refusal is the point: a tanglegram of one tree against
 //! itself has no crossings at all, which is what a perfect answer looks like.
-//! Thirty-four of the crate's thirty-eight track types are what the command
+//! Thirty-five of the crate's thirty-eight track types are what the command
 //! line reaches.
 //!
 //! The other is a modifier the track before it has no use for, which the order
@@ -247,6 +247,14 @@ pub enum ArgError {
         /// option that is the cause.
         tied: Option<(&'static str, &'static str)>,
     },
+    /// A codon ruler in a figure that names no place.
+    ///
+    /// It counts the codons of one gene, and with no place there is no gene:
+    /// beside a scan the figure would be drawn across the whole genome, and
+    /// the advice to name a sequence that the refusal of any other track
+    /// gives would lead to a second refusal, since a whole sequence is no
+    /// gene either.
+    CodonsWithoutPlace,
     /// A place given to `--highlight` where no tree is there to take it.
     ///
     /// `--highlight` is a phylogeny's, and marks its clades. A locus after it
@@ -392,6 +400,12 @@ impl fmt::Display for ArgError {
                      sample.regions.bed.gz it writes"
                 )
             }
+            ArgError::CodonsWithoutPlace => write!(
+                f,
+                "--codons counts the codons of one gene, and a figure with no place has \
+                 none: write the gene's name first, as karyon GENE genes.gff3 --codons, or \
+                 a stretch it codes in"
+            ),
             ArgError::NotGenomeWide { track, file, tied } => {
                 let named = match file {
                     Some(file) => format!("--{track} {file}"),
@@ -648,6 +662,10 @@ pub enum Kind {
     Squiggle,
     /// The coordinate ruler, which reads nothing.
     Axis,
+    /// A ruler in codons over the coding sequence of the figure's gene,
+    /// which reads no file of its own: the gene is the annotation's, and the
+    /// letters are the reference's.
+    Codons,
 }
 
 impl Kind {
@@ -658,7 +676,7 @@ impl Kind {
     /// wants the list rather than a copy of it that goes stale. The help text
     /// is checked against this, so a track added without a line in it is a
     /// failing test rather than a flag nobody can find.
-    pub const ALL: [Kind; 36] = [
+    pub const ALL: [Kind; 37] = [
         Kind::Coverage,
         Kind::CopyNumber,
         Kind::Dynseq,
@@ -695,6 +713,7 @@ impl Kind {
         Kind::Selection,
         Kind::Squiggle,
         Kind::Axis,
+        Kind::Codons,
     ];
 
     /// The flag that asks for this track, without the dashes.
@@ -736,6 +755,7 @@ impl Kind {
             Kind::Selection => "selection",
             Kind::Squiggle => "squiggle",
             Kind::Axis => "axis",
+            Kind::Codons => "codons",
         }
     }
 
@@ -784,7 +804,15 @@ impl Kind {
             Kind::Selection => "--selection",
             Kind::Squiggle => "--squiggle",
             Kind::Axis => "--axis",
+            Kind::Codons => "--codons",
         }
+    }
+
+    /// Whether the flag reads no file: the ruler, and the codon ruler, which
+    /// takes its gene from the figure's annotation and its letters from the
+    /// figure's reference rather than from a file named after it.
+    pub fn reads_nothing(self) -> bool {
+        matches!(self, Kind::Axis | Kind::Codons)
     }
 
     /// Whether `--aggregate` means anything here.
@@ -1250,7 +1278,8 @@ impl Kind {
             | Kind::Phylodynamics
             | Kind::Selection
             | Kind::Squiggle
-            | Kind::Axis => None,
+            | Kind::Axis
+            | Kind::Codons => None,
         }
     }
 
@@ -1302,7 +1331,8 @@ impl Kind {
             | Kind::Frequencies
             | Kind::Phylodynamics
             | Kind::Selection
-            | Kind::Axis => None,
+            | Kind::Axis
+            | Kind::Codons => None,
         }
     }
 }
@@ -1652,6 +1682,9 @@ pub struct TrackSpec {
     /// them in. `None` draws every column the sheet has, in the order its
     /// header named them.
     pub columns: Option<Vec<String>>,
+    /// `--genetic-code`, the NCBI translation table a codon ruler reads its
+    /// residues with, where the annotation's own is not the one wanted.
+    pub genetic_code: Option<u8>,
     /// Whether the kind was read off the file's name, the file having been
     /// named on its own with no track flag in front of it. Such a track may
     /// be told apart once its file is read: a `.bed` that is modkit's
@@ -1705,6 +1738,7 @@ impl TrackSpec {
             sample: None,
             traits: None,
             columns: None,
+            genetic_code: None,
             guessed: false,
         }
     }
@@ -2020,6 +2054,7 @@ pub const FLAGS: &[&str] = &[
     "--selection",
     "--squiggle",
     "--axis",
+    "--codons",
     "--label",
     "--ploidy",
     "--sample",
@@ -2055,6 +2090,7 @@ pub const FLAGS: &[&str] = &[
     "--log",
     "--max",
     "--color",
+    "--genetic-code",
     "--against",
     "--with-tree",
     "--links",
@@ -2245,6 +2281,18 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
          at half height",
     ),
     (
+        &[
+            "gcode",
+            "transl-table",
+            "translation-table",
+            "codon-table",
+            "genetic-table",
+        ],
+        "the table a codon ruler translates with is --genetic-code N after --codons, as \
+         --genetic-code 2 for vertebrate mitochondria; by default it is the one the \
+         annotation's CDS names",
+    ),
+    (
         &["flank", "padding", "pad", "margin", "extend"],
         "a gene is drawn with a margin of a tenth of its length, and at least 100 \
          bases, each side; for another margin write the span, as chr1:1,000-5,000",
@@ -2344,7 +2392,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 pub fn takes(kind: Kind, flag: &str, value: Option<&str>) -> bool {
     let line = |with: bool| {
         let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
-        if kind != Kind::Axis {
+        if !kind.reads_nothing() {
             line.push("x.txt".to_string());
         }
         line.push(flag.to_string());
@@ -2470,7 +2518,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     while let Some(arg) = rest.next() {
         let mut value = |flag: &'static str| rest.next().ok_or(ArgError::MissingValue(flag));
 
-        // A track flag starts a track. `--axis` is the one that reads nothing.
+        // A track flag starts a track. `--axis` and `--codons` are the ones
+        // that read nothing.
         let track = match arg.as_str() {
             "--coverage" => Some((Kind::Coverage, true)),
             "--copy-number" => Some((Kind::CopyNumber, true)),
@@ -2508,6 +2557,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--selection" => Some((Kind::Selection, true)),
             "--squiggle" => Some((Kind::Squiggle, true)),
             "--axis" => Some((Kind::Axis, false)),
+            "--codons" => Some((Kind::Codons, false)),
             _ => None,
         };
         if let Some((kind, reads)) = track {
@@ -3286,6 +3336,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                         | Kind::Squiggle
                         | Kind::Pairs
                         | Kind::Recombination
+                        | Kind::Codons
                 ) {
                     return Err(ArgError::WrongTrack {
                         flag: "--color",
@@ -3293,6 +3344,32 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.color = Some(text);
+            }
+            "--genetic-code" => {
+                let text = value("--genetic-code")?;
+                // Checked against the tables there are, before the track is
+                // looked at: a number NCBI retired, as 7, would translate with
+                // whatever a fallback chose and nothing on the figure would
+                // say so.
+                let table = text
+                    .trim()
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|table| crate::track::codon::ncbi_table(*table).is_some())
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--genetic-code",
+                        given: text.clone(),
+                        expected: "a translation table NCBI lists, 1 to 6, 9 to 16 or 21 to \
+                                   33, as 2 for vertebrate mitochondria",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--genetic-code")?;
+                if track.kind != Kind::Codons {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--genetic-code",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.genetic_code = Some(table);
             }
             flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld"
             | "--with-moves") => {
@@ -3747,6 +3824,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
 /// it where one does.
 ///
 /// A BAM first, whose depth across a genome is every read it holds. Then a
+/// codon ruler, which wants a gene and not merely a place. Then a
 /// bigWig on a track that draws one over a place, since a file that names its
 /// own sequences needing one is worth saying in so many words. Then a track
 /// drawn over a place beside tracks that alone would be drawn across the
@@ -3765,6 +3843,9 @@ fn placeless(tracks: &[TrackSpec]) -> ArgError {
         .find_map(file)
     {
         return ArgError::GenomeWideReads { file };
+    }
+    if tracks.iter().any(|track| track.kind == Kind::Codons) {
+        return ArgError::CodonsWithoutPlace;
     }
     if let Some(file) = tracks
         .iter()
@@ -6550,6 +6631,76 @@ mod tests {
             "chr1:1-10000 --heatmap d.tsv --max 3 --center -1",
         ] {
             assert!(parse(&args(line)).is_ok(), "{line}");
+        }
+    }
+
+    #[test]
+    fn codons_read_nothing_and_take_a_label_a_colour_and_a_genetic_code() {
+        let it = draw("rpoB genes.gff3 --codons --label residues --color #d55e00 --genetic-code 2");
+        let ruler = &it.tracks[1];
+        assert_eq!(ruler.kind, Kind::Codons);
+        assert_eq!(ruler.source, None, "the ruler reads no file");
+        assert_eq!(ruler.label.as_deref(), Some("residues"));
+        assert_eq!(ruler.color.as_deref(), Some("#d55e00"));
+        assert_eq!(ruler.genetic_code, Some(2));
+        // The word after it is a file named on its own, not the ruler's.
+        let it = draw("chr1:1-500 --codons genes.gff3");
+        assert_eq!(it.tracks.len(), 2);
+        assert_eq!(it.tracks[1].kind, Kind::Features);
+        assert!(Kind::Codons.reads_nothing() && Kind::Axis.reads_nothing());
+        assert!(Kind::ALL
+            .iter()
+            .filter(|kind| kind.reads_nothing())
+            .all(|kind| matches!(kind, Kind::Axis | Kind::Codons)));
+        assert!(takes(Kind::Codons, "--genetic-code", Some("11")));
+        assert!(!takes(Kind::Codons, "--height", Some("50")));
+        assert!(!takes(Kind::Features, "--genetic-code", Some("11")));
+    }
+
+    #[test]
+    fn a_genetic_code_is_refused_off_a_codon_ruler_and_outside_the_ncbi_ids() {
+        let error = parse(&args("chr1:1-10 --coverage d.bg --genetic-code 2")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--genetic-code",
+                    track: "coverage"
+                }
+            ),
+            "{error:?}"
+        );
+        for given in ["7", "0", "34", "256", "two", "-1"] {
+            let error =
+                parse(&args(&format!("chr1:1-10 --codons --genetic-code {given}"))).unwrap_err();
+            assert!(
+                matches!(&error, ArgError::BadValue { flag: "--genetic-code", given: said, .. }
+                    if said == given),
+                "{given}: {error:?}"
+            );
+            assert!(error.to_string().contains("1 to 6, 9 to 16 or 21 to 33"));
+        }
+        for table in [1, 2, 4, 11, 15, 32, 33] {
+            let it = draw(&format!("chr1:1-10 --codons --genetic-code {table}"));
+            assert_eq!(it.tracks[0].genetic_code, Some(table));
+        }
+    }
+
+    /// A codon ruler with no place to find a gene in says so, rather than
+    /// the advice to name a sequence that every other track gets, which
+    /// would be refused again as no gene.
+    #[test]
+    fn codons_with_no_place_are_refused_for_want_of_a_gene() {
+        for line in ["--codons", "genes.gff3 --codons", "gwas.assoc --codons"] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::CodonsWithoutPlace),
+                "{line}: {error:?}"
+            );
+            assert!(
+                error.to_string().contains("write the gene's name first"),
+                "{error}"
+            );
         }
     }
 }

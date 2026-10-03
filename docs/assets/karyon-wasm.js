@@ -126,8 +126,8 @@ self.karyon = self.karyon || (function () {
   // after it, and that word is not the region however much it looks like one:
   // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
   // drag then rewrote the label and left the figure where it was.
-  var ALONE = ["--axis", "--counts", "--fade-by-mapq", "--isoforms", "--log",
-               "--no-axis", "--no-counts", "--no-legend", "--no-names",
+  var ALONE = ["--axis", "--codons", "--counts", "--fade-by-mapq", "--isoforms",
+               "--log", "--no-axis", "--no-counts", "--no-legend", "--no-names",
                "--no-region-label", "--no-scale-bar", "--relative",
                "--same-scale"];
 
@@ -158,7 +158,7 @@ self.karyon = self.karyon || (function () {
     "--clades", "--loci", "--methylation", "--structural", "--pairs",
     "--split-reads",
     "--bisulfite", "--domains", "--frequencies", "--phylodynamics",
-    "--selection", "--squiggle", "--axis",
+    "--selection", "--squiggle", "--axis", "--codons",
   ];
 
   /// Where the words describing one track begin and end.

@@ -386,9 +386,9 @@ Chr2  3000  4000  AT2G01010  0  +
 
 | | |
 |:--|:--|
-| Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods) |
-| Columns | 1 sequence, 2 start, 3 end, 4 name (`.` for none), 6 strand (`+` or `-`; anything else is unknown) |
-| Ignored | 5 score, and 7 onwards (`thickStart`, colour, blocks), though column 7 tells a BED from a GFF3 |
+| Read by | `--features`; `read::interval::features`. `--loci` reads it as [gene neighbourhoods](#gene-neighbourhoods), and `--codons` reads its thick span, cut by its blocks, as the CDS |
+| Columns | 1 sequence, 2 start, 3 end, 4 name (`.` for none), 6 strand (`+` or `-`; anything else is unknown); 7 and 8, `thickStart` and `thickEnd`, the part that codes, and 10 to 12 the blocks of a BED12, which are its exons |
+| Ignored | 5 score and 9 colour; column 7 also tells a BED from a GFF3 |
 | Coordinates | 0-based and half-open, passed through: `3630 5899` is the bases 3,631 to 5,899 counted from 1 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p bed genes.bed.gz` writes |
 | Refused | fewer than 3 columns; an end before its start |
@@ -470,6 +470,15 @@ GTF is read as GFF3 is, with its `key "value";` attributes: a gene is named by
 stands for its exons and a gene for its transcripts in the same way, so
 GENCODE draws one row a gene, StringTie, which writes no gene rows, one a
 transcript, and a table browser GTF of exons alone one an exon.
+
+`--codons` reads the same rows for what codes (`read::interval::coding`): each
+transcript's CDS rows, with a GTF's `start_codon` and `stop_codon`, cut by its
+exons, and a CDS row under no gene as a coding sequence of its own. A gene row
+alone says where a gene is and not where its CDS starts, so a file without CDS
+rows draws no codon ruler. The `transl_table=` a CDS row carries, as NCBI
+writes one, is the [translation table](../tracks/scales-keys.md#codontrack)
+its codons are read with, and `--genetic-code` overrules it
+(`read::interval::translation_table`).
 
 ### cytoBand { #cytoband }
 

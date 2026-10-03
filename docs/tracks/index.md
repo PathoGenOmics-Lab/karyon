@@ -25,7 +25,7 @@ plot("NC_000962.3:761,001-763,000")?
     .save("rpoB.svg")?;
 ```
 
-On the [command line](../guide/cli.md), 34 of the 38 have a flag. Each flag starts a track, the options after it describe that track, and every track takes `--label`.
+On the [command line](../guide/cli.md), 35 of the 38 have a flag. Each flag starts a track, the options after it describe that track, and every track takes `--label`.
 
 ## Signal and sequence
 
@@ -125,7 +125,7 @@ On the [command line](../guide/cli.md), 34 of the 38 have a flag. Each flag star
 | Track | Draws | Rust | Command line |
 |:--|:--|:--|:--|
 | [AxisTrack](scales-keys.md#axistrack) | The coordinate ruler | `.add_axis()` | `--axis` |
-| [CodonTrack](scales-keys.md#codontrack) | A ruler in codons, with the residues | `.add_codons(start, end, strand)` | none |
+| [CodonTrack](scales-keys.md#codontrack) | A ruler in codons, with the residues | `.add_codons(start, end, strand)` | `--codons` |
 | [LegendTrack](scales-keys.md#legendtrack) | A key to the colours, as a band | `.add_legend(legend)` | none |
 
 !!! note "Coordinates"
@@ -177,9 +177,10 @@ The Command line column above maps each flag to its track. A few flags need comp
 - **A second file.** `--dynseq` needs `--with-sequence`, `--tanglegram` needs `--against`, `--clades` needs `--with-tree` and `--loci` needs `--links`, and each is refused without it. `--pileup` takes `--with-sequence` optionally, to find mismatches.
 - **A choice inside the file.** `--methylation` takes `--modification`, `--bisulfite` takes `--context` and `--domains` takes `--analysis`, for a file that holds several datasets; the command refuses to pick one for you.
 - **A number the file does not hold.** `--copy-number` needs `--ploidy`, since where balanced sits is not in the file.
+- **A gene and its CDS.** `--codons` reads no file of its own: it numbers the CDS the figure's annotation writes for the gene the figure is placed on, and takes its letters from the figure's `--sequence`.
 - **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM gets in: `samtools` already writes the text these readers take. A BAM, a BCF, a bigWig, a bigBed and a 2bit are named instead, since each is read out of order through an index.
 
-Four tracks are library only. `TranscriptionUnitTrack`, `CodonTrack` and `GenomeTrack` would need a table with no single standard behind it, and `LegendTrack` is built from what the other tracks drew rather than from a file; the command line draws that one by itself, under a figure with colours to key. The whole grammar is in [Command line](../guide/cli.md).
+Three tracks are library only. `TranscriptionUnitTrack` and `GenomeTrack` would need a table with no single standard behind it, and `LegendTrack` is built from what the other tracks drew rather than from a file; the command line draws that one by itself, under a figure with colours to key. The whole grammar is in [Command line](../guide/cli.md).
 
 ## Where next
 

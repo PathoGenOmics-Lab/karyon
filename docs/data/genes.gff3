@@ -1,3 +1,5 @@
 ##gff-version 3
 NC_000962.3	.	gene	759807	763325	.	+	.	ID=rpoB;Name=rpoB
+NC_000962.3	.	CDS	759807	763325	.	+	0	Parent=rpoB;transl_table=11
 NC_000962.3	.	gene	763370	767320	.	+	.	ID=rpoC;Name=rpoC
+NC_000962.3	.	CDS	763370	767320	.	+	0	Parent=rpoC;transl_table=11
