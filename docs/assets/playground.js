@@ -707,6 +707,69 @@
       },
     },
     {
+      name: "Codons of a gene",
+      bounds: { from: 271, to: 780, min: 60 },
+      controls: [
+        { kind: "region" },
+        { kind: "choice", flag: "--genetic-code", after: "--codons",
+          label: "The table the codons are read with; the CDS names 4",
+          options: ["1", "4", "11"] },
+        { kind: "data", param: "strand", value: "forward", label: "The strand the gene is read off",
+          options: ["forward", "reverse"] },
+      ],
+      group: "Signal and annotation",
+      // A ruler in codons over the one gene that codes in the window, counted
+      // from its start codon. The CDS names translation table 4, where TGA is
+      // tryptophan, and the gene uses TGA as one: read with table 1 or 11
+      // instead, those codons turn into stops in the middle of the protein,
+      // which is the figure a wrong table draws without a word. On the reverse
+      // strand codon 1 is at the right and the count runs leftwards, the case
+      // a division by three gets wrong.
+      command:
+        "chr1:286-375 --features genes.gff3 --label gene \\\n" +
+        "  --sequence ref.fa --label reference --codons",
+      files: [
+        { name: "genes.gff3", body: "" },
+        { name: "ref.fa", body: "" },
+      ],
+      make: function (p) {
+        var reverse = ((p && p.strand) || "forward") === "reverse";
+        var next = rolls(450301);
+        var bases = "ACGT";
+        var stops = ["TAA", "TAG", "TGA"];
+        function random(n) {
+          var out = "";
+          for (var i = 0; i < n; i++) out += bases[Math.floor(next() * 4)];
+          return out;
+        }
+        // A hundred and fifty codons, from ATG to TAA, with TGA every so often
+        // and no other stop inside.
+        var gene = "ATG";
+        for (var c = 1; c < 149; c++) {
+          var codon = random(3);
+          if (c % 13 === 6) codon = "TGA";
+          else if (stops.indexOf(codon) >= 0) codon = "CTG";
+          gene += codon;
+        }
+        gene += "TAA";
+        if (reverse) {
+          var pair = { A: "T", C: "G", G: "C", T: "A" };
+          var turned = "";
+          for (var b = gene.length - 1; b >= 0; b--) turned += pair[gene[b]];
+          gene = turned;
+        }
+        var seq = random(300) + gene + random(750);
+        var strand = reverse ? "-" : "+";
+        var genes = "##gff-version 3\n" +
+          "chr1\t.\tgene\t301\t750\t.\t" + strand + "\t.\tID=geneA;Name=geneA\n" +
+          "chr1\t.\tCDS\t301\t750\t.\t" + strand + "\t0\tParent=geneA;transl_table=4\n";
+        return [
+          { name: "genes.gff3", body: genes },
+          { name: "ref.fa", body: fastaOf("chr1", seq) },
+        ];
+      },
+    },
+    {
       name: "A cytogenetic ideogram",
       bounds: { from: 1, to: 46709983, min: 100000 },
       controls: [

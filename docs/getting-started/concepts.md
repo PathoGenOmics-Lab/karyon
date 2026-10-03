@@ -58,7 +58,7 @@ you add them and gives every one the same horizontal scale.
 That is what lets you read a figure by running a finger down it: everything the
 finger crosses is at the same position.
 
-karyon ships 38 track types, and the command line reaches 34 of them. The
+karyon ships 38 track types, and the command line reaches 35 of them. The
 [Gallery](../plots/index.md) sorts them by what you want to show, and the
 [Track catalogue](../tracks/index.md) lists each one with its options. A type
 the crate lacks is one small trait away: see

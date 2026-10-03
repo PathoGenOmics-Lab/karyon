@@ -66,7 +66,7 @@ TRACKS, by what they draw
     over time and sites   --frequencies --phylodynamics --selection
                           --squiggle
     whole genome          --ideogram
-    scales                --axis
+    scales                --axis --codons
 
 FIGURE OPTIONS, anywhere on the line
     --title <TEXT>   --width <PX>   --theme light|dark   -o fig.svg|fig.pdf
@@ -118,6 +118,7 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Selection => "tracks/variation/#selectiontrack",
         Kind::Squiggle => "tracks/reads-molecules/#squiggletrack",
         Kind::Axis => "tracks/scales-keys/#axistrack",
+        Kind::Codons => "tracks/scales-keys/#codontrack",
     }
 }
 
@@ -173,6 +174,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--aggregate", "max"),
     ("--style", "line"),
     ("--color", "#d55e00"),
+    ("--genetic-code", "11"),
     ("--format", "bedgraph"),
 ];
 
@@ -518,6 +520,12 @@ TRACKS
                          slow5tools view writes it, or one number per sample;
                          --read says which read
     --axis               the coordinate ruler, put where this flag sits
+    --codons             a ruler in codons over the coding sequence of the gene
+                         the figure is placed on, or of the one gene that codes
+                         in the place written, from its CDS in the annotation:
+                         counted from the start codon, right to left on the
+                         reverse strand, and translated where the figure has a
+                         --sequence. A CDS split by introns is refused
 
 TRACK OPTIONS, each describing the track before it, once
     --label <TEXT>       the name in the left gutter
@@ -685,6 +693,9 @@ TRACK OPTIONS, each describing the track before it, once
                          the value a matrix, a heatmap or pairs draw at full
                          colour, as 1 for an r²
     --color <HEX>        as in '#d55e00'
+    --genetic-code <N>   the NCBI translation table a codon ruler reads, as 2
+                         for vertebrate mitochondria; by default the one the
+                         annotation's CDS names, or 1, whose residues 11 shares
     --format <NAME>      bedgraph, depth or values for coverage, bed or gff3
                          for features and loci, when the file cannot be told
                          by looking at it
@@ -1030,11 +1041,7 @@ mod tests {
                 .iter()
                 .find(|(name, _)| *name == flag)
                 .unwrap_or_else(|| panic!("{flag} takes a value and has no sample"));
-            let file = if kind == args::Kind::Axis {
-                ""
-            } else {
-                "x.txt"
-            };
+            let file = if kind.reads_nothing() { "" } else { "x.txt" };
             let line = format!(
                 "chr1:1-10 {} {file} {flag} {value} {flag} {value}",
                 kind.dashed()
@@ -1213,6 +1220,15 @@ mod tests {
         assert!(options("tree").contains(&"--projection".to_string()));
         assert!(!options("tree").contains(&"--aggregate".to_string()));
         assert!(options("pileup").contains(&"--with-sequence".to_string()));
+        // The codon ruler reads no file and takes its table, a name and a
+        // colour, and nothing that sizes a band.
+        let codons = options("codons");
+        assert_eq!(
+            codons,
+            ["--label", "--color", "--genetic-code"],
+            "{codons:?}"
+        );
+        assert!(!options("coverage").contains(&"--genetic-code".to_string()));
     }
 
     /// A sample that an option would refuse says nothing about which tracks
@@ -1230,7 +1246,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{flag} takes a value and has no sample"));
             let accepted = args::Kind::ALL.iter().any(|kind| {
                 let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
-                if *kind != args::Kind::Axis {
+                if !kind.reads_nothing() {
                     line.push("x.txt".to_string());
                 }
                 line.extend([flag.to_string(), value.to_string()]);

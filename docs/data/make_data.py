@@ -60,10 +60,15 @@ def write_reference(seq):
 
 
 def write_genes():
+    # Each gene over its CDS, as NCBI writes a gene with no introns, so the
+    # codon ruler has a coding sequence to count and a table to read it with.
+    # A CDS from end to end of its gene is drawn as the gene alone was.
     with open(path("genes.gff3"), "w") as out:
         out.write("##gff-version 3\n")
         for name, start, end, strand in GENES:
             out.write(f"{SEQ}\t.\tgene\t{start}\t{end}\t.\t{strand}\t.\tID={name};Name={name}\n")
+            out.write(f"{SEQ}\t.\tCDS\t{start}\t{end}\t.\t{strand}\t0\t"
+                      f"Parent={name};transl_table=11\n")
 
 
 def write_calls():

@@ -22,7 +22,12 @@
 //! with room for a letter carries one; leave them out and the ruler is numbers
 //! alone. Which letter a codon gets is [`CodonTrack::genetic_code`]'s to
 //! decide, and it is asked for rather than assumed, because nothing about a
-//! figure translated with the wrong table looks wrong.
+//! figure translated with the wrong table looks wrong. [`ncbi_table`] hands
+//! over any of NCBI's tables by the number a GenBank or GFF3 CDS names it by.
+//!
+//! On the command line this is `--codons`, over the coding sequence of the
+//! gene the figure is placed on, read from the figure's annotation and
+//! translated from its `--sequence`, with `--genetic-code N` for the table.
 
 use crate::scale::Scale;
 use crate::svg::{text_width, Anchor};
@@ -39,6 +44,148 @@ use crate::track::{strand_color, DrawContext, Strand, Track};
 /// mitochondrial and ciliate tables do reassign residues, and
 /// [`CodonTrack::genetic_code`] takes one of those in the same form.
 const RESIDUES: &[u8; 64] = b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
+
+/// Every translation table NCBI lists, by its id, each the `ncbieaa` line of
+/// NCBI's `gc.prt` copied as it stands, in the order [`RESIDUES`] is written in.
+///
+/// Ids 7, 8 and 17 to 20 are missing because NCBI folded them into others and
+/// retired the numbers. A test holds each table to the codons NCBI's notes
+/// say it reassigns and to nothing else, since one wrong letter here
+/// translates a plausible protein that is not the one in the cell.
+const TABLES: &[(u8, &[u8; 64])] = &[
+    (1, RESIDUES),
+    (
+        2,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNKKSS**VVVVAAAADDEEGGGG",
+    ),
+    (
+        3,
+        b"FFLLSSSSYY**CCWWTTTTPPPPHHQQRRRRIIMMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        4,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        5,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNKKSSSSVVVVAAAADDEEGGGG",
+    ),
+    (
+        6,
+        b"FFLLSSSSYYQQCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        9,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNNKSSSSVVVVAAAADDEEGGGG",
+    ),
+    (
+        10,
+        b"FFLLSSSSYY**CCCWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (11, RESIDUES),
+    (
+        12,
+        b"FFLLSSSSYY**CC*WLLLSPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        13,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNKKSSGGVVVVAAAADDEEGGGG",
+    ),
+    (
+        14,
+        b"FFLLSSSSYYY*CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNNKSSSSVVVVAAAADDEEGGGG",
+    ),
+    (
+        15,
+        b"FFLLSSSSYY*QCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        16,
+        b"FFLLSSSSYY*LCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        21,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIMMTTTTNNNKSSSSVVVVAAAADDEEGGGG",
+    ),
+    (
+        22,
+        b"FFLLSS*SYY*LCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        23,
+        b"FF*LSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        24,
+        b"FFLLSSSSYY**CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSSKVVVVAAAADDEEGGGG",
+    ),
+    (
+        25,
+        b"FFLLSSSSYY**CCGWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        26,
+        b"FFLLSSSSYY**CC*WLLLAPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        27,
+        b"FFLLSSSSYYQQCCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        28,
+        b"FFLLSSSSYYQQCCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        29,
+        b"FFLLSSSSYYYYCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        30,
+        b"FFLLSSSSYYEECC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        31,
+        b"FFLLSSSSYYEECCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        32,
+        b"FFLLSSSSYY*WCC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG",
+    ),
+    (
+        33,
+        b"FFLLSSSSYYY*CCWWLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSSKVVVVAAAADDEEGGGG",
+    ),
+];
+
+/// NCBI translation table `id`, as the sixty-four residues
+/// [`CodonTrack::genetic_code`] takes, or `None` for an id NCBI does not list.
+///
+/// The id is the number a GenBank record or an NCBI GFF3 gives a CDS as
+/// `transl_table=`, and the one `--genetic-code` takes on the command line.
+/// Table 11 gives the residues of table 1, since the two differ only in which
+/// codons may start a protein.
+///
+/// Three tables, 27, 28 and 31, let a codon that ends most genes be read as
+/// a residue in the middle of one. Which it is depends on where it sits, which
+/// a table cannot say, so the residue is given, as NCBI's own table gives it.
+///
+/// ```
+/// use karyon::{ncbi_table, CodonTrack, Strand};
+///
+/// // Vertebrate mitochondria read TGA as tryptophan.
+/// let mito = CodonTrack::new(0, 3, Strand::Forward)
+///     .sequence(0, b"TGA".to_vec())
+///     .genetic_code(ncbi_table(2).expect("NCBI lists table 2"));
+/// assert_eq!(mito.residue_of(1), Some(b'W'));
+/// // Table 7 was folded into table 4 and its number retired.
+/// assert_eq!(ncbi_table(7), None);
+/// ```
+pub fn ncbi_table(id: u8) -> Option<&'static [u8; 64]> {
+    TABLES
+        .iter()
+        .find(|(listed, _)| *listed == id)
+        .map(|(_, residues)| *residues)
+}
 
 /// A ruler counting codons across a coding sequence.
 ///
@@ -131,7 +278,8 @@ impl CodonTrack {
     ///
     /// The table is the sixty-four residues in NCBI order, `TTT` `TTC` `TTA`
     /// `TTG` `TCT` and so on to `GGG`, which is the `AAs` line of an NCBI
-    /// translation table copied across unchanged.
+    /// translation table copied across unchanged, and [`ncbi_table`] gives
+    /// every one of them by its number.
     ///
     /// Table 1 is the default and table 11, which bacteria, archaea and plastids
     /// use, gives the same residues, so this is only needed for the codes that
@@ -639,6 +787,126 @@ mod tests {
             RESIDUES,
             b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"
         );
+    }
+
+    /// The table index of a codon written as three letters.
+    fn index(codon: &str) -> usize {
+        codon.bytes().fold(0, |at, base| {
+            at * 4 + code_of(base).expect("a base") as usize
+        })
+    }
+
+    #[test]
+    fn every_table_reassigns_what_ncbi_says_it_does_and_nothing_else() {
+        // Each table's departures from the standard code, from the notes NCBI
+        // publishes beside each one rather than from the tables themselves, so
+        // a letter copied wrong into a table cannot agree with itself here.
+        const REASSIGNED: &[(u8, &[(&str, u8)])] = &[
+            (1, &[]),
+            (
+                2,
+                &[("AGA", b'*'), ("AGG", b'*'), ("ATA", b'M'), ("TGA", b'W')],
+            ),
+            (
+                3,
+                &[
+                    ("ATA", b'M'),
+                    ("CTT", b'T'),
+                    ("CTC", b'T'),
+                    ("CTA", b'T'),
+                    ("CTG", b'T'),
+                    ("TGA", b'W'),
+                ],
+            ),
+            (4, &[("TGA", b'W')]),
+            (
+                5,
+                &[("AGA", b'S'), ("AGG", b'S'), ("ATA", b'M'), ("TGA", b'W')],
+            ),
+            (6, &[("TAA", b'Q'), ("TAG", b'Q')]),
+            (
+                9,
+                &[("AAA", b'N'), ("AGA", b'S'), ("AGG", b'S'), ("TGA", b'W')],
+            ),
+            (10, &[("TGA", b'C')]),
+            (11, &[]),
+            (12, &[("CTG", b'S')]),
+            (
+                13,
+                &[("AGA", b'G'), ("AGG", b'G'), ("ATA", b'M'), ("TGA", b'W')],
+            ),
+            (
+                14,
+                &[
+                    ("AAA", b'N'),
+                    ("AGA", b'S'),
+                    ("AGG", b'S'),
+                    ("TAA", b'Y'),
+                    ("TGA", b'W'),
+                ],
+            ),
+            (15, &[("TAG", b'Q')]),
+            (16, &[("TAG", b'L')]),
+            (
+                21,
+                &[
+                    ("TGA", b'W'),
+                    ("ATA", b'M'),
+                    ("AGA", b'S'),
+                    ("AGG", b'S'),
+                    ("AAA", b'N'),
+                ],
+            ),
+            (22, &[("TCA", b'*'), ("TAG", b'L')]),
+            (23, &[("TTA", b'*')]),
+            (24, &[("AGA", b'S'), ("AGG", b'K'), ("TGA", b'W')]),
+            (25, &[("TGA", b'G')]),
+            (26, &[("CTG", b'A')]),
+            (27, &[("TAA", b'Q'), ("TAG", b'Q'), ("TGA", b'W')]),
+            (28, &[("TAA", b'Q'), ("TAG", b'Q'), ("TGA", b'W')]),
+            (29, &[("TAA", b'Y'), ("TAG", b'Y')]),
+            (30, &[("TAA", b'E'), ("TAG", b'E')]),
+            (31, &[("TAA", b'E'), ("TAG", b'E'), ("TGA", b'W')]),
+            (32, &[("TAG", b'W')]),
+            (
+                33,
+                &[("TAA", b'Y'), ("TGA", b'W'), ("AGA", b'S'), ("AGG", b'K')],
+            ),
+        ];
+        let listed: Vec<u8> = TABLES.iter().map(|(id, _)| *id).collect();
+        let noted: Vec<u8> = REASSIGNED.iter().map(|(id, _)| *id).collect();
+        assert_eq!(
+            listed, noted,
+            "a table with no notes, or notes with no table"
+        );
+        for (id, changes) in REASSIGNED {
+            let table = ncbi_table(*id).unwrap_or_else(|| panic!("table {id}"));
+            let mut expected = *RESIDUES;
+            for (codon, residue) in *changes {
+                expected[index(codon)] = *residue;
+            }
+            for (at, (got, want)) in table.iter().zip(expected.iter()).enumerate() {
+                assert_eq!(*got as char, *want as char, "table {id}, codon {at} of 64");
+            }
+        }
+        for retired in [0, 7, 8, 17, 18, 19, 20, 34, 255] {
+            assert_eq!(ncbi_table(retired), None, "{retired}");
+        }
+    }
+
+    #[test]
+    fn a_table_by_its_number_translates_a_reverse_strand_codon() {
+        // TCA read backwards and complemented is TGA, which table 2 reads as
+        // tryptophan and table 1 as a stop.
+        let reverse = |table: u8| {
+            CodonTrack::new(0, 3, Strand::Reverse)
+                .sequence(0, b"TCA".to_vec())
+                .genetic_code(ncbi_table(table).expect("a table NCBI lists"))
+                .residue_of(1)
+        };
+        assert_eq!(reverse(1), Some(b'*'));
+        assert_eq!(reverse(2), Some(b'W'));
+        assert_eq!(ncbi_table(11), ncbi_table(1));
     }
 
     #[test]

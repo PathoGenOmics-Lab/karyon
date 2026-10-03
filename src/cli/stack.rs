@@ -349,6 +349,89 @@ pub enum BuildError {
     /// been drawn across the genome. Said as the parser says it of a track
     /// whose name tells it, so `karyon genes.bed` is answered as it always was.
     Placeless(crate::cli::args::ArgError),
+    /// A `--codons` with no one unbroken coding sequence to count.
+    ///
+    /// Refused rather than drawn over whatever came nearest: a ruler that
+    /// numbers the wrong stretch names the wrong residue at every codon, and
+    /// looks exactly as right as one that numbers the right stretch.
+    Uncounted(CodonRefusal),
+}
+
+/// Why a `--codons` has no coding sequence to count.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CodonRefusal {
+    /// The figure has no annotation to find a gene in.
+    NoAnnotation,
+    /// The figure is placed on a sequence drawn whole, which is no gene.
+    WholeSequence {
+        /// The sequence.
+        sequence: String,
+    },
+    /// The annotation writes no CDS for the gene the figure is placed on.
+    NoCds {
+        /// The gene, as the annotation spells it.
+        gene: String,
+        /// The annotations, by what they were called.
+        files: Vec<String>,
+    },
+    /// No gene of the annotation codes in the place written.
+    NoneCodes {
+        /// The place, as it was written.
+        place: String,
+        /// The annotations, by what they were called.
+        files: Vec<String>,
+    },
+    /// More than one gene codes in the place.
+    Several {
+        /// The genes.
+        genes: Vec<String>,
+        /// The place, as it was written or named.
+        place: String,
+    },
+    /// The transcripts of one gene code different stretches.
+    Isoforms {
+        /// The gene.
+        gene: String,
+        /// Its transcripts, by their names.
+        transcripts: Vec<String>,
+    },
+    /// The coding sequence is in pieces with introns between them.
+    Spliced {
+        /// The gene.
+        gene: String,
+        /// How many pieces.
+        pieces: usize,
+    },
+    /// The gene is on no strand, so neither end is where it starts.
+    NoStrand {
+        /// The gene.
+        gene: String,
+    },
+    /// The rows of the coding sequence leave the frame they began in, as a
+    /// ribosomal slippage is written: two rows that share bases, or that
+    /// meet with a phase that does not carry the frame on.
+    Frameshift {
+        /// The gene.
+        gene: String,
+        /// The first base read in the new frame, 0-based.
+        at: u64,
+    },
+    /// The coding sequence does not begin on its start codon: its 5'-most
+    /// row has a phase of 1 or 2, or says the CDS goes on past it, as NCBI
+    /// writes a CDS at the edge of a contig.
+    Partial {
+        /// The gene.
+        gene: String,
+        /// The phase of that row, where that is what says so.
+        phase: Option<u8>,
+    },
+    /// The CDS names a translation table NCBI does not list.
+    UnknownTable {
+        /// The gene.
+        gene: String,
+        /// The number its CDS gives.
+        table: u8,
+    },
 }
 
 /// Why a `--shade` has nowhere to go.
@@ -547,6 +630,7 @@ impl fmt::Display for BuildError {
                 },
             },
             BuildError::Placeless(said) => write!(f, "{said}"),
+            BuildError::Uncounted(why) => write!(f, "{why}"),
             BuildError::OtherTrack {
                 track,
                 path,
@@ -753,6 +837,105 @@ fn joined_or(items: &[String]) -> String {
 }
 
 impl std::error::Error for BuildError {}
+
+impl fmt::Display for CodonRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Five names and how many more, since a place as wide as a
+        // chromosome holds thousands of genes and a refusal is one line.
+        let names = |names: &[String], things: &str| {
+            listed_as(
+                &names
+                    .iter()
+                    .map(|name| (name.clone(), 0))
+                    .collect::<Vec<_>>(),
+                things,
+            )
+        };
+        let files = |files: &[String]| names(files, "files");
+        match self {
+            CodonRefusal::NoAnnotation => write!(
+                f,
+                "--codons counts the codons of a gene in the figure's annotation, and the \
+                 figure has none: add the GFF3, GTF or BED that writes its CDS"
+            ),
+            CodonRefusal::WholeSequence { sequence } => write!(
+                f,
+                "--codons counts the codons of one gene, and {sequence} is a whole sequence: \
+                 place the figure on a gene by its name, or on a stretch one gene codes in"
+            ),
+            CodonRefusal::NoCds { gene, files: held } => write!(
+                f,
+                "{gene} has no CDS in {}, and --codons counts from the first base of a CDS, \
+                 which a gene's own span does not say: add the annotation's CDS rows, or a \
+                 BED12 whose thick span is the part that codes",
+                files(held)
+            ),
+            CodonRefusal::NoneCodes { place, files: held } => write!(
+                f,
+                "no gene of {} codes in {place}, and --codons counts the codons of one",
+                files(held)
+            ),
+            CodonRefusal::Several { genes, place } => write!(
+                f,
+                "{} code in {place}, and --codons counts the codons of one gene: place the \
+                 figure on one of them by its name, as karyon {} in place of {place}",
+                names(genes, "genes"),
+                genes.first().map_or("GENE", String::as_str)
+            ),
+            CodonRefusal::Isoforms { gene, transcripts } => write!(
+                f,
+                "the transcripts of {gene}, {}, code different stretches, and --codons counts \
+                 one: place the figure on a transcript by its name, as karyon {} in place of \
+                 {gene}",
+                names(transcripts, "transcripts"),
+                transcripts.first().map_or("TRANSCRIPT", String::as_str)
+            ),
+            CodonRefusal::Spliced { gene, pieces } => write!(
+                f,
+                "{gene} codes in {pieces} pieces with introns between them, and --codons \
+                 counts one unbroken coding sequence: across the introns it would number \
+                 bases that are never translated"
+            ),
+            CodonRefusal::NoStrand { gene } => write!(
+                f,
+                "{gene} is on no strand, and --codons counts from its start codon, which the \
+                 strand puts at one end or the other: write + or - in the strand column of \
+                 its rows"
+            ),
+            CodonRefusal::Frameshift { gene, at } => write!(
+                f,
+                "the CDS of {gene} changes frame at {}, where its rows overlap or meet out \
+                 of frame, as a ribosomal slippage is written, and --codons counts codons in \
+                 one frame: past {0} it would number every codon in the frame the ribosome \
+                 left",
+                crate::track::axis::group_thousands(at.saturating_add(1))
+            ),
+            CodonRefusal::Partial {
+                gene,
+                phase: Some(phase),
+            } => write!(
+                f,
+                "the CDS of {gene} has phase {phase}, so its first {} {} a codon that begins \
+                 before it and the annotation does not hold its start codon, and --codons \
+                 counts from the start codon: every codon would be numbered from one that is \
+                 not the first",
+                if *phase == 1 { "base" } else { "2 bases" },
+                if *phase == 1 { "ends" } else { "end" },
+            ),
+            CodonRefusal::Partial { gene, phase: None } => write!(
+                f,
+                "the CDS of {gene} is written as partial at its 5' end, so the annotation \
+                 does not hold its start codon, and --codons counts from the start codon: \
+                 every codon would be numbered from one that is not the first"
+            ),
+            CodonRefusal::UnknownTable { gene, table } => write!(
+                f,
+                "the CDS of {gene} names translation table {table}, which NCBI does not list; \
+                 --genetic-code N says which table to read it with"
+            ),
+        }
+    }
+}
 
 /// Builds the figure the command line asked for and renders it.
 ///
@@ -1117,6 +1300,20 @@ fn build_one(
                 axis = axis.adjust(|track| track.height(height));
             }
             plot = axis.done();
+            continue;
+        }
+        // The codon ruler reads no file either: its gene is the annotation's
+        // and its letters the reference's, so it is built from the figure.
+        if spec.kind == Kind::Codons {
+            let ruler = codons(
+                spec,
+                invocation,
+                placed.as_ref(),
+                region,
+                reference.as_ref(),
+                files,
+            )?;
+            plot = plot.add_boxed(ruler);
             continue;
         }
         let genotyped = invocation
@@ -2354,6 +2551,9 @@ struct Placed {
     region: Region,
     /// The gene's name as its annotation spells it, where the place is a gene.
     gene: Option<String>,
+    /// Where the gene is, without the margin the figure is drawn with,
+    /// 0-based and half-open: every row going by its name, merged.
+    extent: Option<(u64, u64)>,
     /// The file whose rows reach furthest, where no file says how long the
     /// sequence is and the figure ends where the rows do.
     reached: Option<String>,
@@ -2515,6 +2715,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
         return Ok(Placed {
             region,
             gene: None,
+            extent: None,
             reached: None,
         });
     }
@@ -2543,6 +2744,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 region,
                 reached: None,
                 gene: Some(spelled.unwrap_or_else(|| name.to_string())),
+                extent: Some((*start, *end)),
             });
         }
         [] => {}
@@ -2582,6 +2784,7 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
             return Ok(Placed {
                 region,
                 gene: None,
+                extent: None,
                 reached: Some(file),
             });
         }
@@ -2655,6 +2858,444 @@ fn annotation_within(files: &mut dyn Files, source: &Source, most: u64) -> Optio
         Ok(Some(_)) => None,
         _ => files.text(source).ok(),
     }
+}
+
+/// The codon ruler `--codons` asks for.
+///
+/// Over the coding sequence of the gene the figure is placed on, or of the one
+/// gene that codes in the place written, as the figure's annotations write it:
+/// each transcript read for what it codes, and the one stretch every
+/// transcript of the gene agrees on. The place written and not the window
+/// drawn, so a page that moves the window keeps counting the gene it started
+/// on, as a figure placed by a gene's name keeps its title wherever it is
+/// moved to. Translated with the table `--genetic-code` names, or the one the
+/// CDS names, or the standard one, from the figure's reference where it has
+/// one, and numbers alone where it has none.
+fn codons(
+    spec: &TrackSpec,
+    invocation: &Invocation,
+    placed: Option<&Placed>,
+    region: &Region,
+    reference: Option<&Source>,
+    files: &mut dyn Files,
+) -> Result<Box<dyn Track>, BuildError> {
+    /// One transcript that codes: its rows where they fall on its exons, the
+    /// stretches they make, the annotation it is in, the text it was read
+    /// from, and the name of the sequence it is on there.
+    struct Model {
+        feature: crate::Feature,
+        rows: Vec<read::interval::CdsRow>,
+        pieces: Vec<(u64, u64)>,
+        file: usize,
+        text: usize,
+        sequence: String,
+    }
+    let refuse = BuildError::Uncounted;
+    // A gene placed by its name is looked for inside its own rows, and a
+    // place written is looked through for the one gene that codes in it.
+    let (sequence, start, end, gene, place) = match (placed, &invocation.region) {
+        (Some(placed), _) => match (&placed.gene, placed.extent) {
+            (Some(gene), Some((start, end))) => (
+                placed.region.seq().to_string(),
+                start,
+                end,
+                Some(gene.clone()),
+                gene.clone(),
+            ),
+            _ => {
+                return Err(refuse(CodonRefusal::WholeSequence {
+                    sequence: placed.region.seq().to_string(),
+                }))
+            }
+        },
+        (None, Some(written)) => (
+            written.seq().to_string(),
+            written.start(),
+            written.end(),
+            None,
+            written.to_string(),
+        ),
+        (None, None) => {
+            return Err(BuildError::Placeless(
+                crate::cli::args::ArgError::CodonsWithoutPlace,
+            ))
+        }
+    };
+
+    // The texts the models were read from: an annotation's window, read
+    // through the index beside it, or the whole of it.
+    let mut texts: Vec<String> = Vec::new();
+    let mut annotations: Vec<String> = Vec::new();
+    let mut models: Vec<Model> = Vec::new();
+    let mut unread: Option<&Source> = None;
+    for track in &invocation.tracks {
+        if track.kind != Kind::Features {
+            continue;
+        }
+        let Some(source) = track.source.as_ref() else {
+            continue;
+        };
+        let path = called(source);
+        // A `.bed` named on its own that turns out to be a signal is no
+        // annotation, and a file that will not open is said below, where the
+        // ruler would otherwise say the figure had no annotation at all.
+        let signal = |text: &str| track.guessed && refine(track.kind, text).is_some();
+        let mut whole: Option<usize> = None;
+        let mut annotated = false;
+        for alias in called_by(invocation, &sequence) {
+            let Ok(over) = Region::new(alias, start, end.max(start + 1)) else {
+                continue;
+            };
+            // Through the index beside the file where its own track reads its
+            // window through one: a place of a few hundred bases is a few
+            // blocks of an annotation of a whole genome, and read whole, it
+            // cost the time and the memory of every row of every gene to
+            // number a hundred codons. A row the window's reader refuses is
+            // read again whole, so the refusal names its line in the file,
+            // and so is a window holding a CDS under nothing, whose other
+            // pieces need not be over it.
+            let mut found = None;
+            if let Ok(window) = windowed(track, &over, files, source) {
+                if signal(window.probe.as_deref().unwrap_or(&window.text)) {
+                    break;
+                }
+                let read = read::interval::coding(&window.text, &over, track.format);
+                if let (Ok(read), false) = (read, read::interval::pieced(&window.text, alias)) {
+                    texts.push(window.text);
+                    found = Some((read, texts.len() - 1));
+                }
+            }
+            let (read, text) = match found {
+                Some(found) => found,
+                None => {
+                    let text = match whole {
+                        Some(text) => text,
+                        None => {
+                            let Some(text) = annotation(files, source) else {
+                                unread = unread.or(Some(source));
+                                break;
+                            };
+                            if signal(&text) {
+                                break;
+                            }
+                            texts.push(text);
+                            *whole.insert(texts.len() - 1)
+                        }
+                    };
+                    // A broken row is said as its own track says it, since
+                    // the ruler may be built first and a gene with no CDS is
+                    // not what is wrong.
+                    let read = wrap(
+                        Kind::Features.flag(),
+                        &path,
+                        read::interval::coding(&texts[text], &over, track.format),
+                    )?;
+                    (read, text)
+                }
+            };
+            annotated = true;
+            models.extend(read.into_iter().map(|cds| {
+                let rows = coded(&cds);
+                Model {
+                    pieces: stretches(&rows),
+                    rows,
+                    feature: cds.feature,
+                    file: annotations.len(),
+                    text,
+                    sequence: alias.to_string(),
+                }
+            }));
+        }
+        if annotated {
+            annotations.push(path);
+        }
+    }
+    if annotations.is_empty() {
+        if let Some(source) = unread {
+            fetch(Kind::Features.flag(), source, files)?;
+        }
+        return Err(refuse(CodonRefusal::NoAnnotation));
+    }
+
+    // A gene's own rows hold every transcript of it, so a transcript coding
+    // outside them is another gene's; a place written holds whatever codes
+    // in it, if only a codon.
+    let mut chosen: Vec<&Model> = models
+        .iter()
+        .filter(|model| match gene {
+            Some(_) => {
+                !model.pieces.is_empty()
+                    && model
+                        .pieces
+                        .iter()
+                        .all(|&(from, to)| from >= start && to <= end)
+            }
+            None => model
+                .pieces
+                .iter()
+                .any(|&(from, to)| from < end && to > start),
+        })
+        .collect();
+    let agree = |models: &[&Model]| {
+        models.iter().all(|model| {
+            model.pieces == models[0].pieces && model.feature.strand == models[0].feature.strand
+        })
+    };
+    // A gene in the intron of the one asked for is inside its rows too, and
+    // the name tells the two apart.
+    if let Some(gene) = &gene {
+        if !agree(&chosen) {
+            let named: Vec<&Model> = chosen
+                .iter()
+                .copied()
+                .filter(|model| {
+                    [&model.feature.name, &model.feature.gene]
+                        .into_iter()
+                        .flatten()
+                        .any(|name| name.eq_ignore_ascii_case(gene))
+                })
+                .collect();
+            if !named.is_empty() {
+                chosen = named;
+            }
+        }
+    }
+    let called_as = |model: &Model| {
+        model
+            .feature
+            .gene
+            .clone()
+            .or_else(|| model.feature.name.clone())
+            .unwrap_or_else(|| {
+                Region::new(&model.sequence, model.feature.start, model.feature.end)
+                    .map_or_else(|_| model.sequence.clone(), |at| at.to_string())
+            })
+    };
+    let Some(first) = chosen.first().copied() else {
+        // A place written over one gene that the annotation writes no CDS
+        // for is that gene's want of one, which is the thing to say. Every
+        // model read touches the place; one that codes elsewhere, as a gene
+        // whose untranslated end is all the place holds, has a CDS, and the
+        // place is merely not on it.
+        let mut uncoded: Vec<String> = Vec::new();
+        for model in &models {
+            let own = called_as(model);
+            if !uncoded.contains(&own) {
+                uncoded.push(own);
+            }
+        }
+        if models.iter().any(|model| !model.pieces.is_empty()) {
+            uncoded.clear();
+        }
+        return Err(refuse(match (gene, uncoded.as_slice()) {
+            (Some(gene), _) => CodonRefusal::NoCds {
+                gene,
+                files: annotations,
+            },
+            (None, [only]) => CodonRefusal::NoCds {
+                gene: only.clone(),
+                files: annotations,
+            },
+            (None, _) => CodonRefusal::NoneCodes {
+                place,
+                files: annotations,
+            },
+        }));
+    };
+    if !agree(&chosen) {
+        let mut genes: Vec<String> = Vec::new();
+        let mut transcripts: Vec<String> = Vec::new();
+        for model in &chosen {
+            let own = called_as(model);
+            if !genes.contains(&own) {
+                genes.push(own);
+            }
+            if let Some(name) = &model.feature.name {
+                if !transcripts.contains(name) {
+                    transcripts.push(name.clone());
+                }
+            }
+        }
+        return Err(refuse(if genes.len() > 1 {
+            CodonRefusal::Several { genes, place }
+        } else {
+            CodonRefusal::Isoforms {
+                gene: gene.unwrap_or_else(|| genes.swap_remove(0)),
+                transcripts,
+            }
+        }));
+    }
+    let name = gene.unwrap_or_else(|| called_as(first));
+    if first.pieces.len() > 1 {
+        return Err(refuse(CodonRefusal::Spliced {
+            gene: name,
+            pieces: first.pieces.len(),
+        }));
+    }
+    let strand = first.feature.strand;
+    if !matches!(strand, crate::Strand::Forward | crate::Strand::Reverse) {
+        return Err(refuse(CodonRefusal::NoStrand { gene: name }));
+    }
+    if let Some(at) = frameshift(&first.rows, strand) {
+        return Err(refuse(CodonRefusal::Frameshift { gene: name, at }));
+    }
+    // Codon 1 is the start codon only where the CDS begins on one, which its
+    // 5'-most row says: the first of them forwards and the last backwards.
+    let five = if strand == crate::Strand::Reverse {
+        first.rows.last()
+    } else {
+        first.rows.first()
+    };
+    if let Some(five) = five {
+        let phase = five.phase.filter(|phase| *phase > 0);
+        if phase.is_some() || five.partial {
+            return Err(refuse(CodonRefusal::Partial { gene: name, phase }));
+        }
+    }
+    let (from, to) = first.pieces[0];
+
+    // The table the flag names, or else the one the CDS names, and the
+    // standard one where neither names any.
+    let named = read::interval::translation_table(&texts[first.text], &first.sequence, from, to);
+    let table = match (spec.genetic_code, named) {
+        (Some(asked), Some(named)) if asked != named => {
+            files.note(&format!(
+                "--genetic-code {asked} reads {name}, whose CDS in {} names table {named}",
+                annotations[first.file]
+            ));
+            asked
+        }
+        (Some(asked), _) => asked,
+        (None, Some(named)) => named,
+        (None, None) => 1,
+    };
+    let Some(residues) = crate::track::codon::ncbi_table(table) else {
+        return Err(refuse(CodonRefusal::UnknownTable { gene: name, table }));
+    };
+    let left = (to - from) % 3;
+    if left > 0 {
+        files.note(&format!(
+            "the last {} of the CDS of {name} {} not a whole codon, and {} left off the ruler",
+            if left == 1 { "base" } else { "2 bases" },
+            if left == 1 { "is" } else { "are" },
+            if left == 1 { "is" } else { "are" },
+        ));
+    }
+
+    let mut ruler = crate::CodonTrack::new(from, to, strand)
+        .genetic_code(residues)
+        .label(spec.label.clone().unwrap_or_else(|| name.clone()));
+    if let Some(color) = &spec.color {
+        ruler = ruler.color(color);
+    }
+    // The letters of a codon half in the window are worth reading, so the
+    // bases are read two past either edge. A reference that will not give
+    // them leaves the ruler numbers alone, and its own track says why.
+    if let Some(source) = reference {
+        for alias in called_by(invocation, region.seq()) {
+            let Ok(wide) = Region::new(
+                alias,
+                region.start().saturating_sub(2),
+                region.end().saturating_add(2),
+            ) else {
+                continue;
+            };
+            let read = second_sequence(Kind::Sequence.flag(), source, &wide, files)
+                .and_then(|reference| reference.clip(&wide));
+            if let Ok((at, bases)) = read {
+                ruler = ruler.sequence(at, bases);
+                break;
+            }
+        }
+    }
+    Ok(Box::new(ruler))
+}
+
+/// The rows of a transcript's CDS where they fall on its exons, as they are
+/// translated, which for a BED12 is its thick span cut by its blocks, in the
+/// order of their starts. A piece whose 5' end is not its row's, cut out of
+/// the row by an intron, keeps neither the row's phase nor its word that the
+/// CDS goes on past it, which are said of the row's 5' end.
+fn coded(cds: &read::interval::Cds) -> Vec<read::interval::CdsRow> {
+    let exons = &cds.feature.exons;
+    if exons.is_empty() {
+        return cds.rows.clone();
+    }
+    let reverse = cds.feature.strand == crate::Strand::Reverse;
+    let mut pieces = Vec::new();
+    for row in &cds.rows {
+        for &(start, end) in exons {
+            let (lo, hi) = (row.start.max(start), row.end.min(end));
+            if lo >= hi {
+                continue;
+            }
+            let five = if reverse {
+                hi == row.end
+            } else {
+                lo == row.start
+            };
+            pieces.push(read::interval::CdsRow {
+                start: lo,
+                end: hi,
+                phase: row.phase.filter(|_| five),
+                partial: row.partial && five,
+            });
+        }
+    }
+    pieces.sort_unstable_by_key(|row| (row.start, row.end));
+    pieces
+}
+
+/// The stretches the rows of a CDS cover, in order and apart: the rows
+/// joined where they touch or overlap, which is how far they reach and not
+/// how they are read.
+fn stretches(rows: &[read::interval::CdsRow]) -> Vec<(u64, u64)> {
+    let mut joined: Vec<(u64, u64)> = Vec::new();
+    for row in rows {
+        match joined.last_mut() {
+            Some(last) if row.start <= last.1 => last.1 = last.1.max(row.end),
+            _ => joined.push((row.start, row.end)),
+        }
+    }
+    joined
+}
+
+/// Where the rows of a CDS, read from its 5' end, leave the frame they
+/// began in, 0-based: the first base read of a row that overlaps the one
+/// before it, as NCBI writes a ribosomal slippage, two rows sharing a base,
+/// or that meets it with a phase that does not carry its frame on. `None`
+/// for rows read in one frame from end to end.
+///
+/// Joined into one stretch, as a drawing joins them, two rows that share a
+/// base count it once where the ribosome reads it twice, and every codon
+/// past the slip was numbered in the frame the ribosome left.
+fn frameshift(rows: &[read::interval::CdsRow], strand: crate::Strand) -> Option<u64> {
+    let reverse = strand == crate::Strand::Reverse;
+    let mut order: Vec<&read::interval::CdsRow> = rows.iter().collect();
+    if reverse {
+        order.reverse();
+    }
+    let mut read = 0u64;
+    let mut last: Option<&read::interval::CdsRow> = None;
+    for row in order {
+        if let Some(last) = last {
+            let (overlaps, meets) = if reverse {
+                (row.end > last.start, row.end == last.start)
+            } else {
+                (row.start < last.end, row.start == last.end)
+            };
+            // The bases of this row that finish the codon the rows before it
+            // left open.
+            let carried = (3 - read % 3) % 3;
+            let shifts = meets && row.phase.is_some_and(|phase| u64::from(phase) != carried);
+            if overlaps || shifts {
+                return Some(if reverse { row.end - 1 } else { row.start });
+            }
+        }
+        read += row.end - row.start;
+        last = Some(row);
+    }
+    None
 }
 
 /// The refusal of a name no file of the figure has, with the genes named
@@ -7163,6 +7804,7 @@ fn built(
             Box::new(named(track, label, SquiggleTrack::label))
         }
         Kind::Axis => unreachable!("the ruler is added by build"),
+        Kind::Codons => unreachable!("the codon ruler is built by build_one"),
     };
     Ok(built)
 }
@@ -14632,5 +15274,648 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
         )
         .unwrap();
         assert!(drawn == committed, "the Start here figure changed");
+    }
+
+    /// Two genes, one either way round, each written as a gene over its CDS
+    /// as NCBI writes a gene with no introns.
+    const CODING: &str = "##gff-version 3
+chr1\t.\tgene\t1001\t1300\t.\t+\t.\tID=gF;Name=geneF
+chr1\t.\tCDS\t1001\t1300\t.\t+\t0\tParent=gF
+chr1\t.\tgene\t2001\t2300\t.\t-\t.\tID=gR;Name=geneR
+chr1\t.\tCDS\t2001\t2300\t.\t-\t0\tParent=gR
+";
+
+    /// Three kilobases of C with the first two codons of each gene written
+    /// in: ATG and TGA, read forwards from base 1,001 and backwards from base
+    /// 2,300, so the second codon is a stop or a tryptophan by the table.
+    fn coding_reference() -> String {
+        let mut bases = vec![b'C'; 3_000];
+        bases[1_000..1_006].copy_from_slice(b"ATGTGA");
+        bases[2_294..2_300].copy_from_slice(b"TCACAT");
+        format!(">chr1\n{}\n", String::from_utf8(bases).unwrap())
+    }
+
+    /// The figure `line` draws from the two genes and their reference, and
+    /// what it noted, less what the reference says of its own letters.
+    fn coded(line: &str, genes: &str) -> (Result<String, BuildError>, Vec<String>) {
+        let reference = coding_reference();
+        let (drawn, notes) = drawn_noting(line, &[("genes.gff3", genes), ("ref.fa", &reference)]);
+        let notes = notes
+            .into_iter()
+            .filter(|note| !note.starts_with("the bases are blocks of colour"))
+            .collect();
+        (drawn, notes)
+    }
+
+    #[test]
+    fn codons_on_a_gene_placed_figure_count_from_its_start_codon() {
+        let (drawn, notes) = coded("geneF genes.gff3 ref.fa --codons", CODING);
+        let svg = drawn.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(
+            svg.contains("<title>codon 1, 1,001 to 1,003, M</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>codon 2, 1,004 to 1,006, *</title>"));
+        assert!(svg.contains("<title>codon 100, 1,298 to 1,300, P</title>"));
+        assert!(!svg.contains("<title>codon 101,"), "a codon past the CDS");
+        // Named for the gene, in the gutter: once more than the figure
+        // without the ruler names it, in its title and on the gene.
+        let without = coded("geneF genes.gff3 ref.fa", CODING).0.unwrap();
+        assert_eq!(
+            svg.matches(">geneF</text>").count(),
+            without.matches(">geneF</text>").count() + 1,
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn codons_on_a_reverse_gene_count_right_to_left() {
+        let svg = coded("geneR genes.gff3 ref.fa --codons", CODING).0.unwrap();
+        // Codon 1 is at the highest coordinate, read off the other strand.
+        assert!(
+            svg.contains("<title>codon 1, 2,298 to 2,300, M</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains("<title>codon 2, 2,295 to 2,297, *</title>"));
+        assert!(svg.contains("<title>codon 100, 2,001 to 2,003, G</title>"));
+    }
+
+    #[test]
+    fn codons_in_a_written_place_take_the_one_gene_coding_there() {
+        let svg = coded("chr1:1101-1200 genes.gff3 ref.fa --codons", CODING)
+            .0
+            .unwrap();
+        assert!(
+            svg.contains("<title>codon 35, 1,103 to 1,105, P</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains(">geneF</text>"));
+        // A codon half in the window has its letter, from the bases read
+        // past either edge of it: base 1,100 on the left, 1,201 on the right.
+        assert!(
+            svg.contains("<title>codon 34, 1,100 to 1,102, P</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>codon 67, 1,199 to 1,201, P</title>"),
+            "{svg}"
+        );
+    }
+
+    /// A page that moves the window runs the command it was given over the
+    /// window it moved to, and the ruler keeps counting the gene of the place
+    /// written, though the window is now past the end of it.
+    #[test]
+    fn codons_keep_the_gene_of_the_place_written_wherever_the_window_goes() {
+        let line: Vec<String> = "chr1:1101-1200 genes.gff3 --codons"
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        let Request::Draw(invocation) = parse(&line).unwrap() else {
+            unreachable!("a figure")
+        };
+        let mut files = Held::new();
+        files.insert("genes.gff3", CODING);
+        let mut moved = |to: &str| {
+            let to = Region::parse(to).unwrap();
+            build_figure(
+                &invocation,
+                &mut files,
+                |_, _| None,
+                Theme::light(),
+                Some(&to),
+            )
+            .unwrap()
+            .figure
+            .to_svg()
+        };
+        let svg = moved("chr1:1251-1350");
+        assert!(
+            svg.contains("<title>codon 100, 1,298 to 1,300</title>"),
+            "{svg}"
+        );
+        // Moved onto the other gene, the ruler is still geneF's, and none of
+        // it is in view.
+        let svg = moved("chr1:2001-2100");
+        assert!(!svg.contains("<title>codon"), "{svg}");
+    }
+
+    #[test]
+    fn codons_in_a_place_two_genes_code_in_are_refused_naming_both() {
+        let error = coded("chr1:1201-2100 genes.gff3 --codons", CODING)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::Several { genes, .. })
+                if genes == &["geneF", "geneR"]),
+            "{error:?}"
+        );
+        let said = error.to_string();
+        assert!(said.starts_with("geneF and geneR code in chr1:"), "{said}");
+        assert!(said.contains("as karyon geneF in place of"), "{said}");
+        // The ruler first, as the annotation would refuse a place it has
+        // nothing in before the ruler was asked.
+        let none = coded("chr1:1501-1800 --codons genes.gff3", CODING)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(none, BuildError::Uncounted(CodonRefusal::NoneCodes { .. })),
+            "{none:?}"
+        );
+        // A place on a gene's untranslated end is on a gene that has a CDS,
+        // just not there.
+        let leader = CODING.replacen("gene\t1001\t1300", "gene\t901\t1300", 1);
+        let error = coded("chr1:911-990 --codons genes.gff3", &leader)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::NoneCodes { place, files })
+                if place == "chr1:911-990" && files == &["genes.gff3"]),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn codons_without_an_annotation_or_a_gene_are_refused() {
+        let error = coded("chr1:1101-1200 ref.fa --codons", CODING)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(error, BuildError::Uncounted(CodonRefusal::NoAnnotation)),
+            "{error:?}"
+        );
+        // A sequence drawn whole is a place and no gene.
+        let error = coded("chr1 genes.gff3 ref.fa --codons", CODING)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::WholeSequence { sequence })
+                if sequence == "chr1"),
+            "{error:?}"
+        );
+    }
+
+    /// A gene row alone says where a gene is and not where it starts coding,
+    /// whether the figure is placed on it by name or over a stretch of it.
+    #[test]
+    fn codons_of_a_gene_with_no_cds_are_refused() {
+        let genes = "##gff-version 3\nchr1\t.\tgene\t1001\t1300\t.\t+\t.\tID=gF;Name=geneF\n";
+        for line in [
+            "geneF genes.gff3 --codons",
+            "chr1:1101-1200 genes.gff3 --codons",
+        ] {
+            let error = coded(line, genes).0.unwrap_err();
+            assert!(
+                matches!(&error, BuildError::Uncounted(CodonRefusal::NoCds { gene, files })
+                    if gene == "geneF" && files == &["genes.gff3"]),
+                "{line}: {error:?}"
+            );
+            assert!(error
+                .to_string()
+                .starts_with("geneF has no CDS in genes.gff3"));
+        }
+    }
+
+    #[test]
+    fn a_cds_split_by_an_intron_is_refused_as_spliced() {
+        let genes = "##gff-version 3
+chr1\t.\tgene\t1001\t2000\t.\t+\t.\tID=g1;Name=split
+chr1\t.\tmRNA\t1001\t2000\t.\t+\t.\tID=t1;Parent=g1
+chr1\t.\texon\t1001\t1300\t.\t+\t.\tParent=t1
+chr1\t.\texon\t1701\t2000\t.\t+\t.\tParent=t1
+chr1\t.\tCDS\t1001\t1300\t.\t+\t0\tParent=t1
+chr1\t.\tCDS\t1701\t1800\t.\t+\t0\tParent=t1
+";
+        let error = coded("split genes.gff3 --codons", genes).0.unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::Spliced { gene, pieces: 2 })
+                if gene == "split"),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("introns"), "{error}");
+        // A BED12 says the same with its thick span across its blocks.
+        let bed = "chr1\t1000\t2000\tsplit\t0\t+\t1000\t1800\t0\t2\t300,300,\t0,700,\n";
+        let error = drawn_from("split genes.bed --codons", &[("genes.bed", bed)]).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                BuildError::Uncounted(CodonRefusal::Spliced { pieces: 2, .. })
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn transcripts_that_code_different_stretches_are_refused_naming_them() {
+        let genes = "##gff-version 3
+chr1\t.\tgene\t1001\t1300\t.\t+\t.\tID=g1;Name=geneF
+chr1\t.\tmRNA\t1001\t1300\t.\t+\t.\tID=t1;Name=geneF-201;Parent=g1
+chr1\t.\tCDS\t1001\t1300\t.\t+\t0\tParent=t1
+chr1\t.\tmRNA\t1001\t1300\t.\t+\t.\tID=t2;Name=geneF-202;Parent=g1
+chr1\t.\tCDS\t1031\t1300\t.\t+\t0\tParent=t2
+";
+        let error = coded("geneF genes.gff3 --codons", genes).0.unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::Isoforms { gene, transcripts })
+                if gene == "geneF" && transcripts == &["geneF-201", "geneF-202"]),
+            "{error:?}"
+        );
+        // Placed on one of them by its name, it is counted.
+        let svg = coded("geneF-202 genes.gff3 ref.fa --codons", genes)
+            .0
+            .unwrap();
+        assert!(
+            svg.contains("<title>codon 1, 1,031 to 1,033, P</title>"),
+            "{svg}"
+        );
+    }
+
+    #[test]
+    fn codons_translate_with_the_table_the_cds_names_unless_told_otherwise() {
+        let four = CODING.replacen("Parent=gF", "Parent=gF;transl_table=4", 1);
+        let (drawn, notes) = coded("geneF genes.gff3 ref.fa --codons", &four);
+        let svg = drawn.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(
+            svg.contains("<title>codon 2, 1,004 to 1,006, W</title>"),
+            "{svg}"
+        );
+        // The flag wins, and says what it overruled.
+        let (drawn, notes) = coded("geneF genes.gff3 ref.fa --codons --genetic-code 1", &four);
+        assert!(drawn
+            .unwrap()
+            .contains("<title>codon 2, 1,004 to 1,006, *</title>"));
+        assert_eq!(
+            notes,
+            ["--genetic-code 1 reads geneF, whose CDS in genes.gff3 names table 4"]
+        );
+        // And reaches a gene whose CDS names none.
+        let svg = coded("geneR genes.gff3 ref.fa --codons --genetic-code 2", CODING)
+            .0
+            .unwrap();
+        assert!(
+            svg.contains("<title>codon 2, 2,295 to 2,297, W</title>"),
+            "{svg}"
+        );
+        // A table NCBI retired is refused rather than read as the standard one.
+        let seven = CODING.replacen("Parent=gF", "Parent=gF;transl_table=7", 1);
+        let error = coded("geneF genes.gff3 ref.fa --codons", &seven)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                BuildError::Uncounted(CodonRefusal::UnknownTable { table: 7, .. })
+            ),
+            "{error:?}"
+        );
+        assert!(
+            coded("geneF genes.gff3 ref.fa --codons --genetic-code 4", &seven)
+                .0
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_cds_that_is_not_whole_codons_says_what_is_left_off() {
+        let short = CODING.replacen("1300\t.\t+\t0\tParent=gF", "1299\t.\t+\t0\tParent=gF", 1);
+        let (drawn, notes) = coded("geneF genes.gff3 --codons", &short);
+        let svg = drawn.unwrap();
+        assert_eq!(
+            notes,
+            [
+                "the last 2 bases of the CDS of geneF are not a whole codon, and are left off \
+              the ruler"
+            ]
+        );
+        assert!(
+            svg.contains("<title>codon 99, 1,295 to 1,297</title>"),
+            "{svg}"
+        );
+        assert!(!svg.contains("<title>codon 100,"), "{svg}");
+    }
+
+    #[test]
+    fn a_gene_on_no_strand_is_refused() {
+        let unstranded = CODING.replace("\t+\t", "\t.\t");
+        let error = coded("geneF genes.gff3 --codons", &unstranded)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(error, BuildError::Uncounted(CodonRefusal::NoStrand { .. })),
+            "{error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .ends_with(": write + or - in the strand column of its rows"),
+            "{error}"
+        );
+    }
+
+    /// The table, the colour and the label each reach the ruler.
+    #[test]
+    fn a_codon_ruler_takes_its_label_and_its_colour() {
+        let svg = coded(
+            "geneF genes.gff3 --codons --label residues --color #d55e00",
+            CODING,
+        )
+        .0
+        .unwrap();
+        assert!(svg.contains(">residues</text>"), "{svg}");
+        assert!(svg.contains("#d55e00"), "{svg}");
+    }
+
+    /// An annotation that will not open, or will not read, is said as its
+    /// own track says it, though the ruler is built first: the ruler's want
+    /// of a gene is not what is wrong.
+    #[test]
+    fn a_codon_ruler_first_says_what_is_wrong_with_the_annotation() {
+        let error = coded("chr1:1101-1200 --codons nowhere.gff3", CODING)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Open { track: "features", path, .. }
+                if path == "nowhere.gff3"),
+            "{error:?}"
+        );
+        let broken = "##gff-version 3\nchr1\t.\tgene\t1001\tlots\t.\t+\t.\tID=g\n";
+        let error = coded("chr1:1101-1200 --codons genes.gff3", broken)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Parse { track: "features", path, .. }
+                if path == "genes.gff3"),
+            "{error:?}"
+        );
+    }
+
+    /// A CDS that does not begin on a codon, by its phase or by NCBI's word
+    /// that it goes on past its 5' end, has no start codon in the annotation
+    /// to count from, and is refused on either strand rather than numbered
+    /// from its first base: phase 1 here puts the first codon, ATG, at base
+    /// 1,001, and on the reverse strand at 2,298, one base in from the end.
+    #[test]
+    fn a_cds_that_does_not_begin_on_its_start_codon_is_refused() {
+        let phased = "##gff-version 3
+chr1\t.\tgene\t1000\t1300\t.\t+\t.\tID=gF;Name=geneF
+chr1\t.\tCDS\t1000\t1300\t.\t+\t1\tParent=gF;partial=true
+chr1\t.\tgene\t2001\t2301\t.\t-\t.\tID=gR;Name=geneR
+chr1\t.\tCDS\t2001\t2301\t.\t-\t1\tParent=gR;partial=true
+";
+        for line in [
+            "geneF genes.gff3 ref.fa --codons",
+            "chr1:1000-1020 genes.gff3 ref.fa --codons",
+            "geneR genes.gff3 ref.fa --codons",
+            "chr1:2280-2301 genes.gff3 ref.fa --codons",
+        ] {
+            let error = coded(line, phased).0.unwrap_err();
+            assert!(
+                matches!(
+                    &error,
+                    BuildError::Uncounted(CodonRefusal::Partial { phase: Some(1), .. })
+                ),
+                "{line}: {error:?}"
+            );
+            assert!(
+                error
+                    .to_string()
+                    .contains("has phase 1, so its first base ends a codon that begins before it"),
+                "{error}"
+            );
+        }
+        // Phase 0 and a 5' end NCBI marks as going on past the contig.
+        let ranged = CODING.replacen("Parent=gF", "Parent=gF;partial=true;start_range=.,1001", 1);
+        let error = coded("geneF genes.gff3 ref.fa --codons", &ranged)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                BuildError::Uncounted(CodonRefusal::Partial { phase: None, .. })
+            ),
+            "{error:?}"
+        );
+        let ranged = CODING.replacen("Parent=gR", "Parent=gR;partial=true;end_range=2300,.", 1);
+        assert!(coded("geneR genes.gff3 ref.fa --codons", &ranged)
+            .0
+            .is_err());
+        // A 3' end cut short still starts on its start codon.
+        let open = CODING.replacen("Parent=gF", "Parent=gF;partial=true;end_range=1300,.", 1);
+        let svg = coded("geneF genes.gff3 ref.fa --codons", &open).0.unwrap();
+        assert!(
+            svg.contains("<title>codon 1, 1,001 to 1,003, M</title>"),
+            "{svg}"
+        );
+    }
+
+    /// NCBI writes a ribosomal slippage as CDS rows that share a base.
+    /// Joined into one stretch, it was counted straight through, and every
+    /// codon past the slip was in the frame the ribosome left, with no word
+    /// of it.
+    #[test]
+    fn cds_rows_that_shift_the_frame_are_refused_where_they_shift_it() {
+        let slipped = "##gff-version 3
+chr1\t.\tgene\t1001\t1600\t.\t+\t.\tID=gene-1;Name=gag-pol
+chr1\t.\tCDS\t1001\t1150\t.\t+\t0\tID=cds-1;Parent=gene-1;exception=ribosomal slippage
+chr1\t.\tCDS\t1150\t1600\t.\t+\t0\tID=cds-1;Parent=gene-1
+chr1\t.\tgene\t1001\t1250\t.\t+\t.\tID=gene-2;Name=gag
+chr1\t.\tCDS\t1001\t1250\t.\t+\t0\tParent=gene-2
+";
+        let error = coded("gag-pol genes.gff3 ref.fa --codons", slipped)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::Frameshift { gene, at: 1_149 })
+                if gene == "gag-pol"),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().starts_with(
+                "the CDS of gag-pol changes frame at 1,150, where its rows overlap or meet out \
+                 of frame"
+            ),
+            "{error}"
+        );
+        // The gene beside it, which codes in one frame, is counted.
+        let svg = coded("gag genes.gff3 ref.fa --codons", slipped).0.unwrap();
+        assert!(svg.contains("<title>codon 1, 1,001 to 1,003, M</title>"));
+        // On the reverse strand the rows are read from the right, and the
+        // frame changes at the left one's 5' end.
+        let reverse = "##gff-version 3
+chr1\t.\tgene\t2001\t2300\t.\t-\t.\tID=g;Name=geneR
+chr1\t.\tCDS\t2001\t2150\t.\t-\t0\tParent=g
+chr1\t.\tCDS\t2150\t2300\t.\t-\t0\tParent=g
+";
+        let error = coded("geneR genes.gff3 ref.fa --codons", reverse)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                BuildError::Uncounted(CodonRefusal::Frameshift { at: 2_149, .. })
+            ),
+            "{error:?}"
+        );
+        // Rows that meet are one frame where the phase carries it on, as a
+        // GTF writes its stop codon after the CDS, and a shift where it does
+        // not: 151 bases leave a codon two bases short.
+        let met = |first: &str, phase: &str| {
+            format!(
+                "##gff-version 3
+chr1\t.\tgene\t1001\t1300\t.\t+\t.\tID=gF;Name=geneF
+chr1\t.\tCDS\t1001\t{first}\t.\t+\t0\tParent=gF
+chr1\t.\tCDS\t{}\t1300\t.\t+\t{phase}\tParent=gF
+",
+                first.parse::<u64>().unwrap() + 1
+            )
+        };
+        let svg = coded("geneF genes.gff3 ref.fa --codons", &met("1150", "0"))
+            .0
+            .unwrap();
+        assert!(svg.contains("<title>codon 100, 1,298 to 1,300, P</title>"));
+        assert!(coded("geneF genes.gff3 ref.fa --codons", &met("1151", "2"))
+            .0
+            .is_ok());
+        let error = coded("geneF genes.gff3 ref.fa --codons", &met("1151", "0"))
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                BuildError::Uncounted(CodonRefusal::Frameshift { at: 1_151, .. })
+            ),
+            "{error:?}"
+        );
+        let gtf = "chr1\t.\tCDS\t1001\t1297\t.\t+\t0\tgene_id \"geneF\"; transcript_id \"t1\";
+chr1\t.\tstart_codon\t1001\t1003\t.\t+\t0\tgene_id \"geneF\"; transcript_id \"t1\";
+chr1\t.\tstop_codon\t1298\t1300\t.\t+\t0\tgene_id \"geneF\"; transcript_id \"t1\";
+";
+        let held = [("genes.gtf", gtf), ("ref.fa", &coding_reference())];
+        let svg = drawn_from("geneF genes.gtf ref.fa --codons", &held).unwrap();
+        assert!(svg.contains("<title>codon 100, 1,298 to 1,300, P</title>"));
+    }
+
+    /// GFF3 writes one feature in pieces as rows under one `ID=`, and a CDS
+    /// under no gene written so is spliced, where the last row alone was
+    /// counted from its own first base as codon 1.
+    #[test]
+    fn a_cds_written_in_rows_under_one_id_is_every_row_of_it() {
+        let pieces = "##gff-version 3
+chr1\t.\tCDS\t1001\t1100\t.\t+\t0\tID=c1;Name=abcA
+chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
+";
+        let error = coded("chr1:1050-1250 genes.gff3 ref.fa --codons", pieces)
+            .0
+            .unwrap_err();
+        assert!(
+            matches!(&error, BuildError::Uncounted(CodonRefusal::Spliced { gene, pieces: 2 })
+                if gene == "abcA"),
+            "{error:?}"
+        );
+    }
+
+    /// A refusal is one line however wide the place: five names and how
+    /// many more, as the files of the figure are named.
+    #[test]
+    fn a_refusal_names_five_genes_or_transcripts_and_counts_the_rest() {
+        let mut genes = String::from("##gff-version 3\n");
+        for at in 0..7 {
+            let start = 1_001 + at * 100;
+            genes.push_str(&format!(
+                "chr1\t.\tCDS\t{start}\t{}\t.\t+\t0\tID=c{at};Name=gene{at}\n",
+                start + 29
+            ));
+        }
+        let error = coded("chr1:1001-2000 genes.gff3 --codons", &genes)
+            .0
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.starts_with(
+                "gene0, gene1, gene2, gene3, gene4 and 2 more genes code in chr1:1001-2000"
+            ),
+            "{error}"
+        );
+        assert!(!error.contains("gene6"), "{error}");
+        let mut isoforms =
+            String::from("##gff-version 3\nchr1\t.\tgene\t1001\t1300\t.\t+\t.\tID=g;Name=geneF\n");
+        for at in 0..7 {
+            isoforms.push_str(&format!(
+                "chr1\t.\tmRNA\t1001\t1300\t.\t+\t.\tID=t{at};Parent=g\n\
+                 chr1\t.\tCDS\t{}\t1300\t.\t+\t0\tParent=t{at}\n",
+                1_001 + at * 3
+            ));
+        }
+        let error = coded("geneF genes.gff3 --codons", &isoforms)
+            .0
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.starts_with(
+                "the transcripts of geneF, t0, t1, t2, t3, t4 and 2 more transcripts, code"
+            ),
+            "{error}"
+        );
+    }
+
+    /// A place written over an annotation with a tabix index beside it is
+    /// read through the index, as the annotation's own track reads it, and
+    /// not whole, and is refused or drawn in the same words as the whole
+    /// file draws it.
+    #[test]
+    fn codons_read_an_indexed_annotation_over_the_place_alone() {
+        let dir = Scratch::new("tabix-codons");
+        let genes = &indexed_into(&dir, &["genes.gff3.gz"], &[".tbi"])[0];
+        let line = format!("chr1:9,001-9,100 {genes} --codons");
+        let (through, whole, _) = watched(&line);
+        assert!(whole.is_empty(), "read whole: {whole:?}");
+        assert!(through.contains("chr1g1"), "{through}");
+        fs::remove_file(format!("{genes}.tbi")).unwrap();
+        let (read, whole, _) = watched(&line);
+        assert!(whole.contains(genes), "{whole:?}");
+        assert_eq!(through, read);
+        // A CDS under no gene, in two rows under one ID 49 kb apart: the
+        // window holds one of them, and the file is read whole for the other
+        // rather than counting the one as the whole CDS. The ruler first,
+        // since the features track draws the last row of an ID alone.
+        let pieces = &indexed_into(&dir, &["pieces.gff3.gz"], &[".tbi"])[0];
+        let line = format!("chr1:1,001-1,100 --codons {pieces}");
+        let (through, _, _) = watched(&line);
+        assert!(
+            through.starts_with("refused: abcA codes in 2 pieces with introns between them"),
+            "{through}"
+        );
+        fs::remove_file(format!("{pieces}.tbi")).unwrap();
+        assert_eq!(through, watched(&line).0);
+    }
+
+    /// The documentation's own annotation writes rpoB's CDS, so its files
+    /// draw the ruler the reads page offers: base 761,154 under codon 450,
+    /// as the library's own example of the gene places it, and the table the
+    /// CDS names, 11, read as the standard one.
+    #[test]
+    fn the_docs_genes_number_rpob_with_s450_at_base_761_154() {
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/data");
+        let at = |name: &str| data.join(name).display().to_string();
+        let svg = drawn_from_disk(&format!(
+            "NC_000962.3:761,081-761,200 {} {} --codons",
+            at("genes.gff3"),
+            at("ref.fa")
+        ))
+        .unwrap();
+        let library = crate::CodonTrack::new(759_806, 763_325, crate::Strand::Forward);
+        assert_eq!(library.codon_of(761_153), Some(450));
+        assert!(
+            svg.contains("<title>codon 450, 761,154 to 761,156, "),
+            "{svg}"
+        );
+        assert!(svg.contains(">rpoB</text>"), "{svg}");
+        let text = fs::read_to_string(at("genes.gff3")).unwrap();
+        assert_eq!(
+            read::interval::translation_table(&text, "NC_000962.3", 761_153, 761_156),
+            Some(11)
+        );
     }
 }

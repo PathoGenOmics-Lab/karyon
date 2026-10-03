@@ -304,6 +304,19 @@ def seven():
     run("tabix", "-f", "-p", "vcf", "seven.vcf.gz")
 
 
+def pieces():
+    """A CDS under no gene written in two rows under one ID, 49 kb apart, as
+    GFF3 writes one feature in pieces: a window over one of them holds that
+    one alone, and counted on its own it is a CDS cut short."""
+    lines = [
+        "##gff-version 3",
+        "chr1\t.\tCDS\t1001\t1100\t.\t+\t0\tID=c1;Name=abcA",
+        "chr1\t.\tCDS\t50001\t50100\t.\t+\t2\tID=c1;Name=abcA",
+    ]
+    bgzip("\n".join(lines) + "\n", "pieces.gff3.gz", piece=60)
+    run("tabix", "-f", "-p", "gff", "pieces.gff3.gz")
+
+
 def main():
     for tool in ("bgzip", "tabix", "bcftools"):
         version = subprocess.run([tool, "--version"], capture_output=True, text=True).stdout
@@ -318,6 +331,7 @@ def main():
     read_whole(random.Random(8))
     structural()
     seven()
+    pieces()
 
 
 if __name__ == "__main__":

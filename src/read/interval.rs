@@ -75,7 +75,7 @@ pub fn features(
     region: &Region,
     format: Option<Format>,
 ) -> Result<Vec<Feature>, ReadError> {
-    models(text, region, format, Level::Gene)
+    models(text, region, format, Level::Gene).map(drawn)
 }
 
 /// Reads gene models one transcript at a time: each isoform a feature of
@@ -89,22 +89,182 @@ pub fn transcripts(
     region: &Region,
     format: Option<Format>,
 ) -> Result<Vec<Feature>, ReadError> {
-    models(text, region, format, Level::Transcript)
+    models(text, region, format, Level::Transcript).map(drawn)
 }
 
-/// Whether a gene is drawn once or each of its transcripts is.
+/// Reads each transcript as it codes, for a ruler that counts its codons: its
+/// exons, and its CDS exactly as the file writes it, row by row.
+///
+/// [`transcripts`] reads the same models for drawing, and a drawing has no
+/// use for a coding stretch from one end of a feature to the other: it looks
+/// the same as none, so it is left out there. Here the two are different
+/// answers, a gene that codes from end to end and one that codes nowhere, so
+/// it is kept. A CDS row under nothing, as some annotations write each one
+/// beside its gene, codes over itself, and over every other row under its
+/// `ID=`, as GFF3 writes one feature in pieces. A BED row codes over its
+/// thick span. Rows on another sequence than `region.seq()` are skipped.
+///
+/// A drawing joins the rows of a CDS that touch, and so does
+/// [`Feature::coding`], which is right for a picture and wrong for a count:
+/// two rows sharing a base, as NCBI writes a ribosomal slippage, are one
+/// stretch on the page and two frames to a ruler. So each transcript comes
+/// back with [`Cds::rows`] beside it, the rows apart, each with its phase.
+///
+/// ```
+/// use karyon::read::interval::coding;
+/// use karyon::Region;
+///
+/// let gff = "##gff-version 3\n\
+///            chr1\t.\tgene\t101\t400\t.\t-\t.\tID=g1;Name=abcD\n\
+///            chr1\t.\tCDS\t101\t400\t.\t-\t0\tParent=g1\n";
+/// let found = coding(gff, &Region::parse("chr1:1-1000")?, None)?;
+/// assert_eq!(found[0].feature.coding, [(100, 400)]);
+/// assert_eq!(found[0].rows[0].phase, Some(0));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn coding(text: &str, region: &Region, format: Option<Format>) -> Result<Vec<Cds>, ReadError> {
+    Ok(models(text, region, format, Level::Coding)?
+        .into_iter()
+        .map(|(feature, rows)| Cds { feature, rows })
+        .collect())
+}
+
+/// One transcript as [`coding`] reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cds {
+    /// The transcript: its name, its strand, the gene it belongs to, its
+    /// exons, and its CDS joined into the stretches a drawing shows.
+    pub feature: Feature,
+    /// The rows its CDS is written in, apart and in the order of their
+    /// starts: a GFF3's CDS rows, a GTF's with its `stop_codon` rows where
+    /// they lie outside them, and a BED's thick span. A GTF's `start_codon`
+    /// rows lie inside the CDS and say nothing more, so they are left out,
+    /// and so is a `stop_codon` row inside a CDS row, as AUGUSTUS writes one.
+    /// Empty for a transcript that codes nowhere.
+    pub rows: Vec<CdsRow>,
+}
+
+/// One row of a coding sequence as the file writes it, 0-based and
+/// half-open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CdsRow {
+    /// First base, 0-based.
+    pub start: u64,
+    /// One past the last base.
+    pub end: u64,
+    /// Its phase, the eighth column of a GFF3 or a GTF: how many bases at
+    /// its 5' end, its start on the forward strand and its end on the
+    /// reverse, finish a codon begun before it, 0, 1 or 2. `None` where the
+    /// row writes `.`, and for a BED, which has no such column.
+    ///
+    /// A CDS whose 5'-most row has a phase of 1 or 2 does not begin on a
+    /// codon, so the annotation does not hold its start codon: NCBI writes
+    /// one so at the edge of a contig.
+    pub phase: Option<u8>,
+    /// Whether the row says the CDS goes on past its 5' end, as NCBI writes
+    /// `start_range=.,N` on the forward strand and `end_range=N,.` on the
+    /// reverse, so its first codon is not the start codon whatever its
+    /// phase.
+    pub partial: bool,
+}
+
+impl CdsRow {
+    /// The row as `cols` write it, with the span `feature` read from them.
+    fn of(cols: &[&str], feature: &Feature) -> Self {
+        let phase = match cols.get(7).map(|phase| phase.trim()) {
+            Some("0") => Some(0),
+            Some("1") => Some(1),
+            Some("2") => Some(2),
+            _ => None,
+        };
+        let attributes = cols.get(8).copied().unwrap_or_default();
+        let range = |key: &str| raw_attribute(attributes, key).is_some();
+        let partial = match feature.strand {
+            Strand::Forward => range("start_range"),
+            Strand::Reverse => range("end_range"),
+            Strand::Unknown => range("start_range") || range("end_range"),
+        };
+        CdsRow {
+            start: feature.start,
+            end: feature.end,
+            phase,
+            partial,
+        }
+    }
+}
+
+/// The NCBI translation table the CDS rows over `start..end` of `sequence`
+/// name with `transl_table=`, as NCBI writes each one, 0-based and half-open:
+/// the first such row's, or `None` where none of them names one.
+///
+/// A BED names no table, and neither does a GTF, so both give `None`.
+///
+/// ```
+/// use karyon::read::interval::translation_table;
+///
+/// let gff = "##gff-version 3\n\
+///            chrM\t.\tCDS\t3307\t4262\t.\t+\t0\tID=cds-ND1;transl_table=2\n";
+/// assert_eq!(translation_table(gff, "chrM", 3_400, 3_500), Some(2));
+/// assert_eq!(translation_table(gff, "chrM", 5_000, 5_100), None);
+/// ```
+pub fn translation_table(text: &str, sequence: &str, start: u64, end: u64) -> Option<u8> {
+    if flavour(text, None) == Flavour::Bed {
+        return None;
+    }
+    lines(text).find_map(|(_, line)| {
+        let cols = columns(line);
+        if cols.first().copied().unwrap_or_default() != sequence
+            || part(cols.get(2)?.trim()) != Some(Part::Coding)
+        {
+            return None;
+        }
+        let from = cols.get(3)?.trim().parse::<u64>().ok()?.checked_sub(1)?;
+        let to = cols.get(4)?.trim().parse::<u64>().ok()?;
+        if to <= start || from >= end {
+            return None;
+        }
+        attribute(cols.get(8)?, "transl_table")?.parse().ok()
+    })
+}
+
+/// Whether a CDS row of `text` on `sequence` is under nothing and has an
+/// `ID=` of its own, which [`coding`] reads as one piece of every row under
+/// that ID.
+///
+/// The rows of a gene lie under the gene's own row, so a window widened by
+/// [`reach`] holds every one of them; the pieces of a CDS under nothing lie
+/// under no row, and a window through an index holds the pieces over it
+/// alone, which counted on their own are a CDS cut short. A GTF row always
+/// names its transcript, so it is never one of these.
+pub(crate) fn pieced(text: &str, sequence: &str) -> bool {
+    lines(text).any(|(_, line)| {
+        let cols = columns(line);
+        cols.first() == Some(&sequence)
+            && cols
+                .get(2)
+                .is_some_and(|kind| part(kind.trim()) == Some(Part::Coding))
+            && parents_of(&cols).is_empty()
+            && declared_as(&cols).is_some()
+    })
+}
+
+/// Whether a gene is drawn once or each of its transcripts is, or each
+/// transcript is read for what it codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Level {
     Gene,
     Transcript,
+    Coding,
 }
 
+/// The models over `region` at `level`, each with the rows its CDS is
+/// written in, which only [`Level::Coding`] reads and the others leave empty.
 fn models(
     text: &str,
     region: &Region,
     format: Option<Format>,
     level: Level,
-) -> Result<Vec<Feature>, ReadError> {
+) -> Result<Vec<(Feature, Vec<CdsRow>)>, ReadError> {
     let flavour = flavour(text, format);
     // The sequence is checked before the rest of the line is understood, so
     // that a whole genome annotation costs one comparison per row it does not
@@ -117,7 +277,22 @@ fn models(
     let mut features = Vec::new();
     if flavour == Flavour::Bed {
         for (at, cols) in rows {
-            keep(bed(&cols, at)?, region, &mut features);
+            if level == Level::Coding {
+                let feature = bed_as_written(&cols, at)?;
+                let rows = feature
+                    .coding
+                    .iter()
+                    .map(|&(start, end)| CdsRow {
+                        start,
+                        end,
+                        phase: None,
+                        partial: false,
+                    })
+                    .collect();
+                keep((feature, rows), region, &mut features);
+            } else {
+                keep((bed(&cols, at)?, Vec::new()), region, &mut features);
+            }
         }
         return Ok(features);
     }
@@ -129,10 +304,15 @@ fn models(
     // the CDS of a transcript become its structure, and the transcripts of a
     // gene become the gene, or each a feature of its own.
     let rows: Vec<(usize, Vec<&str>)> = rows.collect();
-    for feature in assemble(&rows, level)? {
-        keep(feature, region, &mut features);
+    for model in assemble(&rows, level)? {
+        keep(model, region, &mut features);
     }
     Ok(features)
+}
+
+/// The features of [`models`], without the rows of their CDS.
+fn drawn(models: Vec<(Feature, Vec<CdsRow>)>) -> Vec<Feature> {
+    models.into_iter().map(|(feature, _)| feature).collect()
 }
 
 /// What a row is to the transcript it belongs to, for the rows that are
@@ -190,6 +370,10 @@ struct Node<'a> {
     first: usize,
     /// The pieces under it: exons, coding stretches, untranslated ones.
     parts: Vec<(Part, u64, u64)>,
+    /// Its coding pieces as their rows write them, for [`Level::Coding`],
+    /// each with whether it is a `start_codon` or a `stop_codon` row, which a
+    /// CDS row may hold already.
+    rows: Vec<(bool, CdsRow)>,
     /// What is under it that is not a piece: the transcripts of a gene.
     children: Vec<Key<'a>>,
     /// What it is under.
@@ -208,6 +392,7 @@ impl<'a> Node<'a> {
             kind: "",
             first,
             parts: Vec::new(),
+            rows: Vec::new(),
             children: Vec::new(),
             parents: Vec::new(),
             reach: None,
@@ -260,6 +445,8 @@ impl<'a> Node<'a> {
 struct Shape {
     exons: Vec<(u64, u64)>,
     coding: Vec<(u64, u64)>,
+    /// The rows of its CDS, as [`Cds::rows`] holds them.
+    rows: Vec<CdsRow>,
 }
 
 fn structure(node: &Node<'_>, span: (u64, u64)) -> Shape {
@@ -288,7 +475,28 @@ fn structure(node: &Node<'_>, span: (u64, u64)) -> Shape {
             last.1 = last.1.max(span.1);
         }
     }
-    Shape { exons, coding }
+    // A start or stop codon written inside a CDS row adds nothing to it, and
+    // kept, it would be a second row over the same bases, which is how a
+    // ribosomal slippage is written.
+    let mut rows: Vec<CdsRow> = node
+        .rows
+        .iter()
+        .filter(|(codon, row)| {
+            !codon
+                || !node
+                    .rows
+                    .iter()
+                    .any(|(other, cds)| !other && cds.start <= row.start && row.end <= cds.end)
+        })
+        .map(|&(_, row)| row)
+        .collect();
+    rows.sort_unstable_by_key(|row| (row.start, row.end));
+    rows.dedup();
+    Shape {
+        exons,
+        coding,
+        rows,
+    }
 }
 
 /// A feature with nothing to show in its structure is left as one piece: one
@@ -316,7 +524,10 @@ fn one_piece(mut feature: Feature) -> Feature {
 /// [`Level::Transcript`] each transcript is. Anything deeper than a transcript
 /// that is not a part, a polypeptide or an intron row, is under it and not
 /// drawn, as it was not before. A row under nothing is drawn as it stands.
-fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, ReadError> {
+fn assemble(
+    rows: &[(usize, Vec<&str>)],
+    level: Level,
+) -> Result<Vec<(Feature, Vec<CdsRow>)>, ReadError> {
     let mut nodes: BTreeMap<Key<'_>, Node<'_>> = BTreeMap::new();
     for (index, (at, cols)) in rows.iter().enumerate() {
         // Read before anything else, so a broken row stops the file on its
@@ -344,6 +555,10 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
             for owner in owners {
                 let node = nodes.entry(owner).or_insert_with(|| Node::new(index));
                 node.parts.push((part, feature.start, feature.end));
+                if part == Part::Coding && level == Level::Coding {
+                    let codon = !kind.eq_ignore_ascii_case("cds");
+                    node.rows.push((codon, CdsRow::of(cols, &feature)));
+                }
                 if node.row.is_none() {
                     node.reaches(feature.start, feature.end, feature.strand);
                     // What the part calls its transcript, where it says: a
@@ -380,7 +595,26 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
         let node = nodes.entry(key).or_insert_with(|| Node::new(index));
         node.first = node.first.min(index);
         node.kind = kind;
-        node.row = Some(feature);
+        match (level, part(kind), &mut node.row) {
+            // A CDS row under nothing is a coding sequence of its own, which
+            // only a reader of what codes has to say, and GFF3 writes one in
+            // pieces as rows under one `ID=`: each a piece of it, where the
+            // last row alone was a CDS cut short and counted from the wrong
+            // base.
+            (Level::Coding, Some(Part::Coding), row) => {
+                node.parts.push((Part::Coding, feature.start, feature.end));
+                let codon = !kind.eq_ignore_ascii_case("cds");
+                node.rows.push((codon, CdsRow::of(cols, &feature)));
+                match row {
+                    Some(row) => {
+                        row.start = row.start.min(feature.start);
+                        row.end = row.end.max(feature.end);
+                    }
+                    None => *row = Some(feature),
+                }
+            }
+            (_, _, row) => *row = Some(feature),
+        }
         node.names.clear();
         node.reach = None;
         node.parents = parents;
@@ -453,7 +687,7 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
             .iter()
             .any(|(_, child)| gene_level(nodes[child].kind))
         {
-            out.push(feature);
+            out.push((feature, Vec::new()));
             continue;
         }
         let mut transcripts: Vec<(Feature, Shape)> = Vec::new();
@@ -468,7 +702,7 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
             transcripts.push((own, shape));
         }
         if transcripts.is_empty() {
-            out.push(feature);
+            out.push((feature, Vec::new()));
             continue;
         }
         match level {
@@ -488,9 +722,9 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
                 if count > 1 {
                     gene = gene.transcripts(count);
                 }
-                out.push(one_piece(gene));
+                out.push((one_piece(gene), Vec::new()));
             }
-            Level::Transcript => {
+            Level::Transcript | Level::Coding => {
                 let gene = feature.name.clone();
                 for (own, shape) in transcripts {
                     let mut transcript = own.exons(shape.exons).coding(shape.coding);
@@ -500,7 +734,11 @@ fn assemble(rows: &[(usize, Vec<&str>)], level: Level) -> Result<Vec<Feature>, R
                     {
                         transcript = transcript.gene(gene);
                     }
-                    out.push(one_piece(transcript));
+                    out.push(if level == Level::Coding {
+                        (transcript, shape.rows)
+                    } else {
+                        (one_piece(transcript), Vec::new())
+                    });
                 }
             }
         }
@@ -634,11 +872,11 @@ pub fn parentless(text: &str, region: Option<&Region>) -> bool {
 /// A feature the window does not touch is not drawn, and it would still take a
 /// row in the track's layout, which is what decides how tall the track is. So
 /// it is dropped here rather than carried.
-fn keep(feature: Feature, region: &Region, into: &mut Vec<Feature>) {
-    if feature.end <= region.start() || feature.start >= region.end() {
+fn keep(model: (Feature, Vec<CdsRow>), region: &Region, into: &mut Vec<(Feature, Vec<CdsRow>)>) {
+    if model.0.end <= region.start() || model.0.start >= region.end() {
         return;
     }
-    into.push(feature);
+    into.push(model);
 }
 
 /// Whether a GFF3 row describes the sequence it is on rather than something
@@ -923,6 +1161,12 @@ pub(crate) fn flavour(text: &str, format: Option<Format>) -> Flavour {
 
 /// One BED row, whose coordinates are already the ones the crate uses.
 pub(crate) fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
+    bed_as_written(cols, at).map(one_piece)
+}
+
+/// One BED row with its blocks and its thick span as the row writes them, a
+/// thick span from end to end included, which [`bed`] reads as one piece.
+fn bed_as_written(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     if cols.len() < 3 {
         return Err(ReadError::at(
             at,
@@ -944,11 +1188,9 @@ pub(crate) fn bed(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     if let Some(strand) = cols.get(5) {
         feature = feature.strand(strand_of(strand));
     }
-    Ok(one_piece(
-        feature
-            .exons(blocks(cols, start, end))
-            .coding(thick(cols, start, end)),
-    ))
+    Ok(feature
+        .exons(blocks(cols, start, end))
+        .coding(thick(cols, start, end)))
 }
 
 /// The coding stretch of a BED row of eight columns or more: its thickStart
@@ -1907,5 +2149,208 @@ chr1\t.\tCDS\tten\t900\t.\t+\t0\tID=c1;Parent=g1
         assert_eq!(each.spelled[1].as_deref(), Some("rpoB"));
         assert!(each.spans[2].is_empty());
         assert_eq!(named_each(BED, &[]).spans.len(), 0);
+    }
+
+    /// What a ruler of codons reads: a gene written over its CDS codes from
+    /// end to end, which the drawing reader folds into one piece and so into
+    /// the same answer as a gene that codes nowhere.
+    #[test]
+    fn a_gene_over_its_cds_codes_from_end_to_end_where_one_that_has_none_does_not() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tgene\t101\t400\t.\t+\t.\tID=g1;Name=abcD\n\
+                   chr1\t.\tCDS\t101\t400\t.\t+\t0\tParent=g1\n\
+                   chr1\t.\tgene\t501\t800\t.\t-\t.\tID=g2;Name=efgH\n";
+        let window = Region::new("chr1", 0, 1_000).unwrap();
+        let drawn = transcripts(gff, &window, None).unwrap();
+        assert!(drawn.iter().all(|feature| feature.coding.is_empty()));
+        let read = coding(gff, &window, None).unwrap();
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[0].feature.name.as_deref(), Some("abcD"));
+        assert_eq!(read[0].feature.coding, [(100, 400)]);
+        assert_eq!(read[0].feature.strand, Strand::Forward);
+        assert_eq!(
+            read[0].rows,
+            [CdsRow {
+                start: 100,
+                end: 400,
+                phase: Some(0),
+                partial: false
+            }]
+        );
+        assert!(
+            read[1].feature.coding.is_empty() && read[1].rows.is_empty(),
+            "a gene row alone codes nowhere"
+        );
+    }
+
+    /// A CDS row under no gene codes over itself, and the gene beside it,
+    /// under nothing either, codes nowhere: two features, one coding.
+    #[test]
+    fn a_cds_under_nothing_codes_over_itself() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tgene\t101\t400\t.\t+\t.\tID=g1_gene;Name=abcD\n\
+                   chr1\t.\tCDS\t101\t400\t.\t+\t0\tID=g1;Name=abcD\n";
+        let read = coding(gff, &Region::new("chr1", 0, 1_000).unwrap(), None).unwrap();
+        let coded: Vec<&Cds> = read
+            .iter()
+            .filter(|cds| !cds.feature.coding.is_empty())
+            .collect();
+        assert_eq!(coded.len(), 1, "{read:?}");
+        assert_eq!(coded[0].feature.coding, [(100, 400)]);
+        assert_eq!(coded[0].rows.len(), 1);
+    }
+
+    /// GFF3 writes one feature in pieces as rows under one `ID=`, and a CDS
+    /// under nothing written so is every piece of it, where the last row
+    /// alone used to stand for the whole.
+    #[test]
+    fn a_cds_under_nothing_in_rows_under_one_id_is_every_row() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tCDS\t1001\t1100\t.\t+\t0\tID=c1;Name=abcA\n\
+                   chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA\n";
+        let read = coding(gff, &Region::new("chr1", 0, 2_000).unwrap(), None).unwrap();
+        assert_eq!(read.len(), 1, "{read:?}");
+        let cds = &read[0];
+        assert_eq!((cds.feature.start, cds.feature.end), (1_000, 1_300));
+        assert_eq!(cds.feature.coding, [(1_000, 1_100), (1_200, 1_300)]);
+        assert_eq!(cds.feature.exons, [(1_000, 1_100), (1_200, 1_300)]);
+        let phases: Vec<Option<u8>> = cds.rows.iter().map(|row| row.phase).collect();
+        assert_eq!(phases, [Some(0), Some(2)]);
+    }
+
+    /// Two CDS rows sharing a base, as NCBI writes a ribosomal slippage, are
+    /// one stretch to [`Feature::coding`] and two rows here, each with its
+    /// phase; a GTF's start codon, inside the CDS, is no row of its own, and
+    /// neither is a stop codon inside a CDS row, while one past it is.
+    #[test]
+    fn the_rows_of_a_cds_come_back_apart_with_their_phases() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tgene\t1001\t1600\t.\t+\t.\tID=g1;Name=gag-pol\n\
+                   chr1\t.\tCDS\t1001\t1150\t.\t+\t0\tID=cds-1;Parent=g1\n\
+                   chr1\t.\tCDS\t1150\t1600\t.\t+\t0\tID=cds-1;Parent=g1\n";
+        let read = coding(gff, &Region::new("chr1", 0, 2_000).unwrap(), None).unwrap();
+        assert_eq!(read[0].feature.coding, [(1_000, 1_600)]);
+        let spans: Vec<(u64, u64)> = read[0]
+            .rows
+            .iter()
+            .map(|row| (row.start, row.end))
+            .collect();
+        assert_eq!(spans, [(1_000, 1_150), (1_149, 1_600)]);
+        let gtf = "chr1\t.\tCDS\t101\t397\t.\t+\t0\tgene_id \"g\"; transcript_id \"t\";\n\
+                   chr1\t.\tstart_codon\t101\t103\t.\t+\t0\tgene_id \"g\"; transcript_id \"t\";\n\
+                   chr1\t.\tstop_codon\t398\t400\t.\t+\t0\tgene_id \"g\"; transcript_id \"t\";\n\
+                   chr1\t.\tCDS\t501\t900\t.\t-\t.\tgene_id \"h\"; transcript_id \"u\";\n\
+                   chr1\t.\tstop_codon\t501\t503\t.\t-\t0\tgene_id \"h\"; transcript_id \"u\";\n";
+        let read = coding(gtf, &Region::new("chr1", 0, 1_000).unwrap(), None).unwrap();
+        let spans: Vec<(u64, u64)> = read[0]
+            .rows
+            .iter()
+            .map(|row| (row.start, row.end))
+            .collect();
+        assert_eq!(spans, [(100, 397), (397, 400)]);
+        assert_eq!(read[1].rows.len(), 1, "{read:?}");
+        assert_eq!(read[1].rows[0].phase, None, "a phase of . is none");
+    }
+
+    /// Only a CDS under nothing with an ID of its own can have pieces a
+    /// window through an index leaves out: one under a gene is spanned by
+    /// the gene's row, one with no ID is one row, and a GTF row names its
+    /// transcript.
+    #[test]
+    fn a_cds_under_nothing_with_an_id_is_one_whose_pieces_may_be_elsewhere() {
+        let row = |attributes: &str| format!("chr1\t.\tCDS\t101\t400\t.\t+\t0\t{attributes}\n");
+        assert!(pieced(&row("ID=c1;Name=abcA"), "chr1"));
+        assert!(!pieced(&row("ID=c1;Name=abcA"), "chr2"));
+        assert!(!pieced(&row("ID=c1;Parent=g1"), "chr1"));
+        assert!(!pieced(&row("Name=abcA"), "chr1"));
+        assert!(!pieced(
+            &row("gene_id \"g1\"; transcript_id \"t1\";"),
+            "chr1"
+        ));
+        let gene = "chr1\t.\tgene\t101\t400\t.\t+\t.\tID=g1\n";
+        assert!(!pieced(gene, "chr1"));
+    }
+
+    /// A CDS cut short at its 5' end, as NCBI writes one at a contig's edge,
+    /// says so at the start on the forward strand and at the end on the
+    /// reverse; a 3' end cut short is no 5' end.
+    #[test]
+    fn a_cds_row_says_when_it_goes_on_past_its_5_prime_end() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tCDS\t1000\t1300\t.\t+\t1\tID=a;partial=true;start_range=.,1000\n\
+                   chr1\t.\tCDS\t2001\t2301\t.\t-\t0\tID=b;partial=true;end_range=2301,.\n\
+                   chr1\t.\tCDS\t3001\t3300\t.\t-\t0\tID=c;partial=true;start_range=.,3001\n";
+        let read = coding(gff, &Region::new("chr1", 0, 4_000).unwrap(), None).unwrap();
+        let said: Vec<(Option<u8>, bool)> = read
+            .iter()
+            .map(|cds| (cds.rows[0].phase, cds.rows[0].partial))
+            .collect();
+        assert_eq!(said, [(Some(1), true), (Some(0), true), (Some(0), false)]);
+    }
+
+    /// Each transcript comes back with its own pieces, and a CDS split by an
+    /// intron is two of them, not the span between its ends.
+    #[test]
+    fn a_spliced_cds_comes_back_in_its_pieces_per_transcript() {
+        let gff = "##gff-version 3\n\
+                   chr1\t.\tgene\t1001\t9000\t.\t+\t.\tID=g1;Name=alpha\n\
+                   chr1\t.\tmRNA\t1001\t9000\t.\t+\t.\tID=t1;Parent=g1\n\
+                   chr1\t.\texon\t1001\t1500\t.\t+\t.\tParent=t1\n\
+                   chr1\t.\texon\t8001\t9000\t.\t+\t.\tParent=t1\n\
+                   chr1\t.\tCDS\t1201\t1500\t.\t+\t0\tParent=t1\n\
+                   chr1\t.\tCDS\t8001\t8600\t.\t+\t0\tParent=t1\n";
+        let read = coding(gff, &Region::new("chr1", 0, 10_000).unwrap(), None).unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].feature.coding, [(1_200, 1_500), (8_000, 8_600)]);
+        assert_eq!(read[0].feature.exons, [(1_000, 1_500), (8_000, 9_000)]);
+        assert_eq!(read[0].feature.gene.as_deref(), Some("alpha"));
+        assert_eq!(read[0].rows.len(), 2);
+    }
+
+    /// A BED row's thick span is what codes, even from end to end, and a BED
+    /// of six columns codes nowhere.
+    #[test]
+    fn a_bed_row_codes_over_its_thick_span_even_when_it_is_the_whole_row() {
+        let bed = "chr1\t100\t400\tabcD\t0\t-\t100\t400\n\
+                   chr1\t500\t800\tefgH\t0\t+\n";
+        let window = Region::new("chr1", 0, 1_000).unwrap();
+        let read = coding(bed, &window, None).unwrap();
+        assert_eq!(read[0].feature.coding, [(100, 400)]);
+        assert_eq!(read[0].feature.strand, Strand::Reverse);
+        assert_eq!(
+            read[0].rows,
+            [CdsRow {
+                start: 100,
+                end: 400,
+                phase: None,
+                partial: false
+            }]
+        );
+        assert!(read[1].feature.coding.is_empty() && read[1].rows.is_empty());
+        // Drawn, the same row is one piece, as it was.
+        assert!(features(bed, &window, None).unwrap()[0].coding.is_empty());
+    }
+
+    /// The table a CDS names is the one over the span asked about, on the
+    /// sequence asked about, and a row that names none is passed over.
+    #[test]
+    fn the_translation_table_is_the_one_the_cds_over_the_span_names() {
+        let gff = "##gff-version 3\n\
+                   chrM\t.\tgene\t3307\t4262\t.\t+\t.\tID=g1;Name=ND1\n\
+                   chrM\t.\tCDS\t3307\t4262\t.\t+\t0\tParent=g1;transl_table=2\n\
+                   chr1\t.\tCDS\t3307\t4262\t.\t+\t0\tID=c2;transl_table=1\n\
+                   chrM\t.\tCDS\t5000\t5100\t.\t+\t0\tID=c3\n";
+        assert_eq!(translation_table(gff, "chrM", 3_306, 3_309), Some(2));
+        assert_eq!(translation_table(gff, "chr1", 3_306, 3_309), Some(1));
+        assert_eq!(translation_table(gff, "chrM", 4_999, 5_100), None);
+        assert_eq!(
+            translation_table(gff, "chrM", 4_262, 4_999),
+            None,
+            "half-open"
+        );
+        assert_eq!(
+            translation_table("chrM\t3306\t4262\n", "chrM", 0, 9_000),
+            None
+        );
     }
 }

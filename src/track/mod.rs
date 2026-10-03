@@ -71,7 +71,7 @@ pub mod window;
 pub use axis::AxisTrack;
 pub use bisulfite::{BisulfiteTrack, Molecule};
 pub use clade::{CladeBlock, CladeTrack};
-pub use codon::CodonTrack;
+pub use codon::{ncbi_table, CodonTrack};
 pub use copy_number::{CopyNumber, CopyNumberSegment, CopyNumberTrack};
 pub use coverage::{Aggregate, CoverageStyle, CoverageTrack};
 pub use domain::{DomainArchitecture, DomainFeature, DomainTrack};

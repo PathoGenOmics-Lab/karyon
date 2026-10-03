@@ -175,9 +175,9 @@ command adds, and it does that with the readers in `karyon::read`, described in
 
 ## Track flags
 
-Thirty-six flags, one per track the command can draw. Each takes one
-file, or `-` for [standard input](#standard-input), except `--axis`, which
-reads nothing.
+Thirty-seven flags, one per track the command can draw. Each takes one
+file, or `-` for [standard input](#standard-input), except `--axis` and
+`--codons`, which read nothing.
 
 | Flag | Draws | Reads | Track |
 |:--|:--|:--|:--|
@@ -217,10 +217,11 @@ reads nothing.
 | `--selection <FILE>` | a test of selection at each site of a gene | [HyPhy's FEL or MEME, or a table of sites](formats.md#selection-by-site) | [SelectionTrack](../tracks/variation.md#selectiontrack) |
 | `--squiggle <FILE>` | the current of a nanopore read | [SLOW5, or a column of samples](formats.md#slow5) | [SquiggleTrack](../tracks/reads-molecules.md#squiggletrack) |
 | `--axis` | the coordinate ruler, where the flag sits | nothing | [AxisTrack](../tracks/scales-keys.md#axistrack) |
+| `--codons` | a ruler in codons over the coding sequence of the gene the figure is placed on, or of the one gene that codes in the place written, translated where the figure has a `--sequence` | nothing: the CDS comes from the figure's [GFF3, GTF or BED](formats.md#gff3), and the letters from its reference | [CodonTrack](../tracks/scales-keys.md#codontrack) |
 
 `--matrix` and `--heatmap` draw one track type from two shapes of table, and
-`--coverage` and `--recombination` another, so thirty-four types are drawn
-here. The other four are reached from Rust
+`--coverage` and `--recombination` another, so thirty-five types are drawn
+here. The other three are reached from Rust
 only, and the [track catalogue](../tracks/index.md) lists all thirty-eight.
 
 A few things about track flags are worth knowing before they surprise you:
@@ -236,6 +237,20 @@ A few things about track flags are worth knowing before they surprise you:
   is a panel of variable sites (its x is a site index) or an ideogram (its x is
   the whole chromosome), so a figure of nothing but `--tree`, `--tanglegram`,
   `--snps` and `--ideogram` gets no ruler unless you write `--axis`.
+- **`--codons` counts one gene.** Placed on a gene by its name, as `karyon
+  rpoB genes.gff3 ref.fa --codons`, it numbers that gene's CDS; over a place
+  written, as `NC_000962.3:761,081-761,200`, the CDS of the one gene that codes
+  there, read through the annotation's tabix index where it has one. Codon 1
+  is the start codon, at the right on the reverse strand, and a trailing
+  partial codon is left off with a note. The CDS has to be one unbroken
+  stretch, in one frame, from its start codon. A gene with no CDS row, two
+  genes in the place or transcripts that code different stretches are refused
+  with what to write instead; a CDS split by introns, one whose rows overlap
+  or meet out of frame, as a ribosomal slippage is written, and one that does
+  not begin on its start codon, by a phase of 1 or 2 or NCBI's `start_range`,
+  are refused saying why. A ruler over the wrong stretch names the wrong
+  residue at every codon and looks no different. A page that moves the window
+  keeps counting the gene of the place written.
 - **Some files are their own place.** An alignment, a table over time, a table
   of the sites of a gene and a read's signal need no place named: the figure is
   drawn over all of it, and its ruler counts columns, weeks, sites or samples
@@ -262,7 +277,7 @@ takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
-| `--label <TEXT>` | any text | every track, `--axis` included | no name in the gutter |
+| `--label <TEXT>` | any text | every track, `--axis` and `--codons` included | no name in the gutter; the gene's name for `--codons` |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA or 2bit file, or `-` for a FASTA | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
@@ -308,7 +323,8 @@ takes.
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
-| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination` | the theme's colours |
+| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination`, `--codons` | the theme's colours |
+| `--genetic-code <N>` | an NCBI translation table, 1 to 6, 9 to 16 or 21 to 33, as `2` for vertebrate mitochondria | `--codons` | the table the CDS names with `transl_table=`, or 1, whose residues 11 shares; given, it wins, with a note where the CDS names another |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
 `--height` and `--row-height` never apply to the same track. A track sized by
@@ -1146,6 +1162,18 @@ karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:5000-9000, though t
 
 Check the sequence name first. It has to match the region's exactly: `chr1`,
 `1` and `NC_000001.11` are three different sequences to every reader.
+
+A codon ruler is refused where the annotation does not give it one unbroken
+coding sequence to count, saying why, and what to write instead where
+something can be:
+
+```text
+$ karyon NC_000962.3:763,301-763,400 genes.gff3 --codons
+karyon: rpoB and rpoC code in NC_000962.3:763301-763400, and --codons counts the codons of one gene: place the figure on one of them by its name, as karyon rpoB in place of NC_000962.3:763301-763400
+
+$ karyon chr1:2,001-2,100 genes.gtf --codons
+karyon: abcA codes in 3 pieces with introns between them, and --codons counts one unbroken coding sequence: across the introns it would number bases that are never translated
+```
 
 ## Where next
 

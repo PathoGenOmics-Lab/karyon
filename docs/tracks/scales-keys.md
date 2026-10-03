@@ -76,8 +76,8 @@ A ruler in codons, so a coding sequence can be read in protein coordinates: codo
 | | |
 |:--|:--|
 | Rust | `.add_codons(start, end, strand)` on `plot()`; `CodonTrack::new(start, end, strand)` |
-| Command line | none: library only |
-| Reads | nothing from a file; takes the coding span, and the bases through `sequence` |
+| Command line | `--codons`, with `--genetic-code`, `--label`, `--color`: over the CDS of the gene the figure is placed on, or of the one gene that codes in the place written |
+| Reads | nothing from a file of its own; takes the coding span, and the bases through `sequence`. On the command line the CDS comes from the figure's GFF3, GTF or BED, and the bases from its `--sequence` |
 
 === "Rust"
 
@@ -96,15 +96,24 @@ A ruler in codons, so a coding sequence can be read in protein coordinates: codo
         .save("codons.svg")?;
     ```
 
+=== "Command line"
+
+    ```bash
+    # genes.gff3 writes rpoB's CDS row; ref.fa holds the chromosome
+    karyon NC_000962.3:761,121-761,200 \
+      calls.vcf.gz genes.gff3 ref.fa --codons \
+      -o codons.svg
+    ```
+
 #### Options
 
 | Method | What it does | Default |
 |:--|:--|:--|
 | `.sequence(0, bases)` | Attaches the reference bases from a 0-based start, so codons can be translated | none: numbers only |
-| `.genetic_code(&table)` | Translates with another genetic code: its 64 residues in NCBI order, as a `[u8; 64]` | NCBI table 1 |
-| `.label("rpoB")` | Names the track in the left gutter | none |
+| `.genetic_code(&table)` | Translates with another genetic code: its 64 residues in NCBI order, as a `[u8; 64]`, which `ncbi_table(2)` gives by NCBI's number (`--genetic-code 2`) | NCBI table 1; on the command line, the table the CDS names |
+| `.label("rpoB")` | Names the track in the left gutter (`--label`) | none; on the command line, the gene's name |
 | `.cell_height(16.0)` | Height of the codon cells, in pixels | `13` |
-| `.color("#0072b2")` | Overrides the colour | the strand colour |
+| `.color("#0072b2")` | Overrides the colour (`--color`) | the strand colour |
 | `.numbering(10)` | Numbers every this many codons, instead of a spacing chosen for the zoom | automatic |
 | `.show_start(false)` | Shows or hides the chevron on the first codon that says where the count starts | shown |
 
@@ -116,7 +125,9 @@ On the reverse strand codon 1 sits at the highest coordinate and the numbering r
 
 `CodonTrack::new` takes a 0-based, half-open span, so a GFF3 CDS `759807..763325` is `CodonTrack::new(759_806, 763_325, strand)`. `codon_of(position)`, `span_of(codon)` and `residue_of(codon)` convert in code. A trailing partial codon is left out, since a third of a residue is not a residue.
 
-Translation is NCBI table 1, and table 11 gives the same residues, so bacteria, archaea and plastids need nothing more. A vertebrate mitochondrial or a ciliate sequence needs `genetic_code`, or it is translated into a plausible protein that is wrong. A codon whose bases were not supplied is drawn without a letter rather than guessed.
+Translation is NCBI table 1, and table 11 gives the same residues, so bacteria, archaea and plastids need nothing more. A vertebrate mitochondrial or a ciliate sequence needs `genetic_code`, or it is translated into a plausible protein that is wrong. `ncbi_table(id)` hands over any table NCBI lists by the number a GenBank record or an NCBI GFF3 gives as `transl_table=`, and `None` for a number NCBI retired. A codon whose bases were not supplied is drawn without a letter rather than guessed.
+
+On the command line `--codons` finds the coding sequence for you. Placed on a gene by its name it numbers that gene's CDS; over a place written, the CDS of the one gene that codes there, which a page that moves the window keeps counting. It translates with the table the CDS row names with `transl_table=`, or with `--genetic-code N`, which wins and says so where the two differ. The track counts one unbroken span in one frame from its start codon, so a CDS split by introns is refused rather than numbered across them, and so are CDS rows that overlap or meet out of frame, as NCBI writes a ribosomal slippage, and a CDS that does not begin on its start codon, whose 5'-most row has a phase of 1 or 2 or NCBI's `start_range` (`end_range` on the reverse strand): numbered, each would name the wrong residue at every codon past the point. A gene with no CDS row, two genes in the place, transcripts that code different stretches and a gene on no strand are refused too, each with what to write instead.
 
 ## LegendTrack { #legendtrack }
 

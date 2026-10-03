@@ -13,7 +13,7 @@ codons, and a key to the colours.
 | Which genes share one transcript, and where does it start and stop? | [Transcription units](../tracks/annotation.md#transcriptionunittrack) | `TranscriptionUnitTrack`, Rust only |
 | Could an unannotated stretch be coding, and on which strand? | [Six reading frames](../tracks/annotation.md#orftrack) | `OrfTrack`, `--orfs` |
 | Which position is this, as a genome browser would number it? | [Coordinate ruler](../tracks/scales-keys.md#axistrack) | `AxisTrack`, added at the bottom by `plot()` and by the command line; `--axis` places it |
-| Which residue is this, as in S450L or V600E? | [Codon ruler](../tracks/scales-keys.md#codontrack) | `CodonTrack`, Rust only |
+| Which residue is this, as in S450L or V600E? | [Codon ruler](../tracks/scales-keys.md#codontrack) | `CodonTrack`, `--codons` |
 | What do the colours and shapes stand for? | [Legend](../tracks/scales-keys.md#legendtrack) | `LegendTrack`, Rust only |
 
 ## Plots
