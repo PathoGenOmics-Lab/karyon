@@ -1409,11 +1409,11 @@ mod tests {
 
     /// The page a reader of a cohort starts from names the colour of each
     /// call, and the reader matches the figure against it. It said blue for
-    /// the other allele, and half-strength blue for a heterozygote, two
-    /// releases after the hue became the ink, and a reader looking for blue
-    /// cells found 247 near-black ones. So the words are tied to the colours
-    /// here: the alternate cell is the ink the text is set in, and the
-    /// heterozygous one a grey, its three channels within 32 of each other.
+    /// the other allele, and half-strength blue for a heterozygote, after the
+    /// hue had become the ink, and a reader looking for blue cells found 247
+    /// near-black ones. So the words are tied to the colours here: the
+    /// alternate cell is the ink the text is set in, and the heterozygous one
+    /// a grey, its three channels within 32 of each other.
     #[test]
     fn the_genotypes_page_names_the_colours_the_cells_are_drawn_in() {
         const PAGE: &str = include_str!("../../docs/your-data/genotypes.md");
