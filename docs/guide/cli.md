@@ -72,10 +72,11 @@ Four rules cover every command:
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
 | `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; `--ploidy` is still required |
 | `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
+| `.hic` | a contact map (`--pairs`), read through its index at one resolution |
 | `.slow5` | a read's signal (`--squiggle`) |
 | a name holding `genetic_map` | a recombination map (`--recombination`) |
 
-Any of these may end in `.gz`, except the three read through their index,
+Any of these may end in `.gz`, except the four read through their index,
 which are read as they are written and not out of a `.gz`. A name that could
 be several things, `.tsv` or `.txt`, needs its track's flag, except the
 genetic maps HapMap and the imputation panels ship, whose names say what they
@@ -209,7 +210,7 @@ file, or `-` for [standard input](#standard-input), except `--axis` and
 | `--loci <FILE>` | gene neighbourhoods from several genomes | [BED or GFF3 whose first column names the genome](formats.md#gene-neighbourhoods); `--links` names the homologies | [LocusTrack](../tracks/comparison.md#locustrack) |
 | `--methylation <FILE>` | modified bases per strand | [bedMethyl](formats.md#bedmethyl) from modkit | [MethylationTrack](../tracks/signal-sequence.md#methylationtrack) |
 | `--structural <FILE>` | structural calls as arcs between their breakpoints | [VCF with symbolic alleles or `SVTYPE`](formats.md#structural-vcf) | [StructuralTrack](../tracks/variation.md#structuraltrack) |
-| `--pairs <FILE>` | pairs of places and a value, as a triangle or as arcs | [PLINK's `.ld`, BEDPE or a table of pairs](formats.md#pairs-of-positions) | [PairTrack](../tracks/variation.md#pairtrack) |
+| `--pairs <FILE>` | pairs of places and a value, as a triangle or as arcs | [PLINK's `.ld`, BEDPE or a table of pairs](formats.md#pairs-of-positions), or [a Juicer `.hic`](formats.md#hic) | [PairTrack](../tracks/variation.md#pairtrack) |
 | `--split-reads <FILE>` | molecules that aligned in pieces | [SAM carrying an `SA` tag](formats.md#sam-with-sa-tags), or a BAM holding them | [SplitReadTrack](../tracks/reads-molecules.md#splitreadtrack) |
 | `--bisulfite <FILE>` | methylation one molecule at a time | [a Bismark methylation extractor file](formats.md#the-bismark-extractor-file) | [BisulfiteTrack](../tracks/reads-molecules.md#bisulfitetrack) |
 | `--domains <FILE>` | protein domains on an axis of residues | [an InterProScan table](formats.md#the-interproscan-table) | [DomainTrack](../tracks/comparison.md#domaintrack) |
@@ -291,6 +292,7 @@ takes.
 | `--context <NAME>` | `CpG`, `CHG` or `CHH` | `--bisulfite` | the one context in the file; refused when it holds several |
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
 | `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
+| `--resolution <BASES>` | a size of bin the `.hic` holds, in bases, as `10000` | `--pairs`, after a `.hic` | the finest that cuts the window into 250 bins or fewer, and a note says so where the file holds finer |
 | `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
 | `--sample <NAME[,N]>` | a sample the table names; after `--genotypes`, samples of the VCF, comma separated, in the order to draw them | `--copy-number`, `--genotypes` | the one sample, refused when the table holds several; every sample of the VCF, in the order of its header |
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
@@ -321,7 +323,7 @@ takes.
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--isoforms` | nothing | `--features` | each gene once, with every exon its transcripts use |
 | `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
-| `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage always |
+| `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage and a `.hic` always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
 | `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination`, `--codons` | the theme's colours |
@@ -1060,6 +1062,39 @@ A record a track refuses is named by where it is, `the record at chr1:60,000`,
 since a BCF has no lines to number. BCF 2.2 is read, the version htslib reads
 and bcftools has written since 2014, compressed as `bcftools view -Ob` writes
 it, uncompressed as `-Ou` writes it, or bare.
+
+A `.hic` is read by `--pairs`, and named on its own it is drawn as one: the
+map of the window's sequence with itself, at one of the resolutions the file
+holds, through the master index at its end and the index of blocks each
+resolution keeps, so a window reads the few blocks over it whatever the size
+of the file. `--resolution 10000` names the resolution. Without it the finest
+that cuts the window into 250 bins or fewer is drawn, since a map drawn at its
+finest over a chromosome is millions of cells and a figure too large to open,
+and a note says which where the file holds finer:
+
+```bash
+karyon chr1:20,000,001-22,000,000 contacts.hic --log -o contacts.svg
+karyon chr1:20,000,001-22,000,000 --pairs contacts.hic --resolution 5000 --log -o finer.svg
+```
+
+```text
+karyon: contacts.hic is drawn at 10,000-base bins, the finest of its 11 resolutions that keeps the window to 250 bins; --resolution 5000 draws finer
+```
+
+Over a chromosome of 248,956,422 bases simulated at 5 kb, 7.6 million cells
+zoomed out by hictk to eleven resolutions in a `.hic` of 49 MB, that window of
+2 Mb reads 0.5 MB of the file, one block, and draws its 11,370 cells in 0.02 s
+and 7 MB; the whole chromosome, `karyon chr1 contacts.hic`, is drawn at 1 Mb
+in 0.04 s and 12 MB, and the window at 5 kb in 0.04 s and 9 MB. The counts are
+the raw ones, as hictk prints them with no `--balance`, and the normalisations
+a file may carry are not read. Version 9 is read, the version hictk writes; an
+older file is refused by its version, with the two `hictk convert` commands,
+through a `.mcool`, that write it as version 9.
+
+The `.cool` and `.mcool` that cooler writes are HDF5 and are not read, for the
+reasons [File formats](formats.md#pairs-of-positions) gives; each comes in as
+the BEDPE its tools write, `--pairs <(cooler dump --join -r chr1:20000000-22000000
+contacts.cool)`, and a track handed one says so.
 
 CRAM is not read. Hand a track one and it says what the file is and what to
 write in place of its name:

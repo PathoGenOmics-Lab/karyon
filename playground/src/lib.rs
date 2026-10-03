@@ -1468,6 +1468,37 @@ mod tests {
         }
     }
 
+    /// A `.hic` a page holds is read as it is, as a shell reads it from
+    /// disk, and draws what the BEDPE hictk dumps for the same window draws.
+    /// A page that did not pass on the bytes of a file would refuse it as a
+    /// file that is not text.
+    #[test]
+    fn a_page_draws_a_held_hic() {
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/read/fixtures/hic");
+        let dump = std::fs::read_to_string(fixtures.join("contacts.dump")).unwrap();
+        let window: String = dump
+            .split("# ")
+            .find_map(|part| part.strip_prefix("1000 chr1 300000 420000\n"))
+            .unwrap()
+            .to_string();
+        let mut held = stack::Held::new();
+        held.insert(
+            "contacts.hic",
+            std::fs::read(fixtures.join("contacts.hic")).unwrap(),
+        );
+        held.insert("contacts.bedpe", window);
+        let mut page = Page(held);
+        let mut draw = |line: &str| {
+            let argv: Vec<String> = line.split_whitespace().map(String::from).collect();
+            stack::build_files(&invocation(&argv).unwrap(), &mut page, |_, _| None).unwrap()
+        };
+        assert_eq!(
+            draw("chr1:300,001-420,000 contacts.hic"),
+            draw("chr1:300,001-420,000 --pairs contacts.bedpe --style triangle")
+        );
+    }
+
     #[test]
     fn a_file_the_page_is_not_holding_says_what_it_is_holding() {
         // A shell can be told to go and look. A page cannot, so the error names

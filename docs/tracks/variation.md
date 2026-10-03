@@ -509,8 +509,8 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 | | |
 |:--|:--|
 | Rust | `.add_pairs(pairs)` on `plot()`; `PairTrack::new(pairs)` |
-| Command line | `--pairs FILE`, or a `.ld` or `.bedpe` named on its own, with `--style`, `--threshold`, `--log`, `--max`, `--color`, `--height` |
-| Reads | PLINK's `.ld`, BEDPE, or a table headed `pos1`, `pos2` and a value (`read::pairs::pairs`) |
+| Command line | `--pairs FILE`, or a `.ld`, `.bedpe` or `.hic` named on its own, with `--style`, `--threshold`, `--log`, `--max`, `--color`, `--height`, and `--resolution` after a `.hic` |
+| Reads | PLINK's `.ld`, BEDPE, or a table headed `pos1`, `pos2` and a value (`read::pairs::pairs`); a Juicer `.hic`, the map of the window's sequence with itself at one resolution, through its index, as raw counts (`read::hic::contacts`) |
 
 === "Rust"
 

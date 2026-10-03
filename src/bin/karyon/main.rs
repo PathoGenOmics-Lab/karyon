@@ -148,6 +148,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--context", "CpG"),
     ("--analysis", "Pfam"),
     ("--read", "r1"),
+    ("--resolution", "10000"),
     ("--ploidy", "2"),
     ("--sample", "s1"),
     ("--traits", "s.tsv"),
@@ -420,8 +421,9 @@ annotation names, drawn with a margin, or a sequence's name, drawn whole. A
 file named on its own is a track of the kind its name says: BAM draws its
 depth, SAM its reads, VCF and BCF their calls, GFF3, GTF, BED and bigBed
 features, bedGraph and bigWig a signal, FASTA and 2bit the reference, Newick a
-tree, PAF synteny, a PLINK or REGENIE table a scan, and CNVkit's .cns and a
-.seg copy number; a .gz is read as the file inside. Each track flag starts a
+tree, PAF synteny, Juicer's .hic its contacts, a PLINK or REGENIE table a
+scan, and CNVkit's .cns and a .seg copy number; a .gz is read as the file
+inside. Each track flag starts a
 track of its own kind, and the flags after a track describe that one, so the
 order of the words is the order of the stack. A coordinate ruler is added
 under the last track laid on the coordinates unless --axis puts one elsewhere
@@ -500,9 +502,10 @@ TRACKS
                          VCF or BCF carrying symbolic alleles or SVTYPE
     --pairs <FILE>       pairs of places and a value between them: linkage as
                          PLINK writes it in a .ld table, contacts or loops as
-                         BEDPE, or a table headed pos1, pos2 and a value.
-                         Linkage and contacts are a triangle under the axis,
-                         and a few pairs far apart are arcs
+                         BEDPE, a contact map as Juicer's .hic, or a table
+                         headed pos1, pos2 and a value. Linkage and contacts
+                         are a triangle under the axis, and a few pairs far
+                         apart are arcs
     --split-reads <FILE> molecules that aligned in pieces, a BAM or SAM carrying
                          an SA tag; only primary alignments are read
     --bisulfite <FILE>   methylation one molecule at a time, a Bismark
@@ -567,6 +570,10 @@ TRACK OPTIONS, each describing the track before it, once
                          domain table holding more than one
     --read <NAME>        which read of a SLOW5 file holding several; the first
                          by default
+    --resolution <BASES> the size of bin a .hic is drawn at, one of those it
+                         holds, as 10000; by default the finest that cuts the
+                         window into 250 bins or fewer. Its raw counts are
+                         drawn, with no normalisation
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
                          required, since it is not in the file
     --sample <NAME[,N]>  which sample of a segment table holding several; after
@@ -777,11 +784,13 @@ COMPRESSED AND BINARY FILES
     only the blocks over the region are read: a bigWig by --coverage, from
     the summary it keeps at the scale it is drawn at, and by --windows and
     --dynseq; a bigBed by --features; and a 2bit by --sequence, --orfs and
-    --with-sequence. Each of these is told by its first bytes, and is named
-    rather than piped, since it is read out of order; a bigWig, a bigBed or a
-    2bit compressed with gzip is refused with the gunzip -k that gives it
-    back. CRAM is not read here; a track handed one says which command writes
-    what it reads, and a pipe brings that in:
+    --with-sequence. A .hic is read by --pairs through the index it holds, at
+    one resolution, its map of the sequence with itself over the region and
+    no more. Each of these is told by its first bytes, and is named rather
+    than piped, since it is read out of order; one compressed with gzip is
+    refused with the gunzip -k that gives it back. CRAM, and cooler's .cool
+    and .mcool, which are HDF5, are not read here; a track handed one says
+    which command writes what it reads, and a pipe brings that in:
 
     samtools depth -a -r NC_000962.3:761000-763000 aln.cram \\
       | karyon NC_000962.3:761,000-763,000 --coverage - --label depth -o rpoB.svg

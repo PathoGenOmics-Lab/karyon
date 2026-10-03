@@ -186,6 +186,20 @@ pub enum BuildError {
         /// `<(...)` or a `-` has no name to read a track off.
         alone: bool,
     },
+    /// A `--resolution` the track's file cannot be drawn at: a file that is
+    /// not a `.hic`, whose bins are the ones it was written in, or a `.hic`
+    /// that does not hold that resolution, which is told the ones it does.
+    Unresolved {
+        /// Which track wanted it.
+        track: &'static str,
+        /// What the file was called.
+        path: String,
+        /// The resolution asked for, in bases.
+        asked: u32,
+        /// The resolutions the `.hic` holds, or `None` for a file that is not
+        /// one.
+        held: Option<Vec<u32>>,
+    },
     /// A threshold given as a number no p-value can be, for a scan whose file
     /// held p-values.
     ///
@@ -778,6 +792,24 @@ impl fmt::Display for BuildError {
                     )
                 }
             }
+            BuildError::Unresolved {
+                track,
+                path,
+                asked,
+                held,
+            } => match held {
+                None => write!(
+                    f,
+                    "--{track} {path}: --resolution picks one of the resolutions a .hic holds, \
+                     and {path} is drawn at the bins it was written in"
+                ),
+                Some(held) => write!(
+                    f,
+                    "--{track} {path} has no {}-base resolution; it holds {}",
+                    crate::track::axis::group_thousands(u64::from(*asked)),
+                    read::hic::listed(held)
+                ),
+            },
             BuildError::NotAPValue { track, path, given } => write!(
                 f,
                 "--{track} {path} holds p-values, so --threshold is a p-value too, between 0 \
@@ -4666,8 +4698,9 @@ struct Slurped {
 /// a few blocks of a file the whole text reads all of.
 ///
 /// The second is a bigWig, a bigBed or a 2bit, told by its first bytes and
-/// read through [`Files::seekable`] by [`natively`], or a BCF, read by
-/// [`calls`] through the `.csi` beside it. The third is a file
+/// read through [`Files::seekable`] by [`natively`], a BCF, read by
+/// [`calls`] through the `.csi` beside it, or a `.hic`, read by
+/// [`contact_map`] through the index it holds. The third is a file
 /// compressed with bgzip with a `.csi` or a `.tbi` beside it, read by
 /// [`windowed`] for a track [`through_index`] says draws only the rows over
 /// the window, and only where `whole` is false: a track whose window was
@@ -4722,6 +4755,9 @@ fn slurp(
         if binary == Binary::Bcf {
             return calls(spec, region, files, source, file);
         }
+        if binary == Binary::Hic {
+            return contact_map(spec, region, files, file, called(source));
+        }
         // As many bases to a pixel as the whole figure is wide, which is a
         // few more than the plot inside its gutter holds: a zoom level is
         // never coarser than the drawing for it.
@@ -4752,7 +4788,8 @@ fn slurp(
 }
 
 /// A source that is a binary format a track reads as it is, a bigWig, a
-/// bigBed, a 2bit or a BCF, by its first bytes, opened at its start. `None`
+/// bigBed, a 2bit, a BCF or a `.hic`, by its first bytes, opened at its
+/// start. `None`
 /// for any other source, and for one the files cannot give as bytes, which
 /// [`Files::text`] then reads or says why not.
 fn native<F: Files + ?Sized>(
@@ -4763,9 +4800,9 @@ fn native<F: Files + ?Sized>(
         return Ok(None);
     };
     Ok(match sniffed(&mut file)? {
-        Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit | Binary::Bcf)) => {
-            Some((binary, file))
-        }
+        Some(
+            binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit | Binary::Bcf | Binary::Hic),
+        ) => Some((binary, file)),
         _ => None,
     })
 }
@@ -4880,6 +4917,117 @@ fn natively(
         held: None,
         reference,
         most,
+        absent,
+    })
+}
+
+/// A Juicer `.hic`, read over the window as the BEDPE `hictk dump --join`
+/// writes for it, which the reader of pairs takes as it takes that, or
+/// refused, naming the track that draws it.
+///
+/// At the resolution `--resolution` names, refused where the file does not
+/// hold it, or at the finest that cuts the window into no more than
+/// [`read::hic::BINS`] bins, the coarsest where none does, which a note says
+/// where the file holds finer: a contact map drawn at its finest over a
+/// chromosome is millions of cells, and a figure too large to open.
+fn contact_map(
+    spec: &TrackSpec,
+    region: &Region,
+    files: &mut dyn Files,
+    mut file: Box<dyn Seekable>,
+    path: String,
+) -> Result<Slurped, BuildError> {
+    let track = spec.kind.flag();
+    if spec.format.is_some() || spec.kind != Kind::Pairs {
+        return Err(BuildError::OtherTrack {
+            track,
+            path,
+            binary: Binary::Hic,
+            format: spec.format.is_some(),
+        });
+    }
+    let open = |path: &str, cause: read::ReadError| BuildError::Open {
+        track,
+        path: path.to_string(),
+        cause: unreadable(cause),
+    };
+    let header = read::hic::header_of(&mut file).map_err(|error| open(&path, error))?;
+    let resolution = match spec.resolution {
+        Some(asked) if header.resolutions.contains(&asked) => asked,
+        Some(asked) => {
+            return Err(BuildError::Unresolved {
+                track,
+                path,
+                asked,
+                held: Some(header.resolutions),
+            })
+        }
+        None => read::hic::resolution_for(&header.resolutions, region, read::hic::BINS)
+            .ok_or_else(|| {
+                open(
+                    &path,
+                    read::ReadError::whole(
+                        "the .hic holds no resolution in bases, only in restriction fragments, \
+                         which are not drawn",
+                    ),
+                )
+            })?,
+    };
+    let mut absent = None;
+    let cells = match header.contacts(&mut file, region, resolution) {
+        Ok(cells) => cells,
+        Err(error) => {
+            let (cause, unnamed) = refused_window(error, Binary::Hic, file.as_mut(), region);
+            if !unnamed {
+                return Err(BuildError::Open { track, path, cause });
+            }
+            // A sequence the file does not name holds no contacts in it, and
+            // the track says it found none.
+            absent = Some(cause.to_string());
+            Vec::new()
+        }
+    };
+    // Said once the window is read, so a sequence the file does not have is
+    // what a figure refused for it says, and nothing about its bins.
+    if spec.resolution.is_none() && absent.is_none() {
+        let finer = header
+            .resolutions
+            .iter()
+            .copied()
+            .filter(|size| *size < resolution)
+            .max();
+        let size = u64::from(resolution);
+        let bins = region.end().saturating_sub(1) / size - region.start() / size + 1;
+        let grouped = crate::track::axis::group_thousands;
+        if bins > read::hic::BINS {
+            let which = if header.resolutions.len() > 1 {
+                "its coarsest"
+            } else {
+                "the one it holds"
+            };
+            files.note(&format!(
+                "{path} is drawn at {}-base bins, {which}, which cut the window into {}",
+                grouped(size),
+                grouped(bins)
+            ));
+        } else if let Some(finer) = finer {
+            files.note(&format!(
+                "{path} is drawn at {}-base bins, the finest of its {} resolutions that keeps \
+                 the window to {} bins; --resolution {finer} draws finer",
+                grouped(size),
+                header.resolutions.len(),
+                read::hic::BINS
+            ));
+        }
+    }
+    Ok(Slurped {
+        text: read::hic::bedpe(region.seq(), &cells),
+        path,
+        origin: Origin::Native(Binary::Hic),
+        probe: None,
+        held: None,
+        reference: None,
+        most: None,
         absent,
     })
 }
@@ -5127,6 +5275,7 @@ fn refused_window(
         match binary {
             Binary::BigWig => read::bigwig::sequences(&mut *file),
             Binary::BigBed => read::bigbed::sequences(&mut *file),
+            Binary::Hic => read::hic::sequences(&mut *file),
             _ => read::twobit::sequences(&mut *file),
         }
         .ok()
@@ -6020,7 +6169,7 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, binary));
             }
         }
-        if let Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit)) =
+        if let Some(binary @ (Binary::BigWig | Binary::BigBed | Binary::TwoBit | Binary::Hic)) =
             Binary::of(&inside, None)
         {
             let gzipped = Gzipped {
@@ -6057,8 +6206,8 @@ fn decoded(bytes: Vec<u8>, path: Option<&Path>) -> io::Result<String> {
     Ok(text)
 }
 
-/// A bigWig, a bigBed or a 2bit compressed with gzip, which karyon reads as
-/// it is once it is not.
+/// A bigWig, a bigBed, a 2bit or a `.hic` compressed with gzip, which karyon
+/// reads as it is once it is not.
 ///
 /// Each is read where its index says a block is, and compressed, every byte
 /// of it is somewhere else. Answered as a file that is not text, a gzipped
@@ -6076,9 +6225,15 @@ struct Gzipped {
 impl fmt::Display for Gzipped {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let called = self.binary.called();
+        // A contact map is called by what it is the first time, and by its
+        // ending the second, which reads as one sentence.
+        let again = match self.binary {
+            Binary::Hic => ".hic",
+            _ => called,
+        };
         write!(
             f,
-            "the file is {called} compressed with gzip, and a {called} is read through the \
+            "the file is {called} compressed with gzip, and a {again} is read through the \
              index it holds, which the compression hides; "
         )?;
         // gunzip takes the `.gz` off the name and keeps the file it was
@@ -6202,8 +6357,8 @@ pub trait Files {
     }
 
     /// The sequences a binary file names, each with its length, or `None`
-    /// for a source that is not one this can read: a BAM's header, and the
-    /// index a bigWig, a bigBed or a 2bit holds. A BCF's header is read where
+    /// for a source that is not one this can read: a BAM's header, the index
+    /// a bigWig, a bigBed or a 2bit holds, and a `.hic`'s header. A BCF's header is read where
     /// a figure is placed, since it may name a sequence with no length.
     ///
     /// # Errors
@@ -6215,6 +6370,7 @@ pub trait Files {
                 Binary::BigWig => read::bigwig::sequences(file),
                 Binary::BigBed => read::bigbed::sequences(file),
                 Binary::TwoBit => read::twobit::sequences(file),
+                Binary::Hic => read::hic::sequences(file),
                 // A BCF's header may name a sequence with no length, and its
                 // records are read for how far they reach, as a VCF's rows
                 // are, where the figure is placed.
@@ -6749,11 +6905,6 @@ impl Binary {
                 "cooler ls lists its resolutions, and cooler dump --join -r REGION \
                  FILE::/resolutions/N writes one of them as the BEDPE --pairs reads"
             }
-            Binary::Hic => {
-                "hic2cool convert FILE.hic FILE.cool -r N writes one resolution as a .cool, \
-                 and cooler dump --join -r REGION FILE.cool writes that as the BEDPE --pairs \
-                 reads"
-            }
             _ => return None,
         })
     }
@@ -6775,6 +6926,7 @@ impl Binary {
                 "calls along the sequence",
                 "--variants, --genotypes and --structural draw",
             ),
+            Binary::Hic => ("contacts between the bins of a sequence", "--pairs draws"),
             _ => return None,
         })
     }
@@ -8417,16 +8569,28 @@ fn built(
             Box::new(named(track, label, CoverageTrack::label))
         }
         Kind::Pairs => {
+            // Only a .hic holds more than one size of bin to pick from.
+            let contacts = origin == Origin::Native(Binary::Hic);
+            if let (Some(asked), false) = (spec.resolution, contacts) {
+                return Err(BuildError::Unresolved {
+                    track: name,
+                    path,
+                    asked,
+                    held: None,
+                });
+            }
             let (pairs, measured) = wrap(name, &path, read::pairs::pairs(&text, region))?;
             if pairs.is_empty() {
                 return Err(empty("pairs"));
             }
             // A triangle where most of the pairs the places could make were
             // measured, as linkage and contacts are, and arcs where a few were.
-            // Linkage is a triangle however PLINK's window filtered it.
+            // Linkage is a triangle however PLINK's window filtered it, and a
+            // contact map however few of its cells hold a count: one that
+            // holds none is a count of nought, not a pair left unmeasured.
             let correlation = measured.as_deref().is_some_and(read::pairs::is_correlation);
             let style = spec.style.and_then(Style::pairs).unwrap_or_else(|| {
-                if correlation {
+                if correlation || contacts {
                     PairStyle::Triangle
                 } else {
                     PairStyle::for_pairs(&pairs)
@@ -10528,7 +10692,8 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
             )),
             "{alone}"
         );
-        // No one command: the resolution has to be picked first.
+        // No one command: the resolution has to be picked first. A .hic is
+        // read as it is, and only a pipe of one is refused, asking its name.
         for (text, binary, advice) in [
             (
                 "chr1:1-5000 contacts.mcool",
@@ -10536,9 +10701,9 @@ ACGTACGTAAGTACGTACGTACGTACGTACGT
                 "cooler ls lists its resolutions",
             ),
             (
-                "chr1:1-5000 --pairs contacts.hic",
+                "chr1:1-5000 --pairs -",
                 Binary::Hic,
-                "hic2cool convert FILE.hic FILE.cool -r N",
+                "a pipe cannot be read that way; name the file instead",
             ),
         ] {
             let error = refused(text, binary);
@@ -14319,6 +14484,176 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let with = held_figure(&mut held, "chr1:1-60 ref.2bit --pileup reads.sam").unwrap();
         let without = held_figure(&mut held, "chr1:1-60 --pileup reads.sam").unwrap();
         assert_ne!(with, without);
+    }
+
+    const CONTACTS_HIC: &[u8] = include_bytes!("../read/fixtures/hic/contacts.hic");
+
+    /// The cells `hictk dump --join` printed for one window of the `.hic`
+    /// fixture, as BEDPE, by the line `make.sh` heads them with.
+    fn dumped(window: &str) -> String {
+        let dump = include_str!("../read/fixtures/hic/contacts.dump");
+        let mut out = String::new();
+        let mut inside = false;
+        for line in dump.lines() {
+            if let Some(heading) = line.strip_prefix("# ") {
+                inside = heading == window;
+            } else if inside {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        assert!(!out.is_empty(), "{window}");
+        out
+    }
+
+    /// The `.hic` fixture, and BEDPE files of what hictk dumped of it.
+    fn contact_maps() -> Held {
+        let mut held = Held::new();
+        held.insert("contacts.hic", CONTACTS_HIC);
+        held.insert("near.bedpe", dumped("1000 chr1 300000 420000"));
+        held.insert("unaligned.bedpe", dumped("5000 chr1 612345 987654"));
+        held.insert("dense.bedpe", dumped("250000 chr2 0 345678"));
+        held
+    }
+
+    /// A `.hic` draws, byte for byte, the figure the BEDPE hictk dumps for
+    /// the same window and resolution draws: a window inside one block at
+    /// the finest resolution, one whose edges fall inside bins, and a dense
+    /// block. And it is a triangle, where BEDPE as sparse as these cells is
+    /// drawn as arcs unless told.
+    #[test]
+    fn a_hic_draws_what_the_bedpe_hictk_dumps_for_it_draws() {
+        let mut held = contact_maps();
+        for (hic, text) in [
+            (
+                "chr1:300,001-420,000 contacts.hic",
+                "chr1:300,001-420,000 --pairs near.bedpe --style triangle --label contacts",
+            ),
+            (
+                "chr1:612,346-987,654 --pairs contacts.hic --resolution 5000",
+                "chr1:612,346-987,654 --pairs unaligned.bedpe --style triangle --label contacts",
+            ),
+            (
+                "chr2:1-345,678 --pairs contacts.hic --resolution 250000 --log",
+                "chr2:1-345,678 --pairs dense.bedpe --style triangle --label contacts --log",
+            ),
+        ] {
+            let drawn = held_figure(&mut held, hic).unwrap();
+            assert_eq!(drawn, held_figure(&mut held, text).unwrap(), "{hic}");
+            assert!(drawn.contains("<polygon"), "{hic}");
+        }
+        let arcs = held_figure(&mut held, "chr1:300,001-420,000 --pairs near.bedpe").unwrap();
+        assert!(!arcs.contains("<polygon"));
+        assert!(held.notes.is_empty(), "{:?}", held.notes);
+    }
+
+    /// Without `--resolution`, a `.hic` is drawn at the finest of its
+    /// resolutions that keeps the window to 250 bins, and a note says so
+    /// where it holds finer; where none does, at its coarsest, which a note
+    /// says too. Placed on a sequence's name, it is as long as the header
+    /// says.
+    #[test]
+    fn a_hic_is_drawn_at_the_finest_resolution_that_keeps_the_window_to_250_bins() {
+        let mut held = contact_maps();
+        let whole = held_figure(&mut held, "chr1 contacts.hic").unwrap();
+        assert_eq!(
+            held.notes,
+            [
+                "contacts.hic is drawn at 5,000-base bins, the finest of its 6 resolutions that \
+                 keeps the window to 250 bins; --resolution 2000 draws finer"
+            ]
+        );
+        let region = Region::new("chr1", 0, 1_234_567).unwrap();
+        let cells =
+            read::hic::contacts(std::io::Cursor::new(CONTACTS_HIC), &region, 5_000).unwrap();
+        assert_eq!(whole.matches("<polygon").count(), cells.len());
+        assert!(whole.contains("1,230,001-1,234,567"), "the last bin, cut");
+        let asked = held_figure(&mut held, "chr1 --pairs contacts.hic --resolution 5000").unwrap();
+        assert_eq!(asked, whole);
+        held.notes.clear();
+        held_figure(&mut held, "chr1:1-100,000,000 contacts.hic").unwrap();
+        assert_eq!(
+            held.notes,
+            [
+                "contacts.hic is drawn at 250,000-base bins, its coarsest, which cut the window \
+              into 400"
+            ]
+        );
+        // A window the finest resolution keeps to 250 bins says nothing.
+        held.notes.clear();
+        held_figure(&mut held, "chr1:300,001-420,000 contacts.hic").unwrap();
+        assert!(held.notes.is_empty(), "{:?}", held.notes);
+    }
+
+    #[test]
+    fn a_resolution_a_hic_has_not_got_or_one_after_another_file_is_refused() {
+        let mut held = contact_maps();
+        let error = held_figure(&mut held, "chr1 --pairs contacts.hic --resolution 7000")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--pairs contacts.hic has no 7,000-base resolution; it holds 1,000, 2,000, 5,000, \
+             10,000, 50,000 and 250,000"
+        );
+        let error = held_figure(
+            &mut held,
+            "chr1:1-1000 --pairs near.bedpe --resolution 1000",
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "--pairs near.bedpe: --resolution picks one of the resolutions a .hic holds, and \
+             near.bedpe is drawn at the bins it was written in"
+        );
+    }
+
+    /// A `.hic` handed to a track that does not draw contacts names the one
+    /// that does, one piped in asks for its name, and a window on a sequence
+    /// it does not have names the ones it has, and among several places is
+    /// a panel with nothing in it.
+    #[test]
+    fn a_hic_elsewhere_than_pairs_or_on_another_sequence_says_what_reads_it() {
+        let mut held = contact_maps();
+        let error = held_figure(&mut held, "chr1:1-1000 --coverage contacts.hic")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--coverage contacts.hic: the file is a contact map in Juicer's .hic, contacts \
+             between the bins of a sequence, which --pairs draws"
+        );
+        let error = held_figure(&mut held, "chr3:1-1000 contacts.hic")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--pairs contacts.hic: the .hic has no sequence called chr3; it has chr1, chr2"
+        );
+        let both = held_figure(&mut held, "chr1:300,001-420,000 chr3:1-1000 contacts.hic").unwrap();
+        assert!(both.contains("no pairs here"), "{both}");
+        let piped = build(&over("chr1:1-1000", "--pairs", "-"), |_: &Source| {
+            decoded(CONTACTS_HIC.to_vec(), None)
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            piped,
+            "--pairs standard input: the file is a contact map in Juicer's .hic, which is read \
+             through the index it holds, and a pipe cannot be read that way; name the file \
+             instead"
+        );
+        held.insert("contacts.hic.gz", gzip_of(CONTACTS_HIC));
+        let error = held_figure(&mut held, "chr1:1-1000 contacts.hic.gz")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--pairs contacts.hic.gz: the file is a contact map in Juicer's .hic compressed \
+             with gzip, and a .hic is read through the index it holds, which the compression \
+             hides; gunzip -k contacts.hic.gz writes contacts.hic, which karyon reads as it is"
+        );
     }
 
     /// The same files on disk draw what they draw held in memory.

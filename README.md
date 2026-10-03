@@ -103,7 +103,7 @@ The documentation is the manual; this page is the front door.
 | draw something in the next five minutes | [Start here](https://pathogenomics-lab.github.io/karyon/start/), then [What do you have?](https://pathogenomics-lab.github.io/karyon/your-data/) for your kind of data |
 | find the plot that fits your data | [Gallery](https://pathogenomics-lab.github.io/karyon/plots/), which sorts all thirty-eight tracks by biological question rather than by type name |
 | look up one track's exact API | [Track reference](https://pathogenomics-lab.github.io/karyon/tracks/) |
-| read files instead of building vectors | [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/): BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`, FASTA and Newick, and BAM, BCF, bigWig, bigBed and 2bit a window at a time |
+| read files instead of building vectors | [File formats](https://pathogenomics-lab.github.io/karyon/guide/formats/): BED, bedGraph, GFF3, VCF, SAM, cytoBand, `samtools depth`, FASTA and Newick, and BAM, BCF, bigWig, bigBed, 2bit and Juicer's .hic a window at a time |
 | draw trees, traits, support or dN/dS | [Phylogenetics](https://pathogenomics-lab.github.io/karyon/guide/phylogenetics/) |
 | put samples on a map | [Geographic genomics](https://pathogenomics-lab.github.io/karyon/guide/maps/) |
 | make it match the rest of your figures | [Styling](https://pathogenomics-lab.github.io/karyon/guide/theming/) |

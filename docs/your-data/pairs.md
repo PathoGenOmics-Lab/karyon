@@ -26,10 +26,15 @@ together are the dark triangles.
 - **Linkage**: PLINK's `--r2` writes a `.ld` table, read as it is.
   `--ld-window-r2 0` keeps the weak pairs as well, which a complete triangle
   needs.
-- **Contacts or loops**: BEDPE, as `cooler dump --join` writes a contact map.
-  A `.cool` is drawn with `--pairs <(cooler dump --join -r REGION map.cool)`,
-  and a `.mcool` or a `.hic` named on its own is answered with the steps that
-  write it so.
+- **Contacts**: a `.hic`, as Juicer's tools and hictk write it, named as it
+  is: `karyon chr1:20,000,001-22,000,000 contacts.hic`. It is read at the
+  finest of its resolutions that cuts the window into 250 bins or fewer, which
+  a note names, and `--resolution 10000` picks another it holds. Its raw counts
+  are drawn, with none of its normalisations applied.
+- **Loops, or a cooler file**: BEDPE, as loop callers write their loops and
+  `cooler dump --join` writes a contact map. A `.cool` is drawn with
+  `--pairs <(cooler dump --join -r REGION map.cool)`, and a `.mcool` named on
+  its own is answered with the steps that write it so.
 - **Anything else**: a table headed `pos1`, `pos2` and a value, its positions
   counted from 1.
 
@@ -41,6 +46,7 @@ together are the dark triangles.
 | Only the strong pairs | `--threshold 0.5` |
 | Weak linkage read on a scale of its own, rather than against an r² of 1 | `--max 0.5` |
 | Contacts, which fall by orders of magnitude | `--log` |
+| A contact map at bins of 10 kb, where the file holds them | `--resolution 10000` |
 | Scores between the calls, over the calls | `rpoB genes.gff3 calls.vcf.gz --pairs epistasis.tsv` |
 
 The example files: [linkage.ld](../data/linkage.ld) and

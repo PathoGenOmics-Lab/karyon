@@ -15,8 +15,10 @@
 //! bigBed's rows as BED, and a 2bit's bases. [`bcf`] reads a BCF the same
 //! way, through the CSI beside it, and hands its records over as the VCF text
 //! `bcftools view` prints for them, which the readers of calls take as they
-//! take a VCF. CRAM comes in through a pipe, as `samtools view` already writes
-//! exactly what these readers take.
+//! take a VCF. [`hic`] reads Juicer's `.hic` through the indexes it holds, the
+//! cells of one sequence's map with itself over a window at one resolution, as
+//! the pairs a contact map is drawn from. CRAM comes in through a pipe, as
+//! `samtools view` already writes exactly what these readers take.
 //!
 //! # Text in, values out, and no path anywhere
 //!
@@ -54,7 +56,9 @@
 //! # Which formats count from one
 //!
 //! Half-open and 0-based, passed straight through: BED, bedGraph, cytoBand,
-//! and the bigBed and bigWig they are packed into.
+//! and the bigBed and bigWig they are packed into. A `.hic`'s bins are counted
+//! from nought, each the half-open stretch from its number times the
+//! resolution.
 //!
 //! None at all, a sequence starting at its own first base: FASTA and 2bit.
 //!
@@ -90,6 +94,7 @@ pub mod date;
 pub mod domain;
 pub mod dynseq;
 pub mod gzip;
+pub mod hic;
 pub mod index;
 pub mod interval;
 pub mod junction;

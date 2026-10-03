@@ -1817,6 +1817,10 @@ pub struct TrackSpec {
     /// `--genetic-code`, the NCBI translation table a codon ruler reads its
     /// residues with, where the annotation's own is not the one wanted.
     pub genetic_code: Option<u8>,
+    /// `--resolution`, the bins in bases a contact map in a `.hic` is drawn
+    /// at, one of those the file holds. `None` draws the finest that cuts the
+    /// window into no more than [`read::hic::BINS`](crate::read::hic::BINS).
+    pub resolution: Option<u32>,
     /// Whether the kind was read off the file's name, the file having been
     /// named on its own with no track flag in front of it. Such a track may
     /// be told apart once its file is read: a `.bed` that is modkit's
@@ -1871,6 +1875,7 @@ impl TrackSpec {
             traits: None,
             columns: None,
             genetic_code: None,
+            resolution: None,
             guessed: false,
         }
     }
@@ -2287,6 +2292,7 @@ pub const FLAGS: &[&str] = &[
     "--max",
     "--color",
     "--genetic-code",
+    "--resolution",
     "--against",
     "--with-tree",
     "--links",
@@ -2502,6 +2508,39 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
         ],
         "--circular draws the place, one whole sequence, as a circle with a ring a \
          track, as in karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz",
+    ),
+    (
+        &[
+            "hic",
+            "hi-c",
+            "contacts",
+            "contact-map",
+            "juicer",
+            "cool",
+            "mcool",
+        ],
+        "a contact map is --pairs FILE, or the .hic named on its own; a .cool or a .mcool \
+         comes in as BEDPE, as cooler writes it out",
+    ),
+    (
+        &["binsize", "bin-size", "res"],
+        "a .hic is drawn at the bins --resolution names after it, as contacts.hic \
+         --resolution 10000, and by default at the finest that cuts the window into 250 \
+         or fewer; a signal is drawn at the bins its file was written in, a pixel taking \
+         what --aggregate says of them",
+    ),
+    (
+        &[
+            "norm",
+            "normalization",
+            "normalisation",
+            "normalize",
+            "normalise",
+            "balance",
+            "balanced",
+        ],
+        "a contact map is drawn as its raw counts, with none of the normalisations a \
+         .hic may carry applied; --log spreads them",
     ),
     (
         &["flank", "padding", "pad", "margin", "extend"],
@@ -3582,6 +3621,31 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.genetic_code = Some(table);
+            }
+            "--resolution" => {
+                let text = value("--resolution")?;
+                // A .hic writes its resolutions as 32-bit integers, so one
+                // past that is none it can hold, and is refused with the
+                // value rather than later as missing from the file.
+                let size = text
+                    .trim()
+                    .replace(',', "")
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|size| *size > 0 && i32::try_from(*size).is_ok())
+                    .ok_or_else(|| ArgError::BadValue {
+                        flag: "--resolution",
+                        given: text.clone(),
+                        expected: "a size of bin in bases that the .hic holds, as 10000",
+                    })?;
+                let track = once(&mut tracks, &mut given, "--resolution")?;
+                if track.kind != Kind::Pairs {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--resolution",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.resolution = Some(size);
             }
             flag @ ("--against" | "--with-tree" | "--links" | "--with-sequence" | "--ld"
             | "--with-moves") => {
@@ -6956,6 +7020,51 @@ mod tests {
         }
     }
 
+    /// `--resolution` is a size of bin in bases a .hic can hold, after
+    /// `--pairs` and no other track, whichever file the pairs are in: only
+    /// reading it says whether it is a .hic.
+    #[test]
+    fn a_resolution_is_a_size_of_bin_after_pairs_alone() {
+        for (given, size) in [("10000", 10_000), ("10,000", 10_000), ("1", 1)] {
+            let it = draw(&format!("chr1:1-10 contacts.hic --resolution {given}"));
+            assert_eq!(it.tracks[0].kind, Kind::Pairs);
+            assert_eq!(it.tracks[0].resolution, Some(size), "{given}");
+            let it = draw(&format!(
+                "chr1:1-10 --pairs loops.bedpe --resolution {given}"
+            ));
+            assert_eq!(it.tracks[0].resolution, Some(size), "{given}");
+        }
+        assert_eq!(draw("chr1:1-10 contacts.hic").tracks[0].resolution, None);
+        for given in ["0", "-5", "10kb", "2147483648", "ten"] {
+            let error = parse(&args(&format!(
+                "chr1:1-10 --pairs contacts.hic --resolution {given}"
+            )))
+            .unwrap_err();
+            assert!(
+                matches!(&error, ArgError::BadValue { flag: "--resolution", given: said, .. }
+                    if said == given),
+                "{given}: {error:?}"
+            );
+        }
+        let error = parse(&args("chr1:1-10 --coverage d.bg --resolution 1000")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ArgError::WrongTrack {
+                    flag: "--resolution",
+                    track: "coverage"
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(takes(Kind::Pairs, "--resolution", Some("10000")));
+        assert!(!takes(Kind::Coverage, "--resolution", Some("10000")));
+        assert!(
+            spelled_elsewhere("--binSize").is_some_and(|answer| answer.contains("--resolution"))
+        );
+        assert!(spelled_elsewhere("--hic").is_some_and(|answer| answer.contains("--pairs")));
+    }
+
     /// A codon ruler with no place to find a gene in says so, rather than
     /// the advice to name a sequence that every other track gets, which
     /// would be refused again as no gene.
@@ -7111,6 +7220,7 @@ mod tests {
                 "--style" => "line",
                 "--color" => "#123456",
                 "--genetic-code" => "11",
+                "--resolution" => "10000",
                 "--format" if kind == Kind::Features => "gff3",
                 "--format" => "bedgraph",
                 _ => return None,

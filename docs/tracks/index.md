@@ -178,7 +178,7 @@ The Command line column above maps each flag to its track. A few flags need comp
 - **A choice inside the file.** `--methylation` takes `--modification`, `--bisulfite` takes `--context` and `--domains` takes `--analysis`, for a file that holds several datasets; the command refuses to pick one for you.
 - **A number the file does not hold.** `--copy-number` needs `--ploidy`, since where balanced sits is not in the file.
 - **A gene and its CDS.** `--codons` reads no file of its own: it numbers the CDS the figure's annotation writes for the gene the figure is placed on, and takes its letters from the figure's `--sequence`.
-- **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM gets in: `samtools` already writes the text these readers take. A BAM, a BCF, a bigWig, a bigBed and a 2bit are named instead, since each is read out of order through an index.
+- **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM gets in: `samtools` already writes the text these readers take. A BAM, a BCF, a bigWig, a bigBed, a 2bit and a `.hic` are named instead, since each is read out of order through an index.
 
 Three tracks are library only. `TranscriptionUnitTrack` and `GenomeTrack` would need a table with no single standard behind it, and `LegendTrack` is built from what the other tracks drew rather than from a file; the command line draws that one by itself, under a figure with colours to key. The whole grammar is in [Command line](../guide/cli.md).
 
