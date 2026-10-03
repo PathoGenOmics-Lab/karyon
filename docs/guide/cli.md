@@ -1221,6 +1221,9 @@ karyon: --aggregate means nothing to a features track
 $ karyon NC_000962.3:761,000-763,000 depth.bedgraph genes.gff3 --aggregate min
 karyon: --aggregate means nothing to a features track; it is an option of depth.bedgraph, so write it right after depth.bedgraph
 
+$ karyon NC_000962.3:761,000-763,000 genes.gff3 --genotypes cohort.vcf.gz --color '#8b0000'
+karyon: --color means nothing to a genotypes track
+
 $ karyon chr8:1-1000 --copy-number segments.cns
 karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
 ```
