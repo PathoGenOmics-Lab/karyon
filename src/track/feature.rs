@@ -27,8 +27,10 @@
 //! Packing is first fit, leftmost first, and it is done in pixels rather than
 //! in bases, so the same features take one row in a wide view and four in a
 //! narrow one. A name too long to sit inside its feature is drawn to the right
-//! of it on the same row, which is why the room a name needs is reserved during
-//! the packing and not after it.
+//! of it on the same row, or to its left when the feature runs off the right
+//! edge, which is why the room a name needs is reserved during the packing and
+//! not after it. Inside means inside the part of the feature on the page, so a
+//! window opened in the middle of a gene still names it.
 //!
 //! Only the features in view are packed, which is also what sets the height, so
 //! a cluster off the left edge cannot push the one gene on screen down a row.
@@ -538,20 +540,30 @@ impl FeatureTrack {
         let padding = 4.0;
         let mut row_ends = Rows::with_capacity(order.len());
 
+        let view = (scale.x0(), scale.x0() + scale.width());
         for &i in &order {
             let feature = &self.features[i];
-            let left = scale.x(feature.start);
+            let mut left = scale.x(feature.start);
             let mut right = scale.x(feature.end).max(left + 2.0);
             if self.show_names {
                 if let Some(name) = &feature.name {
                     let width = text_width(name, theme.font_size);
-                    // A name that does not fit inside is drawn to the right,
-                    // so it has to be reserved here or the next feature will
-                    // sit on top of it. Inside a gene model means inside its
-                    // widest coding stretch, which is where `draw` puts it.
-                    let room = Self::model(feature, scale).map_or(right - left, |model| model.room);
-                    if width + 6.0 > room {
-                        right += width + 6.0;
+                    // A name that does not fit inside is drawn beside the
+                    // feature, so it has to be reserved here or the next
+                    // feature will sit on top of it. Inside a gene model
+                    // means inside its widest coding stretch in view, which
+                    // is where `draw` puts it.
+                    let (room, room_at) = match Self::model(feature, scale) {
+                        Some(model) => (model.room, model.room_at),
+                        None => {
+                            let (l, r) = (left.max(view.0), right.min(view.1));
+                            (r - l, (l + r) / 2.0)
+                        }
+                    };
+                    let place = NamePlace::new(width, left, right, room, room_at, view);
+                    if !place.over || place.to > right {
+                        left = left.min(place.from);
+                        right = right.max(place.to + 3.0);
                     }
                 }
             }
@@ -585,8 +597,8 @@ struct Model {
     exons: Vec<Vec<Piece>>,
     /// Where the line through the introns runs: the whole feature.
     line: (f64, f64),
-    /// The widest stretch drawn at full height, which is where a name fits
-    /// inside the feature or does not, and its middle.
+    /// The widest stretch drawn at full height and in view, which is where a
+    /// name fits inside the feature or does not, and its middle.
     room: f64,
     room_at: f64,
 }
@@ -609,6 +621,72 @@ fn settle(pieces: Vec<Piece>) -> Vec<Piece> {
         }
     }
     out
+}
+
+/// Where a feature's name is written, worked out once for the packing and
+/// the drawing so the room one reserves is the room the other uses.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct NamePlace {
+    x: f64,
+    anchor: Anchor,
+    /// Over the feature's own fill, so it is written in the ink that reads
+    /// on it rather than in the page's.
+    over: bool,
+    /// The pixels the name takes, for the packing.
+    from: f64,
+    to: f64,
+}
+
+impl NamePlace {
+    /// Inside the feature when it fits in the room it has on the page, else
+    /// beside it on whichever side the page has, else at the start of what
+    /// shows.
+    ///
+    /// `left` and `right` are the feature's own pixel ends, which run past
+    /// the view when the feature does; `room` and `room_at` are already cut
+    /// to the view. Writing the name after `right` regardless put KAPPA3's
+    /// 80,000 pixels into a 900 pixel figure when a 100 bp window sat inside
+    /// the gene, and rpoC's at 1,182 when the gene ran off the right edge: in
+    /// both the gene row came out with no name at all and the exit was 0.
+    fn new(width: f64, left: f64, right: f64, room: f64, room_at: f64, view: (f64, f64)) -> Self {
+        if width + 6.0 <= room {
+            return NamePlace {
+                x: room_at,
+                anchor: Anchor::Middle,
+                over: true,
+                from: room_at - width / 2.0,
+                to: room_at + width / 2.0,
+            };
+        }
+        // A feature that ends in view keeps the place it always had, so no
+        // figure whose genes all end on the page moves.
+        if right < view.1 {
+            return NamePlace {
+                x: right + 3.0,
+                anchor: Anchor::Start,
+                over: false,
+                from: right,
+                to: right + 3.0 + width,
+            };
+        }
+        if left - 3.0 - width >= view.0 {
+            return NamePlace {
+                x: left - 3.0,
+                anchor: Anchor::End,
+                over: false,
+                from: left - 3.0 - width,
+                to: left,
+            };
+        }
+        let start = left.max(view.0) + 3.0;
+        NamePlace {
+            x: start,
+            anchor: Anchor::Start,
+            over: true,
+            from: start,
+            to: start + width,
+        }
+    }
 }
 
 impl FeatureTrack {
@@ -651,6 +729,7 @@ impl FeatureTrack {
         coding.sort_unstable();
 
         let mut drawn = Vec::with_capacity(blocks.len());
+        let view = (scale.x0(), scale.x0() + scale.width());
         let (mut room, mut room_at) = (0.0f64, 0.0f64);
         for &(s, e) in &blocks {
             let piece = |from: u64, to: u64, full: bool| Piece {
@@ -679,10 +758,16 @@ impl FeatureTrack {
                 }
             }
             let pieces = settle(pieces);
+            // The room is measured on what is on the page: a coding exon
+            // running off the window is only as wide as the part of it in
+            // view, or a name centred on the whole of it lands outside the
+            // canvas, which is where a 60 bp window put rpoB's, 5,000 pixels
+            // right of a 900 pixel figure.
             for piece in pieces.iter().filter(|piece| piece.full) {
-                if piece.right - piece.left > room {
-                    room = piece.right - piece.left;
-                    room_at = (piece.left + piece.right) / 2.0;
+                let (l, r) = (piece.left.max(view.0), piece.right.min(view.1));
+                if r - l > room {
+                    room = r - l;
+                    room_at = (l + r) / 2.0;
                 }
             }
             drawn.push(pieces);
@@ -1073,7 +1158,9 @@ impl Track for FeatureTrack {
                             &body,
                         ),
                     }
-                    (body, right - left, (left + right) / 2.0)
+                    let view = (ctx.scale.x0(), ctx.scale.x0() + ctx.scale.width());
+                    let (l, r) = (left.max(view.0), right.min(view.1));
+                    (body, r - l, (l + r) / 2.0)
                 }
             };
 
@@ -1082,25 +1169,15 @@ impl Track for FeatureTrack {
             if let (true, Some(name)) = (self.show_names, &feature.name) {
                 let width = text_width(name, font);
                 let baseline = middle + font * 0.35;
-                if width + 6.0 <= room {
-                    ctx.svg.text(
-                        room_at,
-                        baseline,
-                        name,
-                        contrast_ink(&body),
-                        font,
-                        Anchor::Middle,
-                    );
+                let view = (ctx.scale.x0(), ctx.scale.x0() + ctx.scale.width());
+                let place = NamePlace::new(width, left, right, room, room_at, view);
+                let ink = if place.over {
+                    contrast_ink(&body)
                 } else {
-                    ctx.svg.text(
-                        right + 3.0,
-                        baseline,
-                        name,
-                        &ctx.theme.foreground,
-                        font,
-                        Anchor::Start,
-                    );
-                }
+                    &ctx.theme.foreground
+                };
+                ctx.svg
+                    .text(place.x, baseline, name, ink, font, place.anchor);
             }
 
             if pointable {
@@ -1614,6 +1691,80 @@ mod tests {
         };
         assert_eq!(rows(gene), [0, 1]);
         assert_eq!(rows(model()), [0, 0]);
+    }
+
+    #[test]
+    fn a_name_lands_on_the_page_when_its_feature_runs_off_it() {
+        // Where the name went, how it is anchored, and the band's pixels.
+        let placed = |feature: Feature, region: Region| -> (f64, String, f64, f64) {
+            let name = feature.name.clone().unwrap();
+            let svg = drawn(feature, region);
+            let attr = |from: usize, to: usize, key: &str| -> String {
+                svg[from..to]
+                    .split(&format!(" {key}=\""))
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .to_string()
+            };
+            // The track asks for no axis strip, so its clip is its band.
+            let clip = svg.find("<clipPath").unwrap();
+            let left: f64 = attr(clip, svg.len(), "x").parse().unwrap();
+            let width: f64 = attr(clip, svg.len(), "width").parse().unwrap();
+            let at = svg.find(&format!(">{name}</text>")).unwrap();
+            let open = svg[..at].rfind("<text").unwrap();
+            let x: f64 = attr(open, at, "x").parse().unwrap();
+            (x, attr(open, at, "text-anchor"), left, left + width)
+        };
+
+        // Sixty bases inside a gene four kilobases long: the name was
+        // centred on the whole gene, thousands of pixels off the page.
+        let (x, anchor, from, to) = placed(
+            Feature::new(759_806, 763_325)
+                .name("rpoB")
+                .strand(Strand::Forward),
+            Region::new("chr", 761_109, 761_170).unwrap(),
+        );
+        assert_eq!(anchor, "middle");
+        assert!((x - (from + to) / 2.0).abs() < 1.0, "{x} in {from}..{to}");
+
+        // The same with a gene model whose one coding exon fills the window.
+        let (x, _, from, to) = placed(
+            Feature::new(1_000_000, 1_200_000)
+                .name("KAPPA3")
+                .exons([(1_000_000, 1_000_100), (1_100_000, 1_200_000)])
+                .coding([(1_100_300, 1_200_000)]),
+            Region::new("chr", 1_100_249, 1_100_350).unwrap(),
+        );
+        assert!(x > from && x < to, "{x} in {from}..{to}");
+
+        // A gene starting near the right edge and running off it, with too
+        // little of it in view for its name: the name goes before it, ending
+        // where the gene starts, rather than after an end that is not drawn.
+        let region = Region::new("chr", 0, 10_000).unwrap();
+        let late = Feature::new(9_950, 14_000).name("a_long_gene_name");
+        let (x, anchor, from, to) = placed(late.clone(), region.clone());
+        assert_eq!(anchor, "end");
+        assert!(x > from && x < to, "{x} in {from}..{to}");
+        assert!(
+            x < from + (to - from) * 0.995,
+            "{x} is past the gene's start"
+        );
+
+        // And the packing keeps that room: a gene ending just before it
+        // moves down a row for the name, as it would for one written after.
+        let scale = scale(&region);
+        let before = Feature::new(9_000, 9_700);
+        let rows = FeatureTrack::new(vec![before.clone(), late])
+            .pack(&scale, &Theme::default())
+            .0;
+        assert_eq!(rows, [0, 1]);
+        let rows = FeatureTrack::new(vec![before, Feature::new(9_950, 14_000).name("g")])
+            .pack(&scale, &Theme::default())
+            .0;
+        assert_eq!(rows, [0, 0]);
     }
 
     #[test]

@@ -1505,6 +1505,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A feature that runs off the window has its name written on the page: inside
+  the part of it in view when the name fits there, else before the feature
+  when it ends past the right edge, and after it as before when it ends in
+  view. The name was centred on the whole feature or written after its end,
+  so sixty bases inside rpoB put rpoB at x = 6,026 of a 900 px figure,
+  a 100 bp window inside KAPPA3 put its name 80,000 px out, and rpoC running
+  off the edge of the rpoB figure was a box with no name. The packing keeps
+  the room a name takes before its feature as it keeps the room after it.
 - A bigWig, a bigBed or a 2bit named for a second file of a track whose own
   file is piped in, as `--manhattan - --ld signal.bw`, is answered with the
   command that writes it as text. Whether the file was a pipe was read off
