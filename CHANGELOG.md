@@ -9,14 +9,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - A `.hic` is drawn rather than refused with the `hic2cool` and `cooler dump`
-  commands that wrote it as BEDPE. Handed to a track other than `--pairs` it
-  is refused naming `--pairs`, as a bigWig on the wrong track is; piped in,
-  asking for its name, since it is read out of order; and compressed with
-  gzip, with the `gunzip -k` that gives it back. cooler's `.cool` and `.mcool`
-  are still answered with the `cooler dump` that writes their BEDPE: they are
-  HDF5, which h5py writes in either of two families of its structures, and
-  reading it without a dependency is an HDF5 reader of the crate's own.
-  `Files::sequences` answers for a `.hic` from its header.
+  commands that wrote it as BEDPE. Handed to a track other than `--pairs`, or
+  named for a file a track reads as text, such as the linkage `--ld` gives a
+  scan, it is refused naming `--pairs`, as a bigWig on the wrong track is;
+  piped in, asking for its name, since it is read out of order; and
+  compressed with gzip, with the `gunzip -k` that gives it back. cooler's
+  `.cool` and `.mcool` are still answered with the `cooler dump` that writes
+  their BEDPE: they are HDF5, which h5py writes in either of two families of
+  its structures, and reading it without a dependency is an HDF5 reader of the
+  crate's own. `Files::sequences` answers for a `.hic` from its header.
 - `FeatureRing` paints a feature in its own `Feature::color` before the ring's
   colours and the strand's, the order `FeatureTrack` takes them in, so one
   annotation is painted alike drawn round or along.
@@ -1486,6 +1487,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A bigWig, a bigBed or a 2bit named for a second file of a track whose own
+  file is piped in, as `--manhattan - --ld signal.bw`, is answered with the
+  command that writes it as text. Whether the file was a pipe was read off
+  the track's own file, so it was told that a pipe cannot be read that way and
+  to name the file it had named.
 - A `FeatureRing` name just past six o'clock, with no room for a letter
   between its feature and the centre line it runs towards, is centred on its
   arc. It came out as a lone ellipsis, which named nothing: katG on the

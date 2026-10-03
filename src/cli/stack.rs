@@ -153,9 +153,11 @@ pub enum BuildError {
         /// Where each one is.
         places: Vec<String>,
     },
-    /// A bigWig, a bigBed or a 2bit, which karyon reads as it is, handed to a
-    /// track that does not draw what it holds, or given a `--format`, which
-    /// says what the columns of a text file are.
+    /// A bigWig, a bigBed, a 2bit, a BCF or a `.hic`, which karyon reads as
+    /// it is, handed to a track that does not draw what it holds, or given a
+    /// `--format`, which says what the columns of a text file are. And a
+    /// `.hic` named for a file a track reads as text, such as `--ld`'s, which
+    /// no one command writes as text.
     ///
     /// Read as the text its tool writes, a bigWig handed to `--pileup` was
     /// refused with the command that turns it into bedGraph, which `--pileup`
@@ -7093,14 +7095,36 @@ fn explained(
                 .copied();
             match binary {
                 Some(binary) => {
-                    // A pipe has no name to write a command in place of.
-                    let instead = matches!(spec.source, Some(Source::Path(_)))
+                    // A pipe has no name to write a command in place of. The
+                    // file is told to be one by its own source, of the several
+                    // a track reads, its own, a second file, a sheet of traits
+                    // or a genetic map, and not by the track's: a bigWig named
+                    // after --ld, beside a scan piped in, was asked for the
+                    // name it had been given.
+                    let piped = spec
+                        .sources()
+                        .any(|source| *source == Source::Stdin && called(source) == path);
+                    let instead = (!piped)
                         .then(|| binary.reader(spec.kind, &path, region))
                         .flatten();
-                    // The file named on its own, and not another file its
-                    // track reads, which came with a flag of its own.
-                    let alone =
-                        spec.guessed && spec.source.as_ref().is_some_and(|own| called(own) == path);
+                    // The track's own file, and not another file it reads,
+                    // which came with a flag of its own.
+                    let own = spec.source.as_ref().is_some_and(|own| called(own) == path);
+                    // A format karyon reads as it is, named for another file
+                    // of the track, which is read as text, such as the
+                    // linkage --ld gives a scan, is told which track draws
+                    // it where no one command writes it as text: it is no
+                    // pipe, and its name is the one thing it was not missing.
+                    if instead.is_none() && !piped && !own && binary.drawn_by().is_some() {
+                        return BuildError::OtherTrack {
+                            track,
+                            path,
+                            binary,
+                            format: false,
+                        };
+                    }
+                    // Named on its own, with no flag at all.
+                    let alone = spec.guessed && own;
                     BuildError::NotText {
                         track,
                         path,
@@ -14653,6 +14677,72 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             "--pairs contacts.hic.gz: the file is a contact map in Juicer's .hic compressed \
              with gzip, and a .hic is read through the index it holds, which the compression \
              hides; gunzip -k contacts.hic.gz writes contacts.hic, which karyon reads as it is"
+        );
+    }
+
+    /// A `.hic` named for a file a track reads as text, the linkage `--ld`
+    /// gives a scan, the links between loci or a sheet of traits, names the
+    /// track that draws it, and is not asked for the name it was given. A
+    /// file is a pipe by its own source and not by its track's: a bigWig
+    /// named after `--ld`, with the scan piped in, is answered with the
+    /// command that writes it as text, and a `.hic` piped in after `--ld` is
+    /// asked for its name.
+    #[test]
+    fn a_hic_named_for_a_file_read_as_text_names_what_draws_it_and_not_a_pipe() {
+        let scan = "CHR\tBP\tSNP\tP\nchr1\t5000\trs1\t0.001\nchr1\t50000\trs2\t0.2\n";
+        let mut held = contact_maps();
+        held.insert("scan.tsv", scan);
+        held.insert("loci.bed", "chr1\t100\t2000\tg1\nchr1\t40000\t42000\tg2\n");
+        held.insert("matrix.tsv", "gene\ts1\ts2\nA\t1\t2\nB\t3\t4\n");
+        for (line, track) in [
+            (
+                "chr1:1-100,000 --manhattan scan.tsv --ld contacts.hic",
+                "manhattan",
+            ),
+            (
+                "chr1:1-100,000 --loci loci.bed --links contacts.hic",
+                "loci",
+            ),
+            (
+                "chr1:1-100,000 --matrix matrix.tsv --traits contacts.hic",
+                "matrix",
+            ),
+        ] {
+            let error = held_figure(&mut held, line).unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "--{track} contacts.hic: the file is a contact map in Juicer's .hic, \
+                     contacts between the bins of a sequence, which --pairs draws"
+                ),
+                "{line}"
+            );
+        }
+        let error = build(
+            &invocation("chr1:1-100,000 --manhattan - --ld signal.bw"),
+            |source: &Source| match source {
+                Source::Stdin => Ok(scan.to_string()),
+                Source::Path(path) => decoded(SIGNAL_BW.to_vec(), Some(path)),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        let command = "bigWigToBedGraph -chrom=chr1 -start=0 -end=100000 signal.bw /dev/stdout";
+        assert!(error.contains(&in_place(HOST, command, None)), "{error}");
+        let error = build(
+            &invocation("chr1:1-100,000 --manhattan scan.tsv --ld -"),
+            |source: &Source| match source {
+                Source::Stdin => decoded(CONTACTS_HIC.to_vec(), None),
+                Source::Path(_) => Ok(scan.to_string()),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "--manhattan standard input: the file is a contact map in Juicer's .hic, which is \
+             read through the index it holds, and a pipe cannot be read that way; name the \
+             file instead"
         );
     }
 
