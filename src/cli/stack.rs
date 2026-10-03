@@ -1804,31 +1804,21 @@ fn ring_of(
             if variants.is_empty() {
                 return Err(empty("variants"));
             }
-            // A colour each consequence, in the order the file first names
-            // them, as a band of calls deals them. The reader names one for
-            // every call, from its shape where nothing annotated it, so the
-            // colour after the last is for a caller that hands over none.
-            let mut categories: Vec<String> = Vec::new();
-            for variant in &variants {
-                if let Some(category) = variant.category.as_ref() {
-                    if !categories.contains(category) {
-                        categories.push(category.clone());
-                    }
-                }
-            }
-            let unnamed = categories.len();
+            // A colour each consequence, from the most damaging down, as a
+            // band of calls deals them. The reader names one for every call,
+            // from its shape where nothing annotated it, so the colour after
+            // the last is for a caller that hands over none.
+            let ranked = read::point::ranked(&variants);
+            let slot = |category: Option<&String>| -> usize {
+                category
+                    .and_then(|category| ranked.iter().position(|known| known == category))
+                    .unwrap_or(ranked.len())
+            };
             let marks: Vec<(u64, usize)> = variants
                 .iter()
-                .map(|variant| {
-                    let index = variant
-                        .category
-                        .as_ref()
-                        .and_then(|category| categories.iter().position(|known| known == category))
-                        .unwrap_or(unnamed);
-                    (variant.pos, index)
-                })
+                .map(|variant| (variant.pos, slot(variant.category.as_ref())))
                 .collect();
-            for (index, category) in categories.iter().enumerate() {
+            for (index, category) in ranked.iter().enumerate() {
                 legend = legend.line(category.clone(), theme.color(index));
             }
             let mut ring = crate::MarkerRing::categorised(marks);
@@ -7593,7 +7583,13 @@ fn built(
             }
             // A stem is as tall as the allele fraction the VCF's AF gives, and
             // the axis says so; a file with no AF draws no axis to title.
-            let mut track = VariantTrack::new(variants).axis_title("AF");
+            // Colours are dealt from the most damaging consequence down
+            // rather than by which call comes first in the window, which
+            // painted one consequence two ways in a gene and a zoom into it.
+            let ranked = read::point::ranked(&variants);
+            let mut track = VariantTrack::new(variants)
+                .axis_title("AF")
+                .category_order(ranked);
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -17530,6 +17526,42 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert!(svg.contains("chrC, 100,000 bases"), "{svg}");
     }
 
+    /// A consequence is the colour its rank gives it, not the colour of its
+    /// place in the window. Dealt by first appearance, missense was the
+    /// second colour across the whole gene, whose first call is synonymous,
+    /// and the first over a window of missense calls alone.
+    #[test]
+    fn a_consequence_keeps_its_colour_in_a_zoom_into_its_gene() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n\
+                     chr1\t900\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n";
+        let colour = |line: &str, category: &str| -> String {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls);
+            let svg = held_figure(&mut held, line).unwrap();
+            let rest = svg
+                .split(&format!("<title>{category}, colour "))
+                .nth(1)
+                .unwrap_or_else(|| panic!("no {category} in the key of {line}: {svg}"));
+            rest[..rest.find("</title>").unwrap()].to_string()
+        };
+        let theme = Theme::default();
+        let whole = colour("chr1:1-1000 calls.vcf", "missense_variant");
+        assert_eq!(whole, theme.color(0));
+        for zoom in ["chr1:450-550", "chr1:50-600", "chr1:450-1000"] {
+            assert_eq!(
+                colour(&format!("{zoom} calls.vcf"), "missense_variant"),
+                whole
+            );
+        }
+        assert_eq!(
+            colour("chr1:1-1000 calls.vcf", "synonymous_variant"),
+            colour("chr1:50-600 calls.vcf", "synonymous_variant")
+        );
+    }
+
     /// Each line of the key is the colour its ring paints what it names: a
     /// gene on each strand, and a call of each consequence, the first named
     /// again after the second. The key's colours and the ring's are worked
@@ -17745,11 +17777,11 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert_eq!(said, ["above 0", "below 0"]);
     }
 
-    /// Calls are coloured by consequence in the order the file first names
-    /// them, as a band of calls deals them, a call no annotator named by its
-    /// shape, as the reader names it.
+    /// Calls are coloured by consequence from the most damaging down, as a
+    /// band of calls deals them, a call no annotator named by its shape, as
+    /// the reader names it, after every consequence.
     #[test]
-    fn calls_on_a_ring_are_coloured_by_consequence_in_the_order_first_named() {
+    fn calls_on_a_ring_are_coloured_by_consequence_from_the_most_damaging_down() {
         let theme = Theme::light();
         let keyed = |line: &str, more: &[(&str, &str)]| -> Vec<(String, String)> {
             let mut held = Held::new();
@@ -17790,8 +17822,8 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
                 &[("mixed.vcf", mixed)]
             ),
             [
-                ("substitution".to_string(), theme.color(0).to_string()),
-                ("stop_gained".to_string(), theme.color(1).to_string()),
+                ("stop_gained".to_string(), theme.color(0).to_string()),
+                ("substitution".to_string(), theme.color(1).to_string()),
             ]
         );
     }

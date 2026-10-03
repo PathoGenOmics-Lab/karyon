@@ -128,6 +128,107 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
     Ok(calls)
 }
 
+/// Every category `calls` carry, in the order their colours are dealt:
+/// consequences by [`severity`], then the shapes of calls nothing annotated,
+/// then any other word in alphabetical order.
+///
+/// Dealt by first appearance instead, a category's colour hung on which call
+/// came first in the window: missense was the second colour across a whole
+/// gene whose first call was synonymous, and the first over a window of
+/// missense calls alone, so two figures of one file painted it two ways.
+/// Ranked, it moves only when a zoom leaves out a more damaging consequence.
+/// The calls and not the file are ranked, since a file read a window at a
+/// time through its index has only the window's to give, and a BCF draws
+/// what the VCF it was written from draws.
+pub fn ranked(calls: &[Variant]) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for category in calls.iter().filter_map(|call| call.category.as_ref()) {
+        if !found.contains(category) {
+            found.push(category.clone());
+        }
+    }
+    found.sort_by(|a, b| (severity(a), a.as_str()).cmp(&(severity(b), b.as_str())));
+    found
+}
+
+/// The consequences of the Sequence Ontology from the most damaging to the
+/// least, in the order Ensembl ranks them, each without the `_variant` most of
+/// them end in, which `bcftools csq` leaves off.
+const SEVERITY: [&str; 41] = [
+    "transcript_ablation",
+    "splice_acceptor",
+    "splice_donor",
+    "stop_gained",
+    "frameshift",
+    "stop_lost",
+    "start_lost",
+    "transcript_amplification",
+    "feature_elongation",
+    "feature_truncation",
+    "inframe_insertion",
+    "inframe_deletion",
+    "missense",
+    "protein_altering",
+    "splice_donor_5th_base",
+    "splice_region",
+    "splice_donor_region",
+    "splice_polypyrimidine_tract",
+    "incomplete_terminal_codon",
+    "start_retained",
+    "stop_retained",
+    "synonymous",
+    "coding_sequence",
+    "mature_mirna",
+    "5_prime_utr",
+    "3_prime_utr",
+    "non_coding_transcript_exon",
+    "intron",
+    "nmd_transcript",
+    "non_coding_transcript",
+    "coding_transcript",
+    "upstream_gene",
+    "downstream_gene",
+    "tfbs_ablation",
+    "tfbs_amplification",
+    "tf_binding_site",
+    "regulatory_region_ablation",
+    "regulatory_region_amplification",
+    "regulatory_region",
+    "intergenic",
+    "sequence",
+];
+
+/// What [`shape`] calls a call nothing annotated, commonest first.
+const SHAPES: [&str; 4] = ["substitution", "insertion", "deletion", "breakend"];
+
+/// Where a category stands in the order colours are dealt in: its place in
+/// [`SEVERITY`], then in [`SHAPES`] after every consequence, then after both.
+///
+/// snpEff joins the consequences of one allele with `&`, as
+/// `missense_variant&splice_region_variant`, which ranks as the worst of
+/// them. Case is ignored, since Ensembl writes `5_prime_UTR_variant` and
+/// bcftools `5_prime_utr`.
+pub fn severity(category: &str) -> usize {
+    category
+        .split('&')
+        .map(|term| {
+            let term = term.trim().to_ascii_lowercase();
+            let bare = term.strip_suffix("_variant").unwrap_or(&term);
+            SEVERITY
+                .iter()
+                .position(|known| *known == bare)
+                .or_else(|| {
+                    SHAPES
+                        .iter()
+                        .position(|known| *known == term)
+                        .map(|at| SEVERITY.len() + at)
+                })
+                .unwrap_or(SEVERITY.len() + SHAPES.len())
+        })
+        .min()
+        .unwrap_or(SEVERITY.len() + SHAPES.len())
+}
+
 /// Whether an `ALT` column names no allele at all: `.`, or only the
 /// placeholder a gVCF's reference blocks carry.
 fn reference_block(alt: &str) -> bool {
@@ -1208,6 +1309,42 @@ NC_045512.2\t21580\t.\tACGT\tA\t.\t.\tDP=9
         assert_eq!(consequence(info, "T").as_deref(), Some("missense_variant"));
         // An annotator that trimmed the allele leaves the first entry to use.
         assert_eq!(consequence(info, "A").as_deref(), Some("missense_variant"));
+    }
+
+    #[test]
+    fn categories_are_dealt_from_the_most_damaging_down() {
+        // In file order: synonymous first, as across the whole of a gene
+        // whose first call is synonymous; then a call nothing annotated,
+        // snpEff's two consequences of one allele, a bcftools word, a word
+        // nobody ranks, and a stop.
+        let text = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chrA\t10\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g
+chrA\t20\t.\tC\tCA\t.\t.\t.
+chrA\t30\t.\tC\tG\t.\t.\tANN=G|intron_variant&splice_region_variant|LOW|g
+chrA\t50\t.\tC\tA\t.\t.\tBCSQ=missense|g|t|protein_coding
+chrA\t60\t.\tC\tA\t.\t.\tANN=A|odd_word|LOW|g
+chrA\t70\t.\tC\tA\t.\t.\tANN=A|5_prime_UTR_variant|LOW|g
+chrA\t80\t.\tC\tA\t.\t.\tANN=A|stop_gained|HIGH|g
+";
+        let calls = variants(text, &Region::parse("chrA:1-100").unwrap()).unwrap();
+        assert_eq!(
+            ranked(&calls),
+            [
+                "stop_gained",
+                "missense",
+                "intron_variant&splice_region_variant",
+                "synonymous_variant",
+                "5_prime_UTR_variant",
+                "insertion",
+                "odd_word",
+            ]
+        );
+        assert_eq!(severity("missense_variant"), severity("missense"));
+        assert_eq!(severity("5_prime_utr"), severity("5_prime_UTR_variant"));
+        assert!(severity("substitution") < severity("deletion"));
+        assert!(severity("sequence_variant") < severity("substitution"));
     }
 
     #[test]

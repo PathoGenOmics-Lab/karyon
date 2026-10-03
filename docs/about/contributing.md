@@ -237,7 +237,10 @@ in `src/cli/stack.rs`.
     announces it. `VariantTrack::categories` walks the variants and collects the
     categories in the order it meets them, and the palette is indexed by that
     position. The cost is that two figures meant to agree on what a colour
-    means have to be given their data in one order.
+    means have to be given their data in one order, or one order of the
+    categories themselves through `VariantTrack::category_order`, which is
+    what the command line gives it: the consequences in view, ranked by
+    severity, an order of the names rather than of the rows.
 
 ## Where next
 

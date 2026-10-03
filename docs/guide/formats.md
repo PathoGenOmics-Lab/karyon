@@ -566,6 +566,13 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
   `insertion`, and `<DUP>` is `dup`.
+- **Colour** goes to the categories in view from the most damaging down, in
+  Ensembl's ranking of the Sequence Ontology consequences (`stop_gained`
+  before `missense_variant` before `synonymous_variant`, a bcftools word such
+  as `missense` ranked as its `_variant`, and snpEff's `a&b` as the worse of
+  the two), then `substitution`, `insertion`, `deletion` and `breakend`, then
+  any other word alphabetically. A consequence keeps its colour in a zoom
+  into its gene unless the zoom leaves out one more damaging.
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.

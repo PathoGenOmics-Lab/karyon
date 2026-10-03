@@ -461,6 +461,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `VariantTrack::category_order` gives each category it names the palette
+  slot of its place in the list, whether the track holds a call of it or
+  not, and the rest the slots after it by first appearance, so two tracks
+  cut from one list at different windows can paint a category alike.
+  `read::point::ranked` puts the categories of a set of calls in the order
+  the command line deals them, and `read::point::severity` is the rank behind
+  it: Ensembl's order of the Sequence Ontology consequences, then the shapes
+  of calls nothing annotated, then any other word.
 - `read::hic` reads Juicer's `.hic` a window at a time, with no dependency:
   `header_of` for its sequences, their lengths and its resolutions,
   `contacts` for the cells of the map of a window's sequence with itself at
@@ -1505,6 +1513,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--variants`, as a band and as a ring, deals its colours from the most
+  damaging consequence down rather than by which call comes first in the
+  window. Across the whole of rpoB, whose first call is synonymous, missense
+  was the second colour, and in a 60 bp zoom holding missense calls alone it
+  was the first, so one paper's two figures painted it pink and blue. A
+  colour now moves only when a zoom leaves out a more damaging consequence.
+  The calls in view are ranked rather than the file, since a VCF read a
+  window at a time through its index has only the window's, and a BCF draws
+  what the VCF it was written from draws. Every example and start figure
+  whose first call is not its most damaging one swaps colours, such as
+  `reads.svg` on the Start here page, where missense is now the first.
 - A feature that runs off the window has its name written on the page: inside
   the part of it in view when the name fits there, else before the feature
   when it ends past the right edge, and after it as before when it ends in

@@ -731,7 +731,7 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
 | `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
 | `--coverage` | the depth cut into 1,000 arcs, each the `--aggregate` of its bases (`max` unless written), read either side of its median: a stretch lost dips inside the line, one carried twice stands outside it |
 | `--windows` | the windows cut into the same arcs, each the mean of the windows under it, read either side of 0 as the band is |
-| `--variants` | a tick a call, coloured by consequence in the order the file first names them |
+| `--variants` | a tick a call, coloured by consequence from the most damaging down, as a band of calls deals them |
 | `--structural` | the footprint of each deletion, duplication, inversion and insertion, coloured by class, and a chord across the middle for each breakend join on the sequence |
 | `--sequence` | the FASTA's GC skew, in windows of a thousandth of the sequence |
 | `--axis` | the ruler, where it is written; `--no-axis` leaves it out |
