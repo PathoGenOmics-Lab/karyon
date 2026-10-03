@@ -1601,9 +1601,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose first call is not its most damaging one swaps colours, such as
   `reads.svg` on the Start here page, where missense is now the first.
 - A feature that runs off the window has its name written on the page: inside
-  the part of it in view when the name fits there, else before the feature
-  when it ends past the right edge, and after it as before when it ends in
-  view. The name was centred on the whole feature or written after its end,
+  the part of it in view when the name fits there with a margin half the one
+  a feature in view keeps, else before the feature when it ends past the
+  right edge, and after it as before when it ends in view. The name was centred on the whole feature or written after its end,
   so sixty bases inside rpoB put rpoB at x = 6,026 of a 900 px figure,
   a 100 bp window inside KAPPA3 put its name 80,000 px out, and rpoC running
   off the edge of the rpoB figure was a box with no name. The packing keeps

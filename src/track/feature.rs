@@ -649,7 +649,14 @@ impl NamePlace {
     /// the gene, and rpoC's at 1,182 when the gene ran off the right edge: in
     /// both the gene row came out with no name at all and the exit was 0.
     fn new(width: f64, left: f64, right: f64, room: f64, room_at: f64, view: (f64, f64)) -> Self {
-        if width + 6.0 <= room {
+        // A feature cut by an edge of the view takes its name inside with
+        // half the margin, since the side it would go to instead costs it a
+        // row: rpoC, 31 pixels of it in view beside rpoB, is named in it
+        // rather than before it, on a row of its own. A feature in view
+        // keeps the margin it always had.
+        let cut = left < view.0 || right > view.1;
+        let margin = if cut { 3.0 } else { 6.0 };
+        if width + margin <= room {
             return NamePlace {
                 x: room_at,
                 anchor: Anchor::Middle,
@@ -1765,6 +1772,35 @@ mod tests {
             .pack(&scale, &Theme::default())
             .0;
         assert_eq!(rows, [0, 0]);
+
+        // A cut feature takes its name inside with half the margin, rather
+        // than a row of its own for the name before it: four and a half
+        // pixels to spare, where a feature in view needs six.
+        let width = text_width("rpoC", Theme::default().font_size);
+        let span = width + 4.5;
+        let (_, _, from, to) = placed(Feature::new(0, 10_000).name("g"), region.clone());
+        let per_px = 10_000.0 / (to - from);
+        let start = 10_000 - (span * per_px).round() as u64;
+        let cut = Feature::new(start, 14_000).name("rpoC");
+        let (x, anchor, _, to) = placed(cut.clone(), region.clone());
+        assert_eq!(anchor, "middle");
+        assert!(
+            x > to - span && x < to,
+            "{x} in the {span} pixels before {to}"
+        );
+        let packed = Scale::new(&region, from, to - from);
+        let rows = FeatureTrack::new(vec![Feature::new(start - 400, start - 100), cut])
+            .pack(&packed, &Theme::default())
+            .0;
+        assert_eq!(rows, [0, 0]);
+        // In view, the same room is not enough.
+        let inside = Feature::new(
+            start - 2_000,
+            start - 2_000 + (span * per_px).round() as u64,
+        )
+        .name("rpoC");
+        let (_, anchor, _, _) = placed(inside, region);
+        assert_eq!(anchor, "start");
     }
 
     #[test]
