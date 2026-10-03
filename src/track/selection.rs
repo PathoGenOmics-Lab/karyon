@@ -20,6 +20,11 @@ use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
 
+/// How far over its mark an episodic site's capsule is centred, and how far
+/// over the mark its top stands: the lift, half its height and its ring.
+const CAPSULE_LIFT: f64 = 7.0;
+const CAPSULE_RISE: f64 = CAPSULE_LIFT + 2.1 + 0.8;
+
 /// The most sites past the threshold the evidence panel names over their
 /// marks. Past it the names are a wall of numbers, and the tooltips name
 /// each site still.
@@ -460,7 +465,19 @@ impl SelectionTrack {
             .count();
         let named = (1..=NAMED_SITES).contains(&selected);
         let name_size = ctx.theme.font_size * 0.78;
-        let room = if named { name_size + ctx.px(3.0) } else { 0.0 };
+        // A name goes over the capsule of an episodic site, which stands
+        // over its mark, so the room is taller by a capsule where one could
+        // be named.
+        let capsules = named
+            && self
+                .sites
+                .iter()
+                .any(|site| site.episodic.is_some() && self.is_selected(site));
+        let room = match (named, capsules) {
+            (false, _) => 0.0,
+            (true, false) => name_size + ctx.px(3.0),
+            (true, true) => name_size + ctx.px(3.0 + CAPSULE_RISE),
+        };
         let usable = (height - ctx.px(8.0) - room).max(2.0);
         let map_y = |value: f64| bottom - value.clamp(0.0, max) / max * usable;
         let mut marks: Vec<(f64, f64, u64)> = Vec::new();
@@ -541,11 +558,16 @@ impl SelectionTrack {
                 ctx.px(1.15),
             );
             if let Some(episodic) = site.episodic {
-                draw_episodic_capsule(ctx, x, y - ctx.px(7.0), site, episodic, self);
+                draw_episodic_capsule(ctx, x, y - ctx.px(CAPSULE_LIFT), site, episodic, self);
             }
             ctx.svg.end_group();
             if named && selected {
-                marks.push((x, y - radius - ctx.px(2.5), site.pos));
+                let top = if site.episodic.is_some() {
+                    y - ctx.px(CAPSULE_RISE)
+                } else {
+                    y - radius
+                };
+                marks.push((x, top - ctx.px(2.5), site.pos));
             }
         }
         if named {
@@ -1027,6 +1049,49 @@ mod tests {
         // A name is kept inside the band at its ends.
         let names = site_names(vec![(1.0, 50.0, 0)], 10.0, 0.0, 100.0);
         assert!(names[0].0 >= text_width("1", 10.0) / 2.0, "{names:?}");
+    }
+
+    /// The name of an episodic site goes over its capsule, which stands over
+    /// its mark: written over the mark, `46` sat on the capsule.
+    #[test]
+    fn a_name_goes_over_an_episodic_capsule() {
+        let svg = Figure::new(Region::new("site", 0, 60).unwrap())
+            .push(SelectionTrack::new(vec![
+                SelectionSite::new(10).rates(1.0, 0.5).p_value(0.5),
+                SelectionSite::new(45)
+                    .rates(0.2, 1.4)
+                    .p_value(0.004)
+                    .episodic_rates(0.05, 2.8, 0.22),
+            ]))
+            .to_svg();
+        let at = svg.find(">46</text>").expect("the name");
+        let open = svg[..at].rfind("<text").unwrap();
+        let baseline: f64 = svg[open..at]
+            .split(" y=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        // The capsule's backing, the one rounded rect of the page colour in
+        // the site's group, and its top.
+        let group = &svg[svg.find("<title>position 46").unwrap()..];
+        let backing = group.split("<rect ").nth(1).unwrap();
+        let top: f64 = backing
+            .split(" y=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            baseline < top,
+            "the name at {baseline} reaches the capsule at {top}"
+        );
     }
 
     /// A ratio past an end of the effect strip stands at the end, and read
