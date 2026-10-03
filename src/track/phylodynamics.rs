@@ -574,6 +574,8 @@ impl PhylodynamicTrack {
         let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
         ctx.svg
             .rect_rounded(ctx.band.x + 2.0, top, width, height, height / 2.0, &chip);
+        // The key keeps the shaded stretches' edges off its words.
+        ctx.svg.keep_clear(ctx.band.x + 2.0, top, width, height);
         let mut x = ctx.band.x + 2.0 + ctx.px(8.0);
         ctx.svg.line(x, middle, x + swatch, middle, color, 2.0);
         x += swatch + gap;

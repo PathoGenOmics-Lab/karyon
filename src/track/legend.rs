@@ -352,6 +352,12 @@ impl Legend {
             let top = y + row as f64 * row_height;
             let middle = top + row_height / 2.0;
             let baseline = middle + font * 0.35;
+            // A key drawn in a band keeps the shaded stretches' edges off
+            // its words, from its first item to the end of its last.
+            if let Some(&(offset, index)) = entries.last() {
+                let reach = offset + self.item_width(&self.items[index], font);
+                svg.keep_clear(x, top, reach, row_height);
+            }
             for (offset, index) in entries {
                 let at = x + offset;
                 // A key is one datum drawn as one mark, so it gets a tooltip,

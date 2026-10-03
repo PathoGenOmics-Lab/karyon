@@ -429,6 +429,9 @@ impl SelectionTrack {
             size,
             Anchor::Start,
         );
+        let right = x + ctx.px(6.0) + text_width(&evidence, size);
+        ctx.svg
+            .keep_clear(ctx.band.x, y - size, right - ctx.band.x, size * 1.3);
     }
 
     fn draw_evidence(&self, ctx: &mut DrawContext<'_>, top: f64, height: f64) {
@@ -547,6 +550,9 @@ impl SelectionTrack {
         }
         if named {
             for (x, y, text) in site_names(marks, name_size, ctx.band.x, ctx.band.right()) {
+                let width = text_width(&text, name_size);
+                ctx.svg
+                    .keep_clear(x - width / 2.0, y - name_size, width, name_size * 1.3);
                 ctx.svg.text(
                     x,
                     y,

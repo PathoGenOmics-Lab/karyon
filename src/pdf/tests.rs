@@ -131,6 +131,9 @@ fn every_element_the_svg_writer_writes_is_one_the_pdf_reads() {
         );
     }
     svg.glyph(10.0, 20.0, 6.0, 14.0, "A", "#109648");
+    // Writes nothing, and is called so the lock below finds it.
+    svg.keep_clear(10.0, 10.0, 20.0, 8.0);
+    assert_eq!(svg.kept_clear(), [(10.0, 10.0, 20.0, 8.0)]);
     svg.end_group();
     svg.end_group();
     let document = svg.finish(200.0, 120.0, "#ffffff", "Inter, Arial, sans-serif");

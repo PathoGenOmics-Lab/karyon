@@ -461,6 +461,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `SvgWriter::keep_clear` asks that nothing laid over the tracks once they
+  are drawn cross a rectangle, and `SvgWriter::kept_clear` gives back what
+  was asked. A legend drawn in a band, a selection scan's key and the names
+  it writes over its sites, and a phylodynamic trajectory's key ask it, and
+  the dashed edges of a shaded stretch leave them out.
 - `Marker::Ring`, a key drawn as an open circle edged in its colour, for a
   point drawn open because it lacks what the filled ones are coloured by.
 - `Track::notes`, with a default of none, says what a track leaves off the
@@ -1520,6 +1525,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The dashed edges of a `--shade` leave out the keys and names a band writes
+  where they would cross them. The edge of `--shade site:58-65` ran through
+  the `p ≤ 0.05` of a selection scan's key, and could cross a legend of
+  categories at the top of a band of calls the same way.
 - The ruler writes a step under a hundred bases in bases, `1,100,250`, and
   keeps its last label, leaving out an interior one that would touch it. A
   101 bp window was ruled `1100.25 kb` to `1100.34 kb`, two decimals of a
