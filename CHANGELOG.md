@@ -472,8 +472,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   line drawn thinner than another of its colour.
 - `--color` after a variants track paints every call that colour, in place of
   a colour each consequence, and each consequence keeps its shape, on the
-  marks and in the key; on a circle the ticks take it and the key names no
-  consequence, since a tick has no shape to tell one by. The library's is
+  marks and in the key; ticks, in the band or on a circle, take it with no
+  key, since a tick has no shape to tell a consequence by. The library's is
   `VariantTrack::uniform_color`. A figure whose calls had to be dark red had
   no way to say so: `--color` was refused after calls, and `--colors` paints
   a sample sheet. No committed figure moves.

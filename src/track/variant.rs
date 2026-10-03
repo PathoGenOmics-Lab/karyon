@@ -270,11 +270,11 @@ impl VariantTrack {
     /// colour each category.
     ///
     /// Each category keeps the shape its place in the queue gives it, on the
-    /// marks and in the key, which is then drawn in the one colour: a figure
-    /// whose calls had to be dark red lost what told a missense call from a
-    /// synonymous one only where the shapes went with the colours. A tick has
-    /// no shape, so ticks in one colour are told apart by their tooltips
-    /// alone, and they have none.
+    /// marks and in the key, which is then drawn in the one colour, so a
+    /// missense call is still told from a synonymous one in a figure whose
+    /// calls all had to be dark red. A tick has no shape, so ticks in one
+    /// colour carry no category a reader could see, and are drawn with no
+    /// key: one of shapes would name marks the band does not draw.
     pub fn uniform_color(mut self, color: impl Into<String>) -> Self {
         self.uniform = Some(color.into());
         self
@@ -353,6 +353,12 @@ impl VariantTrack {
             })
     }
 
+    /// Whether the key is drawn: where it is asked for, and not over ticks in
+    /// one colour, which nothing tells apart.
+    fn keyed(&self) -> bool {
+        self.show_legend && !(self.uniform.is_some() && self.style == VariantStyle::Tick)
+    }
+
     /// The colour of the category in palette slot `slot`: its own, or the
     /// one every call is painted where [`VariantTrack::uniform_color`] says.
     fn ink<'a>(&'a self, theme: &'a Theme, slot: usize) -> &'a str {
@@ -366,7 +372,7 @@ impl Track for VariantTrack {
     }
 
     fn height(&self, scale: &Scale) -> f64 {
-        if self.show_legend {
+        if self.keyed() {
             let theme = Theme::default();
             self.height
                 .max(self.legend(&theme).height(scale.width(), &theme) + self.radius + 2.0)
@@ -432,7 +438,7 @@ impl Track for VariantTrack {
         let legend = self.legend(ctx.theme);
 
         // Leave room for the legend so a tall stem does not run through it.
-        let legend_room = if self.show_legend && !slots.is_empty() {
+        let legend_room = if self.keyed() && !slots.is_empty() {
             legend.height(band.w, ctx.theme)
         } else {
             0.0
@@ -598,7 +604,7 @@ impl Track for VariantTrack {
             }
         }
 
-        if self.show_legend && !slots.is_empty() {
+        if self.keyed() && !slots.is_empty() {
             legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);
         }
     }
@@ -782,6 +788,14 @@ mod tests {
         let squares = |svg: &str| svg.matches("<rect").count();
         assert_eq!(squares(&painted), squares(&coloured), "{painted}");
         assert!(coloured.contains(theme.color(1)), "{coloured}");
+        // Ticks in one colour have no shape to key, and no key.
+        let ticks = svg(VariantTrack::new(vec![
+            Variant::new(10).category("missense_variant"),
+            Variant::new(40).category("synonymous_variant"),
+        ])
+        .style(VariantStyle::Tick)
+        .uniform_color("#8b0000"));
+        assert!(!ticks.contains("missense_variant"), "{ticks}");
     }
 
     #[test]

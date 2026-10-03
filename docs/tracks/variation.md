@@ -60,7 +60,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.axis_title("AF")` | What the stems measure, under the track's name while the axis is drawn (set by the command line) | none |
 | `.color("#555555")` | Colour of variants without a category | theme accent |
-| `.uniform_color("#8b0000")` | Paints every variant this colour, whatever its category; each category keeps its shape, on the marks and in the key (`--color`) | a colour each category |
+| `.uniform_color("#8b0000")` | Paints every variant this colour, whatever its category; each category keeps its shape, on the marks and in the key, and ticks, which have no shape, have no key (`--color`) | a colour each category |
 | `.category_order(["stop_gained", "missense_variant"])` | Gives each category named the palette slot of its place in the list, drawn or not; the rest follow by first appearance (the command line passes the consequences in view, most damaging first) | first appearance |
 
 #### Notes
