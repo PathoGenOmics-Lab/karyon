@@ -315,6 +315,61 @@ fn the_same_figure_writes_the_same_bytes() {
     }
 }
 
+/// A PDF names its faces and embeds none, which is what a journal's preflight
+/// meets: `pdffonts` lists every face with `no` under `emb`. Two readers who
+/// wrote a PDF for a paper learned it from that check, since the guide said it
+/// in a clause, and one took the locus in Courier for a face gone missing. So
+/// the two pages that describe a PDF are held to saying, plainly, which faces
+/// it names and that none is embedded, what that means for a preflight, and
+/// the Ghostscript line that embeds them, against what the writer writes.
+#[test]
+fn the_faces_are_named_not_embedded_and_the_pages_on_the_pdf_say_so() {
+    const GUIDE: &str = include_str!("../../docs/guide/cli.md");
+    const HOW: &str = include_str!("../../docs/how-it-works/pdf.md");
+    let pdf = crate::plot("chr1:1-1000")
+        .unwrap()
+        .title("rpoB")
+        .add_coverage(vec![20.0; 1000])
+        .label("depth")
+        .into_figure()
+        .to_pdf();
+    let written = text(&pdf);
+    let named: Vec<&str> = written
+        .split("/BaseFont /")
+        .skip(1)
+        .filter_map(|rest| rest.split([' ', '>']).next())
+        .collect();
+    for face in ["Helvetica", "Courier"] {
+        assert!(named.contains(&face), "{face} is not named: {named:?}");
+    }
+    for embedding in ["/FontFile", "/FontDescriptor"] {
+        assert!(!written.contains(embedding), "a face is embedded: {embedding}");
+    }
+
+    let flat = |text: &str| {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    for (page, said, embedded) in [
+        ("cli.md", flat(GUIDE), "none of them is embedded"),
+        ("pdf.md", flat(HOW), "no font is embedded"),
+    ] {
+        assert!(said.contains(embedded), "{page} does not say no face is embedded");
+        for face in &named {
+            assert!(said.contains(&face.to_lowercase()), "{page} does not name {face}");
+        }
+        for needed in [
+            "preflight",
+            "`no` under `emb`",
+            "gs -o embedded.pdf -sdevice=pdfwrite -dpdfsettings=/prepress",
+        ] {
+            assert!(said.contains(needed), "{page} does not say {needed}");
+        }
+    }
+}
+
 #[test]
 fn a_page_is_three_quarters_of_a_point_per_pixel() {
     let svg = SvgWriter::new().finish(900.0, 305.0, "#ffffff", "sans-serif");

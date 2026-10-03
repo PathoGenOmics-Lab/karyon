@@ -822,13 +822,30 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.pdf
 
 The page is the figure's size at three quarters of a point to the pixel, the
 size Inkscape and `rsvg-convert` give the SVG, so a figure 900 pixels wide is
-675 points, about 9.4 inches. Its text is set in Helvetica, Courier and Symbol,
-which every PDF reader has, rather than in the Inter and JetBrains Mono the SVG
-asks for, and no font is embedded; the hover titles of the SVG are not carried,
-since a page has nowhere to hover. A character none of those fonts has, such as
-a sample name in Cyrillic, is drawn as a question mark, and the command says
-which on standard error; the figure is still written. [How the PDF is
-made](../how-it-works/pdf.md) has the rest.
+675 points, about 9.4 inches. The hover titles of the SVG are not carried,
+since a page has nowhere to hover.
+
+The text is set in the standard faces every PDF reader carries, Helvetica and
+Helvetica-Bold for words and Courier for coordinates and sequence, with Symbol
+for ω and ≤, rather than in the Inter and JetBrains Mono the SVG asks for, and
+none of them is embedded. The file names each face, and the reader draws it
+with a copy of its own made to the same widths, Arial in one and Nimbus Sans
+in another, so the letters differ a little from reader to reader and the
+layout does not. A character none of those fonts has, such as a sample name in
+Cyrillic, is drawn as a question mark, and the command says which on standard
+error; the figure is still written.
+
+For a paper, that is what a preflight check meets: `pdffonts rpoB.pdf` lists
+every font with `no` under `emb`, and a journal's upload check that wants each
+font embedded, as the PDF/X and PDF/A standards of printers and archives do,
+flags the file or turns it away. Ghostscript writes a copy with the faces
+embedded, drawn to the same widths, which `pdffonts` then lists as embedded:
+
+```bash
+gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
+```
+
+[How the PDF is made](../how-it-works/pdf.md) has the rest.
 
 A name that promises any other format, such as `fig.png` or `fig.eps`, is
 refused rather than written as SVG under it, and the message names a tool that
@@ -836,13 +853,6 @@ writes that format. For a PNG, write `fig.pdf` and convert it with
 `pdftoppm -png -singlefile -r 300 fig.pdf fig`, or `fig.svg` and convert it
 with `rsvg-convert`, Inkscape or a browser; an EPS comes from `pdftops -eps`,
 an EMF from Inkscape, and a `.svgz` from `gzip -c fig.svg > fig.svgz`.
-
-A journal whose upload checks want every font embedded gets them from
-Ghostscript, which embeds faces drawn to the same widths:
-
-```bash
-gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
-```
 
 The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not

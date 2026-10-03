@@ -1541,6 +1541,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Where the guide and the page on the PDF writer describe `-o fig.pdf`, they
+  say plainly that its text is in the standard Helvetica and Courier, named
+  and not embedded, and what that means for a paper: `pdffonts` lists each
+  face with `no` under `emb`, and a journal's upload check that wants every
+  font embedded, as PDF/X and PDF/A do, flags it, which the Ghostscript line
+  given beside it answers. `-o` in the full help says so as well. The guide
+  said it in a clause, so two figures made for a paper met it at the check,
+  and the locus in Courier was taken for a face gone missing. Nothing is
+  embedded still: a face is 300 to 400 kilobytes, and cutting a subset of
+  one is most of a PDF library.
 - The formats page said a cell a `.hic` holds nothing in is a count of
   nought, and nothing said what the figure draws there. It is left as the
   page, not painted the pale end of the key, which is a cell listed at
