@@ -36,6 +36,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
 use crate::theme::Theme;
+use crate::track::window::Window;
 use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// How a coverage track is drawn.
@@ -434,6 +435,49 @@ impl CoverageTrack {
             .fold(None, |acc: Option<f64>, v| {
                 Some(acc.map_or(v, |a| a.max(v)))
             })
+    }
+
+    /// A profile with no value anywhere over `region`, for spans painted onto
+    /// it where a base no span covers is no answer rather than nought: a
+    /// window a file of windows leaves out, which is not a window of nought.
+    pub(crate) fn blank(region: &Region) -> Self {
+        let mut track = CoverageTrack::new(region.start(), Vec::new());
+        if region.end() > region.start() {
+            track.runs.push(Run {
+                end: region.end(),
+                value: f64::NAN,
+            });
+        }
+        track
+    }
+
+    /// Everything this track holds, cut into `bins` equal stretches and each
+    /// reduced by its [`Aggregate`] to one window, as a pixel column is.
+    ///
+    /// For a drawing with no columns to reduce into, a ring above all, which
+    /// draws a sector for each window it is handed. A stretch with no value
+    /// in it gives no window, and neighbouring stretches of one value give
+    /// one window between them: a bedGraph of a few hundred windows cut into
+    /// a thousand stretches comes back as the few hundred it was. Fewer bases
+    /// than `bins` give a window a base.
+    pub(crate) fn binned(&self, bins: usize) -> Vec<Window> {
+        let (start, end) = (self.start, self.end());
+        let length = end.saturating_sub(start);
+        let bins = (bins.max(1) as u64).min(length.max(1));
+        let edge =
+            |bin: u64| start + (u128::from(length) * u128::from(bin) / u128::from(bins)) as u64;
+        let mut windows: Vec<Window> = Vec::new();
+        for bin in 0..bins {
+            let (lo, hi) = (edge(bin), edge(bin + 1));
+            let Some(value) = self.sample(lo as f64, hi as f64) else {
+                continue;
+            };
+            match windows.last_mut() {
+                Some(last) if last.end == lo && last.value == value => last.end = hi,
+                _ => windows.push(Window::new(lo, hi, value)),
+            }
+        }
+        windows
     }
 
     /// The stretch of positions this track holds that `region` overlaps.
@@ -937,6 +981,26 @@ mod tests {
         let track = CoverageTrack::new(10, vec![5.0, 6.0]);
         assert_eq!(track.sample(0.0, 5.0), None);
         assert_eq!(track.sample(50.0, 60.0), None);
+    }
+
+    #[test]
+    fn a_blank_profile_cut_into_bins_has_windows_only_where_it_was_painted() {
+        let region = Region::new("c", 0, 1_000).unwrap();
+        let mut track = CoverageTrack::blank(&region).aggregate(Aggregate::Mean);
+        track.paint(100, 200, 4.0);
+        track.paint(150, 250, -2.0);
+        let windows: Vec<(u64, u64, f64)> = track
+            .binned(10)
+            .iter()
+            .map(|window| (window.start, window.end, window.value))
+            .collect();
+        // Half of the second stretch is 4 and half -2, a mean of 1; the
+        // third has 50 bases of -2 and 50 of nothing, which is no answer
+        // rather than nought, so its mean is -2, and the rest have none.
+        assert_eq!(windows, [(100, 200, 1.0), (200, 300, -2.0)]);
+        let from_zero = CoverageTrack::from_spans(&region, [(100, 200, 4.0)]).binned(10);
+        assert_eq!(from_zero.len(), 3, "{from_zero:?}");
+        assert_eq!(from_zero[0], Window::new(0, 100, 0.0));
     }
 
     #[test]

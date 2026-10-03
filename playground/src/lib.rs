@@ -421,6 +421,13 @@ fn commanded(mut input: &[u8]) -> Result<String, String> {
     if let Some(ground) = &invocation.background {
         theme.background = ground.clone();
     }
+    // A circle is a whole sequence, drawn round and whole, through the one
+    // builder a shell draws it with, so the page's circle is the shell's.
+    if invocation.circular {
+        let circle = stack::build_circle(&invocation, &mut files, theme)
+            .map_err(|error| error.to_string())?;
+        return Ok(circle.to_svg_with_id_prefix(&look.prefix));
+    }
     // Several places are a sheet of panels, drawn whole: none of them is a
     // window a page could move.
     if !invocation.more.is_empty() {
@@ -489,7 +496,9 @@ fn placed(mut input: &[u8]) -> Result<Vec<u8>, String> {
     let argv = strings(&mut input).ok_or("the command line is not in the shape this expects")?;
     let mut files = page_files(&mut input)?;
     let invocation = invocation(&argv)?;
-    if !invocation.more.is_empty() {
+    // A sheet of several places and a circle are drawn whole, and neither
+    // runs along a window a page could move.
+    if !invocation.more.is_empty() || invocation.circular {
         return Ok(entry(None));
     }
     let built = stack::build_figure(&invocation, &mut files, remembered, Theme::light(), None)
@@ -1160,6 +1169,70 @@ mod tests {
         assert_eq!(out[0], 1);
         let mut rest = &out[5..];
         assert_eq!(strings(&mut rest).unwrap(), ["reads.bam", "genes.gff3"]);
+    }
+
+    /// A circle is drawn here as a shell draws it, in the page's colours, at
+    /// the page's width and with the page's ids, and a window the page asks
+    /// for changes nothing: a circle is a whole sequence, and has no window
+    /// to move, which the page is told.
+    #[test]
+    fn a_circle_is_drawn_here_as_at_a_shell_and_has_no_window_to_move() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/data");
+        let names = ["genes.gff3", "calls.vcf.gz", "sampleA.bedgraph"];
+        let files: Vec<(&str, Vec<u8>)> = names
+            .iter()
+            .map(|name| (*name, std::fs::read(docs.join(name)).unwrap()))
+            .collect();
+        let argv = [
+            "NC_000962.3",
+            "--circular",
+            "genes.gff3",
+            "calls.vcf.gz",
+            "sampleA.bedgraph",
+        ];
+        let here = commanded_on(&argv, &files, "dark", "#0d0822", 640, "", "").unwrap();
+        let mut held = stack::Held::new();
+        for (name, bytes) in &files {
+            held.insert(*name, bytes.clone());
+        }
+        let mut shell: Vec<String> = argv.iter().map(|word| word.to_string()).collect();
+        shell.extend(
+            [
+                "--width",
+                "640",
+                "--theme",
+                "dark",
+                "--background",
+                "#0d0822",
+            ]
+            .map(String::from),
+        );
+        let drawn =
+            stack::build_files(&invocation(&shell).unwrap(), &mut held, |_, _| None).unwrap();
+        assert!(
+            here == drawn,
+            "a circle drawn here is not the one a shell draws"
+        );
+        assert!(here.contains("width=\"640\""));
+        assert!(here.contains("<g><title>sampleA</title>"));
+        let moved = commanded_on(
+            &argv,
+            &files,
+            "dark",
+            "#0d0822",
+            640,
+            "NC_000962.3:761,000-762,000",
+            "",
+        )
+        .unwrap();
+        assert!(moved == here, "a window moved a circle");
+        let prefixed = commanded_on(&argv, &files, "dark", "#0d0822", 640, "", "k1-").unwrap();
+        assert!(
+            !prefixed.contains("id=\"karyon-"),
+            "an id without the prefix"
+        );
+        let entry = placed(&packed_bytes(&argv, &files)).unwrap();
+        assert_eq!(entry[0], 0, "a circle is not a window along the genome");
     }
 
     /// A page moves a figure placed by a gene along the genome: it is told

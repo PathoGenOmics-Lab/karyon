@@ -134,6 +134,20 @@ otherwise.
     draw a figure with data missing and nothing on it to say so. That is worse
     than no figure, so the read stops on the line.
 
+### How long a sequence is { #how-long-a-sequence-is }
+
+A sequence named as the place is drawn whole, as long as one of the figure's
+files says it is: a FASTA record's length; a BAM's header, or a SAM's `@SQ`
+`LN`; a VCF's or BCF's `##contig=<ID=NC_000962.3,length=4411532>`; a GFF3's
+`##sequence-region NC_000962.3 1 4411532` among its opening lines; the index of
+a bigWig, a bigBed or a 2bit; or a PAF's query length. With none of them a
+figure along the sequence ends where its rows reach, and says so. A circle,
+`--circular`, is refused instead, since it closes where the sequence ends and a
+ring closed early puts every position round it at the wrong angle; write the
+span from base 1, as `NC_000962.3:1-4,411,532`, to give the length yourself.
+Where two files give different lengths, a figure along the sequence takes the
+first one's, and a circle is refused, naming each file and the length it says.
+
 ## Telling formats apart { #telling-formats-apart }
 
 ### A coverage file { #a-coverage-file }

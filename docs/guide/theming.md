@@ -517,9 +517,10 @@ the shapes it explains, so the key looks like the thing it names.
   packed into rows, so a name never runs into a neighbour. A name too long for
   its feature is drawn to its right, on the same row.
 - **Names on a circle.** A `FeatureRing` with `show_names(true)` writes each
-  name just inside the ring, shortened to the room left before the centre, and
-  leaves out any that would collide. The arc keeps its name and coordinates in
-  its tooltip.
+  name just inside the ring, shortened to the room left before the centre line,
+  or centred on its arc where that room would not hold a letter, and leaves out
+  any that would collide. The arc keeps its name and coordinates in its
+  tooltip.
 - **Legends wrap** onto another row rather than drop a key. A `VariantTrack`
   grows taller when a narrow plot needs more legend rows, and its legend shows
   each category's point shape.

@@ -39,6 +39,13 @@
 //! open by [`FeatureRing::min_degrees`], and a tooltip on it would belong to
 //! whichever of several overlapping slivers the pointer happened to catch.
 //!
+//! # From the command line
+//!
+//! `karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz depth.bedgraph` draws
+//! the place, one whole sequence, as one of these plots, a ring a track in the
+//! order written and a key under it naming each ring, through
+//! [`build_circle`](crate::cli::stack::build_circle).
+//!
 //! # Where zero is
 //!
 //! At twelve o'clock, running clockwise, which is the convention every circular
@@ -56,10 +63,12 @@ use std::path::Path;
 use crate::pdf::Pdf;
 use crate::region::Region;
 use crate::style::{Density, LinePattern, RenderProfile};
-use crate::svg::{fit_text, num, text_rounded, Anchor, SvgWriter};
+use crate::svg::{fit_text, num, text_rounded, text_width, Anchor, SvgWriter};
 use crate::theme::{mix, Theme};
 use crate::track::axis::group_thousands;
+use crate::track::coverage::{Aggregate, CoverageTrack};
 use crate::track::feature::{feature_title, span_label, strand_color};
+use crate::track::legend::Legend;
 use crate::track::window::Window;
 use crate::track::{Feature, Strand};
 
@@ -225,12 +234,31 @@ impl Polar {
     /// The angles of one end of a chord, which unlike a sector is a single
     /// closed shape and so cannot be cut in two at the origin: a span that
     /// wraps is carried past twelve o'clock as an angle beyond the sweep.
+    ///
+    /// An end narrower than [`CHORD_END`] is drawn that wide, centred on the
+    /// span it stands for. The hair [`Polar::span`] holds a single base open
+    /// with is 1e-4 of a radian, and a breakend join drawn at that width had
+    /// ends 0.03 px across at a radius of 293: a ribbon nobody could see or
+    /// point at. Only the drawing widens, so the chord's tooltip still says
+    /// the base the file named.
     fn chord_span(&self, from: u64, to: u64) -> (f64, f64) {
-        if to < from {
+        let (a0, a1) = if to < from {
             let a0 = self.angle(from);
-            return (a0, (self.angle(to) + 2.0 * PI).max(a0 + 1e-4));
+            (a0, (self.angle(to) + 2.0 * PI).max(a0 + 1e-4))
+        } else {
+            self.span(from, to)
+        };
+        let floor = CHORD_END.to_radians();
+        if a1 - a0 >= floor {
+            return (a0, a1);
         }
-        self.span(from, to)
+        // Kept inside the sweep, so an end at the origin widens away from
+        // the seam rather than into it.
+        let middle = (a0 + a1) / 2.0;
+        let lo = (middle - floor / 2.0)
+            .max(self.start)
+            .min(self.start + self.sweep - floor);
+        (lo, lo + floor)
     }
 
     /// The angles of a span, always at least a hair wide so that a single base
@@ -241,6 +269,15 @@ impl Polar {
         (a0, a1.min(self.start + self.sweep))
     }
 }
+
+/// The narrowest a chord's end is drawn, in degrees.
+///
+/// About a pixel and a half at the radius chords leave from on a figure the
+/// default size, which is wide enough to see and to put a pointer on, and
+/// narrow enough that two breakends a few kilobases apart on a chromosome stay
+/// two ends. A chord of 50 kb on a sequence of 4.4 Mb is four degrees, so
+/// anything a reader drew as a span keeps its own width.
+const CHORD_END: f64 = 0.3;
 
 /// One SVG elliptical arc command.
 fn arc(radius: f64, large: usize, sweep: usize, x: f64, y: f64) -> String {
@@ -301,6 +338,19 @@ pub trait Ring {
         5.0
     }
 
+    /// What the ring is called, where it is called anything.
+    ///
+    /// A band says its name in the gutter beside it, and a ring has nowhere
+    /// to write one: a word at twelve o'clock runs over the arcs left of the
+    /// seam, and anywhere else it runs over the ring's own data. So a named
+    /// ring is one tooltip, its name, wherever a pointer lands on it and no
+    /// mark of its own answers first, and [`Rings::key`] is where it is
+    /// written out. Two rings of depth were otherwise two rings of arcs that
+    /// nothing on the plot told apart.
+    fn label(&self) -> Option<&str> {
+        None
+    }
+
     /// Draws the ring between `ctx.inner` and `ctx.outer`.
     fn draw(&self, ctx: &mut RingContext<'_>);
 }
@@ -334,6 +384,21 @@ impl Chord {
     }
 }
 
+/// One line of the key under a circle, laid out.
+struct KeyLine {
+    /// Its top, below the foot of the square the circle is drawn in.
+    top: f64,
+    /// How tall it is: one row, or as many as its legend wraps into.
+    height: f64,
+    /// The ring's name, shortened to the column of names.
+    name: String,
+    /// The height of one row, which the name is centred on.
+    row: f64,
+    /// Where its legend starts, and how wide it may run.
+    legend_x: f64,
+    legend_width: f64,
+}
+
 /// One end of a chord in words, 1-based and inclusive like the ruler.
 ///
 /// A span whose end is below its start runs through the origin, and
@@ -342,6 +407,11 @@ impl Chord {
 /// the right ones the right way round; what has to be said as well is that the
 /// span gets from the first to the second through twelve o'clock.
 fn chord_end_label(from: u64, to: u64) -> String {
+    // One base, as a breakend is, is one position: `40,001 to 40,001` said
+    // it twice.
+    if to >= from && to - from <= 1 {
+        return group_thousands(from + 1);
+    }
     if to < from {
         return format!(
             "{} to {} across the origin",
@@ -382,6 +452,7 @@ pub struct Rings {
     description: Option<String>,
     visual_scale: f64,
     density: Density,
+    key: Vec<(String, Legend)>,
 }
 
 impl Rings {
@@ -400,6 +471,7 @@ impl Rings {
             description: None,
             visual_scale: 1.0,
             density: Density::Balanced,
+            key: Vec::new(),
         }
     }
 
@@ -533,6 +605,36 @@ impl Rings {
         self
     }
 
+    /// Adds a line to the key under the circle: a ring's name, then what its
+    /// colours mean.
+    ///
+    /// The lines are written in the order they are added, one under the
+    /// other, so added in the order the rings were pushed they read outside
+    /// in, as the circle does. The colours repeat from ring to ring, since
+    /// each ring takes the palette from its start, and what tells two rings
+    /// apart is where they sit: a key that merged every colour into one list
+    /// would say that one blue meant a forward strand, a missense call and a
+    /// depth above the median all at once. A line's legend may be empty, and
+    /// then the line is the name alone.
+    ///
+    /// The image grows downwards to hold the key, and a plot with none is
+    /// the square it always was.
+    ///
+    /// ```
+    /// use karyon::{FeatureRing, Feature, Legend, Rings};
+    ///
+    /// let plain = Rings::new(10_000);
+    /// let keyed = Rings::new(10_000)
+    ///     .push(FeatureRing::new(vec![Feature::new(100, 900)]).label("genes"))
+    ///     .key("genes", Legend::new().key("forward strand", "#0072b2"));
+    /// assert!(keyed.dimensions().1 > plain.dimensions().1);
+    /// assert!(keyed.to_svg().contains("forward strand"));
+    /// ```
+    pub fn key(mut self, name: impl Into<String>, legend: Legend) -> Self {
+        self.key.push((name.into(), legend));
+        self
+    }
+
     /// Length of the sequence.
     pub fn length(&self) -> u64 {
         self.length
@@ -543,10 +645,67 @@ impl Rings {
         self.rings.len()
     }
 
-    /// Width and height of the rendered image, which is square.
+    /// Width and height of the rendered image: a square, and the key under
+    /// it where [`Rings::key`] was given one.
     pub fn dimensions(&self) -> (f64, f64) {
         let side = self.diameter + self.margin * self.visual_scale * 2.0;
-        (side, side)
+        let theme = self.theme.clone().scaled(self.visual_scale);
+        let key = self.key_lines(side, &theme);
+        match key.last() {
+            Some(last) => (
+                side,
+                side + last.top + last.height + self.margin * self.visual_scale,
+            ),
+            None => (side, side),
+        }
+    }
+
+    /// Where each line of the key goes under the circle: its top, measured
+    /// from the foot of the square, and how tall it is.
+    ///
+    /// Worked out in one place for [`Rings::dimensions`] and for the drawing,
+    /// since a legend wraps at the width it is given and the image has to be
+    /// as tall as the wrapped key, not as the key on one line.
+    fn key_lines(&self, side: f64, theme: &Theme) -> Vec<KeyLine> {
+        if self.key.is_empty() {
+            return Vec::new();
+        }
+        let margin = self.margin * self.visual_scale;
+        let font = theme.font_size;
+        // The column of names is as wide as the widest of them, up to two
+        // fifths of the plot, so a long file name is shortened rather than
+        // pushing every legend off the right of the square.
+        let widest = self
+            .key
+            .iter()
+            .map(|(name, _)| text_width(name, font))
+            .fold(0.0f64, f64::max);
+        let column = widest.min((side - 2.0 * margin) * 0.4);
+        let gap = theme.tokens.label_gap.max(8.0);
+        let legend_x = margin + column + gap;
+        let legend_width = (side - margin - legend_x).max(1.0);
+        // The height of one row of a legend, which `Legend::height` gives a
+        // legend with items in it: a name with nothing after it takes as
+        // much, so the lines are evenly spaced whatever they hold.
+        let row = Legend::new()
+            .key("", "")
+            .height(f64::INFINITY, theme)
+            .max(font + 4.0);
+        let mut top = 0.0;
+        let mut lines = Vec::with_capacity(self.key.len());
+        for (name, legend) in &self.key {
+            let height = legend.height(legend_width, theme).max(row);
+            lines.push(KeyLine {
+                top,
+                height,
+                name: fit_text(name, column, font),
+                row,
+                legend_x,
+                legend_width,
+            });
+            top += height;
+        }
+        lines
     }
 
     /// Radius of the innermost edge of the last ring, where chords start.
@@ -581,19 +740,37 @@ impl Rings {
     /// The alt text: whatever [`Rings::description`] was given, or a statement
     /// of what the plot is made of.
     ///
-    /// The fallback is built only from what the plot knows for certain, since
-    /// a ring is not asked for a label the way a track is and there is nothing
-    /// here to name the rings with. What they mean is what
-    /// [`Rings::description`] exists for.
+    /// The fallback is built only from what the plot knows for certain: how
+    /// many rings, and what the ones given a [`Ring::label`] are called,
+    /// outside in. What they mean is what [`Rings::description`] exists for.
     fn document_description(&self) -> String {
         if let Some(description) = &self.description {
             return description.clone();
         }
-        let rings = match self.rings.len() {
+        let mut rings = match self.rings.len() {
             0 => "no rings".to_string(),
             1 => "one ring".to_string(),
             n => format!("{n} rings"),
         };
+        // Said only where a ring has a name, so a plot of unnamed rings says
+        // what it always said.
+        let names: Vec<&str> = self
+            .rings
+            .iter()
+            .filter_map(|ring| ring.label())
+            .filter(|label| !label.is_empty())
+            .collect();
+        if let Some((last, rest)) = names.split_last() {
+            let named = if rest.is_empty() {
+                (*last).to_string()
+            } else {
+                format!("{} and {last}", rest.join(", "))
+            };
+            // A comma closes the list where a chord follows it, so the
+            // last ring's name is not read as joined to the chord.
+            let close = if self.chords.is_empty() { "" } else { "," };
+            rings = format!("{rings}, outside in: {named}{close}");
+        }
         let chords = match self.chords.len() {
             0 => String::new(),
             1 => " and one chord across the middle".to_string(),
@@ -653,6 +830,14 @@ impl Rings {
         let mut outer = self.diameter / 2.0;
         for ring in &self.rings {
             let thickness = ring.thickness().max(0.0) * content_scale;
+            // A named ring is one group under its name, so a pointer between
+            // its marks, on a baseline or in a gap of the annotation, still
+            // says which ring it is on. A mark with a tooltip of its own is a
+            // group inside it and answers first.
+            let label = ring.label().filter(|label| !label.is_empty());
+            if let Some(label) = label {
+                svg.begin_titled(label);
+            }
             let mut ctx = RingContext {
                 svg: &mut svg,
                 polar: &polar,
@@ -662,7 +847,28 @@ impl Rings {
                 visual_scale: content_scale,
             };
             ring.draw(&mut ctx);
+            if label.is_some() {
+                svg.end_group();
+            }
             outer -= thickness + ring.gap().max(0.0) * content_scale;
+        }
+
+        // The key, under the square the circle is drawn in: each ring's name
+        // in the colour of the text, and what its colours mean beside it.
+        let margin = self.margin * self.visual_scale;
+        for (line, (_, legend)) in self.key_lines(width, &theme).iter().zip(&self.key) {
+            let top = width + line.top;
+            if !line.name.is_empty() {
+                svg.text(
+                    margin,
+                    top + line.row / 2.0 + theme.font_size * 0.35,
+                    &line.name,
+                    &theme.foreground,
+                    theme.font_size,
+                    Anchor::Start,
+                );
+            }
+            legend.draw(&mut svg, line.legend_x, top, line.legend_width, &theme);
         }
 
         if let Some(title) = &self.title {
@@ -735,6 +941,7 @@ pub struct AxisRing {
     thickness: f64,
     ticks: usize,
     show_labels: bool,
+    label: Option<String>,
 }
 
 impl AxisRing {
@@ -744,7 +951,14 @@ impl AxisRing {
             thickness: 22.0,
             ticks: 10,
             show_labels: true,
+            label: None,
         }
+    }
+
+    /// Names the ring, for its tooltip; see [`Ring::label`].
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// Sets how much radius the ruler takes.
@@ -784,6 +998,10 @@ impl Default for AxisRing {
 impl Ring for AxisRing {
     fn thickness(&self) -> f64 {
         self.thickness
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     fn draw(&self, ctx: &mut RingContext<'_>) {
@@ -846,6 +1064,7 @@ pub struct FeatureRing {
     split_strands: bool,
     show_names: bool,
     min_degrees: f64,
+    label: Option<String>,
 }
 
 impl FeatureRing {
@@ -859,7 +1078,14 @@ impl FeatureRing {
             split_strands: true,
             show_names: false,
             min_degrees: 0.12,
+            label: None,
         }
+    }
+
+    /// Names the ring, for its tooltip; see [`Ring::label`].
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// Sets how much radius the ring takes.
@@ -868,7 +1094,8 @@ impl FeatureRing {
         self
     }
 
-    /// Sets the colours of the forward and reverse halves.
+    /// Sets the colours of the forward and reverse halves, for the features
+    /// with no [`Feature::color`] of their own.
     pub fn colors(mut self, forward: impl Into<String>, reverse: impl Into<String>) -> Self {
         self.color = Some(forward.into());
         self.reverse_color = Some(reverse.into());
@@ -915,6 +1142,10 @@ impl Ring for FeatureRing {
         self.thickness
     }
 
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
     fn draw(&self, ctx: &mut RingContext<'_>) {
         let forward = self
             .color
@@ -937,10 +1168,13 @@ impl Ring for FeatureRing {
                 (true, _) => (middle + 0.5, ctx.outer),
                 (false, _) => (ctx.inner, ctx.outer),
             };
-            let color = if feature.strand == Strand::Reverse {
-                &reverse
-            } else {
-                &forward
+            // A feature's own colour first, then the ring's, then the
+            // strand's: the order a band of features takes them in, so one
+            // annotation is painted alike drawn either way.
+            let color = match &feature.color {
+                Some(own) => own,
+                None if feature.strand == Strand::Reverse => &reverse,
+                None => &forward,
             };
             let end = if feature.end < feature.start {
                 feature.end
@@ -990,7 +1224,17 @@ impl Ring for FeatureRing {
                     let (cx, _) = ctx.polar.center();
                     let font = ctx.theme.font_size - 1.0;
                     let bounds = (y - font * 0.8, y + font * 0.35);
-                    let centred = (cx - x).abs() < ctx.theme.tokens.label_gap;
+                    // Beside the centre line a name runs towards it and has
+                    // only the gap to the line to run in. Just past six
+                    // o'clock that is a few pixels, and the name came out as
+                    // a lone ellipsis, which names nothing: one with no room
+                    // for a letter beside the line is centred on its arc.
+                    let beside = (cx - x).abs() - ctx.theme.tokens.label_gap;
+                    let lettered = !matches!(
+                        fit_text(name, beside.max(0.0), font).as_str(),
+                        "" | "\u{2026}"
+                    );
+                    let centred = (cx - x).abs() < ctx.theme.tokens.label_gap || !lettered;
                     let room = if centred {
                         ctx.inner * 1.5
                     } else {
@@ -1034,6 +1278,7 @@ pub struct SignalRing {
     below_color: Option<String>,
     extent: Option<f64>,
     show_baseline: bool,
+    label: Option<String>,
 }
 
 impl SignalRing {
@@ -1047,7 +1292,81 @@ impl SignalRing {
             below_color: None,
             extent: None,
             show_baseline: true,
+            label: None,
         }
+    }
+
+    /// A ring of a per-base signal over a sequence `length` bases long,
+    /// reduced to `bins` equal arcs, each the `aggregate` of the bases under
+    /// it.
+    ///
+    /// What a depth file states, taken as [`CoverageTrack::from_spans`]
+    /// takes it: half-open `(start, end, value)` spans, and a base no span
+    /// covers at nought. A ring has no pixel columns to reduce a signal into
+    /// the way a band does, and `samtools depth` over a chromosome is four
+    /// million lines, which drawn as they stand were four million sectors.
+    /// Held as runs and cut into arcs, it costs what its changes of value
+    /// cost, and the ring draws at most `bins` sectors; neighbouring arcs of
+    /// one value are drawn as one.
+    ///
+    /// ```
+    /// use karyon::{Aggregate, SignalRing};
+    ///
+    /// // A thousand bases of depth 30 with one base of 300 among them.
+    /// let spans = [(0, 1_000, 30.0), (500, 501, 300.0)];
+    /// let max = SignalRing::from_spans(1_000, spans, 10, Aggregate::Max);
+    /// let mean = SignalRing::from_spans(1_000, spans, 10, Aggregate::Mean);
+    /// assert_eq!(max.windows().iter().map(|w| w.value).fold(0.0, f64::max), 300.0);
+    /// assert_eq!(mean.windows().iter().map(|w| w.value).fold(0.0, f64::max), 32.7);
+    /// ```
+    pub fn from_spans(
+        length: u64,
+        spans: impl IntoIterator<Item = (u64, u64, f64)>,
+        bins: usize,
+        aggregate: Aggregate,
+    ) -> Self {
+        let whole = Region::new("ring", 0, length.max(1)).expect("a sequence of one base or more");
+        let track = CoverageTrack::from_spans(&whole, spans).aggregate(aggregate);
+        SignalRing::new(track.binned(bins))
+    }
+
+    /// Moves the baseline circle to the median of the windows, each counted
+    /// for as many bases as it spans.
+    ///
+    /// The circle's counterpart of reading a depth against its usual level: a
+    /// loss dips inside the line and a gain stands outside it, where against
+    /// nought every window of a sequenced genome stands outside and a loss is
+    /// only a shorter one. Windows with no value are left out, and a ring of
+    /// none keeps its baseline.
+    pub fn baseline_at_median(mut self) -> Self {
+        let mut held: Vec<(f64, u64)> = self
+            .windows
+            .iter()
+            .filter(|window| window.value.is_finite())
+            .map(|window| (window.value, window.end.saturating_sub(window.start).max(1)))
+            .collect();
+        held.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let total: u64 = held.iter().map(|(_, bases)| bases).sum();
+        let mut counted = 0u64;
+        for (value, bases) in held {
+            counted += bases;
+            if counted.saturating_mul(2) >= total {
+                self.baseline = value;
+                break;
+            }
+        }
+        self
+    }
+
+    /// Names the ring, for its tooltip; see [`Ring::label`].
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Where the baseline circle sits, in the units of the windows.
+    pub fn baseline_value(&self) -> f64 {
+        self.baseline
     }
 
     /// Sets how much radius the ring takes.
@@ -1110,6 +1429,10 @@ impl Ring for SignalRing {
         self.thickness
     }
 
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
     fn draw(&self, ctx: &mut RingContext<'_>) {
         let middle = ctx.middle();
         let half = ctx.thickness() / 2.0;
@@ -1161,6 +1484,7 @@ pub struct MarkerRing {
     thickness: f64,
     width: f64,
     colors: Vec<String>,
+    label: Option<String>,
 }
 
 impl MarkerRing {
@@ -1171,6 +1495,7 @@ impl MarkerRing {
             thickness: 10.0,
             width: 1.2,
             colors: Vec::new(),
+            label: None,
         }
     }
 
@@ -1184,6 +1509,7 @@ impl MarkerRing {
             thickness: 10.0,
             width: 1.2,
             colors: Vec::new(),
+            label: None,
         }
     }
 
@@ -1205,6 +1531,12 @@ impl MarkerRing {
         self
     }
 
+    /// Names the ring, for its tooltip; see [`Ring::label`].
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
     /// The positions and their categories.
     pub fn positions(&self) -> &[(u64, usize)] {
         &self.positions
@@ -1214,6 +1546,10 @@ impl MarkerRing {
 impl Ring for MarkerRing {
     fn thickness(&self) -> f64 {
         self.thickness
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     fn gap(&self) -> f64 {
@@ -1959,5 +2295,231 @@ mod tests {
                 assert!(!other.contains(&format!(r#" id="{id}""#)), "{what}: {id}");
             }
         }
+    }
+
+    /// The angle between the two ends of the outer arc of the first end of
+    /// the ribbon in `svg`, in degrees.
+    fn first_chord_end(svg: &str) -> f64 {
+        let path = svg
+            .split("<title>link")
+            .nth(1)
+            .and_then(|rest| rest.split(" d=\"").nth(1))
+            .and_then(|rest| rest.split('"').next())
+            .expect("a ribbon");
+        // `M x0 y0 A r r 0 large sweep x1 y1 Q ...`
+        let numbers: Vec<f64> = path
+            .split(|c: char| c.is_ascii_alphabetic() || c == ' ')
+            .filter(|word| !word.is_empty())
+            .take(9)
+            .map(|word| word.parse().unwrap())
+            .collect();
+        let (x0, y0, x1, y1) = (numbers[0], numbers[1], numbers[7], numbers[8]);
+        let radius = numbers[2];
+        let chord = ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+        (2.0 * (chord / (2.0 * radius)).asin()).to_degrees()
+    }
+
+    #[test]
+    fn a_chord_between_two_points_is_wide_enough_to_see() {
+        // Two breakends, one base each, on a megabase: 0.03 px across at the
+        // radius chords leave from, before the floor.
+        let svg = Rings::new(1_000_000)
+            .link((100_000, 100_000), (600_000, 600_000))
+            .to_svg();
+        let wide = first_chord_end(&svg);
+        assert!((wide - CHORD_END).abs() < 0.01, "{wide} degrees");
+        // The tooltip still says the base the join is at, once.
+        assert!(
+            svg.contains("<title>link, source 100,001, target 600,001</title>"),
+            "{svg}"
+        );
+        // And an end wider than the floor keeps its own width.
+        let svg = Rings::new(1_000_000)
+            .origin_gap(0.0)
+            .link((100_000, 110_000), (600_000, 610_000))
+            .to_svg();
+        let own = first_chord_end(&svg);
+        assert!((own - 3.6).abs() < 0.01, "{own} degrees");
+        // A point at the origin widens away from the seam, not into it.
+        let at_origin = Rings::new(1_000_000)
+            .link((0, 0), (600_000, 600_000))
+            .to_svg();
+        let polar = Polar::new(1_000_000, 0.0, 0.0, 2.0);
+        let (a0, a1) = polar.chord_span(0, 0);
+        assert!(a0 >= 1f64.to_radians() - 1e-12, "{a0}");
+        assert!((a1 - a0 - CHORD_END.to_radians()).abs() < 1e-12);
+        assert!(at_origin.contains("source 1, target 600,001"));
+    }
+
+    #[test]
+    fn a_labelled_ring_is_one_titled_group_and_an_unlabelled_one_renders_as_before() {
+        let ring = || {
+            SignalRing::new(vec![
+                Window::new(0, 500, 2.0),
+                Window::new(500, 1_000, -1.0),
+            ])
+        };
+        let plain = Rings::new(1_000).push(ring()).to_svg();
+        let named = Rings::new(1_000).push(ring().label("depth")).to_svg();
+        assert!(!plain.contains("<title>depth</title>"));
+        assert!(named.contains("<g><title>depth</title><path"), "{named}");
+        // The same marks either way, inside the group.
+        let marks = |svg: &str| svg.matches("<path").count();
+        assert_eq!(marks(&plain), marks(&named));
+        // An empty name is no name.
+        assert_eq!(Rings::new(1_000).push(ring().label("")).to_svg(), plain);
+        // And every ring takes one.
+        let all = Rings::new(1_000)
+            .push(AxisRing::new().label("ruler"))
+            .push(FeatureRing::new(vec![Feature::new(10, 400)]).label("genes"))
+            .push(MarkerRing::new([100, 200]).label("calls"))
+            .to_svg();
+        for name in ["ruler", "genes", "calls"] {
+            assert!(all.contains(&format!("<g><title>{name}</title>")), "{name}");
+        }
+        assert!(all.contains("outside in: ruler, genes and calls."), "{all}");
+    }
+
+    #[test]
+    fn signal_ring_from_spans_aggregates_each_bin_with_max_mean_and_min() {
+        // Ten bases of 10 with one of 100 at base 3, and nothing past 20.
+        let spans = [(0, 20, 10.0), (3, 4, 100.0)];
+        let values = |aggregate| -> Vec<(u64, u64, f64)> {
+            SignalRing::from_spans(40, spans, 4, aggregate)
+                .windows()
+                .iter()
+                .map(|window| (window.start, window.end, window.value))
+                .collect()
+        };
+        // Neighbouring arcs of one value are one window.
+        assert_eq!(
+            values(Aggregate::Max),
+            [(0, 10, 100.0), (10, 20, 10.0), (20, 40, 0.0)]
+        );
+        assert_eq!(
+            values(Aggregate::Mean),
+            [(0, 10, 19.0), (10, 20, 10.0), (20, 40, 0.0)]
+        );
+        assert_eq!(values(Aggregate::Min), [(0, 20, 10.0), (20, 40, 0.0)]);
+        // Never more arcs than bases, and never more than asked for.
+        assert_eq!(
+            SignalRing::from_spans(3, [(0, 3, 1.0)], 1_000, Aggregate::Max)
+                .windows()
+                .len(),
+            1
+        );
+        let jagged: Vec<(u64, u64, f64)> = (0..10_000)
+            .map(|at| (at, at + 1, (at % 5) as f64))
+            .collect();
+        assert_eq!(
+            SignalRing::from_spans(10_000, jagged, 100, Aggregate::Max).windows(),
+            [Window::new(0, 10_000, 4.0)]
+        );
+    }
+
+    #[test]
+    fn the_baseline_at_the_median_counts_each_window_for_its_bases() {
+        // Most of the sequence at 30, a short stretch at 0 and two at 60:
+        // by window the middle one of five is 30 either way, and by base too;
+        // with the short windows the many, by window alone it would be 60.
+        let ring = SignalRing::new(vec![
+            Window::new(0, 900, 30.0),
+            Window::new(900, 910, 60.0),
+            Window::new(910, 920, 60.0),
+            Window::new(920, 930, 60.0),
+            Window::new(930, 1_000, f64::NAN),
+        ])
+        .baseline_at_median();
+        assert_eq!(ring.baseline_value(), 30.0);
+        // No window with a value keeps the baseline where it was.
+        let none = SignalRing::new(vec![Window::new(0, 10, f64::NAN)])
+            .baseline(2.0)
+            .baseline_at_median();
+        assert_eq!(none.baseline_value(), 2.0);
+    }
+
+    #[test]
+    fn a_feature_ring_paints_a_feature_its_own_colour() {
+        let svg = Rings::new(1_000)
+            .push(
+                FeatureRing::new(vec![
+                    Feature::new(10, 400).name("own").color("#123456"),
+                    Feature::new(500, 900).name("plain"),
+                ])
+                .colors("#aaaaaa", "#bbbbbb"),
+            )
+            .to_svg();
+        let fill = |name: &str| -> String {
+            let at = svg.find(&format!("<title>{name}, ")).unwrap();
+            svg[at..]
+                .split("fill=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(fill("own"), "#123456");
+        assert_eq!(fill("plain"), "#aaaaaa");
+    }
+
+    #[test]
+    fn a_name_with_no_room_beside_the_centre_line_is_centred_on_its_arc() {
+        // Just past six o'clock, a few pixels from the centre line: beside
+        // it the name had room for an ellipsis and nothing else.
+        let svg = Rings::new(1_000_000)
+            .push(
+                FeatureRing::new(vec![Feature::new(503_000, 506_000).name("katG")])
+                    .show_names(true),
+            )
+            .to_svg();
+        assert!(!svg.contains(">\u{2026}</text>"), "{svg}");
+        assert!(svg.contains("text-anchor=\"middle\">katG</text>"), "{svg}");
+    }
+
+    #[test]
+    fn the_key_under_a_circle_is_a_line_a_ring_in_the_order_given() {
+        let plain = Rings::new(1_000).push(AxisRing::new());
+        let (side, height) = plain.dimensions();
+        assert_eq!(side, height, "a circle with no key is a square");
+        let keyed = Rings::new(1_000)
+            .push(AxisRing::new())
+            .key(
+                "outer",
+                Legend::new().key("one", "#111111").key("two", "#222222"),
+            )
+            .key("inner", Legend::new());
+        let (width, tall) = keyed.dimensions();
+        assert_eq!(width, side);
+        assert!(tall > side + 30.0, "{tall}");
+        let svg = keyed.to_svg();
+        assert!(svg.contains(&format!("height=\"{}\"", num(tall))), "{svg}");
+        let y = |text: &str| -> f64 {
+            let end = svg.find(&format!(">{text}</text>")).unwrap();
+            let start = svg[..end].rfind("<text").unwrap();
+            svg[start..end]
+                .split(" y=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        assert!(y("outer") > side && y("outer") < y("inner"));
+        assert!(y("one") > side && y("one") < y("inner"));
+        assert!(
+            (y("outer") - y("one")).abs() < 1.0,
+            "a name sits on its legend's row"
+        );
+        // A legend too wide for one row wraps, and the image is as tall as
+        // the wrapped key.
+        let long: Legend = (0..30).fold(Legend::new(), |legend, at| {
+            legend.key(format!("consequence number {at}"), "#333333")
+        });
+        let wrapped = Rings::new(1_000).key("calls", long);
+        assert!(wrapped.dimensions().1 > keyed.dimensions().1 + 40.0);
     }
 }

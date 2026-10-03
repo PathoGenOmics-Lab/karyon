@@ -11,7 +11,7 @@ samples were taken.
 |:--|:--|:--|
 | Where in the chromosome is the window I am showing? | [Ideogram](../tracks/whole-genome.md#ideogramtrack) | `IdeogramTrack`, `--ideogram` |
 | How does a signal run across every contig of an assembly? | [Whole assembly](../tracks/whole-genome.md#genometrack) | `GenomeTrack` over a `Genome`, Rust only |
-| What does a circular chromosome or plasmid look like all the way round? | [Circular genome](../guide/plot.md) | `Rings`, Rust only |
+| What does a circular chromosome or plasmid look like all the way round? | [Circular genome](../guide/plot.md) | `Rings`, `--circular` |
 | Where were the samples taken, and what moved between places? | [Map](../guide/maps.md) | `Map`, Rust only |
 
 A circular genome and a map are drawings rather than tracks: each has a

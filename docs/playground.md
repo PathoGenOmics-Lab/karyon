@@ -64,7 +64,7 @@ compiled to WebAssembly.
     <div class="pg-panel-head">
       <div>
         <h2 id="pg-picker-title">Examples</h2>
-        <p>Thirty-three examples that between them use every track flag the command line has. Every preview is drawn live, in this page.</p>
+        <p>Thirty-four examples that between them use every track flag the command line has. Every preview is drawn live, in this page.</p>
       </div>
       <button class="pg-chip" id="pg-picker-close" type="button">Close</button>
     </div>

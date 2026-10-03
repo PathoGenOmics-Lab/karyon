@@ -391,10 +391,16 @@ fn help_on(topic: &str) -> Result<String, String> {
             out.push_str(&text);
         }
     }
-    out.push_str(
+    // `--circular` only where the track has a ring: a tree's help naming it
+    // would offer a flag the tree is refused with.
+    out.push_str(if kind.ring() {
         "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
-         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --rename, -o.\n",
-    );
+         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --circular,\n\
+         --rename, -o.\n"
+    } else {
+        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
+         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --rename, -o.\n"
+    });
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
         guide_page(kind)
@@ -716,6 +722,14 @@ FIGURE OPTIONS
                          scale, as the depths of several samples, in every
                          panel, so the same height is the same value; a track
                          given --max keeps its own
+    --circular           the place, one whole sequence, drawn as a circle: each
+                         track a ring, the first outermost, inside the ruler,
+                         a breakend join a chord across the middle, and a key
+                         under it naming each ring. Features, coverage,
+                         windows, variants, structural calls and a FASTA's GC
+                         skew are rings; the circle is as long as a FASTA, a
+                         BAM, a VCF's ##contig or a GFF3's ##sequence-region
+                         says, or a span written from 1. --width is its side
     --shade <PLACE[=NAME]>
                          shade a stretch across every track laid on the
                          coordinates, behind them, with its NAME at the head
@@ -1141,6 +1155,10 @@ mod tests {
         let coverage = help_on("coverage").unwrap();
         assert!(coverage.contains("--same-scale,"), "{coverage}");
         assert!(coverage.contains("--shade,"), "{coverage}");
+        // And `--circular` where the track has a ring, and not where it is
+        // refused.
+        assert!(coverage.contains("--circular,"), "{coverage}");
+        assert!(!help_on("tree").unwrap().contains("--circular"));
     }
 
     #[test]

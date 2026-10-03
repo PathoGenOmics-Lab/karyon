@@ -255,6 +255,36 @@ pub enum ArgError {
     /// gives would lead to a second refusal, since a whole sequence is no
     /// gene either.
     CodonsWithoutPlace,
+    /// A track `--circular` has no ring for.
+    ///
+    /// Answered with the kinds it has, and for a phylogeny with how one is
+    /// drawn round, since a reader who wrote `--circular` beside a tree
+    /// wanted the tree's own circular projection.
+    NotOnACircle {
+        /// The track.
+        track: Kind,
+        /// Its file, as it was written, where it has one.
+        file: Option<String>,
+    },
+    /// An option a ring would leave unsaid, on a circle.
+    OptionOnARing {
+        /// The option.
+        flag: &'static str,
+        /// The track it was given to, or `None` for a figure option.
+        track: Option<&'static str>,
+    },
+    /// A circle placed on a stretch of a sequence that does not start at its
+    /// first base.
+    ///
+    /// A circle closes where its sequence ends, so it is a whole replicon or
+    /// nothing: a window of one drawn round would join its two ends as though
+    /// they were neighbours. A span written from base 1 is the whole of a
+    /// sequence that long, and is taken.
+    CircleOfPart(Region),
+    /// A circle of several places, which would be several circles.
+    CircleOfSeveral,
+    /// A circle with no place, where the sequence it is of is the place.
+    CircleWithoutPlace,
     /// A place given to `--highlight` where no tree is there to take it.
     ///
     /// `--highlight` is a phylogeny's, and marks its clades. A locus after it
@@ -406,6 +436,70 @@ impl fmt::Display for ArgError {
                  none: write the gene's name first, as karyon GENE genes.gff3 --codons, or \
                  a stretch it codes in"
             ),
+            ArgError::NotOnACircle { track, file } => {
+                let named = match file {
+                    Some(file) => format!("{} {file}", track.dashed()),
+                    None => track.dashed().to_string(),
+                };
+                match track {
+                    Kind::Tree => write!(
+                        f,
+                        "a phylogeny drawn round is --projection circular after --tree; \
+                         --circular draws a sequence as a circle, and {named} is none"
+                    ),
+                    Kind::Codons => write!(
+                        f,
+                        "--codons counts the codons of one gene, and --circular draws a \
+                         whole sequence: draw the gene with a command of its own, as karyon \
+                         GENE genes.gff3 --codons"
+                    ),
+                    _ => write!(
+                        f,
+                        "--circular draws {} tracks as rings, a FASTA as its GC skew, and \
+                         {named} has none: draw it along the sequence, without --circular",
+                        on_a_circle()
+                    ),
+                }
+            }
+            ArgError::OptionOnARing {
+                flag: "--shade",
+                track: None,
+            } => write!(
+                f,
+                "--shade marks a stretch down a figure drawn along the sequence, and a \
+                 circle has no wedge across its rings for it: leave it out, or draw the \
+                 figure without --circular"
+            ),
+            ArgError::OptionOnARing { flag, track } => match track {
+                Some(track) => write!(
+                    f,
+                    "{flag} means nothing to {} {track} ring: leave it out, or draw the \
+                     figure along the sequence, without --circular",
+                    article(track)
+                ),
+                None => write!(
+                    f,
+                    "{flag} means nothing on a circle: leave it out, or draw the figure \
+                     along the sequence, without --circular"
+                ),
+            },
+            ArgError::CircleOfPart(region) => write!(
+                f,
+                "a circle is a whole sequence, and {region} is part of one: name the \
+                 sequence, as karyon {} --circular, or write the span from 1, as {}:1-LENGTH",
+                region.seq(),
+                region.seq()
+            ),
+            ArgError::CircleOfSeveral => write!(
+                f,
+                "--circular draws one sequence, and this line names several places: draw \
+                 each with a command of its own"
+            ),
+            ArgError::CircleWithoutPlace => write!(
+                f,
+                "a circle is a whole sequence, and the first argument names it: write it \
+                 first, as karyon NC_000962.3 --circular genes.gff3"
+            ),
             ArgError::NotGenomeWide { track, file, tied } => {
                 let named = match file {
                     Some(file) => format!("--{track} {file}"),
@@ -555,6 +649,20 @@ impl fmt::Display for ArgError {
 }
 
 impl std::error::Error for ArgError {}
+
+/// The tracks a circle draws as rings, as a message names them: worked out
+/// from [`Kind::ring`], so a ring added there is named here as it is.
+pub(crate) fn on_a_circle() -> String {
+    let flags: Vec<&str> = Kind::ALL
+        .iter()
+        .filter(|kind| kind.ring() && !kind.reads_nothing())
+        .map(|kind| kind.dashed())
+        .collect();
+    match flags.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => flags.join(""),
+    }
+}
 
 /// The tracks drawn across a whole genome where no place is written, as a
 /// message names them: worked out from the tracks, as [`ArgError::NoRegion`]
@@ -1161,6 +1269,30 @@ impl Kind {
         matches!(
             self,
             Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan
+        )
+    }
+
+    /// Whether `--circular` draws a track of this kind as a ring, and so
+    /// what a circle can be made of.
+    ///
+    /// The kinds [`crate::rings`] has a ring for: annotation and the
+    /// footprints of structural calls as arcs, a depth, windows and a
+    /// reference's GC skew as a signal either side of a line, calls as
+    /// ticks, and the ruler. A breakend join is a chord across the middle.
+    /// Everything else is drawn along a sequence and has no ring: rows of
+    /// reads or samples have nowhere to stack on one, a scan's height has no
+    /// room in a ring of ticks, and a phylogeny drawn round is its own
+    /// projection.
+    pub fn ring(self) -> bool {
+        matches!(
+            self,
+            Kind::Coverage
+                | Kind::Sequence
+                | Kind::Features
+                | Kind::Variants
+                | Kind::Windows
+                | Kind::Structural
+                | Kind::Axis
         )
     }
 
@@ -1786,6 +1918,65 @@ impl TrackSpec {
         }
     }
 
+    /// The first option given to this track that a ring of it would leave
+    /// unsaid, where one was.
+    ///
+    /// A ring honours its name, `--label`, which the key and its tooltip
+    /// say; its thickness, `--height`; a depth's `--aggregate`, which picks
+    /// what each of its arcs shows; `--color` where the band takes one;
+    /// `--format`; and `--no-names` on annotation and structural calls. Every
+    /// other option draws something a ring has no room for, or reads a scale
+    /// it has not got: a signal ring reaches as far either side of its line
+    /// as its values do, with no ceiling to pin and no logarithm, and a ring
+    /// of ticks has no style.
+    pub fn ignored_on_a_ring(&self) -> Option<&'static str> {
+        let second = self
+            .kind
+            .second_flag()
+            .or(self.kind.optional_second())
+            .unwrap_or("--against");
+        let selector = self.kind.selector().unwrap_or("--modification");
+        [
+            (self.style.is_some(), "--style"),
+            (self.log, "--log"),
+            (self.max.is_some(), "--max"),
+            (self.center.is_some(), "--center"),
+            (self.relative, "--relative"),
+            (self.threshold.is_some(), "--threshold"),
+            (self.row_height.is_some(), "--row-height"),
+            (self.max_rows.is_some(), "--max-rows"),
+            (self.isoforms, "--isoforms"),
+            (self.second.is_some(), second),
+            (self.selects.is_some(), selector),
+            (self.recombination.is_some(), "--with-recombination"),
+            (self.identity.is_some(), "--identity"),
+            (self.compare_to.is_some(), "--compare-to"),
+            (self.projection.is_some(), "--projection"),
+            (self.focus.is_some(), "--focus"),
+            (self.color_by.is_some(), "--color-by"),
+            (self.support_from.is_some(), "--support-from"),
+            (self.support_style.is_some(), "--support-style"),
+            (self.no_scale_bar, "--no-scale-bar"),
+            (self.cladogram, "--shape"),
+            (self.mutations.is_some(), "--mutations"),
+            (self.carrying.is_some(), "--carrying"),
+            (!self.highlight.is_empty(), "--highlight"),
+            (self.no_counts, "--no-counts"),
+            (self.min_reads.is_some(), "--min-reads"),
+            (self.fade_by_mapq, "--fade-by-mapq"),
+            (self.growth.is_some(), "--growth"),
+            (self.min_total.is_some(), "--min-total"),
+            (self.counts, "--counts"),
+            (self.ploidy.is_some(), "--ploidy"),
+            (self.sample.is_some(), "--sample"),
+            (self.traits.is_some(), "--traits"),
+            (self.columns.is_some(), "--columns"),
+            (self.genetic_code.is_some(), "--genetic-code"),
+        ]
+        .into_iter()
+        .find_map(|(given, flag)| given.then_some(flag))
+    }
+
     /// Whether the track reads a BAM or a CRAM, by its name: its depth or
     /// its reads, either way read through its index a window at a time.
     fn reads_alignments(&self) -> bool {
@@ -1932,6 +2123,11 @@ pub struct Invocation {
     /// coordinates, in the order written. None of them reads a file, so
     /// [`Invocation::files`] does not list them.
     pub shades: Vec<Shading>,
+    /// `--circular`: the place, one whole sequence, drawn as a circle, each
+    /// track a ring of it, the first outermost. Drawn by
+    /// [`build_circle`](crate::cli::stack::build_circle), and only for the
+    /// tracks [`Kind::ring`] names, which the parser has checked.
+    pub circular: bool,
 }
 
 impl Invocation {
@@ -2113,6 +2309,7 @@ pub const FLAGS: &[&str] = &[
     "--no-legend",
     "--same-scale",
     "--shade",
+    "--circular",
     "--rename",
     "--colors",
     "-o",
@@ -2291,6 +2488,20 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
         "the table a codon ruler translates with is --genetic-code N after --codons, as \
          --genetic-code 2 for vertebrate mitochondria; by default it is the one the \
          annotation's CDS names",
+    ),
+    (
+        &[
+            "circle",
+            "circos",
+            "circlize",
+            "ring",
+            "rings",
+            "circular-map",
+            "plasmid-map",
+            "genome-map",
+        ],
+        "--circular draws the place, one whole sequence, as a circle with a ring a \
+         track, as in karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz",
     ),
     (
         &["flank", "padding", "pad", "margin", "extend"],
@@ -2507,6 +2718,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
     let mut same_scale = false;
+    let mut circular = false;
     let mut shades: Vec<Shading> = Vec::new();
     let mut renames: Vec<(String, String)> = Vec::new();
     let mut colors: Vec<(String, Vec<(String, String)>)> = Vec::new();
@@ -3646,6 +3858,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
             "--same-scale" => same_scale = true,
+            "--circular" => circular = true,
             "--shade" => {
                 // Taken as the next word whatever it is, as every value is,
                 // so a shade written before the place is never the place.
@@ -3730,6 +3943,12 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 }
             }
         }
+    }
+
+    // A circle first, since `--circular` may be the last word on the line
+    // and every refusal after this one is about a figure along a sequence.
+    if circular {
+        circled(&tracks, region.as_ref(), named.as_ref(), &more, &shades)?;
     }
 
     // Late, because the flag that fills it comes after the track flag and may
@@ -3817,7 +4036,58 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         same_scale,
         colors,
         shades,
+        circular,
     })))
+}
+
+/// Why a command line asking for a circle cannot have one, where it cannot.
+///
+/// In the order a reader would fix them: a track with no ring, then an option
+/// a ring would ignore, then the place, which must be one whole sequence. An
+/// option a ring cannot honour is refused rather than passed over, as every
+/// option the track it follows has no use for is: `--log` accepted and drawn
+/// without would be a figure that is not the one asked for and does not look
+/// wrong.
+fn circled(
+    tracks: &[TrackSpec],
+    region: Option<&Region>,
+    named: Option<&String>,
+    more: &[Place],
+    shades: &[Shading],
+) -> Result<(), ArgError> {
+    for spec in tracks {
+        if !spec.kind.ring() {
+            return Err(ArgError::NotOnACircle {
+                track: spec.kind,
+                file: spec.source.as_ref().map(|source| match source {
+                    Source::Path(path) => path.display().to_string(),
+                    Source::Stdin => "-".to_string(),
+                }),
+            });
+        }
+    }
+    for spec in tracks {
+        if let Some(flag) = spec.ignored_on_a_ring() {
+            return Err(ArgError::OptionOnARing {
+                flag,
+                track: Some(spec.kind.flag()),
+            });
+        }
+    }
+    if !shades.is_empty() {
+        return Err(ArgError::OptionOnARing {
+            flag: "--shade",
+            track: None,
+        });
+    }
+    if !more.is_empty() {
+        return Err(ArgError::CircleOfSeveral);
+    }
+    match (region, named) {
+        (Some(region), _) if region.start() > 0 => Err(ArgError::CircleOfPart(region.clone())),
+        (None, None) => Err(ArgError::CircleWithoutPlace),
+        _ => Ok(()),
+    }
 }
 
 /// Why a figure that names no place needs one, said of the file that needs
@@ -6702,5 +6972,253 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    /// `--circular` is a figure option that takes no value and may sit
+    /// anywhere on the line, as `--same-scale` may.
+    #[test]
+    fn circular_is_a_figure_option_that_takes_no_value() {
+        for line in [
+            "NC_000962.3 --circular genes.gff3 calls.vcf",
+            "NC_000962.3 genes.gff3 calls.vcf --circular",
+            "--circular NC_000962.3 genes.gff3 --circular",
+        ] {
+            let invocation = draw(line);
+            assert!(invocation.circular, "{line}");
+            assert_eq!(
+                invocation.tracks.len(),
+                if line.contains("calls") { 2 } else { 1 }
+            );
+        }
+        assert!(!draw("NC_000962.3 genes.gff3").circular);
+    }
+
+    /// A track with no ring is refused by name, and a phylogeny is told how
+    /// a tree is drawn round, which is what a reader writing `--circular`
+    /// beside one wanted.
+    #[test]
+    fn a_track_with_no_ring_on_a_circle_is_refused_by_name() {
+        let said = |line: &str| match parse(&args(line)) {
+            Err(error @ ArgError::NotOnACircle { .. }) => error.to_string(),
+            other => panic!("{line}: {other:?}"),
+        };
+        assert_eq!(
+            said("NC_000962.3 --circular genes.gff3 --pileup reads.bam"),
+            "--circular draws --coverage, --sequence, --features, --variants, --windows and \
+             --structural tracks as rings, a FASTA as its GC skew, and --pileup reads.bam has \
+             none: draw it along the sequence, without --circular"
+        );
+        assert!(said("NC_000962.3 --circular tree.nwk").contains("--projection circular"));
+        assert!(said("NC_000962.3 --circular genes.gff3 --codons").contains("--codons counts"));
+        for line in [
+            "NC_000962.3 --circular gwas.assoc",
+            "NC_000962.3 --circular --copy-number x.cns --ploidy 2",
+            "NC_000962.3 --circular --heatmap depths.tsv",
+            "NC_000962.3 --circular --split-reads reads.bam",
+        ] {
+            said(line);
+        }
+        // Every kind with a ring is taken, the ruler among them.
+        for line in [
+            "NC_000962.3 --circular reads.bam calls.vcf genes.gff3 ref.fa",
+            "NC_000962.3 --circular --windows w.bg --structural sv.vcf --axis",
+        ] {
+            assert!(draw(line).circular, "{line}");
+        }
+    }
+
+    /// An option a ring would leave unsaid is refused on a circle, as one
+    /// the track has no use for is anywhere, and so is a shade, which has no
+    /// wedge across the rings.
+    #[test]
+    fn an_option_a_ring_cannot_honour_is_refused_on_a_circle() {
+        let refused = |line: &str| match parse(&args(line)) {
+            Err(error @ ArgError::OptionOnARing { .. }) => error,
+            other => panic!("{line}: {other:?}"),
+        };
+        for (line, flag) in [
+            ("NC_000962.3 --circular reads.bam --log", "--log"),
+            ("NC_000962.3 --circular reads.bam --max 100", "--max"),
+            ("NC_000962.3 --circular reads.bam --style line", "--style"),
+            ("NC_000962.3 --circular calls.vcf --style tick", "--style"),
+            ("NC_000962.3 --circular --windows w.bg --max 2", "--max"),
+            (
+                "NC_000962.3 --circular genes.gff3 --row-height 9",
+                "--row-height",
+            ),
+            ("NC_000962.3 --circular genes.gff3 --isoforms", "--isoforms"),
+            ("NC_000962.3 --circular genes.gff3 --shade rpoB", "--shade"),
+            ("NC_000962.3 reads.bam --log --circular", "--log"),
+        ] {
+            let error = refused(line);
+            let ArgError::OptionOnARing { flag: given, .. } = &error else {
+                unreachable!()
+            };
+            assert_eq!(*given, flag, "{line}");
+            assert!(error.to_string().starts_with(flag), "{error}");
+        }
+        assert_eq!(
+            refused("NC_000962.3 --circular reads.bam --log").to_string(),
+            "--log means nothing to a coverage ring: leave it out, or draw the figure along \
+             the sequence, without --circular"
+        );
+        assert!(refused("NC_000962.3 --circular genes.gff3 --shade rpoB")
+            .to_string()
+            .contains("no wedge"));
+    }
+
+    /// Every option a track with a ring takes is either honoured on its ring
+    /// or refused there: asked of the parser for every flag, so an option
+    /// added to one of these tracks later is a failing test here until a
+    /// ring says it or the circle refuses it.
+    #[test]
+    fn every_option_a_ring_track_takes_is_honoured_or_refused_on_a_circle() {
+        let honoured = |kind: Kind, flag: &str| {
+            matches!(flag, "--label")
+                || (flag == "--height" && kind != Kind::Features)
+                || (flag == "--aggregate" && kind == Kind::Coverage)
+                || (flag == "--color" && matches!(kind, Kind::Coverage | Kind::Features))
+                || (flag == "--format" && matches!(kind, Kind::Coverage | Kind::Features))
+                || (flag == "--no-names" && matches!(kind, Kind::Features | Kind::Structural))
+        };
+        // A value each option takes, where it takes one, as the help asks
+        // the parser with: one it would refuse says nothing about the track.
+        let value = |kind: Kind, flag: &str| -> Option<&'static str> {
+            Some(match flag {
+                "--label" | "--sample" | "--columns" | "--focus" | "--compare-to"
+                | "--highlight" | "--read" | "--modification" | "--color-by" | "--support-from"
+                | "--mutations" => "a",
+                "--against" | "--with-tree" => "t.nwk",
+                "--with-sequence" => "ref.fa",
+                "--ld" => "lead.ld",
+                "--with-recombination" => "map.txt",
+                "--with-moves" => "calls.sam",
+                "--links" => "l.tsv",
+                "--traits" => "s.tsv",
+                "--identity" => "percent",
+                "--context" => "CpG",
+                "--analysis" => "Pfam",
+                "--carrying" => "A1T",
+                "--projection" => "circular",
+                "--support-style" => "both",
+                "--shape" => "cladogram",
+                "--height" | "--row-height" | "--max" | "--max-rows" | "--min-total" => "9",
+                "--ploidy" | "--min-reads" | "--threshold" => "2",
+                "--growth" => "0.1",
+                "--center" => "0",
+                "--aggregate" => "min",
+                "--style" if kind == Kind::Variants => "tick",
+                "--style" => "line",
+                "--color" => "#123456",
+                "--genetic-code" => "11",
+                "--format" if kind == Kind::Features => "gff3",
+                "--format" => "bedgraph",
+                _ => return None,
+            })
+        };
+        let mut checked = 0;
+        for kind in Kind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| kind.ring() && !kind.reads_nothing())
+        {
+            for flag in FLAGS.iter().copied() {
+                let given = value(kind, flag);
+                let opens = Kind::ALL.iter().any(|other| other.dashed() == flag);
+                if opens || !takes(kind, flag, given) || !flag.starts_with("--") {
+                    continue;
+                }
+                // Figure options are not the track's, and are asked about by
+                // the tests of the circle's own refusals.
+                if matches!(
+                    flag,
+                    "--title"
+                        | "--width"
+                        | "--theme"
+                        | "--background"
+                        | "--no-axis"
+                        | "--no-region-label"
+                        | "--no-legend"
+                        | "--same-scale"
+                        | "--circular"
+                        | "--rename"
+                        | "--colors"
+                        | "--shade"
+                        | "--output"
+                        | "--help"
+                        | "--version"
+                ) {
+                    continue;
+                }
+                let mut line = vec![
+                    "chr1".to_string(),
+                    "--circular".to_string(),
+                    kind.dashed().to_string(),
+                    "x.txt".to_string(),
+                    flag.to_string(),
+                ];
+                line.extend(given.map(str::to_string));
+
+                let answer = parse_line(&line);
+                if honoured(kind, flag) {
+                    assert!(
+                        matches!(answer, Ok(_) | Err(ArgError::MissingSecond { .. })),
+                        "{line:?}: {answer:?}"
+                    );
+                } else {
+                    assert!(
+                        matches!(answer, Err(ArgError::OptionOnARing { flag: refused, .. }) if refused == flag),
+                        "{line:?} was taken on a ring: {answer:?}"
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 20, "only {checked} options were asked about");
+    }
+
+    /// A circle is a whole sequence: a span from base 1 is the whole of one
+    /// that long, and any other span is part of one.
+    #[test]
+    fn a_circle_of_part_of_a_sequence_is_refused_and_one_written_from_base_one_is_not() {
+        match parse(&args("NC_000962.3:761,000-763,000 --circular genes.gff3")) {
+            Err(error @ ArgError::CircleOfPart(_)) => assert_eq!(
+                error.to_string(),
+                "a circle is a whole sequence, and NC_000962.3:761000-763000 is part of one: \
+                 name the sequence, as karyon NC_000962.3 --circular, or write the span from 1, \
+                 as NC_000962.3:1-LENGTH"
+            ),
+            other => panic!("{other:?}"),
+        }
+        let whole = draw("NC_000962.3:1-4,411,532 --circular genes.gff3");
+        assert_eq!(whole.region.unwrap().end(), 4_411_532);
+    }
+
+    /// Several places would be several circles, which are left for a command
+    /// each, and a circle with no place has no sequence to be.
+    #[test]
+    fn several_places_or_none_are_refused_on_a_circle() {
+        assert!(matches!(
+            parse(&args("NC_000962.3 pBR322 --circular genes.gff3")),
+            Err(ArgError::CircleOfSeveral)
+        ));
+        assert!(matches!(
+            parse(&args("--circular sampleA.bedgraph")),
+            Err(ArgError::CircleWithoutPlace)
+        ));
+        assert!(matches!(
+            parse(&args("--circular")),
+            Err(ArgError::CircleWithoutPlace)
+        ));
+        assert!(spelled_elsewhere("--circos")
+            .unwrap()
+            .contains("--circular"));
+        // Colours for a sheet's values, on a circle, where no ring has one.
+        assert!(matches!(
+            parse(&args(
+                "NC_000962.3 --circular genes.gff3 --colors a=b:#123456"
+            )),
+            Err(ArgError::ColorsWithoutTraits)
+        ));
     }
 }

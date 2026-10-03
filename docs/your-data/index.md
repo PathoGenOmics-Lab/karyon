@@ -40,8 +40,8 @@ it is drawn over one.
 -   [![A whole sequence](../assets/start/genome.svg){ .k-light width="720" height="227" loading="lazy" }![A whole sequence](../assets/start/genome-dark.svg){ .k-dark width="720" height="227" loading="lazy" }](genome.md)
 
     **[A whole sequence](genome.md)**
-    The depth of one sample or several along a whole chromosome, or of every
-    chromosome at once.
+    The depth of one sample or several along a whole chromosome, of every
+    chromosome at once, or round the chromosome as a circle.
 
 -   [![Many samples in windows](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![Many samples in windows](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](samples.md)
 

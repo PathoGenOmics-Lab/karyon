@@ -8,6 +8,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `FeatureRing` paints a feature in its own `Feature::color` before the ring's
+  colours and the strand's, the order `FeatureTrack` takes them in, so one
+  annotation is painted alike drawn round or along.
+- A chord's end narrower than 0.3 degrees is drawn that wide, centred on its
+  span. A breakend's single base was held open by a hair of 1e-4 radians, and
+  a chord between two of them was 0.03 px across at each end, which nobody
+  could see or point at. The tooltip still says the base, and says a one-base
+  end once, `source 40,001`, where it said `source 40,001 to 40,001`.
 - The example annotation, `docs/data/genes.gff3`, writes a CDS row under each
   gene, as NCBI writes a gene with no introns, naming table 11, so the
   documentation's own files draw `--codons`, and `examples.zip` holds it.
@@ -425,6 +433,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--circular` draws the place, one whole sequence, as a circle, the `Rings`
+  plot only Rust reached: each track a ring in the order written, the first
+  outermost, inside a ruler, as `karyon NC_000962.3 --circular genes.gff3
+  calls.vcf.gz sampleA.bedgraph`. Annotation is a `FeatureRing` painted a
+  strand a colour, named where it holds at most 20 named features; a depth is
+  a `SignalRing` cut into a thousand arcs with its `--aggregate` and read
+  either side of its median, so a loss dips inside the line and a gain stands
+  outside it; windows are the mean of each arc, read either side of 0; calls
+  are a `MarkerRing` coloured by consequence; structural calls are their
+  footprints, with a chord across the middle for each breakend join on the
+  sequence, between the two bases a band of the same file names; and a FASTA
+  is its GC skew. The key under the circle names each ring, outside in, with
+  what its colours mean, and each ring's name is its tooltip. `--same-scale`
+  puts every ring of depth on one reach. The circle is as long as a FASTA, a
+  BAM, a VCF's `##contig` or a GFF3's `##sequence-region` says, or a span
+  written from base 1, checked against every length the files' headers and
+  indexes state and read no further; a sequence no file gives the length of
+  is refused rather than closed where its rows stop, and so are one that two
+  files give different lengths, naming each file and its length, a gene, a
+  span from anywhere else, several places, a track with no ring, named, and
+  an option a ring would leave unsaid, `--log`, `--max`, `--style` and
+  `--shade` among them. The playground draws circles as a shell does and has
+  an example of one, and the page on a whole sequence draws one from the
+  documentation's own files, in `circle.svg`.
+- `Ring::label`, with `label` on `AxisRing`, `FeatureRing`, `SignalRing` and
+  `MarkerRing`: a named ring is one group under its name, so a pointer
+  anywhere on it says which ring it is, and the plot's alt text names its
+  rings outside in. `Rings::key(name, legend)` writes a line of a key under
+  the circle and grows the image to hold it. `SignalRing::from_spans` cuts a
+  per-base signal into equal arcs with an `Aggregate`, `samtools depth` over a
+  chromosome being four million lines that were four million sectors, and
+  `SignalRing::baseline_at_median` reads it against its usual level. A plot
+  that uses none of them draws byte for byte as it did.
 - `--codons` draws the codon ruler, `CodonTrack`, from the command line, which
   reached it from Rust only. It reads no file of its own: placed on a gene by
   its name, as `karyon rpoB genes.gff3 ref.fa --codons`, it numbers that
@@ -1410,6 +1451,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A `FeatureRing` name just past six o'clock, with no room for a letter
+  between its feature and the centre line it runs towards, is centred on its
+  arc. It came out as a lone ellipsis, which named nothing: katG on the
+  circular chromosome of `example-circular.svg`, and left out altogether on
+  the gallery's, which now both name it.
 - `--variants` draws a call whose `AF` is `.`, the missing value bcftools
   writes for a fraction it could not work out, full height, as it draws a call
   with no `AF`: `AF=.` refused the whole track with `AF is not a number: "."`.
