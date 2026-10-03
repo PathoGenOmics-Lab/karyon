@@ -3789,6 +3789,27 @@ fn ends_short(kind: Kind, text: &str, aliases: &[&str]) -> bool {
     })
 }
 
+/// Says so where one interval of a genetic map holds the whole window: its
+/// one rate is then a flat line from edge to edge, which reads as a rate
+/// measured flat across the window rather than the map having nothing finer
+/// to say there. A map of another sequence read under a `--rename` drew such
+/// a line over a window of a genome it was never measured on, and said
+/// nothing.
+fn note_one_interval(files: &mut dyn Files, path: &str, rates: &[(u64, u64, f64)], region: &Region) {
+    if let [(start, end, rate)] = rates {
+        if *start <= region.start() && *end >= region.end() {
+            use crate::track::axis::group_thousands;
+            files.note(&format!(
+                "{path}: the window lies inside one interval of the map, {} to {}, so its one \
+                 rate, {} cM/Mb, is drawn flat across it",
+                group_thousands(start.saturating_add(1)),
+                group_thousands(*end),
+                crate::svg::text_rounded(*rate, 2)
+            ));
+        }
+    }
+}
+
 /// The largest bigBed read whole to look a gene up by its name. A bigBed is
 /// read a window at a time, and only a name has to be found in every row: one
 /// of 29.6 MB holding 4.7 million rows of BED6 was read whole in 1.9 s, as
@@ -7855,6 +7876,7 @@ fn built(
                         wanted: "recombination rates",
                     });
                 }
+                note_one_interval(files, &map_path, &rates, region);
                 track = track.recombination(rates);
             }
             // Drawn as -log10, and the axis says so, since the file said p.
@@ -8684,6 +8706,7 @@ fn built(
             if rates.is_empty() {
                 return Err(empty("rates"));
             }
+            note_one_interval(files, &path, &rates, region);
             // A line, since a rate is read for where it rises rather than for
             // the area under it, and the highest rate in a pixel, so a hotspot
             // narrower than a pixel is still drawn.
@@ -13212,6 +13235,37 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .map(String::from)
             .collect();
         assert!(parse(&args).is_err());
+    }
+
+    /// A window inside one interval of a genetic map draws its one rate flat
+    /// from edge to edge, and says so, as a track of its own and under a
+    /// scan; a window across two intervals says nothing.
+    #[test]
+    fn a_window_inside_one_map_interval_says_its_rate_is_flat() {
+        let map = "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n\
+                   1\t1001\t0.41\t0.0\n1\t6001\t7.0\t0.002\n1\t9001\t0.5\t0.02\n";
+        let scan = "CHR SNP BP A1 P\n1 rs1 2500 A 0.5\n1 rs2 3000 A 1e-9\n";
+        let held = [("map.txt", map), ("gwas.assoc", scan)];
+        let said = "map.txt: the window lies inside one interval of the map, 1,001 to 6,000, so \
+                    its one rate, 0.41 cM/Mb, is drawn flat across it";
+        for line in [
+            "1:2,001-4,000 --recombination map.txt",
+            "1:2,001-4,000 gwas.assoc --with-recombination map.txt",
+        ] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert_eq!(notes, [said], "{line}");
+        }
+        // Nor does a window one interval holds only part of, the map saying
+        // nothing of the rest.
+        for line in [
+            "1:2,001-7,000 --recombination map.txt",
+            "1:1-4,000 --recombination map.txt",
+        ] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
     }
 
     /// A gene the figure is placed on, drawn as one model of several

@@ -1541,6 +1541,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A window that lies inside one interval of a genetic map, read by
+  `--recombination` or `--with-recombination`, says on standard error that
+  its one rate is drawn flat across it, and over which interval: following
+  the `--rename 1=NC_000962.3` a refusal offers, a chromosome 1 map laid over
+  a window of another genome drew a flat 0.41 cM/Mb line and said nothing.
+  The rename is still offered, as the one sequence a file names is the
+  documented case of a PLINK table beside a FASTA. No committed figure moves.
 - A figure placed on a gene's name whose annotation draws the gene once for
   several transcripts says so on standard error, once, naming the flag:
   `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
