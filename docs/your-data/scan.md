@@ -63,7 +63,7 @@ karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
 ```
 
 <figure class="k-start" markdown>
-![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
+![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, three at the far end that the linkage file has no r-squared for drawn as open rings, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
 ![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" }
 </figure>
 
