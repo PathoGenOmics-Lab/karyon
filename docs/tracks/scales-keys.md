@@ -179,7 +179,7 @@ On the `Legend` it draws:
 | `.line("mean depth", "#009e73")` | A key drawn as a stroke, for a series plotted as a line | none |
 | `.area("gene family", "#0072b2")` | A key drawn washed and edged, the way a large filled shape is drawn | none |
 | `.outline("unmatched", "#1b1f23")` | A key drawn as an empty square with an edge | none |
-| `.marked("reads", "#0072b2", Marker::Dot)` | A key with its `Marker` named | none |
+| `.marked("reads", "#0072b2", Marker::Dot)` | A key with its `Marker` named; `Marker::Ring` is an open circle edged in the colour, for a point drawn open | none |
 | `.ramp("identity", pale, dark, "70%", "100%")` | A continuous scale between two colours, with its end labels | none |
 | `.swatch(12.0)` | Size of one swatch, in pixels | `10` |
 | `.gap(20.0)` | Space between one key and the next, in pixels | `16` |

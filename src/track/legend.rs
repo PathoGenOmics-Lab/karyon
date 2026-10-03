@@ -62,6 +62,9 @@ pub enum Marker {
     /// draws a large filled shape. A solid swatch beside a washed arrow is a
     /// key that does not look like the thing it explains.
     Area,
+    /// An open circle edged in the colour, for a point drawn open rather
+    /// than filled because it lacks what the filled ones are coloured by.
+    Ring,
 }
 
 /// One thing a legend explains.
@@ -419,6 +422,17 @@ impl Legend {
                                 color,
                                 theme.tokens.strong_stroke,
                             ),
+                            Marker::Ring => {
+                                let edge = theme.tokens.stroke;
+                                svg.circle_ringed(
+                                    at + self.swatch / 2.0,
+                                    middle,
+                                    self.swatch / 2.5 - edge,
+                                    theme.surface(),
+                                    color,
+                                    edge,
+                                )
+                            }
                         }
                         svg.text(
                             at + self.swatch + 5.0,
@@ -644,6 +658,29 @@ mod tests {
         assert!(
             middle.contains("fill=\"#eeeeee\""),
             "through the centre colour"
+        );
+    }
+
+    /// A ring is keyed as a ring: an edge in the colour round a disc of the
+    /// page, so the key looks like the open point it explains.
+    #[test]
+    fn a_ring_is_keyed_as_an_edge_round_the_page() {
+        let theme = Theme::light();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(Legend::new().marked(
+                "no r²",
+                "#5b5480",
+                Marker::Ring,
+            )))
+            .to_svg();
+        let edge = svg.find("fill=\"#5b5480\"").expect("the edge");
+        let disc = svg[edge..]
+            .find(&format!("fill=\"{}\"", theme.surface()))
+            .expect("and the disc over it");
+        assert!(
+            svg[edge..edge + disc].matches("<circle").count() == 1,
+            "{svg}"
         );
     }
 

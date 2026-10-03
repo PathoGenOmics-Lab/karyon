@@ -461,6 +461,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Marker::Ring`, a key drawn as an open circle edged in its colour, for a
+  point drawn open because it lacks what the filled ones are coloured by.
 - `Track::notes`, with a default of none, says what a track leaves off the
   page at the zoom it is drawn at, a sentence each, and `Figure::notes`
   gathers them from every track, as `Figure::key` gathers keys. They are for
@@ -1518,6 +1520,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A scan coloured by linkage draws a variant the linkage file gives no r²
+  for as an open ring in the muted ink, keys it `no r² (5)` with the count in
+  view, and says how many in its notes, which the command line prints as `5
+  of 95 variants in view have no r² with snp00342, and are drawn as open
+  rings`. They were filled #c1becf, a shade off the #b5b2c6 of an r² of
+  nought, and the key showed only the ramp, so five variants missing from
+  `lead.ld` read as unlinked.
 - A pinned `--max` below the data says so. A `CoverageTrack` strikes the
   columns it cut short along the top of the band in the alert colour and
   writes its top label `30+`, and a `MatrixTrack` puts a dot in each cell past
