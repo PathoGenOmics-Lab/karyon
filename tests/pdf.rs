@@ -10,7 +10,7 @@
 //! on purpose, since a check that passes everything says nothing.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use karyon::{
     AxisTrack, CoverageTrack, Feature, FeatureTrack, Figure, Panels, Pdf, Region, Strand, Variant,
@@ -298,13 +298,11 @@ fn the_checker_catches_a_file_broken_in_each_way_it_checks() {
     }
 }
 
-/// Every figure the project commits, converted: nothing the converter does
-/// not read, and a well-formed file each time.
+/// Every figure the project commits, in order.
 ///
 /// `assets/` is left out of the published crate, so a copy from crates.io
 /// checks the site's figures alone; a checkout has to have both.
-#[test]
-fn every_committed_figure_converts_with_nothing_left_out() {
+fn committed_figures() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut figures = Vec::new();
     for (folder, fewest) in [("assets", 40), ("docs/assets/start", 20)] {
@@ -326,11 +324,56 @@ fn every_committed_figure_converts_with_nothing_left_out() {
         );
     }
     figures.sort();
-    for path in figures {
+    figures
+}
+
+/// Every figure the project commits, converted: nothing the converter does
+/// not read, and a well-formed file each time.
+#[test]
+fn every_committed_figure_converts_with_nothing_left_out() {
+    for path in committed_figures() {
         let svg = fs::read_to_string(&path).unwrap();
         let pdf = Pdf::from_svg(&svg).unwrap_or_else(|| panic!("{}", path.display()));
         assert!(pdf.notes.is_empty(), "{}: {:?}", path.display(), pdf.notes);
         let found = problems(&pdf.bytes);
         assert!(found.is_empty(), "{}: {found:#?}", path.display());
     }
+}
+
+/// Every character beyond ASCII a committed figure sets as text has a width
+/// of its own in the measure, rather than the flat six tenths of an em any
+/// other is given. karyon writes such characters into legends and into labels
+/// it cuts short, and an ellipsis given six tenths, which Helvetica and Arial
+/// draw a whole em wide, let a cut label run past its room. The two let
+/// through are the examples' own words, not karyon's: São Paulo on a map and
+/// a fan of 250° in a title.
+#[test]
+fn every_character_a_committed_figure_sets_has_a_width_of_its_own() {
+    // None of the widths the measure holds is exactly the flat one, so a
+    // character measured at it is one the measure does not know.
+    let flat = karyon::svg::text_width("\u{4e2d}", 1000.0);
+    let mut seen = 0;
+    for path in committed_figures() {
+        let svg = fs::read_to_string(&path).unwrap();
+        for text in svg
+            .split("</text>")
+            .filter_map(|part| part.rsplit('>').next())
+        {
+            for c in text.chars().filter(|c| !c.is_ascii()) {
+                if matches!(c, '\u{e3}' | '\u{b0}') {
+                    continue;
+                }
+                seen += 1;
+                let width = karyon::svg::text_width(&c.to_string(), 1000.0);
+                assert!(
+                    width != flat,
+                    "{} sets {c:?} in {text:?}, which the measure has no width for",
+                    path.display()
+                );
+            }
+        }
+    }
+    // The site's figures alone set 22, omega in the selection legends among
+    // them, so a reading that found none would not pass for a clean one.
+    assert!(seen >= 20, "{seen}");
 }

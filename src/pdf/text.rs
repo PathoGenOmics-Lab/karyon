@@ -9,18 +9,19 @@
 //! those and stays text: it can be searched, copied and read aloud.
 //!
 //! What that costs is the SVG's own faces, Inter and JetBrains Mono, and
-//! Helvetica is what a reader sees instead. The layout mostly survives it.
+//! Helvetica is what a reader sees instead. The layout survives it.
 //! [`text_width`](crate::svg::text_width) measures every printable ASCII
-//! character at least as wide as Helvetica draws it, and
-//! [`mono_width`](crate::svg::mono_width) is Courier's 600 exactly, so a
-//! regular label the SVG fitted in its room fits in the same room here. Two
-//! cases are measured short, by the same amount in the SVG wherever Arial
-//! draws it, since Arial has Helvetica's widths: nine characters of bold text,
-//! `& ? B K L ^ i j l`, by up to a tenth, and a character outside ASCII,
-//! which is reserved 600 thousandths where an ellipsis draws 1000. Each label
-//! is anchored with Adobe's own widths whatever it was measured with, so a
-//! label anchored at its end ends exactly where the SVG ended it, and one
-//! measured short runs over at the end it was not anchored by.
+//! character, and every character beyond it that karyon writes, at least as
+//! wide as Helvetica or Symbol draws it,
+//! [`text_width_strong`](crate::svg::text_width_strong) at least as wide as
+//! Helvetica-Bold, and [`mono_width`](crate::svg::mono_width) is Courier's
+//! 600 exactly, so a label the SVG fitted in its room fits in the same room
+//! here. Each label is anchored with Adobe's own widths whatever it was
+//! measured with, so a label anchored at its end ends exactly where the SVG
+//! ended it. A character karyon does not write itself, such as an accented
+//! letter in a sample name, is measured at a flat 600 thousandths, and
+//! Helvetica draws an accented capital wider than that, so such a label can
+//! still run over at the end it was not anchored by.
 
 use super::metrics;
 

@@ -38,8 +38,9 @@
 //! cutting a subset of it, which is most of a PDF library; the base fonts cost
 //! nothing and the text stays text, to be searched and read aloud. The layout
 //! survives the change because [`text_width`](crate::svg::text_width) is never
-//! narrower than Helvetica for printable ASCII at the regular weight, and each
-//! label is anchored with Adobe's own widths. Characters outside what those
+//! narrower than Helvetica, nor the strong measure than Helvetica-Bold, for
+//! printable ASCII and the characters beyond it karyon writes, and each label
+//! is anchored with Adobe's own widths. Characters outside what those
 //! fonts encode are drawn as question marks and named in [`Pdf::notes`].
 //!
 //! # What does not carry over

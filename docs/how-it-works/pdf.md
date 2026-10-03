@@ -73,14 +73,17 @@ line says which characters on standard error, as `Pdf::notes` does in Rust. The
 document's title and description keep every character either way.
 
 Where a label sits was settled before the PDF existed, by the widths karyon
-measures text with. Those are never narrower than Helvetica for ordinary text
-and are Courier's exactly for the monospaced stack, so a label that fitted in
-the SVG fits in the PDF. Two cases are measured a little short, in the SVG too
-wherever Arial draws it, since Arial has Helvetica's widths: nine characters of
-bold text, `& ? B K L ^ i j l`, by up to a tenth, and a character outside ASCII,
-of which an ellipsis is the one that matters: it is reserved six tenths of an em
-and draws a whole one. Every label is anchored with Adobe's own widths, so one
-anchored at its end still ends where the SVG ended it.
+measures text with. Those are never narrower than Helvetica, nor than
+Helvetica-Bold for bold text, for printable ASCII and for the characters beyond
+it that karyon writes itself: the ellipsis, the en dash, the superscript two,
+the multiplication sign and the middle dot, and ω, ≤, ≥, ≈ and →, which the
+PDF sets in Symbol and holds to Symbol's widths. For the monospaced stack they
+are Courier's exactly. A label that fitted in the SVG therefore fits in the
+PDF, and every label is anchored with Adobe's own widths, so one anchored at
+its end still ends where the SVG ended it. A character karyon does not write, such as an accented letter in a sample
+name, is measured at six tenths of an em, and Helvetica draws an accented
+capital wider than that, an Ö at 778 thousandths, so a label of them can still
+run a little past its room at the end it is not anchored by.
 
 ## Fades
 
