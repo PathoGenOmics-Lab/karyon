@@ -1535,7 +1535,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   says the number once, `reference at 1`, or after its name, `R = 1,
   reference at 1`. `--threshold 1` wrote a pink `1` beside the axis's `1`,
   on the second week's estimate, where it read as a tick of the data, and
-  titled the line `reference 1 1`.
+  titled the line `reference 1 1`, as the Start here `time.svg` did.
 - The dashed edges of a `--shade` leave out the keys and names a band writes
   where they would cross them. The edge of `--shade site:58-65` ran through
   the `p ≤ 0.05` of a selection scan's key, and could cross a legend of
@@ -1544,9 +1544,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps its last label, leaving out an interior one that would touch it. A
   101 bp window was ruled `1100.25 kb` to `1100.34 kb`, two decimals of a
   kilobase being a base count with a point in it, and ended on a bare tick at
-  1,100,350, whose label had given way to the one before. Every committed
-  figure whose ruler steps by under a hundred bases, or whose last label
-  touched its neighbour, moves.
+  1,100,350, whose label had given way to the one before.
+  `example-codons.svg`, `example-zoom.svg` and `gallery.svg` are ruled in
+  bases.
 - `SelectionTrack` names the sites past its threshold over their marks while
   thirty or fewer are in view, sites whose names would touch sharing one, as
   `58, 59, 63-65`, and draws a ratio held at an end of the effect tier open,
@@ -1554,14 +1554,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no number on any, so the sites were worked out with awk, and sites of ω
   8.80 and 8.91 stood at `ω 8` beside 44 under an eighth at `1/8`, each
   reading as exactly the end. The evidence tier keeps a line at its top for
-  the names, so every selection figure with a site past its threshold moves.
+  the names, so `example-selection-atlas.svg`,
+  `example-evolutionary-surveillance.svg` and the Start here `selection.svg`
+  move.
 - A scan coloured by linkage draws a variant the linkage file gives no r²
   for as an open ring in the muted ink, keys it `no r² (5)` with the count in
   view, and says how many in its notes, which the command line prints as `5
   of 95 variants in view have no r² with snp00342, and are drawn as open
   rings`. They were filled #c1becf, a shade off the #b5b2c6 of an r² of
   nought, and the key showed only the ramp, so five variants missing from
-  `lead.ld` read as unlinked.
+  `lead.ld` read as unlinked. The Start here `locus.svg` draws three.
 - A pinned `--max` below the data says so. A `CoverageTrack` strikes the
   columns it cut short along the top of the band in the alert colour and
   writes its top label `30+`, and a `MatrixTrack` puts a dot in each cell past
@@ -1579,7 +1581,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   across rpoB could not be pointed at, and a pixel holding one alternate site
   and one reference site was a grey that a cohort of one copy a sample reads
   as a mixed call. A mark of more sites is left to its row's tooltip, so
-  20,000 sites of 200 samples over a megabase stay 1.08 MB.
+  20,000 sites of 200 samples over a megabase stay 1.08 MB. The Start here
+  `genotypes.svg` names its pooled marks.
 - `SquiggleTrack` holds the place of a base too narrow for its letter with a
   dot in the row of letters, where some bases beside it are lettered, and
   its `notes` say how many and the window that letters every base, which the
@@ -1597,17 +1600,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   colour now moves only when a zoom leaves out a more damaging consequence.
   The calls in view are ranked rather than the file, since a VCF read a
   window at a time through its index has only the window's, and a BCF draws
-  what the VCF it was written from draws. Every example and start figure
-  whose first call is not its most damaging one swaps colours, such as
-  `reads.svg` on the Start here page, where missense is now the first.
+  what the VCF it was written from draws. The Start here `reads.svg` and
+  `circle.svg` swap their two colours, missense now the first.
 - A feature that runs off the window has its name written on the page: inside
-  the part of it in view when the name fits there with a margin half the one
-  a feature in view keeps, else before the feature when it ends past the
-  right edge, and after it as before when it ends in view. The name was centred on the whole feature or written after its end,
-  so sixty bases inside rpoB put rpoB at x = 6,026 of a 900 px figure,
-  a 100 bp window inside KAPPA3 put its name 80,000 px out, and rpoC running
-  off the edge of the rpoB figure was a box with no name. The packing keeps
-  the room a name takes before its feature as it keeps the room after it.
+  the part of it in view when the name fits there with a margin half the one a
+  feature in view keeps, else before the feature when it ends past the right
+  edge, and after it as before when it ends in view. The name was centred on
+  the whole feature or written after its end, so sixty bases inside rpoB put
+  rpoB at x = 6,026 of a 900 px figure, a 100 bp window inside KAPPA3 put its
+  name 80,000 px out, and rpoC running off the edge of the rpoB figure was a
+  box with no name. The packing keeps the room a name takes before its feature
+  as it keeps the room after it. `example.svg`, `example-dark.svg`,
+  `example-visual-system.svg` and `gallery.svg` move rpoB's name into the
+  part in view, and the Start here `reads.svg`, `pairs.svg` and
+  `genotypes.svg` name rpoC.
 - A bigWig, a bigBed or a 2bit named for a second file of a track whose own
   file is piped in, as `--manhattan - --ld signal.bw`, is answered with the
   command that writes it as text. Whether the file was a pipe was read off
