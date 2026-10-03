@@ -461,6 +461,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Track::notes`, with a default of none, says what a track leaves off the
+  page at the zoom it is drawn at, a sentence each, and `Figure::notes`
+  gathers them from every track, as `Figure::key` gathers keys. They are for
+  the person drawing the figure and not drawn into it; the command line
+  prints them.
 - `VariantTrack::category_order` gives each category it names the palette
   slot of its place in the list, whether the track holds a call of it or
   not, and the rest the slots after it by first appearance, so two tracks
@@ -1513,6 +1518,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `SquiggleTrack` holds the place of a base too narrow for its letter with a
+  dot in the row of letters, where some bases beside it are lettered, and
+  its `notes` say how many and the window that letters every base, which the
+  command line prints as `read_1: 1 of 18 bases are too narrow for their
+  letters at this width, each a dot where its letter would be;
+  sample:221-524 letters every base`. The letter was left out with no mark,
+  so over the first 400 samples of a read whose basecall starts
+  GGATCACAGTCTACACT a C of five samples went missing and the row read one
+  base short.
 - `--variants`, as a band and as a ring, deals its colours from the most
   damaging consequence down rather than by which call comes first in the
   window. Across the whole of rpoB, whose first call is synonymous, missense

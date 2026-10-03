@@ -407,6 +407,17 @@ pub trait Track {
         None
     }
 
+    /// What this track leaves off the page when drawn over `region` at
+    /// `px_per_bp` pixels a base, a sentence each, for a caller who tells
+    /// the person drawing it: [`Figure::notes`](crate::Figure::notes) asks
+    /// every track at the zoom it draws at.
+    ///
+    /// The figure is no place for these. A note drawn into it goes into the
+    /// paper with it, and the reader of the paper cannot zoom.
+    fn notes(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Vec<String> {
+        Vec::new()
+    }
+
     /// How much room this track wants for a value axis, in pixels.
     ///
     /// A track that returns more than zero gets [`DrawContext::axis`], a strip

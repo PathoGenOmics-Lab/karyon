@@ -854,6 +854,17 @@ impl Figure {
             })
     }
 
+    /// What the tracks leave off the page at the zoom the figure is drawn
+    /// at, a sentence each, in the order the tracks are stacked: see
+    /// [`Track::notes`].
+    pub fn notes(&self) -> Vec<String> {
+        let px_per_bp = self.px_per_bp();
+        self.tracks
+            .iter()
+            .flat_map(|track| track.notes(&self.region, px_per_bp, &self.theme))
+            .collect()
+    }
+
     fn layout(&self) -> Layout {
         let theme = self.theme.clone().scaled(self.visual_scale);
         self.layout_with_theme(&theme)

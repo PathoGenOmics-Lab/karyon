@@ -2210,6 +2210,12 @@ fn build_one(
         })
         .map(|wanted| wanted as u64);
     gather(&mut legend, &key);
+    // What a track left off the page at this zoom, as bases of a read too
+    // narrow for their letters, said to the person drawing it and not drawn
+    // into the figure, which goes into the paper as it is.
+    for note in figure.notes() {
+        files.note(&note);
+    }
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
@@ -11824,6 +11830,56 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         );
         let error = other.unwrap_err().to_string();
         assert!(error.contains("no read called r1; it holds r2"), "{error}");
+    }
+
+    /// Bases too narrow for their letters are said, with the window that
+    /// letters them, and a window that letters every base says nothing.
+    #[test]
+    fn bases_of_a_read_too_narrow_for_their_letters_are_said() {
+        let signal: Vec<String> = (0..400).map(|i| (80 + i % 7).to_string()).collect();
+        let slow5 = format!(
+            "#slow5_version\t0.2.0\n\
+             #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\t\
+             len_raw_signal\traw_signal\n\
+             r1\t0\t2048\t0\t2048\t4000\t400\t{}\n",
+            signal.join(",")
+        );
+        // Stride 5: a base of 20 samples, then one of 5, then 20 again.
+        let mut moves = vec!["5".to_string()];
+        for dwell in [
+            4, 4, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+        ] {
+            moves.push("1".to_string());
+            moves.extend(std::iter::repeat("0".to_string()).take(dwell - 1));
+        }
+        let bases = "ACGTACGTACGTACGTACGTA";
+        let sam = format!(
+            "r1\t4\t*\t0\t0\t*\t*\t0\t0\t{bases}\t*\tmv:B:c,{}\n",
+            moves.join(",")
+        );
+        let held = [("reads.slow5", slow5.as_str()), ("calls.sam", sam.as_str())];
+        let (svg, notes) = drawn_noting("reads.slow5 --with-moves calls.sam", &held);
+        assert!(svg.unwrap().contains("<circle"));
+        let said: Vec<&String> = notes
+            .iter()
+            .filter(|note| note.contains("letters"))
+            .collect();
+        assert_eq!(said.len(), 1, "{notes:?}");
+        assert!(
+            said[0].starts_with("r1: 1 of 21 bases are too narrow for their letters"),
+            "{said:?}"
+        );
+        let window = said[0].rsplit("; ").next().unwrap();
+        let window = window.strip_suffix(" letters every base").unwrap();
+        let (svg, notes) = drawn_noting(
+            &format!("{window} reads.slow5 --with-moves calls.sam"),
+            &held,
+        );
+        assert!(!svg.unwrap().contains("<circle"));
+        assert!(
+            notes.iter().all(|note| !note.contains("letters")),
+            "{notes:?}"
+        );
     }
 
     /// A SLOW5 holds many reads and the figure draws one, named for it, and
