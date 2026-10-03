@@ -880,7 +880,9 @@ A plasmid, an organelle genome, many viral genomes and most bacterial
 chromosomes have no ends. Drawn as a line, the sequence gets an edge the biology
 does not have, straight through whatever sits at coordinate zero. `Rings` maps
 position to an angle instead, which is a different coordinate system and so a
-different container: `Rings` is to `Ring` what `Figure` is to `Track`.
+different container: `Rings` is to `Ring` what `Figure` is to `Track`. From the
+command line, `--circular` draws the place, one whole sequence, this way, a ring
+for each track; [A whole sequence](../your-data/genome.md#as-a-circle) shows it.
 
 <figure class="k-plate" markdown>
 ![A 4.41 Mb chromosome drawn as concentric rings with its name and length in the middle: a position ruler around the outside, a dense ring of genes with the forward strand outside the reverse, three named loci, point mutations as ticks coloured by category, GC content and GC skew as rings rising above and falling below their baselines, and two translucent ribbons across the middle joining distant stretches of the sequence](../assets/figures/example-circular.svg){ width="688" height="688" loading="lazy" }
@@ -914,9 +916,16 @@ an arc on an outer ring has more pixels than the same arc further in.
 | Ring | Draws | Builder methods, with defaults |
 |:--|:--|:--|
 | `AxisRing::new()` | a ruler of positions | `thickness` (22), `ticks` (10), `show_labels` (`true`) |
-| `FeatureRing::new(features)` | annotation as arcs, forward strand outside and reverse inside | `thickness` (16), `colors(forward, reverse)`, `split_strands` (`true`), `show_names` (`false`), `min_degrees` (0.12) |
-| `SignalRing::new(windows)` | a quantity in windows, either side of a baseline circle | `thickness` (40), `baseline` (0), `colors(above, below)`, `extent`, `show_baseline` (`true`) |
+| `FeatureRing::new(features)` | annotation as arcs, forward strand outside and reverse inside, each feature in its own `color` where it has one | `thickness` (16), `colors(forward, reverse)`, `split_strands` (`true`), `show_names` (`false`), `min_degrees` (0.12) |
+| `SignalRing::new(windows)`, `SignalRing::from_spans(length, spans, bins, aggregate)` | a quantity in windows, either side of a baseline circle; `from_spans` cuts a per-base signal, as a depth file states it, into `bins` equal arcs, each the `Aggregate` of the bases under it | `thickness` (40), `baseline` (0), `baseline_at_median()`, `colors(above, below)`, `extent`, `show_baseline` (`true`) |
 | `MarkerRing::new(positions)`, `MarkerRing::categorised(pairs)` | points as radial ticks; `categorised` takes `(position, category)` pairs and gives each category a palette colour | `thickness` (10), `width` (1.2), `colors` to replace the palette |
+
+Every ring takes `label`, its name. A ring has nowhere to write one, so a named
+ring is one tooltip, its name, wherever a pointer lands on it and no mark of its
+own answers first, and `key(name, legend)` on `Rings` writes it out under the
+circle: a line a ring, its name and then what its colours mean, in the order
+added. Add them in the order the rings were pushed and the key reads outside in,
+as the circle does.
 
 What a circle adds over a stack of bands is the middle. `link(from, to)` draws a
 translucent ribbon between two spans that belong together: the two ends of an
@@ -925,7 +934,9 @@ and half-open, and a span whose end is below its start runs through the origin.
 `link` uses the theme's accent at an opacity of 0.35, and
 `link_colored(from, to, color, opacity)` takes an `Option<String>` colour and an
 opacity of its own. Chords are drawn before the rings, so a dozen of them
-crossing the middle do not wash the data out.
+crossing the middle do not wash the data out. An end narrower than 0.3 degrees,
+a breakend's single base above all, is drawn that wide, centred on its span,
+and its tooltip still says the base.
 
 | Method | Default | What it does |
 |:--|:--|:--|
@@ -934,7 +945,8 @@ crossing the middle do not wash the data out.
 | `origin_gap(f64)` | `2.0` | degrees left blank at twelve o'clock, from 0 to 90 |
 | `title(impl Into<String>)` | none | the name written in the middle |
 | `subtitle(impl Into<String>)` | none | a second, quieter line under it |
-| `description(impl Into<String>)` | the length, the rings and the chords, counted | the alt text |
+| `description(impl Into<String>)` | the length, the rings and the chords, counted, and the rings' names, outside in | the alt text |
+| `key(name, Legend)` | none | a line of the key under the circle; the image grows downwards to hold it |
 | `theme(Theme)` | `Theme::light()` | colours and fonts |
 | `profile(RenderProfile)` | the `Manuscript` values | theme, visual scale and ring density together |
 | `visual_scale(f64)` | `1.0` | type, marks, margins and ring thickness together |
@@ -948,8 +960,9 @@ arbitrary. `origin_gap(0.0)` closes it.
 back, the last being the radius where chords start. `push_boxed`, `to_svg`,
 `to_svg_with_id_prefix`, `save_svg`, `to_pdf` and `save_pdf` work as they do on
 `Figure`. A ring type of your own implements the `Ring` trait: `thickness()`,
-an optional `gap()` (5 pixels by default) and `draw(ctx)`, which draws between
-the two radii in the `RingContext` it is given.
+an optional `gap()` (5 pixels by default), an optional `label()` (none by
+default) and `draw(ctx)`, which draws between the two radii in the `RingContext`
+it is given.
 
 ## Genome: several sequences on one axis
 

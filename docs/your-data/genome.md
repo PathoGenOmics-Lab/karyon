@@ -1,6 +1,6 @@
 ---
 title: A whole sequence
-description: Draw the depth of reads along a whole chromosome in windows, for one sample or several, or across every chromosome at once with its copy number, to see what stands out at a glance.
+description: Draw the depth of reads along a whole chromosome in windows, for one sample or several, across every chromosome at once with its copy number, or round the chromosome as a circle, to see what stands out at a glance.
 ---
 
 # A whole sequence
@@ -70,8 +70,45 @@ gap in its line, not a depth of nought.
 | Lay a scan over the same chromosomes | `trait.assoc` in front, from [the scan page](scan.md); `--rename 1=chr1` where the files call a chromosome differently |
 | Draw a bigWig across the genome | `tumour.bw` in place of `tumour.bedgraph`: each chromosome as long as it says, read from the summary it keeps at that scale |
 
+## As a circle
+
+A chromosome with no ends can be drawn as one: the same two depths, with the
+annotation and the calls, each a ring round the whole sequence, the first
+outermost:
+
+```bash
+karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz sampleA.bedgraph \
+  sampleB.bedgraph --same-scale -o circle.svg
+```
+
+<figure class="k-start" markdown>
+![The chromosome drawn as a circle, its name and length in the middle and a ruler round the outside from 0 at the top: two genes and seven calls together near 760 kb on the outer rings, and two rings of depth inside them, the first dipping inwards over a stretch near 1.5 Mb and standing outwards over one near 3.15 Mb, the second level all the way round; the key underneath names the four rings, outside in, and what their colours mean](../assets/start/circle.svg){ .k-light width="720" height="800" }
+![The same figure on the dark page](../assets/start/circle-dark.svg){ .k-dark width="720" height="800" }
+</figure>
+
+A circle closes where its sequence ends, so something has to say where that
+is: here the `##contig` line of `calls.vcf.gz`, and a FASTA, a BAM or a GFF3's
+`##sequence-region` would do as well. Each depth is cut into a thousand arcs and
+read either side of its median, so the stretch the first sample lost dips inside
+its line and the stretch it carries twice stands outside it, and `--same-scale`
+puts both rings on one reach. The genes sit on the outer half of their ring for
+the forward strand and the inner half for the reverse, and the calls are coloured
+by their consequence. The key under the circle names each ring, outside in, and
+so does each ring when you point at it.
+
+| To | Write |
+|:--|:--|
+| Leave out the key under the circle | `--no-legend` |
+| Name a ring | `--label depth` after its file |
+| Move the ruler in among the rings, or leave it out | `--axis` where it should go, or `--no-axis` |
+| Draw a reference's GC skew as a ring | the chromosome's FASTA among the files, as `H37Rv.fa` |
+| Draw structural calls, with a chord across the middle for each join | `--structural sv.vcf` |
+| Draw the same files along the chromosome | leave out `--circular` |
+
 The example files: [sampleA.bedgraph](../data/sampleA.bedgraph),
 [sampleB.bedgraph](../data/sampleB.bedgraph),
-[tumour.bedgraph](../data/tumour.bedgraph) and
-[tumour.cns](../data/tumour.cns). Every option: `karyon help coverage` and
-`karyon help copy-number`, or the [command line reference](../guide/cli.md).
+[tumour.bedgraph](../data/tumour.bedgraph),
+[tumour.cns](../data/tumour.cns), [genes.gff3](../data/genes.gff3) and
+[calls.vcf.gz](../data/calls.vcf.gz). Every option: `karyon help coverage`,
+`karyon help copy-number` and `karyon help all`, or the
+[command line reference](../guide/cli.md#a-whole-sequence-as-a-circle).

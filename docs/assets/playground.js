@@ -1526,6 +1526,79 @@
       },
     },
     {
+      name: "A circular genome",
+      bounds: { from: 1, to: 180000, min: 2000 },
+      controls: [
+        { kind: "note", label: "A circle is a whole sequence, so it has no window to move. Point at a ring for its name, and at a gene, a call or a chord for what it is." },
+        { kind: "toggle", flag: "--circular", label: "Drawn round, or along the sequence" },
+        { kind: "data", param: "sample", value: "a deletion and a duplication", label: "What the sample carries",
+          options: ["nothing unusual", "a deletion and a duplication"],
+          says: "A loss dips inside its ring's line and a gain stands outside it" },
+        { kind: "choice", flag: "--aggregate", after: "--coverage",
+          label: "What each arc of the depth shows", options: ["max", "mean", "min"] },
+        { kind: "toggle", flag: "--no-legend", label: "Leave out the key under the circle" },
+      ],
+      group: "Signal and annotation",
+      // A plasmid-sized sequence, so a gene is an arc a pointer can find and
+      // the chord between two breakends crosses a middle with room in it. The
+      // GFF3 says how long the sequence is, which a circle needs: it closes
+      // where its sequence ends, and a bedGraph does not say where that is.
+      command:
+        "contig_1 --circular genes.gff3 --label genes calls.vcf --label calls \\\n" +
+        "  --coverage depth.bg --label depth --structural sv.vcf --label rearrangements",
+      files: [
+        { name: "genes.gff3", body: "" },
+        { name: "calls.vcf", body: "" },
+        { name: "depth.bg", body: "" },
+        { name: "sv.vcf", body: "" },
+      ],
+      make: function (p) {
+        var carries = (p && p.sample) !== "nothing unusual";
+        var next = rolls(180013);
+        var length = 180000;
+        var genes = "##gff-version 3\n##sequence-region contig_1 1 " + length + "\n";
+        var at = 400, n = 0;
+        while (at < length - 3000) {
+          var size = 600 + Math.floor(next() * 2200);
+          var strand = next() < 0.55 ? "+" : "-";
+          n++;
+          genes += "contig_1\t.\tgene\t" + (at + 1) + "\t" + (at + size) + "\t.\t" + strand +
+                   "\t.\tID=gene_" + ("00" + n).slice(-3) + "\n";
+          at += size + 60 + Math.floor(next() * 500);
+        }
+        var calls = "##fileformat=VCFv4.2\n##contig=<ID=contig_1,length=" + length + ">\n" +
+                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+        var kinds = ["missense_variant|MODERATE", "synonymous_variant|LOW", "stop_gained|HIGH"];
+        for (var v = 1500; v < length; v += 2500 + Math.floor(next() * 4000)) {
+          var roll = next();
+          var kind = kinds[roll < 0.08 ? 2 : roll < 0.6 ? 0 : 1];
+          calls += "contig_1\t" + v + "\t.\tC\tT\t60\tPASS\tAF=" + (0.3 + next() * 0.7).toFixed(2) +
+                   ";ANN=T|" + kind + "|g\n";
+        }
+        var depth = "";
+        for (var b = 0; b < length; b += 250) {
+          var level = 40 + Math.round((next() - 0.5) * 10);
+          if (carries && b >= 52000 && b < 61000) level = Math.round(level * 0.04);
+          if (carries && b >= 121000 && b < 133000) level = level * 2;
+          depth += "contig_1\t" + b + "\t" + (b + 250) + "\t" + level + "\n";
+        }
+        var sv = "##fileformat=VCFv4.2\n##contig=<ID=contig_1,length=" + length + ">\n" +
+                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+        if (carries) {
+          sv += "contig_1\t52000\tdel1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;END=61000\n";
+          sv += "contig_1\t121000\tdup1\tN\t<DUP>\t60\tPASS\tSVTYPE=DUP;END=133000\n";
+        }
+        sv += "contig_1\t30500\tbnd1\tN\tN[contig_1:98200[\t60\tPASS\tSVTYPE=BND\n";
+        sv += "contig_1\t98200\tbnd2\tN\t]contig_1:30500]N\t60\tPASS\tSVTYPE=BND\n";
+        return [
+          { name: "genes.gff3", body: genes },
+          { name: "calls.vcf", body: calls },
+          { name: "depth.bg", body: depth },
+          { name: "sv.vcf", body: sv },
+        ];
+      },
+    },
+    {
       name: "Segmented copy number",
       bounds: { from: 1, to: 2000000, min: 20000 },
       controls: [

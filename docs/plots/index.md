@@ -92,7 +92,7 @@ line flag that draws it, and the route opens its page in this gallery.
 | Lineage counts and totals through time | [Lineage surveillance](../tracks/evolution-surveillance.md#surveillancetrack) | [Evolution and surveillance](evolution-surveillance.md) |
 | Cytogenetic bands: a UCSC cytoBand table | [Ideogram](../tracks/whole-genome.md#ideogramtrack), `--ideogram` | [Whole genomes and maps](whole-genomes-geography.md) |
 | An assembly of many contigs or chromosomes | [Whole assembly](../tracks/whole-genome.md#genometrack), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
-| A circular chromosome or plasmid | [Circular genome](../guide/plot.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
+| A circular chromosome or plasmid | [Circular genome](../guide/plot.md), `--circular` | [Whole genomes and maps](whole-genomes-geography.md) |
 | A latitude and longitude per sample | [Map](../guide/maps.md), Rust only | [Whole genomes and maps](whole-genomes-geography.md) |
 
 !!! tip "BAM, BCF, compressed files and CRAM"

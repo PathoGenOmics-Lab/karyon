@@ -90,7 +90,8 @@
 //! rather than a track: annotation, composition and variants go on concentric
 //! rings, and chords across the middle join the two ends of a rearrangement. A
 //! [`Rings`] plot and a [`Figure`] can share one [`Panels`] sheet, which is all
-//! the [`Drawing`] trait is for.
+//! the [`Drawing`] trait is for, and the command line draws one with
+//! `--circular`.
 //!
 //! # Right for a locus, wrong for an assembly
 //!

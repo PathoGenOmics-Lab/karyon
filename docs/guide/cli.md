@@ -19,7 +19,8 @@ Four rules cover every command:
       `NC_000962.3:761000-762999` are the same 2,000 bases;
     - a gene is a name the figure's annotation gives, and the figure is that
       gene with a tenth of its length either side, titled with its name;
-    - a sequence's name is the whole sequence.
+    - a sequence's name is the whole sequence, which `--circular` draws as a
+      circle.
 
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
     place, since none of them is drawn in a window, and neither does a figure
@@ -636,6 +637,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
 | `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
+| `--circular` | draws the place, one whole sequence, as a circle: each track a ring, the first outermost, inside the ruler, and a key under it naming each ring. `--width` is the side of the square. See [A whole sequence as a circle](#a-whole-sequence-as-a-circle) | along the sequence |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
 | `--colors <COLUMN=VALUE:#HEX,...>` | colours of your own for the values of a `--traits` column, as `--colors 'country=Peru:#e7298a,Kenya:#7570b3'`, in its strips, its key and the branches `--color-by` paints; the flag again for another column. [Sample sheets](#what-is-known-about-the-rows) has the rules | the palette, a stretch of it per column |
 | `-o`, `--output <FILE>` | writes the figure to a file: PDF when the name ends in `.pdf`, SVG under any other name | standard output, as SVG |
@@ -708,6 +710,57 @@ karyon: --shade chr2:100-200 is on chr2, and the figure is drawn over chr1:1-1,0
 Other tools call this highlighting. Here `--highlight` marks the clades of a
 `--tree`, and a place written after it is answered with the `--shade` that
 draws it.
+
+### A whole sequence as a circle
+
+`--circular` draws the place round, as circular genome viewers draw a
+chromosome, a plasmid or an organelle genome: position zero at twelve o'clock,
+running clockwise, each track a ring in the order written, the first outermost,
+inside a ruler. The place is one whole sequence, since a circle closes where its
+sequence ends:
+
+```bash
+karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
+  sampleA.bedgraph sampleB.bedgraph --same-scale -o circle.svg
+```
+
+| Track | Its ring |
+|:--|:--|
+| `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
+| `--coverage` | the depth cut into 1,000 arcs, each the `--aggregate` of its bases (`max` unless written), read either side of its median: a stretch lost dips inside the line, one carried twice stands outside it |
+| `--windows` | the windows cut into the same arcs, each the mean of the windows under it, read either side of 0 as the band is |
+| `--variants` | a tick a call, coloured by consequence in the order the file first names them |
+| `--structural` | the footprint of each deletion, duplication, inversion and insertion, coloured by class, and a chord across the middle for each breakend join on the sequence |
+| `--sequence` | the FASTA's GC skew, in windows of a thousandth of the sequence |
+| `--axis` | the ruler, where it is written; `--no-axis` leaves it out |
+
+- **One whole sequence.** Named, as `NC_000962.3`, it is as long as a FASTA, a
+  BAM's header, a VCF's `##contig` or a GFF3's `##sequence-region` says. A
+  sequence no file gives the length of is refused rather than closed where its
+  last row happens to end, and so is a gene, which is part of one. A span
+  written from base 1, as `NC_000962.3:1-4,411,532`, is the whole of a
+  sequence that long, refused where a file says it is another length, and any
+  other span is part of one. Several places are left for a command each.
+- **Named in the key and on hover.** Each ring is called after its file, or
+  its `--label`. The ring's name is its tooltip, and the key under the circle
+  gives a line to each ring, outside in, with what its colours mean.
+- **What a ring takes.** `--label`, `--height` for its thickness where the
+  track takes one, `--aggregate` on a depth, `--color` on a depth or features,
+  `--format`, and `--no-names` on features and structural calls.
+  `--same-scale` puts every ring of depth on one reach, and every ring of
+  windows on another. `--title` replaces the sequence's name in the middle,
+  and `--no-region-label` leaves the name and length out.
+- **What it refuses.** A track with no ring is refused by name, a phylogeny
+  with `--projection circular`, which draws one round. An option a ring would
+  leave unsaid, as `--log`, `--max` or `--style`, is refused rather than
+  passed over, and so is `--shade`, which has no wedge across the rings.
+
+```text
+$ karyon NC_000962.3 --circular reads.bam --log
+karyon: --log means nothing to a coverage ring: leave it out, or draw the figure along the sequence, without --circular
+$ karyon NC_000962.3:761,000-763,000 --circular genes.gff3
+karyon: a circle is a whole sequence, and NC_000962.3:761000-763000 is part of one: name the sequence, as karyon NC_000962.3 --circular, or write the span from 1, as NC_000962.3:1-LENGTH
+```
 
 ## Standard input
 
@@ -1173,6 +1226,17 @@ karyon: rpoB and rpoC code in NC_000962.3:763301-763400, and --codons counts the
 
 $ karyon chr1:2,001-2,100 genes.gtf --codons
 karyon: abcA codes in 3 pieces with introns between them, and --codons counts one unbroken coding sequence: across the introns it would number bases that are never translated
+```
+
+A circle is refused where nothing says where it closes, or where its place is
+part of a sequence:
+
+```text
+$ karyon NC_000962.3 --circular sampleA.bedgraph
+karyon: a circle closes where NC_000962.3 ends, and no file says where that is, only that sampleA.bedgraph reaches 4,411,532: add its FASTA, a BAM, a VCF with ##contig or a GFF3 with ##sequence-region, or write the span from 1, as NC_000962.3:1-LENGTH
+
+$ karyon rpoB --circular genes.gff3 calls.vcf.gz
+karyon: rpoB is a gene, and a circle is a whole sequence: name the sequence it is on, as karyon NC_000962.3 --circular
 ```
 
 ## Where next

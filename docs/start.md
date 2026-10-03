@@ -48,7 +48,8 @@ figure as PDF.
    segment table is drawn across
    [every sequence it names](your-data/genome.md#every-sequence-at-once).
 2. **Then your files.** Each one is a row, top to bottom in the order you
-   write them.
+   write them, or a ring round the sequence with
+   [`--circular`](your-data/genome.md#as-a-circle).
 3. **Then `-o` and the file to write.**
 
 Options for one row go right after its file: `reads.bam --height 100`.

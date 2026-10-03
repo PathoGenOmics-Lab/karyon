@@ -126,9 +126,9 @@ self.karyon = self.karyon || (function () {
   // after it, and that word is not the region however much it looks like one:
   // `--label 'chr1:5-9'` written before the locus was read as the locus, and a
   // drag then rewrote the label and left the figure where it was.
-  var ALONE = ["--axis", "--codons", "--counts", "--fade-by-mapq", "--isoforms",
-               "--log", "--no-axis", "--no-counts", "--no-legend", "--no-names",
-               "--no-region-label", "--no-scale-bar", "--relative",
+  var ALONE = ["--axis", "--circular", "--codons", "--counts", "--fade-by-mapq",
+               "--isoforms", "--log", "--no-axis", "--no-counts", "--no-legend",
+               "--no-names", "--no-region-label", "--no-scale-bar", "--relative",
                "--same-scale"];
 
   // The flags that open a track. Everything between one of these and the next

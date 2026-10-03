@@ -355,6 +355,106 @@ pub enum BuildError {
     /// numbers the wrong stretch names the wrong residue at every codon, and
     /// looks exactly as right as one that numbers the right stretch.
     Uncounted(CodonRefusal),
+    /// A `--circular` with no whole sequence to draw round, or a track that
+    /// turned out, once read, to have no ring.
+    Uncircled(CircleRefusal),
+}
+
+/// Why a `--circular` has no circle to draw.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircleRefusal {
+    /// A circle handed to a builder of figures along a sequence, which
+    /// [`build_circle`] draws instead.
+    NotAFigure,
+    /// The place is a gene, which is part of a sequence.
+    Gene {
+        /// The gene, as its annotation spells it.
+        name: String,
+        /// The sequence it is on.
+        sequence: String,
+    },
+    /// No file says how long the sequence is, so nothing says where the
+    /// circle closes.
+    ///
+    /// A figure along a sequence is drawn as far as its rows reach and says
+    /// so. A circle cannot be: a ring that closes where the last row of a
+    /// bedGraph happens to end puts the origin's neighbour in the wrong
+    /// place, and every angle round it with it.
+    NoLength {
+        /// The sequence.
+        sequence: String,
+        /// The file whose rows reach furthest on it, and how far.
+        reached: String,
+        /// How far they reach.
+        reach: u64,
+    },
+    /// A span written from base 1 that ends where no file says the sequence
+    /// does.
+    Length {
+        /// The sequence.
+        sequence: String,
+        /// The end written.
+        written: u64,
+        /// The length a file states.
+        stated: u64,
+    },
+    /// A file named on its own that turned out, once read, to be a kind with
+    /// no ring: a `.bed` that is modkit's bedMethyl.
+    NoRing {
+        /// The file.
+        path: String,
+        /// What it turned out to be.
+        kind: Kind,
+    },
+}
+
+impl fmt::Display for CircleRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::track::axis::group_thousands;
+        match self {
+            CircleRefusal::NotAFigure => write!(
+                f,
+                "--circular draws a circle, which is no figure along a sequence: draw it \
+                 with build_circle"
+            ),
+            CircleRefusal::Gene { name, sequence } => write!(
+                f,
+                "{name} is a gene, and a circle is a whole sequence: name the sequence it \
+                 is on, as karyon {sequence} --circular"
+            ),
+            CircleRefusal::NoLength {
+                sequence,
+                reached,
+                reach,
+            } => write!(
+                f,
+                "a circle closes where {sequence} ends, and no file says where that is, \
+                 only that {reached} reaches {}: add its FASTA, a BAM, a VCF with \
+                 ##contig or a GFF3 with ##sequence-region, or write the span from 1, as \
+                 {sequence}:1-LENGTH",
+                group_thousands(*reach)
+            ),
+            CircleRefusal::Length {
+                sequence,
+                written,
+                stated,
+            } => write!(
+                f,
+                "{sequence}:1-{} closes the circle at {}, and the files say {sequence} is \
+                 {} bases long: write {sequence} alone to draw all of it",
+                group_thousands(*written),
+                group_thousands(*written),
+                group_thousands(*stated)
+            ),
+            CircleRefusal::NoRing { path, kind } => write!(
+                f,
+                "{path} holds what {} draws, once read, and --circular draws {} tracks as \
+                 rings: draw it along the sequence, without --circular",
+                kind.dashed(),
+                crate::cli::args::on_a_circle()
+            ),
+        }
+    }
 }
 
 /// Why a `--codons` has no coding sequence to count.
@@ -631,6 +731,7 @@ impl fmt::Display for BuildError {
             },
             BuildError::Placeless(said) => write!(f, "{said}"),
             BuildError::Uncounted(why) => write!(f, "{why}"),
+            BuildError::Uncircled(why) => write!(f, "{why}"),
             BuildError::OtherTrack {
                 track,
                 path,
@@ -989,6 +1090,9 @@ pub fn build_files(
     if let Some(ground) = &invocation.background {
         theme.background = ground.clone();
     }
+    if invocation.circular {
+        return build_circle(invocation, files, theme).map(|circle| circle.to_svg());
+    }
     if invocation.more.is_empty() {
         return build_figure(invocation, files, parsed, theme, None)
             .map(|built| built.figure.to_svg());
@@ -1014,6 +1118,9 @@ pub fn build_sheet(
     mut parsed: impl FnMut(&str, &str) -> Option<Tree>,
     theme: Theme,
 ) -> Result<crate::Panels, BuildError> {
+    if invocation.circular {
+        return Err(BuildError::Uncircled(CircleRefusal::NotAFigure));
+    }
     let mut kept = KeptStdin { files, stdin: None };
     let first = match (&invocation.region, &invocation.named) {
         (Some(region), _) => Some(Place::Locus(region.clone())),
@@ -1132,6 +1239,11 @@ pub fn build_figure(
     theme: Theme,
     window: Option<&Region>,
 ) -> Result<Built, BuildError> {
+    // A circle is not a figure, and drawn as one it would be the same tracks
+    // along the sequence, which is not what was asked for and looks right.
+    if invocation.circular {
+        return Err(BuildError::Uncircled(CircleRefusal::NotAFigure));
+    }
     let (built, letters) = build_one(invocation, files, parsed, theme, window, None)?;
     note_letters(files, letters);
     Ok(built)
@@ -1146,6 +1258,595 @@ fn note_letters(files: &mut dyn Files, letters: Option<u64>) {
             "the bases are blocks of colour at this width, too narrow for their \
              letters; --width {width} draws the letters"
         ));
+    }
+}
+
+/// The arcs a signal is cut into on a circle.
+///
+/// About one for every two pixels round the outside of a circle the default
+/// size, so no arc is narrower than the eye follows, and a ring is at most a
+/// thousand sectors however long the sequence is or however many lines its
+/// file has: `samtools depth` over a chromosome of four megabases is four
+/// million of them.
+const ARCS: usize = 1_000;
+
+/// The whitespace round a circle, which `--width` takes off its side.
+const CIRCLE_MARGIN: f64 = 14.0;
+
+/// The most named features a ring writes the names of. Past this a ring of
+/// annotation drawn with names is a wheel of unreadable text, which is why
+/// [`crate::FeatureRing::show_names`] is off by default.
+const NAMED_ON_A_RING: usize = 20;
+
+/// Draws a command line given `--circular`: its place, one whole sequence,
+/// as a circle, each track a ring of it in the order written, the first
+/// outermost, inside the ruler unless `--axis` puts it elsewhere or
+/// `--no-axis` leaves it out. A breakend join on the sequence is a chord
+/// across the middle, and the key under the circle names each ring, outside
+/// in, and what its colours mean.
+///
+/// The parser has refused every track with no ring and every option a ring
+/// would leave unsaid. What is left to refuse is about the files: a place
+/// that turns out to be a gene, and a sequence no file gives the length of,
+/// since a circle has to close where its sequence ends.
+///
+/// # Errors
+///
+/// The same as [`build`], and [`BuildError::Uncircled`] for those two.
+pub fn build_circle(
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    theme: Theme,
+) -> Result<crate::Rings, BuildError> {
+    let mut kept = KeptStdin { files, stdin: None };
+    let files: &mut dyn Files = &mut kept;
+    let region = whole_sequence(invocation, files)?;
+    let length = region.end();
+
+    let mut rings = crate::Rings::new(length)
+        .theme(theme.clone())
+        .margin(CIRCLE_MARGIN);
+    // `--width` is the side of the square, as it is the width of a figure.
+    if let Some(width) = invocation.width {
+        rings = rings.diameter(width - 2.0 * CIRCLE_MARGIN);
+    }
+    // The middle says which molecule this is and how long, which is what a
+    // figure's locus says at its top right.
+    let sequence = region.seq();
+    let bases = format!("{} bases", crate::track::axis::group_thousands(length));
+    rings = match (&invocation.title, invocation.region_label) {
+        (Some(title), true) => rings.title(title).subtitle(format!("{sequence}, {bases}")),
+        (Some(title), false) => rings.title(title),
+        (None, true) => rings.title(sequence).subtitle(bases),
+        (None, false) => rings,
+    };
+
+    for ringed in circle_rings(invocation, &region, &theme, files)? {
+        if invocation.legend {
+            if let Some(name) = ringed.name.filter(|name| !name.is_empty()) {
+                rings = rings.key(name, ringed.legend);
+            }
+        }
+        rings = match ringed.ring {
+            RingOf::Signal(ring) => rings.push(ring),
+            RingOf::Other(ring) => rings.push_boxed(ring),
+        };
+        // Nearly opaque, where a link between two spans is a wash: a join
+        // between two breakends is a ribbon a pixel and a half wide at
+        // each end, and at the wash's 0.35 it all but vanished.
+        for (from, to, color) in ringed.chords {
+            rings = rings.link_colored(from, to, Some(color), 0.8);
+        }
+    }
+    Ok(rings)
+}
+
+/// The rings of a circle round `region`, outside in, each track's from its
+/// file, on one reach per kind where `--same-scale` asks.
+fn circle_rings(
+    invocation: &Invocation,
+    region: &Region,
+    theme: &Theme,
+    files: &mut dyn Files,
+) -> Result<Vec<Ringed>, BuildError> {
+    let sequence = region.seq();
+    let mut built: Vec<Ringed> = Vec::new();
+    if invocation.axis {
+        built.push(Ringed::ruler(None));
+    }
+    for spec in &invocation.tracks {
+        if spec.kind == Kind::Axis {
+            built.push(Ringed::ruler(Some(spec)));
+            continue;
+        }
+        let ringed = match ringed(spec, region, theme, files) {
+            Ok(ringed) => ringed,
+            // A file that calls the sequence by a name --rename gives it is
+            // read by that name, as a figure along it reads one.
+            Err(error) => {
+                let mut again = None;
+                for alias in called_by(invocation, sequence).into_iter().skip(1) {
+                    let Ok(renamed) = Region::new(alias, region.start(), region.end()) else {
+                        continue;
+                    };
+                    if let Ok(ringed) = ringed(spec, &renamed, theme, files) {
+                        again = Some(ringed);
+                        break;
+                    }
+                }
+                match again {
+                    Some(ringed) => ringed,
+                    None => return Err(explained(error, spec, Some(region), files)),
+                }
+            }
+        };
+        built.push(ringed);
+    }
+
+    // One reach for every ring of one kind, so two depths read off one
+    // scale, the way `--same-scale` puts two bands on one ceiling.
+    if invocation.same_scale {
+        for kind in [Kind::Coverage, Kind::Windows, Kind::Sequence] {
+            let reach = built
+                .iter()
+                .filter(|ringed| ringed.kind == kind)
+                .filter_map(|ringed| match &ringed.ring {
+                    RingOf::Signal(ring) => Some(ring.reach()),
+                    RingOf::Other(_) => None,
+                })
+                .fold(0.0f64, f64::max);
+            if reach > 0.0 {
+                for ringed in built.iter_mut().filter(|ringed| ringed.kind == kind) {
+                    if let RingOf::Signal(ring) = &mut ringed.ring {
+                        *ring = ring.clone().extent(reach);
+                    }
+                }
+            }
+        }
+    }
+    Ok(built)
+}
+
+/// The sequence a circle is drawn round, whole: named, as long as a file
+/// says it is, or written from base 1, as long as written.
+fn whole_sequence(invocation: &Invocation, files: &mut dyn Files) -> Result<Region, BuildError> {
+    match (&invocation.region, &invocation.named) {
+        (Some(written), _) => {
+            // Written from base 1, which the parser has checked, it is the
+            // whole of a sequence that long, unless a file says the sequence
+            // runs elsewhere: a circle closed at the wrong base draws every
+            // ring round the wrong angle, and looks right.
+            if let Ok(Placed {
+                region: stated,
+                gene: None,
+                reached: None,
+                ..
+            }) = place(written.seq(), invocation, files)
+            {
+                if stated.end() != written.end() {
+                    return Err(BuildError::Uncircled(CircleRefusal::Length {
+                        sequence: written.seq().to_string(),
+                        written: written.end(),
+                        stated: stated.end(),
+                    }));
+                }
+            }
+            Ok(written.clone())
+        }
+        (None, Some(name)) => {
+            let placed = place(name, invocation, files)?;
+            if let Some(gene) = placed.gene {
+                return Err(BuildError::Uncircled(CircleRefusal::Gene {
+                    name: gene,
+                    sequence: placed.region.seq().to_string(),
+                }));
+            }
+            if let Some(reached) = placed.reached {
+                return Err(BuildError::Uncircled(CircleRefusal::NoLength {
+                    sequence: placed.region.seq().to_string(),
+                    reached,
+                    reach: placed.region.end(),
+                }));
+            }
+            Ok(placed.region)
+        }
+        (None, None) => Err(BuildError::Placeless(
+            crate::cli::args::ArgError::CircleWithoutPlace,
+        )),
+    }
+}
+
+/// A track as a ring, before it is put on the circle.
+struct Ringed {
+    /// What it was drawn as, for `--same-scale` to put the rings of one kind
+    /// on one reach.
+    kind: Kind,
+    ring: RingOf,
+    /// Its name, for the key; the ring carries it too, as its tooltip.
+    name: Option<String>,
+    /// What its colours mean, for the key.
+    legend: crate::Legend,
+    /// Chords across the middle: a breakend join's two ends, each a span,
+    /// and its colour.
+    chords: Vec<Join>,
+}
+
+/// A chord across a circle: its two ends, each a span, and its colour.
+type Join = ((u64, u64), (u64, u64), String);
+
+/// A ring, kept as a signal where it is one, since `--same-scale` sets its
+/// reach once every ring is read.
+enum RingOf {
+    Signal(crate::SignalRing),
+    Other(Box<dyn crate::Ring>),
+}
+
+impl Ringed {
+    /// The ruler, outside the first ring or where `--axis` was written.
+    fn ruler(spec: Option<&TrackSpec>) -> Self {
+        let mut ring = crate::AxisRing::new();
+        let label = spec.and_then(|spec| spec.label.clone());
+        if let Some(label) = &label {
+            ring = ring.label(label);
+        }
+        if let Some(height) = spec.and_then(|spec| spec.height) {
+            ring = ring.thickness(height);
+        }
+        Ringed {
+            kind: Kind::Axis,
+            ring: RingOf::Other(Box::new(ring)),
+            // A ruler's colours mean nothing, and its marks say what it is.
+            name: None,
+            legend: crate::Legend::new(),
+            chords: Vec::new(),
+        }
+    }
+}
+
+/// [`ring_of`], read again whole where a window through an index was
+/// refused, as [`track`] does for a band.
+fn ringed(
+    spec: &TrackSpec,
+    region: &Region,
+    theme: &Theme,
+    files: &mut dyn Files,
+) -> Result<Ringed, BuildError> {
+    let slurped = slurp(spec, region, ARCS as f64, files, false)?;
+    if slurped.origin != Origin::Window {
+        return ring_of(spec, region, theme, slurped);
+    }
+    match ring_of(spec, region, theme, slurped) {
+        Err(BuildError::Parse { .. }) => {
+            let slurped = slurp(spec, region, ARCS as f64, files, true)?;
+            ring_of(spec, region, theme, slurped)
+        }
+        other => other,
+    }
+}
+
+/// The ring a track becomes on a circle round `region`, from its file once
+/// it is read: what [`built`] is to a band.
+fn ring_of(
+    spec: &TrackSpec,
+    region: &Region,
+    theme: &Theme,
+    slurped: Slurped,
+) -> Result<Ringed, BuildError> {
+    let Slurped {
+        text,
+        path,
+        origin,
+        probe,
+        held: _,
+        reference: native_reference,
+        most: _,
+        absent,
+    } = slurped;
+    // A file named on its own may hold another kind than its name says, as
+    // a figure along it finds, and that kind may have no ring.
+    let told = match origin {
+        Origin::Text | Origin::Window => spec
+            .guessed
+            .then(|| refine(spec.kind, probe.as_deref().unwrap_or(&text)))
+            .flatten(),
+        Origin::Bam | Origin::Native(_) => None,
+    };
+    let refined;
+    let spec = match told {
+        Some(kind) if kind != spec.kind => {
+            if !kind.ring() {
+                return Err(BuildError::Uncircled(CircleRefusal::NoRing { path, kind }));
+            }
+            refined = TrackSpec {
+                kind,
+                ..spec.clone()
+            };
+            &refined
+        }
+        _ => spec,
+    };
+    let name = spec.kind.flag();
+    let empty = |wanted: &'static str| match &absent {
+        Some(said) => BuildError::Absent {
+            track: name,
+            path: path.clone(),
+            wanted,
+            said: said.clone(),
+        },
+        None => BuildError::Empty {
+            track: name,
+            path: path.clone(),
+            wanted,
+        },
+    };
+    // The file's name, as a band is called in its gutter. A reference is
+    // drawn as its GC skew, which is what its ring says.
+    let label = spec.label.clone().or_else(|| match spec.kind {
+        Kind::Sequence => default_label(spec).map(|stem| format!("{stem} GC skew")),
+        _ => default_label(spec),
+    });
+    let (above, below) = match &spec.color {
+        Some(color) => (color.clone(), color.clone()),
+        None => (theme.color(0).to_string(), theme.color(1).to_string()),
+    };
+    let mut legend = crate::Legend::new();
+    let mut chords = Vec::new();
+
+    let ring = match spec.kind {
+        Kind::Coverage => {
+            // Painted span by span, as a band of depth is, and cut into arcs
+            // with the aggregate a band reduces a pixel column with.
+            let mut painted = CoverageTrack::from_spans(region, std::iter::empty());
+            let spans = wrap(
+                name,
+                &path,
+                read::signal::fold_spans(
+                    &text,
+                    region,
+                    match origin {
+                        Origin::Bam | Origin::Native(_) => Some(crate::Format::BedGraph),
+                        Origin::Text | Origin::Window => spec.format,
+                    },
+                    |start, end, value| painted.paint(start, end, value),
+                ),
+            )?;
+            drop(text);
+            if spans == 0 {
+                return Err(empty("values"));
+            }
+            let painted = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
+            // Read either side of its median, so a stretch lost dips inside
+            // the line and one carried twice stands outside it: against
+            // nought every arc of a sequenced genome stands outside, and a
+            // loss is only a shorter one.
+            let ring = crate::SignalRing::new(painted.binned(ARCS))
+                .baseline_at_median()
+                .colors(above.clone(), below.clone());
+            let median = crate::svg::text_rounded(ring.baseline_value(), 2);
+            legend = legend
+                .key(format!("above its median, {median}"), above)
+                .key("below it", below);
+            RingOf::Signal(ring)
+        }
+        Kind::Windows => {
+            let windows = wrap(name, &path, read::signal::windows(&text, region))?;
+            if windows.is_empty() {
+                return Err(empty("windows"));
+            }
+            // A stretch no window covers is no answer, not nought, and an
+            // arc over several windows is their mean, so a value either side
+            // of the line is not pulled to one side of it by a maximum.
+            let mut painted = CoverageTrack::blank(region).aggregate(Aggregate::Mean);
+            for window in &windows {
+                painted.paint(window.start, window.end, window.value);
+            }
+            let ring =
+                crate::SignalRing::new(painted.binned(ARCS)).colors(above.clone(), below.clone());
+            legend = legend.key("above 0", above).key("below 0", below);
+            RingOf::Signal(ring)
+        }
+        Kind::Sequence => {
+            let reference = match native_reference {
+                Some(reference) => reference,
+                None => sequence(name, &path, &text, region)?,
+            };
+            let (from, bases) = reference.clip(region)?;
+            let window = (region.len() / ARCS as u64).max(1);
+            let skew = WindowTrack::gc_skew(from, &bases, window);
+            let ring = crate::SignalRing::new(skew.windows().to_vec())
+                .colors(above.clone(), below.clone());
+            legend = legend
+                .key("more G than C", above)
+                .key("more C than G", below);
+            RingOf::Signal(ring)
+        }
+        Kind::Features => {
+            let format = match origin {
+                Origin::Native(_) => Some(crate::Format::Bed),
+                _ => spec.format,
+            };
+            let features = wrap(name, &path, read::interval::features(&text, region, format))?;
+            if features.is_empty() {
+                return Err(empty("features"));
+            }
+            let named = features
+                .iter()
+                .filter(|feature| feature.name.is_some())
+                .count();
+            let reverse = features
+                .iter()
+                .any(|feature| feature.strand == crate::Strand::Reverse);
+            let unknown = features
+                .iter()
+                .any(|feature| feature.strand == crate::Strand::Unknown);
+            let forward = features
+                .iter()
+                .any(|feature| feature.strand == crate::Strand::Forward);
+            // The colours a band of features paints, a strand each: the
+            // forward strand on the outer half of the ring and the reverse on
+            // the inner. One colour asked for paints both, as it does a band.
+            if spec.color.is_none() {
+                if forward || unknown {
+                    let said = match (forward, unknown) {
+                        (true, false) => "forward strand, outer half",
+                        (false, true) => "no strand, outer half",
+                        _ => "forward or no strand, outer half",
+                    };
+                    legend = legend.key(said, above.clone());
+                }
+                if reverse {
+                    legend = legend.key("reverse strand, inner half", below.clone());
+                }
+            }
+            let mut ring = crate::FeatureRing::new(features)
+                .show_names(!spec.no_names && named <= NAMED_ON_A_RING);
+            if spec.color.is_some() {
+                ring = ring.colors(above, below);
+            }
+            RingOf::Other(Box::new(named_ring(ring, label.as_deref())))
+        }
+        Kind::Variants => {
+            let variants = wrap(
+                name,
+                &path,
+                recorded(origin, &text, read::point::variants(&text, region)),
+            )?;
+            if variants.is_empty() {
+                return Err(empty("variants"));
+            }
+            // A colour each consequence, in the order the file first names
+            // them, as a band of calls deals them. The reader names one for
+            // every call, from its shape where nothing annotated it, so the
+            // colour after the last is for a caller that hands over none.
+            let mut categories: Vec<String> = Vec::new();
+            for variant in &variants {
+                if let Some(category) = variant.category.as_ref() {
+                    if !categories.contains(category) {
+                        categories.push(category.clone());
+                    }
+                }
+            }
+            let unnamed = categories.len();
+            let marks: Vec<(u64, usize)> = variants
+                .iter()
+                .map(|variant| {
+                    let index = variant
+                        .category
+                        .as_ref()
+                        .and_then(|category| categories.iter().position(|known| known == category))
+                        .unwrap_or(unnamed);
+                    (variant.pos, index)
+                })
+                .collect();
+            for (index, category) in categories.iter().enumerate() {
+                legend = legend.line(category.clone(), theme.color(index));
+            }
+            let mut ring = crate::MarkerRing::categorised(marks);
+            if let Some(height) = spec.height {
+                ring = ring.thickness(height);
+            }
+            if let Some(label) = &label {
+                ring = ring.label(label);
+            }
+            RingOf::Other(Box::new(ring))
+        }
+        Kind::Structural => {
+            let found = wrap(
+                name,
+                &path,
+                recorded(origin, &text, read::structural::variants(&text, region)),
+            )?;
+            if found.records == 0 {
+                return Err(empty("variant calls"));
+            }
+            if found.variants.is_empty() {
+                return Err(BuildError::Elsewhere {
+                    track: name,
+                    path: path.clone(),
+                    wanted: "structural calls",
+                    held: found.records,
+                    named: String::new(),
+                    region: region.to_string(),
+                    rename: None,
+                });
+            }
+            // The colour a band of calls gives each class. A call that covers
+            // reference is its footprint on the ring, an insertion one base
+            // held open by the ring's floor, and a breakend join on the
+            // sequence is a chord between its two ends.
+            let colors = StructuralTrack::new(Vec::new());
+            let mut footprints = Vec::new();
+            let mut kinds: Vec<crate::SvKind> = Vec::new();
+            for call in &found.variants {
+                let color = colors.color_of(call.kind, theme);
+                if !kinds.contains(&call.kind) {
+                    kinds.push(call.kind);
+                }
+                if call.kind == crate::SvKind::Translocation {
+                    chords.push((
+                        (call.start, call.start + 1),
+                        (call.end, call.end + 1),
+                        color,
+                    ));
+                    continue;
+                }
+                let called = match &call.name {
+                    Some(id) => format!("{} {id}", call.kind.name()),
+                    None => call.kind.name().to_string(),
+                };
+                footprints.push(
+                    crate::Feature::new(call.start, call.end.max(call.start + 1))
+                        .name(called)
+                        .color(color),
+                );
+            }
+            for kind in &kinds {
+                let color = colors.color_of(*kind, theme);
+                legend = if *kind == crate::SvKind::Translocation {
+                    legend.line(format!("{}, across the middle", kind.name()), color)
+                } else {
+                    legend.key(kind.name(), color)
+                };
+            }
+            let shown = !spec.no_names && footprints.len() <= NAMED_ON_A_RING;
+            let mut ring = crate::FeatureRing::new(footprints)
+                .split_strands(false)
+                .show_names(shown);
+            if let Some(height) = spec.height {
+                ring = ring.thickness(height);
+            }
+            RingOf::Other(Box::new(named_ring(ring, label.as_deref())))
+        }
+        // The parser lets no other kind onto a circle, and `refine` turns a
+        // file into one with no ring only where the refusal above says so.
+        _ => unreachable!("the parser lets only kinds with a ring onto a circle"),
+    };
+    let ring = match ring {
+        RingOf::Signal(mut ring) => {
+            if let Some(height) = spec.height {
+                ring = ring.thickness(height);
+            }
+            if let Some(label) = &label {
+                ring = ring.label(label);
+            }
+            RingOf::Signal(ring)
+        }
+        other => other,
+    };
+    Ok(Ringed {
+        kind: spec.kind,
+        ring,
+        name: label,
+        legend,
+        chords,
+    })
+}
+
+/// A ring of features under its name, where it has one.
+fn named_ring(ring: crate::FeatureRing, label: Option<&str>) -> crate::FeatureRing {
+    match label {
+        Some(label) => ring.label(label),
+        None => ring,
     }
 }
 
@@ -15917,5 +16618,555 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
             read::interval::translation_table(&text, "NC_000962.3", 761_153, 761_156),
             Some(11)
         );
+    }
+
+    /// A chromosome of a hundred kilobases with a gene on each strand, a
+    /// GFF3 that says how long it is, calls whose header says so too, and a
+    /// depth in windows of a kilobase that loses a stretch and doubles one.
+    fn circle_files() -> Vec<(&'static str, String)> {
+        let genes = "##gff-version 3\n##sequence-region chrC 1 100000\n\
+                     chrC\t.\tgene\t1001\t3000\t.\t+\t.\tName=gA\n\
+                     chrC\t.\tgene\t50001\t52000\t.\t-\t.\tName=gB\n"
+            .to_string();
+        let calls = "##fileformat=VCFv4.2\n##contig=<ID=chrC,length=100000>\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chrC\t1500\t.\tC\tT\t60\tPASS\tANN=T|missense_variant|MODERATE|gA\n\
+                     chrC\t2500\t.\tC\tT\t60\tPASS\tANN=T|synonymous_variant|LOW|gA\n"
+            .to_string();
+        let depth = |low: f64, high: f64| -> String {
+            (0..100u64)
+                .map(|window| {
+                    let value = match window {
+                        20..=29 => low,
+                        60..=69 => high,
+                        _ => 30.0,
+                    };
+                    format!(
+                        "chrC\t{}\t{}\t{value}\n",
+                        window * 1000,
+                        (window + 1) * 1000
+                    )
+                })
+                .collect()
+        };
+        vec![
+            ("genes.gff3", genes),
+            ("calls.vcf", calls),
+            ("depth.bg", depth(0.0, 60.0)),
+            ("deeper.bg", depth(0.0, 300.0)),
+        ]
+    }
+
+    /// A command line drawn as a circle over [`circle_files`] and `more`.
+    fn circle(line: &str, more: &[(&str, &str)]) -> Result<String, BuildError> {
+        let mut held = Held::new();
+        for (name, text) in circle_files() {
+            held.insert(name, text);
+        }
+        for (name, text) in more {
+            held.insert(*name, *text);
+        }
+        build_files(&invocation(line), &mut held, |_, _| None)
+    }
+
+    /// The rings a command line's circle is made of, outside in.
+    fn rings_of(line: &str) -> Vec<Ringed> {
+        let mut held = Held::new();
+        for (name, text) in circle_files() {
+            held.insert(name, text);
+        }
+        let invocation = invocation(line);
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        circle_rings(&invocation, &region, &Theme::light(), &mut held)
+            .unwrap_or_else(|error| panic!("{line}: {error}"))
+    }
+
+    /// Where each of `needles` first appears in `svg`, in the order given.
+    fn first_at(svg: &str, needles: &[&str]) -> Vec<usize> {
+        needles
+            .iter()
+            .map(|needle| {
+                svg.find(needle)
+                    .unwrap_or_else(|| panic!("no {needle} in {svg}"))
+            })
+            .collect()
+    }
+
+    /// Each track is a ring, in the order written, the first outermost
+    /// inside the ruler, and each ring is one tooltip under its name.
+    #[test]
+    fn a_circle_draws_one_ring_per_track_outermost_first() {
+        let svg = circle("chrC --circular genes.gff3 calls.vcf depth.bg", &[]).unwrap();
+        let at = first_at(
+            &svg,
+            &[
+                "<g><title>genes</title>",
+                "<g><title>calls</title>",
+                "<g><title>depth</title>",
+            ],
+        );
+        assert!(at[0] < at[1] && at[1] < at[2], "{at:?}");
+        // Drawn in that order from the outside in, which the rings say for
+        // themselves: the ruler's circle is the widest, then the annotation.
+        let rings = rings_of("chrC --circular genes.gff3 calls.vcf depth.bg");
+        let kinds: Vec<Kind> = rings.iter().map(|ringed| ringed.kind).collect();
+        assert_eq!(
+            kinds,
+            [Kind::Axis, Kind::Features, Kind::Variants, Kind::Coverage]
+        );
+        assert!(svg.contains("<title id=\"karyon-title\">chrC, 100,000 bases</title>"));
+        // A ruler written among the tracks is drawn there, and none outside.
+        let rings = rings_of("chrC --circular genes.gff3 --axis calls.vcf");
+        let kinds: Vec<Kind> = rings.iter().map(|ringed| ringed.kind).collect();
+        assert_eq!(kinds, [Kind::Features, Kind::Axis, Kind::Variants]);
+        let rings = rings_of("chrC --circular genes.gff3 --no-axis");
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].kind, Kind::Features);
+    }
+
+    /// The key under the circle names each ring outside in, a line each, with
+    /// what its colours mean, and `--no-legend` leaves it out.
+    #[test]
+    fn the_key_under_a_circle_names_each_ring_outside_in() {
+        let svg = circle("chrC --circular genes.gff3 calls.vcf depth.bg", &[]).unwrap();
+        let line = |name: &str| -> f64 {
+            let tail = format!(">{name}</text>");
+            let end = svg
+                .find(&tail)
+                .unwrap_or_else(|| panic!("no key line {name}"));
+            let start = svg[..end].rfind("<text").unwrap();
+            let y = svg[start..end].split(" y=\"").nth(1).unwrap();
+            y.split('"').next().unwrap().parse().unwrap()
+        };
+        let (genes, calls, depth) = (line("genes"), line("calls"), line("depth"));
+        assert!(genes < calls && calls < depth, "{genes} {calls} {depth}");
+        // Under the square the circle is drawn in, which the image grows to hold.
+        assert!(genes > 668.0, "{genes}");
+        for said in [
+            "forward strand, outer half",
+            "reverse strand, inner half",
+            "missense_variant",
+            "synonymous_variant",
+            "above its median, 30",
+            "below it",
+        ] {
+            assert!(svg.contains(&format!(">{said}</text>")), "{said}");
+        }
+        let bare = circle(
+            "chrC --circular genes.gff3 calls.vcf depth.bg --no-legend",
+            &[],
+        )
+        .unwrap();
+        assert!(!bare.contains(">forward strand, outer half</text>"));
+        assert!(bare.contains("height=\"668\""), "{}", &bare[..200]);
+    }
+
+    /// A depth is cut into arcs, neighbouring arcs of one value drawn as one,
+    /// and read either side of its median: the stretch lost lies inside the
+    /// line and the one carried twice outside it.
+    #[test]
+    fn a_ring_of_coverage_is_binned_and_read_either_side_of_its_median() {
+        let rings = rings_of("chrC:1-100,000 --circular depth.bg");
+        let RingOf::Signal(ring) = &rings[1].ring else {
+            panic!("a depth is a signal ring");
+        };
+        assert_eq!(ring.baseline_value(), 30.0);
+        let spans: Vec<(u64, u64, f64)> = ring
+            .windows()
+            .iter()
+            .map(|window| (window.start, window.end, window.value))
+            .collect();
+        assert_eq!(
+            spans,
+            [
+                (0, 20_000, 30.0),
+                (20_000, 30_000, 0.0),
+                (30_000, 60_000, 30.0),
+                (60_000, 70_000, 60.0),
+                (70_000, 100_000, 30.0),
+            ]
+        );
+        // A depth file of a line a base is still at most a thousand arcs.
+        let per_base: String = (0..100_000u64)
+            .map(|pos| format!("chrC\t{}\t{}\n", pos + 1, 30 + pos % 7))
+            .collect();
+        let mut held = Held::new();
+        held.insert("calls.vcf", circle_files()[1].1.clone());
+        held.insert("base.depth", per_base);
+        let invocation =
+            invocation("chrC --circular calls.vcf --coverage base.depth --aggregate min");
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        let rings = circle_rings(&invocation, &region, &Theme::light(), &mut held).unwrap();
+        let RingOf::Signal(ring) = &rings[2].ring else {
+            panic!("a depth is a signal ring");
+        };
+        assert!(ring.windows().len() <= ARCS, "{}", ring.windows().len());
+        assert!(ring.windows().iter().all(|window| window.value == 30.0));
+    }
+
+    /// `--same-scale` gives every ring of depth one reach, as it puts every
+    /// band of depth on one ceiling; without it each reaches its own.
+    #[test]
+    fn same_scale_gives_every_coverage_ring_one_reach() {
+        let reaches = |line: &str| -> Vec<f64> {
+            rings_of(line)
+                .iter()
+                .filter_map(|ringed| match &ringed.ring {
+                    RingOf::Signal(ring) => Some(ring.reach()),
+                    RingOf::Other(_) => None,
+                })
+                .collect()
+        };
+        let apart = reaches("chrC:1-100,000 --circular depth.bg deeper.bg");
+        assert!(apart[0] < apart[1], "{apart:?}");
+        let together = reaches("chrC:1-100,000 --circular depth.bg deeper.bg --same-scale");
+        assert_eq!(together[0], together[1]);
+        assert_eq!(together[1], apart[1]);
+    }
+
+    /// A circle closes where its sequence ends, so a sequence no file gives
+    /// the length of is refused rather than closed where a bedGraph's last
+    /// row happens to stop; written from base 1, the length is the one
+    /// written.
+    #[test]
+    fn a_circle_without_a_stated_length_is_refused_rather_than_closed_early() {
+        let refused = circle("chrC --circular depth.bg", &[]).unwrap_err();
+        assert!(
+            matches!(
+                &refused,
+                BuildError::Uncircled(CircleRefusal::NoLength { sequence, reach: 100_000, .. })
+                    if sequence == "chrC"
+            ),
+            "{refused:?}"
+        );
+        let said = refused.to_string();
+        assert!(
+            said.contains("##contig") && said.contains("chrC:1-LENGTH"),
+            "{said}"
+        );
+        let drawn = circle("chrC:1-100,000 --circular depth.bg", &[]).unwrap();
+        assert!(drawn.contains("chrC, 100,000 bases"));
+    }
+
+    /// A span written from base 1 is the whole of a sequence that long, and
+    /// refused where a file says the sequence is another length.
+    #[test]
+    fn a_written_span_the_files_disagree_with_is_refused() {
+        let refused = circle("chrC:1-50,000 --circular genes.gff3", &[]).unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                BuildError::Uncircled(CircleRefusal::Length {
+                    written: 50_000,
+                    stated: 100_000,
+                    ..
+                })
+            ),
+            "{refused:?}"
+        );
+        assert!(circle("chrC:1-100,000 --circular genes.gff3", &[]).is_ok());
+    }
+
+    /// The middle of the circle names the sequence and says how long it is,
+    /// as a figure's locus does at its top right; a title takes the name's
+    /// place and keeps both under it, and `--no-region-label` leaves them out.
+    #[test]
+    fn the_middle_names_the_sequence_and_its_length_or_the_title() {
+        let middle = |line: &str| -> Vec<String> {
+            let svg = circle(line, &[]).unwrap();
+            svg.split("text-anchor=\"middle\"")
+                .skip(1)
+                .filter_map(|rest| {
+                    let text = rest.split('>').nth(1)?.split('<').next()?;
+                    (!rest.starts_with(" aria-hidden")).then(|| text.to_string())
+                })
+                .filter(|text| text.contains("chrC") || text.contains("bases") || text == "Plasmid")
+                .collect()
+        };
+        assert_eq!(
+            middle("chrC --circular genes.gff3"),
+            ["chrC", "100,000 bases"]
+        );
+        assert_eq!(
+            middle("chrC --circular genes.gff3 --title Plasmid"),
+            ["Plasmid", "chrC, 100,000 bases"]
+        );
+        assert!(middle("chrC --circular genes.gff3 --no-region-label").is_empty());
+    }
+
+    /// A gene's name places a figure on part of a sequence, and a circle is
+    /// all of one.
+    #[test]
+    fn a_gene_is_not_a_circle() {
+        let refused = circle("gA --circular genes.gff3", &[]).unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "gA is a gene, and a circle is a whole sequence: name the sequence it is on, as \
+             karyon chrC --circular"
+        );
+    }
+
+    /// A FASTA is drawn as its GC skew, in windows of a thousandth of the
+    /// sequence, and says how long the sequence is.
+    #[test]
+    fn a_fasta_on_a_circle_is_its_gc_skew_and_its_length() {
+        let bases: String = (0..100_000)
+            .map(|at| if at < 50_000 { 'G' } else { 'C' })
+            .collect();
+        let fasta = format!(">chrC\n{bases}\n");
+        let mut held = Held::new();
+        held.insert("ref.fa", fasta);
+        let invocation = invocation("chrC --circular ref.fa");
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        assert_eq!(region.end(), 100_000);
+        let rings = circle_rings(&invocation, &region, &Theme::light(), &mut held).unwrap();
+        assert_eq!(rings[1].name.as_deref(), Some("ref GC skew"));
+        let RingOf::Signal(ring) = &rings[1].ring else {
+            panic!("a reference is a signal ring");
+        };
+        assert_eq!(ring.windows().len(), 1_000);
+        assert_eq!(ring.windows()[0].end - ring.windows()[0].start, 100);
+        assert!(ring.windows()[..500]
+            .iter()
+            .all(|window| window.value == 1.0));
+        assert!(ring.windows()[500..]
+            .iter()
+            .all(|window| window.value == -1.0));
+    }
+
+    /// A deletion is an arc on its ring, and a breakend join on the sequence
+    /// a chord across the middle; a join to another sequence has nowhere to
+    /// go on a circle of one.
+    #[test]
+    fn a_breakend_join_is_a_chord_and_a_deletion_is_an_arc() {
+        let calls = "##fileformat=VCFv4.2\n##contig=<ID=chrC,length=100000>\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chrC\t20000\tdel1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;END=25000\n\
+                     chrC\t40000\tbnd1\tN\tN[chrC:70000[\t60\tPASS\tSVTYPE=BND\n\
+                     chrC\t70000\tbnd2\tN\t]chrC:40000]N\t60\tPASS\tSVTYPE=BND\n\
+                     chrC\t80000\tbnd3\tN\tN[chrD:100[\t60\tPASS\tSVTYPE=BND\n";
+        let svg = circle("chrC --circular --structural sv.vcf", &[("sv.vcf", calls)]).unwrap();
+        assert_eq!(svg.matches("<title>link, source").count(), 1, "{svg}");
+        assert!(
+            svg.contains("<title>link, source 40,001, target 70,001</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>deletion del1, 20,001 to 25,000"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains(">translocation, across the middle</text>"),
+            "{svg}"
+        );
+        assert!(svg.contains(">deletion</text>"), "{svg}");
+        // A join is a ribbon a pixel and a half wide, drawn nearly opaque.
+        let chord = svg.split("<title>link, source").nth(1).unwrap();
+        let chord = &chord[..chord.find("</g>").unwrap()];
+        assert!(chord.contains("fill-opacity=\"0.8\""), "{chord}");
+    }
+
+    /// A ring of windows is each arc's mean, read either side of 0 as a band
+    /// of windows is, and a stretch no window covers is no arc rather than
+    /// an arc of nought.
+    #[test]
+    fn a_ring_of_windows_is_their_mean_and_a_gap_is_no_arc() {
+        let mut held = Held::new();
+        held.insert("calls.vcf", circle_files()[1].1.clone());
+        // Windows of 50 bases, alternating 1 and -1, over the first half.
+        let windows: String = (0..1_000u64)
+            .map(|at| {
+                let value = if at % 2 == 0 { 1.0 } else { -1.0 };
+                format!("chrC\t{}\t{}\t{value}\n", at * 50, at * 50 + 50)
+            })
+            .collect();
+        held.insert("skew.bg", windows);
+        let invocation = invocation("chrC --circular calls.vcf --windows skew.bg");
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        let rings = circle_rings(&invocation, &region, &Theme::light(), &mut held).unwrap();
+        let RingOf::Signal(ring) = &rings[2].ring else {
+            panic!("windows are a signal ring");
+        };
+        assert_eq!(ring.baseline_value(), 0.0);
+        // Two windows to an arc of a hundred bases, one of each sign: the
+        // mean, not the larger, and nothing past the last window.
+        assert_eq!(ring.windows(), [crate::Window::new(0, 50_000, 0.0)]);
+        let said: Vec<&str> = rings[2]
+            .legend
+            .items()
+            .iter()
+            .map(|item| match item {
+                crate::LegendItem::Key { label, .. } => label.as_str(),
+                crate::LegendItem::Ramp { label, .. } => label.as_str(),
+            })
+            .collect();
+        assert_eq!(said, ["above 0", "below 0"]);
+    }
+
+    /// Calls are coloured by consequence in the order the file first names
+    /// them, as a band of calls deals them, a call no annotator named by its
+    /// shape, as the reader names it.
+    #[test]
+    fn calls_on_a_ring_are_coloured_by_consequence_in_the_order_first_named() {
+        let theme = Theme::light();
+        let keyed = |line: &str, more: &[(&str, &str)]| -> Vec<(String, String)> {
+            let mut held = Held::new();
+            for (name, text) in circle_files() {
+                held.insert(name, text);
+            }
+            for (name, text) in more {
+                held.insert(*name, *text);
+            }
+            let invocation = invocation(line);
+            let region = whole_sequence(&invocation, &mut held).unwrap();
+            let rings = circle_rings(&invocation, &region, &theme, &mut held).unwrap();
+            rings
+                .last()
+                .unwrap()
+                .legend
+                .items()
+                .iter()
+                .map(|item| match item {
+                    crate::LegendItem::Key { label, color, .. } => (label.clone(), color.clone()),
+                    crate::LegendItem::Ramp { label, .. } => (label.clone(), String::new()),
+                })
+                .collect()
+        };
+        assert_eq!(
+            keyed("chrC --circular calls.vcf", &[]),
+            [
+                ("missense_variant".to_string(), theme.color(0).to_string()),
+                ("synonymous_variant".to_string(), theme.color(1).to_string()),
+            ]
+        );
+        let mixed = "##contig=<ID=chrC,length=100000>\n\
+                     chrC\t100\t.\tC\tT\t.\t.\t.\n\
+                     chrC\t200\t.\tC\tT\t.\t.\tANN=T|stop_gained|HIGH|gA\n";
+        assert_eq!(
+            keyed(
+                "chrC --circular --variants mixed.vcf",
+                &[("mixed.vcf", mixed)]
+            ),
+            [
+                ("substitution".to_string(), theme.color(0).to_string()),
+                ("stop_gained".to_string(), theme.color(1).to_string()),
+            ]
+        );
+    }
+
+    /// Names are written on a ring of a few named features and left off one
+    /// of many, which would be a wheel of unreadable text.
+    #[test]
+    fn a_ring_of_many_named_features_leaves_their_names_off() {
+        let genes = |count: u64| -> String {
+            let mut text = "##sequence-region chrC 1 100000\n".to_string();
+            for at in 0..count {
+                text.push_str(&format!(
+                    "chrC\t.\tgene\t{}\t{}\t.\t+\t.\tName=g{at}\n",
+                    at * 4_000 + 1,
+                    at * 4_000 + 2_000
+                ));
+            }
+            text
+        };
+        let few = genes(NAMED_ON_A_RING as u64);
+        let many = genes(NAMED_ON_A_RING as u64 + 1);
+        let svg = circle("chrC --circular few.gff3", &[("few.gff3", &few)]).unwrap();
+        assert!(svg.contains(">g0</text>"), "{svg}");
+        let svg = circle("chrC --circular many.gff3", &[("many.gff3", &many)]).unwrap();
+        assert!(!svg.contains(">g0</text>"), "{svg}");
+        assert!(svg.contains("<title>g0, "), "each gene keeps its tooltip");
+    }
+
+    /// A file that calls the sequence by another name is read under the one
+    /// `--rename` gives it, as a figure along the sequence reads it.
+    #[test]
+    fn a_ring_reads_a_file_under_the_name_rename_gives_it() {
+        let depth = "1\t0\t50000\t30\n1\t50000\t100000\t60\n";
+        let svg = circle(
+            "chrC --circular calls.vcf --coverage one.bg --rename 1=chrC",
+            &[("one.bg", depth)],
+        )
+        .unwrap();
+        assert!(svg.contains("<g><title>one</title>"), "{svg}");
+        assert!(circle(
+            "chrC --circular calls.vcf --coverage one.bg",
+            &[("one.bg", depth)]
+        )
+        .is_err());
+    }
+
+    /// A `.bed` named on its own is told by what it holds, and one that holds
+    /// methylation has no ring; one that holds depth in windows does.
+    #[test]
+    fn a_file_that_turns_out_to_have_no_ring_is_refused_by_what_it_holds() {
+        let methylation =
+            "chrC\t100\t101\tm\t20\t+\t100\t101\t255,0,0\t20\t85.0\t17\t3\t0\t0\t0\t0\t0\n";
+        let refused = circle(
+            "chrC --circular calls.vcf calls.bed",
+            &[("calls.bed", methylation)],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                &refused,
+                BuildError::Uncircled(CircleRefusal::NoRing {
+                    kind: Kind::Methylation,
+                    ..
+                })
+            ),
+            "{refused:?}"
+        );
+        assert!(refused.to_string().contains("--methylation"), "{refused}");
+        let windows = "chrC\t0\t50000\t30\nchrC\t50000\t100000\t60\n";
+        assert!(circle(
+            "chrC --circular calls.vcf sample.regions.bed",
+            &[("sample.regions.bed", windows)]
+        )
+        .is_ok());
+    }
+
+    /// A circle is not a figure along a sequence, and the builders of those
+    /// say so rather than drawing its tracks as bands.
+    #[test]
+    fn a_circle_is_refused_by_the_builders_of_figures() {
+        let mut held = Held::new();
+        for (name, text) in circle_files() {
+            held.insert(name, text);
+        }
+        let circular = invocation("chrC --circular genes.gff3");
+        let refused = build_figure(&circular, &mut held, |_, _| None, Theme::light(), None);
+        assert!(matches!(
+            refused,
+            Err(BuildError::Uncircled(CircleRefusal::NotAFigure))
+        ));
+        let refused = build_sheet(&circular, &mut held, |_, _| None, Theme::light());
+        assert!(matches!(
+            refused,
+            Err(BuildError::Uncircled(CircleRefusal::NotAFigure))
+        ));
+    }
+
+    /// A short feature on a long sequence is still an arc a pointer can find,
+    /// and a feature ring is painted a strand a colour, as a band is.
+    #[test]
+    fn the_annotation_ring_names_its_genes_and_paints_them_by_strand() {
+        let svg = circle("chrC --circular genes.gff3", &[]).unwrap();
+        let theme = Theme::light();
+        let painted = |gene: &str| -> &str {
+            let at = svg.find(&format!("<title>{gene}, ")).unwrap();
+            let fill = svg[at..].split("fill=\"").nth(1).unwrap();
+            fill.split('"').next().unwrap()
+        };
+        assert_eq!(painted("gA"), theme.color(0));
+        assert_eq!(painted("gB"), theme.color(1));
+        assert!(
+            svg.contains(">gA</text>") && svg.contains(">gB</text>"),
+            "{svg}"
+        );
+        let unnamed = circle("chrC --circular genes.gff3 --no-names", &[]).unwrap();
+        assert!(!unnamed.contains(">gA</text>"));
+        let one = circle("chrC --circular genes.gff3 --color #123456", &[]).unwrap();
+        assert!(one.matches("fill=\"#123456\"").count() >= 2);
     }
 }
