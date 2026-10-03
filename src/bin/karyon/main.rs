@@ -412,15 +412,47 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     // `--circular` only where the track has a ring: a tree's help naming it
-    // would offer a flag the tree is refused with.
-    out.push_str(if kind.ring() {
-        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
-         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --circular,\n\
-         --rename, -o.\n"
-    } else {
-        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
-         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --rename, -o.\n"
-    });
+    // would offer a flag the tree is refused with. `--panel-columns` only
+    // where the track is drawn over a place, the panels it lays out being
+    // places; a tree's help kept under sixty lines without it.
+    let mut options = vec![
+        "--title",
+        "--width",
+        "--theme",
+        "--background",
+        "--colors",
+        "--no-axis",
+        "--no-region-label",
+        "--no-legend",
+        "--same-scale",
+    ];
+    if kind.needs_region() {
+        options.push("--panel-columns");
+    }
+    options.push("--shade");
+    if kind.ring() {
+        options.push("--circular");
+    }
+    options.extend(["--rename", "-o."]);
+    let mut line = String::from("FIGURE OPTIONS, anywhere:");
+    out.push('\n');
+    for (at, option) in options.iter().enumerate() {
+        let word = if at + 1 < options.len() {
+            format!("{option},")
+        } else {
+            (*option).to_string()
+        };
+        if line.len() + 1 + word.len() > 80 {
+            out.push_str(&line);
+            out.push('\n');
+            line = word;
+        } else {
+            line.push(' ');
+            line.push_str(&word);
+        }
+    }
+    out.push_str(&line);
+    out.push('\n');
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
         guide_page(kind)
@@ -459,10 +491,10 @@ long as the furthest any file reaches on it, or as long as a bigWig says, and
 named underneath. A sequence a file names no row on is a gap in its track, not
 a depth of nought, and a BAM, whose depth there is every read it holds, needs
 a place. Several places, as karyon rpoB katG inhA reads.bam genes.gff3, draw
-one panel each, one under the other, the same tracks over each and the key
-once under them; a track with nothing in one of them says so there rather than
-refusing the figure. Any track file may be - for standard input, and one track
-may take it.
+one panel each, one under the other or side by side with --panel-columns, the
+same tracks over each and the key once after them; a track with nothing in one
+of them says so there rather than refusing the figure. Any track file may be -
+for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
@@ -749,6 +781,9 @@ FIGURE OPTIONS
                          scale, as the depths of several samples, in every
                          panel, so the same height is the same value; a track
                          given --max keeps its own
+    --panel-columns <N>  lay the panels of several places N to a row, in the
+                         order the places are written, as 2 for two genes side
+                         by side; one under the other by default
     --circular           the place, one whole sequence, drawn as a circle: each
                          track a ring, the first outermost, inside the ruler,
                          a breakend join a chord across the middle, and a key
@@ -1193,6 +1228,8 @@ mod tests {
         // --same-scale among them, which the line had left out.
         let coverage = help_on("coverage").unwrap();
         assert!(coverage.contains("--same-scale,"), "{coverage}");
+        assert!(coverage.contains("--panel-columns,"), "{coverage}");
+        assert!(!help_on("tree").unwrap().contains("--panel-columns"));
         assert!(coverage.contains("--shade,"), "{coverage}");
         // And `--circular` where the track has a ring, and not where it is
         // refused.

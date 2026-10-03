@@ -40,10 +40,12 @@ Four rules cover every command:
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
-    calls.vcf.gz`. A gene is titled with its name and a locus says itself at
-    the top right, the key is drawn once under them all, `--title` goes over
-    the whole figure, and a track with nothing in one place says so there, as
-    `no variants here`, where a figure of that place alone is refused.
+    calls.vcf.gz`; `--panel-columns 2` lays them two to a row instead, in the
+    order they are written. A gene is titled with its name and a locus says
+    itself at the top right, the key is drawn once after them all, `--title`
+    goes over the whole figure, and a track with nothing in one place says so
+    there, as `no variants here`, where a figure of that place alone is
+    refused.
 2. **Each file, or each track flag and its file, starts a track.** A file
    named on its own is the kind of track its name says, as the table below
    has it; a flag in front chooses the kind, as `--pileup reads.bam`. Tracks
@@ -638,6 +640,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
+| `--panel-columns <N>` | lays the panels of several places `N` to a row, in the order the places are written, as `karyon NOVA1 KAPPA3 signal.bw genes.gtf.gz --panel-columns 2` for two genes side by side; each panel keeps `--width`, and a line of one place is refused | one column, each panel under the one before |
 | `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--circular` | draws the place, one whole sequence, as a circle: each track a ring, the first outermost, inside the ruler, and a key under it naming each ring. `--width` is the side of the square. See [A whole sequence as a circle](#a-whole-sequence-as-a-circle) | along the sequence |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |

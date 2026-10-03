@@ -804,8 +804,8 @@ the drawing does not reach the sheet.
 
 | Method | Default | What it does |
 |:--|:--|:--|
-| `columns(usize)` | `1` | lays the panels out in this many columns |
-| `row_major()` | column by column | fills each row left to right before starting the next |
+| `columns(usize)` | `1` | lays the panels out in this many columns (`--panel-columns`) |
+| `row_major()` | column by column | fills each row left to right before starting the next, as `--panel-columns` does |
 | `gap(f64)` | `18.0` | the vertical gap between panels |
 | `column_gap(f64)` | `26.0` | the horizontal gap between columns |
 | `margin(f64)` | `14.0` | whitespace around the sheet |

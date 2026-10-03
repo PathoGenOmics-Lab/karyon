@@ -283,6 +283,9 @@ pub enum ArgError {
     CircleOfPart(Region),
     /// A circle of several places, which would be several circles.
     CircleOfSeveral,
+    /// `--panel-columns` where the figure has one place, and so one panel to
+    /// lay out.
+    ColumnsOfOnePlace,
     /// A circle with no place, where the sequence it is of is the place.
     CircleWithoutPlace,
     /// A place given to `--highlight` where no tree is there to take it.
@@ -494,6 +497,12 @@ impl fmt::Display for ArgError {
                 f,
                 "--circular draws one sequence, and this line names several places: draw \
                  each with a command of its own"
+            ),
+            ArgError::ColumnsOfOnePlace => write!(
+                f,
+                "--panel-columns lays the panels of several places side by side, and this \
+                 line names one place: write the others after it, as karyon rpoB katG \
+                 reads.bam --panel-columns 2"
             ),
             ArgError::CircleWithoutPlace => write!(
                 f,
@@ -2161,6 +2170,10 @@ pub struct Invocation {
     /// `--same-scale`: the tracks that measure the same thing, as the depths
     /// of several samples, drawn on one scale, across every panel.
     pub same_scale: bool,
+    /// `--panel-columns`: how many panels of several places stand side by
+    /// side, in the order the places are written, a row at a time; one
+    /// column, each panel under the one before, where it is not given.
+    pub panel_columns: Option<usize>,
     /// `--colors COLUMN=VALUE:#rrggbb,...`: each column of a `--traits` sheet
     /// given colours, with the colour of each value named, in the order the
     /// columns were first written. Every sheet of the figure that has the
@@ -2357,6 +2370,7 @@ pub const FLAGS: &[&str] = &[
     "--no-region-label",
     "--no-legend",
     "--same-scale",
+    "--panel-columns",
     "--shade",
     "--circular",
     "--rename",
@@ -2807,6 +2821,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
     let mut same_scale = false;
+    let mut panel_columns: Option<usize> = None;
     let mut circular = false;
     let mut shades: Vec<Shading> = Vec::new();
     let mut renames: Vec<(String, String)> = Vec::new();
@@ -3977,6 +3992,23 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
             "--same-scale" => same_scale = true,
+            "--panel-columns" => {
+                figure_once(&mut given, "--panel-columns")?;
+                let text = value("--panel-columns")?;
+                // A whole number of columns, and a sheet a hundred panels
+                // across is already a strip no page holds.
+                panel_columns = Some(
+                    text.parse::<usize>()
+                        .ok()
+                        .filter(|columns| (1..=100).contains(columns))
+                        .ok_or_else(|| ArgError::BadValue {
+                            flag: "--panel-columns",
+                            given: text.clone(),
+                            expected: "a whole number of columns from 1 to 100, as 2 for two \
+                                       places side by side",
+                        })?,
+                );
+            }
             "--circular" => circular = true,
             "--shade" => {
                 // Taken as the next word whatever it is, as every value is,
@@ -4118,6 +4150,11 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             }
         }
     }
+    // Late, as the places may follow it. Columns of one panel would be a
+    // figure drawn as though the option were not there.
+    if panel_columns.is_some() && more.is_empty() {
+        return Err(ArgError::ColumnsOfOnePlace);
+    }
     // Late, as a figure option may sit before the track and the sheet it
     // paints. Whether the sheets hold the column is for when they are read.
     if !colors.is_empty() && tracks.iter().all(|track| track.traits.is_none()) {
@@ -4153,6 +4190,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         renames,
         more,
         same_scale,
+        panel_columns,
         colors,
         shades,
         circular,
@@ -6576,6 +6614,32 @@ mod tests {
         // No place at all, and a track that is drawn in one.
         let error = parse(&args("calls.vcf genes.gff3")).unwrap_err();
         assert!(matches!(error, ArgError::NoRegion), "{error:?}");
+    }
+
+    /// `--panel-columns` takes a whole number of columns for a line of
+    /// several places, once, and is refused for a line of one.
+    #[test]
+    fn panel_columns_lay_out_several_places_and_only_several() {
+        assert_eq!(draw("rpoB katG reads.bam --panel-columns 2").panel_columns, Some(2));
+        assert_eq!(draw("rpoB katG reads.bam").panel_columns, None);
+        assert_eq!(draw("--panel-columns=3 rpoB katG reads.bam").panel_columns, Some(3));
+        let one = parse(&args("rpoB reads.bam --panel-columns 2")).unwrap_err();
+        assert!(matches!(one, ArgError::ColumnsOfOnePlace), "{one:?}");
+        assert!(one.to_string().contains("--panel-columns 2"), "{one}");
+        for bad in ["0", "two", "1.5", "101"] {
+            let error =
+                parse(&args(&format!("rpoB katG reads.bam --panel-columns {bad}"))).unwrap_err();
+            assert!(
+                matches!(error, ArgError::BadValue { flag: "--panel-columns", .. }),
+                "{bad}: {error:?}"
+            );
+        }
+        let twice =
+            parse(&args("rpoB katG reads.bam --panel-columns 2 --panel-columns 3")).unwrap_err();
+        assert!(matches!(twice, ArgError::Twice { .. }), "{twice:?}");
+        // `--columns` stays a sheet's, and says so.
+        let traits = parse(&args("rpoB katG reads.bam --columns 2")).unwrap_err();
+        assert!(!matches!(traits, ArgError::ColumnsOfOnePlace), "{traits:?}");
     }
 
     #[test]

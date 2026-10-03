@@ -1193,6 +1193,15 @@ pub fn build_sheet(
     if let Some(title) = &invocation.title {
         sheet = sheet.title(title);
     }
+    // Side by side a row at a time, so the places read in the order they
+    // were written, left to right and then down, and the panels of a row
+    // start level. Never more columns than places: the key is laid out as
+    // one more panel, and in a row with room left it stood beside the
+    // places rather than under them. A last row the places leave short
+    // takes it in the room they leave.
+    if let Some(columns) = invocation.panel_columns {
+        sheet = sheet.columns(columns.min(places.len())).row_major();
+    }
     let mut legend = crate::track::legend::Legend::new();
     // Each shade is settled across every panel, once they are all drawn.
     let mut shading = Shading::new(invocation);
@@ -12993,6 +13002,53 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_eq!(svg.matches(">T</text>").count(), 1, "the key once: {svg}");
         let alone = drawn_from("katG genes.gff3 calls.vcf", &held).unwrap_err();
         assert!(alone.to_string().contains("no variants"), "{alone}");
+    }
+
+    /// `--panel-columns` lays the panels of several places side by side, a
+    /// row at a time in the order the places are written, the key in the
+    /// room the last row leaves; asked for more columns than places, it lays
+    /// one row of them, and the key stays under them.
+    #[test]
+    fn several_places_stand_side_by_side_with_panel_columns() {
+        let genome = format!(">chr1\n{}\n", "ACGT".repeat(12_500));
+        let held = [("ref.fa", genome.as_str())];
+        // Where each panel of a sheet is put, in the order they were laid.
+        let placed = |svg: &str| -> Vec<(f64, f64)> {
+            svg.split("transform=\"translate(")
+                .skip(1)
+                .map(|rest| {
+                    let mut numbers = rest[..rest.find(')').unwrap()]
+                        .split(' ')
+                        .map(|n| n.parse::<f64>().unwrap());
+                    (numbers.next().unwrap(), numbers.next().unwrap())
+                })
+                .collect()
+        };
+        let two = "chr1:1-1,000 chr1:2,001-3,000 ref.fa";
+        let stacked = placed(&drawn_from(two, &held).unwrap());
+        let beside = placed(&drawn_from(&format!("{two} --panel-columns 2"), &held).unwrap());
+        // Two places and the key to their bases.
+        assert_eq!(stacked.len(), 3, "{stacked:?}");
+        assert!(stacked[1].1 > stacked[0].1, "stacked: {stacked:?}");
+        assert_eq!(beside.len(), 3, "{beside:?}");
+        assert_eq!(beside[0].1, beside[1].1, "one row: {beside:?}");
+        assert!(beside[1].0 > beside[0].0 + 900.0, "{beside:?}");
+        assert!(beside[2].1 > beside[0].1, "the key under them: {beside:?}");
+        assert_eq!(
+            drawn_from(&format!("{two} --panel-columns 3"), &held).unwrap(),
+            drawn_from(&format!("{two} --panel-columns 2"), &held).unwrap()
+        );
+        // Three places two to a row: the third under the first.
+        let three = placed(
+            &drawn_from(
+                "chr1:1-1,000 chr1:2,001-3,000 chr1:4,001-5,000 ref.fa --panel-columns 2",
+                &held,
+            )
+            .unwrap(),
+        );
+        assert_eq!(three[0].1, three[1].1, "{three:?}");
+        assert!(three[2].1 > three[0].1, "{three:?}");
+        assert!((three[2].0 - three[0].0).abs() < 10.0, "{three:?}");
     }
 
     /// What is piped in is read once, for every panel of a sheet.

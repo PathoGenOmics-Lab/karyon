@@ -32,6 +32,7 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 | Number the gene's codons, from its CDS, zoomed in | `NC_000962.3:761,081-761,200` in place of `rpoB`, and `ref.fa --codons` after the files |
 | Draw a wider stretch | `NC_000962.3:755,000-770,000` in place of `rpoB` |
 | Draw two genes, one under the other | `rpoB rpoC` in place of `rpoB` |
+| Draw two genes side by side | `rpoB rpoC` in place of `rpoB`, and `--panel-columns 2` |
 | Make a row taller | `reads.bam --height 100` |
 | Rename a row | `calls.vcf.gz --label "variant calls"` |
 | Every call in one colour, each consequence keeping its shape | `calls.vcf.gz --color '#8b0000'` |

@@ -461,6 +461,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--panel-columns N` lays the panels of several places `N` to a row, in the
+  order the places are written, through `Panels::columns` and
+  `Panels::row_major`, each panel at its `--width` and the key in the room
+  the last row leaves, or under them; a line of one place is refused, as one
+  panel has nothing to stand beside. Two genes side by side could be drawn
+  only from Rust, and `--columns 2`, a sample sheet's option, was refused
+  after the genes. No committed figure moves.
 - `Marker::ThinLine`, a key drawn as a stroke half as thick as a line, for a
   line drawn thinner than another of its colour.
 - `--color` after a variants track paints every call that colour, in place of
