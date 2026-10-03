@@ -48,6 +48,11 @@
 //! the window holds. The command line hands it the categories in view ranked
 //! from the most damaging consequence to the least, so a category's colour
 //! does not hang on which call happens to come first in the window.
+//!
+//! [`VariantTrack::uniform_color`] paints every call one colour instead, as a
+//! figure whose calls are to match a colour already used elsewhere asks. The
+//! categories keep their shapes, on the marks and in the key, so a missense
+//! call and a synonymous one can still be told apart in one colour.
 
 use std::collections::BTreeSet;
 
@@ -136,6 +141,7 @@ pub struct VariantTrack {
     show_legend: bool,
     show_scale: bool,
     color: Option<String>,
+    uniform: Option<String>,
     axis: QuantitativeAxis,
     title: Option<String>,
     order: Vec<String>,
@@ -154,6 +160,7 @@ impl VariantTrack {
             show_legend: true,
             show_scale: true,
             color: None,
+            uniform: None,
             axis: QuantitativeAxis::new(),
             title: None,
             order: Vec::new(),
@@ -259,6 +266,20 @@ impl VariantTrack {
         self
     }
 
+    /// Paints every variant `color`, whatever its category, in place of a
+    /// colour each category.
+    ///
+    /// Each category keeps the shape its place in the queue gives it, on the
+    /// marks and in the key, which is then drawn in the one colour: a figure
+    /// whose calls had to be dark red lost what told a missense call from a
+    /// synonymous one only where the shapes went with the colours. A tick has
+    /// no shape, so ticks in one colour are told apart by their tooltips
+    /// alone, and they have none.
+    pub fn uniform_color(mut self, color: impl Into<String>) -> Self {
+        self.uniform = Some(color.into());
+        self
+    }
+
     /// The variants in the track.
     pub fn variants(&self) -> &[Variant] {
         &self.variants
@@ -328,8 +349,14 @@ impl VariantTrack {
         self.slots()
             .into_iter()
             .fold(Legend::new(), |legend, (category, slot)| {
-                legend.symbol(category, theme.color(slot), theme.symbol(slot))
+                legend.symbol(category, self.ink(theme, slot), theme.symbol(slot))
             })
+    }
+
+    /// The colour of the category in palette slot `slot`: its own, or the
+    /// one every call is painted where [`VariantTrack::uniform_color`] says.
+    fn ink<'a>(&'a self, theme: &'a Theme, slot: usize) -> &'a str {
+        self.uniform.as_deref().unwrap_or_else(|| theme.color(slot))
     }
 }
 
@@ -378,8 +405,9 @@ impl Track for VariantTrack {
 
         let slots = self.slots();
         let default_color = self
-            .color
+            .uniform
             .clone()
+            .or_else(|| self.color.clone())
             .unwrap_or_else(|| ctx.theme.accent.clone());
         // A colour and a symbol are a property of the category, not of the
         // variant, and both were being worked out inside the loop: a linear
@@ -389,7 +417,7 @@ impl Track for VariantTrack {
         // allocations for a handful of distinct answers.
         let palette: Vec<(String, Symbol)> = slots
             .iter()
-            .map(|&(_, slot)| (ctx.theme.color(slot).to_string(), ctx.theme.symbol(slot)))
+            .map(|&(_, slot)| (self.ink(ctx.theme, slot).to_string(), ctx.theme.symbol(slot)))
             .collect();
         let slot_of = |category: Option<&str>| -> Option<usize> {
             category.and_then(|name| slots.iter().position(|&(c, _)| c == name))
@@ -714,6 +742,41 @@ mod tests {
             None,
             "no value, no scale, no title"
         );
+    }
+
+    /// One colour for every call takes the palette off the marks and the key,
+    /// and leaves each category its shape in both.
+    #[test]
+    fn a_uniform_colour_paints_every_call_and_keeps_each_category_s_shape() {
+        let theme = Theme::default();
+        let calls = vec![
+            Variant::new(10).value(0.5).category("missense_variant"),
+            Variant::new(40).value(0.9).category("synonymous_variant"),
+            Variant::new(70).value(0.3),
+        ];
+        let svg = |track: VariantTrack| {
+            Figure::new(Region::new("chr1", 0, 100).unwrap())
+                .push(track)
+                .to_svg()
+        };
+        let painted = svg(VariantTrack::new(calls.clone()).uniform_color("#8b0000"));
+        for slot in 0..2 {
+            assert!(
+                !painted.contains(theme.color(slot)),
+                "slot {slot} is still painted: {painted}"
+            );
+        }
+        assert!(!painted.contains(&theme.accent), "{painted}");
+        // Three stems, three heads and two keys, all of them the one colour.
+        assert!(painted.matches("#8b0000").count() >= 8, "{painted}");
+        assert!(painted.contains(">missense_variant</text>"), "{painted}");
+        assert!(painted.contains(">synonymous_variant</text>"), "{painted}");
+        // The shapes are the ones the categories take in colour: the second
+        // category is a square in both figures.
+        let coloured = svg(VariantTrack::new(calls));
+        let squares = |svg: &str| svg.matches("<rect").count();
+        assert_eq!(squares(&painted), squares(&coloured), "{painted}");
+        assert!(coloured.contains(theme.color(1)), "{coloured}");
     }
 
     #[test]

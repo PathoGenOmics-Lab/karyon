@@ -332,6 +332,12 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          past it carries a dot, and the key reads 150+
 "
         }
+        (Kind::Variants, "--color") => {
+            "    --color <HEX>        every call in this colour, as in '#8b0000', in place
+                         of a colour each consequence; each keeps its shape,
+                         on the marks and in the key
+"
+        }
         (Kind::Pairs, "--max") => {
             "    --max <V>            the value drawn at full colour, as 0.5 to read weak
                          linkage; an r² is read against 1 until told
@@ -718,7 +724,8 @@ TRACK OPTIONS, each describing the track before it, once
                          windows, with the bottom as far below the line; and
                          the value a matrix, a heatmap or pairs draw at full
                          colour, as 1 for an r²
-    --color <HEX>        as in '#d55e00'
+    --color <HEX>        as in '#d55e00'; after calls, every call in it, each
+                         consequence keeping its shape
     --genetic-code <N>   the NCBI translation table a codon ruler reads, as 2
                          for vertebrate mitochondria; by default the one the
                          annotation's CDS names, or 1, whose residues 11 shares
@@ -1162,6 +1169,10 @@ mod tests {
         assert!(coverage.contains("the top label reads 100+"), "{coverage}");
         assert!(!scan.contains("100+"), "{scan}");
         assert!(heatmap.contains("the key reads 150+"), "{heatmap}");
+        // Calls given a colour lose the consequences' colours, and say so.
+        let variants = help_on("variants").unwrap();
+        assert!(variants.contains("in place\n"), "{variants}");
+        assert!(variants.contains("each keeps its shape"), "{variants}");
     }
 
     /// A CRAM named on its own is taken for a depth and refused with the

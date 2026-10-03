@@ -923,6 +923,49 @@ impl Kind {
         matches!(self, Kind::Axis | Kind::Codons)
     }
 
+    /// Whether `flag` changes how a track of this kind looks in a way the
+    /// track could want, whether or not this one takes it: a colour and a
+    /// height, which every track is drawn in, and the top of a scale or a log
+    /// one, for a track drawn against a scale of its own.
+    ///
+    /// Such an option written after one of these is refused by name and not
+    /// sent to an earlier track that takes it, since the reader wrote it for
+    /// the track it follows: `--color` after a VCF was sent to the genes
+    /// before it, where it would have painted the genes and not the calls.
+    fn styled_by(self, flag: &str) -> bool {
+        match flag {
+            "--color" | "--height" => true,
+            "--max" | "--log" => self.scaled(),
+            _ => false,
+        }
+    }
+
+    /// Whether a track of this kind draws its values against a scale of its
+    /// own: a depth, a stem's allele fraction, a count of reads, a ladder of
+    /// copies, a colour ramp, a rate over time.
+    fn scaled(self) -> bool {
+        matches!(
+            self,
+            Kind::Coverage
+                | Kind::CopyNumber
+                | Kind::Dynseq
+                | Kind::Junctions
+                | Kind::Variants
+                | Kind::Windows
+                | Kind::Manhattan
+                | Kind::Recombination
+                | Kind::Matrix
+                | Kind::Heatmap
+                | Kind::Logo
+                | Kind::Methylation
+                | Kind::Pairs
+                | Kind::Frequencies
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Squiggle
+        )
+    }
+
     /// Whether `--aggregate` means anything here.
     fn takes_aggregate(self) -> bool {
         matches!(self, Kind::Coverage)
@@ -2679,6 +2722,13 @@ fn misplaced(args: &[String], flag: &'static str, track: &'static str) -> Option
         if last.kind.flag() != track {
             continue;
         }
+        // A colour, a height or a scale written after a track that could
+        // have one was meant for that track, whichever earlier track takes
+        // it: `--color` after calls.vcf sent the reader to put it after the
+        // genes, which would have painted the genes.
+        if last.kind.styled_by(flag) {
+            return None;
+        }
         let value = words.get(at + 1).map(String::as_str);
         let meant = earlier
             .iter()
@@ -3578,10 +3628,15 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 let track = once(&mut tracks, &mut given, "--color")?;
+                // Calls take one colour in place of a colour each consequence,
+                // and keep each consequence's shape: a figure whose calls had
+                // to be dark red had no way to say so, and the one hint it got
+                // moved the colour onto the genes.
                 if !matches!(
                     track.kind,
                     Kind::Coverage
                         | Kind::Features
+                        | Kind::Variants
                         | Kind::Junctions
                         | Kind::Phylodynamics
                         | Kind::Squiggle
@@ -6594,6 +6649,35 @@ mod tests {
         let error = parse(&args("NC_1:1-100 genes.gff3 --aggregate min")).unwrap_err();
         assert!(
             matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--aggregate"),
+            "{error:?}"
+        );
+        // A colour, a height or a scale after a track that could have one was
+        // written for that track, and is not sent to an earlier one: the
+        // genes would have taken the colour meant for the genotypes, and the
+        // depth the height meant for the reads.
+        for (line, flag) in [
+            (
+                "NC_1:1-100 genes.gff3 --genotypes calls.vcf --color #8b0000",
+                "--color",
+            ),
+            (
+                "NC_1:1-100 reads.bam --pileup reads.bam --height 40",
+                "--height",
+            ),
+            ("NC_1:1-100 depth.bedgraph calls.vcf --max 0.5", "--max"),
+            ("NC_1:1-100 depth.bedgraph calls.vcf --log", "--log"),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag: said, .. } if said == flag),
+                "{line}: {error:?}"
+            );
+        }
+        // A scale's top after a track with no scale is still sent on.
+        let error = parse(&args("NC_1:1-100 depth.bedgraph genes.gff3 --max 30")).unwrap_err();
+        assert!(
+            matches!(&error, ArgError::Misplaced { flag, belongs, .. }
+                if *flag == "--max" && belongs == "depth.bedgraph"),
             "{error:?}"
         );
         // And the grammar is asked, not a copy of it.

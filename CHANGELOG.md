@@ -461,6 +461,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--color` after a variants track paints every call that colour, in place of
+  a colour each consequence, and each consequence keeps its shape, on the
+  marks and in the key; on a circle the ticks take it and the key names no
+  consequence, since a tick has no shape to tell one by. The library's is
+  `VariantTrack::uniform_color`. A figure whose calls had to be dark red had
+  no way to say so: `--color` was refused after calls, and `--colors` paints
+  a sample sheet. No committed figure moves.
 - `SvgWriter::keep_clear` asks that nothing laid over the tracks once they
   are drawn cross a rectangle, and `SvgWriter::kept_clear` gives back what
   was asked. A legend drawn in a band, a selection scan's key and the names
@@ -1525,6 +1532,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A colour, a height, or the top or the log of a scale, written after a track
+  that could have one, is refused by that track's name, and not sent to an
+  earlier track that takes it. `--color` after `calls.vcf.gz` said to write it
+  right after `genes.gff3`, which would have painted the genes and not the
+  calls. An option no track of its kind could want, as `--threshold` after
+  genes or `--max` after a track with no scale, still names the track it
+  belongs to.
 - A track's axis title is left out where its name says the same, and `karyon
   help manhattan` says a column of p-values is titled `-log10 p` already.
   `--label '-log10 p'` on a scan of p-values printed `-log10 p` twice in the

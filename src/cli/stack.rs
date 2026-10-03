@@ -1818,10 +1818,17 @@ fn ring_of(
                 .iter()
                 .map(|variant| (variant.pos, slot(variant.category.as_ref())))
                 .collect();
-            for (index, category) in ranked.iter().enumerate() {
-                legend = legend.line(category.clone(), theme.color(index));
+            // In one colour a tick on a ring has no shape left to say its
+            // consequence by, so no consequence is keyed.
+            if spec.color.is_none() {
+                for (index, category) in ranked.iter().enumerate() {
+                    legend = legend.line(category.clone(), theme.color(index));
+                }
             }
             let mut ring = crate::MarkerRing::categorised(marks);
+            if let Some(color) = &spec.color {
+                ring = ring.colors(vec![color.clone()]);
+            }
             if let Some(height) = spec.height {
                 ring = ring.thickness(height);
             }
@@ -7605,6 +7612,9 @@ fn built(
             // same panel as ticks is seventy-four kilobytes.
             if let Some(style) = spec.style.and_then(Style::variant) {
                 track = track.style(style);
+            }
+            if let Some(color) = &spec.color {
+                track = track.uniform_color(color);
             }
             // Named on its own, a VCF is its calls, which is what a VCF of one
             // sample is for. A cohort's holds a row of calls per sample too, and
@@ -17616,6 +17626,39 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
             colour("chr1:1-1000 calls.vcf", "synonymous_variant"),
             colour("chr1:50-600 calls.vcf", "synonymous_variant")
         );
+    }
+
+    /// `--color` after calls paints every call that colour, in the band and
+    /// on a ring, and takes the consequences' colours out of the key; the
+    /// band keeps each consequence's shape, and a ring, whose ticks have
+    /// none, keys none.
+    #[test]
+    fn calls_given_a_colour_are_all_that_colour() {
+        let theme = Theme::default();
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n";
+        let mut held = Held::new();
+        held.insert("calls.vcf", calls);
+        let svg = held_figure(&mut held, "chr1:1-1000 calls.vcf --color #8b0000").unwrap();
+        assert!(svg.contains("<title>missense_variant, colour #8b0000</title>"), "{svg}");
+        assert!(svg.contains("<title>synonymous_variant, colour #8b0000</title>"), "{svg}");
+        for slot in 0..2 {
+            assert!(!svg.contains(theme.color(slot)), "slot {slot} painted: {svg}");
+        }
+        // On a ring, every tick that colour and no consequence keyed.
+        let mut held = Held::new();
+        for (name, text) in circle_files() {
+            held.insert(name, text);
+        }
+        let invocation = invocation("chrC --circular calls.vcf --color #8b0000");
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        let rings = circle_rings(&invocation, &region, &theme, &mut held).unwrap();
+        assert!(rings.last().unwrap().legend.is_empty());
+        let svg = circle("chrC --circular calls.vcf --color #8b0000", &[]).unwrap();
+        assert!(svg.contains("#8b0000"), "{svg}");
+        assert!(!svg.contains(theme.color(0)), "{svg}");
     }
 
     /// Each line of the key is the colour its ring paints what it names: a
