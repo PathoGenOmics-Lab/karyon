@@ -8,6 +8,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A `.hic` is drawn rather than refused with the `hic2cool` and `cooler dump`
+  commands that wrote it as BEDPE. Handed to a track other than `--pairs`, or
+  named for a file a track reads as text, such as the linkage `--ld` gives a
+  scan, it is refused naming `--pairs`, as a bigWig on the wrong track is;
+  piped in, asking for its name, since it is read out of order; and
+  compressed with gzip, with the `gunzip -k` that gives it back. cooler's
+  `.cool` and `.mcool` are still answered with the `cooler dump` that writes
+  their BEDPE: they are HDF5, which h5py writes in either of two families of
+  its structures, and reading it without a dependency is an HDF5 reader of the
+  crate's own. `Files::sequences` answers for a `.hic` from its header.
 - `FeatureRing` paints a feature in its own `Feature::color` before the ring's
   colours and the strand's, the order `FeatureTrack` takes them in, so one
   annotation is painted alike drawn round or along.
@@ -433,6 +443,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `read::hic` reads Juicer's `.hic` a window at a time, with no dependency:
+  `header_of` for its sequences, their lengths and its resolutions,
+  `contacts` for the cells of the map of a window's sequence with itself at
+  one resolution, as `Pair`s of two bins and a raw count, `resolution_for`
+  for the finest that cuts a window into `BINS` bins or fewer, and `bedpe`
+  for the text `hictk dump --join` prints. Only the header, the master index,
+  one resolution's list of blocks and the blocks that can hold a cell of the
+  window are read, each block in either of its layouts, rows or a dense
+  square, with its bins and counts written short or long. Every window hictk
+  dumps of the fixture it is tested on is read cell for cell, and 380 random
+  windows of three files hictk wrote, 2.96 million cells, matched. Version 9
+  is read, the one hictk writes, and older files are refused by their version
+  with the `hictk convert` commands, through a `.mcool`, that write the same
+  map as version 9; normalised counts are not read.
+- `--pairs` draws a `.hic`, and a `.hic` named on its own is drawn as one:
+  `karyon chr1:20,000,001-22,000,000 contacts.hic`. `--resolution <BASES>`,
+  after `--pairs`, names the resolution, and is refused naming the ones the
+  file holds where it does not hold that one, and after a file that is not a
+  `.hic`, as `BuildError::Unresolved`. Without it the finest that keeps the
+  window to 250 bins is drawn, and a note names it where the file holds
+  finer. A contact map is always a triangle, unless `--style arcs` says
+  otherwise. Over a chromosome of 249 Mb simulated in a `.hic` of 49 MB, a
+  window of 2 Mb reads 0.5 MB of it and draws in 0.02 s and 7 MB, and the
+  whole chromosome at 1 Mb in 0.04 s. A sequence the file names is a place
+  drawn whole, as long as its header says. `TrackSpec` gains the public field
+  `resolution`, so a `TrackSpec` written out field by field needs it.
 - `--circular` draws the place, one whole sequence, as a circle, the `Rings`
   plot only Rust reached: each track a ring in the order written, the first
   outermost, inside a ruler, as `karyon NC_000962.3 --circular genes.gff3
@@ -1451,6 +1487,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A bigWig, a bigBed or a 2bit named for a second file of a track whose own
+  file is piped in, as `--manhattan - --ld signal.bw`, is answered with the
+  command that writes it as text. Whether the file was a pipe was read off
+  the track's own file, so it was told that a pipe cannot be read that way and
+  to name the file it had named.
 - A `FeatureRing` name just past six o'clock, with no room for a letter
   between its feature and the centre line it runs towards, is centred on its
   arc. It came out as a lone ellipsis, which named nothing: katG on the

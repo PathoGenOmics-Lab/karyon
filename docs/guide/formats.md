@@ -32,9 +32,10 @@ and `--split-reads` a window at a time through its `.csi` or its `.bai`, as
 [BCF](#bcf) by `--variants`, `--genotypes` and `--structural` through its
 `.csi`, as the VCF it stands for. Three of UCSC's binary formats are read a
 window at a time through the index each holds: [bigWig](#bigwig),
-[bigBed](#bigbed) and [2bit](#2bit). The readers of all of them take anything
-that reads and seeks rather than a string. CRAM comes in through the tool
-that writes it as text.
+[bigBed](#bigbed) and [2bit](#2bit), and so is Juicer's [`.hic`](#hic), one
+resolution of it. The readers of all of them take anything that reads and
+seeks rather than a string. CRAM, and cooler's `.cool` and `.mcool`, come in
+through the tool that writes them as text.
 
 ## Formats at a glance
 
@@ -57,6 +58,7 @@ that writes it as text.
 | [Matrix table](#the-matrix-table) | a value per sample per site | `--matrix` | 1-based, in the header | `MatrixTrack` |
 | [Table of windows](#the-table-of-windows) | a value per sample per window | `--heatmap` | 0-based, half-open | `MatrixTrack` |
 | [Pairs of positions](#pairs-of-positions) | a value between two places | `--pairs`, `--ld` | PLINK and tables 1-based; BEDPE 0-based, half-open | `PairTrack`, `ManhattanTrack` |
+| [.hic](#hic) | a contact map at several resolutions, indexed | `--pairs` | bins counted from 0, each 0-based and half-open | `PairTrack` |
 | [Selection by site](#selection-by-site) | a test of selection at each site | `--selection` | sites counted from 1 | `SelectionTrack` |
 | [Counts over time](#counts-over-time) | how many of each group at each time, of how many | `--frequencies` | whole units, as written | `SurveillanceTrack` |
 | [Estimates over time](#estimates-over-time) | an estimate at each time, with its interval | `--phylodynamics` | whole units, as written | `PhylodynamicTrack` |
@@ -140,7 +142,7 @@ A sequence named as the place is drawn whole, as long as one of the figure's
 files says it is: a FASTA record's length; a BAM's header, or a SAM's `@SQ`
 `LN`; a VCF's or BCF's `##contig=<ID=NC_000962.3,length=4411532>`; a GFF3's
 `##sequence-region NC_000962.3 1 4411532` among its opening lines; the index of
-a bigWig, a bigBed or a 2bit; or a PAF's query length. With none of them a
+a bigWig, a bigBed or a 2bit; a `.hic`'s header; or a PAF's query length. With none of them a
 figure along the sequence ends where its rows reach, and says so. A circle,
 `--circular`, is refused instead, since it closes where the sequence ends and a
 ring closed early puts every position round it at the wrong angle; write the
@@ -835,13 +837,53 @@ or `nan` is a pair with no answer, kept and not drawn. A value named as a
 correlation, `R2`, `r²`, `R` or `D'`, is keyed from 0 to 1 whatever the
 strongest pair in the window, and drawn as a triangle.
 
-A contact map in its own binary format is not read, and is answered with how
-to write it as the BEDPE above. A `.cool` is one command, `--pairs
-<(cooler dump --join -r REGION contacts.cool)`. A `.mcool` holds several
-resolutions, which `cooler ls` lists, and one is written as
-`contacts.mcool::/resolutions/10000`. A `.hic` from Juicer is turned into a
-`.cool` first, as `hic2cool convert contacts.hic contacts.cool -r 10000`
-does.
+A contact map in Juicer's `.hic` is read as it is, as [the next
+section](#hic) says. One in cooler's `.cool` or `.mcool` is not, and is
+answered with how to write it as the BEDPE above. A `.cool` is one command,
+`--pairs <(cooler dump --join -r REGION contacts.cool)`. A `.mcool` holds
+several resolutions, which `cooler ls` lists, and one is written as
+`contacts.mcool::/resolutions/10000`; `hictk dump --join --resolution 10000 -r
+REGION contacts.mcool` writes the same rows. Both are HDF5, a file system in a
+file: a superblock, object headers, B-trees, heaps and datasets in chunks
+through filters, each in more than one version, and h5py, which cooler writes
+through, writes either of two families of them by the library version it is
+told to keep to. Reading them is a reader of HDF5 of its own, which the
+crate's promise of no dependencies leaves to be written by hand, and reading
+one family alone would make a file read or not by how its writer was set up,
+so a cooler file comes in through the tool that writes its text.
+
+### .hic { #hic }
+
+A Hi-C contact map as Juicer's tools and hictk write it: for each two
+sequences and each size of bin, how many read pairs joined each two bins,
+kept in blocks compressed with zlib behind an index, several resolutions in
+one file. `hictk load` writes one from text, and `hictk zoomify` adds the
+coarser resolutions.
+
+| | |
+|:--|:--|
+| Read by | `--pairs`, or a `.hic` named on its own; `read::hic::contacts`, which hands the cells over as pairs, written out for the reader of pairs as the BEDPE `hictk dump --join` prints, cell for cell, which a test holds it to |
+| What is read | the header, the master index at the end of the file, the list of blocks of the map of the window's sequence with itself at one resolution, and the blocks of it that can hold a cell of the window, none other |
+| Resolution | the one `--resolution` names; without it, the finest that cuts the window into 250 bins or fewer, which a note names where the file holds finer, or the coarsest where none does |
+| Coordinates | bins counted from 0 along the sequence: bin n at r bases a bin is n × r to (n + 1) × r, 0-based and half-open, and the last bin stops where the sequence does. A window holds every bin it touches, as `hictk dump -r` takes one |
+| Counts | raw, as observed, as `hictk dump` prints them with no `--balance`: the normalisations a file may carry beside them, KR, VC or SCALE, are not read |
+| Not drawn | contacts between two sequences, since a window is on one; the `All` a file of several resolutions opens with, which is every sequence end to end and no sequence of the genome; resolutions in restriction fragments |
+| Refused | a file of another version than 9, naming its version and the two `hictk convert` commands that write the same map as version 9; a sequence the file does not have, naming those it does, where it is the figure's one place; a resolution it does not hold, naming those it does; a file damaged or cut short; the file compressed with gzip, with the `gunzip -k` that gives it back; `--format`; `--resolution` after a file that is not a `.hic`; the file on standard input, since it is read out of order |
+
+A block is a stretch of the diagonal at a distance from it, each band of
+distance twice as wide as the one before, so a window, a triangle on the
+diagonal, reads the stretches under it out to the band of its own width and
+no more. A cell that holds nothing is a count of nought, not a pair left
+unmeasured, so a `.hic` is always drawn as a triangle, unless `--style arcs`
+says otherwise. Counts fall by orders of magnitude away from the diagonal,
+which `--log` spreads.
+
+Version 9 is read, the version hictk writes. An older file lays its blocks on
+a grid rather than along the diagonal and writes its numbers in other widths,
+and none could be made to test a reader against, so it is refused by its
+version rather than read on trust: `hictk convert contacts.hic contacts.mcool`
+and then `hictk convert contacts.mcool contacts.v9.hic` write the same map as
+version 9. `hictk convert` will not write a `.hic` from a `.hic` directly.
 
 ### Selection by site { #selection-by-site }
 

@@ -21,8 +21,8 @@
 use crate::{Region, Strand};
 
 use super::{
-    align, bcf, bigbed, bigwig, bisulfite, clade, domain, interval, locus, methyl, point, signal,
-    split, structural, table, twobit,
+    align, bcf, bigbed, bigwig, bisulfite, clade, domain, hic, interval, locus, methyl, point,
+    signal, split, structural, table, twobit,
 };
 
 /// 0-based 99, which every fixture in this file is written to land on.
@@ -299,6 +299,28 @@ fn audit_bcf_one_base() {
         bytes.windows(8).any(|window| window == words)
     };
     assert!(stored(99) && !stored(100));
+}
+
+#[test]
+fn audit_hic_one_bin() {
+    // Bin 100 at 1 kb is bases 100,000 to 101,000, 0-based and half-open, as
+    // hictk dump prints it: 1-based, 100,001 to 101,000. A window of its
+    // first base alone holds it, and one of the base before it does not.
+    let bytes = include_bytes!("fixtures/hic/contacts.hic");
+    let cells = |locus: &str| {
+        hic::contacts(std::io::Cursor::new(&bytes[..]), &region(locus), 1_000).unwrap()
+    };
+    let first = cells("chr1:100,001-100,001");
+    assert_eq!(
+        first,
+        [crate::Pair::spans(
+            (100_000, 101_000),
+            (100_000, 101_000),
+            1.0
+        )]
+    );
+    assert_eq!(cells("chr1:101,000-101,000"), first);
+    assert!(cells("chr1:100,000-100,000").is_empty());
 }
 
 #[test]

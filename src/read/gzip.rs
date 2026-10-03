@@ -124,7 +124,7 @@ pub fn zlib(data: &[u8], most: usize) -> Result<Vec<u8>, ReadError> {
 
 /// The Adler-32 a zlib stream ends with: two sums modulo the largest prime
 /// under 2^16, kept apart and joined at the end.
-fn adler32(data: &[u8]) -> u32 {
+pub(crate) fn adler32(data: &[u8]) -> u32 {
     const PRIME: u32 = 65_521;
     let (mut a, mut b) = (1u32, 0u32);
     // 5,552 bytes is the most that can be added before b could pass 2^32, so
