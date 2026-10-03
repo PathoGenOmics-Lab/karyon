@@ -316,9 +316,9 @@ fn the_same_figure_writes_the_same_bytes() {
 }
 
 /// A PDF names its faces and embeds none, which is what a journal's preflight
-/// meets: `pdffonts` lists every face with `no` under `emb`. Two readers who
-/// wrote a PDF for a paper learned it from that check, since the guide said it
-/// in a clause, and one took the locus in Courier for a face gone missing. So
+/// meets: `pdffonts` lists every face with `no` under `emb`. Two readers wrote
+/// a PDF, one for a paper, with no word of it, since the guide said it in a
+/// clause, and one took the locus in Courier for a face gone missing. So
 /// the two pages that describe a PDF are held to saying, plainly, which faces
 /// it names and that none is embedded, what that means for a preflight, and
 /// the Ghostscript line that embeds them, against what the writer writes.

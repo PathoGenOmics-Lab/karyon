@@ -1327,8 +1327,8 @@ mod tests {
         assert!(variants.contains("--color <HEX>"), "{variants}");
     }
 
-    /// What three readers looked for on the page they started from and found
-    /// on another or nowhere. `--shade` was offered on the whole-genome page
+    /// What two readers looked for on the page they started from and found on
+    /// another or nowhere. `--shade` was offered on the whole-genome page
     /// alone; the codons row did not say its CDS comes from the annotation on
     /// the line, so `genes.gff3` was kept there by guesswork; and a page
     /// titled `Many samples in windows` was opened for sample sheets and was a
