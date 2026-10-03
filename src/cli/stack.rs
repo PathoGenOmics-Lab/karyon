@@ -2128,6 +2128,7 @@ fn build_one(
             genotyped,
             colors: &invocation.colors,
             width: invocation.width.unwrap_or(900.0),
+            gene: gene.map(String::as_str),
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -2147,6 +2148,7 @@ fn build_one(
                         genotyped,
                         colors: &invocation.colors,
                         width: invocation.width.unwrap_or(900.0),
+                        gene: gene.map(String::as_str),
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -4493,6 +4495,9 @@ struct Context<'a> {
     /// How wide the figure is drawn, in pixels, which says how many bases a
     /// pixel holds and so which zoom level of a bigWig to read.
     width: f64,
+    /// The gene the figure is placed on by its name, as its annotation
+    /// spells it, which an annotation drawn a gene at a time says it merged.
+    gene: Option<&'a str>,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -7647,6 +7652,24 @@ fn built(
             let features = wrap(name, &path, read(&text, region, format))?;
             if features.is_empty() {
                 return Err(empty("features"));
+            }
+            // A gene the figure is placed on, drawn once for transcripts that
+            // differ, says so once: three isoforms drawn as one model printed
+            // nothing, and the flag that draws them apart was found only in
+            // the help on features. Only a gene drawn a gene at a time counts
+            // the transcripts it merged, so `--isoforms` says nothing here.
+            let merged = context.gene.and_then(|gene| {
+                features
+                    .iter()
+                    .find(|feature| feature.name.as_deref() == Some(gene))
+                    .filter(|feature| feature.transcripts > 1)
+                    .map(|feature| (gene, feature.transcripts))
+            });
+            if let Some((gene, count)) = merged {
+                files.note(&format!(
+                    "{gene}: {count} transcripts drawn as one model; --isoforms after {path} \
+                     draws a row each"
+                ));
             }
             let mut track = FeatureTrack::new(features);
             if let Some(px) = spec.row_height {
@@ -13189,6 +13212,35 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .map(String::from)
             .collect();
         assert!(parse(&args).is_err());
+    }
+
+    /// A gene the figure is placed on, drawn as one model of several
+    /// transcripts, says so once and names the flag that draws them apart;
+    /// a gene of one transcript, a place written as a span, and a figure
+    /// that asked for the transcripts say nothing.
+    #[test]
+    fn a_placed_gene_drawn_as_one_model_names_isoforms() {
+        let held = [("genes.gff3", ISOFORMS)];
+        let (svg, notes) = drawn_noting("GENE1 genes.gff3", &held);
+        svg.unwrap();
+        assert_eq!(
+            notes,
+            ["GENE1: 2 transcripts drawn as one model; --isoforms after genes.gff3 draws a \
+              row each"]
+        );
+        for line in ["GENE1 genes.gff3 --isoforms", "7:1-10,000 genes.gff3"] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
+        let single: String = ISOFORMS
+            .lines()
+            .filter(|line| !line.contains("t2"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let (svg, notes) = drawn_noting("GENE1 genes.gff3", &[("genes.gff3", single.as_str())]);
+        svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     /// The depth of two samples, one reaching 97 and one 48, over the first

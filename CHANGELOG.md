@@ -1541,6 +1541,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A figure placed on a gene's name whose annotation draws the gene once for
+  several transcripts says so on standard error, once, naming the flag:
+  `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
+  draws a row each`. Three isoforms were merged into one model with nothing
+  printed, and `--isoforms` was found only in `karyon help features`. No
+  committed figure moves.
 - A sequence drawn as far as a table of windows reaches is not said to stop
   short of its end where the table's last window is cut short of the others,
   as `bedtools makewindows` and `mosdepth --by` cut the one at a sequence's
