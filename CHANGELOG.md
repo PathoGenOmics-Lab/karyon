@@ -1520,6 +1520,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `SelectionTrack` names the sites past its threshold over their marks while
+  thirty or fewer are in view, sites whose names would touch sharing one, as
+  `58, 59, 63-65`, and draws a ratio held at an end of the effect tier open,
+  with that end written `ω ≥ 8` or `≤ 1/8`. Nine diamonds of a FEL scan had
+  no number on any, so the sites were worked out with awk, and sites of ω
+  8.80 and 8.91 stood at `ω 8` beside 44 under an eighth at `1/8`, each
+  reading as exactly the end. The evidence tier keeps a line at its top for
+  the names, so every selection figure with a site past its threshold moves.
 - A scan coloured by linkage draws a variant the linkage file gives no r²
   for as an open ring in the muted ink, keys it `no r² (5)` with the count in
   view, and says how many in its notes, which the command line prints as `5

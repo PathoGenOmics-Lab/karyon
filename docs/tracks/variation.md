@@ -622,9 +622,9 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 
 #### Notes
 
-A site that crosses the threshold is drawn as a larger diamond instead of a small circle. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
+A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
 
-Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry.
+Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry. A ratio past either end of the effect tier is held at that end and drawn open, and the end is then written as a bound, `ω ≥ 8` or `≤ 1/8`, so a held mark does not read as exactly the end.
 
 `SelectionSite::episodic_rates(beta_minus, beta_plus, weight)` keeps the two nonsynonymous rate classes of an episodic model and the weight of the positive one; the evidence mark gets a small two-part capsule and the tooltip keeps all three numbers. A class with no ω to draw is counted by `undrawable_rate_class_count()` rather than painted from an assumed denominator.
 
