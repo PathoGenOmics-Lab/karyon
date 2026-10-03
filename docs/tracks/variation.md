@@ -226,7 +226,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome |
+| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome. Named on its own, `tumour.cns` is labelled `tumour copy number`, apart from a depth `tumour.bedgraph` beside it, and a key under the figure names what it draws |
 | Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence) |
 
 === "Rust"
@@ -270,6 +270,8 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 #### Notes
 
 Where balanced sits has no default, in `at_ploidy` or on the command line, where `--ploidy` is required. The crate does not know what it is drawing, and a rule in the wrong place does not merely mis-scale the ladder: it swaps every gain for a loss. `diploid` and `haploid` say it for you.
+
+The key is the marks drawn: `legend` gives the whole track's, and the `key` a figure gathers gives the ones the segments in view use, so a zoom into a gain is not keyed with a loss it left out. The thick bar of a balanced total is keyed `total copies` as a line, the thin bar of the minor allele `minor allele` as a line half as thick (`Marker::ThinLine`), and the lane's states only while the lane is shown. A tooltip says `1 copy` and `2 copies`.
 
 A level is a bar drawn at the level, not a fill from a line to it. A window track fills from its baseline, so a segment called exactly at the ploidy draws nothing, and a balanced segment is most of a genome: its quiet arms would look the same as arms nobody called. That is why this is not a [WindowTrack](signal-sequence.md#windowtrack).
 

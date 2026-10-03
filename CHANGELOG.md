@@ -461,6 +461,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Marker::ThinLine`, a key drawn as a stroke half as thick as a line, for a
+  line drawn thinner than another of its colour.
 - `--color` after a variants track paints every call that colour, in place of
   a colour each consequence, and each consequence keeps its shape, on the
   marks and in the key; on a circle the ticks take it and the key names no
@@ -1532,6 +1534,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A copy-number track is keyed with what it draws, and named apart from the
+  depth of the same sample. `CopyNumberTrack` answers `Track::key` with the
+  marks the segments in view use, which a figure gathers: `total copies` for
+  the thick grey bar of a balanced total, `minor allele` for the thinner one,
+  keyed half as thick, then gain, loss and the states of the lane while it is
+  shown. `tumour.bedgraph tumour.cns --ploidy 2` explained none of them,
+  though a genotypes or pairs track beside it got a key, and labelled both
+  tracks `tumour`; a segment table named on its own is now `tumour copy
+  number`. A tooltip says `1 copy (1 + 0)`, not `1 copies`. The Start here
+  `genome-copies.svg` gains the key and grows from 208 to 236.5 px, and the
+  tooltips of `example-copy-number.svg` and `genome-copies.svg` that said
+  `1 copies` say `1 copy`.
 - A colour, a height, or the top or the log of a scale, written after a track
   that could have one, is refused by that track's name, and not sent to an
   earlier track that takes it. `--color` after `calls.vcf.gz` said to write it

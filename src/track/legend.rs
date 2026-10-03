@@ -55,6 +55,11 @@ pub enum Marker {
     Symbol(Symbol),
     /// A short stroke, for anything drawn as a line.
     Line,
+    /// A stroke half as thick as [`Marker::Line`]'s, for a line drawn
+    /// thinner than another of the same colour, as a copy number's minor
+    /// allele under its total: two strokes of one width and one colour are a
+    /// key that cannot say which line is which.
+    ThinLine,
     /// An empty square with an edge, for anything marked by being outlined
     /// rather than by being filled.
     Outline,
@@ -402,6 +407,14 @@ impl Legend {
                                 color,
                                 (self.swatch / 4.0).max(1.5),
                             ),
+                            Marker::ThinLine => svg.line(
+                                at,
+                                middle,
+                                at + self.swatch,
+                                middle,
+                                color,
+                                (self.swatch / 8.0).max(0.75),
+                            ),
                             Marker::Area => {
                                 svg.rect_rounded(
                                     at,
@@ -688,6 +701,26 @@ mod tests {
             svg[edge..edge + disc].matches("<circle").count() == 1,
             "{svg}"
         );
+    }
+
+    /// A thin line is keyed half as thick as a line, so a key holding both
+    /// in one colour says which is which.
+    #[test]
+    fn a_thin_line_is_keyed_thinner_than_a_line() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(
+                Legend::new()
+                    .line("total", "#777777")
+                    .marked("minor", "#777777", Marker::ThinLine),
+            ))
+            .to_svg();
+        let widths: Vec<&str> = svg
+            .split("stroke=\"#777777\" stroke-width=\"")
+            .skip(1)
+            .map(|rest| &rest[..rest.find('"').unwrap()])
+            .collect();
+        assert_eq!(widths, ["2.5", "1.25"], "{svg}");
     }
 
     #[test]

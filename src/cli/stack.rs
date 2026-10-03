@@ -7048,6 +7048,12 @@ fn default_label(spec: &TrackSpec) -> Option<String> {
     if spec.kind == Kind::Genotypes {
         return Some(format!("{stem} genotypes"));
     }
+    // The same for a segment table, drawn as often as not under the depth it
+    // was called from, and named alike: `tumour.bedgraph tumour.cns` gave two
+    // bands both called `tumour`.
+    if spec.kind == Kind::CopyNumber {
+        return Some(format!("{stem} copy number"));
+    }
     Some(stem.to_string())
 }
 
@@ -12747,6 +12753,33 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         }
     }
 
+    /// A segment table is keyed with the marks it draws, across a genome and
+    /// over a place, and named apart from the depth of the same sample: the
+    /// two were both `tumour`, and nothing said which grey line was which.
+    #[test]
+    fn a_copy_number_track_is_keyed_and_named_apart_from_its_depth() {
+        let depth = "1\t0\t1000\t60\n2\t0\t1000\t30\n";
+        let cns = "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\n\
+                   1\t0\t1000\t-\t0\t2\t1\t1\n\
+                   2\t0\t1000\t-\t-1\t1\t1\t0\n";
+        let held = [("tumour.bedgraph", depth), ("tumour.cns", cns)];
+        let keyed = |svg: &str, said: &str| svg.contains(&format!("<title>{said}, colour "));
+        let whole = drawn_from("tumour.bedgraph tumour.cns --ploidy 2", &held).unwrap();
+        let one = drawn_from("2 tumour.bedgraph tumour.cns --ploidy 2", &held).unwrap();
+        for svg in [&whole, &one] {
+            assert!(svg.contains(">tumour copy number</text>"), "{svg}");
+            assert!(svg.contains(">tumour</text>"), "{svg}");
+            for said in ["minor allele", "loss", "heterozygosity lost"] {
+                assert!(keyed(svg, said), "no {said} in {svg}");
+            }
+            assert!(!keyed(svg, "gain"), "{svg}");
+        }
+        // Balanced on 1 alone, which the place 2 leaves out.
+        assert!(keyed(&whole, "total copies"), "{whole}");
+        assert!(!keyed(&one, "total copies"), "{one}");
+        assert!(one.contains(", 1 copy (1 + 0), heterozygosity lost</title>"), "{one}");
+    }
+
     /// A segment table with no place is drawn across every sequence it
     /// calls, at the ploidy it was given, for the one sample asked for, and
     /// no riser joins the level one sequence ends on to the next one's.
@@ -12770,7 +12803,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         );
         // Each segment where it is on its own sequence, and none of them a
         // riser from one copy at the end of 1 to four at the start of 2.
-        assert!(svg.contains("<title>1:1 to 2,000, 1 copies"), "{svg}");
+        assert!(svg.contains("<title>1:1 to 2,000, 1 copy,"), "{svg}");
         assert!(svg.contains("<title>2:1 to 3,000, 4 copies"), "{svg}");
         let vertical = svg
             .split("<line ")
