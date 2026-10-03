@@ -443,17 +443,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outside it; windows are the mean of each arc, read either side of 0; calls
   are a `MarkerRing` coloured by consequence; structural calls are their
   footprints, with a chord across the middle for each breakend join on the
-  sequence; and a FASTA is its GC skew. The key under the circle names each
-  ring, outside in, with what its colours mean, and each ring's name is its
-  tooltip. `--same-scale` puts every ring of depth on one reach. The circle is
-  as long as a FASTA, a BAM, a VCF's `##contig` or a GFF3's
-  `##sequence-region` says, or a span written from base 1; a sequence no file
-  gives the length of is refused rather than closed where its rows stop, and
-  so are a gene, a span from anywhere else, several places, a track with no
-  ring, named, and an option a ring would leave unsaid, `--log`, `--max`,
-  `--style` and `--shade` among them. The playground draws circles as a shell
-  does and has an example of one, and the page on a whole sequence draws one
-  from the documentation's own files, in `circle.svg`.
+  sequence, between the two bases a band of the same file names; and a FASTA
+  is its GC skew. The key under the circle names each ring, outside in, with
+  what its colours mean, and each ring's name is its tooltip. `--same-scale`
+  puts every ring of depth on one reach. The circle is as long as a FASTA, a
+  BAM, a VCF's `##contig` or a GFF3's `##sequence-region` says, or a span
+  written from base 1, checked against every length the files' headers and
+  indexes state and read no further; a sequence no file gives the length of
+  is refused rather than closed where its rows stop, and so are one that two
+  files give different lengths, naming each file and its length, a gene, a
+  span from anywhere else, several places, a track with no ring, named, and
+  an option a ring would leave unsaid, `--log`, `--max`, `--style` and
+  `--shade` among them. The playground draws circles as a shell does and has
+  an example of one, and the page on a whole sequence draws one from the
+  documentation's own files, in `circle.svg`.
 - `Ring::label`, with `label` on `AxisRing`, `FeatureRing`, `SignalRing` and
   `MarkerRing`: a named ring is one group under its name, so a pointer
   anywhere on it says which ring it is, and the plot's alt text names its

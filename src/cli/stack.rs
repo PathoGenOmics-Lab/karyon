@@ -395,8 +395,20 @@ pub enum CircleRefusal {
         sequence: String,
         /// The end written.
         written: u64,
-        /// The length a file states.
+        /// The length the files state.
         stated: u64,
+    },
+    /// A sequence the files give different lengths.
+    ///
+    /// A figure along it takes the first file's word. A circle closed at
+    /// either length draws the other file's rows round the wrong angles, and
+    /// which one it closed at was the order the files were written in.
+    Lengths {
+        /// The sequence.
+        sequence: String,
+        /// Each file that states a length, and the length, in the order of
+        /// the tracks.
+        said: Vec<(String, u64)>,
     },
     /// A file named on its own that turned out, once read, to be a kind with
     /// no ring: a `.bed` that is modkit's bedMethyl.
@@ -446,6 +458,18 @@ impl fmt::Display for CircleRefusal {
                 group_thousands(*written),
                 group_thousands(*stated)
             ),
+            CircleRefusal::Lengths { sequence, said } => {
+                let said: Vec<String> = said
+                    .iter()
+                    .map(|(file, length)| format!("{file} says {} bases", group_thousands(*length)))
+                    .collect();
+                write!(
+                    f,
+                    "a circle closes where {sequence} ends, and the files disagree on where \
+                     that is: {}; draw it from files that agree on how long {sequence} is",
+                    joined(&said)
+                )
+            }
             CircleRefusal::NoRing { path, kind } => write!(
                 f,
                 "{path} holds what {} draws, once read, and --circular draws {} tracks as \
@@ -1407,34 +1431,34 @@ fn circle_rings(
     Ok(built)
 }
 
-/// The sequence a circle is drawn round, whole: named, as long as a file
-/// says it is, or written from base 1, as long as written.
+/// The sequence a circle is drawn round, whole: named, as long as the files
+/// say it is, or written from base 1, as long as written.
 fn whole_sequence(invocation: &Invocation, files: &mut dyn Files) -> Result<Region, BuildError> {
     match (&invocation.region, &invocation.named) {
         (Some(written), _) => {
             // Written from base 1, which the parser has checked, it is the
             // whole of a sequence that long, unless a file says the sequence
             // runs elsewhere: a circle closed at the wrong base draws every
-            // ring round the wrong angle, and looks right.
-            if let Ok(Placed {
-                region: stated,
-                gene: None,
-                reached: None,
-                ..
-            }) = place(written.seq(), invocation, files)
-            {
-                if stated.end() != written.end() {
-                    return Err(BuildError::Uncircled(CircleRefusal::Length {
-                        sequence: written.seq().to_string(),
-                        written: written.end(),
-                        stated: stated.end(),
-                    }));
+            // ring round the wrong angle, and looks right. Every length the
+            // files state is checked, read from their headers and indexes
+            // alone; a file that will not open is its track's to report.
+            if let Ok(surveyed) = survey(written.seq(), invocation, files, Asked::Lengths) {
+                if let Some(stated) = agreed(written.seq(), &surveyed)? {
+                    if stated != written.end() {
+                        return Err(BuildError::Uncircled(CircleRefusal::Length {
+                            sequence: written.seq().to_string(),
+                            written: written.end(),
+                            stated,
+                        }));
+                    }
                 }
             }
             Ok(written.clone())
         }
         (None, Some(name)) => {
-            let placed = place(name, invocation, files)?;
+            let surveyed = survey(name, invocation, files, Asked::Place)?;
+            agreed(name, &surveyed)?;
+            let placed = located(name, invocation, files, surveyed)?;
             if let Some(gene) = placed.gene {
                 return Err(BuildError::Uncircled(CircleRefusal::Gene {
                     name: gene,
@@ -1453,6 +1477,38 @@ fn whole_sequence(invocation: &Invocation, files: &mut dyn Files) -> Result<Regi
         (None, None) => Err(BuildError::Placeless(
             crate::cli::args::ArgError::CircleWithoutPlace,
         )),
+    }
+}
+
+/// The one length the files state for `sequence`, `None` where none states
+/// any, and refused where two disagree.
+///
+/// A figure along a sequence takes the first file's word for it. A circle
+/// cannot: closed at the first file's length, a VCF called on a sequence half
+/// as long as the FASTA beside it cut every ring at its end, and with the
+/// FASTA named first the same files closed it at the other, each without a
+/// word, so the circle drawn depended on the order the files were written in.
+fn agreed(sequence: &str, surveyed: &Survey<'_>) -> Result<Option<u64>, BuildError> {
+    let mut said: Vec<(String, u64)> = Vec::new();
+    for stated in surveyed
+        .lengths
+        .iter()
+        .filter(|stated| stated.sequence == sequence)
+    {
+        let pair = (stated.file.clone(), stated.length);
+        if !said.contains(&pair) {
+            said.push(pair);
+        }
+    }
+    match said.split_first() {
+        None => Ok(None),
+        Some(((_, first), rest)) if rest.iter().all(|(_, length)| length == first) => {
+            Ok(Some(*first))
+        }
+        Some(_) => Err(BuildError::Uncircled(CircleRefusal::Lengths {
+            sequence: sequence.to_string(),
+            said,
+        })),
     }
 }
 
@@ -1783,11 +1839,13 @@ fn ring_of(
                     kinds.push(call.kind);
                 }
                 if call.kind == crate::SvKind::Translocation {
-                    chords.push((
-                        (call.start, call.start + 1),
-                        (call.end, call.end + 1),
-                        color,
-                    ));
+                    // A join is read as the span from the base after its POS
+                    // to its mate's base, and a band names the first and the
+                    // last of it, so the chord joins those two. Taken from
+                    // the span's end, the chord's target was the base after
+                    // the mate, which neither the file nor the band names.
+                    let last = call.end.max(call.start + 1);
+                    chords.push(((call.start, call.start + 1), (last - 1, last), color));
                     continue;
                 }
                 let called = match &call.name {
@@ -3296,14 +3354,87 @@ fn called_by<'a>(invocation: &'a Invocation, name: &'a str) -> Vec<&'a str> {
 /// name at two places is refused with both, and a name at none with the
 /// nearest names the annotation has.
 fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<Placed, BuildError> {
-    let mut lengths: Vec<(String, u64)> = Vec::new();
-    let mut spans: Vec<(String, u64, u64)> = Vec::new();
-    let mut names: Vec<String> = Vec::new();
-    // How far each file's rows reach, in the order of the tracks, or the
-    // file to read for it once nothing else has placed the figure.
-    let mut reaches: Vec<Reach<'_>> = Vec::new();
-    let mut annotated = false;
-    let mut spelled: Option<String> = None;
+    let surveyed = survey(name, invocation, files, Asked::Place)?;
+    located(name, invocation, files, surveyed)
+}
+
+/// What [`survey`] reads a figure's files for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// Where a word is: a sequence as long as a file says, a gene, or a
+    /// sequence as far as the rows reach.
+    Place,
+    /// How long the files say a sequence is, and nothing more, which is all
+    /// a span written from base 1 is checked against. No gene is looked up
+    /// and no file is read whole for how far its rows reach: a VCF read
+    /// through its index with no `##contig` was read whole for its reach,
+    /// which was then thrown away, so a circle of one sequence cost as much
+    /// as every row the file holds on the others.
+    Lengths,
+}
+
+/// A sequence's length as one file states it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stated {
+    /// The sequence, under the name the figure gives it.
+    sequence: String,
+    length: u64,
+    /// The file that says so, as the figure calls it.
+    file: String,
+}
+
+/// What a figure's files say of a word, each read once, for [`located`].
+struct Survey<'a> {
+    /// Every length a file states, in the order of the tracks.
+    lengths: Vec<Stated>,
+    /// Each row that goes by the word as a gene's name: its sequence and
+    /// where it is.
+    spans: Vec<(String, u64, u64)>,
+    /// The names the annotations give, for a word that is none of them.
+    names: Vec<String>,
+    /// How far each file's rows reach, in the order of the tracks, or the
+    /// file to read for it once nothing else has placed the figure.
+    reaches: Vec<Reach<'a>>,
+    /// Whether any annotation was read for a gene.
+    annotated: bool,
+    /// The gene's name as its annotation spells it.
+    spelled: Option<String>,
+}
+
+/// Each sequence `source` gives the length of, under the name the figure
+/// gives it, with the file.
+fn stated_by(
+    invocation: &Invocation,
+    source: &Source,
+    held: impl IntoIterator<Item = (String, u64)>,
+) -> Vec<Stated> {
+    let file = called(source);
+    held.into_iter()
+        .map(|(sequence, length)| Stated {
+            sequence: renamed(invocation, sequence),
+            length,
+            file: file.clone(),
+        })
+        .collect()
+}
+
+/// Reads the figure's files for what they say of `name`, as far as `asked`
+/// needs.
+fn survey<'a>(
+    name: &str,
+    invocation: &'a Invocation,
+    files: &mut dyn Files,
+    asked: Asked,
+) -> Result<Survey<'a>, BuildError> {
+    let placing = asked == Asked::Place;
+    let mut found = Survey {
+        lengths: Vec::new(),
+        spans: Vec::new(),
+        names: Vec::new(),
+        reaches: Vec::new(),
+        annotated: false,
+        spelled: None,
+    };
     let aliases = called_by(invocation, name);
     let open_error = |spec: &TrackSpec, source: &Source, cause: io::Error| BuildError::Open {
         track: spec.kind.flag(),
@@ -3319,13 +3450,14 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
             // where nothing else places the figure, as a file read through
             // its index is.
             if let Some((header, _)) = own.then(|| bcf(files, source)).flatten() {
-                lengths.extend(
-                    header
-                        .contigs
-                        .into_iter()
-                        .filter_map(|(name, length)| Some((renamed(invocation, name), length?))),
-                );
-                reaches.push(Reach::Later(spec, source));
+                let held = header
+                    .contigs
+                    .into_iter()
+                    .filter_map(|(sequence, length)| Some((sequence, length?)));
+                found.lengths.extend(stated_by(invocation, source, held));
+                if placing {
+                    found.reaches.push(Reach::Later(spec, source));
+                }
                 continue;
             }
             let text = match files
@@ -3333,13 +3465,14 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 .map_err(|cause| open_error(spec, source, cause))?
             {
                 Some(held) => {
-                    lengths.extend(held.into_iter().map(|(n, l)| (renamed(invocation, n), l)));
+                    found.lengths.extend(stated_by(invocation, source, held));
                     // A bigBed names its sequences in its index and its genes
                     // in its rows, which are read whole only where the name
                     // is no sequence any file has named so far.
-                    let gene = matches!(spec.kind, Kind::Features | Kind::Loci)
+                    let gene = placing
+                        && matches!(spec.kind, Kind::Features | Kind::Loci)
                         && own
-                        && !lengths.iter().any(|(sequence, _)| sequence == name);
+                        && !found.lengths.iter().any(|stated| stated.sequence == name);
                     match gene.then(|| annotation(files, source)).flatten() {
                         Some(rows) => rows,
                         None => continue,
@@ -3352,16 +3485,23 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                 // and again by its track, the calls beside the annotation a
                 // gene is found in cost 8.9 s and 1.3 GB for one gene of a
                 // VCF of 825 MB, which now takes 7 ms. An index that is not
-                // trusted is said by the track, as `slurp` reads it.
-                None if own && through_index(spec.kind) && spec.kind != Kind::Features => {
+                // trusted is said by the track, as `slurp` reads it. An
+                // annotation is read whole for a gene's name, and for its
+                // header alone where no gene is looked up.
+                None if own
+                    && through_index(spec.kind)
+                    && (spec.kind != Kind::Features || !placing) =>
+                {
                     match indexed(files, source) {
-                        Ok(found) => {
-                            lengths.extend(
-                                sequence_lengths(&found.head.text)
-                                    .into_iter()
-                                    .map(|(n, l)| (renamed(invocation, n), l)),
-                            );
-                            reaches.push(Reach::Later(spec, source));
+                        Ok(opened) => {
+                            found.lengths.extend(stated_by(
+                                invocation,
+                                source,
+                                sequence_lengths(&opened.head.text),
+                            ));
+                            if placing {
+                                found.reaches.push(Reach::Later(spec, source));
+                            }
                             continue;
                         }
                         Err(_) => match files.text(source) {
@@ -3376,42 +3516,60 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
                     Err(_) => continue,
                 },
             };
-            lengths.extend(
-                sequence_lengths(&text)
-                    .into_iter()
-                    .map(|(n, l)| (renamed(invocation, n), l)),
-            );
+            found
+                .lengths
+                .extend(stated_by(invocation, source, sequence_lengths(&text)));
             // A PAF writes the length of every query it aligns, which is the
             // sequence a synteny figure or a dot plot is drawn along. It was
             // not asked, so a figure placed on its own query was refused.
             if matches!(spec.kind, Kind::Synteny | Kind::Dotplot) && own {
-                lengths.extend(
-                    paf_query_lengths(&text)
-                        .into_iter()
-                        .map(|(n, l)| (renamed(invocation, n), l)),
-                );
+                found
+                    .lengths
+                    .extend(stated_by(invocation, source, paf_query_lengths(&text)));
+            }
+            if !placing {
+                continue;
             }
             if matches!(spec.kind, Kind::Features | Kind::Loci) && own {
-                annotated = true;
-                let found = read::interval::named(&text, name);
-                spelled = spelled.or(found.spelled);
-                spans.extend(
-                    found
+                found.annotated = true;
+                let named = read::interval::named(&text, name);
+                found.spelled = found.spelled.or(named.spelled);
+                found.spans.extend(
+                    named
                         .spans
                         .into_iter()
                         .map(|(sequence, start, end)| (renamed(invocation, sequence), start, end)),
                 );
-                names.extend(found.names);
+                found.names.extend(named.names);
             }
-            reaches.push(Reach::Read(
+            found.reaches.push(Reach::Read(
                 reached_by(spec.kind, &text, &aliases),
                 called(source),
             ));
         }
     }
+    Ok(found)
+}
 
-    if let Some((_, length)) = lengths.iter().find(|(sequence, _)| sequence == name) {
-        let region = Region::new(name, 0, (*length).max(1))
+/// Where a word is, from what the figure's files say of it: [`place`], once
+/// they are read.
+fn located(
+    name: &str,
+    invocation: &Invocation,
+    files: &mut dyn Files,
+    surveyed: Survey<'_>,
+) -> Result<Placed, BuildError> {
+    let Survey {
+        lengths,
+        mut spans,
+        names,
+        reaches,
+        annotated,
+        spelled,
+    } = surveyed;
+    let aliases = called_by(invocation, name);
+    if let Some(stated) = lengths.iter().find(|stated| stated.sequence == name) {
+        let region = Region::new(name, 0, stated.length.max(1))
             .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
         return Ok(Placed {
             region,
@@ -3436,8 +3594,8 @@ fn place(name: &str, invocation: &Invocation, files: &mut dyn Files) -> Result<P
             let margin = ((end - start) / 10).max(100);
             let length = lengths
                 .iter()
-                .find(|(named, _)| named == sequence)
-                .map(|(_, length)| *length);
+                .find(|stated| stated.sequence == *sequence)
+                .map(|stated| stated.length);
             let stop = (end + margin).min(length.unwrap_or(u64::MAX));
             let region = Region::new(sequence, start.saturating_sub(margin), stop.max(start + 1))
                 .map_err(|_| nowhere(name, invocation, files, &names, annotated))?;
@@ -15249,6 +15407,29 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
         );
     }
 
+    /// A circle written from base 1 is checked against the lengths the files
+    /// state in their headers and indexes, and reads no file whole for how
+    /// far its rows reach: a VCF with an index and no `##contig` was read
+    /// whole, every row on every other sequence, for a reach then thrown away.
+    /// An annotation is checked by its header, and refused there.
+    #[test]
+    fn a_circle_written_from_base_1_reads_an_indexed_file_over_itself_alone() {
+        let dir = Scratch::new("tabix-circle");
+        let paths = indexed_into(&dir, &["seven.vcf.gz", "genes.gff3.gz"], &[".tbi"]);
+        let (drawn, whole, _) = watched(&format!("chr1:1-1,000 --circular {}", paths[0]));
+        assert!(drawn.contains("chr1, 1,000 bases"), "{drawn}");
+        assert!(whole.is_empty(), "read whole: {whole:?}");
+        // As a band over the same span reads it.
+        assert!(watched(&format!("chr1:1-1,000 {}", paths[0])).1.is_empty());
+        // The GFF3 says chr1 is 2,000,000 bases in its header.
+        let (refused, whole, _) = watched(&format!("chr1:1-1,000 --circular {}", paths[1]));
+        assert!(
+            refused.contains("closes the circle at 1,000, and the files say chr1 is 2,000,000"),
+            "{refused}"
+        );
+        assert!(whole.is_empty(), "read whole: {whole:?}");
+    }
+
     /// A refusal of a row over the window names its line in the file, and not
     /// its line in the window's text: the track is read again whole for it.
     #[test]
@@ -16867,6 +17048,126 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert!(circle("chrC:1-100,000 --circular genes.gff3", &[]).is_ok());
     }
 
+    /// Two files that give a sequence different lengths are refused, each
+    /// named with its length, whichever is written first and whether the
+    /// sequence is named or written from base 1. The circle was closed at the
+    /// first file's length, so the same files drew it at 50 kb one way round
+    /// and 100 kb the other, and a span was checked against the first alone.
+    #[test]
+    fn a_circle_the_files_give_two_lengths_is_refused_in_either_order() {
+        let short = "##fileformat=VCFv4.2\n##contig=<ID=chrC,length=50000>\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chrC\t1500\t.\tC\tT\t60\tPASS\t.\n";
+        let short_first = [("short.vcf", 50_000), ("genes.gff3", 100_000)];
+        let genes_first = [("genes.gff3", 100_000), ("short.vcf", 50_000)];
+        for (line, order) in [
+            ("chrC --circular short.vcf genes.gff3 depth.bg", short_first),
+            ("chrC --circular genes.gff3 short.vcf depth.bg", genes_first),
+            ("chrC:1-50,000 --circular short.vcf genes.gff3", short_first),
+            ("chrC:1-50,000 --circular genes.gff3 short.vcf", genes_first),
+            (
+                "chrC:1-100,000 --circular short.vcf genes.gff3",
+                short_first,
+            ),
+        ] {
+            let refused = circle(line, &[("short.vcf", short)]).unwrap_err();
+            let said: Vec<(String, u64)> = order
+                .iter()
+                .map(|(file, length)| (file.to_string(), *length))
+                .collect();
+            assert!(
+                matches!(
+                    &refused,
+                    BuildError::Uncircled(CircleRefusal::Lengths { sequence, said: got })
+                        if sequence == "chrC" && *got == said
+                ),
+                "{line}: {refused:?}"
+            );
+        }
+        let refused = circle(
+            "chrC --circular short.vcf genes.gff3",
+            &[("short.vcf", short)],
+        )
+        .unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "a circle closes where chrC ends, and the files disagree on where that is: \
+             short.vcf says 50,000 bases and genes.gff3 says 100,000 bases; draw it from \
+             files that agree on how long chrC is"
+        );
+        // Files that agree are one circle, however many of them say so.
+        let agreeing = short.replace("50000", "100000");
+        let svg = circle(
+            "chrC --circular agree.vcf genes.gff3 calls.vcf",
+            &[("agree.vcf", &agreeing)],
+        )
+        .unwrap();
+        assert!(svg.contains("chrC, 100,000 bases"), "{svg}");
+    }
+
+    /// Each line of the key is the colour its ring paints what it names: a
+    /// gene on each strand, and a call of each consequence, the first named
+    /// again after the second. The key's colours and the ring's are worked
+    /// out apart, so a key that named the reverse strand in the forward
+    /// strand's colour drew a figure every other test passed.
+    #[test]
+    fn the_key_under_a_circle_is_the_colour_of_what_it_names() {
+        let calls = "##fileformat=VCFv4.2\n##contig=<ID=chrC,length=100000>\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chrC\t1500\t.\tC\tT\t60\tPASS\tANN=T|missense_variant|MODERATE|gA\n\
+                     chrC\t2500\t.\tC\tT\t60\tPASS\tANN=T|synonymous_variant|LOW|gA\n\
+                     chrC\t3500\t.\tC\tT\t60\tPASS\tANN=T|missense_variant|MODERATE|gA\n";
+        for theme in ["light", "dark"] {
+            let line = format!("chrC --circular genes.gff3 three.vcf --theme {theme}");
+            let svg = circle(&line, &[("three.vcf", calls)]).unwrap();
+            // The colour a line of the key says it is.
+            let key = |said: &str| -> String {
+                let rest = svg
+                    .split(&format!("<title>{said}, colour "))
+                    .nth(1)
+                    .unwrap_or_else(|| panic!("{theme}: no key line {said}: {svg}"));
+                rest[..rest.find("</title>").unwrap()].to_string()
+            };
+            // The colour a feature is painted in.
+            let painted = |title: &str| -> String {
+                let rest = svg
+                    .split(&format!("<title>{title}"))
+                    .nth(1)
+                    .unwrap_or_else(|| panic!("{theme}: no {title}: {svg}"));
+                let rest = rest.split(" fill=\"").nth(1).unwrap();
+                rest[..rest.find('"').unwrap()].to_string()
+            };
+            assert_eq!(
+                painted("gA, "),
+                key("forward strand, outer half"),
+                "{theme}"
+            );
+            assert_eq!(
+                painted("gB, "),
+                key("reverse strand, inner half"),
+                "{theme}"
+            );
+            let ring = svg.split("<g><title>three</title>").nth(1).unwrap();
+            let ring = &ring[..ring.find("</g>").unwrap()];
+            let ticks: Vec<String> = ring
+                .split(" stroke=\"")
+                .skip(1)
+                .map(|rest| rest[..rest.find('"').unwrap()].to_string())
+                .collect();
+            assert_eq!(
+                ticks,
+                [
+                    key("missense_variant"),
+                    key("synonymous_variant"),
+                    key("missense_variant")
+                ],
+                "{theme}"
+            );
+            assert_ne!(ticks[0], ticks[1], "{theme}");
+            assert_ne!(painted("gA, "), painted("gB, "), "{theme}");
+        }
+    }
+
     /// The middle of the circle names the sequence and says how long it is,
     /// as a figure's locus does at its top right; a title takes the name's
     /// place and keeps both under it, and `--no-region-label` leaves them out.
@@ -16947,9 +17248,25 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
                      chrC\t80000\tbnd3\tN\tN[chrD:100[\t60\tPASS\tSVTYPE=BND\n";
         let svg = circle("chrC --circular --structural sv.vcf", &[("sv.vcf", calls)]).unwrap();
         assert_eq!(svg.matches("<title>link, source").count(), 1, "{svg}");
+        // The mate's position, 70,000, is the last base of the join, as the
+        // file writes it, not the base after it.
         assert!(
-            svg.contains("<title>link, source 40,001, target 70,001</title>"),
+            svg.contains("<title>link, source 40,001, target 70,000</title>"),
             "{svg}"
+        );
+        // And the chord names the two bases the band of the same file does.
+        let band = circle("chrC:1-100,000 --structural sv.vcf", &[("sv.vcf", calls)]).unwrap();
+        let said = band
+            .split("<title>translocation, ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no join on the band: {band}"));
+        let said = &said[..said.find("</title>").unwrap()];
+        let (first, last) = said.split_once(" to ").unwrap();
+        assert!(
+            svg.contains(&format!(
+                "<title>link, source {first}, target {last}</title>"
+            )),
+            "the band says {said}: {svg}"
         );
         assert!(
             svg.contains("<title>deletion del1, 20,001 to 25,000"),

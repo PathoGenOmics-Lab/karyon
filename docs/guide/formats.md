@@ -145,6 +145,8 @@ figure along the sequence ends where its rows reach, and says so. A circle,
 `--circular`, is refused instead, since it closes where the sequence ends and a
 ring closed early puts every position round it at the wrong angle; write the
 span from base 1, as `NC_000962.3:1-4,411,532`, to give the length yourself.
+Where two files give different lengths, a figure along the sequence takes the
+first one's, and a circle is refused, naming each file and the length it says.
 
 ## Telling formats apart { #telling-formats-apart }
 

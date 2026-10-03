@@ -737,10 +737,13 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
 - **One whole sequence.** Named, as `NC_000962.3`, it is as long as a FASTA, a
   BAM's header, a VCF's `##contig` or a GFF3's `##sequence-region` says. A
   sequence no file gives the length of is refused rather than closed where its
-  last row happens to end, and so is a gene, which is part of one. A span
-  written from base 1, as `NC_000962.3:1-4,411,532`, is the whole of a
-  sequence that long, refused where a file says it is another length, and any
-  other span is part of one. Several places are left for a command each.
+  last row happens to end, and so is one that two files give different
+  lengths, naming each file and its length, rather than closed at whichever
+  was written first, and so is a gene, which is part of one. A span written
+  from base 1, as `NC_000962.3:1-4,411,532`, is the whole of a sequence that
+  long, refused where any file says it is another length, which is read from
+  the files' headers and indexes alone, and any other span is part of one.
+  Several places are left for a command each.
 - **Named in the key and on hover.** Each ring is called after its file, or
   its `--label`. The ring's name is its tooltip, and the key under the circle
   gives a line to each ring, outside in, with what its colours mean.
@@ -1228,12 +1231,15 @@ $ karyon chr1:2,001-2,100 genes.gtf --codons
 karyon: abcA codes in 3 pieces with introns between them, and --codons counts one unbroken coding sequence: across the introns it would number bases that are never translated
 ```
 
-A circle is refused where nothing says where it closes, or where its place is
-part of a sequence:
+A circle is refused where nothing says where it closes, where the files
+disagree on where, or where its place is part of a sequence:
 
 ```text
 $ karyon NC_000962.3 --circular sampleA.bedgraph
 karyon: a circle closes where NC_000962.3 ends, and no file says where that is, only that sampleA.bedgraph reaches 4,411,532: add its FASTA, a BAM, a VCF with ##contig or a GFF3 with ##sequence-region, or write the span from 1, as NC_000962.3:1-LENGTH
+
+$ karyon NC_000962.3 --circular ref.fa other.vcf
+karyon: a circle closes where NC_000962.3 ends, and the files disagree on where that is: ref.fa says 4,411,532 bases and other.vcf says 4,411,529 bases; draw it from files that agree on how long NC_000962.3 is
 
 $ karyon rpoB --circular genes.gff3 calls.vcf.gz
 karyon: rpoB is a gene, and a circle is a whole sequence: name the sequence it is on, as karyon NC_000962.3 --circular
