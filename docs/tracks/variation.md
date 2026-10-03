@@ -21,7 +21,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | | |
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
-| Command line | `--variants FILE`, with `--style`, `--height` |
+| Command line | `--variants FILE`, with `--style`, `--height`, and `--color`, which paints every call one colour, each consequence keeping its shape |
 | Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
 
 === "Rust"
