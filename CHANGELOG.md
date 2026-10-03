@@ -1525,6 +1525,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A phylodynamic trajectory's reference line leaves its words off where
+  they are only its number and the axis writes that number, and its tooltip
+  says the number once, `reference at 1`, or after its name, `R = 1,
+  reference at 1`. `--threshold 1` wrote a pink `1` beside the axis's `1`,
+  on the second week's estimate, where it read as a tick of the data, and
+  titled the line `reference 1 1`.
 - The dashed edges of a `--shade` leave out the keys and names a band writes
   where they would cross them. The edge of `--shade site:58-65` ran through
   the `p ≤ 0.05` of a selection scan's key, and could cross a legend of

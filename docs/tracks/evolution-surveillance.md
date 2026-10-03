@@ -69,7 +69,7 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 | `.scale(PhylodynamicScale::Log10)` | `Linear` or base-ten `Log10` | `Linear` |
 | `.unit("Ne")` | Unit shown in the tooltips and on the axis | none |
 | `.color("#0072b2")` | Colour of the estimate | theme accent |
-| `.reference(1.0, "R = 1")` | Adds an independent guide line, such as `R = 1` | none |
+| `.reference(1.0, "R = 1")` | Adds an independent guide line, such as `R = 1`, its words written over it at the left; words that are only its number are left off where the axis writes that number (`--threshold`) | none |
 | `.show_points(false)` | Shows or hides the point markers; the tooltips stay | shown |
 | `.show_interval(false)` | Shows or hides the uncertainty ribbon | shown |
 | `.time_decimals(3)` | Writes each time in the tooltips as a continuous time kept to that many places, as a ruler told `.decimals(3)` writes it | `0`, whole units counted from one |
