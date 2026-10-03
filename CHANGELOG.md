@@ -1541,6 +1541,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The genotypes page said a call of the other allele is a blue cell and a
+  heterozygote the half-strength blue, and the alternative text of its figure
+  spoke of blue cells, where an alternate call is drawn in the ink of the text
+  and a heterozygote in a grey mixed from it: a reader of a cohort of forty
+  looking for blue found 247 near-black cells. It names the ink, dark on a
+  light page and light on a dark one, and the mid grey, and a test ties the
+  words to the colours the track draws.
 - A window that lies inside one interval of a genetic map, read by
   `--recombination` or `--with-recombination`, says on standard error that
   its one rate is drawn flat across it, and over which interval: following

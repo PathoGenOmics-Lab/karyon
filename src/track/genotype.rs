@@ -1407,6 +1407,49 @@ mod tests {
         assert!(contrast(&reference, &missing) > 1.5);
     }
 
+    /// The page a reader of a cohort starts from names the colour of each
+    /// call, and the reader matches the figure against it. It said blue for
+    /// the other allele, and half-strength blue for a heterozygote, two
+    /// releases after the hue became the ink, and a reader looking for blue
+    /// cells found 247 near-black ones. So the words are tied to the colours
+    /// here: the alternate cell is the ink the text is set in, and the
+    /// heterozygous one a grey, its three channels within 32 of each other.
+    #[test]
+    fn the_genotypes_page_names_the_colours_the_cells_are_drawn_in() {
+        const PAGE: &str = include_str!("../../docs/your-data/genotypes.md");
+        const REFERENCE: &str = include_str!("../../docs/tracks/variation.md");
+        let svg = drawn(
+            Region::new("chr1", 1_000, 3_000).unwrap(),
+            GenotypeTrack::new(names(2), vec![site(2_000, &["0/1", "1/1"])]).show_names(false),
+        );
+        let theme = Theme::light();
+        let fills: Vec<String> = marks(&svg).into_iter().map(|mark| mark.fill).collect();
+        assert!(
+            fills.contains(&theme.foreground),
+            "the alternate call is not the ink of the text: {fills:?}"
+        );
+        let heterozygous = GenotypeTrack::step_color(LEVELS / 2, &theme.foreground, &theme);
+        assert!(fills.contains(&heterozygous), "{fills:?}");
+        let channels: Vec<i64> = (0..3)
+            .map(|at| i64::from_str_radix(&heterozygous[1 + 2 * at..3 + 2 * at], 16).unwrap())
+            .collect();
+        let spread = channels.iter().max().unwrap() - channels.iter().min().unwrap();
+        assert!(spread < 32, "a heterozygote is {heterozygous}, not a grey");
+
+        assert!(
+            PAGE.contains("a cell in the ink of the text"),
+            "the page does not say an alternate call is the ink"
+        );
+        assert!(PAGE.contains("mid grey"), "nor that a heterozygote is grey");
+        assert!(
+            !PAGE.to_lowercase().contains("blue"),
+            "the page names a blue the track does not draw"
+        );
+        for line in REFERENCE.lines().filter(|line| line.contains("genotypes.svg")) {
+            assert!(!line.contains("blue"), "{line}");
+        }
+    }
+
     /// No record is the page, and no call is a cell: "nothing was called
     /// here" and "nothing is here" are different statements.
     #[test]

@@ -78,7 +78,7 @@ From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call 
 The call of each sample at each site of a cohort's VCF: one row per sample and one cell per record, each at its own position on the shared axis, so a column of calls stands under the lollipop a [VariantTrack](#varianttrack) draws for the same record and under the gene it falls in. Put a phylogeny beside it and the alleles a clade shares line up into a block.
 
 <figure class="k-start" markdown>
-![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, blue cells where it carries the other allele, the blue cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }
+![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, dark cells where it carries the other allele, the dark cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }
 ![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }
 </figure>
 
