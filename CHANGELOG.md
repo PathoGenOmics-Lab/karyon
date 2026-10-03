@@ -1520,6 +1520,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The ruler writes a step under a hundred bases in bases, `1,100,250`, and
+  keeps its last label, leaving out an interior one that would touch it. A
+  101 bp window was ruled `1100.25 kb` to `1100.34 kb`, two decimals of a
+  kilobase being a base count with a point in it, and ended on a bare tick at
+  1,100,350, whose label had given way to the one before. Every committed
+  figure whose ruler steps by under a hundred bases, or whose last label
+  touched its neighbour, moves.
 - `SelectionTrack` names the sites past its threshold over their marks while
   thirty or fewer are in view, sites whose names would touch sharing one, as
   `58, 59, 63-65`, and draws a ratio held at an end of the effect tier open,
