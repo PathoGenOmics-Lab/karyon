@@ -201,8 +201,10 @@ const SEVERITY: [&str; 41] = [
 /// What [`shape`] calls a call nothing annotated, commonest first.
 const SHAPES: [&str; 4] = ["substitution", "insertion", "deletion", "breakend"];
 
-/// Where a category stands in the order colours are dealt in: its place in
-/// [`SEVERITY`], then in [`SHAPES`] after every consequence, then after both.
+/// Where a category stands in the order colours are dealt in: its place among
+/// the 41 consequences of the Sequence Ontology in Ensembl's ranking, then
+/// among the shapes of a call nothing annotated, `substitution`, `insertion`,
+/// `deletion` and `breakend`, after every consequence, then after both.
 ///
 /// snpEff joins the consequences of one allele with `&`, as
 /// `missense_variant&splice_region_variant`, which ranks as the worst of
