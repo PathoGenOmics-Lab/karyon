@@ -46,12 +46,12 @@ USAGE
     karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
-names, or a sequence drawn whole; several places draw a panel each. Trees need
-none, and --coverage, --windows, --copy-number and --manhattan files alone span
-the genome. Each file is a track of the kind its name says, BAM, VCF, GFF3, GTF,
-BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after it.
-A BAM is its depth; a track flag chooses another kind, as --pileup reads.bam.
-The figure is SVG, on standard output unless -o names one; PDF for -o x.pdf.
+names, or a whole sequence; several places draw a panel each. Trees need none,
+and --windows, --copy-number, --manhattan and a bedGraph or bigWig of --coverage
+alone span the genome. Each file is the track its name says, BAM, VCF, GFF3,
+GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after
+it. A BAM is its depth over a place; a track flag chooses another, as --pileup
+reads.bam. SVG goes to standard output unless -o names a file; PDF to x.pdf.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -335,7 +335,8 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
         (Kind::Variants, "--color") => {
             "    --color <HEX>        every call in this colour, as in '#8b0000', in place
                          of a colour each consequence; each keeps its shape,
-                         on the marks and in the key
+                         on the marks and in the key, and with four shapes,
+                         five or more consequences in view are refused
 "
         }
         (Kind::Pairs, "--max") => {
@@ -761,7 +762,7 @@ TRACK OPTIONS, each describing the track before it, once
                          the value a matrix, a heatmap or pairs draw at full
                          colour, as 1 for an r²
     --color <HEX>        as in '#d55e00'; after calls, every call in it, each
-                         consequence keeping its shape
+                         consequence keeping its shape, of which there are four
     --genetic-code <N>   the NCBI translation table a codon ruler reads, as 2
                          for vertebrate mitochondria; by default the one the
                          annotation's CDS names, or 1, whose residues 11 shares
@@ -1224,6 +1225,8 @@ mod tests {
         let variants = help_on("variants").unwrap();
         assert!(variants.contains("in place\n"), "{variants}");
         assert!(variants.contains("each keeps its shape"), "{variants}");
+        // And says where the shapes run out, which is refused.
+        assert!(variants.contains("five or more consequences in view are refused"));
     }
 
     /// A CRAM named on its own is taken for a depth and refused with the
@@ -1256,14 +1259,17 @@ mod tests {
     /// The short help names the tracks drawn across a genome with no place
     /// by their flags, the ones the parser spreads: a windows table read as
     /// a heatmap is a table too, and `a scan, bedGraph or segment table` was
-    /// read as saying it would span the genome.
+    /// read as saying it would span the genome. And it says a BAM needs a
+    /// place: `--coverage` files alone were said to span the genome, and a
+    /// BAM, which is one, is refused without a place.
     #[test]
     fn the_short_help_names_the_tracks_that_need_no_place() {
-        let said = SHORT
+        let flat = SHORT.split_whitespace().collect::<Vec<_>>().join(" ");
+        let said = flat
             .split_once("Trees need")
             .expect("the sentence on what needs no place")
             .1
-            .split_once("span\nthe genome")
+            .split_once("span the genome")
             .expect("its end")
             .0;
         let said: Vec<&str> = said
@@ -1280,6 +1286,27 @@ mod tests {
         let mut expected = spread.clone();
         expected.sort_unstable();
         assert_eq!(sorted, expected, "{said:?}");
+        // What it says alone spans the genome does, and a BAM does not.
+        let parsed = |line: &str| {
+            let words: Vec<String> = line.split_whitespace().map(String::from).collect();
+            args::parse(&words)
+        };
+        assert!(
+            flat.contains("a bedGraph or bigWig of --coverage alone"),
+            "{flat}"
+        );
+        for line in ["depth.bedgraph", "depth.bw", "--coverage depth.bw"] {
+            match parsed(line) {
+                Ok(args::Request::Draw(invocation)) => {
+                    assert!(invocation.genome_wide(), "{line}")
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        assert!(flat.contains("A BAM is its depth over a place"), "{flat}");
+        for line in ["reads.bam", "--coverage reads.bam"] {
+            assert!(parsed(line).is_err(), "{line}");
+        }
         // And a heatmap, whose table has a bedGraph's first three columns,
         // says in its own help that it is not one of them.
         assert!(!spread.contains(&"--heatmap"));

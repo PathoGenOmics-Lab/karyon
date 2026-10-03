@@ -18,6 +18,7 @@
 //! Every error names the flag that asked for the file and the file it was,
 //! since a stack is as many files as it has tracks.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read as _, Seek as _};
@@ -335,6 +336,23 @@ pub enum BuildError {
     ColorsOfNumbers {
         /// The column.
         column: String,
+    },
+    /// Calls drawn in one colour, as `--color` asks, with more consequences
+    /// in view than there are shapes to tell them apart by.
+    ///
+    /// In one colour a consequence is its shape alone, and the shapes come
+    /// round again after the fourth: six consequences in dark red drew
+    /// `stop_gained` and `upstream_gene_variant` as one circle, in the band
+    /// and in the key, and the exit was 0.
+    TooFewShapes {
+        /// What the calls' file was called.
+        path: String,
+        /// The colour `--color` gave.
+        color: String,
+        /// The consequences in view, in the order they are dealt.
+        categories: Vec<String>,
+        /// How many shapes there are to tell them apart by.
+        shapes: usize,
     },
     /// The tree would not parse.
     Tree {
@@ -935,6 +953,20 @@ impl fmt::Display for BuildError {
                 "--colors names {column}, a column of numbers, which is drawn as a ramp; \
                  --colors paints a column of words"
             ),
+            BuildError::TooFewShapes {
+                path,
+                color,
+                categories,
+                shapes,
+            } => write!(
+                f,
+                "--variants {path} --color '{color}' tells consequences apart by shape \
+                 alone, and there are {shapes} shapes for the {} consequences in view, {}: \
+                 drop --color for a colour each, draw the calls as ticks with --style tick, \
+                 which key none, or draw a place with {shapes} consequences or fewer",
+                categories.len(),
+                joined(categories)
+            ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
             BuildError::Unshaded { given, why } => match why {
                 ShadeRefusal::NothingToShade => write!(
@@ -1202,49 +1234,64 @@ pub fn build_sheet(
     if let Some(columns) = invocation.panel_columns {
         sheet = sheet.columns(columns.min(places.len())).row_major();
     }
-    let mut legend = crate::track::legend::Legend::new();
     // Each shade is settled across every panel, once they are all drawn.
     let mut shading = Shading::new(invocation);
-    let mut names = Vec::with_capacity(places.len());
-    let mut figures = Vec::with_capacity(places.len());
-    // The width that letters the bases of every panel, said once under them
-    // all. Said a panel at a time, each panel named the width its own span
-    // needed, and a reader who took the first width still had the panels of
-    // longer places in blocks, which said so again.
-    let mut letters = None;
-    for place in &places {
-        let mut one = invocation.clone();
-        one.more = Vec::new();
-        one.title = None;
-        one.legend = false;
-        match place {
-            Place::Locus(region) => {
-                one.region = Some(region.clone());
-                one.named = None;
-                names.push(region.to_string());
+    // The calls of every panel deal their colours in one order, which is
+    // known once every panel has read its own.
+    let consequences = RefCell::new(Consequences::default());
+    let (legend, names, figures, letters) = loop {
+        let mut legend = crate::track::legend::Legend::new();
+        let mut names = Vec::with_capacity(places.len());
+        let mut figures = Vec::with_capacity(places.len());
+        // The width that letters the bases of every panel, said once under
+        // them all. Said a panel at a time, each panel named the width its own
+        // span needed, and a reader who took the first width still had the
+        // panels of longer places in blocks, which said so again.
+        let mut letters = None;
+        for place in &places {
+            let mut one = invocation.clone();
+            one.more = Vec::new();
+            one.title = None;
+            one.legend = false;
+            match place {
+                Place::Locus(region) => {
+                    one.region = Some(region.clone());
+                    one.named = None;
+                    names.push(region.to_string());
+                }
+                Place::Named(name) => {
+                    one.region = None;
+                    one.named = Some(name.clone());
+                    names.push(name.clone());
+                }
             }
-            Place::Named(name) => {
-                one.region = None;
-                one.named = Some(name.clone());
-                names.push(name.clone());
-            }
+            let (built, wanted) = build_one(
+                &one,
+                &mut kept,
+                &mut parsed,
+                theme.clone(),
+                None,
+                Some(&mut shading),
+                Some(&consequences),
+            )?;
+            letters = letters.max(wanted);
+            gather(&mut legend, &built.legend);
+            figures.push(built.figure);
         }
-        let (built, wanted) = build_one(
-            &one,
-            &mut kept,
-            &mut parsed,
-            theme.clone(),
-            None,
-            Some(&mut shading),
-        )?;
-        letters = letters.max(wanted);
-        gather(&mut legend, &built.legend);
-        figures.push(built.figure);
-    }
+        if !consequences.borrow_mut().settle() {
+            break (legend, names, figures, letters);
+        }
+        // Drawn again in the one order, with the shades looked for afresh
+        // and the genes they name kept.
+        let genes = shading.genes.take();
+        shading = Shading::new(invocation);
+        shading.genes = genes;
+    };
     settle_shades(invocation, &shading.fates, &mut kept)?;
     note_letters(&mut kept, letters);
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
+    let mut figures = figures;
     if invocation.same_scale {
         let extents = crate::Extent::join(figures.iter().flat_map(Figure::extents));
         figures = figures
@@ -1311,7 +1358,7 @@ pub fn build_figure(
     if invocation.circular {
         return Err(BuildError::Uncircled(CircleRefusal::NotAFigure));
     }
-    let (built, letters) = build_one(invocation, files, parsed, theme, window, None)?;
+    let (built, letters) = build_one(invocation, files, parsed, theme, window, None, None)?;
     note_letters(files, letters);
     Ok(built)
 }
@@ -1964,6 +2011,7 @@ fn build_one(
     theme: Theme,
     window: Option<&Region>,
     sheet: Option<&mut Shading>,
+    consequences: Option<&RefCell<Consequences>>,
 ) -> Result<(Built, Option<u64>), BuildError> {
     let tolerant = sheet.is_some();
     let mut kept = KeptStdin { files, stdin: None };
@@ -2129,6 +2177,7 @@ fn build_one(
             colors: &invocation.colors,
             width: invocation.width.unwrap_or(900.0),
             gene: gene.map(String::as_str),
+            consequences,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -2149,6 +2198,7 @@ fn build_one(
                         colors: &invocation.colors,
                         width: invocation.width.unwrap_or(900.0),
                         gene: gene.map(String::as_str),
+                        consequences,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -2383,7 +2433,8 @@ fn build_genome(
         if let Ok(whole) = Region::new(sequence, 0, (*length).max(1)) {
             let mut one = invocation.clone();
             one.region = Some(whole);
-            return build_one(&one, files, |_, _| None, theme, None, None).map(|(built, _)| built);
+            return build_one(&one, files, |_, _| None, theme, None, None, None)
+                .map(|(built, _)| built);
         }
     }
     lengths.sort_by(|a, b| chromosome_order(&a.0, &b.0));
@@ -3005,6 +3056,53 @@ impl Shading {
                 .collect(),
             genes: None,
         }
+    }
+}
+
+/// The order the calls of a figure of several places deal their colours in,
+/// one order for every panel.
+///
+/// Each panel reads the calls over its own place, and ranked on their own,
+/// the synonymous calls of one place and the missense calls of another were
+/// each dealt the first colour and the first shape: two consequences drawn
+/// as one blue circle in one figure. So the panels are drawn ranking their
+/// own calls, and drawn again in the order of every consequence they found
+/// where some panel's own order dealt one a slot that order does not.
+#[derive(Debug, Default)]
+struct Consequences {
+    /// The order every panel deals, once every panel has been read.
+    dealt: Option<Vec<String>>,
+    /// The orders the panels dealt on their own, the first time round.
+    own: Vec<Vec<String>>,
+}
+
+impl Consequences {
+    /// The order `calls` are dealt their colours in: the one every panel
+    /// shares, once it is known, and else their own, kept to rank with the
+    /// other panels'.
+    fn deal(&mut self, calls: &[crate::Variant]) -> Vec<String> {
+        if let Some(dealt) = &self.dealt {
+            return dealt.clone();
+        }
+        let own = read::point::ranked(calls);
+        self.own.push(own.clone());
+        own
+    }
+
+    /// Whether the panels are to be drawn again, in the order of every
+    /// consequence they found, which it then deals: where some panel's own
+    /// order is not the start of that one, and so gave a consequence a slot
+    /// another panel gives another.
+    fn settle(&mut self) -> bool {
+        if self.dealt.is_some() {
+            return false;
+        }
+        let all = read::point::in_rank(self.own.iter().flatten().map(String::as_str));
+        if self.own.iter().all(|own| all.starts_with(own)) {
+            return false;
+        }
+        self.dealt = Some(all);
+        true
     }
 }
 
@@ -4527,6 +4625,10 @@ struct Context<'a> {
     /// The gene the figure is placed on by its name, as its annotation
     /// spells it, which an annotation drawn a gene at a time says it merged.
     gene: Option<&'a str>,
+    /// The order the calls of a figure of several places deal their colours
+    /// in, which every panel shares; `None` for a figure of one place, whose
+    /// calls deal their own.
+    consequences: Option<&'a RefCell<Consequences>>,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -7725,8 +7827,37 @@ fn built(
             // the axis says so; a file with no AF draws no axis to title.
             // Colours are dealt from the most damaging consequence down
             // rather than by which call comes first in the window, which
-            // painted one consequence two ways in a gene and a zoom into it.
-            let ranked = read::point::ranked(&variants);
+            // painted one consequence two ways in a gene and a zoom into it,
+            // and in the one order every panel of several places deals.
+            let ranked = match context.consequences {
+                Some(sheet) => sheet.borrow_mut().deal(&variants),
+                None => read::point::ranked(&variants),
+            };
+            // In one colour a consequence is told by its shape alone, and the
+            // shapes come round again: a fifth consequence was drawn and keyed
+            // as the first, and the figure said the two were one. Ticks have
+            // no shape, and key none.
+            if let Some(color) = spec
+                .color
+                .as_ref()
+                .filter(|_| spec.style != Some(Style::Tick))
+            {
+                let mut shapes = Vec::new();
+                for slot in 0..ranked.len() {
+                    let shape = theme.symbol(slot);
+                    if !shapes.contains(&shape) {
+                        shapes.push(shape);
+                    }
+                }
+                if shapes.len() < ranked.len() {
+                    return Err(BuildError::TooFewShapes {
+                        path,
+                        color: color.clone(),
+                        categories: ranked,
+                        shapes: shapes.len(),
+                    });
+                }
+            }
             let mut track = VariantTrack::new(variants)
                 .axis_title("AF")
                 .category_order(ranked);
@@ -12319,8 +12450,6 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         }
     }
 
-    /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file
-    /// had to call it one name before the two could be drawn together.
     /// A table of windows whose last window is cut short of the others ends
     /// where its sequence ends, and the figure does not say it stops short of
     /// that; one whose windows are all whole, or a bedGraph of runs of every
@@ -12361,6 +12490,8 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(notes[0].starts_with("NC_1 is drawn to 410"), "{notes:?}");
     }
 
+    /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file
+    /// had to call it one name before the two could be drawn together.
     #[test]
     fn a_file_that_calls_the_sequence_otherwise_is_read_by_that_name() {
         let scan = "CHR SNP BP A1 P\n1 rs1 150 A 0.5\n1 rs2 4800 A 1e-9\n";
@@ -17976,6 +18107,100 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         let svg = circle("chrC --circular calls.vcf --color #8b0000", &[]).unwrap();
         assert!(svg.contains("#8b0000"), "{svg}");
         assert!(!svg.contains(theme.color(0)), "{svg}");
+    }
+
+    /// The panels of several places deal their colours in one order. Ranked
+    /// a panel at a time, a place of synonymous calls and a place of a
+    /// missense call each dealt its own the first colour and the first shape,
+    /// and two consequences were one blue circle in one figure.
+    #[test]
+    fn the_panels_of_several_places_deal_a_consequence_one_colour() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t200\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n\
+                     chr1\t800\t.\tC\tT\t.\t.\tANN=T|stop_gained|HIGH|g\n";
+        let theme = Theme::default();
+        let keyed = |svg: &str, category: &str| -> Vec<String> {
+            svg.split(&format!("<title>{category}, colour "))
+                .skip(1)
+                .map(|rest| rest[..rest.find("</title>").unwrap()].to_string())
+                .collect()
+        };
+        for line in [
+            "chr1:1-300 chr1:401-600 calls.vcf",
+            "chr1:401-600 chr1:1-300 calls.vcf",
+            "chr1:1-300 chr1:401-600 chr1:701-900 calls.vcf",
+        ] {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls);
+            let svg = held_figure(&mut held, line).unwrap();
+            let stop = keyed(&svg, "stop_gained");
+            let missense = keyed(&svg, "missense_variant");
+            let synonymous = keyed(&svg, "synonymous_variant");
+            assert_eq!(missense.len(), 1, "{line}");
+            assert_eq!(synonymous.len(), 1, "{line}");
+            // Missense is the most damaging the sheet holds, or the second
+            // where a third place holds a stop.
+            let first = if stop.is_empty() { 0 } else { 1 };
+            assert_eq!(missense[0], theme.color(first), "{line}");
+            assert_eq!(synonymous[0], theme.color(first + 1), "{line}");
+            assert!(stop.iter().all(|colour| colour == theme.color(0)), "{line}");
+        }
+    }
+
+    /// In one colour a consequence is told by its shape alone, and there are
+    /// four shapes: more consequences in view than that, in a figure or
+    /// across the panels of several places, are refused rather than drawn
+    /// two of them alike. Ticks, which key none, are drawn.
+    #[test]
+    fn calls_in_one_colour_are_refused_where_the_shapes_run_out() {
+        let mut calls =
+            String::from("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+        for (pos, consequence) in [
+            (100, "stop_gained"),
+            (200, "frameshift_variant"),
+            (300, "missense_variant"),
+            (400, "synonymous_variant"),
+            (600, "upstream_gene_variant"),
+        ] {
+            calls.push_str(&format!(
+                "chr1\t{pos}\t.\tC\tT\t.\t.\tANN=T|{consequence}|LOW|g\n"
+            ));
+        }
+        let drawn = |line: &str| {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls.as_str());
+            held_figure(&mut held, line)
+        };
+        for line in [
+            "chr1:1-1000 calls.vcf --color #8b0000",
+            "chr1:1-250 chr1:251-1000 calls.vcf --color #8b0000",
+        ] {
+            let error = drawn(line).unwrap_err();
+            assert!(
+                matches!(error, BuildError::TooFewShapes { .. }),
+                "{line}: {error:?}"
+            );
+            assert_eq!(
+                error.to_string(),
+                "--variants calls.vcf --color '#8b0000' tells consequences apart by shape \
+                 alone, and there are 4 shapes for the 5 consequences in view, stop_gained, \
+                 frameshift_variant, missense_variant, synonymous_variant and \
+                 upstream_gene_variant: drop --color for a colour each, draw the calls as \
+                 ticks with --style tick, which key none, or draw a place with 4 \
+                 consequences or fewer",
+                "{line}"
+            );
+        }
+        for line in [
+            "chr1:1-500 calls.vcf --color #8b0000",
+            "chr1:1-1000 calls.vcf --color #8b0000 --style tick",
+            "chr1:1-1000 calls.vcf",
+        ] {
+            assert!(drawn(line).is_ok(), "{line}");
+        }
     }
 
     /// Each line of the key is the colour its ring paints what it names: a

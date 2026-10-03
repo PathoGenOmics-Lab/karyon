@@ -141,10 +141,17 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
 /// time through its index has only the window's to give, and a BCF draws
 /// what the VCF it was written from draws.
 pub fn ranked(calls: &[Variant]) -> Vec<String> {
+    in_rank(calls.iter().filter_map(|call| call.category.as_deref()))
+}
+
+/// The categories named, each once, in the order [`ranked`] deals them: for
+/// the categories of several windows' calls ranked together, as the panels
+/// of a figure of several places deal one order between them.
+pub(crate) fn in_rank<'a>(categories: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for category in calls.iter().filter_map(|call| call.category.as_ref()) {
-        if !found.contains(category) {
-            found.push(category.clone());
+    for category in categories {
+        if !found.iter().any(|known| known == category) {
+            found.push(category.to_string());
         }
     }
     found.sort_by(|a, b| (severity(a), a.as_str()).cmp(&(severity(b), b.as_str())));
@@ -198,6 +205,56 @@ const SEVERITY: [&str; 41] = [
     "sequence",
 ];
 
+/// The terms snpEff and bcftools write that Ensembl has none of, each with
+/// the consequence of [`SEVERITY`] it ranks as, written as that table writes
+/// them, without `_variant`.
+///
+/// snpEff splits an in-frame indel by whether it breaks a codon, names the
+/// stretch between genes `intergenic_region`, and has terms of its own for a
+/// lost exon and for rearrangements. Ranked as words nobody ranks, they came
+/// after the shapes of calls nothing annotated: a moderate
+/// `conservative_inframe_deletion` was dealt its colour after
+/// `synonymous_variant` and after an insertion nobody annotated. Each takes
+/// the place of the Ensembl consequence it is a kind of, or else one of the
+/// impact snpEff gives it: its other terms of high impact rank as
+/// `feature_truncation`, after Ensembl's and before the first moderate one.
+const ALIASES: [(&str, &str); 32] = [
+    ("chromosome", "transcript_ablation"),
+    ("chromosome_number_variation", "transcript_ablation"),
+    ("exon_loss", "transcript_ablation"),
+    ("feature_ablation", "transcript_ablation"),
+    ("duplication", "transcript_amplification"),
+    ("inversion", "feature_truncation"),
+    ("gene_fusion", "feature_truncation"),
+    ("bidirectional_gene_fusion", "feature_truncation"),
+    ("rearranged_at_dna_level", "feature_truncation"),
+    ("protein_protein_contact", "feature_truncation"),
+    ("structural_interaction", "feature_truncation"),
+    ("rare_amino_acid", "feature_truncation"),
+    ("3_prime_utr_truncation", "feature_truncation"),
+    ("5_prime_utr_truncation", "feature_truncation"),
+    ("conservative_inframe_insertion", "inframe_insertion"),
+    ("disruptive_inframe_insertion", "inframe_insertion"),
+    ("conservative_inframe_deletion", "inframe_deletion"),
+    ("disruptive_inframe_deletion", "inframe_deletion"),
+    // bcftools csq's in-frame change of more than one base.
+    ("inframe_altering", "protein_altering"),
+    ("initiator_codon", "start_retained"),
+    ("sequence_feature", "coding_sequence"),
+    ("mirna", "mature_mirna"),
+    ("5_prime_utr_premature_start_codon_gain", "5_prime_utr"),
+    ("exon", "non_coding_transcript_exon"),
+    ("non_coding_exon", "non_coding_transcript_exon"),
+    ("conserved_intron", "intron"),
+    // bcftools csq's word for a call in a transcript that codes for nothing.
+    ("non_coding", "non_coding_transcript"),
+    ("gene", "coding_transcript"),
+    ("transcript", "coding_transcript"),
+    ("intragenic", "coding_transcript"),
+    ("intergenic_region", "intergenic"),
+    ("conserved_intergenic", "intergenic"),
+];
+
 /// What [`shape`] calls a call nothing annotated, commonest first.
 const SHAPES: [&str; 4] = ["substitution", "insertion", "deletion", "breakend"];
 
@@ -209,13 +266,21 @@ const SHAPES: [&str; 4] = ["substitution", "insertion", "deletion", "breakend"];
 /// snpEff joins the consequences of one allele with `&`, as
 /// `missense_variant&splice_region_variant`, which ranks as the worst of
 /// them. Case is ignored, since Ensembl writes `5_prime_UTR_variant` and
-/// bcftools `5_prime_utr`.
+/// bcftools `5_prime_utr`. A term of snpEff's or bcftools' that Ensembl has
+/// none of ranks as the Ensembl consequence it is a kind of, as
+/// `conservative_inframe_deletion` ranks as `inframe_deletion` and
+/// `intergenic_region` as `intergenic_variant`, or else as one of the impact
+/// snpEff gives it.
 pub fn severity(category: &str) -> usize {
     category
         .split('&')
         .map(|term| {
             let term = term.trim().to_ascii_lowercase();
             let bare = term.strip_suffix("_variant").unwrap_or(&term);
+            let bare = ALIASES
+                .iter()
+                .find(|(word, _)| *word == bare)
+                .map_or(bare, |(_, ranked_as)| ranked_as);
             SEVERITY
                 .iter()
                 .position(|known| *known == bare)
@@ -1317,16 +1382,21 @@ NC_045512.2\t21580\t.\tACGT\tA\t.\t.\tDP=9
     fn categories_are_dealt_from_the_most_damaging_down() {
         // In file order: synonymous first, as across the whole of a gene
         // whose first call is synonymous; then a call nothing annotated,
-        // snpEff's two consequences of one allele, a bcftools word, a word
-        // nobody ranks, and a stop.
+        // snpEff's two consequences of one allele, one consequence as
+        // Ensembl and as bcftools write it, three words nobody ranks, and a
+        // stop. The words of one rank are in reverse alphabetical order, so
+        // an order that fell back on the file's would be seen.
         let text = "\
 ##fileformat=VCFv4.2
 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
 chrA\t10\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g
 chrA\t20\t.\tC\tCA\t.\t.\t.
 chrA\t30\t.\tC\tG\t.\t.\tANN=G|intron_variant&splice_region_variant|LOW|g
+chrA\t40\t.\tC\tA\t.\t.\tANN=A|missense_variant|MODERATE|g
 chrA\t50\t.\tC\tA\t.\t.\tBCSQ=missense|g|t|protein_coding
+chrA\t55\t.\tC\tA\t.\t.\tANN=A|zeta_word|LOW|g
 chrA\t60\t.\tC\tA\t.\t.\tANN=A|odd_word|LOW|g
+chrA\t65\t.\tC\tA\t.\t.\tANN=A|alpha_word|LOW|g
 chrA\t70\t.\tC\tA\t.\t.\tANN=A|5_prime_UTR_variant|LOW|g
 chrA\t80\t.\tC\tA\t.\t.\tANN=A|stop_gained|HIGH|g
 ";
@@ -1336,17 +1406,68 @@ chrA\t80\t.\tC\tA\t.\t.\tANN=A|stop_gained|HIGH|g
             [
                 "stop_gained",
                 "missense",
+                "missense_variant",
                 "intron_variant&splice_region_variant",
                 "synonymous_variant",
                 "5_prime_UTR_variant",
                 "insertion",
+                "alpha_word",
                 "odd_word",
+                "zeta_word",
             ]
         );
         assert_eq!(severity("missense_variant"), severity("missense"));
         assert_eq!(severity("5_prime_utr"), severity("5_prime_UTR_variant"));
         assert!(severity("substitution") < severity("deletion"));
         assert!(severity("sequence_variant") < severity("substitution"));
+    }
+
+    /// snpEff's own terms rank as the Ensembl consequence each is a kind of.
+    /// Ranked as words nobody ranks, a moderate in-frame deletion was dealt
+    /// its colour after a synonymous call and after an insertion nobody
+    /// annotated.
+    #[test]
+    fn snpeff_terms_rank_as_the_consequence_they_are_a_kind_of() {
+        let text = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chrA\t10\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g
+chrA\t20\t.\tC\tCA\t.\t.\t.
+chrA\t30\t.\tCAAA\tC\t.\t.\tANN=C|conservative_inframe_deletion|MODERATE|g
+chrA\t40\t.\tC\tA\t.\t.\tANN=A|intergenic_region|MODIFIER|g
+chrA\t50\t.\tC\tA\t.\t.\tANN=A|exon_loss_variant|HIGH|g
+chrA\t60\t.\tC\tA\t.\t.\tANN=A|missense_variant|MODERATE|g
+";
+        let calls = variants(text, &Region::parse("chrA:1-100").unwrap()).unwrap();
+        assert_eq!(
+            ranked(&calls),
+            [
+                "exon_loss_variant",
+                "conservative_inframe_deletion",
+                "missense_variant",
+                "synonymous_variant",
+                "intergenic_region",
+                "insertion",
+            ]
+        );
+        for (term, parent) in [
+            ("disruptive_inframe_insertion", "inframe_insertion_variant"),
+            ("conserved_intergenic_variant", "intergenic_variant"),
+            (
+                "5_prime_UTR_premature_start_codon_gain_variant",
+                "5_prime_UTR_variant",
+            ),
+            ("gene_fusion", "feature_truncation"),
+        ] {
+            assert_eq!(severity(term), severity(parent), "{term}");
+        }
+        // Every term is ranked as one the table holds, and none is ranked
+        // past the consequences.
+        for (term, parent) in ALIASES {
+            assert!(SEVERITY.contains(&parent), "{term} ranks as {parent}");
+            assert!(!SEVERITY.contains(&term), "{term} is Ensembl's own");
+            assert!(severity(term) < SEVERITY.len(), "{term}");
+        }
     }
 
     #[test]

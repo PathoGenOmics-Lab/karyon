@@ -804,10 +804,9 @@ impl CoverageTrack {
         {
             Some(ceiling) => {
                 let (floor, ceiling, _) = self.ends(ceiling);
-                self.tick_values(floor, ceiling)
+                self.tick_labels(floor, ceiling, self.runs_past_pin())
                     .iter()
-                    .zip(self.tick_labels(floor, ceiling, self.runs_past_pin()))
-                    .map(|(_, label)| text_width(&label, size))
+                    .map(|label| text_width(label, size))
                     .fold(0.0f64, f64::max)
             }
             None => text_width("0", size),
@@ -838,9 +837,16 @@ impl CoverageTrack {
     ///
     /// A log scale spends its height on the small values, so round linear
     /// steps would pile up at the top; it is ticked at powers of ten instead.
-    fn tick_values(&self, floor: f64, ceiling: f64) -> Vec<f64> {
+    /// Where the data runs past a pinned ceiling, `clipped`, the ceiling is
+    /// a tick too, the one that says so: the round steps under a pin of 33
+    /// stopped at 30, and the `+` went nowhere.
+    fn tick_values(&self, floor: f64, ceiling: f64, clipped: bool) -> Vec<f64> {
         if !self.log_scale {
-            return self.axis.values(floor, ceiling);
+            let mut values = self.axis.values(floor, ceiling);
+            if clipped && values.last().is_some_and(|last| *last < ceiling) {
+                values.push(ceiling);
+            }
+            return values;
         }
         let mut values = vec![floor.max(0.0)];
         let mut power = 1.0;
@@ -858,7 +864,7 @@ impl CoverageTrack {
     /// ceiling the data runs past written `30+` when `clipped`: the profile
     /// is drawn at it there and is not as high as it reached.
     fn tick_labels(&self, floor: f64, ceiling: f64, clipped: bool) -> Vec<String> {
-        let values = self.tick_values(floor, ceiling);
+        let values = self.tick_values(floor, ceiling, clipped);
         let mut labels = self.axis.labels(&values);
         if clipped && values.last() == Some(&ceiling) {
             if let Some(last) = labels.last_mut() {
@@ -908,7 +914,7 @@ impl CoverageTrack {
         let span = self.transform(visual_ceiling) - transformed_floor;
         let y_of =
             |value: f64| baseline - ((self.transform(value) - transformed_floor) / span) * band.h;
-        let all = self.tick_values(floor, ceiling);
+        let all = self.tick_values(floor, ceiling, clipped);
         let labels = self.tick_labels(floor, ceiling, clipped);
         let shown = legible_ticks(&all, y_of, size);
         for &value in &shown {
@@ -1246,6 +1252,13 @@ mod tests {
         };
         let cut = drawn(30.0, "chr1:1-500");
         assert!(cut.contains(">30+</text>"), "{cut}");
+        // A pin that is not a round tick is labelled itself: the ticks under
+        // 33 stopped at 30, and nothing said the profile went past.
+        for pin in [33.0, 37.0, 42.0, 7.3] {
+            let svg = drawn(pin, "chr1:1-500");
+            assert!(svg.contains(&format!(">{pin}+</text>")), "{pin}: {svg}");
+            assert_eq!(svg.matches("+</text>").count(), 1, "{pin}: {svg}");
+        }
         let lines = struck(&cut);
         assert_eq!(lines.len(), 1, "{cut}");
         // Over the 60 bases past the pin, a little under an eighth of the

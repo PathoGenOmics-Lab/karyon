@@ -47,12 +47,17 @@
 //! [`VariantTrack::category_order`], which fixes each category's slot whatever
 //! the window holds. The command line hands it the categories in view ranked
 //! from the most damaging consequence to the least, so a category's colour
-//! does not hang on which call happens to come first in the window.
+//! does not hang on which call happens to come first in the window, and in a
+//! figure of several places the categories of every panel, ranked together,
+//! so a category is one colour across the figure.
 //!
 //! [`VariantTrack::uniform_color`] paints every call one colour instead, as a
 //! figure whose calls are to match a colour already used elsewhere asks. The
 //! categories keep their shapes, on the marks and in the key, so a missense
-//! call and a synonymous one can still be told apart in one colour.
+//! call and a synonymous one can still be told apart in one colour. There are
+//! four shapes, and a fifth category takes the first one's again, so in one
+//! colour no more than four can be told apart; the command line refuses
+//! more.
 
 use std::collections::BTreeSet;
 
@@ -272,9 +277,12 @@ impl VariantTrack {
     /// Each category keeps the shape its place in the queue gives it, on the
     /// marks and in the key, which is then drawn in the one colour, so a
     /// missense call is still told from a synonymous one in a figure whose
-    /// calls all had to be dark red. A tick has no shape, so ticks in one
-    /// colour carry no category a reader could see, and are drawn with no
-    /// key: one of shapes would name marks the band does not draw.
+    /// calls all had to be dark red. There are four shapes, and the fifth
+    /// place in the queue takes the first one's again, so a track of more
+    /// than four categories in one colour draws two of them alike. A tick
+    /// has no shape, so ticks in one colour carry no category a reader could
+    /// see, and are drawn with no key: one of shapes would name marks the
+    /// band does not draw.
     pub fn uniform_color(mut self, color: impl Into<String>) -> Self {
         self.uniform = Some(color.into());
         self

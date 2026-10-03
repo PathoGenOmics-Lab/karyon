@@ -21,7 +21,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | | |
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
-| Command line | `--variants FILE`, with `--style`, `--height`, and `--color`, which paints every call one colour, each consequence keeping its shape |
+| Command line | `--variants FILE`, with `--style`, `--height`, and `--color`, which paints every call one colour, each consequence keeping its shape, of which there are four: five or more consequences in view are refused, but for ticks |
 | Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
 
 === "Rust"
@@ -60,12 +60,12 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.axis_title("AF")` | What the stems measure, under the track's name while the axis is drawn (set by the command line) | none |
 | `.color("#555555")` | Colour of variants without a category | theme accent |
-| `.uniform_color("#8b0000")` | Paints every variant this colour, whatever its category; each category keeps its shape, on the marks and in the key, and ticks, which have no shape, have no key (`--color`) | a colour each category |
-| `.category_order(["stop_gained", "missense_variant"])` | Gives each category named the palette slot of its place in the list, drawn or not; the rest follow by first appearance (the command line passes the consequences in view, most damaging first) | first appearance |
+| `.uniform_color("#8b0000")` | Paints every variant this colour, whatever its category; each category keeps its shape, on the marks and in the key, and ticks, which have no shape, have no key (`--color`). There are four shapes, and a fifth category takes the first one's again, which the command line refuses | a colour each category |
+| `.category_order(["stop_gained", "missense_variant"])` | Gives each category named the palette slot of its place in the list, drawn or not; the rest follow by first appearance (the command line passes the consequences in view, most damaging first, and in a figure of several places those of every panel, ranked together) | first appearance |
 
 #### Notes
 
-Categories take palette colours in order of first appearance, not by hash, so the same list always gives the same figure. That determinism is the refusal: a figure that recolours itself when a sample is added is not one you can put in a paper. Sorting the same variants differently hands out different colours, so two figures that must agree on what red means need their variants in one order, or one `category_order`, which fixes a category's slot whatever the window holds. The command line ranks the consequences in view from the most damaging down, in Ensembl's order of the Sequence Ontology terms, then the shapes of calls nothing annotated, then any other word alphabetically. By first appearance, missense was the second colour across a gene whose first call was synonymous and the first in a zoom holding only missense calls; ranked, a colour moves only when a zoom leaves a more damaging consequence out.
+Categories take palette colours in order of first appearance, not by hash, so the same list always gives the same figure. That determinism is the refusal: a figure that recolours itself when a sample is added is not one you can put in a paper. Sorting the same variants differently hands out different colours, so two figures that must agree on what red means need their variants in one order, or one `category_order`, which fixes a category's slot whatever the window holds. The command line ranks the consequences in view from the most damaging down, in Ensembl's order of the Sequence Ontology terms, with snpEff's own terms ranked as the consequence each is a kind of, then the shapes of calls nothing annotated, then any other word alphabetically. By first appearance, missense was the second colour across a gene whose first call was synonymous and the first in a zoom holding only missense calls; ranked, a colour moves only when a zoom leaves a more damaging consequence out. The panels of a figure of several places rank the consequences of every panel together, so one consequence is one colour across the figure.
 
 A variant with no value gets a full-height stem, which is right when there is no quantity to show. Ticks ignore values altogether, and the value axis is drawn only when the stems are measuring something. Pin `max` whenever two panels carry the same quantity.
 

@@ -665,15 +665,30 @@ impl NamePlace {
                 to: room_at + width / 2.0,
             };
         }
-        // A feature that ends in view keeps the place it always had, so no
-        // figure whose genes all end on the page moves.
-        if right < view.1 {
+        // A feature that ends in view keeps the place it always had where
+        // the name fits after it, so no figure whose names all fit on the
+        // page moves. Where the gap after it leaves too little room, the name
+        // ends at the edge instead, which a face narrower than the width it is
+        // measured at leaves more of the gap to. One that ends within a
+        // name's width of the right edge wrote its name past the edge, where
+        // the band's clip took all of it: a gene ending 5 bp before the end
+        // of a 10 kb window was a box with no name, and the exit was 0.
+        if right < view.1 && right + width <= view.1 {
+            if right + 3.0 + width <= view.1 {
+                return NamePlace {
+                    x: right + 3.0,
+                    anchor: Anchor::Start,
+                    over: false,
+                    from: right,
+                    to: right + 3.0 + width,
+                };
+            }
             return NamePlace {
-                x: right + 3.0,
-                anchor: Anchor::Start,
+                x: view.1,
+                anchor: Anchor::End,
                 over: false,
                 from: right,
-                to: right + 3.0 + width,
+                to: view.1,
             };
         }
         if left - 3.0 - width >= view.0 {
@@ -685,7 +700,9 @@ impl NamePlace {
                 to: left,
             };
         }
-        let start = left.max(view.0) + 3.0;
+        // At the start of what shows, drawn back from the right edge where
+        // the name would run past it from there.
+        let start = (left.max(view.0) + 3.0).min(view.1 - width).max(view.0);
         NamePlace {
             x: start,
             anchor: Anchor::Start,
@@ -1681,23 +1698,33 @@ mod tests {
         let at = x(&svg, "GENE1");
         assert!(at > 709.0 && at < 761.0, "{svg}");
 
-        // A name too wide for any exon goes after the gene, and the packing
-        // keeps the room for it there: a feature just past the gene moves
-        // down a row for a long name and not for one that fits inside.
+        // A name too wide for any exon goes after the gene, where the page
+        // has room for it, and the packing keeps the room for it there: a
+        // feature just past the gene moves down a row for a long name and
+        // not for one that fits inside. The window runs on past the gene,
+        // since in one that ends 1 kb after it the name ran off the page.
         let long = "a_name_far_wider_than_any_exon";
         let mut gene = model();
         gene.name = Some(long.to_string());
-        let svg = drawn(gene.clone(), region.clone());
-        assert!(x(&svg, long) > 795.0, "{svg}");
+        let wide = Region::new("chr1", 0, 14_000).unwrap();
+        let svg = drawn(gene.clone(), wide.clone());
+        let end = 16.0 + 866.0 * 9_000.0 / 14_000.0;
+        let at = x(&svg, long);
+        assert!(at > end, "{svg}");
+        assert!(
+            at + text_width(long, Theme::default().font_size) <= 882.0,
+            "{svg}"
+        );
         let next = Feature::new(9_100, 9_400).name("x");
-        let scale = scale(&region);
+        let scale = scale(&wide);
         let rows = |first: Feature| {
             FeatureTrack::new(vec![first, next.clone()])
                 .pack(&scale, &Theme::default())
                 .0
         };
-        assert_eq!(rows(gene), [0, 1]);
-        assert_eq!(rows(model()), [0, 0]);
+        assert_eq!(rows(gene.clone()), [0, 1]);
+        gene.name = Some("g".to_string());
+        assert_eq!(rows(gene), [0, 0]);
     }
 
     #[test]
@@ -1758,6 +1785,44 @@ mod tests {
         assert!(
             x < from + (to - from) * 0.995,
             "{x} is past the gene's start"
+        );
+
+        // A gene that ends in view, within a name's width of the right edge:
+        // written after it, the name ran past the edge and the clip took all
+        // of it. It goes before the gene instead, wholly on the page.
+        let width = text_width("geneX", Theme::default().font_size);
+        let edge = Feature::new(9_960, 9_995).name("geneX");
+        let (x, anchor, from, to) = placed(edge, region.clone());
+        assert_eq!(anchor, "end");
+        assert!(
+            x - width >= from && x <= to,
+            "{x} - {width} in {from}..{to}"
+        );
+        // A gene ending a little closer to the edge than its name and the
+        // gap after it: the name ends at the edge, still after the gene,
+        // rather than moved before it onto a row of its own.
+        let width = text_width("geneY", Theme::default().font_size);
+        let per_px = 10_000.0 / (to - from);
+        let end = 10_000 - ((width + 1.0) * per_px).round() as u64;
+        let (x, anchor, from, to) =
+            placed(Feature::new(end - 100, end).name("geneY"), region.clone());
+        let right = from + (to - from) * end as f64 / 10_000.0;
+        assert_eq!(anchor, "end");
+        assert!((x - to).abs() < 1e-3, "{x} ends at {to}");
+        assert!(
+            x - width > right && x - width < right + 3.0,
+            "{x} - {width} after {right}"
+        );
+        // And with no room before it either, at the start of what shows,
+        // drawn back from the edge.
+        let name = "a_name_wider_than_half_of_the_band_on_either_side_of_its_feature_in_this_view";
+        let width = text_width(name, Theme::default().font_size);
+        let (x, anchor, from, to) = placed(Feature::new(4_990, 5_010).name(name), region.clone());
+        assert!(width + 3.0 > (to - from) / 2.0, "{width} of {from}..{to}");
+        assert_eq!(anchor, "start");
+        assert!(
+            x >= from && x + width <= to,
+            "{x} + {width} in {from}..{to}"
         );
 
         // And the packing keeps that room: a gene ending just before it

@@ -571,10 +571,14 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Colour** goes to the categories in view from the most damaging down, in
   Ensembl's ranking of the Sequence Ontology consequences (`stop_gained`
   before `missense_variant` before `synonymous_variant`, a bcftools word such
-  as `missense` ranked as its `_variant`, and snpEff's `a&b` as the worse of
-  the two), then `substitution`, `insertion`, `deletion` and `breakend`, then
-  any other word alphabetically. A consequence keeps its colour in a zoom
-  into its gene unless the zoom leaves out one more damaging.
+  as `missense` ranked as its `_variant`, snpEff's `a&b` as the worse of the
+  two, and a term of snpEff's own as the consequence it is a kind of:
+  `conservative_inframe_deletion` as `inframe_deletion`, `intergenic_region`
+  as `intergenic_variant`), then `substitution`, `insertion`, `deletion` and
+  `breakend`, then any other word alphabetically. A consequence keeps its
+  colour in a zoom into its gene unless the zoom leaves out one more
+  damaging, and the panels of several places rank the consequences of every
+  panel together, so one consequence is one colour across them.
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.

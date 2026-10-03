@@ -286,6 +286,10 @@ pub enum ArgError {
     /// `--panel-columns` where the figure has one place, and so one panel to
     /// lay out.
     ColumnsOfOnePlace,
+    /// `--panel-columns` where the figure names no place: a genome drawn
+    /// whole, or a tree, which is one panel and names no place a second
+    /// could be written beside.
+    ColumnsWithoutPlace,
     /// A circle with no place, where the sequence it is of is the place.
     CircleWithoutPlace,
     /// A place given to `--highlight` where no tree is there to take it.
@@ -503,6 +507,12 @@ impl fmt::Display for ArgError {
                 "--panel-columns lays the panels of several places side by side, and this \
                  line names one place: write the others after it, as karyon rpoB katG \
                  reads.bam --panel-columns 2"
+            ),
+            ArgError::ColumnsWithoutPlace => write!(
+                f,
+                "--panel-columns lays the panels of several places side by side, and this \
+                 line names none: write the places first, as karyon rpoB katG reads.bam \
+                 --panel-columns 2"
             ),
             ArgError::CircleWithoutPlace => write!(
                 f,
@@ -4151,9 +4161,14 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         }
     }
     // Late, as the places may follow it. Columns of one panel would be a
-    // figure drawn as though the option were not there.
+    // figure drawn as though the option were not there. A line of a genome
+    // drawn whole, or of a tree, names no place, and was told it named one.
     if panel_columns.is_some() && more.is_empty() {
-        return Err(ArgError::ColumnsOfOnePlace);
+        return Err(if region.is_none() && named.is_none() {
+            ArgError::ColumnsWithoutPlace
+        } else {
+            ArgError::ColumnsOfOnePlace
+        });
     }
     // Late, as a figure option may sit before the track and the sheet it
     // paints. Whether the sheets hold the column is for when they are read.
@@ -6632,6 +6647,19 @@ mod tests {
         let one = parse(&args("rpoB reads.bam --panel-columns 2")).unwrap_err();
         assert!(matches!(one, ArgError::ColumnsOfOnePlace), "{one:?}");
         assert!(one.to_string().contains("--panel-columns 2"), "{one}");
+        // A line of no place is not told it names one.
+        for line in [
+            "sampleA.bw --panel-columns 2",
+            "--tree tree.nwk --panel-columns 2",
+        ] {
+            let none = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(none, ArgError::ColumnsWithoutPlace),
+                "{line}: {none:?}"
+            );
+            assert!(!none.to_string().contains("one place"), "{line}: {none}");
+            assert!(none.to_string().contains("names none"), "{line}: {none}");
+        }
         for bad in ["0", "two", "1.5", "101"] {
             let error =
                 parse(&args(&format!("rpoB katG reads.bam --panel-columns {bad}"))).unwrap_err();

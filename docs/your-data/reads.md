@@ -39,7 +39,7 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 | Shade a stretch through every track, named over it | `--shade NC_000962.3:761,082-761,162=RRDR` |
 | Make a row taller | `reads.bam --height 100` |
 | Rename a row | `calls.vcf.gz --label "variant calls"` |
-| Every call in one colour, each consequence keeping its shape | `calls.vcf.gz --color '#8b0000'` |
+| Every call in one colour, each consequence keeping its shape, for up to four consequences in view | `calls.vcf.gz --color '#8b0000'` |
 
 The example files:
 [reads.bam](../data/reads.bam), [reads.bam.bai](../data/reads.bam.bai),
