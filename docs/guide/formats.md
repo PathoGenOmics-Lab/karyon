@@ -882,10 +882,16 @@ coarser resolutions.
 A block is a stretch of the diagonal at a distance from it, each band of
 distance twice as wide as the one before, so a window, a triangle on the
 diagonal, reads the stretches under it out to the band of its own width and
-no more. A cell that holds nothing is a count of nought, not a pair left
-unmeasured, so a `.hic` is always drawn as a triangle, unless `--style arcs`
-says otherwise. Counts fall by orders of magnitude away from the diagonal,
-which `--log` spreads.
+no more. A `.hic` keeps only the cells that hold a count, so a cell it does
+not list is a count of nought, not a pair left unmeasured, and a `.hic` is
+always drawn as a triangle, unless `--style arcs` says otherwise. The figure
+draws the cells the file lists and no others. A cell it does not list is left
+as the page, not painted the pale end of the key, which is the colour of a
+cell listed at nought, and the triangle is as deep as the farthest pair
+listed in the window: a map whose contacts reach 200 kb from the diagonal,
+as one loaded from pairs no further apart does, ends in a jagged edge 200 kb
+down, with the page below it. Counts fall by orders of magnitude away from
+the diagonal, which `--log` spreads.
 
 Version 9 is read, the version hictk writes. An older file lays its blocks on
 a grid rather than along the diagonal and writes its numbers in other widths,

@@ -627,7 +627,8 @@ TRACK OPTIONS, each describing the track before it, once
     --resolution <BASES> the size of bin a .hic is drawn at, one of those it
                          holds, as 10000; by default the finest that cuts the
                          window into 250 bins or fewer. Its raw counts are
-                         drawn, with no normalisation
+                         drawn, with no normalisation, and a cell it does not
+                         list, a count of nought, is left blank
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
                          required, since it is not in the file
     --sample <NAME[,N]>  which sample of a segment table holding several; after
@@ -1199,6 +1200,13 @@ mod tests {
         assert!(!windows.contains("full colour"), "{windows}");
         let pairs = help_on("pairs").unwrap();
         assert!(pairs.contains("an r² is read against 1"), "{pairs}");
+        // A `.hic` lists no cell of nought, and the blank where one would be
+        // read as a cell left undrawn.
+        let flat = pairs.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("a cell it does not list, a count of nought, is left blank"),
+            "{pairs}"
+        );
         let heatmap = help_on("heatmap").unwrap();
         assert!(heatmap.contains("the loss keeps its own end"), "{heatmap}");
         let coverage = help_on("coverage").unwrap();

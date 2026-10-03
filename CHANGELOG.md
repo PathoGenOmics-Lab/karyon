@@ -1541,6 +1541,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The formats page said a cell a `.hic` holds nothing in is a count of
+  nought, and nothing said what the figure draws there. It is left as the
+  page, not painted the pale end of the key, which is a cell listed at
+  nought, and a triangle is as deep as the farthest cell listed: a map of
+  contacts no more than 200 kb apart ended in a jagged edge 200 kb from its
+  diagonal with the page below, and read as cells left undrawn. The formats
+  page, the guide, the pairs page, the `PairTrack` notes and the help on
+  `--resolution` say so, and the pairs page offers `--axis` before the file
+  for a ruler along the diagonal.
 - `karyon help variants` and the guide's table of tracks say calls are
   coloured by the consequence an annotator wrote in `ANN` or `BCSQ`, or by
   the shape of the call where none is written, where both said only `point

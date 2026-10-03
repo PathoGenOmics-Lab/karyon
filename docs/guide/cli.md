@@ -1093,9 +1093,14 @@ zoomed out by hictk to eleven resolutions in a `.hic` of 49 MB, that window of
 and 7 MB; the whole chromosome, `karyon chr1 contacts.hic`, is drawn at 1 Mb
 in 0.04 s and 12 MB, and the window at 5 kb in 0.04 s and 9 MB. The counts are
 the raw ones, as hictk prints them with no `--balance`, and the normalisations
-a file may carry are not read. Version 9 is read, the version hictk writes; an
-older file is refused by its version, with the two `hictk convert` commands,
-through a `.mcool`, that write it as version 9.
+a file may carry are not read. A `.hic` keeps only the cells that hold a
+count, and a cell it does not list is left as the page rather than drawn in
+the pale end of the key, which is a cell listed at nought; the triangle is as
+deep as the farthest cell listed in the window, so a map of contacts no more
+than 200 kb apart ends 200 kb from the diagonal in a jagged edge. `--axis`
+written before the file lays the ruler along the diagonal. Version 9 is read,
+the version hictk writes; an older file is refused by its version, with the
+two `hictk convert` commands, through a `.mcool`, that write it as version 9.
 
 The `.cool` and `.mcool` that cooler writes are HDF5 and are not read, for the
 reasons [File formats](formats.md#pairs-of-positions) gives; each comes in as
